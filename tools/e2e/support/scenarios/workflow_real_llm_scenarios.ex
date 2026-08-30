@@ -37,7 +37,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   alias Ankole.Workflow.Schemas.Run
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
-  @primary_model "z-ai/glm-5.3-flash"
+  @primary_model "~deepseek/deepseek-v4-flash-latest"
   @light_model "~deepseek/deepseek-v4-flash-latest"
   @coding_model "z-ai/glm-5.3-flash"
 
@@ -150,6 +150,8 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert call.attempts == 0
     assert call.attention == false
     assert Workflow.counts(Repo, run.id)["sleeping"] == 1
+
+    wait_for_event_completion!(dispatch_event, deadline(30_000))
 
     wake_event = task_event!(call, "workflow:call:#{call.id}:wake:1")
     assert wake_event.type == "workflow.task.wakeup"
@@ -860,6 +862,19 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     assert {:ok, %AgentCall{} = call} = result
     call
+  end
+
+  defp wait_for_event_completion!(event, deadline) do
+    result =
+      wait_until(deadline, fn ->
+        case Repo.get(ActorEvent, event.id) do
+          %ActorEvent{completed_at: %DateTime{}} = completed -> {:ok, completed}
+          _event -> nil
+        end
+      end)
+
+    assert {:ok, %ActorEvent{}} = result
+    :ok
   end
 
   defp wait_for_call_status!(run, call_seq, status, deadline) do

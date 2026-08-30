@@ -198,6 +198,51 @@ defmodule Ankole.Brain.RecallTest do
     refute private_fact.id in Enum.map(third_result.claims, & &1.id)
   end
 
+  test "an Agent recalls body scopes carried by the current conversation readers", context do
+    member_scope = "principal:#{context.member.uid}"
+
+    {:ok, object} =
+      Objects.create_object(
+        %{
+          slug: "analysis/private-kestrel",
+          type: "analysis",
+          title: "Private Kestrel",
+          body: """
+          {% audience scope="#{member_scope}" %}
+          Kestrel orchard allocation is cedar seven.
+          {% /audience %}
+          """
+        },
+        context.agent.uid
+      )
+
+    member_disclosure = %{
+      mode: :strict,
+      asker_uid: context.member.uid,
+      present_uids: [context.member.uid]
+    }
+
+    assert {:ok, member_result} =
+             Recall.recall(context.agent.uid, %{query: "Kestrel orchard allocation"},
+               disclosure: member_disclosure
+             )
+
+    assert Enum.any?(member_result.chunks, &(&1.object_slug == object.slug))
+
+    outsider_disclosure = %{
+      mode: :strict,
+      asker_uid: context.outsider.uid,
+      present_uids: [context.outsider.uid]
+    }
+
+    assert {:ok, outsider_result} =
+             Recall.recall(context.agent.uid, %{query: "Kestrel orchard allocation"},
+               disclosure: outsider_disclosure
+             )
+
+    refute Enum.any?(outsider_result.chunks, &(&1.object_slug == object.slug))
+  end
+
   test "strict disclosure narrows to what every present member satisfies", context do
     strict = %{
       mode: :strict,

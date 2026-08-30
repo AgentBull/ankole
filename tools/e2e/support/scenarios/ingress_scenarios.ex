@@ -504,14 +504,17 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     %{input: first_input, reply: first_reply}
   end
 
-  def run_retry_command(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_retry_command(
+        %{fake_feishu: fake_feishu, agent: agent, container: container},
+        target_actor_event_id
+      ) do
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
                event_id: "evt_retry_1",
                message_id: "om_retry_1",
                chat_id: "oc_chaos_direct",
                chat_type: "p2p",
-               text: "/retry",
+               text: "/retry actor-event::#{target_actor_event_id}",
                mentions: [],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 500, :millisecond), :millisecond)
@@ -539,7 +542,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     assert is_binary(delete_outbox.target_source_entry_id)
 
     retry_event = Repo.get!(ActorEvent, retry_event.id)
-    assert retry_event.source_entry_id == "om_retry_1"
+    assert retry_event.source_entry_id == "om_direct_1"
     assert get_in(retry_event.payload, ["data", "entry", "text"]) =~ "CHAOS_DIRECT_OK"
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =

@@ -7,7 +7,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
   alias Ankole.AuthZ.{ExternalBinding, Group, Store}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.SlackAdapter.{Config, Inbound}
+  alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Inbound}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
@@ -38,7 +38,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
            reason: "binding_saved",
            source: "signal_binding"
          ) do
-      {:ok, _job} -> :ok
+      {:ok, _job} -> ConnectionReconciler.reconcile_async()
       {:error, _reason} = error -> error
     end
   end

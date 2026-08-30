@@ -74,7 +74,8 @@ export async function runWorkflowTaskTurn(turnStart: TurnStart, opts: TurnHandle
         renderedFetchRuntimeConfig,
         workerEnv: workerEnv.vars,
         workspaceRoot: opts.workspaceRoot,
-        browserRuntime: opts.browserRuntime
+        browserRuntime: opts.browserRuntime,
+        repeatFetchSessionKey: conversationID
       }),
       'web tools'
     )

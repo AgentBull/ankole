@@ -4,8 +4,17 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AIGatewayHTTPClient } from '../src/core/ai_gateway_transport'
-import { createWebTools } from '../src/tools/web/web-tools'
+import { createWebTools as createProductionWebTools, type CreateWebToolsOptions } from '../src/tools/web/web-tools'
 import { WEB_FETCH_BUDGET_CHARS } from '../src/tools/web/fetched-page-text'
+
+let repeatFetchSessionSequence = 0
+
+function createWebTools(opts: Omit<CreateWebToolsOptions, 'repeatFetchSessionKey'>) {
+  return createProductionWebTools({
+    ...opts,
+    repeatFetchSessionKey: `web-tools-test-${++repeatFetchSessionSequence}`
+  })
+}
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
   const part = result.content[0]
@@ -493,6 +502,55 @@ describe('web tools', () => {
     expect(textOf(second)).toContain('[Repeat fetch:')
     expect(textOf(second)).toContain('Extracted text')
     expect(second.details).toMatchObject({ results: [{ url: 'https://example.com', repeat_fetch: true }] })
+  })
+
+  it('keeps repeat-fetch results across tool catalogs for the same session only', async () => {
+    const requests: unknown[] = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async (_input, init) => {
+        requests.push(JSON.parse(String(init?.body)))
+        return jsonResponse({
+          success: true,
+          results: [{ url: 'https://example.com/across-turns', text: 'Session result' }]
+        })
+      }
+    }
+    const firstCatalog = await createProductionWebTools({
+      aiGateway: client,
+      workspaceRoot,
+      repeatFetchSessionKey: 'conversation-a'
+    })
+    const nextTurnCatalog = await createProductionWebTools({
+      aiGateway: client,
+      workspaceRoot,
+      repeatFetchSessionKey: 'conversation-a'
+    })
+    const otherSessionCatalog = await createProductionWebTools({
+      aiGateway: client,
+      workspaceRoot,
+      repeatFetchSessionKey: 'conversation-b'
+    })
+
+    await firstCatalog
+      .find(tool => tool.name === 'web_fetch')!
+      .execute('call-1', {
+        urls: ['https://example.com/across-turns']
+      })
+    const repeated = await nextTurnCatalog
+      .find(tool => tool.name === 'web_fetch')!
+      .execute('call-2', {
+        urls: ['https://example.com/across-turns']
+      })
+    await otherSessionCatalog
+      .find(tool => tool.name === 'web_fetch')!
+      .execute('call-3', {
+        urls: ['https://example.com/across-turns']
+      })
+
+    expect(requests).toHaveLength(2)
+    expect(textOf(repeated)).toContain('[Repeat fetch:')
+    expect(repeated.details).toMatchObject({ results: [{ repeat_fetch: true }] })
   })
 
   it('fetches only the uncached URLs of a batch and keeps the request order', async () => {

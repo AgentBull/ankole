@@ -5,6 +5,60 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
   alias Ankole.BackgroundAgentJobs
 
   describe "exact runtime deadlines" do
+    test "router recovery keeps an effect-bearing turn live until its Worker reconnects" do
+      output_items = [
+        %{
+          "type" => "function_call",
+          "call_id" => "call-router-recovery",
+          "name" => "command",
+          "arguments" => ~s({"cmd":"sleep 90; echo done"})
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call-router-recovery",
+          "output" => %{"ok" => true}
+        },
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [%{"type" => "output_text", "text" => "done"}]
+        }
+      ]
+
+      %{worker: worker, event: event, turn_ref: turn_ref, response: response} =
+        start_stale_response_turn("router-recovery", output_items)
+
+      recovered_at = DateTime.add(@base_time, 120, :second)
+
+      assert {:ok, 1} =
+               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.renew_worker_leases_for_router_recovery(
+                 recovered_at
+               )
+
+      assert {:error, :worker_not_due} =
+               ActorRuntime.mark_worker_stale_if_due(worker.worker_id,
+                 now: recovered_at,
+                 stale_after_seconds: 60
+               )
+
+      assert Repo.get!(ActorEvent, event.id).input_state == "open"
+
+      Repo.update_all(
+        from(activation in ActorSessionActivation,
+          where: activation.activation_uid == ^turn_ref.activation_uid
+        ),
+        set: [lease_expires_at: DateTime.add(DateTime.utc_now(:microsecond), 60, :second)]
+      )
+
+      assert {:ok, %{status: :turn_completed}} =
+               commit_turn_completion(turn_ref, "resp_#{response.id}")
+
+      completed = Repo.get!(ActorEvent, event.id)
+      assert %DateTime{} = completed.completed_at
+      assert completed.input_state == "open"
+      refute Repo.get_by(OutboxEntry, outbound_key: "ai-dead-letter:#{event.id}")
+    end
+
     test "worker loss retracts a replay-safe completed response before the event retries" do
       %{worker: worker, event: event, response: response} =
         start_stale_response_turn("safe-complete", nil)

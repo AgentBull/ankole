@@ -43,7 +43,7 @@ defmodule Ankole.Brain.ContextPack do
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
 
     with true <- Config.enabled?(),
-         {:ok, access} <- Access.for_querier(agent_uid),
+         {:ok, access} <- Access.for_readers(agent_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
       forgetting = Config.forgetting()
       now = DateTime.utc_now()
@@ -188,7 +188,7 @@ defmodule Ankole.Brain.ContextPack do
 
     with true <- Config.enabled?(),
          true <- is_binary(message_text) and String.trim(message_text) != "",
-         {:ok, access} <- Access.for_querier(agent_uid),
+         {:ok, access} <- Access.for_readers(agent_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
       message_text
       |> Links.match_aliases_in_text()

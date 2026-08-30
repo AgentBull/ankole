@@ -30,7 +30,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           library_managed: %Schema{
             type: :boolean,
             description:
-              "True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable."
+              "True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason."
           },
           deleted_at: %Schema{type: :string, nullable: true},
           updated_at: %Schema{type: :string}
@@ -55,6 +55,56 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           objects: %Schema{type: :array, items: BrainObjectSummary}
         },
         required: [:objects],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainObjectCreateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainObjectCreateRequest",
+        type: :object,
+        properties: %{
+          slug: %Schema{type: :string},
+          type: %Schema{type: :string},
+          subtype: %Schema{type: :string, nullable: true},
+          title: %Schema{type: :string},
+          body: %Schema{type: :string},
+          meta: %Schema{type: :object, additionalProperties: true},
+          effective_date: %Schema{type: :string, format: :date, nullable: true}
+        },
+        required: [:slug, :type, :title, :body, :meta],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainObjectUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainObjectUpdateRequest",
+        type: :object,
+        properties: %{
+          slug: %Schema{type: :string},
+          subtype: %Schema{type: :string, nullable: true},
+          title: %Schema{type: :string},
+          body: %Schema{type: :string},
+          meta: %Schema{type: :object, additionalProperties: true},
+          effective_date: %Schema{type: :string, format: :date, nullable: true},
+          expected_content_hash: %Schema{type: :string}
+        },
+        required: [:slug, :title, :body, :meta, :expected_content_hash],
         additionalProperties: false
       },
       struct?: false
@@ -251,9 +301,15 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           library_managed: %Schema{
             type: :boolean,
             description:
-              "True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable."
+              "True when a Brain Source owns the body projection. Use edit_block_reason to select the supported management action."
           },
+          body: %Schema{type: :string},
           rendered: %Schema{type: :string},
+          editable: %Schema{type: :boolean},
+          edit_block_reason: %Schema{
+            type: :string,
+            nullable: true
+          },
           meta: %Schema{type: :object, additionalProperties: true},
           facts: %Schema{type: :array, items: BrainPageFact},
           takes: %Schema{type: :array, items: BrainPageTake},
@@ -267,7 +323,11 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           :type,
           :title,
           :deleted,
+          :content_hash,
+          :body,
           :rendered,
+          :editable,
+          :edit_block_reason,
           :meta,
           :facts,
           :takes,

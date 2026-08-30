@@ -19,6 +19,7 @@ defmodule AnkoleWeb.BrainController do
   alias Ankole.Brain.Forget
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Health
+  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Merge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Promotion
@@ -54,6 +55,20 @@ defmodule AnkoleWeb.BrainController do
       deleted: [in: :query, type: :boolean, required: false]
     ],
     responses: [ok: {"Objects", "application/json", BrainAPI.BrainObjectListResponse}]
+  )
+
+  operation(:create_object,
+    summary: "Create one instance-owned Brain object",
+    request_body:
+      {"Object", "application/json", BrainAPI.BrainObjectCreateRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectShowResponse}]
+  )
+
+  operation(:update_object,
+    summary: "Update one instance-owned Brain object with content-hash compare-and-swap",
+    request_body:
+      {"Object", "application/json", BrainAPI.BrainObjectUpdateRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectShowResponse}]
   )
 
   operation(:show_object,
@@ -246,6 +261,30 @@ defmodule AnkoleWeb.BrainController do
         {:ok, page} -> json_plain(conn, %{object: page})
         {:ambiguous, candidates} -> json_plain(conn, %{candidates: candidates})
         {:error, :not_found} -> error(conn, :not_found)
+      end
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def create_object(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, attrs} <- object_create_attrs(conn.body_params) do
+      case Objects.create_object(attrs, conn.assigns.current_principal_uid) do
+        {:ok, object} -> render_object_page(conn, object.slug)
+        {:error, reason} -> object_write_error(conn, reason, attrs.body)
+      end
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def update_object(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, slug, attrs} <- object_update_attrs(conn.body_params) do
+      case Objects.update_object(slug, attrs, conn.assigns.current_principal_uid) do
+        {:ok, object} -> render_object_page(conn, object.slug)
+        {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
     else
       {:error, reason} -> error(conn, reason)
@@ -695,7 +734,7 @@ defmodule AnkoleWeb.BrainController do
   defp parse_mode(_mode), do: :relaxed
 
   defp required_text(params, key) do
-    case Map.get(params, key) do
+    case map_value(params, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, {:missing, key}}
@@ -707,11 +746,147 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  defp object_create_attrs(params) when is_map(params) do
+    with {:ok, slug} <- required_text(params, "slug"),
+         {:ok, type} <- required_text(params, "type"),
+         {:ok, title} <- required_text(params, "title"),
+         {:ok, body} <- required_binary(params, "body"),
+         {:ok, meta} <- required_map(params, "meta"),
+         {:ok, subtype} <- optional_text(params, "subtype"),
+         {:ok, effective_date} <- optional_date(params, "effective_date") do
+      {:ok,
+       %{
+         slug: slug,
+         type: type,
+         subtype: subtype,
+         title: title,
+         body: body,
+         meta: meta,
+         effective_date: effective_date
+       }}
+    end
+  end
+
+  defp object_create_attrs(_params), do: {:error, {:missing, "object"}}
+
+  defp object_update_attrs(params) when is_map(params) do
+    with {:ok, slug} <- required_text(params, "slug"),
+         {:ok, title} <- required_text(params, "title"),
+         {:ok, body} <- required_binary(params, "body"),
+         {:ok, meta} <- required_map(params, "meta"),
+         {:ok, subtype} <- optional_text(params, "subtype"),
+         {:ok, effective_date} <- optional_date(params, "effective_date"),
+         {:ok, expected_content_hash} <- required_text(params, "expected_content_hash") do
+      {:ok, slug,
+       %{
+         subtype: subtype,
+         title: title,
+         body: body,
+         meta: meta,
+         effective_date: effective_date,
+         expected_content_hash: expected_content_hash
+       }}
+    end
+  end
+
+  defp object_update_attrs(_params), do: {:error, {:missing, "object"}}
+
+  defp required_binary(params, key) do
+    case map_value(params, key) do
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:missing, key}}
+    end
+  end
+
+  defp required_map(params, key) do
+    case map_value(params, key) do
+      value when is_map(value) -> {:ok, value}
+      _value -> {:error, {:missing, key}}
+    end
+  end
+
+  defp optional_text(params, key) do
+    case map_value(params, key) do
+      nil -> {:ok, nil}
+      "" -> {:ok, nil}
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:invalid, key}}
+    end
+  end
+
+  defp optional_date(params, key) do
+    case map_value(params, key) do
+      nil ->
+        {:ok, nil}
+
+      "" ->
+        {:ok, nil}
+
+      %Date{} = date ->
+        {:ok, date}
+
+      value when is_binary(value) ->
+        case Date.from_iso8601(value) do
+          {:ok, date} -> {:ok, date}
+          {:error, _reason} -> {:error, {:invalid, key}}
+        end
+
+      _value ->
+        {:error, {:invalid, key}}
+    end
+  end
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key, Map.get(map, String.to_existing_atom(key)))
+  rescue
+    ArgumentError -> Map.get(map, key)
+  end
+
+  defp render_object_page(conn, slug) do
+    case GetPage.get_page_admin(slug) do
+      {:ok, page} -> json_plain(conn, %{object: page})
+      {:error, reason} -> error(conn, reason)
+      {:ambiguous, _candidates} -> error(conn, :not_found)
+    end
+  end
+
+  defp object_write_error(conn, :content_hash_conflict, _body) do
+    render_error(
+      conn,
+      409,
+      "content_hash_conflict",
+      "the object changed after this editor loaded it"
+    )
+  end
+
+  defp object_write_error(conn, reason, body)
+       when reason in [
+              :nested_audience_tag,
+              :unopened_audience_tag,
+              :unclosed_audience_tag,
+              :misplaced_audience_tag
+            ] do
+    case Markdoc.diagnostic(body) do
+      %{code: code, line: line} ->
+        render_error(conn, 422, code, "the Brain body syntax is invalid", [
+          %{path: "body", line: line}
+        ])
+
+      nil ->
+        error(conn, reason)
+    end
+  end
+
+  defp object_write_error(conn, reason, _body), do: error(conn, reason)
+
   defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "resource not found")
 
   defp error(conn, {:missing, key}),
     do: render_error(conn, 422, "validation_failed", "#{key} is required")
+
+  defp error(conn, {:invalid, key}),
+    do: render_error(conn, 422, "validation_failed", "#{key} is invalid")
 
   defp error(conn, reason) do
     render_error(conn, 422, "brain_request_invalid", "brain request failed", [

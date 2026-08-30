@@ -3,7 +3,9 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import Ankole.Eventually, only: [eventually: 1]
 
+  alias Ankole.AppConfigure
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.SlackAdapter
@@ -682,6 +684,32 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   end
 
   describe "connection reconciliation" do
+    test "saving a binding requests an immediate connection reconcile" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "slack-reconcile-saved"
+      config = chat_config(%{"appToken" => "xapp-reconcile-saved", "botUserID" => "U0SAVED"})
+      key = Config.connection_key(config)
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      assert {:ok, binding} =
+               SignalsGateway.upsert_binding(%{
+                 agent_uid: agent.uid,
+                 name: binding_name,
+                 adapter: "slack",
+                 config_ref: "app-config://#{Config.chat_config_key(binding_name)}",
+                 filters: %{},
+                 unaddressed_group_message_policy: :ignore,
+                 unmatched_sender_policy: :create_standalone
+               })
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert :ok = Channels.handle_binding_saved(binding, config)
+      assert eventually(fn -> key in ConnectionSupervisor.registered_keys() end)
+    end
+
     test "a rotated bot token restarts the owner under the same app token" do
       config = chat_config(%{"appToken" => "xapp-reconcile-rotate"})
       key = Config.connection_key(config)

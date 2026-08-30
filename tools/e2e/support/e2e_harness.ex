@@ -14,8 +14,10 @@ defmodule Ankole.E2E.Harness do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.OpaqueContent
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
+  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
+  alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
@@ -455,8 +457,8 @@ defmodule Ankole.E2E.Harness do
              })
 
     for {profile, model} <- [
-          {"primary", "qwen/qwen3.5-flash-02-23"},
-          {"light", "qwen/qwen3.5-flash-02-23"}
+          {"primary", "~deepseek/deepseek-v4-flash-latest"},
+          {"light", "~deepseek/deepseek-v4-flash-latest"}
         ] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
@@ -1110,15 +1112,22 @@ defmodule Ankole.E2E.Harness do
   Reads the persisted trajectory messages of one Job Turn in position order.
 
   `Ankole.BackgroundAgentJobs.Turns` stores only the ankole_chatml header on the
-  Turn row and keeps every message in its append-only trajectory group rows, so
-  a raw Turn read never carries `messages`.
+  Turn row and keeps every semantic item in append-only TurnItem rows, so a raw
+  Turn read never carries `messages`.
   """
   def job_turn_trajectory_messages(%{id: turn_id}) when is_binary(turn_id) do
-    TrajectoryGroup
-    |> where([group], group.turn_id == ^turn_id)
-    |> order_by([group], asc: group.position)
+    TurnItem
+    |> where([item], item.turn_id == ^turn_id)
+    |> order_by([item], asc: item.position)
     |> Repo.all()
-    |> Enum.flat_map(&(&1.content["messages"] || []))
+    |> Enum.flat_map(fn item ->
+      {messages, _truncated?} =
+        item.item
+        |> OpaqueContent.reveal()
+        |> TurnItemProjection.project()
+
+      messages
+    end)
   end
 
   def lark_bot_mention(open_id \\ "ou_bot", key \\ "@_user_1", name \\ "Lark Chaos Bot"),

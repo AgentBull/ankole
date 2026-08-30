@@ -61,7 +61,7 @@ defmodule Ankole.Brain.Recall do
     if query == "" do
       {:error, :missing_query}
     else
-      with {:ok, access} <- Access.for_querier(querier_uid),
+      with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
            {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
            {:ok, neighborhood} <- entity_neighborhood(params[:entity], visibility) do
         query_vector = query_embedding(query)

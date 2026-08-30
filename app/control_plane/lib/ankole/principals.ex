@@ -371,6 +371,10 @@ defmodule Ankole.Principals do
   subject resolves to is dropped from the profile update with a warning;
   subjects are never re-pointed automatically.
 
+  When `external_ids` supplies aliases, an existing binding for any candidate
+  wins and every candidate binds to the selected Principal in one transaction.
+  A candidate already bound to another Principal fails the complete write.
+
   An observation keeps the Principal's existing display name; only
   `authoritative_profile: true` (directory sync) may replace it.
   """
@@ -385,17 +389,18 @@ defmodule Ankole.Principals do
 
       with {:ok, provider} <- required_provider(attrs, :provider),
            {:ok, external_id} <- required_text(attrs, :external_id),
+           {:ok, external_ids} <- candidate_external_ids(attrs),
            {:ok, metadata} <- metadata_attrs(attrs),
-           :ok <- lock_platform_subject(repo, provider, external_id),
+           :ok <- lock_platform_subjects(repo, provider, external_ids),
+           :ok <- lock_global_platform_subject(repo, external_id),
            :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
            :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
-           existing_identity <- fetch_platform_subject(repo, provider, external_id),
+           existing_identity <- fetch_platform_subject_by_ids(repo, provider, external_ids),
            {:ok, principal_uid} <-
              platform_subject_principal_uid(
                repo,
                existing_identity,
                attrs,
-               provider,
                external_id,
                email,
                mobile
@@ -409,16 +414,16 @@ defmodule Ankole.Principals do
                take_attrs(attrs, @human_profile_fields)
              ),
            {:ok, human_user} <- upsert_human_user(repo, principal.uid, profile_attrs),
-           identity_attrs <-
-             platform_subject_identity_attrs(
+           {:ok, identities} <-
+             upsert_platform_subject_identities(
+               repo,
                principal,
                provider,
-               external_id,
-               metadata,
-               existing_identity
+               external_ids,
+               metadata
              ),
-           {:ok, identity} <- upsert_external_identity(repo, identity_attrs),
-           :ok <- delete_pending_mapping_request(repo, provider, external_id) do
+           :ok <- delete_pending_mapping_requests(repo, provider, external_ids) do
+        identity = hd(identities)
         {:ok, %{principal: principal, human_user: human_user, identity: identity}}
       end
     end)
@@ -440,10 +445,11 @@ defmodule Ankole.Principals do
   Matches provider-scoped subject candidates to an existing human Principal.
 
   This is the read side of `upsert_platform_subject_human/1` with the same
-  ladder: an existing identity binding for any candidate id wins, then the
-  owner of the email, then the owner of the mobile number. It never creates
-  or re-points anything; a miss returns `{:error, :not_found}` so the caller
-  decides what an unmatched subject means.
+  ladder: an existing binding for this provider wins, then the owner of the
+  email, then the owner of the mobile number, then the primary subject matches
+  in the installation-wide Principal namespace. It never creates or re-points
+  anything; a miss returns `{:error, :not_found}` so the caller decides what an
+  unmatched subject means.
   """
   @spec match_platform_subject_human(map()) :: principal_result()
   def match_platform_subject_human(attrs) when is_map(attrs) do
@@ -452,12 +458,22 @@ defmodule Ankole.Principals do
       email = normalized_email_attr(attrs)
       mobile = normalized_mobile_attr(attrs)
 
-      match =
-        provider_subject_principal_by_ids(provider, external_ids) ||
-          contact_owner_principal(:email, email) ||
-          contact_owner_principal(:mobile, mobile)
+      case provider_subject_principal_by_ids(provider, external_ids) do
+        nil ->
+          case contact_owner_principal(:email, email) ||
+                 contact_owner_principal(:mobile, mobile) do
+            nil ->
+              with {:ok, global_match} <- global_platform_subject_principal(hd(external_ids)) do
+                active_human_result(global_match)
+              end
 
-      active_human_result(match)
+            contact_match ->
+              active_human_result(contact_match)
+          end
+
+        provider_match ->
+          active_human_result(provider_match)
+      end
     end
   end
 
@@ -710,6 +726,10 @@ defmodule Ankole.Principals do
     )
   end
 
+  defp fetch_platform_subject_by_ids(repo, provider, external_ids) do
+    Enum.find_value(external_ids, &fetch_platform_subject(repo, provider, &1))
+  end
+
   @doc false
   @spec lock_platform_subject(module(), String.t(), String.t()) :: :ok | {:error, term()}
   def lock_platform_subject(repo, provider, external_id)
@@ -720,13 +740,34 @@ defmodule Ankole.Principals do
     )
   end
 
+  defp lock_platform_subjects(repo, provider, external_ids) do
+    external_ids
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn external_id, :ok ->
+      case lock_platform_subject(repo, provider, external_id) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp lock_global_platform_subject(repo, external_id) do
+    with {:ok, normalized_id} <- normalize_uid(external_id) do
+      advisory_xact_lock(repo, "principal_global_subject:#{normalized_id}")
+    end
+  end
+
   @doc false
   @spec delete_pending_mapping_request(module(), String.t(), String.t()) :: :ok
   def delete_pending_mapping_request(repo, provider, external_id)
       when is_binary(provider) and is_binary(external_id) do
+    delete_pending_mapping_requests(repo, provider, [external_id])
+  end
+
+  defp delete_pending_mapping_requests(repo, provider, external_ids) do
     repo.delete_all(
       from request in MappingRequest,
-        where: request.provider == ^provider and request.external_id == ^external_id
+        where: request.provider == ^provider and request.external_id in ^external_ids
     )
 
     :ok
@@ -751,7 +792,6 @@ defmodule Ankole.Principals do
          _repo,
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
-         _provider,
          _external_id,
          _email,
          _mobile
@@ -759,15 +799,21 @@ defmodule Ankole.Principals do
     {:ok, principal_uid}
   end
 
-  defp platform_subject_principal_uid(repo, nil, attrs, provider, external_id, email, mobile) do
+  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
     case human_contact_owner_uid(repo, :email, email) ||
            human_contact_owner_uid(repo, :mobile, mobile) do
       nil ->
-        case fetch_attr(attrs, :uid) do
-          {:ok, uid} -> normalize_uid(uid)
-          # The derived uid carries the provider scope so equal external ids
-          # from different providers never collide on one Principal.
-          :error -> normalize_uid(provider <> ":" <> external_id)
+        with {:ok, global_match} <- global_platform_subject_principal(repo, external_id) do
+          case global_match do
+            %{principal: %Principal{uid: principal_uid}} ->
+              {:ok, principal_uid}
+
+            nil ->
+              case fetch_attr(attrs, :uid) do
+                {:ok, uid} -> normalize_uid(uid)
+                :error -> normalize_uid(external_id)
+              end
+          end
         end
 
       owner_uid ->
@@ -834,6 +880,19 @@ defmodule Ankole.Principals do
     Enum.find_value(external_ids, fn external_id ->
       provider_subject_principal(provider, external_id)
     end)
+  end
+
+  defp global_platform_subject_principal(external_id) do
+    global_platform_subject_principal(Repo, external_id)
+  end
+
+  defp global_platform_subject_principal(repo, external_id) do
+    with {:ok, normalized_id} <- normalize_uid(external_id) do
+      case repo.get(Principal, normalized_id) do
+        %Principal{} = principal -> {:ok, %{principal: principal}}
+        nil -> {:ok, nil}
+      end
+    end
   end
 
   defp contact_owner_principal(_field, nil), do: nil
@@ -936,6 +995,29 @@ defmodule Ankole.Principals do
         |> Map.put("provider", provider)
         |> Map.put("external_id", external_id)
     }
+  end
+
+  defp upsert_platform_subject_identities(repo, principal, provider, external_ids, metadata) do
+    external_ids
+    |> Enum.reduce_while({:ok, []}, fn external_id, {:ok, identities} ->
+      attrs =
+        platform_subject_identity_attrs(
+          principal,
+          provider,
+          external_id,
+          metadata,
+          fetch_platform_subject(repo, provider, external_id)
+        )
+
+      case upsert_external_identity(repo, attrs) do
+        {:ok, identity} -> {:cont, {:ok, [identity | identities]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, identities} -> {:ok, Enum.reverse(identities)}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp provider_subject_principal(provider, external_id) do

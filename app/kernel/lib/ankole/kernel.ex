@@ -64,6 +64,23 @@ defmodule Ankole.Kernel do
   def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Analyzes one Brain body against the canonical CommonMark audience grammar.
+
+  Syntax errors are returned in the decoded map. A native error means the NIF
+  could not analyze or encode the input.
+  """
+  @spec brain_markdoc_analyze(binary()) :: result(map())
+  def brain_markdoc_analyze(body) when is_binary(body) do
+    body
+    |> brain_markdoc_analyze_nif()
+    |> Torque.decode!()
+  end
+
+  @doc false
+  @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
+  defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Hashes a password with Argon2id and returns a PHC-format string.
 
   Each call generates a new random salt, so equal passwords produce different

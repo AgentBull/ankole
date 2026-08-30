@@ -140,6 +140,17 @@ pub fn any_ascii(input: Term<'_>) -> NIFResult<String> {
     Ok(common::any_ascii(&input))
 }
 
+/// Parses one Brain body against its canonical CommonMark audience grammar.
+///
+/// DirtyCpu because parse cost scales with the complete body. Grammar errors
+/// remain encoded JSON results; a NIF error means the native boundary failed.
+#[cfg(feature = "brain_markdoc")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
+    let body = decode_string(body, "body")?;
+    crate::brain_markdoc::analyze_json(&body).map_err(error_message)
+}
+
 /// Runs one PTC program to completion or to its next pending tool-call batch.
 ///
 /// DirtyCpu because one call owns a V8 isolate for up to the program timeout;

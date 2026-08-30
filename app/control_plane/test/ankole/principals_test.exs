@@ -269,6 +269,97 @@ defmodule Ankole.PrincipalsTest do
       assert synced.principal.display_name == "Alice Directory"
     end
 
+    test "upsert_platform_subject_human/1 binds every ordered subject alias atomically" do
+      external_ids = [
+        "alias.person@example.com",
+        "lark-user-alias",
+        "lark-union-alias",
+        "lark-open-alias"
+      ]
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: hd(external_ids),
+                 external_ids: tl(external_ids),
+                 email: "Alias.Person@example.com"
+               })
+
+      assert observed.identity.external_id == "alias.person@example.com"
+      assert observed.principal.uid == "alias.person@example.com"
+
+      Enum.each(external_ids, fn external_id ->
+        assert {:ok, principal} =
+                 Principals.resolve_platform_subject("lark-main", external_id)
+
+        assert principal.uid == observed.principal.uid
+      end)
+    end
+
+    test "an existing alias binding wins before contact and keeps all aliases on its Principal" do
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "lark-existing-user-id"
+               })
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "existing.alias@example.com",
+                 external_ids: ["lark-existing-user-id", "lark-existing-open-id"],
+                 email: "existing.alias@example.com"
+               })
+
+      assert observed.principal.uid == first.principal.uid
+
+      assert {:ok, email_subject} =
+               Principals.resolve_platform_subject("lark-main", "existing.alias@example.com")
+
+      assert {:ok, open_subject} =
+               Principals.resolve_platform_subject("lark-main", "lark-existing-open-id")
+
+      assert email_subject.uid == first.principal.uid
+      assert open_subject.uid == first.principal.uid
+    end
+
+    test "conflicting subject aliases roll back the complete alias write" do
+      assert {:ok, email_owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting.alias@example.com",
+                 email: "conflicting.alias@example.com"
+               })
+
+      assert {:ok, user_id_owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting-lark-user-id"
+               })
+
+      refute email_owner.principal.uid == user_id_owner.principal.uid
+
+      assert {:error, :platform_subject_already_bound} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting.alias@example.com",
+                 external_ids: ["conflicting-lark-user-id", "unwritten-lark-open-id"],
+                 email: "conflicting.alias@example.com"
+               })
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "unwritten-lark-open-id")
+
+      assert {:ok, email_subject} =
+               Principals.resolve_platform_subject("lark-main", "conflicting.alias@example.com")
+
+      assert {:ok, user_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "conflicting-lark-user-id")
+
+      assert email_subject.uid == email_owner.principal.uid
+      assert user_id_subject.uid == user_id_owner.principal.uid
+    end
+
     test "resolve_platform_subject/2 returns only active humans" do
       %{principal: principal, identity: identity} = platform_subject_fixture()
 
@@ -345,7 +436,7 @@ defmodule Ankole.PrincipalsTest do
       refute joined.principal.uid == bystander.uid
     end
 
-    test "upsert_platform_subject_human/1 keeps equal external ids from different providers apart" do
+    test "upsert_platform_subject_human/1 converges equal external ids across providers" do
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
@@ -360,13 +451,36 @@ defmodule Ankole.PrincipalsTest do
                  display_name: "DingTalk Person"
                })
 
-      assert first.principal.uid == "slack-main:12345"
-      assert second.principal.uid == "dingtalk-main:12345"
+      assert first.principal.uid == "12345"
+      assert second.principal.uid == first.principal.uid
 
       assert {:ok, slack_resolved} = Principals.resolve_platform_subject("slack-main", "12345")
       assert {:ok, ding_resolved} = Principals.resolve_platform_subject("dingtalk-main", "12345")
       assert slack_resolved.uid == first.principal.uid
-      assert ding_resolved.uid == second.principal.uid
+      assert ding_resolved.uid == first.principal.uid
+    end
+
+    test "upsert_platform_subject_human/1 uses contacts before a global Principal UID" do
+      %{principal: global_principal} = human_fixture(%{uid: "shared-subject"})
+
+      %{principal: contact_principal, human_user: contact_owner} =
+        human_fixture(%{uid: "first-global-owner", email: "first.global.owner@example.com"})
+
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "shared-subject",
+                 email: contact_owner.email
+               })
+
+      assert {:ok, second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "dingtalk-main",
+                 external_id: "SHARED-SUBJECT"
+               })
+
+      assert first.principal.uid == contact_principal.uid
+      assert second.principal.uid == global_principal.uid
     end
 
     test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do
@@ -453,6 +567,27 @@ defmodule Ankole.PrincipalsTest do
                  provider: "slack-main",
                  external_id: "U_UNSEEN",
                  mobile: "+1 415 555 0101"
+               })
+    end
+
+    test "matches contacts before the global Principal namespace" do
+      %{principal: global_principal} =
+        human_fixture(%{uid: "shared-global-subject", email: "global.subject@example.com"})
+
+      %{principal: contact_principal, human_user: contact_owner} =
+        human_fixture(%{uid: "different-contact-owner", email: "other.owner@example.com"})
+
+      assert {:ok, ^contact_principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "SHARED-GLOBAL-SUBJECT",
+                 email: contact_owner.email
+               })
+
+      assert {:ok, ^global_principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "SHARED-GLOBAL-SUBJECT"
                })
     end
 

@@ -87,7 +87,7 @@ export function PrincipalCreatePage() {
 
   const submit = () => {
     model.clearValidation()
-    const draftError = model.draftError()
+    const draftError = model.draftError(true)
     if (draftError) {
       model.validationError.value = draftError
       return

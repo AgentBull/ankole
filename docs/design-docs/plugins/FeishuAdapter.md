@@ -99,22 +99,33 @@ Direct messages give explicit input. A structured mention of the current bot
 makes a group message explicit. SignalsGateway applies the binding policy to
 other group messages.
 
-The adapter names the sender with its strongest available id — `user_id`, then
-`union_id`, then `open_id` — and passes the remaining ids as match candidates.
-An external-tenant member has no `user_id`, so their `union_id` or `open_id`
-becomes the platform subject and SignalsGateway identity admission decides
-whether they are served. Only a sender with no id at all is ignored. The
-adapter also declares an `author_hydrator`: on an identity miss the gateway
-fetches the sender's contact profile once for the email and mobile match.
+Every Lark identity path selects `external_id` in this order: normalized
+`email`, `user_id`, `union_id`, then `open_id`. The email itself is the primary
+external ID when it is available; it is not only contact-match input. This
+keeps the normal identifier readable when Lark supplies an opaque or generated
+`user_id`.
+
+The adapter writes every remaining ID as a provider-scoped alias for the same
+Principal in the same transaction. Message admission, directory sync, IM group
+membership, and card operators use this rule. A conflict with an existing
+alias fails the complete write; the adapter does not move an alias between
+Principals. An external-tenant member can have no `user_id`, so `union_id` or
+`open_id` becomes the primary external ID. Only a person with none of these
+values is ignored.
+
+The adapter also declares an `author_hydrator`. On an identity miss, the
+gateway fetches the sender's contact profile once. If the result supplies an
+email, that normalized email becomes the primary external ID and the webhook
+IDs become aliases before admission continues.
 
 An inbound Turn exposes its canonical Signal channel ID in
 `<agent_environment_info>`. A display name remains a separate optional fact.
 The message webhook does not supply one, so identity admission projects a name
 already synchronized from Contact into the current event. For a group message,
 the Worker renders `speaker` as `name(uid)` and repeats the `uid` when no name
-is known. The Lark Agent Plugin knows that a human `uid` is usually the Lark
-`user_id` and can read the contact to obtain the `open_id` required by its
-direct-message shortcut.
+is known. A Lark human Principal UID can be the normalized email or a fallback
+Lark ID. The Lark Agent Plugin reads the stored provider identity metadata to
+obtain the `open_id` required by its direct-message shortcut.
 
 Reaction events use the operator `user_id` when it is present. They use the
 operator `open_id` as the stable reaction actor key when Feishu omits

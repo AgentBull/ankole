@@ -3,6 +3,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Plugins.TelegramAdapter
 
@@ -1347,17 +1348,4 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
-
-  defp eventually(fun, attempts \\ 100)
-  defp eventually(fun, _attempts) when not is_function(fun, 0), do: false
-  defp eventually(fun, 0), do: fun.()
-
-  defp eventually(fun, attempts) do
-    if fun.() do
-      true
-    else
-      Process.sleep(10)
-      eventually(fun, attempts - 1)
-    end
-  end
 end

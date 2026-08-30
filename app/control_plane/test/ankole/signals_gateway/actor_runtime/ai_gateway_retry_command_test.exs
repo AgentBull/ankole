@@ -327,6 +327,62 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert turn_start_payload!(retry_envelope).actor_event.actor_event_id == retry_event.id
   end
 
+  test "targeted retry replays a provider failure before output" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{input: input, generating: generating, turn_ref: turn_ref} =
+      start_accepted_aigateway_run(agent.uid, "RETRY PROVIDER FAILURE", @base_time)
+
+    assert {:ok, failed_response} =
+             StatefulResponses.commit_error(
+               generating,
+               [
+                 %{
+                   "role" => "user",
+                   "content" => [
+                     %{"type" => "input_text", "text" => "RETRY PROVIDER FAILURE"}
+                   ]
+                 }
+               ],
+               %{
+                 "code" => "upstream_response_failed",
+                 "failure_kind" => "provider_response",
+                 "provider_status" => 401,
+                 "retryable" => false,
+                 "stage" => "socket_open"
+               }
+             )
+
+    assert {:ok, %{status: :turn_dead_lettered}} =
+             fail_turn(turn_ref, "provider_response", "User not found.", %{},
+               now: DateTime.add(@base_time, 2, :second)
+             )
+
+    assert {:ok, %{actor_event: retry_command}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "/retry", explicit: true}),
+               now: DateTime.add(@base_time, 3, :second)
+             )
+
+    _retry_command = target_retry_command!(retry_command, input.id)
+
+    assert {:ok, %{status: :command_consumed, retry_actor_event: retry_event}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+    assert retry_event.id != input.id
+    assert retry_event.source_entry_id == input.source_entry_id
+    assert get_in(retry_event.payload, ["data", "entry", "retry_of_actor_event_id"]) == input.id
+    assert Repo.get!(Ankole.AIGateway.Schemas.Message, failed_response.id).status == "error"
+  end
+
   test "targeted retry refuses a dead-letter turn with an external tool effect" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)

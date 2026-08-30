@@ -159,6 +159,8 @@ defmodule AnkoleWeb.Router do
 
     get "/brain/health", BrainController, :health
     get "/brain/objects", BrainController, :list_objects
+    post "/brain/objects", BrainController, :create_object
+    put "/brain/objects", BrainController, :update_object
     post "/brain/search-preview", BrainController, :search_preview
     get "/brain/claims", BrainController, :list_claims
     post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim

@@ -17,6 +17,8 @@ import { BrainPacksStepModel, type BrainPack } from './state/brain-packs-step-mo
  * disabled row instead of a choice.
  */
 export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
+  'use no memo'
+
   useSignals()
   const { t } = useTranslation()
   const model = useModel(BrainPacksStepModel)

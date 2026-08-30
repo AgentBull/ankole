@@ -72,7 +72,7 @@ describe('@ankole/agent-computer brain tools', () => {
     expect(tool.schema.safeParse({ url: 'https://example.com', scope: 'company:x' }).success).toBe(false)
   })
 
-  it('validates remember scope, kinds, and required provenance', () => {
+  it('validates optional remember scope, kinds, and required provenance', () => {
     const rpc = brainRPC('unused', {})
     const tool = brainTool(rpc, 'remember')
     const base = {
@@ -81,12 +81,20 @@ describe('@ankole/agent-computer brain tools', () => {
       provenance: 'Ding said so on 2026-08-25.'
     }
 
+    expect(tool.schema.safeParse(base).success).toBe(true)
     expect(tool.schema.safeParse({ ...base, scope: 'world' }).success).toBe(true)
     expect(tool.schema.safeParse({ ...base, scope: 'group:sales' }).success).toBe(true)
     expect(tool.schema.safeParse({ ...base, scope: 'principal:user-1' }).success).toBe(true)
     expect(tool.schema.safeParse({ ...base, scope: 'company:sales' }).success).toBe(false)
     expect(tool.schema.safeParse({ ...base, scope: 'group:' }).success).toBe(false)
     expect(tool.schema.safeParse({ ...base, kind: 'hunch', scope: 'world', weight: 0.6 }).success).toBe(true)
+    expect(
+      tool.schema.safeParse({ ...base, kind: 'hunch', scope: 'world', weight: 0.6, until_date: '2026-09-30' }).success
+    ).toBe(true)
+    expect(
+      tool.schema.safeParse({ ...base, kind: 'hunch', scope: 'world', weight: 0.6, until_date: 'end of Q3' }).success
+    ).toBe(false)
+    expect(tool.schema.safeParse({ ...base, kind: 'fact', until_date: '2026-09-30' }).success).toBe(false)
     expect(tool.schema.safeParse({ ...base, kind: 'rumor', scope: 'world' }).success).toBe(false)
     expect(tool.schema.safeParse({ claim: 'x', kind: 'fact', scope: 'world' }).success).toBe(false)
     expect(tool.schema.safeParse({ ...base, scope: 'world', confidence: 1.5 }).success).toBe(false)

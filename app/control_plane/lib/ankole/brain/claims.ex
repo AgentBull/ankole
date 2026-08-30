@@ -76,7 +76,7 @@ defmodule Ankole.Brain.Claims do
     |> filter_live_parents()
     |> where([claim], claim.claim_type == "fact")
     |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
-    |> where([claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
+    |> exclude_internal_provenance()
   end
 
   @doc "Closed kind whitelist for facts."
@@ -89,6 +89,7 @@ defmodule Ankole.Brain.Claims do
     limit = Keyword.fetch!(opts, :limit)
 
     Claim
+    |> exclude_internal_provenance()
     |> maybe_console_object(Keyword.get(opts, :object_slug))
     |> maybe_console_type(Keyword.get(opts, :claim_type))
     |> maybe_console_status(Keyword.get(opts, :status))
@@ -107,6 +108,7 @@ defmodule Ankole.Brain.Claims do
     scope = "principal:#{principal_uid}"
 
     Claim
+    |> exclude_internal_provenance()
     |> where(
       [claim],
       claim.holder in ^holder_slugs or claim.author_uid == ^principal_uid or
@@ -428,6 +430,10 @@ defmodule Ankole.Brain.Claims do
 
   def validate_grid_value(_value, field), do: {:error, {:missing_number, field}}
 
+  defp exclude_internal_provenance(query) do
+    where(query, [claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
+  end
+
   @doc """
   Snaps a model-produced number onto the 0.05 grid inside 0..1.
 
@@ -465,6 +471,28 @@ defmodule Ankole.Brain.Claims do
   end
 
   def prepare_embedding(_text), do: {nil, nil}
+
+  @doc """
+  Attaches a rebuilt Claim embedding and applies the normal fact dedup rule.
+
+  A Fact written while embeddings were unavailable already exists before its
+  first vector arrives. This operation makes that late vector follow the same
+  ordering and dedup semantics as a successful write instead of leaving a
+  second current Fact.
+  """
+  @spec attach_embedding(Claim.t(), Pgvector.t(), String.t(), keyword()) ::
+          {:ok, :embedded | :deduplicated | :superseded | :stale} | {:error, term()}
+  def attach_embedding(%Claim{} = claim, embedding, signature, opts \\ [])
+      when is_binary(signature) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    repo.transact(fn repo ->
+      with {:ok, current} <- lock_claim(repo, claim.id) do
+        attach_current_embedding(repo, current, embedding, signature, now)
+      end
+    end)
+  end
 
   # Callers that hold a transaction or a row lock prepare the embedding
   # first and pass `embedding: {vector, signature}`, so the final commit
@@ -513,6 +541,94 @@ defmodule Ankole.Brain.Claims do
     end
   end
 
+  defp attach_current_embedding(
+         _repo,
+         %Claim{embedding_signature: signature, embedded_at: %DateTime{}},
+         _embedding,
+         signature,
+         _now
+       ),
+       do: {:ok, :stale}
+
+  defp attach_current_embedding(
+         repo,
+         %Claim{claim_type: "fact", expired_at: nil, superseded_by: nil} = claim,
+         embedding,
+         signature,
+         now
+       ) do
+    attrs = %{
+      object_slug: claim.object_slug,
+      signal_gateway_channel_id: claim.signal_gateway_channel_id,
+      claim: claim.claim,
+      kind: claim.kind,
+      holder: claim.holder,
+      audience_scope: claim.audience_scope
+    }
+
+    case find_dedup_action(repo, attrs, {embedding, signature}) do
+      :insert ->
+        put_embedding(repo, claim, embedding, signature, now, :embedded)
+
+      {:duplicate, existing} ->
+        with {:ok, _claim} <-
+               mark_superseded(repo, claim, existing.id, embedding_error: nil) do
+          {:ok, :deduplicated}
+        end
+
+      {:supersede, existing} ->
+        if later_than?(claim, existing) do
+          with {:ok, _claim} <- put_embedding(repo, claim, embedding, signature, now),
+               {:ok, _existing} <- mark_superseded(repo, existing, claim.id) do
+            {:ok, :superseded}
+          end
+        else
+          with {:ok, _claim} <-
+                 mark_superseded(repo, claim, existing.id, embedding_error: nil) do
+            {:ok, :deduplicated}
+          end
+        end
+    end
+  end
+
+  defp attach_current_embedding(
+         repo,
+         %Claim{claim_type: "take", active: true} = claim,
+         embedding,
+         signature,
+         now
+       ),
+       do: put_embedding(repo, claim, embedding, signature, now, :embedded)
+
+  defp attach_current_embedding(_repo, _claim, _embedding, _signature, _now),
+    do: {:ok, :stale}
+
+  defp put_embedding(repo, claim, embedding, signature, now, status \\ nil) do
+    result =
+      claim
+      |> Ecto.Changeset.change(
+        embedding: embedding,
+        embedding_signature: signature,
+        embedding_error: nil,
+        embedded_at: now
+      )
+      |> repo.update()
+
+    case {result, status} do
+      {{:ok, updated}, nil} -> {:ok, updated}
+      {{:ok, _updated}, status} -> {:ok, status}
+      {{:error, _changeset} = error, _status} -> error
+    end
+  end
+
+  defp later_than?(left, right) do
+    case DateTime.compare(left.created_at, right.created_at) do
+      :gt -> true
+      :lt -> false
+      :eq -> left.id > right.id
+    end
+  end
+
   defp parent_filter(query, %{object_slug: slug}) when is_binary(slug),
     do: where(query, [claim], claim.object_slug == ^slug)
 
@@ -539,7 +655,7 @@ defmodule Ankole.Brain.Claims do
         query
 
       term ->
-        pattern = "%" <> escape_like(term) <> "%"
+        pattern = "%" <> Repo.escape_like(term) <> "%"
 
         where(
           query,
@@ -552,13 +668,6 @@ defmodule Ankole.Brain.Claims do
   end
 
   defp maybe_console_search(query, _term), do: query
-
-  defp escape_like(text) do
-    text
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
-  end
 
   defp normalized_text(text) do
     text
@@ -603,7 +712,7 @@ defmodule Ankole.Brain.Claims do
 
   defp usec(other), do: other
 
-  defp mark_superseded(repo, %Claim{} = old, new_claim_id) do
+  defp mark_superseded(repo, %Claim{} = old, new_claim_id, extra_changes \\ []) do
     changes =
       case old.claim_type do
         "fact" ->
@@ -612,6 +721,8 @@ defmodule Ankole.Brain.Claims do
         "take" ->
           [superseded_by: new_claim_id, active: false]
       end
+
+    changes = Keyword.merge(changes, extra_changes)
 
     old
     |> Ecto.Changeset.change(changes)

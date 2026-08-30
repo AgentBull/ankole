@@ -218,7 +218,8 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
           )
         }
       },
-      workspaceRoot: '/tmp'
+      workspaceRoot: '/tmp',
+      repeatFetchSessionKey: 'codex-runner-projection-test'
     })
     const projection = buildCodexJobProjection({ tools: webTools })
 

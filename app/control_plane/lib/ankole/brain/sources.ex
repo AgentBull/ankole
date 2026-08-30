@@ -8,6 +8,7 @@ defmodule Ankole.Brain.Sources do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
 
@@ -58,6 +59,13 @@ defmodule Ankole.Brain.Sources do
 
   @spec archive(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
   def archive(source_id) do
+    with {:ok, source} <- mark_archived(source_id) do
+      :ok = maybe_withdraw_library(source)
+      {:ok, source}
+    end
+  end
+
+  defp mark_archived(source_id) do
     case Repo.get(Source, source_id) do
       %Source{archived_at: nil} = source ->
         source
@@ -71,6 +79,11 @@ defmodule Ankole.Brain.Sources do
         {:error, :not_found}
     end
   end
+
+  defp maybe_withdraw_library(%Source{kind: "library"} = source),
+    do: LibraryKnowledge.withdraw_archived_source(source)
+
+  defp maybe_withdraw_library(%Source{}), do: :ok
 
   @spec ensure_active(Source.t()) :: :ok | {:error, :source_archived}
   def ensure_active(%Source{archived_at: nil}), do: :ok

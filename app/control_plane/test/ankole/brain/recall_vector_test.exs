@@ -6,6 +6,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   alias Ankole.AppConfigure
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
@@ -181,6 +182,53 @@ defmodule Ankole.Brain.RecallVectorTest do
     current_signature = NativeKernel.xxh3_128_hex("openrouter|fake-embed-v2|#{@dimensions}")
     assert Repo.get!(Claim, channel_claim.id).embedding_signature == current_signature
     assert Repo.get!(Claim, object_claim.id).embedding_signature == old_signature
+  end
+
+  test "a Fact's first healed vector closes an embedding-outage dedup gap", %{member: member} do
+    {:ok, object} =
+      Objects.create_object(
+        %{slug: "concepts/aurora-budget", type: "concept", title: "Aurora budget"},
+        member.uid
+      )
+
+    attrs = %{
+      object_slug: object.slug,
+      claim: "Aurora's budget is capped at 5000.",
+      kind: "fact",
+      holder: "world",
+      audience_scope: "world",
+      notability: "medium",
+      confidence: 0.9,
+      valid_from: DateTime.utc_now(:microsecond),
+      provenance: "explicit remember during embedding outage"
+    }
+
+    assert {:ok, %{claim: degraded, status: :inserted}} =
+             Claims.write_fact(attrs, member.uid, embed: false)
+
+    assert is_nil(degraded.embedding)
+
+    assert {:ok, %{claim: learned, status: :inserted}} =
+             Claims.write_fact(
+               %{
+                 attrs
+                 | claim: "The Aurora budget must stay under five thousand.",
+                   provenance: "automatic learning after recovery"
+               },
+               member.uid
+             )
+
+    # Consolidation cannot repair a two-row outage gap: the untried row is
+    # not a vector candidate and the phase promotes only qualified buckets.
+    assert %{buckets: 0, promoted: 0} = Dreaming.phase_consolidate()
+
+    assert %{claims: 1} = SelfHealing.embed_pending()
+
+    healed = Repo.get!(Claim, degraded.id)
+    assert healed.superseded_by == learned.id
+    assert healed.expired_at
+    assert is_nil(healed.embedding_error)
+    assert is_nil(Repo.get!(Claim, learned.id).superseded_by)
   end
 
   test "evidence found by both routes outranks a fresher single-route claim", %{member: member} do

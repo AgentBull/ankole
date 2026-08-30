@@ -78,7 +78,11 @@ defmodule Ankole.Brain.ObjectsTest do
           kind: :static
         })
 
-      body = ~s({% audience scope="group:#{other_group.name}" %}secret{% /audience %})
+      body = """
+      {% audience scope="group:#{other_group.name}" %}
+      secret
+      {% /audience %}
+      """
 
       assert {:error, {:writer_not_in_scope_group, _name}} =
                Objects.create_object(
@@ -88,7 +92,11 @@ defmodule Ankole.Brain.ObjectsTest do
     end
 
     test "rejects scopes that reference unknown groups or principals", %{human: human} do
-      body = ~s({% audience scope="group:missing-group" %}x{% /audience %})
+      body = """
+      {% audience scope="group:missing-group" %}
+      x
+      {% /audience %}
+      """
 
       assert {:error, {:unknown_scope_group, "missing-group"}} =
                Objects.create_object(
@@ -96,7 +104,11 @@ defmodule Ankole.Brain.ObjectsTest do
                  human.uid
                )
 
-      body = ~s({% audience scope="principal:missing-uid" %}x{% /audience %})
+      body = """
+      {% audience scope="principal:missing-uid" %}
+      x
+      {% /audience %}
+      """
 
       assert {:error, {:unknown_scope_principal, "missing-uid"}} =
                Objects.create_object(

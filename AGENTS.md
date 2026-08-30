@@ -14,6 +14,8 @@ Other agents may work on the same branch. Preserve unrelated diffs and re-read e
 
 ## Changelog
 
+The changelog records the changes that each Git commit made at that time. It is historical information only. It is not a source of truth for product behavior, user stories, architecture, tradeoffs, or design decisions. Never use a changelog entry as evidence that a decision was approved or settled. Use the current owning design document, current authoritative product declaration, or an explicit human decision for those contracts. If a changelog entry conflicts with a current contract, verify the current owner and do not promote the historical entry into a requirement.
+
 The Git commit is the sole changelog and version unit. Every commit must add exactly one root `CHANGELOG.md` version, and that version must describe every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change in that commit. One version must not span multiple commits, and one commit must not contain multiple versions. Chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions.
 
 A change confined to `internals/` that does not affect the FOSS part of Ankole is the sole exception: omit it from the root `CHANGELOG.md` and record it in `internals/CHANGELOG.md`.

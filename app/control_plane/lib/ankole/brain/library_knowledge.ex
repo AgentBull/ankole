@@ -84,6 +84,17 @@ defmodule Ankole.Brain.LibraryKnowledge do
     end
   end
 
+  @doc "Withdraws every live page owned by one archived Library Source."
+  @spec withdraw_archived_source(Source.t()) :: :ok
+  def withdraw_archived_source(%Source{
+        kind: @source_kind,
+        archived_at: %DateTime{},
+        id: source_id
+      }) do
+    _withdrawn = withdraw_pages(source_id, [])
+    :ok
+  end
+
   # ── Discovery ──
 
   # The built-in set ships with the library; a plugin set participates while

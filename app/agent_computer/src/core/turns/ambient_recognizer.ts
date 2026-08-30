@@ -348,14 +348,15 @@ function parseAmbientDecision(
   const askedBy = parsed.asked_by ?? undefined
   const handoffJobID = parsed.handoff_job_id ?? undefined
 
-  // The schema enums already fence every value set, so only the cross-field
-  // rules a JSON Schema cannot express get checked here.
-  if (parsed.action !== 'NEW_WORK' && parsed.authority !== 'NONE') return invalidAmbientDecision()
+  // Authority affects only NEW_WORK. Some structured-output providers still
+  // attach request authority to a visible reply, so discard that irrelevant
+  // value instead of losing an otherwise valid route.
+  const authority = parsed.action === 'NEW_WORK' ? parsed.authority : 'NONE'
   if ((parsed.action === 'HANDOFF') !== Boolean(handoffJobID)) return invalidAmbientDecision()
 
   return {
     action: parsed.action,
-    authority: parsed.authority,
+    authority,
     reason: parsed.reason,
     ...(askedBy ? { askedBy } : {}),
     ...(handoffJobID ? { handoffJobID } : {})

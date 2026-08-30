@@ -87,6 +87,7 @@ import {
   ankoleWebBackgroundAgentJobControllerIndex,
   ankoleWebBackgroundAgentJobControllerShow,
   ankoleWebBrainControllerArchiveSource,
+  ankoleWebBrainControllerCreateObject,
   ankoleWebBrainControllerCreateSource,
   ankoleWebBrainControllerDecideContradiction,
   ankoleWebBrainControllerDecideMergeSuggestion,
@@ -110,6 +111,7 @@ import {
   ankoleWebBrainControllerSearchPreview,
   ankoleWebBrainControllerShowObject,
   ankoleWebBrainControllerSupersedeClaim,
+  ankoleWebBrainControllerUpdateObject,
   ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
@@ -400,6 +402,8 @@ import type {
   AnkoleWebBackgroundAgentJobControllerShowResponse,
   AnkoleWebBrainControllerArchiveSourceData,
   AnkoleWebBrainControllerArchiveSourceResponse,
+  AnkoleWebBrainControllerCreateObjectData,
+  AnkoleWebBrainControllerCreateObjectResponse,
   AnkoleWebBrainControllerCreateSourceData,
   AnkoleWebBrainControllerCreateSourceResponse,
   AnkoleWebBrainControllerDecideContradictionData,
@@ -446,6 +450,8 @@ import type {
   AnkoleWebBrainControllerShowObjectResponse,
   AnkoleWebBrainControllerSupersedeClaimData,
   AnkoleWebBrainControllerSupersedeClaimResponse,
+  AnkoleWebBrainControllerUpdateObjectData,
+  AnkoleWebBrainControllerUpdateObjectResponse,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowError,
   AnkoleWebConsoleReadinessControllerShowResponse,
@@ -3872,6 +3878,60 @@ export const ankoleWebBrainControllerListObjectsOptions = (
     },
     queryKey: ankoleWebBrainControllerListObjectsQueryKey(options)
   })
+
+/**
+ * Create one instance-owned Brain object
+ */
+export const ankoleWebBrainControllerCreateObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerCreateObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerCreateObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerCreateObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerCreateObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerCreateObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerCreateObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Update one instance-owned Brain object with content-hash compare-and-swap
+ */
+export const ankoleWebBrainControllerUpdateObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerUpdateObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerUpdateObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerUpdateObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerUpdateObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerUpdateObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerUpdateObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebBrainControllerListContradictionsQueryKey = (
   options?: Options<AnkoleWebBrainControllerListContradictionsData>

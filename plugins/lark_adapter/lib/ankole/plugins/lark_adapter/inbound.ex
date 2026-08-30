@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.IMGroups
+  alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -384,8 +385,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          %CardAction{} = action,
          %Event{} = event
        ) do
-    with {:ok, operator_id} <- operator_actor_key(action.user_id || action.open_id),
-         {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id),
+    with {:ok, operator_id, operator_aliases, operator_identity} <-
+           card_operator_subject(action, event),
+         {:ok, operator_principal_uid} <-
+           observe_card_operator(consumer, operator_id, operator_aliases, operator_identity),
          {:ok, chat_id} <- required_text_value(action.open_chat_id, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
@@ -443,18 +446,25 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
   defp ignored_status(reason), do: :"ignored_#{reason}"
 
-  # Sender ids by stability: user_id is the tenant-stable employee id, union_id
-  # is stable across the tenant's own apps, open_id is app-local. External
-  # tenant members carry no user_id, so the strongest available id becomes the
-  # platform subject and the rest ride along as match candidates.
   defp author(sender, sender_ids, event, %{config: config}) do
+    email =
+      optional_text(sender, "email") ||
+        optional_text(sender, "enterprise_email") ||
+        optional_text(sender, "work_email") ||
+        optional_text(sender_ids, "email")
+
     user_id = optional_text(sender_ids, "user_id")
     open_id = optional_text(sender_ids, "open_id")
     union_id = optional_text(sender_ids, "union_id")
     sender_type = sender_type(sender, event)
     display_name = optional_text(sender, "sender_name") || optional_text(sender, "name")
 
-    case Enum.reject([user_id, union_id, open_id], &is_nil/1) do
+    case SubjectIdentity.candidates(%{
+           "email" => email,
+           "user_id" => user_id,
+           "union_id" => union_id,
+           "open_id" => open_id
+         }) do
       [] ->
         {:ignore, :missing_platform_subject}
 
@@ -465,6 +475,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
            "platform_subject" => primary,
            "platform_subject_alternates" => alternates,
            "display_name" => display_name,
+           "email" => email,
            "metadata" =>
              compact_map(%{
                "user_id" => user_id,
@@ -1253,15 +1264,53 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp operator_actor_key(value) when is_binary(value) and value != "", do: {:ok, value}
   defp operator_actor_key(_value), do: {:error, :missing_operator_id}
 
-  defp observe_card_operator(%{context: context, config: config}, operator_id) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
-      external_id: operator_id
-    }
+  defp observe_card_operator(
+         %{context: context, config: config},
+         operator_id,
+         operator_aliases,
+         operator_identity
+       ) do
+    attrs =
+      %{
+        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
+        external_id: operator_id,
+        external_ids: operator_aliases,
+        metadata:
+          compact_map(%{
+            "user_id" => operator_identity["user_id"],
+            "union_id" => operator_identity["union_id"],
+            "open_id" => operator_identity["open_id"]
+          })
+      }
+      |> Ankole.Attrs.maybe_put(:email, operator_identity["email"])
 
     case AdapterContext.observe_platform_subject(context, attrs) do
       {:ok, %{principal: principal}} -> {:ok, principal.uid}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp card_operator_subject(%CardAction{} = action, %Event{} = event) do
+    content = event.content || action.raw || %{}
+    content = fetch_map(content, "event", content)
+    operator = fetch_map(content, "operator", %{})
+
+    identity = %{
+      "email" =>
+        optional_text(operator, "email") ||
+          optional_text(operator, "enterprise_email") ||
+          optional_text(operator, "work_email") ||
+          optional_text(content, "email"),
+      "user_id" => optional_text(operator, "user_id") || action.user_id,
+      "union_id" => optional_text(operator, "union_id") || optional_text(content, "union_id"),
+      "open_id" => optional_text(operator, "open_id") || action.open_id
+    }
+
+    candidates = SubjectIdentity.candidates(identity)
+
+    case candidates do
+      [primary | aliases] -> {:ok, primary, aliases, identity}
+      [] -> {:error, :missing_operator_id}
     end
   end
 

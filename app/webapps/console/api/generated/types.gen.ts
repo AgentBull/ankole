@@ -87,6 +87,21 @@ export type AiGatewayChatGptBrowserLoginRequest = {
 }
 
 /**
+ * BrainObjectUpdateRequest
+ */
+export type BrainObjectUpdateRequest = {
+  body: string
+  effective_date?: string | null
+  expected_content_hash: string
+  meta: {
+    [key: string]: unknown
+  }
+  slug: string
+  subtype?: string | null
+  title: string
+}
+
+/**
  * BrainTakeResolveRequest
  */
 export type BrainTakeResolveRequest = {
@@ -1992,7 +2007,7 @@ export type BrainObjectSummary = {
   effective_date?: string | null
   emotional_weight?: number | null
   /**
-   * True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.
+   * True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.
    */
   library_managed?: boolean
   slug: string
@@ -2179,13 +2194,16 @@ export type ComputedMemberPreviewRequest = {
  * BrainObjectPage
  */
 export type BrainObjectPage = {
-  content_hash?: string | null
+  body: string
+  content_hash: string | null
   contradictions: Array<BrainPageContradiction>
   deleted: boolean
+  edit_block_reason: string | null
+  editable: boolean
   effective_date?: string | null
   facts: Array<BrainPageFact>
   /**
-   * True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.
+   * True when a Brain Source owns the body projection. Use edit_block_reason to select the supported management action.
    */
   library_managed?: boolean
   links: BrainPageLinks
@@ -2282,6 +2300,21 @@ export type AgentSession = {
   session_id: string
   status?: string | null
   title?: string | null
+}
+
+/**
+ * BrainObjectCreateRequest
+ */
+export type BrainObjectCreateRequest = {
+  body: string
+  effective_date?: string | null
+  meta: {
+    [key: string]: unknown
+  }
+  slug: string
+  subtype?: string | null
+  title: string
+  type: string
 }
 
 /**
@@ -6574,6 +6607,46 @@ export type AnkoleWebBrainControllerListObjectsResponses = {
 
 export type AnkoleWebBrainControllerListObjectsResponse =
   AnkoleWebBrainControllerListObjectsResponses[keyof AnkoleWebBrainControllerListObjectsResponses]
+
+export type AnkoleWebBrainControllerCreateObjectData = {
+  /**
+   * Object
+   */
+  body: BrainObjectCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/brain/objects'
+}
+
+export type AnkoleWebBrainControllerCreateObjectResponses = {
+  /**
+   * Object
+   */
+  200: BrainObjectShowResponse
+}
+
+export type AnkoleWebBrainControllerCreateObjectResponse =
+  AnkoleWebBrainControllerCreateObjectResponses[keyof AnkoleWebBrainControllerCreateObjectResponses]
+
+export type AnkoleWebBrainControllerUpdateObjectData = {
+  /**
+   * Object
+   */
+  body: BrainObjectUpdateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/brain/objects'
+}
+
+export type AnkoleWebBrainControllerUpdateObjectResponses = {
+  /**
+   * Object
+   */
+  200: BrainObjectShowResponse
+}
+
+export type AnkoleWebBrainControllerUpdateObjectResponse =
+  AnkoleWebBrainControllerUpdateObjectResponses[keyof AnkoleWebBrainControllerUpdateObjectResponses]
 
 export type AnkoleWebBrainControllerListContradictionsData = {
   body?: never

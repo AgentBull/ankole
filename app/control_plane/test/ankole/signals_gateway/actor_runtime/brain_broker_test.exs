@@ -112,6 +112,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
     assert pack == %{"entities" => [], "open_threads" => []}
   end
 
+  test "context_pack reopens for a retry of the same actor event", context do
+    insert_conversation!(context.agent.uid, context.turn_ref.session_id)
+    request = brain_request(%{"participant_uids" => [], "recent_text" => "Wire Format"})
+    original = %{context.turn_ref | actor_event_id: Ankole.Ecto.UUIDv7.autogenerate()}
+
+    assert {:ok, first} = BrainBroker.handle_context_pack(original, request, @ctx)
+    assert [_entity | _rest] = first["entities"]
+
+    assert {:ok, retried} = BrainBroker.handle_context_pack(original, request, @ctx)
+    assert [_entity | _rest] = retried["entities"]
+
+    successor = %{original | actor_event_id: Ankole.Ecto.UUIDv7.autogenerate()}
+    assert {:ok, skipped} = BrainBroker.handle_context_pack(successor, request, @ctx)
+    assert skipped == %{"entities" => [], "open_threads" => []}
+  end
+
   test "volunteer pointers name the pages the message names, and nothing else", context do
     named = brain_request(%{"message_text" => "how did the Wire Format land?"})
 
@@ -305,12 +321,152 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
       assert {:ok, result} = BrainBroker.handle_remember(context.turn_ref, request, @ctx)
       assert result["object_slug"] == "agents/" <> context.agent.uid
     end
+
+    test "a DM derives the asker's scope when scope is omitted", context do
+      %{principal: asker} = human_fixture()
+      channel = insert_channel!(:im_dm, nil)
+      event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request =
+        brain_request(%{
+          "claim" => "The asker prefers bronze status markers",
+          "kind" => "preference",
+          "provenance" => "private conversation"
+        })
+
+      assert {:ok, result} = BrainBroker.handle_remember(turn_ref, request, @ctx)
+      assert result["audience_scope"] == "principal:" <> asker.uid
+      assert result["signal_gateway_channel_id"] == channel.id
+    end
+
+    test "a group derives its member Group scope when the model omits scope", context do
+      {:ok, group} =
+        Ankole.AuthZ.create_principal_group(%{
+          name: "remember-team-#{System.unique_integer([:positive])}",
+          display_name: "Remember Team",
+          domain: :operator,
+          kind: :static
+        })
+
+      {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
+      channel = insert_channel!(:im_group, group.id)
+      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request =
+        brain_request(%{
+          "claim" => "The team prefers bronze status markers",
+          "kind" => "preference",
+          "provenance" => "group conversation"
+        })
+
+      assert {:ok, result} = BrainBroker.handle_remember(turn_ref, request, @ctx)
+      assert result["audience_scope"] == "group:" <> group.name
+    end
+
+    test "an explicit world scope is preserved in a DM", context do
+      %{principal: asker} = human_fixture()
+      channel = insert_channel!(:im_dm, nil)
+      event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request =
+        brain_request(%{
+          "claim" => "The all-hands meeting moves to 15:00 next Wednesday",
+          "kind" => "event",
+          "scope" => "world",
+          "provenance" => "the asker said to share this with the whole company"
+        })
+
+      assert {:ok, result} = BrainBroker.handle_remember(turn_ref, request, @ctx)
+      assert result["audience_scope"] == "world"
+    end
+
+    test "an explicit writable Group scope is preserved in a group conversation", context do
+      {:ok, conversation_group} =
+        Ankole.AuthZ.create_principal_group(%{
+          name: "remember-channel-#{System.unique_integer([:positive])}",
+          display_name: "Remember Channel",
+          domain: :operator,
+          kind: :static
+        })
+
+      {:ok, target_group} =
+        Ankole.AuthZ.create_principal_group(%{
+          name: "remember-target-#{System.unique_integer([:positive])}",
+          display_name: "Remember Target",
+          domain: :operator,
+          kind: :static
+        })
+
+      for group <- [conversation_group, target_group] do
+        {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
+      end
+
+      channel = insert_channel!(:im_group, conversation_group.id)
+      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request =
+        brain_request(%{
+          "claim" => "The target team uses bronze status markers",
+          "kind" => "preference",
+          "scope" => "group:" <> target_group.name,
+          "provenance" => "group conversation"
+        })
+
+      assert {:ok, result} = BrainBroker.handle_remember(turn_ref, request, @ctx)
+      assert result["audience_scope"] == "group:" <> target_group.name
+    end
+
+    test "an explicit scope that the Agent cannot write is rejected", context do
+      {:ok, inaccessible_group} =
+        Ankole.AuthZ.create_principal_group(%{
+          name: "remember-inaccessible-#{System.unique_integer([:positive])}",
+          display_name: "Remember Inaccessible",
+          domain: :operator,
+          kind: :static
+        })
+
+      request =
+        brain_request(%{
+          "claim" => "The inaccessible team uses bronze status markers",
+          "kind" => "preference",
+          "scope" => "group:" <> inaccessible_group.name,
+          "provenance" => "test conversation"
+        })
+
+      assert {:error, payload} =
+               BrainBroker.handle_remember(context.turn_ref, request, @ctx)
+
+      assert payload["code"] == "writer_not_in_scope_group"
+    end
+
+    test "a group without a member Group rejects an omitted scope", context do
+      channel = insert_channel!(:im_group, nil)
+      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request =
+        brain_request(%{
+          "claim" => "The team uses bronze status markers",
+          "kind" => "preference",
+          "provenance" => "group conversation"
+        })
+
+      assert {:error, payload} = BrainBroker.handle_remember(turn_ref, request, @ctx)
+      assert payload["code"] == "im_group_without_member_group"
+    end
   end
 
   describe "disclosure" do
     setup context do
-      %{principal: asker} = human_fixture()
-      %{principal: bystander} = human_fixture()
+      %{principal: asker} =
+        human_fixture(%{uid: unique_uid("brain-disclosure-asker")})
+
+      %{principal: bystander} =
+        human_fixture(%{uid: unique_uid("brain-disclosure-bystander")})
 
       {:ok, group} =
         Ankole.AuthZ.create_principal_group(%{

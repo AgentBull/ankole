@@ -124,6 +124,11 @@ provider + external_id
 The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
+Provider names scope binding rows, not Principal identity. When no binding
+already exists for a provider subject, Ankole first matches known contact data.
+If no contact matches, it matches the normalized primary external ID to a
+Principal UID. Equal IDs then intentionally resolve to one Principal.
+
 There is one identity shape. Login, directory sync, SignalsGateway admission,
 and manual console mappings all write this same row.
 
@@ -135,28 +140,38 @@ binding uses the `manual_review` policy. One row exists per
 mobile when the platform reveals them, plus observation metadata such as
 alternate ids and the binding that saw the sender. The operator console lists
 these rows; binding one to a Principal writes the identity row and deletes the
-request. Any automatic or proactive identity write for the same provider
-subject also deletes the request, so a mapped subject cannot remain pending.
+request. Any automatic or proactive identity write deletes requests for all
+provider subject candidates in that write, so a mapped alias cannot remain
+pending.
 
 ## Link First-Seen Provider Users to Existing Humans
 
 When `upsert_platform_subject_human` sees a provider user for the first time, it
 tries these identities in order:
 
-1. Use the Principal from an existing provider binding.
+1. Use the Principal from an existing binding for any supplied provider subject
+   candidate.
 2. Use the Principal that owns the normalized email.
 3. Use the Principal that owns the normalized mobile number.
-4. Use the caller-supplied UID.
-5. Use the provider namespace and external subject ID as the UID.
+4. Use the Principal whose UID matches the normalized primary external ID.
+5. Use the caller-supplied UID.
+6. Use the normalized primary external ID as the UID.
 
 The contact lookups include disabled Principals. This can link accounts from
 different providers when they share one email or mobile number.
 
-The transaction locks the provider identity, email, and mobile keys, so two
-concurrent observations cannot create duplicate Principals.
+The transaction locks every supplied provider subject candidate, the primary
+global subject, the email, and the mobile keys. It then writes every candidate
+as an alias for the selected Principal. Concurrent observations serialize the
+same identity decisions. If one candidate already belongs to a different
+Principal, the complete alias write fails and rolls back.
 
 An existing provider link stays with its current Principal. New contact data
 does not move it.
+
+Ankole does not prepend the provider name to a generated Principal UID. See
+[Provider Subject IDs Share One Principal Namespace](../TradeoffsAndKnownLimits.md#provider-subject-ids-share-one-principal-namespace)
+for the intentional collision tradeoff and the explicit-binding escape hatch.
 
 If another Principal owns the supplied email or mobile number, Ankole ignores
 that field and logs `principals.platform_subject.contact_conflict`. It still
@@ -164,16 +179,18 @@ stores the remaining identity data.
 
 ## Match Without Creating
 
-`match_platform_subject_human` is the read side of the same ladder. It accepts
-several candidate external ids plus optional email and mobile values, and
-returns the matched active human Principal or `{:error, :not_found}`. It never
-creates or re-points anything. SignalsGateway identity admission uses it to
-decide whether a sender is known before the binding's unmatched-sender policy
-applies.
+`match_platform_subject_human` is the read side of the same ladder. An existing
+binding for any provider-specific candidate ID wins. Otherwise, the optional
+email and mobile values match before the primary ID matches in the
+installation-wide Principal UID namespace. The function returns the matched
+active human Principal or `{:error, :not_found}`. It never creates or re-points
+anything. SignalsGateway identity admission uses it to decide whether a sender
+is known before the binding's unmatched-sender policy applies.
 
 Manual mappings bypass the ladder on purpose: `MappingRequests.bind_request`
 and `MappingRequests.bind_subject` write the identity to exactly the Principal
-the operator chose.
+the operator chose. This explicit provider binding stays authoritative even
+when another provider uses the same external ID.
 
 ## Create and Update Humans
 

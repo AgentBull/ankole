@@ -18,6 +18,7 @@ import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
 import { BrainObjectDrawer, BrainObjectsPage } from './pages/brain/objects'
+import { BrainObjectEditorPage } from './pages/brain/object-editor'
 import { BrainClaimsPage } from './pages/brain/claims'
 import { BrainContradictionsPage } from './pages/brain/contradictions'
 import { BrainSuggestionsPage } from './pages/brain/suggestions'
@@ -74,6 +75,8 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'agent-library', element: <AgentLibraryPage />, ...preloadRoute(loaders.agentLibrary) },
               { path: 'agent-library/agent-plugins/:pluginID', element: <AgentPluginDetailPage /> },
               { path: 'brain', element: <Navigate to="/brain/objects" replace /> },
+              { path: 'brain/objects/new', element: <BrainObjectEditorPage /> },
+              { path: 'brain/objects/:slug/edit', element: <BrainObjectEditorPage /> },
               {
                 path: 'brain/objects',
                 element: <BrainObjectsPage />,

@@ -1,19 +1,32 @@
 defmodule Ankole.Brain.Markdoc do
   @moduledoc """
-  Markdoc `audience` tag handling for Brain object bodies.
+  Canonical Brain body syntax over CommonMark block structure.
 
   The stored body is the content after the rendered Frontmatter. An
-  `{% audience scope="..." %}` tag attaches one scope to the content it
-  wraps; text outside every tag uses `world`. Tags cannot nest: one segment
-  carries exactly one scope, which is what lets each chunk row carry exactly
-  one `audience_scope`.
+  `{% audience scope="..." %}` block attaches one scope to the content it
+  wraps; text outside every block uses `world`. The native kernel identifies
+  code structure and wikilinks before this module applies Brain scope rules.
   """
 
-  @open_tag ~r/\{%\s*audience\s+scope="([^"]*)"\s*%\}/
-  @close_tag ~r/\{%\s*\/audience\s*%\}/
-  @wikilink ~r/\[\[([^\[\]\n]+)\]\]/
-
   @type segment :: %{scope: String.t(), text: String.t()}
+
+  @doc """
+  Returns the native syntax diagnostic for an invalid body.
+
+  This function is for editor feedback. Domain writes still use
+  `segments/1` and keep their existing atom error contract.
+  """
+  @spec diagnostic(String.t()) :: nil | %{code: String.t(), line: pos_integer()}
+  def diagnostic(body) when is_binary(body) do
+    case Ankole.Kernel.brain_markdoc_analyze(body) do
+      %{"error" => %{"code" => code, "line" => line}}
+      when is_binary(code) and is_integer(line) and line > 0 ->
+        %{code: code, line: line}
+
+      _analysis ->
+        nil
+    end
+  end
 
   @doc """
   Splits a body into ordered segments, each carrying one audience scope.
@@ -23,9 +36,7 @@ defmodule Ankole.Brain.Markdoc do
   """
   @spec segments(String.t()) :: {:ok, [segment()]} | {:error, term()}
   def segments(body) when is_binary(body) do
-    tokens = tokenize(body)
-
-    with {:ok, segments} <- build_segments(tokens, body) do
+    with {:ok, segments, _wikilinks} <- analyze(body) do
       {:ok, Enum.reject(segments, &(String.trim(&1.text) == ""))}
     end
   end
@@ -61,9 +72,7 @@ defmodule Ankole.Brain.Markdoc do
   """
   @spec prune(String.t(), (String.t() -> boolean())) :: {:ok, String.t()} | {:error, term()}
   def prune(body, keep?) when is_binary(body) and is_function(keep?, 1) do
-    tokens = tokenize(body)
-
-    with {:ok, raw_segments} <- build_segments(tokens, body) do
+    with {:ok, raw_segments, _wikilinks} <- analyze(body) do
       pruned =
         raw_segments
         |> Enum.filter(fn segment -> keep?.(segment.scope) end)
@@ -84,69 +93,50 @@ defmodule Ankole.Brain.Markdoc do
   """
   @spec wikilinks(String.t()) :: [String.t()]
   def wikilinks(body) when is_binary(body) do
-    @wikilink
-    |> Regex.scan(body, capture: :all_but_first)
-    |> Enum.map(fn [target] -> String.trim(target) end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp tokenize(body) do
-    opens =
-      @open_tag
-      |> Regex.scan(body, return: :index)
-      |> Enum.map(fn [{start, length}, {scope_start, scope_length}] ->
-        scope = binary_part(body, scope_start, scope_length)
-        {start, length, {:open, scope}}
-      end)
-
-    closes =
-      @close_tag
-      |> Regex.scan(body, return: :index)
-      |> Enum.map(fn [{start, length}] -> {start, length, :close} end)
-
-    Enum.sort_by(opens ++ closes, fn {start, _length, _kind} -> start end)
-  end
-
-  defp build_segments(tokens, body) do
-    initial = %{segments: [], cursor: 0, open: nil}
-
-    tokens
-    |> Enum.reduce_while({:ok, initial}, fn {start, length, kind}, {:ok, state} ->
-      text_before = binary_part(body, state.cursor, start - state.cursor)
-
-      case {kind, state.open} do
-        {{:open, scope}, nil} ->
-          case Ankole.Brain.Scope.parse(scope) do
-            {:ok, _parsed} ->
-              segments = [%{scope: "world", text: text_before} | state.segments]
-              {:cont, {:ok, %{segments: segments, cursor: start + length, open: scope}}}
-
-            {:error, _reason} ->
-              {:halt, {:error, {:invalid_audience_scope, scope}}}
-          end
-
-        {{:open, _scope}, _open} ->
-          {:halt, {:error, :nested_audience_tag}}
-
-        {:close, nil} ->
-          {:halt, {:error, :unopened_audience_tag}}
-
-        {:close, open_scope} ->
-          segments = [%{scope: open_scope, text: text_before} | state.segments]
-          {:cont, {:ok, %{segments: segments, cursor: start + length, open: nil}}}
-      end
-    end)
-    |> case do
-      {:ok, %{open: open}} when not is_nil(open) ->
-        {:error, :unclosed_audience_tag}
-
-      {:ok, state} ->
-        tail = binary_part(body, state.cursor, byte_size(body) - state.cursor)
-        {:ok, Enum.reverse([%{scope: "world", text: tail} | state.segments])}
-
-      {:error, _reason} = error ->
-        error
+    case analyze(body) do
+      {:ok, _segments, wikilinks} -> wikilinks
+      {:error, _reason} -> []
     end
   end
+
+  defp analyze(body) do
+    case Ankole.Kernel.brain_markdoc_analyze(body) do
+      %{"segments" => segments, "wikilinks" => wikilinks} ->
+        with {:ok, segments} <- decode_segments(segments) do
+          {:ok, segments, wikilinks}
+        end
+
+      %{"error" => %{"code" => code}} ->
+        {:error, error_code(code)}
+
+      _other ->
+        {:error, :invalid_brain_markdoc_analysis}
+    end
+  end
+
+  defp decode_segments(segments) when is_list(segments) do
+    Enum.reduce_while(segments, {:ok, []}, fn
+      %{"scope" => scope, "text" => text}, {:ok, decoded}
+      when is_binary(scope) and is_binary(text) ->
+        case Ankole.Brain.Scope.parse(scope) do
+          {:ok, _parsed} -> {:cont, {:ok, [%{scope: scope, text: text} | decoded]}}
+          {:error, _reason} -> {:halt, {:error, {:invalid_audience_scope, scope}}}
+        end
+
+      _segment, _decoded ->
+        {:halt, {:error, :invalid_brain_markdoc_analysis}}
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp decode_segments(_segments), do: {:error, :invalid_brain_markdoc_analysis}
+
+  defp error_code("nested_audience_tag"), do: :nested_audience_tag
+  defp error_code("unopened_audience_tag"), do: :unopened_audience_tag
+  defp error_code("unclosed_audience_tag"), do: :unclosed_audience_tag
+  defp error_code("misplaced_audience_tag"), do: :misplaced_audience_tag
+  defp error_code(_code), do: :invalid_brain_markdoc_analysis
 end

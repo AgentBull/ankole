@@ -387,7 +387,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_filter_console_search(query, nil), do: query
 
   defp maybe_filter_console_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = "%#{Repo.escape_like(search)}%"
 
     case Integer.parse(search) do
       {id, ""} when id in 1000..9_007_199_254_740_991 ->
@@ -396,13 +396,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       _not_an_id ->
         where(query, [job], ilike(job.title, ^pattern))
     end
-  end
-
-  defp escape_like(text) do
-    text
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
   end
 
   defp maybe_before_console_cursor(query, nil), do: query

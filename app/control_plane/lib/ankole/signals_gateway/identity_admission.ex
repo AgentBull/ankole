@@ -5,12 +5,12 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
 
   Identification is best effort and always automatic: an existing
   platform-subject binding for any candidate id wins, then the owner of the
-  platform-reported email or mobile number. What an unmatched sender means is
-  the binding's `unmatched_sender_policy`: `:create_standalone` creates a
-  standalone account and serves them; `:manual_review` records the sender in
-  the console pending list, answers an addressed message with one fixed
-  notice, and gives the sender no other processing at all — no mirror, no
-  inbound batch.
+  platform-reported email or mobile number, then the Principal whose UID
+  matches the primary subject. What an unmatched sender means is the binding's
+  `unmatched_sender_policy`: `:create_standalone` creates a standalone account
+  and serves them; `:manual_review` records the sender in the console pending
+  list, answers an addressed message with one fixed notice, and gives the
+  sender no other processing at all — no mirror, no inbound batch.
 
   Admitted senders accumulate into one `signal_source` AuthZ group per binding
   so permission policy can address "users of this signal source".
@@ -163,6 +163,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
       %{
         provider: provider,
         external_id: primary_subject(author),
+        external_ids: subject_alternates(author),
         metadata: subject_metadata(author)
       }
       |> Ankole.Attrs.maybe_put(:display_name, author["display_name"])
@@ -294,6 +295,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
       |> put_missing("email", extra["email"])
       |> put_missing("mobile", extra["mobile"])
       |> put_missing("display_name", extra["display_name"])
+      |> put_hydrated_subject(extra)
     else
       _no_hydration -> author
     end
@@ -317,6 +319,16 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
 
       {:error, {kind, reason}}
   end
+
+  defp put_hydrated_subject(author, %{"platform_subject" => subject} = extra)
+       when is_binary(subject) and subject != "" do
+    author
+    |> Map.put("platform_subject", subject)
+    |> Map.put("platform_subject_alternates", extra["platform_subject_alternates"] || [])
+    |> Map.put("id", subject)
+  end
+
+  defp put_hydrated_subject(author, _extra), do: author
 
   defp hydrated_contacts?(hydrated, original) do
     (hydrated["email"] != nil and original["email"] == nil) or

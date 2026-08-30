@@ -279,6 +279,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   end
 
   @doc false
+  @spec renew_worker_leases_for_router_recovery(DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def renew_worker_leases_for_router_recovery(%DateTime{} = now) do
+    Repo.transact(fn repo ->
+      AgentComputerWorker
+      |> where([worker], worker.status in ^@stale_worker_statuses)
+      |> lock("FOR UPDATE")
+      |> repo.all()
+      |> Enum.map(fn worker ->
+        worker
+        |> AgentComputerWorker.changeset(%{last_worker_heartbeat_at: now})
+        |> repo.update()
+        |> notify_worker_stale_deadline(repo)
+      end)
+      |> Ankole.Attrs.collect_results()
+      |> case do
+        {:ok, workers} -> {:ok, length(workers)}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  @doc false
   @spec runtime_event_snapshot() :: [{String.t(), map()}]
   def runtime_event_snapshot do
     now = DateTime.utc_now(:microsecond)

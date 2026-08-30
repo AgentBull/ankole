@@ -2,6 +2,7 @@ defmodule Ankole.Brain.SourcesTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Brain.Sources
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Repo
 
   test "strict creation rejects a duplicate while idempotent registration reuses it" do
@@ -37,6 +38,45 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, first} = Sources.archive(source.id)
     assert {:ok, second} = Sources.archive(source.id)
     assert second.archived_at == first.archived_at
+  end
+
+  test "archive withdraws only pages owned by a Library Source" do
+    suffix = System.unique_integer([:positive])
+
+    assert {:ok, library_source} =
+             Sources.create(%{
+               kind: "library",
+               upstream_id: "library-#{suffix}",
+               name: "Library"
+             })
+
+    assert {:ok, file_source} =
+             Sources.create(%{
+               kind: "file",
+               upstream_id: "/tmp/source-#{suffix}.txt",
+               name: "File"
+             })
+
+    now = DateTime.utc_now(:microsecond)
+
+    page =
+      Repo.insert!(%Object{
+        slug: "concepts/source-archive-#{suffix}",
+        type: "concept",
+        title: "Source archive",
+        body: "Managed body",
+        meta: %{},
+        emotional_weight: 0.0,
+        managed_by_source_id: library_source.id,
+        created_at: now,
+        updated_at: now
+      })
+
+    assert {:ok, _archived_file} = Sources.archive(file_source.id)
+    assert Repo.get!(Object, page.id).deleted_at == nil
+
+    assert {:ok, _archived_library} = Sources.archive(library_source.id)
+    assert Repo.get!(Object, page.id).deleted_at != nil
   end
 
   test "active locks and revision writes share the Source lifecycle" do

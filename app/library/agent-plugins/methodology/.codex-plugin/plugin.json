@@ -1,0 +1,6 @@
+{
+  "name": "methodology",
+  "version": "1.0.0",
+  "description": "The general methodologies used to accomplish tasks and achieve goals. They will only be recalled as needed.",
+  "skills": "./skills/"
+}

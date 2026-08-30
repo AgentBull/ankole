@@ -94,6 +94,28 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
     assert matched.uid == human.uid
   end
 
+  test "manual review admits a sender whose subject matches a global Principal UID" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
+    %{principal: human} = human_fixture(%{uid: "ou_global_sender"})
+
+    author =
+      stranger_author(%{
+        id: "ou_global_sender",
+        platform_subject: "ou_global_sender",
+        display_name: "Global Sender"
+      })
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry(agent.uid, "lark-adm", dm_entry(author))
+
+    assert {:ok, matched} =
+             Principals.resolve_platform_subject("lark-main", "ou_global_sender")
+
+    assert matched.uid == human.uid
+    assert Repo.aggregate(MappingRequest, :count) == 0
+  end
+
   test "admitted senders accumulate in the binding's signal_source group" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :create_standalone)

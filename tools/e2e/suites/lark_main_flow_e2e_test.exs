@@ -46,14 +46,14 @@ defmodule Ankole.E2E.LarkMainFlowE2ETest do
     run_followup_queue(ctx)
     run_recalled_followup_queue(ctx)
 
-    retry = run_retry_command(ctx)
+    retry = run_retry_command(ctx, direct.input.id)
 
     assert_lark_final_reply(
       ctx.fake_feishu,
       retry.reply,
       "CHAOS_DIRECT_OK",
       :reply,
-      "om_retry_1"
+      "om_direct_1"
     )
 
     counters = FakeOpenAIState.counters()

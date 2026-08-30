@@ -137,7 +137,7 @@ defmodule Ankole.Brain.Synthesis do
     since = params[:since] || DateTime.add(DateTime.utc_now(), -7 * 86_400, :second)
     until_at = params[:until] || DateTime.utc_now()
 
-    with {:ok, access} <- Access.for_querier(querier_uid),
+    with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
          {:ok, slugs} <- delta_slugs(params[:entity], visibility) do
       base =
@@ -212,25 +212,28 @@ defmodule Ankole.Brain.Synthesis do
   # knowledge through its own conclusion. `world` evidence always stays:
   # public knowledge inside a narrower page discloses nothing.
   defp scoped_evidence(recall) do
+    evidence_chunks = Enum.reject(recall.chunks, &LazySkillVisibility.skill_record?/1)
+
     scopes =
       Enum.map(recall.claims, & &1.audience_scope) ++
-        Enum.map(recall.chunks, & &1.audience_scope)
+        Enum.map(evidence_chunks, & &1.audience_scope)
 
     case narrowest_scope(scopes) do
       "world" ->
-        %{scope: "world", claims: recall.claims, chunks: recall.chunks, dropped: 0}
+        %{scope: "world", claims: recall.claims, chunks: evidence_chunks, dropped: 0}
 
       scope ->
         keep? = fn row -> row.audience_scope in [scope, "world"] end
         claims = Enum.filter(recall.claims, keep?)
-        chunks = Enum.filter(recall.chunks, keep?)
+        chunks = Enum.filter(evidence_chunks, keep?)
 
         %{
           scope: scope,
           claims: claims,
           chunks: chunks,
           dropped:
-            length(recall.claims) - length(claims) + (length(recall.chunks) - length(chunks))
+            length(recall.claims) - length(claims) +
+              (length(evidence_chunks) - length(chunks))
         }
     end
   end

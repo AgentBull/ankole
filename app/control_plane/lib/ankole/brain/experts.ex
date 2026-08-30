@@ -31,7 +31,7 @@ defmodule Ankole.Brain.Experts do
     limit = Keyword.get(opts, :limit, @default_limit)
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
 
-    with {:ok, access} <- Access.for_querier(querier_uid),
+    with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
          {:ok, recall} <-
            Recall.recall(querier_uid, %{query: topic, limit: 50}, disclosure: disclosure) do
       expert_types =

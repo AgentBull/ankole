@@ -87,6 +87,19 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
     end
   end
 
+  describe "list_conversations/1 with a conversation key filter" do
+    test "treats underscore and percent as literal characters" do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+      target = conversation_fixture(agent.uid, "manual:literal_%key")
+      _decoy = conversation_fixture(agent.uid, "manual:literal-Xwildcard-key")
+
+      assert {:ok, page} =
+               ConsoleQueries.list_conversations(conversation_key: "literal_%key")
+
+      assert Enum.map(page.conversations, & &1.id) == [target.id]
+    end
+  end
+
   describe "console_projection/1 for conversations" do
     test "counts the conversation's messages" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()

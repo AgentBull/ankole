@@ -980,6 +980,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     Enum.all?(content, fn
       %{"type" => type} when type in ["message", "reasoning"] -> true
       %{type: type} when type in ["message", "reasoning"] -> true
+      %{"role" => "user", "content" => _content} -> true
+      %{role: "user", content: _content} -> true
       _item -> false
     end)
   end

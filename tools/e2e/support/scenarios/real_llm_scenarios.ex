@@ -719,7 +719,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     wakeup_messages = ai_messages_for_actor_event(wakeup_event.id)
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
-    assert details_result.arguments == %{"job_id" => job.id}
+    assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
     refute tool_result_error?(details_result)
     assert command_tool_succeeded?(wakeup_messages)
     assert tool_result_succeeded?(wakeup_messages, "reply_attachment")

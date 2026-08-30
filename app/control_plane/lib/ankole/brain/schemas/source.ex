@@ -2,7 +2,8 @@ defmodule Ankole.Brain.Schemas.Source do
   @moduledoc """
   One upstream source this instance can learn from. A Source registers where
   the organization learns; it is not a permission boundary and not an object
-  namespace. Archiving only stops later synchronization.
+  namespace. Archiving stops later synchronization. For a Library Source, it
+  also withdraws that Source's product-managed page projections.
   """
 
   use Ecto.Schema

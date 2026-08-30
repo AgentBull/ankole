@@ -15,9 +15,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   alias Ankole.SignalsGateway.Binding
 
   # Background cadence for re-deriving live connections from the database. It is
-  # intentionally relaxed because connection startup is a live transport concern:
-  # setup/e2e helpers may call reconcile_once/1, while normal runtime edits are
-  # allowed to converge on the next tick.
+  # intentionally relaxed because saved bindings also request an immediate
+  # asynchronous pass. This tick repairs missed notifications and external drift.
   @default_interval_ms 60_000
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -43,6 +42,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   """
   @spec reconcile(GenServer.server()) :: map()
   def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
+
+  @doc "Requests an immediate reconciliation without delaying the caller."
+  @spec reconcile_async(GenServer.server()) :: :ok
+  def reconcile_async(server \\ __MODULE__), do: ConnectionLifecycle.reconcile_async(server)
 
   @doc """
   Reconciles enabled bindings once.
@@ -104,6 +107,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
       {:error, reason} ->
         {specs, [binding_error(binding, reason) | errors]}
+
+      {:blocked, connection_key, reason} ->
+        error = binding_error(binding, reason) |> Map.put(:blocked_connection_key, connection_key)
+        {specs, [error | errors]}
     end
   end
 
@@ -138,30 +145,40 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   defp binding_connection_spec(%Binding{} = binding, opts) do
-    with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      config =
-        Config.resolve_runtime_bot_identity(
-          config,
-          Keyword.take(opts, [:bot_info_fetcher])
-        )
+    case Config.load_chat_config_ref(binding.config_ref) do
+      {:ok, config} ->
+        connection_key = Config.connection_key(config)
 
-      context =
-        AdapterContext.new(
-          agent_uid: binding.agent_uid,
-          binding_name: binding.name,
-          adapter: binding.adapter,
-          user_name: Map.get(config, "userName", "Lark / Feishu")
-        )
+        config =
+          Config.resolve_runtime_bot_identity(
+            config,
+            Keyword.take(opts, [:bot_info_fetcher])
+          )
 
-      {:ok, Config.connection_key(config),
-       %{
-         config: config,
-         secret_fingerprint: Config.secret_fingerprint(config),
-         consumers: [Inbound.chat_consumer(context, config)]
-       }}
-    else
-      :error -> {:error, :chat_config_not_found}
-      {:error, reason} -> {:error, reason}
+        if is_binary(Map.get(config, "runtimeBotOpenID")) do
+          context =
+            AdapterContext.new(
+              agent_uid: binding.agent_uid,
+              binding_name: binding.name,
+              adapter: binding.adapter,
+              user_name: Map.get(config, "userName", "Lark / Feishu")
+            )
+
+          {:ok, connection_key,
+           %{
+             config: config,
+             secret_fingerprint: Config.secret_fingerprint(config),
+             consumers: [Inbound.chat_consumer(context, config)]
+           }}
+        else
+          {:blocked, connection_key, :runtime_bot_identity_unavailable}
+        end
+
+      :error ->
+        {:error, :chat_config_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -215,11 +232,22 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     snapshot = ConnectionLifecycle.desired_snapshot(specs, errors)
     stopped = stop_undesired_connections(snapshot, supervisor_opts)
 
+    blocked_connection_keys =
+      errors
+      |> Enum.flat_map(fn
+        %{blocked_connection_key: key} -> [key]
+        _error -> []
+      end)
+      |> MapSet.new()
+
     # Start each deduplicated connection, then partition successes from failures
     # so the caller receives a started-count plus a flat list of per-binding and
     # per-start errors.
     {started, start_errors} =
       specs
+      # A blocked binding can share this key with an identity provider. Starting
+      # that partial spec would replace the live connection without its chat consumer.
+      |> Map.reject(fn {key, _spec} -> MapSet.member?(blocked_connection_keys, key) end)
       |> Map.values()
       |> Enum.map(&start_connection(&1, supervisor_opts))
       |> Enum.split_with(&match?({:ok, _pid}, &1))

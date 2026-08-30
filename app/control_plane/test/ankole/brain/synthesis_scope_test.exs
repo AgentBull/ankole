@@ -6,12 +6,16 @@ defmodule Ankole.Brain.SynthesisScopeTest do
   # the real recall boundary.
   use Ankole.AIGatewayCase
 
+  alias Ankole.AIAgent.Library
   alias Ankole.AppConfigure
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Synthesis
+  alias Ankole.Repo
 
   @analysis_body "Acme plans to cut the renewal to one seat."
 
@@ -49,7 +53,12 @@ defmodule Ankole.Brain.SynthesisScopeTest do
 
     {:ok, _object} =
       Objects.create_object(
-        %{slug: "companies/acme", type: "company", title: "Acme"},
+        %{
+          slug: "companies/acme",
+          type: "company",
+          title: "Acme",
+          body: "Acme has zephyr lineage renewal evidence."
+        },
         agent.uid
       )
 
@@ -96,6 +105,53 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     assert page.audience_scope == "world"
     assert page.dropped_evidence == 0
     assert page.slug in recalled_slugs(bob.uid, "renewal")
+  end
+
+  test "lazy Skill discovery records do not become synthesis evidence links", %{agent: agent} do
+    skill_slug = "lazyload-agent-skills/idea-lineage"
+
+    assert {:ok, _report} =
+             LibraryKnowledge.sync(
+               sets: [
+                 %{
+                   kind: :lazy_skills,
+                   set_id: "synthesis-skill-evidence",
+                   name: "Synthesis Skill evidence",
+                   skills: [
+                     %{
+                       name: "idea-lineage",
+                       description: "Use zephyr lineage evidence to trace an idea.",
+                       metadata: %{"tags" => ["zephyr-lineage"]},
+                       source_hash: "synthesis-skill-v1",
+                       files: []
+                     }
+                   ]
+                 }
+               ]
+             )
+
+    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
+
+    assert {:ok, recall} =
+             Recall.recall(agent.uid, %{query: "zephyr lineage renewal evidence", limit: 40})
+
+    assert Enum.any?(recall.chunks, &(&1.object_slug == skill_slug))
+    assert Enum.any?(recall.chunks, &(&1.object_slug == "companies/acme"))
+
+    assert {:ok, page} =
+             Synthesis.synthesize(agent.uid, "what does the zephyr lineage renewal evidence show")
+
+    assert Repo.get_by!(Link,
+             from_object_slug: page.slug,
+             to_object_slug: "companies/acme",
+             link_type: "derived_from"
+           )
+
+    refute Repo.get_by(Link,
+             from_object_slug: page.slug,
+             to_object_slug: skill_slug,
+             link_type: "derived_from"
+           )
   end
 
   defp write_fact!(agent, claim, audience_scope) do

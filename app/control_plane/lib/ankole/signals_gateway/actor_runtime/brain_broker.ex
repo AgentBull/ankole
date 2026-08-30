@@ -53,7 +53,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
       with {:ok, params} <- decode_params(request),
            :ok <- ensure_enabled(),
            {:ok, claim_text} <- required(params, "claim"),
-           {:ok, scope} <- required(params, "scope"),
+           {:ok, scope} <- conversation_write_scope(params["scope"], turn_ref),
            {:ok, provenance} <- required(params, "provenance"),
            {:ok, visibility} <- LazySkillVisibility.for_querier(turn_ref.agent_uid) do
         kind = params["kind"] || "fact"
@@ -128,7 +128,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
            :ok <- ensure_enabled(),
            {:ok, url} <- required(params, "url"),
            :ok <- validate_learnable_url(url),
-           {:ok, scope} <- learn_source_scope(params["scope"], turn_ref),
+           {:ok, scope} <- conversation_write_scope(params["scope"], turn_ref),
            {:ok, source} <- find_or_register_url_source(url, scope),
            {:ok, _enqueued} <- SourceLearning.enqueue_learn(source.id) do
         {:ok,
@@ -212,13 +212,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
           {:ok, map()} | {:error, map()}
   def handle_entity(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, "brain_rpc_failed", fn ->
+      disclosure = turn_disclosure(turn_ref)
+
       with {:ok, params} <- decode_params(request),
            :ok <- ensure_enabled(),
            {:ok, name} <- required(params, "name"),
-           {:ok, access} <- Access.for_querier(turn_ref.agent_uid),
+           {:ok, access} <- Access.for_readers(turn_ref.agent_uid, disclosure),
            {:ok, visibility} <- LazySkillVisibility.for_querier(turn_ref.agent_uid) do
-        disclosure = turn_disclosure(turn_ref)
-
         case Objects.resolve_reference(name, lazy_skill_visibility: visibility) do
           {:ok, object} ->
             card =
@@ -627,33 +627,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
     end
   end
 
-  # learn_source
-
   defp validate_learnable_url("http://" <> _rest), do: :ok
   defp validate_learnable_url("https://" <> _rest), do: :ok
   defp validate_learnable_url(_url), do: {:error, :invalid_url}
 
-  # The conversation's audience is the default learning scope, mirroring the
+  # The conversation's audience is the default write scope, mirroring the
   # Signals-processing defaults: a DM learns for its asker, a member-backed
   # group learns for its member Group. Everything else — scheduled turns,
   # non-IM channels — falls back to the Agent's own principal scope. `world`
   # is an explicit model choice, never a default: the derived default also
-  # bounds how far a poisoned or misjudged source can reach.
-  defp learn_source_scope(explicit, %TurnRef{} = turn_ref)
+  # bounds how far a poisoned claim or misjudged source can reach.
+  defp conversation_write_scope(explicit, %TurnRef{} = turn_ref)
        when is_binary(explicit) and explicit != "" do
     with :ok <- Scope.validate_writable(explicit, turn_ref.agent_uid), do: {:ok, explicit}
   end
 
-  defp learn_source_scope(_missing, %TurnRef{} = turn_ref) do
-    with {:ok, scope} <- derived_learn_scope(actor_event(turn_ref), turn_ref.agent_uid),
+  defp conversation_write_scope(_missing, %TurnRef{} = turn_ref) do
+    with {:ok, scope} <- derived_conversation_scope(actor_event(turn_ref), turn_ref.agent_uid),
          :ok <- Scope.validate_writable(scope, turn_ref.agent_uid) do
       {:ok, scope}
     end
   end
 
-  defp derived_learn_scope(nil, agent_uid), do: {:ok, Scope.principal(agent_uid)}
+  defp derived_conversation_scope(nil, agent_uid), do: {:ok, Scope.principal(agent_uid)}
 
-  defp derived_learn_scope(%ActorEvent{} = event, agent_uid) do
+  defp derived_conversation_scope(%ActorEvent{} = event, agent_uid) do
     channel = event.signal_channel_id && Repo.get(Channel, event.signal_channel_id)
 
     case channel do

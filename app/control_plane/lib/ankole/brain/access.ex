@@ -48,6 +48,22 @@ defmodule Ankole.Brain.Access do
   end
 
   @doc """
+  Builds the access context for an Agent and the readers of its current Turn.
+
+  The Agent remains the accountable querier. A resolved conversation reader
+  adds only scopes that every disclosure recipient can receive. An open or
+  unresolved disclosure adds nothing, so background work and failed recipient
+  resolution keep the ordinary querier boundary.
+  """
+  @spec for_readers(String.t(), disclosure()) :: {:ok, t()} | {:error, term()}
+  def for_readers(querier_uid, disclosure) when is_binary(querier_uid) do
+    with {:ok, access} <- for_querier(querier_uid),
+         {:ok, reader_scopes} <- reader_scopes(disclosure) do
+      {:ok, %{access | scopes: Enum.uniq(access.scopes ++ reader_scopes)}}
+    end
+  end
+
+  @doc """
   Returns whether one bare scope is reachable for this querier. A body
   segment carries no author or holder, so the owned-Agent exemptions of
   `reachable?/2` do not apply; membership in the accessible scopes is the
@@ -197,4 +213,26 @@ defmodule Ankole.Brain.Access do
   """
   @spec open_disclosure() :: disclosure()
   def open_disclosure, do: %{mode: :relaxed, asker_uid: nil, present_uids: []}
+
+  defp reader_scopes(%{mode: :relaxed, asker_uid: asker}) when is_binary(asker),
+    do: Scope.accessible_scopes(asker)
+
+  defp reader_scopes(%{mode: :strict} = disclosure) do
+    recipients =
+      [disclosure[:asker_uid] | List.wrap(disclosure[:present_uids])]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case recipients do
+      [first | _rest] ->
+        with {:ok, scopes} <- Scope.accessible_scopes(first) do
+          {:ok, Enum.filter(scopes, &Scope.satisfied_by_all?(&1, recipients))}
+        end
+
+      [] ->
+        {:ok, []}
+    end
+  end
+
+  defp reader_scopes(_open_or_invalid), do: {:ok, []}
 end

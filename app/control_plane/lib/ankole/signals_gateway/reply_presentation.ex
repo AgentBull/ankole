@@ -195,6 +195,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("state", state)
     |> Map.put("answer", terminal_answer(answer))
     |> remove_transient_fields_unless_working()
+    |> terminalize_activities(state)
     |> terminalize_plan()
     |> bump_revision()
   end
@@ -969,6 +970,27 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp optional_boolean(value) when is_boolean(value), do: value
   defp optional_boolean(_value), do: nil
+
+  # A `continued` fragment preserves the same work for its successor. The
+  # interaction owner closes `awaiting_input`; neither state terminalizes activities here.
+  defp terminalize_activities(%{"activities" => activities} = presentation, state)
+       when state in ["completed", "scheduled", "failed", "stopped"] do
+    terminal_phase = if state in ["completed", "scheduled"], do: "completed", else: "failed"
+
+    activities =
+      Map.new(activities, fn {id, activity} ->
+        activity =
+          if activity["phase"] in ["pending", "running"],
+            do: Map.put(activity, "phase", terminal_phase),
+            else: activity
+
+        {id, activity}
+      end)
+
+    Map.put(presentation, "activities", activities)
+  end
+
+  defp terminalize_activities(presentation, _state), do: presentation
 
   defp terminalize_plan(%{"plan" => %{} = plan} = presentation) do
     incomplete? =

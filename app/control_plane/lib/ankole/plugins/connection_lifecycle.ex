@@ -32,6 +32,9 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   @spec reconcile(GenServer.server()) :: term()
   def reconcile(server), do: GenServer.call(server, :reconcile, @call_timeout)
 
+  @spec reconcile_async(GenServer.server()) :: :ok
+  def reconcile_async(server), do: GenServer.cast(server, :reconcile)
+
   @spec desired_snapshot(map(), [term()]) :: desired_snapshot()
   def desired_snapshot(specs, []), do: {:complete, specs}
   def desired_snapshot(specs, [_error | _errors]), do: {:incomplete, specs}
@@ -62,6 +65,12 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @impl true
   def handle_call(:reconcile, _from, state), do: {:reply, run_reconcile(state), state}
+
+  @impl true
+  def handle_cast(:reconcile, state) do
+    run_reconcile(state)
+    {:noreply, state}
+  end
 
   @impl true
   def handle_info(:reconcile, state) do

@@ -145,15 +145,19 @@ defmodule Ankole.Brain.SelfHealing do
       {:ok, {vectors, signature}} ->
         rows
         |> Enum.zip(vectors)
-        |> Enum.each(fn {row, vector} ->
-          row
-          |> Ecto.Changeset.change(
-            embedding: vector,
-            embedding_signature: signature,
-            embedding_error: nil,
-            embedded_at: now
-          )
-          |> Repo.update!()
+        |> Enum.each(fn
+          {%Claim{} = claim, vector} ->
+            {:ok, _status} = Claims.attach_embedding(claim, vector, signature, now: now)
+
+          {row, vector} ->
+            row
+            |> Ecto.Changeset.change(
+              embedding: vector,
+              embedding_signature: signature,
+              embedding_error: nil,
+              embedded_at: now
+            )
+            |> Repo.update!()
         end)
 
         length(rows)

@@ -47,6 +47,13 @@ defmodule Ankole.Brain.LazySkillVisibility do
 
   def visible?(%__MODULE__{}, _slug), do: true
 
+  @doc "Returns whether a recall record is lazy Skill discovery metadata."
+  @spec skill_record?(map() | String.t()) :: boolean()
+  def skill_record?(%{type: @object_type}), do: true
+  def skill_record?(%{object_slug: slug}), do: skill_record?(slug)
+  def skill_record?(@slug_prefix <> _rest), do: true
+  def skill_record?(_record), do: false
+
   @spec filter_objects(Ecto.Queryable.t(), t()) :: Ecto.Query.t()
   def filter_objects(query, %__MODULE__{slugs: :all}), do: query
 

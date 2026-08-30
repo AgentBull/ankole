@@ -28,6 +28,9 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     assert_receive {:reconciled, :adapter_options}
     assert %{errors: []} = ConnectionLifecycle.reconcile(name)
     assert_receive {:reconciled, :adapter_options}
+
+    assert :ok = ConnectionLifecycle.reconcile_async(name)
+    assert_receive {:reconciled, :adapter_options}
   end
 
   test "stops only registered keys outside the desired set" do

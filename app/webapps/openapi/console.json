@@ -97,6 +97,21 @@
         "title": "AIGatewayChatGPTBrowserLoginRequest",
         "type": "object"
       },
+      "BrainObjectUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": { "type": "string" },
+          "effective_date": { "format": "date", "nullable": true, "type": "string" },
+          "expected_content_hash": { "type": "string" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" }
+        },
+        "required": ["slug", "title", "body", "meta", "expected_content_hash"],
+        "title": "BrainObjectUpdateRequest",
+        "type": "object"
+      },
       "BrainTakeResolveRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2519,7 +2534,7 @@
           "effective_date": { "nullable": true, "type": "string" },
           "emotional_weight": { "nullable": true, "type": "number" },
           "library_managed": {
-            "description": "True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.",
+            "description": "True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.",
             "type": "boolean"
           },
           "slug": { "type": "string" },
@@ -2727,13 +2742,16 @@
       "BrainObjectPage": {
         "additionalProperties": false,
         "properties": {
+          "body": { "type": "string" },
           "content_hash": { "nullable": true, "type": "string" },
           "contradictions": { "items": { "$ref": "#/components/schemas/BrainPageContradiction" }, "type": "array" },
           "deleted": { "type": "boolean" },
+          "edit_block_reason": { "nullable": true, "type": "string" },
+          "editable": { "type": "boolean" },
           "effective_date": { "nullable": true, "type": "string" },
           "facts": { "items": { "$ref": "#/components/schemas/BrainPageFact" }, "type": "array" },
           "library_managed": {
-            "description": "True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.",
+            "description": "True when a Brain Source owns the body projection. Use edit_block_reason to select the supported management action.",
             "type": "boolean"
           },
           "links": { "$ref": "#/components/schemas/BrainPageLinks" },
@@ -2752,7 +2770,11 @@
           "type",
           "title",
           "deleted",
+          "content_hash",
+          "body",
           "rendered",
+          "editable",
+          "edit_block_reason",
           "meta",
           "facts",
           "takes",
@@ -2863,6 +2885,21 @@
         },
         "required": ["session_id", "kind"],
         "title": "AgentSession",
+        "type": "object"
+      },
+      "BrainObjectCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": { "type": "string" },
+          "effective_date": { "format": "date", "nullable": true, "type": "string" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["slug", "type", "title", "body", "meta"],
+        "title": "BrainObjectCreateRequest",
         "type": "object"
       },
       "BackgroundAgentJobTurnPlan": {
@@ -6929,6 +6966,44 @@
         },
         "security": [{ "consoleBearer": [] }],
         "summary": "List Brain objects by prefix or search",
+        "tags": ["Brain"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.create_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectCreateRequest" } } },
+          "description": "Object",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectShowResponse" } } },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create one instance-owned Brain object",
+        "tags": ["Brain"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.update_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectUpdateRequest" } } },
+          "description": "Object",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectShowResponse" } } },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update one instance-owned Brain object with content-hash compare-and-swap",
         "tags": ["Brain"]
       }
     },

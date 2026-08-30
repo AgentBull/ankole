@@ -25,7 +25,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { RiBrainLine, RiCloseLine, RiLoaderLine } from '@remixicon/react'
+import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -48,7 +48,7 @@ import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../../console-list-page'
 import { MarkdownBody } from '../../markdown-body'
 import { effectiveResourceSearchQuery } from '../../state/resource-search'
-import { BrainSubNav, brainObjectPath } from './brain-nav'
+import { BrainSubNav, brainObjectEditPath, brainObjectPath } from './brain-nav'
 
 /** Keeps the list mounted while the nested slug route renders its drawer. */
 export function BrainObjectsPage() {
@@ -87,6 +87,8 @@ function BrainObjectsList() {
     <ResourceListPage
       title={t('console.brain.objects_title')}
       description={t('console.brain.objects_description')}
+      createTo="/brain/objects/new"
+      createLabel={t('console.brain.create_object')}
       subNav={<BrainSubNav />}
       columns={[
         t('console.brain.slug'),
@@ -147,7 +149,7 @@ function BrainObjectsList() {
           <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
-              {object.library_managed ? <Badge variant="outline">{t('console.brain.library_managed')}</Badge> : null}
+              {object.library_managed ? <Badge variant="outline">{t('console.brain.source_managed')}</Badge> : null}
               {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
             </div>
           </TableCell>
@@ -250,7 +252,11 @@ export function BrainObjectDrawer() {
               {page ? (
                 <Badge variant="secondary">{page.subtype ? `${page.type}/${page.subtype}` : page.type}</Badge>
               ) : null}
-              {page?.library_managed ? <Badge variant="outline">{t('console.brain.library_managed')}</Badge> : null}
+              {page?.edit_block_reason === 'source_managed' ? (
+                <Badge variant="outline">{t('console.brain.source_managed')}</Badge>
+              ) : page?.library_managed ? (
+                <Badge variant="outline">{t('console.brain.library_managed')}</Badge>
+              ) : null}
               {page?.deleted ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
               {page?.tags.map(tag => (
                 <Badge key={tag} variant="outline">
@@ -260,9 +266,7 @@ export function BrainObjectDrawer() {
             </div>
             <DrawerTitle className="text-lg tracking-normal normal-case">{page?.title ?? slug}</DrawerTitle>
             <DrawerDescription className="text-left break-all font-mono text-xs">{slug}</DrawerDescription>
-            {/* Ordinary library pages can be forked. Lazy Skill discovery
-                records stay projection-owned and use Agent Library controls. */}
-            {page?.library_managed && page.type !== 'agent-skills' ? (
+            {page?.edit_block_reason === 'library_managed' ? (
               <div className="grid gap-2">
                 <p className="text-xs text-muted-foreground">{t('console.brain.library_managed_hint')}</p>
                 <div>
@@ -272,7 +276,7 @@ export function BrainObjectDrawer() {
                 </div>
               </div>
             ) : null}
-            {page?.library_managed && page.type === 'agent-skills' ? (
+            {page?.edit_block_reason === 'agent_skills_managed' ? (
               <div className="grid gap-2">
                 <p className="text-xs text-muted-foreground">{t('console.brain.library_skill_managed_hint')}</p>
                 <div>
@@ -282,8 +286,24 @@ export function BrainObjectDrawer() {
                 </div>
               </div>
             ) : null}
-            {page && !page.deleted && !page.library_managed ? (
-              <div>
+            {page?.edit_block_reason === 'source_managed' ? (
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">{t('console.brain.source_managed_hint')}</p>
+                <div>
+                  <Link className={cn(buttonVariants({ size: 'xs', variant: 'outline' }))} to="/brain/sources">
+                    {t('console.brain.open_sources')}
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+            {page?.editable ? (
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  className={cn(buttonVariants({ size: 'xs', variant: 'outline' }))}
+                  to={brainObjectEditPath(page.slug)}>
+                  <RiEditLine data-icon="inline-start" />
+                  {t('common.edit')}
+                </Link>
                 <Button size="xs" type="button" variant="outline" onClick={() => setForgetOpen(true)}>
                   {t('console.brain.forget_object')}
                 </Button>

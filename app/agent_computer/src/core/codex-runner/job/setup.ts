@@ -176,6 +176,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     renderedFetchRuntimeConfig,
     workerEnv,
     workspaceRoot: jobProject.root,
+    repeatFetchSessionKey: jobID,
     browserRuntime: opts.browserRuntime
   })
   opts.abortSignal?.throwIfAborted()

@@ -21,7 +21,7 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_schema_link_types` | The relation predicate vocabulary |
 | `brain_schema_calibration_domains` | Named calibration domains for Take scorecards |
 | `brain_sources` | Registered learning Sources and shipped-library projection sets with their revision fingerprints |
-| `brain_objects` | One page per slug: type, subtype, title, Markdown body, emotional weight, and optional shipped-library owner |
+| `brain_objects` | One page per slug: type, subtype, title, Markdown body, emotional weight, and optional Brain Source body owner |
 | `brain_object_versions` | Append-only page history with author and content hash |
 | `brain_chunks` | Retrieval chunks of page bodies, with BM25 text and vector columns |
 | `brain_claims` | Atomic assertions: bitemporal Facts and calibratable Takes |
@@ -63,11 +63,19 @@ Two boundaries apply on every read, in order:
 Writer eligibility mirrors the read rule: a writer can write a scope it can
 itself reach; the system writer can write every scope.
 
-Page bodies carry scopes inline as Markdoc `audience` tags.
-`Ankole.Brain.Markdoc` owns wrapping, parsing, and pruning: a page render
-removes the segments whose scope the querier cannot reach or disclose, and a
-body that no longer parses renders empty instead of leaking unfiltered
-content.
+`remember` and URL Source registration use the same scope rule. If the model
+omits the scope, a private chat uses the asking Principal, a member-backed
+group chat uses its Principal group, and other turns use the Agent Principal.
+If the model selects a scope explicitly, the write keeps that scope after the
+writer eligibility check. `ConfidentialityPolicy.md` guides this selection.
+
+Page bodies carry scopes inline as `audience` tags in Markdoc tag syntax.
+The normative grammar — CommonMark plus one root-level `audience` tag plus
+`[[slug]]` wikilinks — is owned by the native kernel and specified in
+[`BrainMarkdoc.md`](BrainMarkdoc.md). `Ankole.Brain.Markdoc` delegates to that
+kernel parser without a compatibility path. A page render removes the segments
+whose scope the querier cannot reach or disclose, and a body that no longer
+parses renders empty instead of leaking unfiltered content.
 
 ## Pages, Facts, and Takes
 
@@ -262,4 +270,6 @@ The Console `Brain` area gives operators: object browsing with version
 history and rollback, claim listing with take resolution, source management
 (register, learn, archive), contradiction triage, schema suggestion
 decisions, duplicate-page merge decisions, per-principal knowledge audit,
-search preview as any Principal, and health counters.
+search preview as any Principal, and health counters. The implementation in
+[`BrainMarkdoc.md`](BrainMarkdoc.md) includes a full-page Object source editor
+with segment preview, diagnostics, and server-authoritative save validation.

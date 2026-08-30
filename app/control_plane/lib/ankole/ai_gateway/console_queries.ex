@@ -214,7 +214,11 @@ defmodule Ankole.AIGateway.ConsoleQueries do
 
   defp maybe_filter_conversation_key(query, conversation_key),
     do:
-      where(query, [conversation], ilike(conversation.conversation_key, ^"%#{conversation_key}%"))
+      where(
+        query,
+        [conversation],
+        ilike(conversation.conversation_key, ^("%" <> Repo.escape_like(conversation_key) <> "%"))
+      )
 
   defp maybe_filter_search(query, nil), do: query
 
@@ -224,7 +228,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   # filter matches them as a disjunction. It does not copy the display
   # precedence.
   defp maybe_filter_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = "%#{Repo.escape_like(search)}%"
     # Stored subject UIDs are canonical lowercase.
     subject = String.downcase(search)
 
@@ -255,12 +259,6 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         exists(channel_match) or
         exists(peer_match)
     )
-  end
-
-  # Session keys use `_` often, so a raw ILIKE pattern would read it as a
-  # single-character wildcard.
-  defp escape_like(text) do
-    String.replace(text, ~r/([\\%_])/, "\\\\\\1")
   end
 
   defp maybe_filter_active(query, nil), do: query

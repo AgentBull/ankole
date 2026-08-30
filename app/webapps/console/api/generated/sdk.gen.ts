@@ -239,6 +239,8 @@ import type {
   AnkoleWebBackgroundAgentJobControllerShowResponses,
   AnkoleWebBrainControllerArchiveSourceData,
   AnkoleWebBrainControllerArchiveSourceResponses,
+  AnkoleWebBrainControllerCreateObjectData,
+  AnkoleWebBrainControllerCreateObjectResponses,
   AnkoleWebBrainControllerCreateSourceData,
   AnkoleWebBrainControllerCreateSourceResponses,
   AnkoleWebBrainControllerDecideContradictionData,
@@ -285,6 +287,8 @@ import type {
   AnkoleWebBrainControllerShowObjectResponses,
   AnkoleWebBrainControllerSupersedeClaimData,
   AnkoleWebBrainControllerSupersedeClaimResponses,
+  AnkoleWebBrainControllerUpdateObjectData,
+  AnkoleWebBrainControllerUpdateObjectResponses,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowErrors,
   AnkoleWebConsoleReadinessControllerShowResponses,
@@ -3381,6 +3385,50 @@ export const ankoleWebBrainControllerListObjects = <ThrowOnError extends boolean
     ],
     url: '/api/v1/brain/objects',
     ...options
+  })
+
+/**
+ * Create one instance-owned Brain object
+ */
+export const ankoleWebBrainControllerCreateObject = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerCreateObjectData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerCreateObjectResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebBrainControllerCreateObjectResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/objects',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Update one instance-owned Brain object with content-hash compare-and-swap
+ */
+export const ankoleWebBrainControllerUpdateObject = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerUpdateObjectData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerUpdateObjectResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).put<AnkoleWebBrainControllerUpdateObjectResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/objects',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

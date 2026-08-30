@@ -49,13 +49,7 @@ export function BrainHealthPage() {
             <ModelStatusItem label={t('console.settings.brain_extraction_model')} status={snapshot.models.extraction} />
             <ModelStatusItem label={t('console.settings.brain_dreaming_model')} status={snapshot.models.dreaming} />
             <HealthItem label={t('console.brain.embedding_signature')}>
-              {snapshot.embedding_signature == null ? (
-                <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
-              ) : (
-                <code className="text-xs break-all text-muted-foreground">
-                  {formatJSON(snapshot.embedding_signature)}
-                </code>
-              )}
+              <EmbeddingSignature value={snapshot.embedding_signature} />
             </HealthItem>
           </HealthSection>
 
@@ -88,7 +82,7 @@ export function BrainHealthPage() {
             <HealthItem label={t('console.brain.pending_chunks')}>{snapshot.embeddings.pending_chunks}</HealthItem>
             {snapshot.embeddings.recent_error ? (
               <HealthItem label={t('console.brain.recent_embedding_error')}>
-                <code className="text-xs break-all text-destructive">{snapshot.embeddings.recent_error}</code>
+                <HealthReason reason={snapshot.embeddings.recent_error} />
               </HealthItem>
             ) : null}
           </HealthSection>
@@ -199,9 +193,7 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
           {status.provider_available === false ? (
             <>
               <Badge variant="destructive">{t('console.brain.model_provider_missing')}</Badge>
-              {status.provider_error ? (
-                <code className="text-xs break-all text-destructive">{status.provider_error}</code>
-              ) : null}
+              {status.provider_error ? <HealthReason reason={status.provider_error} /> : null}
             </>
           ) : null}
         </span>
@@ -223,8 +215,8 @@ function InvalidConfigKeys({ config }: { config: Record<string, unknown> }) {
       <p className="text-sm text-destructive">{t('console.brain.invalid_config_keys')}</p>
       <ul className="grid gap-1">
         {invalid.map(([key, status]) => (
-          <li key={key} className="font-mono text-xs text-destructive">
-            {key}: {formatJSON(status)}
+          <li key={key} className="text-xs text-destructive">
+            <code>{key}</code>: {t(configStatusKey(status))}
           </li>
         ))}
       </ul>
@@ -234,4 +226,45 @@ function InvalidConfigKeys({ config }: { config: Record<string, unknown> }) {
 
 function FailureCount({ count }: { count: number }) {
   return count > 0 ? <Badge variant="destructive">{count}</Badge> : <span>0</span>
+}
+
+function EmbeddingSignature({ value }: { value: unknown }) {
+  const { t } = useTranslation()
+  const error = objectString(value, 'error')
+
+  if (value == null) return <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
+  if (error) return <HealthReason reason={error} />
+
+  return <code className="text-xs break-all text-muted-foreground">{formatJSON(value)}</code>
+}
+
+function HealthReason({ reason }: { reason: string }) {
+  const { t } = useTranslation()
+
+  return <span className="text-xs text-destructive">{t(healthReasonKey(reason))}</span>
+}
+
+function healthReasonKey(reason: string) {
+  switch (reason) {
+    case 'not_found':
+      return 'console.brain.health_provider_not_found' as const
+    case 'provider_disabled':
+      return 'console.brain.health_provider_disabled' as const
+    case 'invalid_embedding_model_ref':
+      return 'console.brain.health_embedding_model_invalid' as const
+    default:
+      return 'console.brain.health_internal_error' as const
+  }
+}
+
+function configStatusKey(status: unknown) {
+  if (objectString(status, 'invalid')) return 'console.brain.health_config_invalid' as const
+  if (objectString(status, 'unavailable')) return 'console.brain.health_config_unavailable' as const
+  return 'console.brain.health_internal_error' as const
+}
+
+function objectString(value: unknown, key: string) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const item = (value as Record<string, unknown>)[key]
+  return typeof item === 'string' ? item : undefined
 }

@@ -319,6 +319,8 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
 }
 
 function PluginsStep({ model, onContinue }: { model: InstanceType<typeof PluginsStepModel>; onContinue: () => void }) {
+  'use no memo'
+
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const query = useQuery({

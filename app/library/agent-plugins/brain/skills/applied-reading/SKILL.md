@@ -7,9 +7,8 @@ tags:
   - strategic reading
   - read through the lens of my problem
   - personalized book analysis
-  - 读书应用
-  - 个性化解读
-  - 带着问题读
+  - 读一下
+  - 深读
 brain-recall-only: true
 ankole-runtime: any
 ---

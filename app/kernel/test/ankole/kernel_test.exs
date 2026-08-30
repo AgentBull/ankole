@@ -28,6 +28,36 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.any_ascii("report-2026_07.pdf") == "report-2026_07.pdf"
   end
 
+  test "brain_markdoc_analyze/1 crosses the JSON NIF boundary" do
+    body =
+      "public\n{% audience scope=\"principal:alice\" %}\n" <>
+        "private [[people/alice]]\n{% /audience %}"
+
+    assert %{
+             "segments" => [
+               %{"scope" => "world", "text" => "public\n"},
+               %{
+                 "scope" => "principal:alice",
+                 "text" => "\nprivate [[people/alice]]\n"
+               },
+               %{"scope" => "world", "text" => ""}
+             ],
+             "wikilinks" => ["people/alice"]
+           } =
+             NativeKernel.brain_markdoc_analyze(body)
+
+    assert %{
+             "error" => %{
+               "code" => "unclosed_audience_tag",
+               "line" => 1
+             }
+           } =
+             NativeKernel.brain_markdoc_analyze(
+               "{% audience scope=\"principal:alice\" %}\n" <>
+                 "~~~markdoc\n{% /audience %}\n~~~\n"
+             )
+  end
+
   test "web_url_facts/1 parses and classifies web URLs" do
     assert %{scheme: "https", host: "example.com", host_class: :public} =
              NativeKernel.web_url_facts("https://Example.COM/page")

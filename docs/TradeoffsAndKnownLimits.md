@@ -13,6 +13,29 @@ Principal and AuthZ control access inside that instance. They do not isolate
 organizations that do not trust the same infrastructure. Run a separate
 deployment instance for each organization.
 
+## Provider Subject IDs Share One Principal Namespace
+
+Provider names scope external identity binding rows. They do not partition
+Principal identity. When a provider subject has no existing binding, runtime
+admission first matches its normalized email and mobile data. If those values
+match no Principal, admission matches the normalized primary external ID to an
+installation-wide Principal UID.
+
+After contact matching misses, this rule intentionally makes equal normalized
+subject IDs from different providers share one Principal. The accounts can
+belong to different real people. In that case they also share the Principal's
+permissions, audit identity, and canonical Brain person object. Ankole accepts
+this collision as an explicit cost of the installation-wide Principal identity
+rule.
+
+An operator who needs separate Principals must write an explicit binding for
+the provider subject before automatic admission. An existing provider binding
+always wins.
+
+Do not prepend a provider name to a generated Principal UID. That would replace
+this tradeoff with provider isolation and split one global Principal into
+provider-specific identities. See [Principal](design-docs/Principal.md).
+
 ## The Worker Container Protects the Host
 
 Ankole treats each Agent Computer container or pod as a trusted, first-party

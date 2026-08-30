@@ -21,8 +21,9 @@ undocumented_unsafe_blocks = "deny"
 [features]
 default = []
 napi = ["dep:napi", "dep:napi-derive"]
-nif_dev = ["dep:rustler", "universal_ai_client_ring", "program_runner"]
-nif_prod = ["dep:rustler", "universal_ai_client_http3", "program_runner"]
+nif_dev = ["dep:rustler", "universal_ai_client_ring", "program_runner", "brain_markdoc"]
+nif_prod = ["dep:rustler", "universal_ai_client_http3", "program_runner", "brain_markdoc"]
+brain_markdoc = ["dep:comrak"]
 program_runner = ["dep:deno_core", "dep:futures-util", "dep:tokio"]
 universal_ai_client = [
   "dep:bytes",
@@ -49,6 +50,7 @@ blake3 = "1.8.7"
 bytes = { version = "1.12.1", optional = true }
 cel = "0.14.3"
 chacha20poly1305 = "0.11.0"
+comrak = { version = "0.54.0", default-features = false, optional = true }
 crc32fast = "1.5.1"
 deno_core = { version = "0.410.0", optional = true }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }

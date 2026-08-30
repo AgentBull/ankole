@@ -26,6 +26,9 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
   @spec reconcile(GenServer.server()) :: map()
   def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
 
+  @spec reconcile_async(GenServer.server()) :: :ok
+  def reconcile_async(server \\ __MODULE__), do: ConnectionLifecycle.reconcile_async(server)
+
   @spec reconcile_once(keyword()) :: map()
   def reconcile_once(opts \\ []) do
     SignalsGateway.list_enabled_bindings("slack", Keyword.take(opts, [:repo]))

@@ -137,6 +137,11 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
     assert get_in(terminal, ["activities", "call-1", "label"]) ==
              "读取文件：core/agent-loop.ts"
+
+    assert get_in(terminal, ["activities", "call-1", "phase"]) == "completed"
+
+    failed = ReplyPresentation.terminal(presentation, "failed", "失败。")
+    assert get_in(failed, ["activities", "call-1", "phase"]) == "failed"
   end
 
   test "continued freezes one visible fragment without completing its live plan" do

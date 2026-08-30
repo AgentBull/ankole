@@ -1,16 +1,7 @@
 ---
 name: idea-lineage
 description: Trace how one idea evolved through memory — first mention, best articulation, reversals, contradictions, abandoned branches, and the current live version, each cited from stored evidence. For a single idea, not a broad concept map or an entity metric history.
-tags:
-  - idea lineage
-  - how my thinking evolved
-  - trace an idea
-  - current version of an idea
-  - where did this idea come from
-  - 想法演变
-  - 思想脉络
-  - 观点变化
-brain-recall-only: true
+default_enabled: true
 ankole-runtime: main
 ---
 

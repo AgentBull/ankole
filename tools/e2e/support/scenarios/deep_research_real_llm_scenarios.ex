@@ -192,7 +192,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
              ai_messages_for_actor_event(wakeup.id)
              |> tool_results("show_background_job_details")
 
-    assert details_result.arguments == %{"job_id" => job_id}
+    assert details_result.arguments == %{"job_id" => job_id, "result_offset" => 0}
     refute tool_result_error?(details_result)
 
     if settled.status == "failed" do

@@ -1,7 +1,7 @@
 ---
 name: resolve-before-asking
 description: Use before you ask anyone who a person, company, or thing is, what role or relationship someone has, or before you present an entity as unknown. Exhaust memory first — entity, recall, get_page, synthesize — then external search, and escalate only with a hypothesis.
-ankole-runtime: main
+ankole-runtime: any
 ---
 
 # Resolve before asking

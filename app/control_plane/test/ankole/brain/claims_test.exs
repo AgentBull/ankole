@@ -6,6 +6,7 @@ defmodule Ankole.Brain.ClaimsTest do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Claim
 
   setup do
     {:ok, _result} = SchemaPacks.install_packs([])
@@ -35,6 +36,38 @@ defmodule Ankole.Brain.ClaimsTest do
       },
       overrides
     )
+  end
+
+  describe "Console read models" do
+    test "hide extraction watermarks from claim and Principal audit views", %{
+      human: human,
+      object: object
+    } do
+      {:ok, %{claim: external}} = Claims.write_fact(fact_attrs(), human.uid)
+
+      internal =
+        Repo.insert!(%Claim{
+          author_uid: human.uid,
+          claim_type: "fact",
+          object_slug: object.slug,
+          claim: "EXTRACTION_COMPLETE",
+          kind: "event",
+          holder: "brain",
+          audience_scope: "world",
+          notability: "low",
+          confidence: 1.0,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: Claims.internal_provenance_prefix() <> "extraction"
+        })
+
+      console_ids = Claims.list_for_console(limit: 20) |> Enum.map(& &1.id)
+      audit_ids = Claims.list_for_principal_audit(human.uid, limit: 20) |> Enum.map(& &1.id)
+
+      assert external.id in console_ids
+      assert external.id in audit_ids
+      refute internal.id in console_ids
+      refute internal.id in audit_ids
+    end
   end
 
   describe "write_fact/3" do

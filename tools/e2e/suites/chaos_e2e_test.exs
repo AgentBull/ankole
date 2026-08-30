@@ -515,16 +515,20 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert :ok = FakeFeishu.State.user_sends_message(ctx.fake_feishu.state, attrs)
     assert %ActorEvent{} = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_redelivery_1")
 
+    initial_connection_count = FakeFeishu.State.connection_count(ctx.fake_feishu.state)
+    assert initial_connection_count > 0
     assert :ok = FakeFeishu.State.drop_ws_connections(ctx.fake_feishu.state)
-    assert_receive {:fake_feishu, {:ws_disconnected, _conn_id}}, 15_000
 
-    # FakeFeishu counts every WS accept. Waiting past the initial connection and
-    # the dropped socket proves the adapter opened a fresh consumer before the
-    # provider redelivery below.
+    for _index <- 1..initial_connection_count do
+      assert_receive {:fake_feishu, {:ws_disconnected, _conn_id}}, 15_000
+    end
+
+    # Wait until every dropped consumer has a replacement. The disconnect
+    # events remove the old connections before a matching count can succeed.
     assert {:ok, _count} =
              wait_until(deadline(30_000), fn ->
                count = FakeFeishu.State.connection_count(ctx.fake_feishu.state)
-               count >= 3 && count
+               count >= initial_connection_count && count
              end)
 
     # The provider redelivers the same event after reconnect; the gateway must

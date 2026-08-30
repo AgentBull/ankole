@@ -118,6 +118,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         renderedFetchRuntimeConfig,
         workerEnv,
         workspaceRoot: opts.workspaceRoot,
+        repeatFetchSessionKey: aiGatewayConversationID,
         browserRuntime: opts.browserRuntime
       }),
       'web tools'

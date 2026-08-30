@@ -28,6 +28,8 @@ export interface CreateWebToolsOptions {
   aiGateway: AIGatewayHTTPClient
   /** Session or Job workspace that receives the full text of a truncated page. */
   workspaceRoot: string
+  /** Stable conversation or Job owner for repeat-fetch reuse. */
+  repeatFetchSessionKey: string
   renderedFallback?: RenderedWebFetchOptions
 }
 
@@ -70,6 +72,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Worke
     createWebSearchTool(opts.aiGateway),
     createWebFetchTool(opts.aiGateway, {
       workspaceRoot: opts.workspaceRoot,
+      repeatFetchSessionKey: opts.repeatFetchSessionKey,
       renderedFallback: opts.renderedFallback
     })
   ]
@@ -117,9 +120,9 @@ function createWebSearchTool(aiGateway: AIGatewayHTTPClient): WorkerAgentTool<ty
  * extraction services. The internal fallback keeps rendered pages reachable when
  * the provider path is unavailable.
  */
-/** How long one session serves a repeated URL from its earlier result. */
+/** How long one conversation or Job serves a repeated URL from its earlier result. */
 const RepeatFetchTTLMs = ms('15m')
-/** Entry cap so a long run cannot grow the per-session page cache without bound. */
+/** Entry cap so a long Worker run cannot grow the page cache without bound. */
 const RepeatFetchMaxEntries = 100
 
 interface CachedFetchedPage {
@@ -127,24 +130,28 @@ interface CachedFetchedPage {
   at: number
 }
 
+const recentPages = new Map<string, CachedFetchedPage>()
+
 function createWebFetchTool(
   aiGateway: AIGatewayHTTPClient,
   config: {
     workspaceRoot: string
+    repeatFetchSessionKey: string
     renderedFallback?: RenderedWebFetchOptions
   }
 ): WorkerAgentTool<typeof WebFetchParams, WebToolDetails> {
-  // Session-scoped repeat-fetch cache. Research runs re-pull the same URL for
+  // Owner-scoped repeat-fetch cache. Research runs re-pull the same URL for
   // facts they already hold; serving the earlier result saves the round trip
   // and keeps the two copies identical. Only clean results enter: an error must
   // stay retryable, and a shell or near-empty page must not become the answer
-  // this session keeps returning.
-  const recentPages = new Map<string, CachedFetchedPage>()
+  // this conversation or Job keeps returning.
+  const cacheKey = (url: string) => JSON.stringify([config.repeatFetchSessionKey, url])
 
   function cacheRenderedPage(url: string, page: RenderedPage, at: number): void {
     if (page.details.error || page.details.render_warning) return
-    recentPages.delete(url)
-    recentPages.set(url, { page, at })
+    const key = cacheKey(url)
+    recentPages.delete(key)
+    recentPages.set(key, { page, at })
     while (recentPages.size > RepeatFetchMaxEntries) {
       const oldest = recentPages.keys().next().value
       if (oldest === undefined) break
@@ -166,9 +173,14 @@ function createWebFetchTool(
       const cachedByURL = new Map<string, CachedFetchedPage>()
       const missing: string[] = []
       for (const url of params.urls) {
-        const cached = recentPages.get(url)
-        if (cached && now - cached.at <= RepeatFetchTTLMs && !cachedByURL.has(url)) cachedByURL.set(url, cached)
-        else if (!cachedByURL.has(url) && !missing.includes(url)) missing.push(url)
+        const key = cacheKey(url)
+        const cached = recentPages.get(key)
+        if (cached && now - cached.at <= RepeatFetchTTLMs && !cachedByURL.has(url)) {
+          cachedByURL.set(url, cached)
+        } else {
+          if (cached) recentPages.delete(key)
+          if (!cachedByURL.has(url) && !missing.includes(url)) missing.push(url)
+        }
       }
 
       let bodyFacts: JSONObject = {}

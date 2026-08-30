@@ -17,8 +17,12 @@ defmodule Ankole.Brain.Health do
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.SignalsLearning
+  alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Channel
+
+  @internal_error "internal_error"
+  @public_reasons ~w(not_found provider_disabled invalid_embedding_model_ref)
 
   @doc """
   Returns the current Brain health snapshot.
@@ -97,9 +101,16 @@ defmodule Ankole.Brain.Health do
   defp config_statuses do
     Config.key_statuses()
     |> Map.new(fn
-      {key, :ok} -> {key, "ok"}
-      {key, {:invalid, reason}} -> {key, %{invalid: reason}}
-      {key, {:unavailable, reason}} -> {key, %{unavailable: reason}}
+      {key, :ok} ->
+        {key, "ok"}
+
+      {key, {:invalid, reason}} ->
+        log_config_error(key, "invalid", reason)
+        {key, %{invalid: "invalid_value"}}
+
+      {key, {:unavailable, reason}} ->
+        log_config_error(key, "unavailable", reason)
+        {key, %{unavailable: "store_unavailable"}}
     end)
   end
 
@@ -110,8 +121,14 @@ defmodule Ankole.Brain.Health do
   defp model_status(model) do
     provider =
       case ProviderConfigs.fetch_active_provider(model["provider_id"]) do
-        {:ok, _provider} -> %{provider_available: true}
-        {:error, reason} -> %{provider_available: false, provider_error: inspect(reason)}
+        {:ok, _provider} ->
+          %{provider_available: true}
+
+        {:error, reason} ->
+          %{
+            provider_available: false,
+            provider_error: public_reason(reason, "model_provider")
+          }
       end
 
     Map.merge(
@@ -125,13 +142,33 @@ defmodule Ankole.Brain.Health do
       {:ok, signature} -> signature
       # No configured embedding model means no signature, not an error blob.
       {:error, :embedding_model_not_configured} -> nil
-      {:error, reason} -> %{error: reason_text(reason)}
+      {:error, reason} -> %{error: public_reason(reason, "embedding_signature")}
     end
   end
 
-  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_text(reason) when is_binary(reason), do: reason
-  defp reason_text(reason), do: inspect(reason)
+  defp public_reason(reason, area) do
+    reason_text = if is_atom(reason), do: Atom.to_string(reason), else: reason
+
+    if is_binary(reason_text) and reason_text in @public_reasons do
+      reason_text
+    else
+      Logging.error(
+        "brain.health.internal_error",
+        "Brain health hid an internal error",
+        %{area: area, reason: inspect(reason)}
+      )
+
+      @internal_error
+    end
+  end
+
+  defp log_config_error(key, status, reason) do
+    Logging.warning(
+      "brain.health.config_unhealthy",
+      "Brain health found an unhealthy stored setting",
+      %{key: key, status: status, reason: reason}
+    )
+  end
 
   # Queue depth: idle channels whose slices are pending, plus the oldest
   # pending entry age in seconds.
@@ -182,8 +219,20 @@ defmodule Ankole.Brain.Health do
       failed_chunks: chunk_failures,
       failed_claims: claim_failures,
       pending_chunks: pending_chunks,
-      recent_error: recent_error
+      recent_error: recent_embedding_error(recent_error)
     }
+  end
+
+  defp recent_embedding_error(nil), do: nil
+
+  defp recent_embedding_error(reason) do
+    Logging.error(
+      "brain.health.internal_error",
+      "Brain health hid an internal embedding error",
+      %{area: "embedding_projection", reason: reason}
+    )
+
+    @internal_error
   end
 
   # Group channels without a member group cannot learn; the deterministic

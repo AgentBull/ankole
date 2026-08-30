@@ -25,6 +25,7 @@ export function PrincipalEditPage() {
   const detailPath = `/access/principals/${encodeURIComponent(uid)}`
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
   const loadedPrincipal = principal.data?.principal
+  const emailRequired = Boolean(loadedPrincipal?.email || loadedPrincipal?.local_credential)
 
   useEffect(() => {
     if (!loadedPrincipal) return
@@ -45,7 +46,7 @@ export function PrincipalEditPage() {
 
   const submit = () => {
     model.clearValidation()
-    const draftError = model.draftError()
+    const draftError = model.draftError(emailRequired)
     if (draftError) {
       model.validationError.value = draftError
       return
@@ -72,9 +73,9 @@ export function PrincipalEditPage() {
           onChange={event => (model.displayName.value = event.target.value)}
         />
       </LabeledField>
-      <LabeledField label={t('console.principals.email')} required>
+      <LabeledField label={t('console.principals.email')} required={emailRequired}>
         <Input
-          required
+          required={emailRequired}
           type="email"
           value={model.email.value}
           onChange={event => (model.email.value = event.target.value)}

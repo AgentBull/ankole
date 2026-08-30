@@ -6,16 +6,16 @@ describe('PrincipalEditorModel', () => {
     const model = new PrincipalEditorModel()
 
     model.initialize('new', { displayName: '', email: '' })
-    expect(model.draftError()).toBe('display_name_required')
+    expect(model.draftError(true)).toBe('display_name_required')
 
     model.displayName.value = 'Ada Lovelace'
-    expect(model.draftError()).toBe('email_required')
+    expect(model.draftError(true)).toBe('email_required')
 
     model.email.value = 'not-an-email'
-    expect(model.draftError()).toBe('email_invalid')
+    expect(model.draftError(true)).toBe('email_invalid')
 
     model.email.value = ' ada@example.com '
-    expect(model.draftError()).toBeUndefined()
+    expect(model.draftError(true)).toBeUndefined()
     expect(model.createBody()).toEqual({
       display_name: 'Ada Lovelace',
       email: 'ada@example.com',
@@ -40,6 +40,20 @@ describe('PrincipalEditorModel', () => {
 
     model.email.value = 'ada.l@example.com'
     expect(model.updateBody()).toEqual({ display_name: 'Ada L.', email: 'ada.l@example.com' })
+    model[Symbol.dispose]()
+  })
+
+  test('allows an externally observed user without email to edit the display name', () => {
+    const model = new PrincipalEditorModel()
+
+    model.initialize('principal:lark-main:alice', { displayName: 'Alice', email: '' })
+    model.displayName.value = 'Alice Chen'
+
+    expect(model.draftError(false)).toBeUndefined()
+    expect(model.updateBody()).toEqual({ display_name: 'Alice Chen' })
+
+    model.email.value = 'invalid'
+    expect(model.draftError(false)).toBe('email_invalid')
     model[Symbol.dispose]()
   })
 

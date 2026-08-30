@@ -39,7 +39,7 @@ defmodule Ankole.Brain.GetPage do
   def get_page(querier_uid, reference, opts \\ []) do
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
 
-    with {:ok, access} <- Access.for_querier(querier_uid),
+    with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid) do
       case Objects.resolve_reference(reference, lazy_skill_visibility: visibility) do
         {:ok, object} ->
@@ -65,11 +65,15 @@ defmodule Ankole.Brain.GetPage do
       {:ok, object} ->
         facts = admin_facts(object)
         takes = admin_takes(object)
+        editability = Objects.editability(object)
 
         {:ok,
          Map.merge(page_shell(object, %LazySkillVisibility{}), %{
+           body: object.body,
            rendered: render_markdoc(object, object.body),
            library_managed: object.managed_by_source_id != nil,
+           editable: editability.editable,
+           edit_block_reason: editability.edit_block_reason,
            facts: facts,
            takes: takes,
            contradictions:

@@ -195,6 +195,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert Process.alive?(broker_pid)
     end
 
+    test "only reads and the idempotent Job Turn checkpoint retry handler failures" do
+      assert RPCLane.retryable_handler_failure?("background_agent_job.get")
+      assert RPCLane.retryable_handler_failure?("background_agent_job.turn.upsert")
+      refute RPCLane.retryable_handler_failure?("background_agent_job.status.update")
+      refute RPCLane.retryable_handler_failure?("actor_turn.complete")
+    end
+
     test "ambient may_intervene turns use the light model profile" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :may_intervene)

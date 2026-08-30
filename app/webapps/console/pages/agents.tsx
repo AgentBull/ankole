@@ -124,6 +124,10 @@ export function AgentsListPage() {
               </StatusIndicator>
             </TableCell>
             <RowActions
+              // The confirmed action changes from disable to delete with the
+              // row status. A new action surface must not inherit a closing
+              // dialog from the prior status.
+              key={`${agent.uid}:${agent.status}`}
               editTo={encodeURIComponent(agent.uid)}
               editLabel={t('common.edit')}
               actions={

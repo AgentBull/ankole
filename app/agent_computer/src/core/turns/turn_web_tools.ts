@@ -14,11 +14,13 @@ export function createTurnWebTools(opts: {
   renderedFetchRuntimeConfig: RenderedFetchRuntimeConfig
   workerEnv: Record<string, string>
   workspaceRoot: string
+  repeatFetchSessionKey: string
   browserRuntime?: BrowserRuntime
 }): Promise<WorkerAgentTool[]> {
   return createWebTools({
     aiGateway: opts.aiGateway,
     workspaceRoot: opts.workspaceRoot,
+    repeatFetchSessionKey: opts.repeatFetchSessionKey,
     ...(opts.browserRuntime
       ? {
           renderedFallback: opts.browserRuntime.renderedWebFetchFallback(

@@ -141,9 +141,7 @@ defmodule Ankole.Brain.SignalsLearning do
       prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
 
       case ModelCalls.complete_json(model, prompt) do
-        {:ok, output} ->
-          items = List.wrap(output["items"])
-
+        {:ok, %{"items" => items}} when is_list(items) ->
           # The input version is recomputed over the same entries after the
           # model call: an in-slice edit or delete during the run writes no
           # terminal and reruns. Entries that only arrived later belong to
@@ -155,6 +153,9 @@ defmodule Ankole.Brain.SignalsLearning do
           else
             {:ok, %{status: :slice_changed, token: token}}
           end
+
+        {:ok, _invalid_output} ->
+          {:error, {:extraction_failed, :invalid_extraction_response}}
 
         {:error, reason} ->
           {:error, {:extraction_failed, reason}}
@@ -189,26 +190,25 @@ defmodule Ankole.Brain.SignalsLearning do
   # transaction. Embeddings prepare in one batched call before it, so the
   # transaction holds no network I/O while write-time semantic dedup keeps
   # its vectors. The locked Source re-read is the archive fence: a channel
-  # archived during the model call must not gain new memory. Item-level
-  # validation rejects stay visible in the report and the log; they do not
-  # block the terminal, because the prompt-contract filter is expected to
-  # drop garbage and an unwritable item must not wedge the channel forever.
-  # Infrastructure failures abort the transaction and leave no terminal.
+  # archived during the model call must not gain new memory. Mixed
+  # item-level validation rejects stay visible in the report and the log.
+  # If every non-empty model item is rejected, the transaction rolls back
+  # without a terminal so Oban can retry the slice instead of losing it.
+  # Infrastructure failures follow the same rollback contract.
   defp finalize(source, channel_id, token, outcome, items, learning_context, boundary) do
     prepared = prepare_embeddings(items)
 
     result =
       Repo.transact(fn repo ->
-        with :ok <- lock_active_source(repo, source) do
-          written = write_items(repo, channel_id, items, learning_context, prepared)
-
-          with {:ok, _terminal} <-
-                 Claims.write_extraction_terminal(channel_id, token, outcome,
-                   repo: repo,
-                   boundary: boundary
-                 ) do
-            {:ok, %{status: outcome, token: token, written: written}}
-          end
+        with :ok <- lock_active_source(repo, source),
+             written = write_items(repo, channel_id, items, learning_context, prepared),
+             :ok <- ensure_extraction_written(items, written),
+             {:ok, _terminal} <-
+               Claims.write_extraction_terminal(channel_id, token, outcome,
+                 repo: repo,
+                 boundary: boundary
+               ) do
+          {:ok, %{status: outcome, token: token, written: written}}
         end
       end)
 
@@ -257,6 +257,12 @@ defmodule Ankole.Brain.SignalsLearning do
   end
 
   @empty_counts %{claims: 0, objects: 0, timelines: 0, links: 0, rejected: 0, reject_reasons: []}
+
+  defp ensure_extraction_written(items, %{rejected: rejected, reject_reasons: reasons})
+       when items != [] and rejected == length(items),
+       do: {:error, {:all_items_rejected, reasons}}
+
+  defp ensure_extraction_written(_items, _written), do: :ok
 
   defp write_items(repo, channel_id, items, learning_context, prepared) do
     # Objects first: facts, takes, timelines, and links in the same batch

@@ -127,6 +127,55 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     assert claim.audience_scope == "group:#{group.name}"
   end
 
+  test "an invalid or all-rejected extraction leaves the slice pending for a later retry", %{
+    alice: alice,
+    channel: channel
+  } do
+    {:ok, output_holder} = Agent.start_link(fn -> %{"unexpected" => []} end)
+
+    base_url =
+      start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        output = Agent.get(output_holder, & &1)
+
+        {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(output))}
+      end)
+
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-extract-retry",
+        provider_kind: "openrouter",
+        base_url: base_url,
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+      })
+
+    {:ok, _value} =
+      AppConfigure.put_global_by_key("brain.extraction_model", %{
+        "provider_id" => "brain-extract-retry",
+        "model" => "fake-extract"
+      })
+
+    assert {:error, {:extraction_failed, :invalid_extraction_response}} =
+             SignalsLearning.process_channel(channel.id)
+
+    assert SignalsLearning.has_pending_slice?(channel.id)
+    refute Repo.exists?(Claim |> where([claim], claim.signal_gateway_channel_id == ^channel.id))
+
+    Agent.update(output_holder, fn _output -> %{"items" => [invalid_item()]} end)
+
+    assert {:error, {:all_items_rejected, [_reason | _rest]}} =
+             SignalsLearning.process_channel(channel.id)
+
+    assert SignalsLearning.has_pending_slice?(channel.id)
+    refute Repo.exists?(Claim |> where([claim], claim.signal_gateway_channel_id == ^channel.id))
+
+    Agent.update(output_holder, fn _output -> %{"items" => [valid_item(alice.uid)]} end)
+
+    assert {:ok, %{status: :complete, written: %{claims: 1}}} =
+             SignalsLearning.process_channel(channel.id)
+
+    refute SignalsLearning.has_pending_slice?(channel.id)
+  end
+
   describe "known page injection" do
     # The counterfactual behind write-time dedup: the model only reuses an
     # existing page when the prompt names it. The faked model plays an
@@ -262,6 +311,30 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
         )
       )
     )
+  end
+
+  defp invalid_item do
+    %{
+      "type" => "fact",
+      "claim" => "This item must stay retryable",
+      "kind" => "not-a-kind",
+      "holder" => "world",
+      "notability" => "medium",
+      "confidence" => 0.75,
+      "provenance" => "test"
+    }
+  end
+
+  defp valid_item(holder_uid) do
+    %{
+      "type" => "fact",
+      "claim" => "Alice wants a written summary before any call",
+      "kind" => "preference",
+      "holder" => "people/" <> holder_uid,
+      "notability" => "high",
+      "confidence" => 0.75,
+      "provenance" => "send me something written first"
+    }
   end
 
   defp insert_entry!(channel_id, source_entry_id, text, author_uid) do

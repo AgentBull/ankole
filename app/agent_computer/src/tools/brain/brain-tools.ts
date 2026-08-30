@@ -29,53 +29,68 @@ const GridValue = z.number().min(0).max(1).multipleOf(0.05)
 // unparseable value is an error there, never a silently absent bound.
 const ISOInstantOrDate = z.union([z.iso.datetime({ offset: true }), z.iso.date()])
 
-const RememberParams = z.object({
-  claim: z
-    .string()
-    .min(1)
-    .max(2_000)
-    .describe('One atomic assertion. Split a compound statement into separate remember calls.'),
-  kind: z
-    .enum([...FactKinds, ...TakeKinds])
-    .describe(
-      "The claim kind. Fact kinds record observations: 'event', 'preference', 'commitment', 'belief', 'fact'. Take kinds record judgments and predictions: 'take', 'bet', 'hunch'."
+const RememberParams = z
+  .object({
+    claim: z
+      .string()
+      .min(1)
+      .max(2_000)
+      .describe('One atomic assertion. Split a compound statement into separate remember calls.'),
+    kind: z
+      .enum([...FactKinds, ...TakeKinds])
+      .describe(
+        "The claim kind. Fact kinds record observations: 'event', 'preference', 'commitment', 'belief', 'fact'. Take kinds record judgments and predictions: 'take', 'bet', 'hunch'."
+      ),
+    scope: z
+      .string()
+      .regex(AudienceScopePattern, "scope must be 'world', 'group:<name>', or 'principal:<uid>'")
+      .optional()
+      .describe(
+        "Omitted scope binds the claim to this conversation's audience (DM asker, or the group's member Group). Set scope explicitly when the fact should reach a different audience: consult ConfidentialityPolicy.md and select the widest scope that does not break a known confidentiality requirement."
+      ),
+    holder: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Canonical page slug of who HOLDS this judgment, not who it is about. Defaults to you, the current agent.'
+      ),
+    entity: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Page slug or name of an existing entity page to attach the claim to. A name that does not resolve files the claim to the current channel instead; the result reports the parent it landed on.'
+      ),
+    notability: z.enum(['high', 'medium', 'low']).optional().describe('Fact notability. Defaults to medium.'),
+    confidence: GridValue.optional().describe(
+      'For fact kinds: certainty that the fact is correct, 0..1 in 0.05 steps. Defaults to 0.75. A fact the subject reports about themselves caps at 0.75 without independent support.'
     ),
-  scope: z
-    .string()
-    .regex(AudienceScopePattern, "scope must be 'world', 'group:<name>', or 'principal:<uid>'")
-    .describe(
-      "Audience scope: 'world', 'group:<name>', or 'principal:<uid>'. Consult the ConfidentialityPolicy.md guidance and select the widest scope that does not break a known confidentiality requirement."
+    weight: GridValue.optional().describe(
+      'For take kinds: how strongly the holder holds the judgment, 0..1 in 0.05 steps. Defaults to 0.6. Your own adoption of a relayed judgment caps at 0.55.'
     ),
-  holder: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      'Canonical page slug of who HOLDS this judgment, not who it is about. Defaults to you, the current agent.'
-    ),
-  entity: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      'Page slug or name of an existing entity page to attach the claim to. A name that does not resolve files the claim to the current channel instead; the result reports the parent it landed on.'
-    ),
-  notability: z.enum(['high', 'medium', 'low']).optional().describe('Fact notability. Defaults to medium.'),
-  confidence: GridValue.optional().describe(
-    'For fact kinds: certainty that the fact is correct, 0..1 in 0.05 steps. Defaults to 0.75. A fact the subject reports about themselves caps at 0.75 without independent support.'
-  ),
-  weight: GridValue.optional().describe(
-    'For take kinds: how strongly the holder holds the judgment, 0..1 in 0.05 steps. Defaults to 0.6. Your own adoption of a relayed judgment caps at 0.55.'
-  ),
-  context: z
-    .string()
-    .max(2_000)
-    .optional()
-    .describe(
-      'Necessary context that explains the fact; not a second claim. Applies to fact kinds only and is ignored for take kinds.'
-    ),
-  provenance: z.string().min(1).describe('Quote or close paraphrase of the source of this claim.')
-})
+    until_date: z.iso
+      .date()
+      .optional()
+      .describe('For take kinds only: the ISO date by which the judgment or prediction can be resolved.'),
+    context: z
+      .string()
+      .max(2_000)
+      .optional()
+      .describe(
+        'Necessary context that explains the fact; not a second claim. Applies to fact kinds only and is ignored for take kinds.'
+      ),
+    provenance: z.string().min(1).describe('Quote or close paraphrase of the source of this claim.')
+  })
+  .superRefine((params, context) => {
+    if (params.until_date && !(TakeKinds as readonly string[]).includes(params.kind)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['until_date'],
+        message: 'until_date is only valid for take, bet, or hunch claims'
+      })
+    }
+  })
 
 const LearnSourceParams = z.object({
   url: z
@@ -180,7 +195,7 @@ function createRememberTool(opts: CreateBrainToolsOptions): WorkerAgentTool<type
     description: [
       'Write one durable memory claim to the shared Brain.',
       'Use it for information with long-term value: facts, preferences, commitments, beliefs, events, and your own takes, bets, or hunches. Do not store small talk or transient task detail.',
-      'Consult the ConfidentialityPolicy.md guidance when you choose scope. When one input contains parts with different disclosure ranges, split it and call remember once for each part with its own scope.',
+      'Consult ConfidentialityPolicy.md when you choose scope. Omit scope to use the conversation audience; set it explicitly when the fact should reach a different audience. When one input contains parts with different disclosure ranges, split it and call remember once for each part with its own scope.',
       "holder names who HOLDS the judgment, not who the claim is about: when a person states an opinion about someone else, the holder is that person. Relaying someone's judgment keeps their holder; your own endorsement of it is a separate take.",
       'Use multiples of 0.05 for confidence and weight.',
       'The write persists immediately; a later failure or retry of this turn does not revert it.'

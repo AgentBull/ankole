@@ -20,6 +20,7 @@ defmodule Ankole.Brain.Objects do
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.SlugAlias
+  alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Vocabulary
@@ -254,7 +255,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
-           :ok <- guard_unmanaged(object),
+           :ok <- guard_unmanaged(object, repo),
            :ok <- verify_content_hash(object, expected_hash),
            new_title = Map.get(attrs, :title, object.title),
            new_body = Map.get(attrs, :body, object.body),
@@ -279,6 +280,62 @@ defmodule Ankole.Brain.Objects do
     end)
   end
 
+  @doc false
+  @spec upsert_source_projection(Source.t(), map(), keyword()) ::
+          {:ok, Object.t()} | {:error, term()}
+  def upsert_source_projection(source, attrs, opts \\ [])
+
+  def upsert_source_projection(%Source{kind: kind} = source, attrs, opts)
+      when kind in ["file", "url"] and is_map(attrs) do
+    repo = Keyword.get(opts, :repo, Repo)
+    slug = attrs[:slug]
+    body = attrs[:body] || ""
+
+    with :ok <- validate_slug(slug),
+         {:ok, type} <- validate_type("media", repo),
+         :ok <- validate_body_scopes(body, :system) do
+      case repo.get_by(Object, slug: slug) do
+        nil ->
+          insert_source_projection(repo, source, attrs, type.name, body)
+
+        %Object{managed_by_source_id: owner} = object when owner == source.id ->
+          update_source_projection(repo, object, attrs, type.name, body)
+
+        %Object{} ->
+          {:error, {:source_object_conflict, slug}}
+      end
+    end
+  end
+
+  def upsert_source_projection(%Source{}, _attrs, _opts),
+    do: {:error, :unsupported_source_projection}
+
+  @doc "Returns the server-owned edit state for one Object."
+  @spec editability(Object.t(), keyword()) :: %{
+          editable: boolean(),
+          edit_block_reason: String.t() | nil
+        }
+  def editability(%Object{} = object, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    cond do
+      object.deleted_at != nil ->
+        %{editable: false, edit_block_reason: "deleted"}
+
+      object.managed_by_source_id == nil ->
+        %{editable: true, edit_block_reason: nil}
+
+      object.type == @library_projection_type ->
+        %{editable: false, edit_block_reason: "agent_skills_managed"}
+
+      source_kind(repo, object.managed_by_source_id) == "library" ->
+        %{editable: false, edit_block_reason: "library_managed"}
+
+      true ->
+        %{editable: false, edit_block_reason: "source_managed"}
+    end
+  end
+
   @doc """
   Soft-deletes one object: it leaves ordinary recall but keeps a recovery
   window until purge. Chunks stay for restore; recall filters them out.
@@ -292,7 +349,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
-           :ok <- guard_unmanaged(object) do
+           :ok <- guard_unmanaged(object, repo) do
         meta =
           case reason do
             nil ->
@@ -327,7 +384,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
-           :ok <- guard_unmanaged(object),
+           :ok <- guard_unmanaged(object, repo),
            %ObjectVersion{} = version <- repo.get(ObjectVersion, version_id),
            true <- version.object_id == object.id or {:error, :version_object_mismatch},
            {:ok, _snapshot} <- snapshot_version(repo, object, author_uid) do
@@ -367,10 +424,14 @@ defmodule Ankole.Brain.Objects do
           %Object{type: @library_projection_type} ->
             {:error, {:reserved_object_type, @library_projection_type}}
 
-          %Object{} ->
-            object
-            |> Ecto.Changeset.change(managed_by_source_id: nil)
-            |> repo.update()
+          %Object{managed_by_source_id: source_id} ->
+            if source_kind(repo, source_id) == "library" do
+              object
+              |> Ecto.Changeset.change(managed_by_source_id: nil)
+              |> repo.update()
+            else
+              {:error, :not_library_managed}
+            end
         end
       end
     end)
@@ -385,7 +446,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
-           :ok <- guard_unmanaged(object) do
+           :ok <- guard_unmanaged(object, repo) do
         meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
         object
@@ -599,7 +660,7 @@ defmodule Ankole.Brain.Objects do
   defp maybe_console_prefix(query, _prefix), do: query
 
   defp maybe_console_search(query, term) when is_binary(term) and term != "" do
-    pattern = "%" <> term <> "%"
+    pattern = "%" <> Repo.escape_like(term) <> "%"
 
     where(
       query,
@@ -669,20 +730,73 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  # A library-managed page is a projection of a shipped okf file: the file is
-  # the authority, so every instance edit path refuses it. Claims, links,
-  # timelines, and tags on the slug stay open — they are instance periphery,
-  # not the page body. Taking the page over is the explicit fork operation,
-  # which clears the marker.
-  defp guard_unmanaged(%Object{managed_by_source_id: nil}), do: :ok
+  defp insert_source_projection(repo, source, attrs, type, body) do
+    object = %Object{
+      id: UUIDv7.autogenerate(),
+      slug: attrs[:slug],
+      type: type,
+      subtype: normalize_optional(attrs[:subtype]),
+      title: attrs[:title],
+      body: body,
+      meta: %{},
+      content_hash: content_hash(attrs[:title], body, %{}),
+      managed_by_source_id: source.id,
+      updated_at: DateTime.utc_now(:microsecond)
+    }
 
-  defp guard_unmanaged(%Object{slug: slug}) do
+    with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
+      reconcile_chunks(object, repo: repo)
+    end
+  end
+
+  defp update_source_projection(repo, object, attrs, type, body) do
+    changes = %{
+      type: type,
+      subtype: normalize_optional(attrs[:subtype]),
+      title: attrs[:title],
+      body: body,
+      deleted_at: nil,
+      content_hash: content_hash(attrs[:title], body, object.meta),
+      updated_at: DateTime.utc_now(:microsecond)
+    }
+
+    with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
+      reconcile_chunks(object, repo: repo)
+    end
+  end
+
+  # A Source-managed page takes its body from the Source, so every instance
+  # edit path refuses it. Claims, links, timelines, and tags stay open as
+  # instance-owned periphery. Only ordinary Library pages have a fork path.
+  defp guard_unmanaged(%Object{managed_by_source_id: nil}, _repo), do: :ok
+
+  defp guard_unmanaged(%Object{slug: slug, managed_by_source_id: source_id}, repo) do
+    if source_kind(repo, source_id) == "library" do
+      library_managed_error(slug)
+    else
+      {:error,
+       {:source_managed, slug,
+        %{
+          hint:
+            "This page body is owned by a Brain Source. Relearn or archive the Source instead of editing the body."
+        }}}
+    end
+  end
+
+  defp library_managed_error(slug) do
     {:error,
      {:library_managed, slug,
       %{
         hint:
           "This page is product-shipped library knowledge and updates with the product. Attach claims, links, or timeline entries instead of editing the body, or fork the page in the Console to take it over."
       }}}
+  end
+
+  defp source_kind(repo, source_id) do
+    case repo.get(Source, source_id) do
+      %Source{kind: kind} -> kind
+      nil -> nil
+    end
   end
 
   defp verify_content_hash(_object, nil), do: {:error, :missing_expected_content_hash}

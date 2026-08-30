@@ -126,7 +126,7 @@ defmodule Ankole.Brain.SourceLearning do
       Repo.transact(fn repo ->
         with {:ok, current} <- Sources.lock_active(repo, source),
              :ok <- ensure_same_revision(current, source.upstream_revision),
-             {:ok, object} <- upsert_object(repo, object_attrs),
+             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs, repo: repo),
              expired = Claims.expire_source_session_facts(repo, object.slug, session),
              {:ok, written} <- write_claims(repo, object, extraction.items, scope, session),
              :ok <- ensure_extraction_written(extraction.items, written),
@@ -173,31 +173,6 @@ defmodule Ankole.Brain.SourceLearning do
     do: {:error, {:all_items_rejected, reasons}}
 
   defp ensure_extraction_written(_items, _written), do: :ok
-
-  defp upsert_object(repo, attrs) do
-    case Objects.get_by_slug(attrs.slug, repo: repo) do
-      {:ok, object} ->
-        Objects.update_object(
-          attrs.slug,
-          %{body: attrs.body, title: attrs.title, expected_content_hash: object.content_hash},
-          :system,
-          repo: repo
-        )
-
-      {:error, :not_found} ->
-        Objects.create_object(
-          %{
-            slug: attrs.slug,
-            type: "media",
-            subtype: attrs.subtype,
-            title: attrs.title,
-            body: attrs.body
-          },
-          :system,
-          repo: repo
-        )
-    end
-  end
 
   # Extraction
 
@@ -268,7 +243,7 @@ defmodule Ankole.Brain.SourceLearning do
 
     case ModelCalls.complete_json(model, prompt) do
       {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
-      {:ok, _no_items} -> {:ok, []}
+      {:ok, _invalid_output} -> {:error, :invalid_extraction_response}
       {:error, reason} -> {:error, reason}
     end
   end

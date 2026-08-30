@@ -6,6 +6,10 @@ export function brainObjectPath(slug: string): string {
   return `/brain/objects/${slug.split('/').map(encodeURIComponent).join('/')}`
 }
 
+export function brainObjectEditPath(slug: string): string {
+  return `/brain/objects/${encodeURIComponent(slug)}/edit`
+}
+
 /** Tab strip shared by every Brain page; the side nav lists the area once. */
 export function BrainSubNav() {
   const { t } = useTranslation()

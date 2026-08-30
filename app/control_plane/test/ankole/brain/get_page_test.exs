@@ -163,4 +163,46 @@ defmodule Ankole.Brain.GetPageTest do
     refute String.contains?(page.rendered, "Internal deal progress.")
     assert String.contains?(page.rendered, "Public introduction.")
   end
+
+  test "an Agent reads body scopes carried by the current conversation readers", context do
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: context.member.uid})
+    member_scope = "principal:#{context.member.uid}"
+
+    {:ok, private_page} =
+      Objects.create_object(
+        %{
+          slug: "analysis/conversation-reader",
+          type: "analysis",
+          title: "Conversation Reader",
+          body: """
+          {% audience scope="#{member_scope}" %}
+          Kestrel private synthesis body.
+          {% /audience %}
+          """
+        },
+        agent.uid
+      )
+
+    member_disclosure = %{
+      mode: :strict,
+      asker_uid: context.member.uid,
+      present_uids: [context.member.uid]
+    }
+
+    assert {:ok, member_page} =
+             GetPage.get_page(agent.uid, private_page.slug, disclosure: member_disclosure)
+
+    assert member_page.rendered =~ "Kestrel private synthesis body."
+
+    outsider_disclosure = %{
+      mode: :strict,
+      asker_uid: context.outsider.uid,
+      present_uids: [context.outsider.uid]
+    }
+
+    assert {:ok, outsider_page} =
+             GetPage.get_page(agent.uid, private_page.slug, disclosure: outsider_disclosure)
+
+    refute outsider_page.rendered =~ "Kestrel private synthesis body."
+  end
 end

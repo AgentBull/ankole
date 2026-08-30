@@ -483,14 +483,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     }
   end
 
-  # Only read operations are known to be side-effect free. Retrying a write or
-  # completion after an internal exception could repeat an effect whose commit
-  # outcome is unknown, so those failures remain terminal.
+  # Read operations are side-effect free. Turn checkpoint upsert is the one
+  # retryable write: its revision and item keys make the same request
+  # idempotent whether the failed handler committed or rolled back.
+  @doc false
   @spec retryable_handler_failure?(String.t()) :: boolean()
-  defp retryable_handler_failure?(method) do
+  def retryable_handler_failure?(method) do
     case Map.get(@rpc_operations, method) do
       {_module, _function, :turn_read, _request_mod, _response_mod} -> true
-      _operation -> false
+      _operation -> method == "background_agent_job.turn.upsert"
     end
   end
 

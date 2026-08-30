@@ -478,6 +478,44 @@ describe('ambient intervention recognizer', () => {
     expect(blankReason.decision.reason).toBe('The structured ambient route was invalid, so the Agent stayed silent.')
   })
 
+  it('discards authority that a provider attaches to a bounded reply', async () => {
+    const turnStart = ambientTurnStart({
+      observed_messages: [
+        {
+          source_entry_id: 'msg-1',
+          sent_at: '2026-07-18T12:00:00Z',
+          speaker: 'Alice',
+          role: 'human',
+          text: 'What is 17 times 19?'
+        }
+      ]
+    })
+
+    const result = await recognizeAmbientIntervention(
+      {
+        turnStart,
+        model: ambientModel(
+          '{"action":"FOREGROUND_REPLY","authority":"EXPLICIT_REQUEST","handoff_job_id":null,"asked_by":"msg-1","reason":"Alice asked a bounded question."}'
+        ),
+        historyMessages: [],
+        agentConversationContext: ambientContext()
+      },
+      { currentTime: new Date('2026-07-18T12:05:00Z') }
+    )
+
+    expect(result.decision).toMatchObject({
+      action: 'FOREGROUND_REPLY',
+      authority: 'NONE',
+      reason: 'Alice asked a bounded question.',
+      askedBy: {
+        state: 'accepted',
+        sourceEntryID: 'msg-1',
+        speaker: 'Alice',
+        text: 'What is 17 times 19?'
+      }
+    })
+  })
+
   it('removes explicit authority when the attributed speaker is no longer latest', async () => {
     const turnStart = ambientTurnStart({
       observed_messages: [
