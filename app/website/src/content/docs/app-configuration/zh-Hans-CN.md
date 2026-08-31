@@ -87,11 +87,9 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
 | `brain.enabled` | 实例 | 启用 Brain 的检索、学习和维护；关闭后仍保留已经存储的知识 |
+| `brain.maintainer_agent_uid` | 实例 | 负责维护 Brain 的活跃 Agent；Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent；停用后会停止这些调用和本地网页抓取，直到重新启用或更换 Agent；在 Agent 页面编辑对应的 `light`、`heavy` 和 `web_fetch` profile |
 | `brain.embedding_model` | 实例 | 向量检索使用的 Provider、模型和维度；留空会停用向量检索 |
 | `brain.rerank_model` | 实例 | 搜索结果重排使用的 Provider 和模型；留空会保留融合后的顺序 |
-| `brain.web_fetch_model` | 实例 | 从 URL Source 学习时使用的 Provider 和模型；留空会停止这类学习 |
-| `brain.extraction_model` | 实例 | 从 Signal 会话和 Source 中提取知识的模型；留空会停止相关学习任务 |
-| `brain.dreaming_model` | 实例 | 汇总知识并发现待人工复核矛盾的模型；留空会跳过依赖模型的维护任务 |
 | `brain.search_tokenizer` | 实例 | BM25 分词器：`icu`、`jieba`、`lindera_japanese` 或 `lindera_korean`；修改后需要重建 BM25 索引 |
 | `brain.chunking` | 实例 | Source 分块大小、重叠量和输入上限 |
 | `brain.forgetting` | 实例 | 各类知识的衰减半衰期和软删除清理间隔 |

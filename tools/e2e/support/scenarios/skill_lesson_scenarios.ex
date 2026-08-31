@@ -54,7 +54,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
         primary_binding: primary_binding
       }) do
     put_coding_profile!(agent.uid, provider_id)
-    put_brain_model!("brain.dreaming_model", provider_id, @real_dreaming_model)
+    put_brain_maintainer_profile!(agent.uid, provider_id)
 
     assert {:ok, _value} =
              AppConfigure.put_global_by_key("brain.skill_learning_reflection_threshold", 2)
@@ -256,11 +256,15 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
              })
   end
 
-  defp put_brain_model!(key, provider_id, model) do
-    assert {:ok, _value} =
-             AppConfigure.put_global_by_key(key, %{
-               "provider_id" => provider_id,
-               "model" => model
+  defp put_brain_maintainer_profile!(agent_uid, provider_id) do
+    assert {:ok, ^agent_uid} =
+             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", agent_uid)
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent_uid, "heavy", %{
+               provider_id: provider_id,
+               model: @real_dreaming_model,
+               provider_options: %{}
              })
   end
 

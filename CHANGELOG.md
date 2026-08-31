@@ -1,9 +1,10 @@
 # Changelog
 
-## Version 1.0.0 (2026-08-31)
+## Version 1.0.0-rc.3 (2026-08-31)
 
-- Promotes `1.0.0-rc.2` to the stable `1.0.0` release with no functional changes. Everything new since the `0.76` line is described in the `1.0.0-rc` and `1.0.0-alpha` sections below.
-- A manually dispatched image workflow run on `main` now also publishes the versioned release, so a changelog-only release promotion can ship; re-releasing an existing version is still rejected by the immutable-tag check.
+- Brain now uses one active maintainer Agent as the execution identity and usage owner for every model call. Its `light`, `heavy`, and `web_fetch` profiles replace the former Brain extraction, Dreaming, and web-fetch settings, while embedding and rerank stay in Brain. Operators upgrading must select an active Agent and configure the needed profiles; disabling it stops all Brain model calls and local URL fetching until it is enabled or replaced, while stored knowledge and pure-text recall remain available.
+- URL Source learning now uses the Worker's local `ankole-browser` when the maintainer Agent has no `web_fetch` profile or the Provider request fails, with that Agent's environment and web security policy.
+- Release candidates now advance the `main-latest` image tag without moving `canary`; only alpha and beta releases move `canary`, and release candidates remain GitHub pre-releases.
 
 ## Version 1.0.0-rc.2 (2026-08-30)
 

@@ -61,11 +61,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.extraction_model", %{
-        "provider_id" => "brain-extract",
-        "model" => "fake-extract"
-      })
+    configure_brain_maintainer_profile!("light", "brain-extract", "fake-extract")
 
     channel = insert_channel!()
     insert_entry!(channel.id, "m1", "send me something written first", alice.uid)
@@ -148,11 +144,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.extraction_model", %{
-        "provider_id" => "brain-extract-retry",
-        "model" => "fake-extract"
-      })
+    configure_brain_maintainer_profile!("light", "brain-extract-retry", "fake-extract")
 
     assert {:error, {:extraction_failed, :invalid_extraction_response}} =
              SignalsLearning.process_channel(channel.id)
@@ -248,11 +240,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
           credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
         })
 
-      {:ok, _value} =
-        AppConfigure.put_global_by_key("brain.extraction_model", %{
-          "provider_id" => "brain-extract-dedup",
-          "model" => "fake-extract"
-        })
+      configure_brain_maintainer_profile!("light", "brain-extract-dedup", "fake-extract")
 
       :ok
     end

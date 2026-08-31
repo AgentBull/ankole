@@ -87,11 +87,9 @@ Workflow 생성 요청은 이 상한을 높일 수 없습니다. 요청한 `conc
 | 키 | 범위 | 용도 |
 |---|---|---|
 | `brain.enabled` | 인스턴스 | Brain 검색, 학습, 유지 관리를 활성화합니다. 비활성화해도 저장된 지식은 유지됩니다. |
+| `brain.maintainer_agent_uid` | 인스턴스 | Brain 유지보수를 담당하는 활성 Agent입니다. 모든 Brain 모델 호출은 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 비활성화하면 다시 활성화하거나 교체할 때까지 해당 호출과 로컬 URL 가져오기가 중지됩니다. Agent 페이지에서 `light`, `heavy`, `web_fetch` profile을 편집합니다. |
 | `brain.embedding_model` | 인스턴스 | 벡터 검색에 사용할 Provider, 모델, 차원 수입니다. 비어 있으면 벡터 검색을 비활성화합니다. |
 | `brain.rerank_model` | 인스턴스 | 검색 결과 rerank에 사용할 Provider와 모델입니다. 비어 있으면 융합 결과 순서를 유지합니다. |
-| `brain.web_fetch_model` | 인스턴스 | URL Source 학습에 사용할 Provider와 모델입니다. 비어 있으면 URL Source 학습을 중지합니다. |
-| `brain.extraction_model` | 인스턴스 | Signal 대화와 Source에서 지식을 추출할 모델입니다. 비어 있으면 관련 학습 작업을 중지합니다. |
-| `brain.dreaming_model` | 인스턴스 | 지식을 통합하고 사람이 검토할 모순을 찾는 모델입니다. 비어 있으면 모델이 필요한 유지 관리 작업을 건너뜁니다. |
 | `brain.search_tokenizer` | 인스턴스 | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, `lindera_korean`. 변경 후에는 BM25 index를 다시 만들어야 합니다. |
 | `brain.chunking` | 인스턴스 | Source chunk 크기, overlap, 입력 상한입니다. |
 | `brain.forgetting` | 인스턴스 | 지식 종류별 감쇠 반감기와 soft-delete purge 간격입니다. |

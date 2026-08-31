@@ -4,11 +4,11 @@ defmodule Ankole.Brain.SignalsLearning do
 
   This is the second first-class write path: input is the channel's raw
   message mirror, independent of Agent turn history. One instance-level task
-  processes one slice with `brain.extraction_model`; the same slice is never
-  processed per Agent, because the knowledge space is shared. Slice identity
-  is a stable version token; real claims and the internal terminal claim
-  commit in one final short transaction, so a slice without a matching
-  terminal can always rerun safely.
+  processes one slice with the maintainer Agent's `light` profile; the same
+  slice is never processed per Agent, because the knowledge space is shared.
+  Slice identity is a stable version token; real claims and the internal
+  terminal claim commit in one final short transaction, so a slice without a
+  matching terminal can always rerun safely.
   """
 
   import Ecto.Query, warn: false

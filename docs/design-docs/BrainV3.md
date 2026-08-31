@@ -211,8 +211,10 @@ Two background paths write memory without a `remember` call:
   previous revision's facts in the same transaction. An extraction whose
   items all fail write validation rolls the run back whole: the fingerprint
   does not advance, so the run retries instead of recording an empty
-  replacement as done. `url` Sources fetch through the AIGateway web-fetch
-  provider; `file` Sources accept UTF-8 text only.
+  replacement as done. `url` Sources first use the Brain maintainer Agent's
+  `web_fetch` profile. If that profile is absent or its provider request
+  fails, the Worker uses its supervised `ankole-browser` runtime. `file`
+  Sources accept UTF-8 text only.
 
 Extraction quality is a prompt contract: one independently changeable
 assertion per item, confidence on the grid, first-person conviction caps.
@@ -257,12 +259,22 @@ halflives.
 ## Configuration
 
 Operator settings live under declared `brain.*` AppConfigure keys: `enabled`,
-the five model selectors (`embedding_model` with dimensions, `rerank_model`,
-`web_fetch_model`, `extraction_model`, `dreaming_model`), `search_tokenizer`,
-`chunking`, `forgetting`, the two cron expressions,
-`signal_channel_batch_idle_time`, `skill_learning_enabled`, and
-`skill_learning_reflection_threshold`. The Console settings drawer edits all
-of them.
+`maintainer_agent_uid`, the instance-wide `embedding_model` with dimensions,
+the instance-wide `rerank_model`, `search_tokenizer`, `chunking`, `forgetting`,
+the two cron expressions, `signal_channel_batch_idle_time`,
+`skill_learning_enabled`, and `skill_learning_reflection_threshold`.
+
+The selected maintainer Agent supplies `light` for Signals and Source
+extraction, `heavy` for Dreaming, and `web_fetch` for URL Source learning. The
+Brain settings editor selects the Agent and links to that Agent's model profile
+editor; it does not duplicate those three profile controls. Embedding and
+rerank stay in the Brain editor because they belong to the instance knowledge
+space, not one Agent's model loop. All Brain model calls, including embedding
+and rerank, execute as the selected Agent and attribute usage to that Agent.
+The selected Agent must be active. Disabling it makes Brain unhealthy and
+stops all model calls and local URL fetching until the Agent is enabled or
+replaced. Stored knowledge and pure-text recall remain available during that
+state.
 
 ## Console
 

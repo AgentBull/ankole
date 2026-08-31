@@ -18,8 +18,8 @@ Knowledge reaches Brain through three current paths:
 | Path | Result | Conditions |
 | --- | --- | --- |
 | An Agent calls `remember` | One fact or judgment becomes durable immediately | The Agent must file one atomic claim, give its source, and select a valid audience scope |
-| Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and `brain.extraction_model` must be configured; group learning also needs a synchronized member permission group |
-| An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs `brain.extraction_model`; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs also need a Web Fetch Provider |
+| Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and the Brain maintainer Agent must have a usable `light` profile; group learning also needs a synchronized member permission group |
+| An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs use the Agent's `web_fetch` profile or local `ankole-browser` fallback |
 
 Signals learning runs after an eligible channel becomes idle or its conversation ends. It reads the channel message slice, not the Agent's private model transcript. In a direct message, learned content defaults to the other person's scope. In a group, it defaults to the channel member group's scope.
 
@@ -125,15 +125,15 @@ The **Brain** area gives operators a result-focused view of the knowledge space:
 - **Principal audit** lists knowledge where one Principal is the holder, author, or audience.
 - **Health** shows model readiness, learning backlog, embedding failures, channel prerequisites, and projection status.
 
-The Brain settings select one instance-wide model for each system activity:
+Brain settings select the maintainer Agent and keep the two models that belong to the instance knowledge space. Every Brain model call runs as the selected Agent and attributes usage to it. The Agent must remain active. Disabling it makes Brain unhealthy and stops all Brain model calls and local URL fetching until it is enabled or replaced; stored knowledge and pure-text recall remain available.
 
-| Setting | What it enables |
+| Owner and setting | What it enables |
 | --- | --- |
-| Embedding model | Vector recall and semantic Fact deduplication |
-| Rerank model | Cross-encoder ordering after retrieval fusion |
-| Web Fetch Provider | Readable-text extraction for URL Sources |
-| Extraction model | Signals learning and claim extraction from Sources |
-| Dreaming model | Model-dependent Dreaming phases and `synthesize` |
+| Maintainer Agent `light` profile | Signals learning and claim extraction from Sources |
+| Maintainer Agent `heavy` profile | Model-dependent Dreaming phases and `synthesize` |
+| Maintainer Agent `web_fetch` profile | Readable-text extraction for URL Sources; local `ankole-browser` is the fallback |
+| Brain Embedding model | Vector recall and semantic Fact deduplication |
+| Brain Rerank model | Cross-encoder ordering after retrieval fusion |
 
 A missing optional model narrows the related capability instead of hiding the state. The Health page reports what is unavailable. Disabling Brain removes its tools and context injection and stops its background tasks; stored knowledge stays unchanged.
 

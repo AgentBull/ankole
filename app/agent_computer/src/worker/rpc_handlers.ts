@@ -2,12 +2,18 @@ import { runAutomationJob } from '../automation-jobs/run'
 import { agentHomePaths } from '../core/agent-home-paths'
 import { deleteCodexLogs2AtDailyReset } from '../core/codex-runner/runtime/fix-codex-logs2-sqlite-bug'
 import { type RuntimeRPCClient, type WorkerRPCHandlers } from '../lanes/rpc_lane'
+import { jsonBytes } from '../fabric/envelope_proto'
+import type { BrowserRuntime } from '../browser-runtime'
 import type { WorkerConfig } from './config'
 import { workerLogger } from './logging'
 import { throwingRPCRequester } from './rpc_requests'
 
 /** Binds control-plane-initiated RPCs to operations executed by this Worker. */
-export function createWorkerRPCHandlers(config: WorkerConfig, rpcClient: RuntimeRPCClient): WorkerRPCHandlers {
+export function createWorkerRPCHandlers(
+  config: WorkerConfig,
+  rpcClient: RuntimeRPCClient,
+  browserRuntime: BrowserRuntime
+): WorkerRPCHandlers {
   return {
     runAutomationJob: request =>
       runAutomationJob(request, {
@@ -26,6 +32,19 @@ export function createWorkerRPCHandlers(config: WorkerConfig, rpcClient: Runtime
         status: result.status,
         deletedFiles: result.deletedFiles
       }
+    },
+    renderWebFetch: async request => {
+      if (request.urls.length === 0) throw new Error('rendered web fetch requires at least one URL')
+      if (request.idleTtlMs !== undefined && request.idleTtlMs > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error('rendered web fetch idle TTL is too large')
+      }
+
+      const body = await browserRuntime.fetchRendered(request.urls, {
+        workerEnv: request.workerEnv,
+        ssrfFilter: request.ssrfFilter,
+        ...(request.idleTtlMs === undefined ? {} : { idleTtlMs: Number(request.idleTtlMs) })
+      })
+      return { bodyJson: jsonBytes(body as never) }
     }
   }
 }

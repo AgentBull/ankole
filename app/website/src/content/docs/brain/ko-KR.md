@@ -18,8 +18,8 @@ Brain은 계속 늘어나는 채팅 기록을 그대로 기억으로 취급하�
 | 경로 | 결과 | 조건 |
 | --- | --- | --- |
 | Agent가 `remember`를 호출 | 하나의 사실 또는 판단이 즉시 영구 기억이 됨 | Agent는 하나의 원자적 Claim, 출처, 유효한 공개 범위를 지정해야 함 |
-| Signals 학습이 대화를 처리 | 명시적인 `remember` 호출 없이도 장기적으로 가치 있는 사실, 판단, 미완료 약속을 학습할 수 있음 | Channel은 다이렉트 메시지 또는 IM 그룹이어야 하며 `brain.extraction_model`이 설정되어 있어야 함. 그룹 학습에는 동기화된 구성원 권한 그룹도 필요함 |
-| 운영자가 Source를 등록 | 파일 또는 웹페이지가 검색 대상이 되고 추출된 Claim을 만들 수 있음 | Claim 추출에는 `brain.extraction_model`이 필요함. 파일은 배포 환경에서 읽을 수 있어야 함. 파일과 가져온 페이지 본문은 유효한 UTF-8 텍스트이며 10 MiB 이하여야 함. URL에는 Web Fetch Provider도 필요함 |
+| Signals 학습이 대화를 처리 | 명시적인 `remember` 호출 없이도 장기적으로 가치 있는 사실, 판단, 미완료 약속을 학습할 수 있음 | Channel은 다이렉트 메시지 또는 IM 그룹이어야 하며 Brain 유지보수 Agent에 사용 가능한 `light` profile이 있어야 함. 그룹 학습에는 동기화된 구성원 권한 그룹도 필요함 |
+| 운영자가 Source를 등록 | 파일 또는 웹페이지가 검색 대상이 되고 추출된 Claim을 만들 수 있음 | Claim 추출에는 유지보수 Agent의 `light` profile이 필요함. 파일은 배포 환경에서 읽을 수 있어야 함. 파일과 가져온 페이지 본문은 유효한 UTF-8 텍스트이며 10 MiB 이하여야 함. URL은 Agent의 `web_fetch` profile 또는 로컬 `ankole-browser` fallback을 사용함 |
 
 Signals 학습은 대상 Channel이 일정 시간 유휴 상태가 되거나 관련 대화가 끝난 뒤 메시지 묶음을 처리합니다. Agent의 비공개 모델 대화 기록이 아니라 Channel에 저장된 메시지를 읽습니다. 다이렉트 메시지에서 학습한 내용의 기본 범위는 상대방입니다. 그룹에서 학습한 내용의 기본 범위는 해당 Channel의 구성원 권한 그룹입니다.
 
@@ -125,15 +125,15 @@ Console의 **Brain** 영역은 지식 공간을 결과별로 보여줍니다.
 - **Principal audit**는 특정 Principal이 holder, 작성자 또는 대상인 지식을 나열합니다.
 - **Health**는 모델 준비 상태, 학습 적체, Embedding 실패, Channel 전제 조건, 투영 상태를 보여줍니다.
 
-Brain 설정은 시스템 활동별로 인스턴스 공용 모델을 선택합니다.
+Brain 설정에서는 Brain 유지보수를 담당할 Agent를 선택하고 인스턴스 지식 공간에 속하는 두 모델 설정을 유지합니다. 모든 Brain 모델 호출은 선택한 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 이 Agent는 활성 상태를 유지해야 합니다. 비활성화하면 Brain이 비정상 상태를 보고하고, Agent를 다시 활성화하거나 교체할 때까지 모든 모델 호출과 로컬 URL 가져오기를 중지합니다. 저장된 지식과 텍스트 검색은 계속 사용할 수 있습니다.
 
-| 설정 | 활성화되는 결과 |
+| 소유자 및 설정 | 활성화되는 결과 |
 | --- | --- |
-| Embedding 모델 | 벡터 검색과 Fact 의미 중복 판정 |
-| Rerank 모델 | 검색 결과를 결합한 뒤 순서를 다시 정함 |
-| Web Fetch Provider | URL Source에서 읽을 수 있는 본문을 추출 |
-| Extraction 모델 | Signals 학습과 Source의 Claim 추출 |
-| Dreaming 모델 | 모델이 필요한 Dreaming 작업과 `synthesize` |
+| 유지보수 Agent의 `light` profile | Signals 학습과 Source의 Claim 추출 |
+| 유지보수 Agent의 `heavy` profile | 모델이 필요한 Dreaming 작업과 `synthesize` |
+| 유지보수 Agent의 `web_fetch` profile | URL Source에서 읽을 수 있는 본문을 추출. 로컬 `ankole-browser`가 fallback |
+| Brain Embedding 모델 | 벡터 검색과 Fact 의미 중복 판정 |
+| Brain Rerank 모델 | 검색 결과를 결합한 뒤 순서를 다시 정함 |
 
 선택 모델이 없으면 해당 기능만 제한됩니다. 상태가 숨겨지지 않으며 Health 페이지에 사용할 수 없는 기능이 표시됩니다. Brain을 비활성화하면 기억 도구와 컨텍스트 주입이 사라지고 백그라운드 작업이 중지됩니다. 저장된 지식은 바뀌지 않습니다.
 

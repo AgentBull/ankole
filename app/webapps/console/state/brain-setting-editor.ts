@@ -9,11 +9,9 @@ import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 
 export const BRAIN_KEYS = {
   enabled: 'brain.enabled',
+  maintainerAgentUID: 'brain.maintainer_agent_uid',
   embeddingModel: 'brain.embedding_model',
   rerankModel: 'brain.rerank_model',
-  webFetchModel: 'brain.web_fetch_model',
-  extractionModel: 'brain.extraction_model',
-  dreamingModel: 'brain.dreaming_model',
   searchTokenizer: 'brain.search_tokenizer',
   chunking: 'brain.chunking',
   forgetting: 'brain.forgetting',
@@ -24,14 +22,8 @@ export const BRAIN_KEYS = {
   skillLearningReflectionThreshold: 'brain.skill_learning_reflection_threshold'
 } as const
 
-/** The five nullable model keys; only the embedding model carries dimensions. */
-export const BRAIN_MODEL_KEYS = [
-  BRAIN_KEYS.embeddingModel,
-  BRAIN_KEYS.rerankModel,
-  BRAIN_KEYS.webFetchModel,
-  BRAIN_KEYS.extractionModel,
-  BRAIN_KEYS.dreamingModel
-] as const
+/** Brain owns these nullable model keys; Agent profiles own its maintenance models. */
+export const BRAIN_MODEL_KEYS = [BRAIN_KEYS.embeddingModel, BRAIN_KEYS.rerankModel] as const
 
 export const BRAIN_CRON_KEYS = [BRAIN_KEYS.dreamingTaskCron, BRAIN_KEYS.selfHealingTaskCron] as const
 
@@ -79,10 +71,9 @@ export function brainModelRequiresDimensions(key: string): boolean {
 }
 
 /** Names the model-catalog class one Brain model slot suggests from. */
-export function brainModelCatalogKind(key: string): 'embedding' | 'rerank' | 'llm' {
+export function brainModelCatalogKind(key: string): 'embedding' | 'rerank' {
   if (key === BRAIN_KEYS.embeddingModel) return 'embedding'
-  if (key === BRAIN_KEYS.rerankModel) return 'rerank'
-  return 'llm'
+  return 'rerank'
 }
 
 /** Reads a stored model value (object or null) into an editable draft. */

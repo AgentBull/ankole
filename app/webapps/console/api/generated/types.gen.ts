@@ -491,6 +491,7 @@ export type BrainHealth = {
     recent_error?: string | null
   }
   enabled: boolean
+  maintainer_agent_uid: string | null
   models: {
     dreaming: BrainModelStatus
     embedding: BrainModelStatus
@@ -2102,7 +2103,10 @@ export type ScheduleRunListResponse = {
  */
 export type BrainModelStatus = {
   configured: boolean
+  fallback?: 'ankole_browser'
   model?: string | null
+  profile?: string | null
+  profile_error?: string | null
   provider_available?: boolean | null
   provider_error?: string | null
   provider_id?: string | null

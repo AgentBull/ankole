@@ -23,7 +23,7 @@ The eight built-in Agent profiles control separate paid paths. Five select langu
 | `web_search`, `web_fetch` | web tools | see Lever 3 |
 | `image_generate` | image generation | expensive per call; only bound if used |
 
-Brain has five instance-wide model settings, separate from Agent profiles. `brain.embedding_model` and `brain.rerank_model` control retrieval. `brain.web_fetch_model` reads URL Sources, `brain.extraction_model` learns from conversations and Sources, and `brain.dreaming_model` runs model-dependent maintenance and Skill lesson review. Configure them once in [AppConfigure](../app-configuration/). Empty settings stop or narrow the related work, and **Brain → Health** reports what is unavailable. See [Brain](../brain/) for the full behavior.
+Brain keeps only embedding and rerank as instance-wide model settings. Select an active Brain maintainer Agent in [AppConfigure](../app-configuration/): all Brain model calls run as this Agent and attribute usage to it. Its `light` profile extracts conversations and Sources, its `heavy` profile runs Dreaming and Skill lesson review, and its `web_fetch` profile reads URL Sources. An absent or unavailable `web_fetch` provider falls back to the local `ankole-browser`. Disabling the maintainer stops both model calls and local URL fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status. See [Brain](../brain/) for the full behavior.
 
 Two moves save the most:
 

@@ -8,6 +8,8 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
@@ -17,6 +19,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Ecto.UUIDv7
+  alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -512,6 +515,92 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert source_id == source.id
     assert is_binary(archived_at)
     assert Repo.get!(Object, object.id).deleted_at != nil
+  end
+
+  test "health reports maintainer Agent profiles and the local web-fetch fallback", %{conn: conn} do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    %{principal: maintainer} = agent_fixture(%{display_name: "Brain Maintainer"})
+    maintainer_uid = maintainer.uid
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "brain-health-provider",
+               provider_kind: "openrouter",
+               base_url: "https://openrouter.ai/api/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    assert {:ok, ^maintainer_uid} =
+             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer_uid)
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(maintainer_uid, "light", %{
+               provider_id: "brain-health-provider",
+               model: "light-model"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(maintainer_uid, "heavy", %{
+               provider_id: "brain-health-provider",
+               model: "heavy-model"
+             })
+
+    assert %{"health" => health} =
+             conn
+             |> get(~p"/api/v1/brain/health")
+             |> json_response(200)
+
+    assert health["maintainer_agent_uid"] == maintainer_uid
+
+    assert health["models"]["extraction"] == %{
+             "configured" => true,
+             "model" => "light-model",
+             "profile" => "light",
+             "provider_available" => true,
+             "provider_id" => "brain-health-provider"
+           }
+
+    assert health["models"]["dreaming"]["model"] == "heavy-model"
+
+    assert health["models"]["web_fetch"] == %{
+             "configured" => false,
+             "fallback" => "ankole_browser",
+             "profile" => "web_fetch"
+           }
+  end
+
+  test "health reports a disabled maintainer Agent and withholds the local web-fetch fallback", %{
+    conn: conn
+  } do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    %{principal: maintainer} = agent_fixture(%{display_name: "Disabled Brain Maintainer"})
+
+    assert {:ok, maintainer_uid} =
+             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
+
+    assert maintainer_uid == maintainer.uid
+    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer.uid)
+
+    assert %{"health" => health} =
+             conn
+             |> get(~p"/api/v1/brain/health")
+             |> json_response(200)
+
+    assert health["maintainer_agent_uid"] == maintainer.uid
+
+    for {model, profile} <- [
+          {"web_fetch", "web_fetch"},
+          {"extraction", "light"},
+          {"dreaming", "heavy"}
+        ] do
+      assert health["models"][model] == %{
+               "configured" => false,
+               "profile" => profile,
+               "profile_error" => "brain_maintainer_agent_disabled"
+             }
+    end
   end
 
   test "health keeps internal embedding failures in server logs", %{conn: conn} do

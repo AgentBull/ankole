@@ -45,6 +45,7 @@ jobs:
       protocol_version: ${{ steps.protocol.outputs.value }}
       release_version: ${{ steps.version.outputs.value }}
       release_is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      release_uses_canary: ${{ steps.version.outputs.uses_canary }}
 
     steps:
       - name: Checkout
@@ -67,11 +68,11 @@ jobs:
           )"
           echo "value=${release_version}" >> "${GITHUB_OUTPUT}"
 
-          is_prerelease=false
-          if [[ "${release_version}" =~ -(alpha|beta|rc)(\.[0-9]+)?$ ]]; then
-            is_prerelease=true
-          fi
+          read -r is_prerelease uses_canary < <(
+            bun tools/devkit/src/changelog-release.ts classify "${release_version}"
+          )
           echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "uses_canary=${uses_canary}" >> "${GITHUB_OUTPUT}"
 
       - name: Read RuntimeFabric protocol version
         id: protocol
@@ -450,12 +451,12 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' }}
         shell: bash
         env:
-          RELEASE_IS_PRERELEASE: ${{ needs.inspect_existing.outputs.release_is_prerelease }}
+          RELEASE_USES_CANARY: ${{ needs.inspect_existing.outputs.release_uses_canary }}
         run: |
           set -euo pipefail
 
           moving_tag="${LATEST_TAG}"
-          if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
+          if [[ "${RELEASE_USES_CANARY}" == "true" ]]; then
             moving_tag="canary"
           fi
 

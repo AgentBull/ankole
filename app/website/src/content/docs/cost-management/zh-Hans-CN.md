@@ -23,7 +23,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
 | `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
 
-Brain 另有五个实例级模型设置，不属于 Agent profile。`brain.embedding_model` 和 `brain.rerank_model` 控制检索，`brain.web_fetch_model` 读取 URL Source，`brain.extraction_model` 从对话和 Source 中学习，`brain.dreaming_model` 执行依赖模型的维护与技能教训复审。请在 [AppConfigure](../app-configuration/) 中统一配置。留空会停止或收窄对应工作，**Brain → 健康**会说明哪些能力不可用。完整行为见 [Brain](../brain/)。
+Brain 只保留 embedding 和 rerank 两项实例级模型设置。在 [AppConfigure](../app-configuration/) 中选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，系统改用本地 `ankole-browser`。停用维护 Agent 后，模型调用和本地网页抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态。完整行为见 [Brain](../brain/)。
 
 两招最省：
 

@@ -2,6 +2,7 @@ import { Badge, Skeleton } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import { ankoleWebBrainControllerHealthOptions } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainHealth, BrainModelStatus } from '../../api/generated/types.gen'
 import { ErrorBlock } from '../../../common/error-block'
@@ -40,14 +41,25 @@ export function BrainHealthPage() {
               )}
             </HealthItem>
             <InvalidConfigKeys config={snapshot.config} />
+            <HealthItem label={t('console.settings.brain_maintainer_agent_uid')}>
+              {snapshot.maintainer_agent_uid ? (
+                <Link
+                  className="font-mono text-xs text-primary underline-offset-4 hover:underline"
+                  to={`/agents/${encodeURIComponent(snapshot.maintainer_agent_uid)}#model-profiles`}>
+                  {snapshot.maintainer_agent_uid}
+                </Link>
+              ) : (
+                <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
+              )}
+            </HealthItem>
           </HealthSection>
 
           <HealthSection title={t('console.brain.health_models')}>
             <ModelStatusItem label={t('console.settings.brain_embedding_model')} status={snapshot.models.embedding} />
             <ModelStatusItem label={t('console.settings.brain_rerank_model')} status={snapshot.models.rerank} />
-            <ModelStatusItem label={t('console.settings.brain_web_fetch_model')} status={snapshot.models.web_fetch} />
-            <ModelStatusItem label={t('console.settings.brain_extraction_model')} status={snapshot.models.extraction} />
-            <ModelStatusItem label={t('console.settings.brain_dreaming_model')} status={snapshot.models.dreaming} />
+            <ModelStatusItem label={t('console.brain.web_fetch_profile')} status={snapshot.models.web_fetch} />
+            <ModelStatusItem label={t('console.brain.extraction_profile')} status={snapshot.models.extraction} />
+            <ModelStatusItem label={t('console.brain.dreaming_profile')} status={snapshot.models.dreaming} />
             <HealthItem label={t('console.brain.embedding_signature')}>
               <EmbeddingSignature value={snapshot.embedding_signature} />
             </HealthItem>
@@ -196,6 +208,19 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
               {status.provider_error ? <HealthReason reason={status.provider_error} /> : null}
             </>
           ) : null}
+          {status.fallback === 'ankole_browser' ? (
+            <Badge variant="secondary">{t('console.brain.local_browser_fallback')}</Badge>
+          ) : null}
+        </span>
+      ) : status.fallback === 'ankole_browser' ? (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <Badge variant="success">{t('console.brain.local_browser_fallback')}</Badge>
+          <span className="font-mono text-xs text-muted-foreground">web_fetch</span>
+        </span>
+      ) : status.profile_error ? (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <Badge variant="destructive">{t('console.brain.model_not_configured')}</Badge>
+          <HealthReason reason={status.profile_error} />
         </span>
       ) : (
         <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
@@ -252,6 +277,14 @@ function healthReasonKey(reason: string) {
       return 'console.brain.health_provider_disabled' as const
     case 'invalid_embedding_model_ref':
       return 'console.brain.health_embedding_model_invalid' as const
+    case 'brain_maintainer_agent_not_configured':
+      return 'console.brain.health_maintainer_agent_not_configured' as const
+    case 'brain_maintainer_agent_disabled':
+      return 'console.brain.health_maintainer_agent_disabled' as const
+    case 'agent_not_found':
+      return 'console.brain.health_maintainer_agent_not_found' as const
+    case 'invalid_model_profile':
+      return 'console.brain.health_model_profile_invalid' as const
     default:
       return 'console.brain.health_internal_error' as const
   }

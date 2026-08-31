@@ -1248,8 +1248,8 @@ bullets: [
 ]
 
 export const modelAdvanced = {
-  title: '선택적 Agent profile과 Brain 모델',
-  summary: 'Agent 기능 profile은 필요할 때만 설정합니다. Brain 모델은 인스턴스 전체에 적용됩니다.',
+  title: '선택적 Agent profile과 Brain 유지보수',
+  summary: 'Agent 기능 profile은 필요할 때만 설정합니다. Brain은 검색 모델만 인스턴스 전체에 유지합니다.',
   steps: [
     {
       title: '선택적 Agent 기능 profile 추가',
@@ -1274,11 +1274,16 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: '인스턴스의 Brain 모델 구성',
+      title: 'Brain 유지보수 Agent와 검색 모델 선택',
       body: [
-        'Console → AppConfigure → Brain을 여세요. 이 설정은 모든 Agent에 적용되며 Agent profile에 속하지 않습니다.'
+        'Console → AppConfigure → Brain을 여세요. 활성 Brain 유지보수 Agent를 선택합니다. 모든 Brain 모델 호출은 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 로컬 URL 가져오기가 중지됩니다. 연결된 Agent 페이지에서 모델 profile을 편집합니다.'
       ],
       fields: [
+        {
+          name: 'brain.maintainer_agent_uid',
+          description:
+            '선택한 Agent의 light profile로 지식을 추출하고, heavy profile로 Dreaming을 실행하며, web_fetch profile로 URL Source를 가져옵니다. web_fetch가 설정되지 않으면 로컬 ankole-browser를 사용합니다.'
+        },
         {
           name: 'brain.embedding_model',
           description: '벡터 검색을 활성화합니다. Provider와 모델을 선택하고 embedding 차원 수를 입력합니다.'
@@ -1286,18 +1291,6 @@ export const modelAdvanced = {
         {
           name: 'brain.rerank_model',
           description: '융합된 검색 결과를 rerank합니다. 비워 두면 융합 결과 순서를 유지합니다.'
-        },
-        {
-          name: 'brain.web_fetch_model',
-          description: 'URL Source에서 읽을 수 있는 본문을 가져옵니다.'
-        },
-        {
-          name: 'brain.extraction_model',
-          description: 'Signal 대화와 Source에서 지식을 추출합니다.'
-        },
-        {
-          name: 'brain.dreaming_model',
-          description: '지식을 통합하고 모델이 필요한 유지 관리 작업을 수행합니다.'
         }
       ],
       links: [

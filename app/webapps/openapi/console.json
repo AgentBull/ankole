@@ -609,6 +609,7 @@
             "type": "object"
           },
           "enabled": { "type": "boolean" },
+          "maintainer_agent_uid": { "nullable": true, "type": "string" },
           "models": {
             "additionalProperties": false,
             "properties": {
@@ -645,6 +646,7 @@
         },
         "required": [
           "enabled",
+          "maintainer_agent_uid",
           "config",
           "models",
           "signals",
@@ -2648,7 +2650,10 @@
         "additionalProperties": false,
         "properties": {
           "configured": { "type": "boolean" },
+          "fallback": { "enum": ["ankole_browser"], "nullable": true, "type": "string" },
           "model": { "nullable": true, "type": "string" },
+          "profile": { "nullable": true, "type": "string" },
+          "profile_error": { "nullable": true, "type": "string" },
           "provider_available": { "nullable": true, "type": "boolean" },
           "provider_error": { "nullable": true, "type": "string" },
           "provider_id": { "nullable": true, "type": "string" }

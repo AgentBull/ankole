@@ -2,18 +2,17 @@ defmodule Ankole.Brain.ModelCalls do
   @moduledoc """
   One-shot stateless model calls for Brain system tasks.
 
-  Extraction and Dreaming use instance-global models from `brain.*` keys and
-  run as the `brain` system Principal. Calls are stateless: no conversation
-  rows, no history.
+  Extraction and Dreaming use the maintainer Agent's model profiles. Calls run
+  as that Agent, so model usage belongs to it. Calls are stateless: no
+  conversation rows, no history.
   """
 
   alias Ankole.AIGateway
-  alias Ankole.Brain.Embeddings
+  alias Ankole.Brain.Config
   alias Ankole.JSON
 
   @doc """
-  Runs one prompt against a configured Brain model map and returns the
-  output text.
+  Runs one prompt against a resolved model profile and returns the output text.
   """
   @spec complete_text(map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def complete_text(model, prompt, opts \\ []) when is_map(model) and is_binary(prompt) do
@@ -26,9 +25,11 @@ defmodule Ankole.Brain.ModelCalls do
       |> maybe_put_provider_options(model)
       |> Map.merge(Keyword.get(opts, :request_overrides, %{}))
 
-    case AIGateway.create_response(Embeddings.subject_uid(), request) do
-      {:ok, %{body: body}} -> extract_output_text(body)
-      {:error, _reason} = error -> error
+    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+      case AIGateway.create_response(subject_uid, request) do
+        {:ok, %{body: body}} -> extract_output_text(body)
+        {:error, _reason} = error -> error
+      end
     end
   end
 

@@ -71,6 +71,8 @@ import {
   JSONPassthroughResponseSchema,
   ObservabilitySpansExportRequestSchema,
   ObservabilitySpansExportResponseSchema,
+  RenderedWebFetchRequestSchema,
+  RenderedWebFetchResponseSchema,
   ScheduleCheckBackLaterCreateRequestSchema,
   ScheduleCheckBackLaterListRequestSchema,
   ScheduleCheckBackLaterTargetRequestSchema,
@@ -143,6 +145,7 @@ export const rpcMethods = {
   automationJobEmit: 'automation_job.emit',
   automationJobRun: 'automation_job.run',
   codexLogs2DailyMaintenance: 'codex_logs2.daily_maintenance',
+  renderedWebFetch: 'web_fetch.rendered',
   backgroundAgentJobCreate: 'background_agent_job.create',
   backgroundAgentJobGet: 'background_agent_job.get',
   backgroundAgentJobList: 'background_agent_job.list',
@@ -226,6 +229,7 @@ export const rpcOperationMeta = {
   [rpcMethods.automationJobEmit]: { scope: 'worker_agent' },
   [rpcMethods.automationJobRun]: { owner: 'worker' },
   [rpcMethods.codexLogs2DailyMaintenance]: { owner: 'worker' },
+  [rpcMethods.renderedWebFetch]: { owner: 'worker' },
   [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobList]: { scope: 'turn', effect: 'read' },
@@ -338,6 +342,10 @@ export const rpcSchemas = {
   [rpcMethods.codexLogs2DailyMaintenance]: {
     request: CodexLogs2DailyMaintenanceRequestSchema,
     response: CodexLogs2DailyMaintenanceResponseSchema
+  },
+  [rpcMethods.renderedWebFetch]: {
+    request: RenderedWebFetchRequestSchema,
+    response: RenderedWebFetchResponseSchema
   },
   [rpcMethods.backgroundAgentJobCreate]: {
     request: BackgroundAgentJobCreateRequestSchema,
@@ -754,6 +762,9 @@ export type WorkerRPCHandlers = {
   maintainCodexLogs2?: (
     request: MessageShape<typeof CodexLogs2DailyMaintenanceRequestSchema>
   ) => Promise<MessageInitShape<typeof CodexLogs2DailyMaintenanceResponseSchema>>
+  renderWebFetch?: (
+    request: MessageShape<typeof RenderedWebFetchRequestSchema>
+  ) => Promise<MessageInitShape<typeof RenderedWebFetchResponseSchema>>
 }
 
 /**
@@ -790,6 +801,23 @@ export async function handleWorkerRPCRequest(
         sendEnvelope,
         request,
         toBinary(CodexLogs2DailyMaintenanceResponseSchema, create(CodexLogs2DailyMaintenanceResponseSchema, result))
+      )
+    } catch (error) {
+      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {
+        method: request.method
+      })
+    }
+    return
+  }
+
+  if (request.method === rpcMethods.renderedWebFetch && handlers?.renderWebFetch) {
+    try {
+      const payload = fromBinary(RenderedWebFetchRequestSchema, request.payload)
+      const result = await handlers.renderWebFetch(payload)
+      await sendWorkerRPCResponse(
+        sendEnvelope,
+        request,
+        toBinary(RenderedWebFetchResponseSchema, create(RenderedWebFetchResponseSchema, result))
       )
     } catch (error) {
       await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {

@@ -14,7 +14,9 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import { Link } from 'react-router'
 import {
+  ankoleWebAgentControllerIndexOptions,
   ankoleWebAiGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions
@@ -94,9 +96,14 @@ export function BrainSettingsEditor({
   const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
   const modelCatalog = useQuery(ankoleWebAiGatewayControllerModelsOptions())
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const providerList = providers.data?.ai_gateway_providers ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
   const providersLoading = providers.isLoading || providerKinds.isLoading
+  const maintainerAgentUID = brainStringDraft(drafts[BRAIN_KEYS.maintainerAgentUID])
+  const agentList = agents.data?.agents ?? []
+  const selectedAgent = agentList.find(agent => agent.uid === maintainerAgentUID)
+  const selectableAgents = agentList.filter(agent => agent.status === 'active' || agent.uid === maintainerAgentUID)
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'
   const skillLearningEnabled = drafts[BRAIN_KEYS.skillLearningEnabled] === 'true'
   const tokenizer = brainStringDraft(drafts[BRAIN_KEYS.searchTokenizer])
@@ -131,6 +138,44 @@ export function BrainSettingsEditor({
             checked={enabled}
             onCheckedChange={next => onDraftChange(BRAIN_KEYS.enabled, String(next))}
           />
+        </div>
+      )}
+
+      {field(
+        BRAIN_KEYS.maintainerAgentUID,
+        t('console.settings.brain_maintainer_agent_uid'),
+        <div className="grid gap-2">
+          <Select
+            value={maintainerAgentUID || null}
+            onValueChange={value =>
+              typeof value === 'string' && value && onDraftChange(BRAIN_KEYS.maintainerAgentUID, JSON.stringify(value))
+            }>
+            <SelectTrigger aria-label={t('console.settings.brain_maintainer_agent_uid')} className="w-full">
+              <SelectValue placeholder={t('console.settings.brain_maintainer_agent_placeholder')}>
+                {value => {
+                  const agent = agentList.find(item => item.uid === String(value))
+                  return agent ? `${agent.display_name} · ${agent.uid}` : String(value)
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_empty')}>
+              {selectableAgents.map(agent => (
+                <SelectItem key={agent.uid} value={agent.uid}>
+                  {agent.display_name} · {agent.uid}
+                  {agent.status === 'disabled' ? ` · ${t('console.status.disabled')}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {maintainerAgentUID ? (
+            <Link
+              className="w-fit text-sm text-primary underline-offset-4 hover:underline"
+              to={`/agents/${encodeURIComponent(maintainerAgentUID)}#model-profiles`}>
+              {t('console.settings.brain_maintainer_agent_models', {
+                agent: selectedAgent?.display_name ?? maintainerAgentUID
+              })}
+            </Link>
+          ) : null}
         </div>
       )}
 

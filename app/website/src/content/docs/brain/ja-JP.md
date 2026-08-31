@@ -18,8 +18,8 @@ Brain は増え続けるチャット履歴を、そのまま記憶として扱�
 | 経路 | 結果 | 条件 |
 | --- | --- | --- |
 | Agent が `remember` を呼び出す | 1 つの事実または判断が直ちに永続記憶になる | Agent は 1 つの原子的な Claim、出所、有効な開示範囲を指定する |
-| Signals 学習が会話を処理する | 明示的な `remember` がなくても、長期的な価値のある事実、判断、未完了の約束を学習できる | Channel はダイレクトメッセージまたは IM グループであり、`brain.extraction_model` が設定済みであること。グループ学習には、同期済みのメンバー権限グループも必要 |
-| オペレーターが Source を登録する | ファイルまたは Web ページが検索対象になり、抽出された Claim を生成できる | Claim の抽出には `brain.extraction_model` が必要。ファイルはデプロイから読み取れること。ファイルと取得したページ本文は、有効な UTF-8 テキストで 10 MiB 以下であること。URL には Web Fetch Provider も必要 |
+| Signals 学習が会話を処理する | 明示的な `remember` がなくても、長期的な価値のある事実、判断、未完了の約束を学習できる | Channel はダイレクトメッセージまたは IM グループであり、Brain メンテナンス Agent に利用可能な `light` profile があること。グループ学習には、同期済みのメンバー権限グループも必要 |
+| オペレーターが Source を登録する | ファイルまたは Web ページが検索対象になり、抽出された Claim を生成できる | Claim の抽出にはメンテナンス Agent の `light` profile が必要。ファイルはデプロイから読み取れること。ファイルと取得したページ本文は、有効な UTF-8 テキストで 10 MiB 以下であること。URL は Agent の `web_fetch` profile またはローカルの `ankole-browser` fallback を使う |
 
 Signals 学習は、対象 Channel が一定時間アイドルになるか、関連する会話が終了した後にメッセージのまとまりを処理します。Agent の非公開なモデル会話履歴ではなく、Channel に保存されたメッセージを読みます。ダイレクトメッセージから得た知識の既定範囲は相手本人です。グループから得た知識の既定範囲は、その Channel のメンバー権限グループです。
 
@@ -125,15 +125,15 @@ Console の **Brain** 領域は、知識空間を結果別に表示します。
 - **Principal audit** は、ある Principal が holder、作成者、または対象者である知識を一覧表示します。
 - **Health** は、モデルの準備状態、学習の滞留、Embedding の失敗、Channel の前提条件、投影の状態を表示します。
 
-Brain の設定では、システム活動ごとにインスタンス共通のモデルを選びます。
+Brain の設定では、Brain のメンテナンスを担当する Agent を選択し、インスタンスの知識空間に属する 2 つのモデル設定を保持します。Brain のすべてのモデル呼び出しは、選択した Agent の ID で実行され、使用量もこの Agent に帰属します。この Agent は有効な状態を保つ必要があります。無効にすると Brain は異常を報告し、Agent を再度有効にするか変更するまで、すべてのモデル呼び出しとローカル URL 取得を停止します。保存済みの知識とテキスト検索は引き続き利用できます。
 
-| 設定 | 有効になる結果 |
+| 所有者と設定 | 有効になる結果 |
 | --- | --- |
-| Embedding モデル | ベクトル検索と Fact の意味重複判定 |
-| Rerank モデル | 検索結果を統合した後の再順位付け |
-| Web Fetch Provider | URL Source から読みやすい本文を抽出 |
-| Extraction モデル | Signals 学習と Source からの Claim 抽出 |
-| Dreaming モデル | モデルを必要とする Dreaming 処理と `synthesize` |
+| メンテナンス Agent の `light` profile | Signals 学習と Source からの Claim 抽出 |
+| メンテナンス Agent の `heavy` profile | モデルを必要とする Dreaming 処理と `synthesize` |
+| メンテナンス Agent の `web_fetch` profile | URL Source から読みやすい本文を抽出。ローカルの `ankole-browser` が fallback |
+| Brain の Embedding モデル | ベクトル検索と Fact の意味重複判定 |
+| Brain の Rerank モデル | 検索結果を統合した後の再順位付け |
 
 任意モデルがない場合、該当する能力だけが制限されます。状態が隠れることはなく、Health ページが利用できない能力を示します。Brain を無効にすると、記憶ツールとコンテキスト注入がなくなり、バックグラウンド処理が停止します。保存済みの知識は変わりません。
 

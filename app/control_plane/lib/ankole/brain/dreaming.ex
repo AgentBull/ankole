@@ -6,8 +6,8 @@ defmodule Ankole.Brain.Dreaming do
   continues. Every product goes through the shared write contracts, so a
   rerun is idempotent: consolidation marks its inputs, analysis pages use
   deterministic slugs, contradiction pairs and pending suggestions have
-  unique keys, and grading updates in place. Model phases use
-  `brain.dreaming_model` and skip with a report when it is absent.
+  unique keys, and grading updates in place. Model phases use the maintainer
+  Agent's `heavy` profile and skip with a report when it is absent.
   """
 
   import Ecto.Query, warn: false

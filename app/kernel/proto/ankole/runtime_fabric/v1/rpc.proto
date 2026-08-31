@@ -632,6 +632,21 @@ message CodexLogs2DailyMaintenanceResponse {
   repeated string deleted_files = 2;
 }
 
+// Control-plane-originated rendered fetch through the Worker's supervised
+// ankole-browser runtime. The request carries the selected Agent's ephemeral
+// browser environment and policy because the Worker does not own operator
+// configuration.
+message RenderedWebFetchRequest {
+  repeated string urls = 1;
+  map<string, string> worker_env = 2;
+  bool ssrf_filter = 3;
+  optional uint64 idle_ttl_ms = 4;
+}
+
+message RenderedWebFetchResponse {
+  bytes body_json = 1;
+}
+
 // skills
 
 message SkillOverlayResolveRequest {

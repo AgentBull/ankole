@@ -2,11 +2,12 @@ defmodule Ankole.Brain.Embeddings do
   @moduledoc """
   Instance-global embedding calls for Brain retrieval projections.
 
-  The model comes from `brain.embedding_model`, and credential resolution
-  reuses the configured AIGateway provider row. The embedding signature
-  covers only `[provider_kind, model, dimensions]`, so replacing a provider
-  row of the same kind does not re-embed the knowledge space. Vectors are
-  zero-padded into the fixed `vector(4096)` physical column.
+  The model comes from `brain.embedding_model`, and requests execute as the
+  Brain maintainer Agent so usage belongs to that Agent. Credential resolution
+  reuses the configured AIGateway provider row. The embedding signature covers
+  only `[provider_kind, model, dimensions]`, so replacing a provider row of the
+  same kind does not re-embed the knowledge space. Vectors are zero-padded into
+  the fixed `vector(4096)` physical column.
   """
 
   alias Ankole.AIGateway
@@ -14,12 +15,7 @@ defmodule Ankole.Brain.Embeddings do
   alias Ankole.Brain.Config
   alias Ankole.Kernel, as: NativeKernel
 
-  @subject_uid "brain"
   @physical_dimensions 4096
-
-  @doc "The system Principal that owns instance-global Brain model calls."
-  @spec subject_uid() :: String.t()
-  def subject_uid, do: @subject_uid
 
   @doc "The fixed physical vector width."
   @spec physical_dimensions() :: pos_integer()
@@ -76,14 +72,16 @@ defmodule Ankole.Brain.Embeddings do
       }
       |> maybe_put_provider_options(model)
 
-    case AIGateway.create_embeddings(@subject_uid, request) do
-      {:ok, %{body: body, model_ref: model_ref}} ->
-        with {:ok, vectors} <- extract_vectors(body, length(texts), model["dimensions"]) do
-          {:ok, {vectors, model_ref}}
-        end
+    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+      case AIGateway.create_embeddings(subject_uid, request) do
+        {:ok, %{body: body, model_ref: model_ref}} ->
+          with {:ok, vectors} <- extract_vectors(body, length(texts), model["dimensions"]) do
+            {:ok, {vectors, model_ref}}
+          end
 
-      {:error, _reason} = error ->
-        error
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 

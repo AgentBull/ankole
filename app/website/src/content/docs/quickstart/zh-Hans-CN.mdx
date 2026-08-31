@@ -1234,8 +1234,8 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '可选 Agent 档案和 Brain 模型',
-  summary: 'Agent 能力按需配置；Brain 模型对整个实例生效。',
+  title: '可选 Agent 档案和 Brain 维护配置',
+  summary: 'Agent 能力按需配置；Brain 只保留实例级检索模型。',
   steps: [
     {
       title: '按需配置 Agent 能力档案',
@@ -1260,9 +1260,14 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: '为实例配置 Brain 模型',
-      body: ['打开 Console → 系统配置 → Brain。这些设置对所有 Agent 生效，不属于 Agent 档案。'],
+      title: '选择 Brain 维护 Agent 和检索模型',
+      body: ['打开 Console → 系统配置 → Brain。选择负责维护 Brain 的活跃 Agent。Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。停用后，模型调用和本地网页抓取都会停止，直到重新启用或更换 Agent。再通过链接进入该 Agent 的模型配置。'],
       fields: [
+        {
+          name: 'brain.maintainer_agent_uid',
+          description:
+            '使用所选 Agent 的 light profile 抽取知识、heavy profile 执行 Dreaming、web_fetch profile 读取 URL Source。未配置 web_fetch 时改用本地 ankole-browser。'
+        },
         {
           name: 'brain.embedding_model',
           description: '启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
@@ -1270,18 +1275,6 @@ export const modelAdvanced = {
         {
           name: 'brain.rerank_model',
           description: '对融合后的搜索结果重新排序；留空会保留融合顺序。'
-        },
-        {
-          name: 'brain.web_fetch_model',
-          description: '为 URL Source 抓取可读正文。'
-        },
-        {
-          name: 'brain.extraction_model',
-          description: '从 Signal 会话和 Source 中提取知识。'
-        },
-        {
-          name: 'brain.dreaming_model',
-          description: '汇总知识，并支持依赖模型的维护任务。'
         }
       ],
       links: [

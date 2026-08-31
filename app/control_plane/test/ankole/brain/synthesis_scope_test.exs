@@ -36,11 +36,7 @@ defmodule Ankole.Brain.SynthesisScopeTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.dreaming_model", %{
-        "provider_id" => "brain-synthesis",
-        "model" => "fake-dreaming"
-      })
+    configure_brain_maintainer_profile!("heavy", "brain-synthesis", "fake-dreaming")
 
     %{principal: owner} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})

@@ -41,10 +41,23 @@ AIGateway supports these capability names:
 - `image_generate`
 
 Agent model profiles include `primary`, `light`, `heavy`, `coding`,
-`vision_fallback`, `embedding`, `rerank`, `web_search`, `web_fetch`, and
-`image_generate`. A caller can also select `provider_id/raw-model-id`
-directly. Every profile and direct selector points to one provider row. Neither
-form selects a member of its credential pool.
+`vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. Embedding
+and rerank are instance-wide Brain settings, not Agent profiles. A caller can
+also select `provider_id/raw-model-id` directly. Every profile and direct
+selector points to one provider row. Neither form selects a member of its
+credential pool.
+
+Brain selects one maintainer Agent. Its `light` profile runs extraction, its
+`heavy` profile runs Dreaming, and its `web_fetch` profile is the provider path
+for URL Source learning. If `web_fetch` is absent or its provider request
+fails, the Worker uses the same local `ankole-browser` fallback as an Agent
+turn. Every Brain model request uses the maintainer Agent as its `subject_uid`,
+so execution policy and observed usage belong to that Agent. Brain embedding
+and rerank calls use that identity but keep their instance-wide selectors.
+The maintainer Agent must be active. If it is disabled, Brain reports the
+identity as unhealthy and stops every model request and local URL fetch until
+the Agent is enabled or replaced. Stored knowledge and pure-text recall do not
+depend on that execution identity and remain available.
 
 An Agent can also store custom LLM profiles in the same
 `agents.options["ai_agent"]["models"]` map. A custom name matches

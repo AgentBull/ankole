@@ -72,7 +72,7 @@ Console 会显示作者、创建时间、复审日期、核对版本、证据 Jo
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | 控制复盘、复审和教训投递。设为 `false` 时，已存的人工教训和 Dreaming 教训都会隐藏，但不会删除。 |
 | `brain.skill_learning_reflection_threshold` | `10` | 设置创建一次复盘 Job 所需的未处理信号 Job 数，最小值为 `2`。 |
-| `brain.dreaming_model` | 未设置 | 选择复审租约教训的模型。未设置时跳过依赖模型的复审。 |
+| `brain.maintainer_agent_uid` | 未设置 | 选择负责维护 Brain 的 Agent，并使用其 `heavy` profile 复审租约教训。`heavy` profile 不可用时，跳过依赖模型的复审。 |
 | `brain.dreaming_task_cron` | `0 5 * * *` | 设置 Dreaming 评估复盘触发条件和复审到期教训的时间。 |
 
 打开 **Brain → 健康**，可以查看技能学习是否启用、每个 Agent 的生效教训数、最近 7 天的新增与退场数量，以及最老生效 Dreaming 教训的年龄。

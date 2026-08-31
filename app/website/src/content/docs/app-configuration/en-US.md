@@ -87,11 +87,9 @@ These limits apply to later Workflow work. A run can request a lower concurrency
 | Key | Scope | Purpose |
 |---|---|---|
 | `brain.enabled` | Instance | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
+| `brain.maintainer_agent_uid` | Instance | Active Agent responsible for Brain maintenance; all Brain model calls run as this Agent and attribute usage to it; disabling it stops those calls and local URL fetching until it is enabled or replaced; edit its `light`, `heavy`, and `web_fetch` profiles on the Agent page |
 | `brain.embedding_model` | Instance | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
 | `brain.rerank_model` | Instance | Provider and model for reranking search results; an empty value keeps the fusion order |
-| `brain.web_fetch_model` | Instance | Provider and model for learning from URL Sources; an empty value stops URL Source learning |
-| `brain.extraction_model` | Instance | Model that extracts knowledge from Signal conversations and Sources; an empty value stops those learning tasks |
-| `brain.dreaming_model` | Instance | Model that consolidates knowledge and finds contradictions for human review; an empty value skips model-dependent maintenance |
 | `brain.search_tokenizer` | Instance | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
 | `brain.chunking` | Instance | Source chunk size, overlap, and input limits |
 | `brain.forgetting` | Instance | Knowledge-decay half-lives and the soft-delete purge interval |

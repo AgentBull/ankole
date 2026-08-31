@@ -1248,8 +1248,8 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: 'Optional Agent profiles and Brain models',
-  summary: 'Configure Agent capability profiles only where needed. Brain models apply to the whole instance.',
+  title: 'Optional Agent profiles and Brain maintenance',
+  summary: 'Configure Agent capability profiles only where needed. Brain keeps retrieval models instance-wide.',
   steps: [
     {
       title: 'Add optional Agent capability profiles',
@@ -1274,11 +1274,16 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: 'Configure Brain models for the instance',
+      title: 'Select the Brain maintainer and retrieval models',
       body: [
-        'Open Console → AppConfigure → Brain. These settings apply to every Agent and do not belong to an Agent profile.'
+        'Open Console → AppConfigure → Brain. Select an active Agent responsible for Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Disabling it stops model calls and local URL fetching until it is enabled or replaced. Edit its model profiles from the linked Agent page.'
       ],
       fields: [
+        {
+          name: 'brain.maintainer_agent_uid',
+          description:
+            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources. Missing web_fetch falls back to local ankole-browser.'
+        },
         {
           name: 'brain.embedding_model',
           description: 'Enables vector retrieval. Select a Provider and model, and enter its embedding dimensions.'
@@ -1286,18 +1291,6 @@ export const modelAdvanced = {
         {
           name: 'brain.rerank_model',
           description: 'Reranks fused search results. Leave it empty to keep the fusion order.'
-        },
-        {
-          name: 'brain.web_fetch_model',
-          description: 'Fetches readable content for URL Sources.'
-        },
-        {
-          name: 'brain.extraction_model',
-          description: 'Extracts knowledge from Signal conversations and Sources.'
-        },
-        {
-          name: 'brain.dreaming_model',
-          description: 'Consolidates knowledge and supports model-dependent maintenance.'
         }
       ],
       links: [

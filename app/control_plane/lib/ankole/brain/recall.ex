@@ -407,12 +407,14 @@ defmodule Ankole.Brain.Recall do
         task =
           Task.async(fn ->
             try do
-              AIGateway.create_rerank(Embeddings.subject_uid(), %{
-                "model" => model["provider_id"] <> "/" <> model["model"],
-                "query" => query,
-                "documents" => documents,
-                "top_n" => length(documents)
-              })
+              with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+                AIGateway.create_rerank(subject_uid, %{
+                  "model" => model["provider_id"] <> "/" <> model["model"],
+                  "query" => query,
+                  "documents" => documents,
+                  "top_n" => length(documents)
+                })
+              end
             rescue
               error -> {:error, error}
             catch

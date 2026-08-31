@@ -72,7 +72,7 @@ The following `brain.*` settings control Skill lessons:
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | Enables reflection, review, and lesson delivery. `false` hides stored human and Dreaming lessons without deleting them. |
 | `brain.skill_learning_reflection_threshold` | `10` | Sets the number of unprocessed signal Jobs required before one reflection Job starts. The minimum is `2`. |
-| `brain.dreaming_model` | Not set | Selects the model that reviews leased lessons. If it is not set, model-based review is skipped. |
+| `brain.maintainer_agent_uid` | Not set | Selects the Agent whose `heavy` profile reviews leased lessons. Without a usable `heavy` profile, model-based review is skipped. |
 | `brain.dreaming_task_cron` | `0 5 * * *` | Sets when Dreaming evaluates reflection triggers and reviews due lessons. |
 
 Open **Brain → Health** to see whether Skill learning is enabled, active lesson counts by Agent, lessons added and retired in the last seven days, and the age of the oldest active Dreaming lesson.

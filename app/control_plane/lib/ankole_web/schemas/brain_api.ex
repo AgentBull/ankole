@@ -1139,7 +1139,10 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           provider_id: %Schema{type: :string, nullable: true},
           model: %Schema{type: :string, nullable: true},
           provider_available: %Schema{type: :boolean, nullable: true},
-          provider_error: %Schema{type: :string, nullable: true}
+          provider_error: %Schema{type: :string, nullable: true},
+          profile: %Schema{type: :string, nullable: true},
+          profile_error: %Schema{type: :string, nullable: true},
+          fallback: %Schema{type: :string, nullable: true, enum: ["ankole_browser"]}
         },
         required: [:configured],
         additionalProperties: false
@@ -1159,6 +1162,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
         type: :object,
         properties: %{
           enabled: %Schema{type: :boolean},
+          maintainer_agent_uid: %Schema{type: :string, nullable: true},
           config: %Schema{
             type: :object,
             description: "Per brain.* key: \"ok\", or {invalid: reason} for a broken stored row.",
@@ -1232,6 +1236,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
         },
         required: [
           :enabled,
+          :maintainer_agent_uid,
           :config,
           :models,
           :signals,

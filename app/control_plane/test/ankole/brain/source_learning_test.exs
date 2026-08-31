@@ -15,7 +15,12 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
+  alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
 
   setup do
     allow_cache_database_access()
@@ -56,11 +61,8 @@ defmodule Ankole.Brain.SourceLearningTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.extraction_model", %{
-        "provider_id" => "brain-source",
-        "model" => "fake-extract"
-      })
+    maintainer_uid =
+      configure_brain_maintainer_profile!("light", "brain-source", "fake-extract")
 
     {:ok, _value} =
       AppConfigure.put_global_by_key("brain.embedding_model", %{
@@ -77,7 +79,7 @@ defmodule Ankole.Brain.SourceLearningTest do
     {:ok, source} =
       SourceLearning.register_source(%{upstream_id: path, kind: "file", name: "Field Notes"})
 
-    %{source: source, path: path, items_holder: items_holder}
+    %{source: source, path: path, items_holder: items_holder, maintainer_uid: maintainer_uid}
   end
 
   test "an all-rejected extraction rolls back whole and the next run retries",
@@ -173,6 +175,196 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert Enum.any?(prompts, &String.contains?(&1, tail_marker))
   end
 
+  test "a URL Source uses the maintainer Agent web_fetch profile and execution policy", %{
+    items_holder: holder,
+    maintainer_uid: maintainer_uid
+  } do
+    test_pid = self()
+    url = "https://127.0.0.1/provider-source"
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(test_pid, {:web_fetch_provider_request, request})
+
+        {:json, 200,
+         %{
+           "data" => %{
+             "url" => request.body["url"],
+             "title" => "Provider Source",
+             "content" => "Provider-rendered source body"
+           }
+         }}
+      end)
+
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-source-web-fetch",
+        provider_kind: "jina_reader",
+        base_url: base_url,
+        credential_pool: %{
+          "entries" => [%{"label" => "Default", "api_key" => "jina-test"}]
+        }
+      })
+
+    configure_brain_maintainer_profile!("web_fetch", "brain-source-web-fetch", "default")
+    {:ok, true} = AppConfigure.put_global_by_key("security.ssrf_filter", true)
+
+    {:ok, false} =
+      AppConfigure.put_for_agent_by_key(maintainer_uid, "security.ssrf_filter", false)
+
+    set_items(holder, [])
+
+    {:ok, source} =
+      SourceLearning.register_source(%{
+        upstream_id: url,
+        kind: "url",
+        name: "Provider URL Source"
+      })
+
+    assert {:ok, %{status: :learned, claims: 0}} = SourceLearning.learn(source.id)
+
+    assert_receive {:web_fetch_provider_request, request}
+    assert request.body["url"] == url
+    assert request.headers["authorization"] == "Bearer jina-test"
+    assert %Object{body: body} = Repo.get_by!(Object, title: "Provider URL Source")
+    assert body =~ "Provider-rendered source body"
+  end
+
+  test "a URL Source without a web_fetch profile uses the Worker's ankole-browser",
+       %{items_holder: holder} do
+    url = "https://example.com/local-source"
+    route = "brain-web-fetch-#{System.unique_integer([:positive])}"
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert!(%AgentComputerWorker{
+      worker_id: "brain-web-fetch-worker-#{System.unique_integer([:positive])}",
+      incarnation_id: Ecto.UUID.generate(),
+      status: "ready",
+      version: "test",
+      capacity: %{},
+      load: %{},
+      transport_route: route,
+      last_worker_heartbeat_at: now,
+      started_at: now,
+      metadata: %{"runtime" => "test"}
+    })
+
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    set_items(holder, [])
+
+    {:ok, source} =
+      SourceLearning.register_source(%{
+        upstream_id: url,
+        kind: "url",
+        name: "Local Browser URL Source"
+      })
+
+    learning = Task.async(fn -> SourceLearning.learn(source.id) end)
+
+    assert_receive {:actor_lane,
+                    %FabricProto.Envelope{
+                      body: {:rpc_request, %FabricProto.RPCRequest{} = request}
+                    }},
+                   1_000
+
+    assert request.method == "web_fetch.rendered"
+
+    assert {:ok,
+            %FabricProto.RenderedWebFetchRequest{
+              urls: [^url],
+              ssrf_filter: false,
+              idle_ttl_ms: 1_800_000
+            }} = FabricProto.RenderedWebFetchRequest.decode(request.payload)
+
+    response_payload =
+      encode_proto(%FabricProto.RenderedWebFetchResponse{
+        body_json:
+          Ankole.JSON.encode!(%{
+            "success" => true,
+            "results" => [
+              %{"url" => url, "title" => "Local Source", "text" => "Locally rendered body"}
+            ]
+          })
+      })
+
+    send(
+      Broker,
+      {:runtime_fabric_router_received, route,
+       RuntimeFabric.encode_envelope(%FabricProto.Envelope{
+         message_id: "brain-web-fetch-response",
+         correlation_id: request.request_id,
+         lane: :LANE_RPC,
+         durability: :CONTROL_EPHEMERAL,
+         body:
+           {:rpc_response,
+            %FabricProto.RPCResponse{
+              request_id: request.request_id,
+              payload: response_payload
+            }}
+       })}
+    )
+
+    assert {:ok, %{status: :learned, claims: 0}} = Task.await(learning, 5_000)
+    assert %Object{body: body} = Repo.get_by!(Object, title: "Local Browser URL Source")
+    assert body =~ "Locally rendered body"
+  end
+
+  test "a disabled maintainer Agent prevents provider and local URL fetching", %{
+    maintainer_uid: maintainer_uid
+  } do
+    test_pid = self()
+    url = "https://example.com/disabled-maintainer-source"
+    route = "brain-disabled-web-fetch-#{System.unique_integer([:positive])}"
+    now = DateTime.utc_now(:microsecond)
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(test_pid, {:disabled_maintainer_provider_request, request})
+        {:json, 500, %{"error" => "must not be called"}}
+      end)
+
+    {:ok, _provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "brain-disabled-web-fetch",
+        provider_kind: "jina_reader",
+        base_url: base_url,
+        credential_pool: %{
+          "entries" => [%{"label" => "Default", "api_key" => "jina-test"}]
+        }
+      })
+
+    configure_brain_maintainer_profile!("web_fetch", "brain-disabled-web-fetch", "default")
+
+    Repo.insert!(%AgentComputerWorker{
+      worker_id: "brain-disabled-web-fetch-worker-#{System.unique_integer([:positive])}",
+      incarnation_id: Ecto.UUID.generate(),
+      status: "ready",
+      version: "test",
+      capacity: %{},
+      load: %{},
+      transport_route: route,
+      last_worker_heartbeat_at: now,
+      started_at: now,
+      metadata: %{"runtime" => "test"}
+    })
+
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+    {:ok, source} =
+      SourceLearning.register_source(%{
+        upstream_id: url,
+        kind: "url",
+        name: "Disabled Maintainer URL Source"
+      })
+
+    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer_uid)
+    assert {:error, :brain_maintainer_agent_disabled} = SourceLearning.learn(source.id)
+    refute_receive {:disabled_maintainer_provider_request, _request}
+    refute_receive {:actor_lane, _envelope}
+  end
+
   test "an archive during extraction fences every late write", %{source: source, path: path} do
     test_pid = self()
 
@@ -263,17 +455,18 @@ defmodule Ankole.Brain.SourceLearningTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.extraction_model", %{
-        "provider_id" => provider_id,
-        "model" => "fake-extract"
-      })
+    configure_brain_maintainer_profile!("light", provider_id, "fake-extract")
 
     :ok
   end
 
   defp set_items(holder, items), do: set_output(holder, %{"items" => items})
   defp set_output(holder, output), do: Agent.update(holder, fn _output -> output end)
+
+  defp encode_proto(message) do
+    {iodata, _size} = message.__struct__.encode!(message)
+    IO.iodata_to_binary(iodata)
+  end
 
   defp valid_item(text),
     do: %{"claim" => text, "kind" => "fact", "notability" => "medium", "confidence" => 0.75}

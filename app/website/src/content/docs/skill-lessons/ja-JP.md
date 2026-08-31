@@ -72,7 +72,7 @@ Console には、作成者、作成時刻、再確認日、確認済み release�
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | reflection、再確認、教訓の配信を有効にします。`false` にすると、保存済みの人の教訓と Dreaming 教訓を削除せずに非表示にします。 |
 | `brain.skill_learning_reflection_threshold` | `10` | 1 つの reflection Job を開始するために必要な未処理 signal Job 数を設定します。最小値は `2` です。 |
-| `brain.dreaming_model` | 未設定 | リース付き教訓を再確認する model を選択します。未設定の場合、model を使う再確認を skip します。 |
+| `brain.maintainer_agent_uid` | 未設定 | Brain メンテナンス Agent を選択し、その `heavy` profile でリース付き教訓を再確認します。利用可能な `heavy` profile がない場合、model を使う再確認を skip します。 |
 | `brain.dreaming_task_cron` | `0 5 * * *` | Dreaming が reflection の trigger を評価し、期限が近い教訓を再確認する時刻を設定します。 |
 
 **Brain → Health** を開くと、Skill 学習の有効状態、Agent ごとの有効な教訓数、直近 7 日間に追加または廃止された教訓数、最も古い有効な Dreaming 教訓の age を確認できます。

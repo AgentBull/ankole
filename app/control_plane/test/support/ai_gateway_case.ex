@@ -159,6 +159,33 @@ defmodule Ankole.AIGatewayCase do
   end
 
   @doc false
+  def configure_brain_maintainer_profile!(profile, provider_id, model)
+      when is_binary(profile) and is_binary(provider_id) and is_binary(model) do
+    agent_uid =
+      case Ankole.AppConfigure.get_by_key("brain.maintainer_agent_uid") do
+        {:ok, uid} when is_binary(uid) and uid != "" ->
+          uid
+
+        _missing ->
+          %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+          agent_uid = agent.uid
+
+          {:ok, ^agent_uid} =
+            Ankole.AppConfigure.put_global_by_key("brain.maintainer_agent_uid", agent_uid)
+
+          agent_uid
+      end
+
+    {:ok, _profile} =
+      Ankole.AIAgent.ModelProfiles.put_model_profile(agent_uid, profile, %{
+        provider_id: provider_id,
+        model: model
+      })
+
+    agent_uid
+  end
+
+  @doc false
   def chat_completion_body(model, content) do
     %{
       "id" => "chatcmpl_#{System.unique_integer([:positive])}",

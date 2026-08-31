@@ -48,7 +48,7 @@ async function runWorker(): Promise<void> {
   const fileLane = createFileTransferLane(config, fabric.sendFileFrame)
   const browserRuntime = createWorkerBrowserRuntime()
   const activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain)
-  const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient)
+  const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient, browserRuntime)
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

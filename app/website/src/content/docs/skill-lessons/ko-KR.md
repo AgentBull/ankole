@@ -72,7 +72,7 @@ Console은 작성자, 작성 시간, 재검토 날짜, 확인된 release, 증거
 |---|---|---|
 | `brain.skill_learning_enabled` | `true` | reflection, 재검토, 교훈 전달을 활성화합니다. `false`로 설정하면 저장된 사람의 교훈과 Dreaming 교훈을 삭제하지 않고 숨깁니다. |
 | `brain.skill_learning_reflection_threshold` | `10` | reflection Job 하나를 시작하는 데 필요한 미처리 signal Job 수를 설정합니다. 최솟값은 `2`입니다. |
-| `brain.dreaming_model` | 설정되지 않음 | 리스가 있는 교훈을 재검토할 model을 선택합니다. 설정하지 않으면 model 기반 재검토를 건너뜁니다. |
+| `brain.maintainer_agent_uid` | 설정되지 않음 | Brain 유지보수 Agent를 선택하고 해당 Agent의 `heavy` profile로 리스가 있는 교훈을 재검토합니다. 사용 가능한 `heavy` profile이 없으면 model 기반 재검토를 건너뜁니다. |
 | `brain.dreaming_task_cron` | `0 5 * * *` | Dreaming이 reflection trigger를 평가하고 만료가 가까운 교훈을 재검토할 시간을 설정합니다. |
 
 **Brain → 상태**를 열면 Skill 학습의 활성 상태, Agent별 활성 교훈 수, 최근 7일 동안 추가되거나 폐기된 교훈 수, 가장 오래된 활성 Dreaming 교훈의 나이를 확인할 수 있습니다.

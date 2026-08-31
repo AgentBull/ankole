@@ -23,7 +23,7 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 | `web_search`, `web_fetch` | web 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 비쌈. 사용할 때만 바인딩 |
 
-Brain에는 Agent profile과 별개인 인스턴스 공용 모델 설정이 5개 있습니다. `brain.embedding_model`과 `brain.rerank_model`은 검색을 제어합니다. `brain.web_fetch_model`은 URL Source를 읽고, `brain.extraction_model`은 대화와 Source에서 학습하며, `brain.dreaming_model`은 모델 기반 유지 관리와 Skill 교훈 재검토를 실행합니다. [AppConfigure](../app-configuration/)에서 한 번 설정하십시오. 비어 있는 설정은 관련 작업을 중지하거나 제한하며, **Brain → 상태**에 사용할 수 없는 작업이 표시됩니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
+Brain이 유지하는 인스턴스 공용 모델 설정은 embedding과 rerank뿐입니다. [AppConfigure](../app-configuration/)에서 활성 Brain 유지보수 Agent를 선택합니다. 모든 Brain 모델 호출은 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 해당 Agent의 `light` profile은 대화와 Source의 지식 추출, `heavy` profile은 Dreaming과 Skill 교훈 재검토, `web_fetch` profile은 URL Source 가져오기에 사용합니다. `web_fetch`가 설정되지 않았거나 Provider 요청이 실패하면 로컬 `ankole-browser`를 사용합니다. 유지보수 Agent를 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 로컬 URL 가져오기가 모두 중지됩니다. **Brain → 상태**에서 선택한 Agent와 각 profile 상태를 확인할 수 있습니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
 
 가장 많이 절약하는 두 가지 조치:
 

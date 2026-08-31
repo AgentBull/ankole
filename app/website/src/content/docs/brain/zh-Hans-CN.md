@@ -18,8 +18,8 @@ Brain 不会把不断增长的聊天记录直接当成记忆。它维护人物�
 | 路径 | 结果 | 条件 |
 | --- | --- | --- |
 | Agent 调用 `remember` | 一条事实或判断立即成为持久记忆 | Agent 必须提交一条原子 Claim，注明出处，并选择有效的披露范围 |
-| Signals 学习处理对话 | 系统可以在没有显式 `remember` 调用时学习有长期价值的事实、判断和未决承诺 | Channel 必须是私聊或 IM 群聊，并且必须配置 `brain.extraction_model`；群聊还必须关联已同步的成员权限组 |
-| 管理员注册 Source | 文件或网页进入检索，并可以产出抽取后的 Claim | 抽取 Claim 必须配置 `brain.extraction_model`；文件必须可由部署读取，文件和抓取后的网页正文都必须是有效的 UTF-8 文本且不超过 10 MiB；URL 还需要 Web Fetch Provider |
+| Signals 学习处理对话 | 系统可以在没有显式 `remember` 调用时学习有长期价值的事实、判断和未决承诺 | Channel 必须是私聊或 IM 群聊，且负责维护 Brain 的 Agent 必须有可用的 `light` profile；群聊还必须关联已同步的成员权限组 |
+| 管理员注册 Source | 文件或网页进入检索，并可以产出抽取后的 Claim | 抽取 Claim 需要维护 Agent 的 `light` profile；文件必须可由部署读取，文件和抓取后的网页正文都必须是有效的 UTF-8 文本且不超过 10 MiB；URL 使用该 Agent 的 `web_fetch` profile，未配置或 Provider 请求失败时改用本地 `ankole-browser` |
 
 符合条件的 Channel 空闲或相关对话结束后，Signals 学习会处理消息切片。它读取 Channel 的原始消息镜像，不读取 Agent 私有的模型对话记录。私聊产物默认面向对端人员；群聊产物默认面向该 Channel 的成员权限组。
 
@@ -125,15 +125,15 @@ Console 的 **Brain** 区域按结果展示知识空间：
 - **Principal audit**列出某个 Principal 作为持有者、作者或受众的知识。
 - **Health**展示模型就绪状态、学习积压、向量错误、Channel 前置条件和投影状态。
 
-Brain 设置为各类系统活动选择实例级模型：
+Brain 设置用于选择负责维护 Brain 的 Agent，并保留属于实例知识空间的两项模型设置。Brain 的所有模型调用都以所选 Agent 的身份执行，并把用量归到该 Agent。该 Agent 必须保持活跃。停用后，Brain 会立即报告不健康，并停止所有模型调用和本地网页抓取，直到重新启用或更换 Agent；已存知识与纯文本召回不受影响。
 
-| 设置 | 启用的结果 |
+| 归属和设置 | 启用的结果 |
 | --- | --- |
-| Embedding 模型 | 向量召回和 Fact 语义判重 |
-| Rerank 模型 | 对检索融合结果执行交叉编码重排 |
-| Web Fetch Provider | 从 URL Source 提取可读正文 |
-| Extraction 模型 | Signals 学习和 Source 的 Claim 抽取 |
-| Dreaming 模型 | 需要模型的 Dreaming 阶段和 `synthesize` |
+| 维护 Agent 的 `light` profile | Signals 学习和 Source 的 Claim 抽取 |
+| 维护 Agent 的 `heavy` profile | 需要模型的 Dreaming 阶段和 `synthesize` |
+| 维护 Agent 的 `web_fetch` profile | 从 URL Source 提取可读正文；本地 `ankole-browser` 是回退路径 |
+| Brain 的 Embedding 模型 | 向量召回和 Fact 语义判重 |
+| Brain 的 Rerank 模型 | 对检索融合结果执行交叉编码重排 |
 
 缺少可选模型时，系统只收窄相关能力，不隐藏状态。Health 页面会说明哪些能力不可用。关闭 Brain 会移除记忆工具和上下文注入，并停止后台任务；已存知识保持不变。
 

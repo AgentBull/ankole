@@ -1248,8 +1248,8 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '任意の Agent profile と Brain モデル',
-  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain モデルはインスタンス全体に適用されます。',
+  title: '任意の Agent profile と Brain メンテナンス',
+  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain は検索モデルだけをインスタンス全体で保持します。',
   steps: [
     {
       title: '任意の Agent 能力 profile を追加する',
@@ -1274,11 +1274,16 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: 'インスタンスの Brain モデルを設定する',
+      title: 'Brain メンテナンス Agent と検索モデルを選択する',
       body: [
-        'Console → AppConfigure → Brain を開きます。これらの設定はすべての Agent に適用され、Agent profile には含まれません。'
+        'Console → AppConfigure → Brain を開きます。有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。無効にすると、再度有効にするか変更するまで、モデル呼び出しとローカル URL 取得を停止します。リンク先の Agent ページでモデル profile を編集します。'
       ],
       fields: [
+        {
+          name: 'brain.maintainer_agent_uid',
+          description:
+            '選択した Agent の light profile で知識を抽出し、heavy profile で Dreaming を実行し、web_fetch profile で URL Source を取得します。web_fetch が未設定の場合はローカルの ankole-browser を使います。'
+        },
         {
           name: 'brain.embedding_model',
           description: 'ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
@@ -1286,18 +1291,6 @@ export const modelAdvanced = {
         {
           name: 'brain.rerank_model',
           description: '融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
-        },
-        {
-          name: 'brain.web_fetch_model',
-          description: 'URL Source の読み取り可能な本文を取得します。'
-        },
-        {
-          name: 'brain.extraction_model',
-          description: 'Signal の会話と Source から知識を抽出します。'
-        },
-        {
-          name: 'brain.dreaming_model',
-          description: '知識を統合し、モデルが必要な保守タスクを実行します。'
         }
       ],
       links: [

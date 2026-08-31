@@ -87,11 +87,9 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | キー | 適用範囲 | 用途 |
 |---|---|---|
 | `brain.enabled` | インスタンス | Brain の検索、学習、保守を有効にする。無効にしても保存済みの知識は残る |
+| `brain.maintainer_agent_uid` | インスタンス | Brain のメンテナンスを担当する有効な Agent。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属する。無効にすると、再度有効にするか変更するまで、これらの呼び出しとローカル URL 取得を停止する。Agent ページで `light`、`heavy`、`web_fetch` profile を編集する |
 | `brain.embedding_model` | インスタンス | ベクトル検索に使う Provider、モデル、次元数。空の場合はベクトル検索を無効にする |
 | `brain.rerank_model` | インスタンス | 検索結果の rerank に使う Provider とモデル。空の場合は融合後の順序を保つ |
-| `brain.web_fetch_model` | インスタンス | URL Source からの学習に使う Provider とモデル。空の場合は URL Source の学習を停止する |
-| `brain.extraction_model` | インスタンス | Signal の会話と Source から知識を抽出するモデル。空の場合は該当する学習タスクを停止する |
-| `brain.dreaming_model` | インスタンス | 知識を統合し、人が確認する矛盾を見つけるモデル。空の場合はモデルが必要な保守タスクを省略する |
 | `brain.search_tokenizer` | インスタンス | BM25 tokenizer: `icu`、`jieba`、`lindera_japanese`、`lindera_korean`。変更後は BM25 index の再構築が必要 |
 | `brain.chunking` | インスタンス | Source chunk のサイズ、overlap、入力上限 |
 | `brain.forgetting` | インスタンス | 知識の種類ごとの減衰半減期と soft-delete の purge 間隔 |

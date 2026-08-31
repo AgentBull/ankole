@@ -41,11 +41,7 @@ defmodule Ankole.Brain.CalibrationTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
-    {:ok, _value} =
-      AppConfigure.put_global_by_key("brain.dreaming_model", %{
-        "provider_id" => "brain-calibration",
-        "model" => "fake-calibration"
-      })
+    configure_brain_maintainer_profile!("heavy", "brain-calibration", "fake-calibration")
 
     %{principal: member} = human_fixture()
 

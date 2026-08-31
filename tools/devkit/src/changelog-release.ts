@@ -3,11 +3,29 @@ import { mkdir } from 'node:fs/promises'
 
 const versionHeadingPattern =
   /^## Version ((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:alpha|beta|rc)(?:\.(?:0|[1-9][0-9]*))?)?) \((\d{4}-\d{2}-\d{2})\)$/
+const releaseVersionPattern =
+  /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(alpha|beta|rc)(?:\.(?:0|[1-9][0-9]*))?)?$/
 
 export type ChangelogRelease = {
   version: string
   date: string
   notes: string
+}
+
+export type ReleaseVersionPolicy = {
+  isPrerelease: boolean
+  usesCanary: boolean
+}
+
+export function releaseVersionPolicy(version: string): ReleaseVersionPolicy {
+  const match = releaseVersionPattern.exec(version)
+  if (!match) throw new Error(`unsupported release version: ${version}`)
+
+  const prereleaseKind = match[1]
+  return {
+    isPrerelease: prereleaseKind !== undefined,
+    usesCanary: prereleaseKind === 'alpha' || prereleaseKind === 'beta'
+  }
 }
 
 export function currentChangelogRelease(source: string): ChangelogRelease {
@@ -45,14 +63,21 @@ function isCalendarDate(value: string): boolean {
 }
 
 async function runCli(args: string[]): Promise<void> {
-  const [command, changelogPath, notesOutput] = args
-  if (command !== 'extract' || !changelogPath || !notesOutput || args.length !== 3) {
-    throw new Error('usage: changelog-release.ts extract CHANGELOG.md RELEASE_NOTES.md')
+  const [command, firstArgument, secondArgument] = args
+
+  if (command === 'classify' && firstArgument && args.length === 2) {
+    const policy = releaseVersionPolicy(firstArgument)
+    process.stdout.write(`${policy.isPrerelease} ${policy.usesCanary}\n`)
+    return
   }
 
-  const release = currentChangelogRelease(await Bun.file(changelogPath).text())
-  await mkdir(dirname(notesOutput), { recursive: true })
-  await Bun.write(notesOutput, release.notes)
+  if (command !== 'extract' || !firstArgument || !secondArgument || args.length !== 3) {
+    throw new Error('usage: changelog-release.ts extract CHANGELOG.md RELEASE_NOTES.md | classify VERSION')
+  }
+
+  const release = currentChangelogRelease(await Bun.file(firstArgument).text())
+  await mkdir(dirname(secondArgument), { recursive: true })
+  await Bun.write(secondArgument, release.notes)
   process.stdout.write(`${release.version}\n`)
 }
 

@@ -22,7 +22,11 @@ defmodule Ankole.Brain.Health do
   alias Ankole.SignalsGateway.Channel
 
   @internal_error "internal_error"
-  @public_reasons ~w(not_found provider_disabled invalid_embedding_model_ref)
+  @public_reasons ~w(
+    not_found provider_disabled invalid_embedding_model_ref
+    brain_maintainer_agent_not_configured brain_maintainer_agent_disabled agent_not_found
+    invalid_model_profile
+  )
 
   @doc """
   Returns the current Brain health snapshot.
@@ -31,13 +35,14 @@ defmodule Ankole.Brain.Health do
   def snapshot do
     %{
       enabled: safe(fn -> Config.enabled?() end, false),
+      maintainer_agent_uid: safe(fn -> Config.maintainer_agent_uid() end, nil),
       config: config_statuses(),
       models: %{
         embedding: model_status(safe(fn -> Config.embedding_model() end, nil)),
         rerank: model_status(safe(fn -> Config.rerank_model() end, nil)),
-        web_fetch: model_status(safe(fn -> Config.web_fetch_model() end, nil)),
-        extraction: model_status(safe(fn -> Config.extraction_model() end, nil)),
-        dreaming: model_status(safe(fn -> Config.dreaming_model() end, nil))
+        web_fetch: profile_model_status("web_fetch", fallback: "ankole_browser"),
+        extraction: profile_model_status("light"),
+        dreaming: profile_model_status("heavy")
       },
       embedding_signature: embedding_signature(),
       signals: signals_status(),
@@ -136,6 +141,32 @@ defmodule Ankole.Brain.Health do
       provider
     )
   end
+
+  defp profile_model_status(profile, opts \\ []) do
+    case safe(fn -> Config.maintainer_model_profile(profile) end, {:error, :internal_error}) do
+      {:ok, model} ->
+        model
+        |> model_status()
+        |> Map.put(:profile, profile)
+        |> maybe_put_fallback(Keyword.get(opts, :fallback))
+
+      {:error, :model_profile_not_configured} ->
+        %{configured: false, profile: profile}
+        |> maybe_put_fallback(Keyword.get(opts, :fallback))
+
+      {:error, reason} ->
+        %{
+          configured: false,
+          profile: profile,
+          profile_error: public_reason(reason, "maintainer_profile")
+        }
+    end
+  end
+
+  defp maybe_put_fallback(status, fallback) when is_binary(fallback),
+    do: Map.put(status, :fallback, fallback)
+
+  defp maybe_put_fallback(status, _fallback), do: status
 
   defp embedding_signature do
     case Embeddings.signature() do

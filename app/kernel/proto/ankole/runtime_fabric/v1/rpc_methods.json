@@ -365,6 +365,12 @@
     "response_type": "ankole.runtime_fabric.v1.SkillOverlayResolveResponse"
   },
   {
+    "method": "web_fetch.rendered",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.RenderedWebFetchRequest",
+    "response_type": "ankole.runtime_fabric.v1.RenderedWebFetchResponse"
+  },
+  {
     "method": "webhook.endpoint.cancel",
     "scope": "turn",
     "effect": "write",

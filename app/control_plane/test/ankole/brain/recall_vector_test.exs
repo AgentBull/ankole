@@ -14,6 +14,7 @@ defmodule Ankole.Brain.RecallVectorTest do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.SelfHealing
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Principals
   alias Ankole.Repo
 
   @dimensions 8
@@ -46,6 +47,11 @@ defmodule Ankole.Brain.RecallVectorTest do
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
+    %{principal: maintainer} = agent_fixture()
+
+    {:ok, _value} =
+      AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
+
     {:ok, _value} =
       AppConfigure.put_global_by_key("brain.embedding_model", %{
         "provider_id" => "brain-embed",
@@ -54,7 +60,7 @@ defmodule Ankole.Brain.RecallVectorTest do
       })
 
     %{principal: member} = human_fixture()
-    %{member: member}
+    %{maintainer: maintainer, member: member}
   end
 
   test "vector arm retrieves and orders claims through the ANN query", %{member: member} do
@@ -103,6 +109,35 @@ defmodule Ankole.Brain.RecallVectorTest do
     # signature filter can keep this stale row out of the pure-vector result.
     assert {:ok, result} = Recall.recall(member.uid, %{query: "warehouse probe zzz"})
     refute stale_fact.id in Enum.map(result.claims, & &1.id)
+  end
+
+  test "a disabled maintainer Agent leaves stored knowledge available through pure-text recall",
+       %{
+         maintainer: maintainer,
+         member: member
+       } do
+    {:ok, object} =
+      Objects.create_object(
+        %{slug: "concepts/disabled-maintainer", type: "concept", title: "Disabled Maintainer"},
+        member.uid
+      )
+
+    {:ok, %{claim: stored_fact}} =
+      write_fact(object, member, "Cobalt shipment remains available in stored knowledge")
+
+    {:ok, _value} =
+      AppConfigure.put_global_by_key("brain.rerank_model", %{
+        "provider_id" => "brain-embed",
+        "model" => "fake-rerank"
+      })
+
+    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer.uid)
+
+    assert {:error, :brain_maintainer_agent_disabled} =
+             Embeddings.embed_texts(["Cobalt shipment"])
+
+    assert {:ok, result} = Recall.recall(member.uid, %{query: "Cobalt shipment"})
+    assert stored_fact.id in Enum.map(result.claims, & &1.id)
   end
 
   test "embedding signature follows the provider snapshot resolved by AIGateway" do

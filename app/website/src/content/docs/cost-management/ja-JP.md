@@ -23,7 +23,7 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
 
-Brain には、Agent profile とは別に 5 つのインスタンス共通モデル設定があります。`brain.embedding_model` と `brain.rerank_model` は検索を制御します。`brain.web_fetch_model` は URL Source を読み、`brain.extraction_model` は会話と Source から学習し、`brain.dreaming_model` はモデルを使う保守と Skill 教訓の再確認を実行します。[AppConfigure](../app-configuration/) で一度設定してください。空の設定は該当する処理を停止または制限し、**Brain → Health** が利用できない処理を示します。全体の動作は [Brain](../brain/) を参照してください。
+Brain が持つインスタンス共通のモデル設定は embedding と rerank だけです。[AppConfigure](../app-configuration/) で有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、ローカルの `ankole-browser` を使います。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しとローカル URL 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます。全体の動作は [Brain](../brain/) を参照してください。
 
 最も節約できる 2 つの動き:
 

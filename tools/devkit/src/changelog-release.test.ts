@@ -4,9 +4,29 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { currentChangelogRelease } from './changelog-release'
+import { currentChangelogRelease, releaseVersionPolicy } from './changelog-release'
 
 describe('changelog release metadata', () => {
+  test('keeps release status separate from the moving image channel', () => {
+    expect(releaseVersionPolicy('1.0.0-alpha.1')).toEqual({
+      isPrerelease: true,
+      usesCanary: true
+    })
+    expect(releaseVersionPolicy('1.0.0-beta.2')).toEqual({
+      isPrerelease: true,
+      usesCanary: true
+    })
+    expect(releaseVersionPolicy('1.0.0-rc.3')).toEqual({
+      isPrerelease: true,
+      usesCanary: false
+    })
+    expect(releaseVersionPolicy('1.0.0')).toEqual({
+      isPrerelease: false,
+      usesCanary: false
+    })
+    expect(() => releaseVersionPolicy('1.0.0-preview.1')).toThrow(/unsupported release version/)
+  })
+
   test('extracts the newest version section without changing its Markdown', () => {
     const source = `# Changelog
 
@@ -121,5 +141,13 @@ describe('changelog release metadata', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  test('prints shell-safe release policy through the workflow CLI', () => {
+    const entrypoint = fileURLToPath(new URL('./changelog-release.ts', import.meta.url))
+    const result = Bun.spawnSync([process.execPath, entrypoint, 'classify', '1.0.0-rc.3'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.toString()).toBe('true false\n')
   })
 })
