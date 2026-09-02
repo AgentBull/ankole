@@ -4,6 +4,8 @@ import {
   Alert,
   AlertDescription,
   Button,
+  buttonVariants,
+  cn,
   Input,
   Select,
   SelectContent,
@@ -48,7 +50,7 @@ import {
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
-import { AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
+import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
 import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
@@ -86,6 +88,7 @@ export function SignalsListPage() {
       )
     )
   const stoppedDeliveries = signals.data?.delivery_failures ?? []
+  const hasAgents = activeAgents(scope.agents).length > 0
   const disableBinding = useMutation({
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -116,7 +119,7 @@ export function SignalsListPage() {
       title={t('console.signals.title')}
       description={t('console.signals.description')}
       createTo={
-        scope.agents.length > 0
+        hasAgents
           ? scope.agentUID
             ? `new?${new URLSearchParams({ agent: scope.agentUID, return_agent: scope.agentUID })}`
             : 'new'
@@ -135,9 +138,18 @@ export function SignalsListPage() {
       count={rows.length}
       emptyTitle={t(showDisabled ? 'console.signals.empty_title' : 'console.signals.empty_active_title')}
       emptyIcon={<RiBroadcastLine aria-hidden />}
-      emptyDescription={t(
-        showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description'
-      )}
+      emptyDescription={
+        hasAgents
+          ? t(showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description')
+          : t('console.signals.empty_no_agents_description')
+      }
+      emptyAction={
+        hasAgents ? undefined : (
+          <Link className={cn(buttonVariants({ size: 'sm' }))} to="/agents/new">
+            {t('console.agents.new')}
+          </Link>
+        )
+      }
       error={signals.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
@@ -193,31 +205,43 @@ export function SignalsListPage() {
             </StatusIndicator>
           </TableCell>
           <RowActions
-            actions={[
+            actions={
+              binding.enabled
+                ? []
+                : [
+                    {
+                      icon: <RiPlayCircleLine />,
+                      label: t('common.enable'),
+                      pending: enableBinding.isPending,
+                      onAction: () =>
+                        enableBinding.mutate({
+                          path: { agent_uid: binding.agent_uid, binding_name: binding.name },
+                          body: {
+                            target_agent_uid: binding.agent_uid,
+                            config: {},
+                            group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+                            unmatched_sender_policy: binding.unmatched_sender_policy
+                          }
+                        })
+                    }
+                  ]
+            }
+            deletePending={disableBinding.isPending}
+            deleteConfirm={
               binding.enabled
                 ? {
-                    icon: <RiPauseCircleLine />,
-                    label: t('common.disable'),
-                    pending: disableBinding.isPending,
-                    onAction: () =>
-                      disableBinding.mutate({ path: { agent_uid: binding.agent_uid, binding_name: binding.name } })
+                    title: t('console.signals.disable_title'),
+                    description: t('console.signals.disable_description', { name: binding.name }),
+                    confirmLabel: t('common.disable'),
+                    icon: <RiPauseCircleLine />
                   }
-                : {
-                    icon: <RiPlayCircleLine />,
-                    label: t('common.enable'),
-                    pending: enableBinding.isPending,
-                    onAction: () =>
-                      enableBinding.mutate({
-                        path: { agent_uid: binding.agent_uid, binding_name: binding.name },
-                        body: {
-                          target_agent_uid: binding.agent_uid,
-                          config: {},
-                          group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
-                          unmatched_sender_policy: binding.unmatched_sender_policy
-                        }
-                      })
-                  }
-            ]}
+                : undefined
+            }
+            onDelete={
+              binding.enabled
+                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, binding_name: binding.name } })
+                : undefined
+            }
             editTo={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}
             editLabel={t('common.edit')}
           />
@@ -319,8 +343,7 @@ export function SignalBindingEditorPage() {
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  // A routing rule targets an agent that can run, so disabled agents stay out.
-  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
+  const agentList = activeAgents(agents.data?.agents ?? [])
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
@@ -441,6 +464,7 @@ export function SignalBindingEditorPage() {
       title={editing ? t('common.edit') : t('console.signals.new')}
       description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
       backTo={returnPath}
+      dirty={model.dirty.value}
       validationError={model.validationError.value ?? writeFieldError}
       error={agents.error ?? adapters.error ?? bindingDetail.error ?? (writeFieldError ? undefined : writeError)}
       submitting={createBinding.isPending || updateBinding.isPending}

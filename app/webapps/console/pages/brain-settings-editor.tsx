@@ -151,12 +151,7 @@ export function BrainSettingsEditor({
               typeof value === 'string' && value && onDraftChange(BRAIN_KEYS.maintainerAgentUID, JSON.stringify(value))
             }>
             <SelectTrigger aria-label={t('console.settings.brain_maintainer_agent_uid')} className="w-full">
-              <SelectValue placeholder={t('console.settings.brain_maintainer_agent_placeholder')}>
-                {value => {
-                  const agent = agentList.find(item => item.uid === String(value))
-                  return agent ? `${agent.display_name} · ${agent.uid}` : String(value)
-                }}
-              </SelectValue>
+              <SelectValue placeholder={t('console.settings.brain_maintainer_agent_placeholder')} />
             </SelectTrigger>
             <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_empty')}>
               {selectableAgents.map(agent => (
@@ -207,7 +202,7 @@ export function BrainSettingsEditor({
             typeof value === 'string' && value && onDraftChange(BRAIN_KEYS.searchTokenizer, JSON.stringify(value))
           }>
           <SelectTrigger aria-label={t('console.settings.brain_search_tokenizer')} className="w-full">
-            <SelectValue>{value => t(`console.settings.brain_search_tokenizer_${String(value)}`)}</SelectValue>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {BRAIN_SEARCH_TOKENIZERS.map(option => (

@@ -37,7 +37,7 @@ import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import { ConfirmDeleteButton, JSONField, LabeledField, ResourceEditorPage } from '../console-form'
+import { ConfirmDeleteButton, EditorNotFound, JSONField, LabeledField, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
@@ -214,6 +214,7 @@ export function WorkerEnvEditorPage() {
   const list = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
   const item = name ? list.data?.worker_envs.find(entry => entry.name === name) : undefined
   const declared = item?.kind === 'declared'
+  const missing = mode === 'edit' && list.isSuccess && !item
 
   const refresh = () => void queryClient.invalidateQueries()
   const update = useMutation({
@@ -328,14 +329,19 @@ export function WorkerEnvEditorPage() {
 
   const submitDisabled = mode === 'edit' && !model.dirty.value
 
+  if (missing) {
+    return <EditorNotFound backTo="/worker-envs" message={t('console.worker_envs.not_found', { name: name ?? '' })} />
+  }
+
   return (
     <>
       <ResourceEditorPage
         title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
         description={item?.description ?? t('console.worker_envs.editor_description')}
         backTo="/worker-envs"
+        dirty={model.dirty.value && !remove.isPending}
         validationError={model.validationError.value}
-        error={update.error ?? decrypt.error}
+        error={update.error ?? decrypt.error ?? list.error}
         submitting={update.isPending}
         submitDisabled={submitDisabled}
         submitUnavailable={mode === 'edit' && !item}

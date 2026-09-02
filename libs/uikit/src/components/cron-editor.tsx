@@ -197,7 +197,7 @@ export function CronEditor({
             }
           }}>
           <SelectTrigger aria-label={labels.mode} className="w-full" disabled={disabled}>
-            <SelectValue>{selected => labels.modes[selected as CronEditorMode]}</SelectValue>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {CRON_MODES.map(option => (

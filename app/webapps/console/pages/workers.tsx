@@ -50,6 +50,7 @@ import {
 import { ankoleWebWorkerFileControllerDownload } from '../api/generated/sdk.gen'
 import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
+import { activeAgents } from '../console-agent-scope'
 import { StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, ScopeBar } from '../console-list-page'
 import { BackLink } from '../console-page'
@@ -196,7 +197,7 @@ export function WorkerFilesPage() {
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   // The browser defaults to and lists agents that can run; a disabled agent's
   // leftover directory stays reachable through an explicit ?path=.
-  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
+  const agentList = activeAgents(agents.data?.agents ?? [])
   const pathAgentUID = agentUIDFromWorkerFilePath(root, requestedPath)
   const agentUID = pathAgentUID ?? agentList[0]?.uid ?? ''
   const path = pathAgentUID ? requestedPath : agentUID ? workerFileRootPath(root, agentUID) : ''
@@ -222,11 +223,12 @@ export function WorkerFilesPage() {
     matchesResourceSearch(searchQuery, entry.relative_path, entry.kind, basename(entry.relative_path))
   )
   const truncated = files.data?.file_listing.truncated === true
-  // Without an Agent no per-agent directory exists, so "this directory is
-  // empty" would misreport the missing prerequisite. A path that names its own
-  // Agent is a real directory and keeps the plain empty state even when the
-  // Agent list is empty.
-  const agentsEmpty = agents.isSuccess && agents.data.agents.length === 0 && !pathAgentUID
+  // Without a browsable Agent no per-agent directory resolves, so "this
+  // directory is empty" would misreport the missing prerequisite. The check
+  // follows `agentList` (active agents), the same set the browser offers. A
+  // path that names its own Agent is a real directory and keeps the plain
+  // empty state even when that list is empty.
+  const agentsEmpty = agents.isSuccess && agentList.length === 0 && !pathAgentUID
 
   const refresh = () => void queryClient.invalidateQueries()
 
@@ -333,10 +335,10 @@ export function WorkerFilesPage() {
       isLoading={agents.isLoading || files.isLoading}
       isEmpty={entries.length === 0}
       count={entries.length}
-      emptyTitle={agentsEmpty ? t('console.agents.empty_title') : t('console.worker_files.empty_title')}
+      emptyTitle={agentsEmpty ? t('console.agents.no_active_title') : t('console.worker_files.empty_title')}
       emptyIcon={<RiFolder3Line aria-hidden />}
       emptyDescription={
-        agentsEmpty ? t('console.agents.empty_description') : t('console.worker_files.empty_description')
+        agentsEmpty ? t('console.agents.no_active_description') : t('console.worker_files.empty_description')
       }
       emptyAction={
         agentsEmpty ? (
@@ -532,7 +534,7 @@ function FileRow({
       query: { root, path: entry.relative_path }
     })
     if (result.error !== undefined || !(result.data instanceof Blob)) {
-      toast.error(requestErrorMessage(result.error ?? new Error('download failed')))
+      toast.error(requestErrorMessage(result.error ?? new Error(t('console.workers.download_failed'))))
       return
     }
     const url = URL.createObjectURL(result.data)

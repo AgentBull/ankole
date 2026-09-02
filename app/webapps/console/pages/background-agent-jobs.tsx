@@ -53,12 +53,14 @@ import {
   ankoleWebBackgroundAgentJobControllerCompleteMutation,
   ankoleWebBackgroundAgentJobControllerHealthOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
+  ankoleWebBackgroundAgentJobControllerIndexQueryKey,
   ankoleWebBackgroundAgentJobControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   BackgroundAgentJobHealthResponse,
   BackgroundAgentJobItem,
   BackgroundAgentJobListItem,
+  BackgroundAgentJobListResponse,
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
@@ -66,7 +68,7 @@ import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-sc
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
-import { StatusIndicator } from '../console-form'
+import { DiscardConfirmDialog, StatusIndicator, useDialogDiscardGuard } from '../console-form'
 import { ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
@@ -144,6 +146,16 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
+  })
+  const completeGuard = useDialogDiscardGuard({
+    dirty: Boolean(completeSummary.trim()),
+    onOpenChange: open => {
+      if (!open) {
+        setCompleteTargetID(undefined)
+        setCompleteSummary('')
+      }
+    },
+    pending: complete.isPending
   })
   const jobs = list.data?.jobs ?? []
   const selected = detail.data?.job
@@ -340,14 +352,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
         </SheetContent>
       </Sheet>
 
-      <Dialog
-        open={completeTargetID !== undefined}
-        onOpenChange={open => {
-          if (!open) {
-            setCompleteTargetID(undefined)
-            setCompleteSummary('')
-          }
-        }}>
+      <Dialog open={completeTargetID !== undefined} onOpenChange={completeGuard.requestOpenChange}>
         <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.background_agent_jobs.complete_title')}</DialogTitle>
@@ -375,6 +380,11 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <DiscardConfirmDialog
+        open={completeGuard.confirming}
+        onDiscard={completeGuard.confirmDiscard}
+        onKeep={completeGuard.keepEditing}
+      />
 
       <Dialog open={Boolean(cancelTarget)} onOpenChange={open => !open && setCancelTargetID(undefined)}>
         <DialogContent closeLabel={t('common.close')}>
@@ -402,11 +412,19 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
 }
 
 export function backgroundAgentJobListOptions(agentUID: string, search = '') {
+  const agent = agentUID || undefined
   return {
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: agentUID || undefined, q: search.trim() || undefined, limit: 100 }
+      query: { agent, q: search.trim() || undefined, limit: 100 }
     }),
-    refetchInterval: ACTIVITY_REFRESH_MS
+    refetchInterval: ACTIVITY_REFRESH_MS,
+    // A search commit changes the query key; keep the previous board on screen
+    // instead of collapsing the columns into skeletons. Never across an agent
+    // scope change: another Agent's rows must not show under the new scope.
+    placeholderData: (
+      previousData: BackgroundAgentJobListResponse | undefined,
+      previousQuery: { queryKey: ReturnType<typeof ankoleWebBackgroundAgentJobControllerIndexQueryKey> } | undefined
+    ) => (previousQuery?.queryKey[0].query?.agent === agent ? previousData : undefined)
   }
 }
 
@@ -665,7 +683,11 @@ function JobOutcome({ job }: { job: BackgroundAgentJobItem }) {
   return (
     <JobSection
       title={t(failed ? 'console.background_agent_jobs.error' : 'console.background_agent_jobs.result')}
-      aside={failed ? <StatusIndicator tone="danger">{job.status}</StatusIndicator> : undefined}>
+      aside={
+        failed ? (
+          <StatusIndicator tone="danger">{t(`console.background_agent_jobs.status_${job.status}`)}</StatusIndicator>
+        ) : undefined
+      }>
       {text ? (
         <div
           className={cn(
@@ -747,7 +769,7 @@ function TurnCard({ turn, lead }: { turn: BackgroundAgentJobTurn; lead: boolean 
       <span className="absolute top-6 -left-[1.75rem] size-2 rounded-full bg-primary" aria-hidden />
       <header className="grid min-w-0 gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-          <Badge variant="outline">{turn.kind}</Badge>
+          <Badge variant="outline">{t(`console.background_agent_jobs.turn_kind_${turn.kind}`)}</Badge>
           <Badge variant={lead ? 'default' : 'secondary'}>
             {t(
               lead ? 'console.background_agent_jobs.turn_scope_lead' : 'console.background_agent_jobs.turn_scope_child'
@@ -758,7 +780,9 @@ function TurnCard({ turn, lead }: { turn: BackgroundAgentJobTurn; lead: boolean 
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="break-all font-mono">{turn.runtime_turn_id}</span>
-          <span className="tabular-nums">rev {turn.revision}</span>
+          <span className="tabular-nums">
+            {t('console.background_agent_jobs.turn_revision', { revision: turn.revision })}
+          </span>
           <span className="tabular-nums">
             {t('console.background_agent_jobs.message_count', { count: turn.trajectory.messages.length })}
           </span>
@@ -772,12 +796,13 @@ function TurnCard({ turn, lead }: { turn: BackgroundAgentJobTurn; lead: boolean 
 }
 
 function TurnStatusBadge({ status }: { status: BackgroundAgentJobTurn['status'] }) {
+  const { t } = useTranslation()
   const tone = match(status)
     .with('completed', () => 'positive' as const)
     .with('failed', () => 'danger' as const)
     .with('interrupted', () => 'warning' as const)
     .otherwise(() => 'info' as const)
-  return <StatusIndicator tone={tone}>{status}</StatusIndicator>
+  return <StatusIndicator tone={tone}>{t(`console.background_agent_jobs.turn_status_${status}`)}</StatusIndicator>
 }
 
 /** The runtime counters, plan, and touched files for one Turn. Empty facets stay hidden. */
@@ -887,9 +912,10 @@ function PlanStep({ step }: { step: BackgroundAgentJobTurnPlanStep }) {
 
 /** Codex usage accounting, aligned so the thread total and the last call compare at a glance. */
 function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usage']> }) {
+  const { t } = useTranslation()
   const rows = [
-    { key: 'thread', breakdown: usage.thread_total },
-    { key: 'last call', breakdown: usage.last_model_call }
+    { key: 'thread', label: t('console.background_agent_jobs.usage_thread'), breakdown: usage.thread_total },
+    { key: 'last_call', label: t('console.background_agent_jobs.usage_last_call'), breakdown: usage.last_model_call }
   ]
 
   return (
@@ -900,7 +926,7 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
             <th className="py-0.5 text-left font-normal" />
             {TOKEN_COLUMNS.map(column => (
               <th key={column.key} className="py-0.5 pl-3 text-right font-normal">
-                {column.key}
+                {t(`console.background_agent_jobs.usage_${column.key}`)}
               </th>
             ))}
           </tr>
@@ -908,7 +934,7 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
         <tbody>
           {rows.map(row => (
             <tr key={row.key} className="border-t border-border">
-              <td className="py-0.5 pr-3 text-muted-foreground">{row.key}</td>
+              <td className="py-0.5 pr-3 text-muted-foreground">{row.label}</td>
               {TOKEN_COLUMNS.map(column => (
                 <td key={column.key} className="py-0.5 pl-3 text-right">
                   {column.read(row.breakdown).toLocaleString()}
@@ -920,7 +946,9 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
       </table>
       {usage.model_context_window === undefined ? null : (
         <span className="font-mono text-xs text-muted-foreground tabular-nums">
-          context {usage.model_context_window.toLocaleString()}
+          {t('console.background_agent_jobs.usage_context', {
+            tokens: usage.model_context_window.toLocaleString()
+          })}
         </span>
       )}
     </div>

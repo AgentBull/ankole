@@ -16,9 +16,9 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useBlocker, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebBrainControllerCreateObjectMutation,
   ankoleWebBrainControllerListObjectsQueryKey,
@@ -31,7 +31,7 @@ import {
 import type { BrainObjectPage } from '../../api/generated/types.gen'
 import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
-import { DiscardConfirmDialog, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
 import { BackLink, PageStack } from '../../console-page'
 import { MarkdownBody } from '../../markdown-body'
 import {
@@ -58,7 +58,6 @@ export function BrainObjectEditorPage() {
   const params = useParams()
   const queryClient = useQueryClient()
   const model = useModel(BrainObjectEditorModel)
-  const allowNavigation = useRef(false)
   const [latest, setLatest] = useState<BrainObjectPage>()
   const slug = params.slug ?? ''
   const mode = slug ? 'edit' : 'new'
@@ -85,17 +84,6 @@ export function BrainObjectEditorPage() {
     [model]
   )
 
-  const blocker = useBlocker(useCallback(() => !allowNavigation.current && model.dirty.value, [model]))
-  useEffect(() => {
-    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!model.dirty.value) return
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', warnBeforeUnload)
-    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
-  }, [model])
-
   const invalidate = (savedSlug: string) => {
     void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListObjectsQueryKey() })
     void queryClient.invalidateQueries({
@@ -113,7 +101,6 @@ export function BrainObjectEditorPage() {
       model.markSaved(response.object)
       invalidate(response.object.slug)
       toast.success(t('console.brain.object_created', { slug: response.object.slug }))
-      allowNavigation.current = true
       navigate(brainObjectPath(response.object.slug))
     }
   })
@@ -341,6 +328,7 @@ export function BrainObjectEditorPage() {
       backTo={mode === 'new' ? '/brain/objects' : brainObjectPath(slug)}
       contentWidth="wide"
       description={description}
+      dirty={model.dirty.value}
       error={editorError}
       validationError={validationError}
       onSubmit={submit}
@@ -352,20 +340,7 @@ export function BrainObjectEditorPage() {
     </ResourceEditorPage>
   )
 
-  return (
-    <>
-      {editor}
-      <DiscardConfirmDialog
-        open={blocker.state === 'blocked'}
-        onKeep={() => blocker.reset?.()}
-        onDiscard={() => {
-          allowNavigation.current = true
-          model.reset()
-          blocker.proceed?.()
-        }}
-      />
-    </>
-  )
+  return editor
 }
 
 function Problems({ diagnostic }: { diagnostic?: { code: string; line?: number } }) {

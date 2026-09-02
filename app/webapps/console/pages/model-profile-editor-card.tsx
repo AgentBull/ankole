@@ -31,7 +31,7 @@ import {
   profileUsesConfigurableModel,
   providersForProfile
 } from './model-profile-options'
-import { ProviderSettingField } from './provider-setting-field'
+import { ProviderSettingField, providerSettingLabel } from './provider-setting-field'
 import {
   buildSettingOptions,
   requestSettings,
@@ -258,7 +258,10 @@ export function ModelProfileEditorCard({
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder={t('console.models.provider_placeholder')} />
                   </SelectTrigger>
-                  <SelectContent emptyLabel={t('console.models.provider_empty')}>
+                  <SelectContent
+                    emptyLabel={
+                      providers.length === 0 ? t('console.models.provider_none') : t('console.models.provider_empty')
+                    }>
                     {profileProviders.map(provider => (
                       <SelectItem key={provider.provider_id} value={provider.provider_id}>
                         {provider.provider_id}
@@ -380,7 +383,8 @@ export function buildModelProfileWriteRequest({
   const builtOptions = buildSettingOptions(
     requestSettings(selectedKind),
     draft.providerOptions,
-    settingValidationMessage
+    settingValidationMessage,
+    key => providerSettingLabel(t, key)
   )
   if (!builtOptions.ok) return builtOptions
 

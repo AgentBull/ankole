@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { currentChangelogRelease, releaseVersionPolicy } from './changelog-release'
 
 describe('changelog release metadata', () => {
-  test('keeps release status separate from the moving image channel', () => {
+  test('treats alpha and beta as pre-releases and a release candidate as a release', () => {
     expect(releaseVersionPolicy('1.0.0-alpha.1')).toEqual({
       isPrerelease: true,
       usesCanary: true
@@ -17,7 +17,7 @@ describe('changelog release metadata', () => {
       usesCanary: true
     })
     expect(releaseVersionPolicy('1.0.0-rc.3')).toEqual({
-      isPrerelease: true,
+      isPrerelease: false,
       usesCanary: false
     })
     expect(releaseVersionPolicy('1.0.0')).toEqual({
@@ -145,9 +145,9 @@ describe('changelog release metadata', () => {
 
   test('prints shell-safe release policy through the workflow CLI', () => {
     const entrypoint = fileURLToPath(new URL('./changelog-release.ts', import.meta.url))
-    const result = Bun.spawnSync([process.execPath, entrypoint, 'classify', '1.0.0-rc.3'])
+    const result = Bun.spawnSync([process.execPath, entrypoint, 'classify', '1.0.0-beta.1'])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout.toString()).toBe('true false\n')
+    expect(result.stdout.toString()).toBe('true true\n')
   })
 })

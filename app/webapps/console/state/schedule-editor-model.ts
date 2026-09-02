@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 /**
  * Editor model for one cron schedule.
@@ -218,6 +218,23 @@ export const ScheduleEditorModel = createModel(() => {
   const deliveryFieldsChanged = (original: ScheduleEditorDraft): boolean =>
     !sameJSON(normalizeDraftTargets(original.deliveryTargets), normalizeDraftTargets(deliveryTargets.value))
 
+  /** Whether any field differs from the initialized draft; false until a draft is loaded. */
+  const dirty = computed(() => {
+    const original = initialDraft.value
+    if (!original) return false
+    return (
+      original.ownerSessionId !== ownerSessionId.value ||
+      original.bindingName !== bindingName.value ||
+      original.name !== name.value ||
+      original.status !== status.value ||
+      original.task !== task.value ||
+      original.payload !== payload.value ||
+      original.idempotencyKey !== idempotencyKey.value ||
+      scheduleFieldsChanged(original) ||
+      !sameJSON(meaningfulTargets(original.deliveryTargets), meaningfulTargets(deliveryTargets.value))
+    )
+  })
+
   return {
     sourceKey,
     ownerSessionId,
@@ -235,6 +252,7 @@ export const ScheduleEditorModel = createModel(() => {
     hasAutomationJob,
     idempotencyKey,
     validationError,
+    dirty,
     initialize(nextSourceKey: string, draft: ScheduleEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
       sourceKey.value = nextSourceKey
@@ -346,6 +364,11 @@ function sameJSON(left: unknown, right: unknown): boolean {
 
 function emptyTarget(): DeliveryTargetDraft {
   return { bindingName: '', channelId: '', threadId: '' }
+}
+
+/** Targets the operator filled in; the editor's blank placeholder row counts as none. */
+function meaningfulTargets(targets: DeliveryTargetDraft[]): DeliveryTargetDraft[] {
+  return normalizeDraftTargets(targets).filter(target => target.bindingName || target.channelId || target.threadId)
 }
 
 function normalizeDraftTargets(targets: DeliveryTargetDraft[]): DeliveryTargetDraft[] {

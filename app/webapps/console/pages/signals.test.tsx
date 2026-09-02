@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createMemoryRouter, MemoryRouter, Route, Routes } from 'react-router'
-import { ankoleWebSignalBindingControllerIndexQueryKey } from '../api/generated/@tanstack/react-query.gen'
+import { createMemoryRouter, RouterProvider } from 'react-router'
+import {
+  ankoleWebAgentControllerIndexQueryKey,
+  ankoleWebSignalBindingControllerIndexQueryKey
+} from '../api/generated/@tanstack/react-query.gen'
+import type { AgentItem } from '../api/generated/types.gen'
 import { finishSignalBindingSave, SignalBindingEditorPage, SignalsListPage } from './signals'
 
 describe('Signal Routing editor navigation', () => {
@@ -39,6 +43,50 @@ describe('Signal Routing editor navigation', () => {
   })
 })
 
+describe('Signal Routing empty state', () => {
+  test('routes the operator to Agent creation while the instance has no Agent', () => {
+    const html = renderEmptySignalsList([])
+
+    expect(html).toContain('href="/agents/new"')
+    expect(html).not.toContain('href="/signals/new"')
+  })
+
+  test('offers rule creation in the empty state once an Agent exists', () => {
+    const html = renderEmptySignalsList([agentItem('agent-a')])
+
+    expect(html).toContain('href="/signals/new"')
+    expect(html).not.toContain('href="/agents/new"')
+  })
+})
+
+function renderEmptySignalsList(agents: AgentItem[]) {
+  const queryClient = freshQueryClient()
+  queryClient.setQueryData(ankoleWebAgentControllerIndexQueryKey(), { agents })
+  queryClient.setQueryData(ankoleWebSignalBindingControllerIndexQueryKey({ query: { agent: undefined } }), {
+    delivery_failures: [],
+    signal_bindings: []
+  })
+
+  return renderRoute(queryClient, '/signals', 'signals', <SignalsListPage />)
+}
+
+function agentItem(uid: string): AgentItem {
+  return {
+    avatar_url: null,
+    created_by_principal_uid: null,
+    display_name: uid,
+    group_memory_disclosure_mode: 'strict',
+    inserted_at: '2026-08-14T00:00:00Z',
+    options: {},
+    owner_principal_uid: 'operator',
+    role: 'assistant',
+    status: 'active',
+    type: 'ai_colleague',
+    uid,
+    updated_at: '2026-08-14T00:00:00Z'
+  }
+}
+
 function renderSignalsList(initialEntry: string, agentUID: string | undefined, bindingAgentUID = 'agent-a') {
   const queryClient = freshQueryClient()
   queryClient.setQueryData(
@@ -54,13 +102,11 @@ function renderSignalEditor(initialEntry: string) {
 }
 
 function renderRoute(queryClient: QueryClient, initialEntry: string, path: string, element: React.ReactNode) {
+  // A data router, because the editor frame's dirty-draft guard uses useBlocker.
+  const router = createMemoryRouter([{ path, element }], { initialEntries: [initialEntry] })
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path={path} element={element} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   )
 }

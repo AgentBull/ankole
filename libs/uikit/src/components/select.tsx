@@ -46,13 +46,22 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return <SelectPrimitive.Group data-slot="select-group" className={cn('scroll-my-1.5 p-1.5', className)} {...props} />
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+function SelectValue({ children, className, placeholder, ...props }: SelectPrimitive.Value.Props) {
+  // Base UI hands a children function the raw value even when nothing is
+  // selected (null or ''), skipping the placeholder; keep the placeholder for
+  // those values so a function child never paints "null" or a raw key.
+  const guarded =
+    typeof children === 'function' && placeholder != null
+      ? (value: unknown) => (value == null || value === '' ? placeholder : children(value))
+      : children
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn('flex min-w-0 flex-1 truncate text-left', className)}
-      {...props}
-    />
+      placeholder={placeholder}
+      {...props}>
+      {guarded}
+    </SelectPrimitive.Value>
   )
 }
 
@@ -81,7 +90,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-none border border-transparent border-b-input bg-field px-4 py-0 text-sm leading-5 whitespace-nowrap outline-none focus-visible:border-b-ring disabled:cursor-not-allowed disabled:border-b-transparent disabled:bg-field disabled:text-fg-disabled aria-invalid:border-b-destructive data-invalid:border-b-destructive data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:aria-invalid:border-b-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-none border border-transparent border-b-input bg-field px-4 py-0 text-sm leading-5 whitespace-nowrap outline-none focus-visible:border-b-ring disabled:cursor-not-allowed disabled:border-b-transparent disabled:bg-field disabled:text-fg-disabled aria-invalid:border-b-destructive data-invalid:border-b-destructive data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:aria-invalid:border-b-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}>

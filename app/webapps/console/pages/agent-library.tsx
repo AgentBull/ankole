@@ -322,24 +322,19 @@ function ScopeSelect({
 }) {
   const { t } = useTranslation()
   return (
-    <label className="grid w-full min-w-64 gap-1.5 text-sm font-medium sm:w-80">
-      {t('console.agent_library_capabilities.scope')}
-      <Select value={scope} onValueChange={value => onChange(String(value))}>
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={GLOBAL_LIBRARY_SCOPE}>
-            {t('console.agent_library_capabilities.global_defaults')}
+    <Select value={scope} onValueChange={value => onChange(String(value))}>
+      <SelectTrigger aria-label={t('console.agent_library_capabilities.scope')} className="w-full sm:w-80" size="sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={GLOBAL_LIBRARY_SCOPE}>{t('console.agent_library_capabilities.global_defaults')}</SelectItem>
+        {agents.map(agent => (
+          <SelectItem key={agent.uid} value={agent.uid}>
+            {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
           </SelectItem>
-          {agents.map(agent => (
-            <SelectItem key={agent.uid} value={agent.uid}>
-              {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </label>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

@@ -33,10 +33,8 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ErrorBlock } from '../../common/error-block'
 import { blankToNull } from '../console-primitives'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
-import { BackLink, PageStack } from '../console-page'
+import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { SinglePrincipalPicker } from '../principal-picker'
 import {
@@ -293,22 +291,15 @@ export function AgentEditorPage() {
   // operator can inspect them before re-enabling or deleting.
   const agentUnavailable = agentDetail.error?.error?.code === 'not_found'
   if (mode === 'edit' && agentUnavailable) {
-    return (
-      <PageStack className="mx-auto w-full max-w-3xl">
-        <BackLink to="/agents" />
-        <ErrorBlock
-          title={t('console.not_found.title')}
-          error={new Error(t('console.agents.not_found', { uid: uid ?? '' }))}
-        />
-      </PageStack>
-    )
+    return <EditorNotFound backTo="/agents" message={t('console.agents.not_found', { uid: uid ?? '' })} />
   }
 
   return (
     <ResourceEditorPage
-      title={mode === 'new' ? t('console.agents.new') : (uid ?? '')}
+      title={mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || (uid ?? '')}
       description={t('console.agents.editor_description')}
       backTo="/agents"
+      dirty={model.dirty.value}
       error={
         createAgent.error ??
         updateAgent.error ??
@@ -442,7 +433,7 @@ export function AgentEditorPage() {
               }
             }}>
             <SelectTrigger aria-label={t('console.agents.group_memory_disclosure_mode')} className="w-full">
-              <SelectValue>{value => t(`console.agents.group_memory_disclosure_mode_${String(value)}`)}</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="strict">{t('console.agents.group_memory_disclosure_mode_strict')}</SelectItem>

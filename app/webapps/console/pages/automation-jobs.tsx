@@ -99,8 +99,11 @@ export function AutomationJobsPage() {
         emptyDescription={t('console.automation_jobs.empty_description')}
         error={jobs.error}
         isEmpty={rows.length === 0}
-        isFiltered={Boolean(query.trim())}
-        onClearFilters={() => setQuery('')}
+        isFiltered={Boolean(query.trim()) || Boolean(scope.agentUID)}
+        onClearFilters={() => {
+          setQuery('')
+          scope.selectAgent('')
+        }}
         isLoading={jobs.isLoading}
         toolbarCanRevealRows
         toolbar={

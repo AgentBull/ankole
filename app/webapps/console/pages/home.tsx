@@ -80,9 +80,12 @@ export function HomePage() {
   // `min_messages: 2` matches the conversation list's own default. Without it the
   // newest rows are empty placeholder conversations, which look identical to each
   // other and tell the operator nothing about recent traffic.
-  const conversations = useQuery(
-    ankoleWebAiGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } })
-  )
+  // A slow-moving summary: the min-message filter counts per conversation
+  // server-side, so this panel polls at the relaxed cadence.
+  const conversations = useQuery({
+    ...ankoleWebAiGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }),
+    refetchInterval: IDLE_REFRESH_MS
+  })
 
   const queries = [agents, workers, providers, identityProviders, jobs, conversations, readiness]
   const error = queries.find(query => query.error)?.error

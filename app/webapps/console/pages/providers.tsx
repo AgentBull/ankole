@@ -79,7 +79,7 @@ import { EncryptedValueInput } from '../encrypted-value-input'
 import { formatConsoleDate } from '../console-primitives'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
-import { ProviderSettingField } from './provider-setting-field'
+import { ProviderSettingField, providerSettingLabel } from './provider-setting-field'
 import {
   buildConnectionOptions,
   buildSettingOptions,
@@ -173,7 +173,7 @@ export function ProvidersListPage() {
       emptyTitle={t('console.providers.empty_title')}
       emptyIcon={<RiSparkling2Line aria-hidden />}
       emptyDescription={t('console.providers.empty_description')}
-      error={providers.error}
+      error={providers.error ?? providerKinds.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       toolbar={
@@ -389,6 +389,7 @@ export function ProviderEditorPage() {
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
       description={t('console.providers.editor_description')}
       backTo="/providers"
+      dirty={model.dirty.value}
       error={
         model.validationError.value ??
         saveProvider.error ??
@@ -540,7 +541,10 @@ function CredentialPoolEditor({
   })
   const updateCredential = useMutation({
     ...putCredentialMutation(),
-    onSuccess: () => refresh(),
+    onSuccess: () => {
+      toast.success(t('console.providers.credential_saved'))
+      refresh()
+    },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const removeCredential = useMutation({
@@ -775,6 +779,7 @@ function CredentialEditorDialog({
   const [validationError, setValidationError] = useState<string>()
 
   const finish = () => {
+    toast.success(t('console.providers.credential_saved'))
     void queryClient.invalidateQueries()
     onOpenChange(false)
   }
@@ -812,12 +817,12 @@ function CredentialEditorDialog({
         return setting.required && !value
       })
       if (missing) {
-        setValidationError(settingValidationMessage(humanizeKey(missing.key), 'required'))
+        setValidationError(settingValidationMessage(providerSettingLabel(t, missing.key), 'required'))
         return
       }
     }
 
-    const built = buildSettingOptions(settings, values, settingValidationMessage)
+    const built = buildSettingOptions(settings, values, settingValidationMessage, key => providerSettingLabel(t, key))
     if (!built.ok) {
       setValidationError(built.error)
       return

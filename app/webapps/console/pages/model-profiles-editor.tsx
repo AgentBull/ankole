@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
   ankoleWebAgentControllerPutModelProfileMutation,
@@ -215,6 +216,14 @@ export function ModelProfilesEditor({
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
+        {!loading && providers.length === 0 ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            {t('console.models.provider_none_hint')}{' '}
+            <Link className="text-link underline-offset-4 hover:underline" to="/providers/new">
+              {t('console.models.provider_none_action')}
+            </Link>
+          </p>
+        ) : null}
       </div>
       <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error ?? saveProviderHosted.error} />
       {loading ? (

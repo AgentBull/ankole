@@ -1,6 +1,8 @@
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
+  buttonVariants,
+  cn,
   CreatableCombobox,
   Input,
   Select,
@@ -48,7 +50,7 @@ import {
   ankoleWebScheduleControllerUpdateCronMutation,
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import { AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
+import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
@@ -110,6 +112,7 @@ export function SchedulesListPage() {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const scope = useAgentScope()
+  const hasActiveAgents = activeAgents(scope.agents).length > 0
 
   const crons = useQuery({
     ...ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }),
@@ -179,15 +182,21 @@ export function SchedulesListPage() {
       ]}
       count={rows.length}
       createTo={
-        scope.agents.length > 0
-          ? scope.agentUID
-            ? `new?agent=${encodeURIComponent(scope.agentUID)}`
-            : 'new'
-          : undefined
+        hasActiveAgents ? (scope.agentUID ? `new?agent=${encodeURIComponent(scope.agentUID)}` : 'new') : undefined
       }
       createLabel={t('console.schedules.new')}
       emptyIcon={<RiCalendarScheduleLine aria-hidden />}
       emptyTitle={t('console.schedules.empty_title')}
+      emptyDescription={
+        hasActiveAgents ? t('console.schedules.empty_description') : t('console.schedules.empty_no_agents_description')
+      }
+      emptyAction={
+        hasActiveAgents ? undefined : (
+          <Link className={cn(buttonVariants({ size: 'sm' }))} to="/agents/new">
+            {t('console.agents.new')}
+          </Link>
+        )
+      }
       error={crons.error}
       isEmpty={rows.length === 0}
       isFiltered={Boolean(query.trim())}
@@ -332,9 +341,12 @@ export function ScheduleCheckbacksPage() {
       emptyTitle={t('console.schedules.checkbacks_empty')}
       error={checkbacks.error}
       isEmpty={rows.length === 0}
-      isFiltered={Boolean(query.trim())}
+      isFiltered={Boolean(query.trim()) || Boolean(scope.agentUID)}
       isLoading={checkbacks.isLoading}
-      onClearFilters={() => setQuery('')}
+      onClearFilters={() => {
+        setQuery('')
+        scope.selectAgent('')
+      }}
       subNav={<ScheduleTabs scope={scope} />}
       toolbarCanRevealRows
       toolbar={
@@ -423,8 +435,7 @@ export function ScheduleCronEditorPage() {
   const editing = Boolean(cronID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  // A schedule targets an agent that can run, so disabled agents stay out.
-  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
+  const agentList = activeAgents(agents.data?.agents ?? [])
   // An existing schedule is pinned to its agent; a new one starts from the
   // resolved `?agent=` request.
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)
@@ -574,6 +585,7 @@ export function ScheduleCronEditorPage() {
     <ResourceEditorPage
       title={editing ? t('console.schedules.edit') : t('console.schedules.new')}
       backTo={backTo}
+      dirty={model.dirty.value && !removeCron.isPending}
       description={
         terminalReadOnly && existingRow
           ? t('console.schedules.terminal_read_only', { status: scheduleStatusLabel(t, existingRow.status) })
@@ -692,7 +704,7 @@ export function ScheduleCronEditorPage() {
               <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
                 {agentList.map(agent => (
                   <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.uid}
+                    {agent.display_name} · {agent.uid}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -743,7 +755,7 @@ export function ScheduleCronEditorPage() {
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
               </SelectTrigger>
-              <SelectContent emptyLabel={t('common.select_empty')}>
+              <SelectContent emptyLabel={t('console.schedules.binding_empty')}>
                 {bindingList.map(binding => (
                   <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                     {binding.name}
@@ -753,6 +765,16 @@ export function ScheduleCronEditorPage() {
               </SelectContent>
             </Select>
           )}
+          {!editing && agentUID && !bindings.isLoading && bindingList.length === 0 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t('console.schedules.binding_empty_hint')}{' '}
+              <Link
+                className="text-link underline-offset-4 hover:underline"
+                to={`/signals/new?agent=${encodeURIComponent(agentUID)}`}>
+                {t('console.schedules.binding_empty_action')}
+              </Link>
+            </p>
+          ) : null}
         </LabeledField>
         <LabeledField label={t('console.schedules.name')} description={t('console.schedules.name_hint')}>
           <Input value={model.name.value} onChange={event => (model.name.value = event.target.value)} />

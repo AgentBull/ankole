@@ -266,15 +266,18 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   defp maybe_filter_active(query, false), do: where(query, [c], not is_nil(c.ended_at))
 
   # Both predicates match the leading columns of the
-  # `ai_gateway_messages_conversation_index` composite index.
+  # `ai_gateway_messages_conversation_index` composite index. The inner LIMIT
+  # bounds the count at the threshold, so a long conversation costs `min`
+  # index reads instead of one per message.
   defp maybe_filter_min_messages(query, min) when is_integer(min) and min > 0 do
     where(
       query,
       [conversation],
       fragment(
-        "(SELECT COUNT(*) FROM ai_gateway_messages m WHERE m.subject_uid = ? AND m.conversation_id = ?) >= ?",
+        "(SELECT COUNT(*) FROM (SELECT 1 FROM ai_gateway_messages m WHERE m.subject_uid = ? AND m.conversation_id = ? LIMIT ?) bounded) >= ?",
         conversation.subject_uid,
         conversation.id,
+        ^min,
         ^min
       )
     )

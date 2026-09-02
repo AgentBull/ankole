@@ -289,7 +289,8 @@ defmodule AnkoleWeb.SetupController do
          # identity paths (this one and the setup OIDC callback) read it.
          brain_packs = WebSession.setup_brain_packs(conn),
          {:ok, provider} <- require_local_provider(),
-         {:ok, principal_uid} <- ensure_local_admin_account(email, params["password"]),
+         {:ok, display_name} <- validate_local_admin_display_name(params["display_name"]),
+         {:ok, principal_uid} <- ensure_local_admin_account(email, display_name, params["password"]),
          {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid, brain_packs) do
       conn
       |> WebSession.clear_setup_session()
@@ -353,18 +354,35 @@ defmodule AnkoleWeb.SetupController do
 
   # The setup administrator picks their own password, so the credential never
   # carries the must-change flag.
-  defp ensure_local_admin_account(email, password) do
+  defp ensure_local_admin_account(email, display_name, password) do
     case LocalPassword.fetch_local_login(email) do
       {:ok, %{principal: principal}} ->
         put_local_admin_password(principal.uid, password)
 
       {:error, :not_found} ->
-        with {:ok, %{principal: principal}} <-
-               Principals.create_human(%{uid: email, email: email}) do
+        attrs = %{uid: email, email: email}
+        attrs = if display_name, do: Map.put(attrs, :display_name, display_name), else: attrs
+
+        with {:ok, %{principal: principal}} <- Principals.create_human(attrs) do
           put_local_admin_password(principal.uid, password)
         end
     end
   end
+
+  # The display name is optional; a blank one leaves the profile at its
+  # email-derived default, and an over-long one is rejected like any other
+  # invalid field.
+  defp validate_local_admin_display_name(nil), do: {:ok, nil}
+
+  defp validate_local_admin_display_name(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      name when byte_size(name) <= 120 -> {:ok, name}
+      _ -> {:error, 422, "display name is too long"}
+    end
+  end
+
+  defp validate_local_admin_display_name(_value), do: {:error, 422, "display name is invalid"}
 
   defp put_local_admin_password(principal_uid, password) do
     with {:ok, _credential} <- LocalPassword.set_local_password(principal_uid, password, false) do

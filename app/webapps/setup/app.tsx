@@ -93,6 +93,9 @@ function identitySchema(adapterRequired: string, providerIDInvalid: string) {
 export function SetupApp() {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
+  useEffect(() => {
+    document.title = t('setup.document_title')
+  }, [t])
   const pluginsModel = useModel(PluginsStepModel)
   const identityModel = useModel(IdentitySetupModel)
   // A reload restarts at the plugin step. The selected plugins live only in
@@ -263,7 +266,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                     })
                   }}>
                   <SelectTrigger className="w-full">
-                    <SelectValue>{value => nativeLocaleLabel(value ?? locale)}</SelectValue>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {availableLocales.map(option => (

@@ -29,6 +29,7 @@ import {
   Children,
   cloneElement,
   isValidElement,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -39,6 +40,7 @@ import {
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useBlocker } from 'react-router'
 import { BackLink, DocumentTitle, PageStack } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
@@ -78,6 +80,7 @@ export function ResourceEditorPage({
   children,
   contentWidth = 'form',
   description,
+  dirty,
   error,
   onSubmit,
   readOnly = false,
@@ -95,6 +98,16 @@ export function ResourceEditorPage({
   children: ReactNode
   contentWidth?: 'form' | 'wide'
   description?: string
+  /**
+   * Unsaved-draft flag. When provided, leaving the editor page with a dirty
+   * draft asks for confirmation (in-app navigation and tab close), and the
+   * footer shows an unsaved hint. The guard stands down while `submitting`,
+   * so a save that navigates from its mutation's option-level `onSuccess`
+   * (which runs before the pending state clears) leaves freely. A page that
+   * navigates after another mutation composes that mutation's pending flag
+   * into `dirty` the same way.
+   */
+  dirty?: boolean
   error?: unknown
   secondary?: ReactNode
   supplementary?: ReactNode
@@ -108,6 +121,13 @@ export function ResourceEditorPage({
   const disabledForNoChanges = Boolean(submitDisabled && !formCompleteness.incomplete)
   const saveDisabled = Boolean(submitting || submitUnavailable || disabledForNoChanges)
   const disabledReason = disabledForNoChanges ? (submitDisabledReason ?? t('common.save_disabled')) : undefined
+  const errorBlockRef = useRef<HTMLDivElement>(null)
+
+  // A server rejection lands while the operator sits at the sticky footer of a
+  // long form; the error renders at the top, so bring it into the viewport.
+  useEffect(() => {
+    if (error || validationError) errorBlockRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [error, validationError])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -135,6 +155,7 @@ export function ResourceEditorPage({
         </div>
       </div>
 
+      {dirty === undefined || readOnly ? null : <EditorNavigationGuard blocked={dirty && !submitting} />}
       <form
         ref={formCompleteness.formRef}
         className="grid gap-6"
@@ -146,8 +167,12 @@ export function ResourceEditorPage({
         // next to the control instead.
         onInvalidCapture={event => event.preventDefault()}
         onSubmit={handleSubmit}>
-        {validationError ? <ErrorBlock title={t('common.form_invalid')} error={validationError} /> : null}
-        <ErrorBlock error={error} />
+        {validationError || error ? (
+          <div ref={errorBlockRef} className="grid gap-6">
+            {validationError ? <ErrorBlock title={t('common.form_invalid')} error={validationError} /> : null}
+            <ErrorBlock error={error} />
+          </div>
+        ) : null}
         <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
           {readOnly ? (
             <fieldset className="contents" disabled>
@@ -168,6 +193,9 @@ export function ResourceEditorPage({
               type="submit">
               {submitLabel ?? t('common.save')}
             </SaveButton>
+            {dirty && !submitting ? (
+              <span className="text-xs text-muted-foreground">{t('common.unsaved_changes')}</span>
+            ) : null}
             {disabledReason ? (
               <p
                 id={disabledReasonID}
@@ -181,6 +209,51 @@ export function ResourceEditorPage({
       </form>
       {supplementary}
     </PageStack>
+  )
+}
+
+/**
+ * Not-found frame for an editor whose resource does not exist: the editor's
+ * back link plus the page-level error, at the editor frame's form width.
+ */
+export function EditorNotFound({ backTo, message }: { backTo: string; message: string }) {
+  const { t } = useTranslation()
+  return (
+    <PageStack className="mx-auto w-full max-w-3xl">
+      <BackLink to={backTo} />
+      <ErrorBlock title={t('console.not_found.title')} error={new Error(message)} />
+    </PageStack>
+  )
+}
+
+/** Warns before tab close or reload while a draft is dirty. */
+function useBeforeUnloadGuard(blocked: boolean) {
+  useEffect(() => {
+    if (!blocked) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [blocked])
+}
+
+/**
+ * In-app navigation and tab-close guard for a dirty draft. Only a pathname
+ * change counts as leaving: search-param writes such as an editor's own
+ * `?agent=` scope stay free. It lives in its own component so callers without
+ * a draft never reach `useBlocker`, which requires a data router.
+ */
+export function EditorNavigationGuard({ blocked }: { blocked: boolean }) {
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => blocked && currentLocation.pathname !== nextLocation.pathname
+  )
+  useBeforeUnloadGuard(blocked)
+
+  return (
+    <DiscardConfirmDialog
+      open={blocker.state === 'blocked'}
+      onDiscard={() => blocker.proceed?.()}
+      onKeep={() => blocker.reset?.()}
+    />
   )
 }
 

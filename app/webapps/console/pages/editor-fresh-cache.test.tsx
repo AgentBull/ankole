@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { createMemoryRouter, RouterProvider } from 'react-router'
 import {
   ankoleWebAgentControllerIndexQueryKey,
   ankoleWebAgentControllerShowQueryKey,
@@ -49,7 +49,8 @@ describe('resource editor lookup with fresh caches', () => {
 
     expect(html).not.toContain('Page not found')
     expect(html).toContain('<form')
-    expect(html).toContain('disabled-agent')
+    // The editor titles by display name; seeing it proves the right agent loaded.
+    expect(html).toContain('Disabled Agent')
   })
 
   test('refreshes a fresh Agent detail cache when the editor mounts', async () => {
@@ -152,13 +153,11 @@ function agentResponse(uid: string, status: 'active' | 'disabled') {
 }
 
 function renderEditor(queryClient: QueryClient, initialEntry: string, path: string, element: React.ReactNode) {
+  // A data router, because the editor frame's dirty-draft guard uses useBlocker.
+  const router = createMemoryRouter([{ path, element }], { initialEntries: [initialEntry] })
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path={path} element={element} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   )
 }

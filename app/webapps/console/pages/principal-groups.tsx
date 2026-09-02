@@ -46,6 +46,7 @@ import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
+import { principalGroupDescription, principalGroupDisplayName } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
   PrincipalGroupEditorModel,
@@ -63,7 +64,13 @@ export function PrincipalGroupsListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (groups.data?.principal_groups ?? []).filter(group =>
-    matchesResourceSearch(searchQuery, group.name, group.display_name, group.description, group.kind)
+    matchesResourceSearch(
+      searchQuery,
+      group.name,
+      principalGroupDisplayName(t, group),
+      principalGroupDescription(t, group),
+      group.kind
+    )
   )
   const deleteGroup = useMutation({
     ...ankoleWebAuthZGroupControllerDeleteMutation(),
@@ -117,7 +124,7 @@ export function PrincipalGroupsListPage() {
                 {group.name}
               </Link>
             </TableCell>
-            <TableCell>{group.display_name}</TableCell>
+            <TableCell>{principalGroupDisplayName(t, group)}</TableCell>
             {/* The badges used to wrap inside a narrow column, so a row with two of
                 them stood twice as tall as its neighbours and the list read as
                 broken. The column widens instead; the table already scrolls. */}
@@ -135,8 +142,8 @@ export function PrincipalGroupsListPage() {
             <TableCell className="tabular-nums">{group.kind === 'computed' ? '—' : group.member_count}</TableCell>
             <TableCell className="tabular-nums">{group.grant_count}</TableCell>
             <TableCell>
-              <span className="block max-w-64 truncate" title={group.description ?? undefined}>
-                {group.description ?? '—'}
+              <span className="block max-w-64 truncate" title={principalGroupDescription(t, group)}>
+                {principalGroupDescription(t, group) ?? '—'}
               </span>
             </TableCell>
             <RowActions
@@ -224,6 +231,7 @@ export function PrincipalGroupEditorPage() {
       title={mode === 'new' ? t('console.principal_groups.new') : (name ?? '')}
       description={t('console.principal_groups.editor_description')}
       backTo="/access/groups"
+      dirty={model.dirty.value}
       validationError={model.validationError.value}
       error={createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)}
       submitting={createGroup.isPending || updateGroup.isPending}

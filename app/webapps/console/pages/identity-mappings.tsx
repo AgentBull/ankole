@@ -28,7 +28,8 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityMappingRequestItem, PrincipalItem } from '../api/generated/types.gen'
-import { LabeledField, ResourceEditorPage } from '../console-form'
+import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { SinglePrincipalPicker } from '../principal-picker'
@@ -54,7 +55,12 @@ export function IdentityMappingsPage() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const requests = useQuery(ankoleWebIdentityMappingRequestControllerIndexOptions())
+  // The operator often sits on this queue waiting for a sender's first
+  // message, so the list refreshes itself like the other live queues.
+  const requests = useQuery({
+    ...ankoleWebIdentityMappingRequestControllerIndexOptions(),
+    refetchInterval: LIST_REFRESH_MS
+  })
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   // Only a person can own an IM sender; agent and system principals are not bind targets.
   const humanPrincipals = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
@@ -145,14 +151,17 @@ export function IdentityMappingsPage() {
                 }}>
                 {t('console.identity_mappings.bind')}
               </Button>
-              <Button
-                disabled={dismiss.isPending}
+              <ConfirmDeleteButton
+                confirm={{
+                  title: t('console.identity_mappings.dismiss_title'),
+                  description: t('console.identity_mappings.dismiss_description', { id: request.external_id }),
+                  confirmLabel: t('console.identity_mappings.dismiss')
+                }}
+                label={t('console.identity_mappings.dismiss')}
+                pending={dismiss.isPending}
                 size="sm"
-                type="button"
-                variant="ghost"
-                onClick={() => dismiss.mutate({ path: { id: request.id } })}>
-                {t('console.identity_mappings.dismiss')}
-              </Button>
+                onConfirm={() => dismiss.mutate({ path: { id: request.id } })}
+              />
             </div>
           </TableCell>
         </TableRow>
@@ -209,6 +218,7 @@ export function IdentityMappingCreatePage() {
       title={t('console.identity_mappings.new')}
       description={t('console.identity_mappings.new_description')}
       backTo="/identity/mappings"
+      dirty={Boolean(provider.trim() || externalID.trim() || principalUID)}
       validationError={validationError}
       error={create.error ?? principals.error}
       submitting={create.isPending}

@@ -52,6 +52,7 @@ export function ResourceListPage({
   children,
   columns,
   count,
+  createAction,
   createLabel,
   createTo,
   description,
@@ -74,6 +75,8 @@ export function ResourceListPage({
   columns: string[]
   /** Rows currently rendered. Shown next to the toolbar so a filter reports its effect. */
   count?: number
+  /** Header create control for creators that open a dialog instead of a route. Wins over `createTo`. */
+  createAction?: ReactNode
   createLabel?: string
   createTo?: string
   description?: string
@@ -105,7 +108,14 @@ export function ResourceListPage({
   // A list has one primary create action. Empty lists place it beside the
   // explanation; populated lists keep it in the page header. Filtered empty
   // lists show only the action that clears the filter.
-  const showHeaderCreate = Boolean(createTo) && !hasError && (!isEmpty || isLoading)
+  const createControl =
+    createAction ??
+    (createTo ? (
+      <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
+        {createLabel ?? t('common.new')}
+      </Link>
+    ) : null)
+  const showHeaderCreate = Boolean(createControl) && !hasError && (!isEmpty || isLoading)
 
   useEffect(() => {
     if (isFiltered || !showToolbar || !restoreToolbarFocus.current) return
@@ -132,11 +142,7 @@ export function ResourceListPage({
         actions={
           <>
             <RefreshButton />
-            {showHeaderCreate && createTo ? (
-              <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
-                {createLabel ?? t('common.new')}
-              </Link>
-            ) : null}
+            {showHeaderCreate ? createControl : null}
           </>
         }
       />
@@ -170,12 +176,7 @@ export function ResourceListPage({
               {t('console.empty.clear_filters')}
             </Button>
           ) : (
-            (emptyAction ??
-            (!createTo ? null : (
-              <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
-                {createLabel ?? t('common.new')}
-              </Link>
-            )))
+            <EmptyActions create={createControl} extra={emptyAction} />
           )}
         </Empty>
       ) : !hasError ? (
@@ -262,6 +263,22 @@ export function SubNav({
 }
 
 /**
+ * Empty-state actions: the list's create control beside any page-specific
+ * action. A lone action keeps its own layout (a guide block, a single link).
+ */
+function EmptyActions({ create, extra }: { create: ReactNode; extra: ReactNode }) {
+  if (create && extra) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {create}
+        {extra}
+      </div>
+    )
+  }
+  return <>{extra ?? create}</>
+}
+
+/**
  * Pager for the cursor-based list endpoints.
  *
  * The server issues an opaque `next_cursor` and no total, so this reports the
@@ -285,6 +302,10 @@ export function CursorPagination({
   resultCount: number
 }) {
   const { t } = useTranslation()
+
+  // An empty first page has nothing to page through; the bar would only
+  // repeat the zero count next to two disabled buttons.
+  if (page === 1 && resultCount === 0 && !hasPrevious && !nextCursor) return null
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -385,6 +406,13 @@ export function useResourceSearchDraft(
   useEffect(() => {
     if (draft === searchFilter) return
 
+    // The debounce collapses a typing burst; clearing the box is one terminal
+    // action, so it commits at once.
+    if (!draft.trim()) {
+      lastCommitted.current = draft
+      commitDraft(draft)
+      return
+    }
     return scheduleResourceSearchCommit(() => {
       lastCommitted.current = draft
       commitDraft(draft)

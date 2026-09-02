@@ -29,38 +29,19 @@ export function selectControlValue(draft: string, defaultDraft: string, keepStor
   return defaultDraft || UNSET_SELECT
 }
 
+/**
+ * Human label for a ProviderDSL setting key. The catalog owns the wording
+ * (`console.providers.setting_<key>`), so a new provider key becomes
+ * translatable with a locale line; an unknown key falls back to the humanized
+ * identifier.
+ */
+export function providerSettingLabel(t: TFunction, key: string): string {
+  return t(`console.providers.setting_${key}`, { defaultValue: humanizeKey(key) })
+}
+
 export function providerSettingPresentation(t: TFunction, key: string): { label: string; description?: string } {
-  switch (key) {
-    case 'reasoningEffort':
-      return {
-        label: t('console.providers.reasoning_effort'),
-        description: t('console.providers.reasoning_effort_hint')
-      }
-    case 'reasoningSummary':
-      return {
-        label: t('console.providers.reasoning_summary'),
-        description: t('console.providers.reasoning_summary_hint')
-      }
-    case 'serviceTier':
-      return {
-        label: t('console.providers.service_tier'),
-        description: t('console.providers.service_tier_hint')
-      }
-    case 'supports_openai_tools':
-      return {
-        label: t('console.providers.supports_openai_tools'),
-        description: t('console.providers.supports_openai_tools_hint')
-      }
-    case 'textVerbosity':
-      return {
-        label: t('console.providers.text_verbosity'),
-        description: t('console.providers.text_verbosity_hint')
-      }
-    case 'upstream_transport':
-      return { label: 'WebSocket' }
-    default:
-      return { label: humanizeKey(key) }
-  }
+  const description = t(`console.providers.setting_${key}_hint`, { defaultValue: '' })
+  return { label: providerSettingLabel(t, key), description: description || undefined }
 }
 
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */

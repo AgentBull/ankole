@@ -21,11 +21,10 @@ export function releaseVersionPolicy(version: string): ReleaseVersionPolicy {
   const match = releaseVersionPattern.exec(version)
   if (!match) throw new Error(`unsupported release version: ${version}`)
 
-  const prereleaseKind = match[1]
-  return {
-    isPrerelease: prereleaseKind !== undefined,
-    usesCanary: prereleaseKind === 'alpha' || prereleaseKind === 'beta'
-  }
+  // Only `alpha` and `beta` are pre-releases. A release candidate is a
+  // release: it publishes as a full GitHub Release and moves `main-latest`.
+  const prerelease = match[1] === 'alpha' || match[1] === 'beta'
+  return { isPrerelease: prerelease, usesCanary: prerelease }
 }
 
 export function currentChangelogRelease(source: string): ChangelogRelease {

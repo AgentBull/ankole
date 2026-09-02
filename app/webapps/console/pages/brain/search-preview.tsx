@@ -92,7 +92,7 @@ export function BrainSearchPreviewPage() {
                 if (value === 'strict' || value === 'relaxed') setMode(value)
               }}>
               <SelectTrigger aria-label={t('console.brain.disclosure_mode')} className="w-full">
-                <SelectValue>{value => t(`console.brain.disclosure_mode_${String(value)}`)}</SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="strict">{t('console.brain.disclosure_mode_strict')}</SelectItem>

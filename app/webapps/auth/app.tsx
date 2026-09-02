@@ -6,6 +6,7 @@ import { RiArrowRightSLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { internalAPIGet } from '../common/internal-api-client'
@@ -31,6 +32,9 @@ export function AuthApp() {
   useSignals()
   const model = useModel(LoginModel)
   const { t } = useTranslation()
+  useEffect(() => {
+    document.title = t('auth.document_title')
+  }, [t])
   const providers = useQuery({
     queryKey: ['identity-providers'],
     queryFn: () => internalAPIGet<{ providers: LoginProvider[] }>('/.internal-apis/identity-providers')

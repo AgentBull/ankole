@@ -80,15 +80,22 @@ export function ConversationsListPage() {
     )
   )
 
-  const list = useQuery(
-    conversationListOptions({
+  const subject = scope.agentUID.trim() || undefined
+  const list = useQuery({
+    ...conversationListOptions({
       q: searchFilter,
       subject: scope.agentUID,
       active: activeFilter,
       showAll,
       cursor
-    })
-  )
+    }),
+    // Search, filter, and pagination change the query key; keep the previous
+    // rows on screen instead of blanking the table into skeletons. Never
+    // across a subject-scope change: another Agent's conversations must not
+    // show under the new scope.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[0].query?.subject === subject ? previousData : undefined
+  })
 
   const conversations = list.data?.conversations ?? []
   const nextCursor = list.data?.next_cursor ?? undefined
@@ -342,7 +349,10 @@ export function ConversationDetailPage() {
       query: { cursor, limit: 200 }
     }),
     enabled: Boolean(conversationID),
-    retry: false
+    retry: false,
+    // Paging keeps the previous page on screen; a conversation change must not.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[0].path.conversation_id === conversationID ? previousData : undefined
   })
 
   const detail = conversation.data?.conversation
@@ -468,13 +478,14 @@ function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
 }
 
 function MessageRow({ message }: { message: AIGatewayMessageItem }) {
+  const { t } = useTranslation()
   // Checkpoint rows reference a compaction artifact; render as a hairline
   // separator plus the raw artifact reference so it stays inspectable.
   if (message.type === 'checkpoint') {
     return (
       <div className="grid gap-2">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <Badge variant="secondary">checkpoint</Badge>
+          <Badge variant="secondary">{t('console.conversations.checkpoint_badge')}</Badge>
           <span className="min-w-0 break-all font-mono">{message.id}</span>
           <span className="ml-auto shrink-0">{formatConsoleDate(message.inserted_at)}</span>
         </div>
@@ -530,11 +541,12 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 
 /** One-line summary of a collapsed tool tile: first item's name/type plus a count. */
 function ToolSummary({ content }: { content: ResponseItem[] }) {
+  const { t } = useTranslation()
   const toolItems = content.filter(isToolItem)
   const first = toolItems[0]
 
   if (!first) {
-    return <Badge variant="secondary">tool</Badge>
+    return <Badge variant="secondary">{t('console.conversations.tool_badge')}</Badge>
   }
 
   return (

@@ -78,6 +78,22 @@ describe('ScheduleEditorModel', () => {
     model[Symbol.dispose]()
   })
 
+  test('reports dirty only after a loaded draft changes, including fields the update body ignores', () => {
+    const model = new ScheduleEditorModel()
+    expect(model.dirty.value).toBe(false)
+
+    model.initialize('cron:market-open', { ...draft, deliveryTargets: [] })
+    expect(model.dirty.value).toBe(false)
+
+    model.ownerSessionId.value = 'lark:chat:other'
+    expect(model.dirty.value).toBe(true)
+
+    model.ownerSessionId.value = draft.ownerSessionId
+    expect(model.dirty.value).toBe(false)
+
+    model[Symbol.dispose]()
+  })
+
   test('sends only fields that changed when it updates a recurring schedule', () => {
     const model = new ScheduleEditorModel()
     model.initialize('cron:market-open', draft)

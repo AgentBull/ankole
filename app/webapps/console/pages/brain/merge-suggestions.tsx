@@ -109,7 +109,7 @@ export function BrainMergeSuggestionsPage() {
                 }
               }}>
               <SelectTrigger aria-label={t('console.brain.state')} size="sm">
-                <SelectValue>{value => t(`console.brain.suggestion_status_${String(value)}`)}</SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {SUGGESTION_STATUSES.map(option => (

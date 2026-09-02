@@ -71,7 +71,13 @@ export function AddMembershipPicker({
           setInputValue('')
         }
       }}>
-      <ComboboxInput aria-label={ariaLabel} placeholder={placeholder} disabled={pending} className="w-full max-w-md" />
+      <ComboboxInput
+        aria-label={ariaLabel}
+        className="w-full max-w-md"
+        disabled={pending}
+        placeholder={placeholder}
+        triggerLabel={t('common.open_options')}
+      />
       <ComboboxContent>
         <ComboboxList>
           {/* A failed or still-loading candidate fetch must not read as "nothing left to add". */}

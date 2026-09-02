@@ -58,6 +58,7 @@ export function PrincipalEditPage() {
     <ResourceEditorPage
       title={t('console.principals.edit_title')}
       backTo={detailPath}
+      dirty={model.dirty.value}
       validationError={
         model.validationError.value ? principalDraftErrorText(model.validationError.value, t) : undefined
       }

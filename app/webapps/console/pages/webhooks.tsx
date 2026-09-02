@@ -78,8 +78,11 @@ export function WebhooksPage() {
       emptyDescription={t('console.webhooks.empty_description')}
       error={endpoints.error}
       isEmpty={rows.length === 0}
-      isFiltered={Boolean(query.trim())}
-      onClearFilters={() => setQuery('')}
+      isFiltered={Boolean(query.trim()) || Boolean(scope.agentUID)}
+      onClearFilters={() => {
+        setQuery('')
+        scope.selectAgent('')
+      }}
       isLoading={endpoints.isLoading}
       toolbarCanRevealRows
       toolbar={

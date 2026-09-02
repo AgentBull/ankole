@@ -262,17 +262,19 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
               onClick={submitDraft}>
               {t('common.save')}
             </SaveButton>
-            <Button
-              size="xs"
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setDraft(emptyDraft)
-                setEditing(undefined)
-                setDraftError(undefined)
-              }}>
-              {t('common.cancel')}
-            </Button>
+            {mode === 'edit' || draft.name || draft.value ? (
+              <Button
+                size="xs"
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setDraft(emptyDraft)
+                  setEditing(undefined)
+                  setDraftError(undefined)
+                }}>
+                {t('common.cancel')}
+              </Button>
+            ) : null}
           </div>
         </TableCell>
       </TableRow>

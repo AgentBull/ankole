@@ -32,6 +32,7 @@ import {
 import type { BrainSource } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
+import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
 import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
@@ -51,6 +52,7 @@ export function BrainSourcesPage() {
   const rows = sources.data?.sources ?? []
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListSourcesQueryKey() })
+  const registerDirty = kind !== 'file' || Boolean(upstreamID.trim() || name.trim() || scope.trim())
 
   // Every open starts a fresh form; a cancelled draft never resurfaces later.
   const openRegister = () => {
@@ -68,6 +70,11 @@ export function BrainSourcesPage() {
       invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
+  })
+  const registerGuard = useDialogDiscardGuard({
+    dirty: registerDirty,
+    onOpenChange: setRegisterOpen,
+    pending: register.isPending
   })
   const learn = useMutation({
     ...ankoleWebBrainControllerLearnSourceMutation(),
@@ -108,18 +115,10 @@ export function BrainSourcesPage() {
         emptyDescription={t('console.brain.sources_empty_description')}
         emptyIcon={<RiInboxArchiveLine aria-hidden />}
         error={sources.error}
-        emptyAction={
+        createAction={
           <Button size="sm" type="button" onClick={openRegister}>
             {t('console.brain.register_source')}
           </Button>
-        }
-        toolbarCanRevealRows
-        toolbar={
-          <div className="flex items-center justify-end border border-border bg-card p-2">
-            <Button size="sm" type="button" onClick={openRegister}>
-              {t('console.brain.register_source')}
-            </Button>
-          </div>
         }>
         {rows.map(source => (
           <TableRow key={source.id} className={source.archived_at ? 'opacity-60' : undefined}>
@@ -138,7 +137,7 @@ export function BrainSourcesPage() {
               {source.archived_at ? (
                 <Badge variant="outline">{t('console.brain.archived')}</Badge>
               ) : (
-                <Badge variant="success">{t('console.status.active')}</Badge>
+                <Badge variant="success">{t('console.brain.active')}</Badge>
               )}
             </TableCell>
             <TableCell className="text-right">
@@ -171,22 +170,41 @@ export function BrainSourcesPage() {
         ))}
       </ResourceListPage>
 
-      <Dialog open={registerOpen} onOpenChange={open => !register.isPending && setRegisterOpen(open)}>
+      <Dialog open={registerOpen} onOpenChange={registerGuard.requestOpenChange}>
         <DialogContent closeLabel={t('common.close')} showCloseButton={!register.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.register_source_title')}</DialogTitle>
             <DialogDescription>{t('console.brain.register_source_description')}</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4">
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.kind')}
+          <form
+            className="grid gap-4"
+            noValidate
+            onInvalidCapture={event => event.preventDefault()}
+            onSubmit={event => {
+              event.preventDefault()
+              // Native `required` accepts blanks; a whitespace-only name or
+              // upstream id must stop here instead of as a raw server error.
+              if (!event.currentTarget.reportValidity() || !upstreamID.trim() || !name.trim()) {
+                focusFirstInvalidControl(event.currentTarget)
+                return
+              }
+              register.mutate({
+                body: {
+                  kind,
+                  upstream_id: upstreamID.trim(),
+                  name: name.trim(),
+                  ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
+                }
+              })
+            }}>
+            <LabeledField label={t('console.brain.kind')}>
               <Select
                 value={kind}
                 onValueChange={value => {
                   if (value === 'file' || value === 'url') setKind(value)
                 }}>
                 <SelectTrigger aria-label={t('console.brain.kind')} className="w-full">
-                  <SelectValue>{value => t(`console.brain.source_kind_${String(value)}`)}</SelectValue>
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {SOURCE_KINDS.map(option => (
@@ -196,9 +214,8 @@ export function BrainSourcesPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.upstream_id')}
+            </LabeledField>
+            <LabeledField label={t('console.brain.upstream_id')} required>
               <Input
                 className="font-mono"
                 placeholder={kind === 'url' ? 'https://…' : '/path/or/drive-id'}
@@ -207,13 +224,11 @@ export function BrainSourcesPage() {
                 value={upstreamID}
                 onChange={event => setUpstreamID(event.target.value)}
               />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.source_name')}
+            </LabeledField>
+            <LabeledField label={t('console.brain.source_name')} required>
               <Input required value={name} onChange={event => setName(event.target.value)} />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.brain.default_scope')}
+            </LabeledField>
+            <LabeledField label={t('console.brain.default_scope')}>
               <Input
                 className="font-mono"
                 placeholder="world"
@@ -221,30 +236,24 @@ export function BrainSourcesPage() {
                 value={scope}
                 onChange={event => setScope(event.target.value)}
               />
-            </label>
-          </div>
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />} disabled={register.isPending}>
-              {t('common.cancel')}
-            </DialogClose>
-            <Button
-              disabled={register.isPending || !upstreamID.trim() || !name.trim()}
-              onClick={() =>
-                register.mutate({
-                  body: {
-                    kind,
-                    upstream_id: upstreamID.trim(),
-                    name: name.trim(),
-                    ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
-                  }
-                })
-              }>
-              {register.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-              {t('console.brain.register_source')}
-            </Button>
-          </DialogFooter>
+            </LabeledField>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />} disabled={register.isPending}>
+                {t('common.cancel')}
+              </DialogClose>
+              <Button disabled={register.isPending} type="submit">
+                {register.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {t('console.brain.register_source')}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
+      <DiscardConfirmDialog
+        open={registerGuard.confirming}
+        onDiscard={registerGuard.confirmDiscard}
+        onKeep={registerGuard.keepEditing}
+      />
 
       <Dialog
         open={Boolean(archiveTarget)}

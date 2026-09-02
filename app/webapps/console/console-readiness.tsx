@@ -21,6 +21,7 @@ import {
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
+import i18n from '../common/i18n'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -191,7 +192,11 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
         ? t('console.readiness.profiles_complete')
         : profileAgentUID
           ? t('console.readiness.profiles_incomplete', {
-              profiles: readiness.model_profiles.missing_profiles.join(', ')
+              profiles: new Intl.ListFormat(i18n.language, { type: 'conjunction' }).format(
+                readiness.model_profiles.missing_profiles.map(profile =>
+                  t(`console.models.${profile}_label`, { defaultValue: profile })
+                )
+              )
             })
           : t('console.readiness.profiles_no_agent'),
       title: t('console.readiness.profiles_title'),

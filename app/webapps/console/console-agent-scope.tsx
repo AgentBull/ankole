@@ -42,6 +42,11 @@ export function useAgentScope() {
 
 export type AgentScope = ReturnType<typeof useAgentScope>
 
+/** Agents that can run work; editors offer these, and list cues follow the same set. */
+export function activeAgents<T extends { status: 'active' | 'disabled' }>(agents: readonly T[]): T[] {
+  return agents.filter(agent => agent.status === 'active')
+}
+
 /**
  * A known requested agent resolves to itself. An unknown request resolves to
  * '' so the operator must choose explicitly. No request resolves to the first
@@ -69,7 +74,7 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
         <SelectItem value={null}>{t('console.all_agents')}</SelectItem>
         {scope.agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
-            {agent.uid}
+            {agent.display_name} · {agent.uid}
           </SelectItem>
         ))}
       </SelectContent>

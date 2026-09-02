@@ -1,6 +1,8 @@
 import {
   Badge,
   Button,
+  buttonVariants,
+  cn,
   Dialog,
   DialogClose,
   DialogContent,
@@ -20,8 +22,8 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiChatQuoteLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import {
@@ -34,8 +36,7 @@ import {
 import type { BrainClaim } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { FilterSwitch, ResourceListPage, ResourceSearch } from '../../console-list-page'
-import { effectiveResourceSearchQuery } from '../../state/resource-search'
+import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
@@ -45,24 +46,26 @@ type ResolutionQuality = (typeof RESOLUTION_QUALITIES)[number]
 export function BrainClaimsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  // Search and the slug filter query the server, so both commit on the shared
+  // debounce instead of issuing one request per keystroke.
   const [query, setQuery] = useState('')
+  const [queryDraft, setQueryDraft] = useResourceSearchDraft(query, setQuery)
   const [claimType, setClaimType] = useState<'all' | 'fact' | 'take'>('all')
   const [currentOnly, setCurrentOnly] = useState(true)
   const [objectSlug, setObjectSlug] = useState('')
-  const deferredQuery = useDeferredValue(query)
-  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const deferredSlug = useDeferredValue(objectSlug)
+  const [slugDraft, setSlugDraft] = useResourceSearchDraft(objectSlug, setObjectSlug)
 
-  const claims = useQuery(
-    ankoleWebBrainControllerListClaimsOptions({
+  const claims = useQuery({
+    ...ankoleWebBrainControllerListClaimsOptions({
       query: {
         ...(claimType === 'all' ? {} : { claim_type: claimType }),
         ...(currentOnly ? { status: 'current' } : {}),
-        ...(deferredSlug.trim() ? { object_slug: deferredSlug.trim() } : {}),
-        ...(searchQuery.trim() ? { q: searchQuery.trim() } : {})
+        ...(objectSlug.trim() ? { object_slug: objectSlug.trim() } : {}),
+        ...(query.trim() ? { q: query.trim() } : {})
       }
-    })
-  )
+    }),
+    placeholderData: keepPreviousData
+  })
   const rows = claims.data?.claims ?? []
 
   const invalidate = () =>
@@ -95,17 +98,24 @@ export function BrainClaimsPage() {
         isFiltered={Boolean(query.trim() || objectSlug.trim() || claimType !== 'all' || !currentOnly)}
         onClearFilters={() => {
           setQuery('')
+          setQueryDraft('')
           setObjectSlug('')
+          setSlugDraft('')
           setClaimType('all')
           setCurrentOnly(true)
         }}
+        emptyAction={
+          <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))} to="/brain/health">
+            {t('console.brain.empty_check_health')}
+          </Link>
+        }
         toolbarCanRevealRows
         toolbar={
           <ResourceSearch
             label={t('console.brain.claims_search')}
             placeholder={t('console.brain.claims_search_placeholder')}
-            value={query}
-            onChange={setQuery}
+            value={queryDraft}
+            onChange={setQueryDraft}
             filters={
               <>
                 <Input
@@ -113,8 +123,8 @@ export function BrainClaimsPage() {
                   className="w-56 font-mono text-xs"
                   placeholder={t('console.brain.object_slug_filter')}
                   spellCheck={false}
-                  value={objectSlug}
-                  onChange={event => setObjectSlug(event.target.value)}
+                  value={slugDraft}
+                  onChange={event => setSlugDraft(event.target.value)}
                 />
                 <Select
                   value={claimType}
@@ -122,7 +132,7 @@ export function BrainClaimsPage() {
                     if (value === 'all' || value === 'fact' || value === 'take') setClaimType(value)
                   }}>
                   <SelectTrigger aria-label={t('console.brain.type')} size="sm">
-                    <SelectValue>{value => t(`console.brain.claim_type_${String(value)}`)}</SelectValue>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t('console.brain.claim_type_all')}</SelectItem>
@@ -209,7 +219,7 @@ export function ClaimStateBadge({ claim }: { claim: BrainClaim }) {
     return <Badge variant="info">{t('console.brain.resolved', { quality: claim.resolved_quality ?? '' })}</Badge>
   }
   return claim.active ? (
-    <Badge variant="success">{t('console.status.active')}</Badge>
+    <Badge variant="success">{t('console.brain.active')}</Badge>
   ) : (
     <Badge variant="outline">{t('console.brain.inactive')}</Badge>
   )
@@ -388,7 +398,7 @@ function ResolveTakeDialog({
                 }
               }}>
               <SelectTrigger aria-label={t('console.brain.resolve_quality')} className="w-full">
-                <SelectValue>{value => t(`console.brain.resolve_quality_${String(value)}`)}</SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {RESOLUTION_QUALITIES.map(option => (

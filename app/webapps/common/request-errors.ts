@@ -1,3 +1,5 @@
+import i18n from './i18n'
+
 /**
  * Reads the machine-readable code from a console API error envelope
  * (`{error: {code, message}}`), so pages can localize known failures instead
@@ -67,7 +69,7 @@ export function requestErrorMessage(error: unknown): string {
     try {
       return conciseMessage(JSON.stringify(error))
     } catch {
-      return 'Request failed'
+      return i18n.t('common.request_failed')
     }
   }
 
@@ -76,13 +78,14 @@ export function requestErrorMessage(error: unknown): string {
 
 function conciseMessage(message: string): string {
   const trimmed = message.trim()
-  if (!trimmed) return 'Request failed'
+  if (!trimmed) return i18n.t('common.request_failed')
 
   // Phoenix and other development servers can return a full debug page as an
   // exception message. Keep the operator-facing reason, never the request
   // headers, cookies, stack trace, or source dump that follows it.
   const [summary] = trimmed.split(/\n\s*\n|\n##\s/)
   const safe = summary?.trim() || trimmed
-  if (safe.startsWith('# ') || safe.includes('\nException:')) return safe.split(/\r?\n/, 1)[0] ?? 'Request failed'
+  if (safe.startsWith('# ') || safe.includes('\nException:'))
+    return safe.split(/\r?\n/, 1)[0] ?? i18n.t('common.request_failed')
   return safe.length <= 500 ? safe : `${safe.slice(0, 500)}…`
 }

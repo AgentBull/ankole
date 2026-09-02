@@ -15,6 +15,7 @@ import type { IdentityAdapter } from './app'
 
 const adminSchema = v.pipe(
   v.object({
+    displayName: v.string(),
     email: v.pipe(
       v.string(),
       v.email(() => i18n.t('common.email_invalid'))
@@ -45,12 +46,13 @@ type AdminInput = v.InferOutput<typeof adminSchema>
  */
 export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
   const { t } = useTranslation()
+  const displayNameID = useId()
   const emailID = useId()
   const passwordID = useId()
   const confirmPasswordID = useId()
   const form = useForm({
     schema: adminSchema,
-    initialInput: { email: '', password: '', confirmPassword: '' },
+    initialInput: { displayName: '', email: '', password: '', confirmPassword: '' },
     validate: 'submit',
     revalidate: 'input'
   })
@@ -65,6 +67,7 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
         }
       )
       return internalAPIPost<{ returnTo?: string }>('/.internal-apis/setup/local-admin', {
+        display_name: input.displayName.trim() || undefined,
         email: input.email,
         password: input.password
       })
@@ -83,6 +86,20 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
       <ErrorBlock error={mutation.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <FormField of={form} path={['displayName']}>
+            {field => (
+              <Field className="md:col-span-2">
+                <FieldLabel htmlFor={displayNameID}>{t('setup.admin_display_name')}</FieldLabel>
+                <Input
+                  {...field.props}
+                  autoComplete="name"
+                  id={displayNameID}
+                  value={String(field.input ?? '')}
+                  onChange={event => field.onChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </FormField>
           <FormField of={form} path={['email']}>
             {field => (
               <Field className="md:col-span-2">

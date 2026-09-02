@@ -36,9 +36,7 @@ import {
   ankoleWebIdentityProviderControllerRunSyncMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
-import { BackLink, PageStack } from '../console-page'
+import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -216,12 +214,7 @@ export function IdentityProviderEditorPage() {
   const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
 
   if (mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected) {
-    return (
-      <PageStack className="mx-auto w-full max-w-3xl">
-        <BackLink to="/identity" />
-        <ErrorBlock title={t('console.not_found.title')} error={new Error(t('console.not_found.description'))} />
-      </PageStack>
-    )
+    return <EditorNotFound backTo="/identity" message={t('console.not_found.description')} />
   }
 
   return (
@@ -229,6 +222,7 @@ export function IdentityProviderEditorPage() {
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo="/identity"
+      dirty={model.dirty.value}
       validationError={model.validationError.value ?? writeFieldError}
       error={
         (writeFieldError ? undefined : saveProvider.error) ??

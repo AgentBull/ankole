@@ -80,14 +80,12 @@ export function ObservabilitySettingsEditor({
         saving={saving}
         onRestore={onRestore}>
         <Select
-          value={draft.provider}
+          value={draft.provider || null}
           onValueChange={provider =>
             provider && onDraftChange(OBSERVABILITY_TRACE_KEYS.provider, JSON.stringify(String(provider)))
           }>
           <SelectTrigger aria-label={t('console.settings.observability_provider')} className="w-full">
-            <SelectValue placeholder={t('console.settings.observability_provider_placeholder')}>
-              {provider => t(`console.settings.observability_provider_${String(provider)}`)}
-            </SelectValue>
+            <SelectValue placeholder={t('console.settings.observability_provider_placeholder')} />
           </SelectTrigger>
           <SelectContent>
             {OBSERVABILITY_TRACE_PROVIDERS.map(provider => (

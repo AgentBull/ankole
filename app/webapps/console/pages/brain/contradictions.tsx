@@ -96,7 +96,7 @@ export function BrainContradictionsPage() {
                 }
               }}>
               <SelectTrigger aria-label={t('console.brain.state')} size="sm">
-                <SelectValue>{value => t(`console.brain.contradiction_status_${String(value)}`)}</SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {CONTRADICTION_STATUSES.map(option => (

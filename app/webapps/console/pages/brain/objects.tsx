@@ -26,8 +26,8 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useState, type ReactNode } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from 'react-router'
 import {
@@ -45,9 +45,14 @@ import {
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { formatConsoleDate } from '../../console-primitives'
-import { FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../../console-list-page'
+import {
+  FilterSwitch,
+  ResourceListPage,
+  ResourceSearch,
+  RowViewAction,
+  useResourceSearchDraft
+} from '../../console-list-page'
 import { MarkdownBody } from '../../markdown-body'
-import { effectiveResourceSearchQuery } from '../../state/resource-search'
 import { BrainSubNav, brainObjectEditPath, brainObjectPath } from './brain-nav'
 
 /** Keeps the list mounted while the nested slug route renders its drawer. */
@@ -62,21 +67,26 @@ export function BrainObjectsPage() {
 
 function BrainObjectsList() {
   const { t } = useTranslation()
+  // The search goes to the server, so the box commits on the shared debounce
+  // instead of querying per keystroke.
   const [query, setQuery] = useState('')
+  const [queryDraft, setQueryDraft] = useResourceSearchDraft(query, setQuery)
   const [prefix, setPrefix] = useState('')
   const [deleted, setDeleted] = useState(false)
-  const deferredQuery = useDeferredValue(query)
-  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
+  const searchQuery = query.trim()
 
-  const objects = useQuery(
-    ankoleWebBrainControllerListObjectsOptions({
+  const objects = useQuery({
+    ...ankoleWebBrainControllerListObjectsOptions({
       query: {
         ...(prefix ? { prefix } : {}),
         ...(searchQuery ? { q: searchQuery } : {}),
         ...(deleted ? { deleted: true } : {})
       }
-    })
-  )
+    }),
+    // A committed search changes the query key; keep the previous rows on
+    // screen instead of swapping the table for skeletons.
+    placeholderData: keepPreviousData
+  })
   const rows = objects.data?.objects ?? []
   // The slug's first segment is the natural prefix tree level; the chips list
   // what the current result actually contains instead of a hardcoded taxonomy.
@@ -107,16 +117,22 @@ function BrainObjectsList() {
       isFiltered={filtered}
       onClearFilters={() => {
         setQuery('')
+        setQueryDraft('')
         setPrefix('')
         setDeleted(false)
       }}
+      emptyAction={
+        <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))} to="/brain/health">
+          {t('console.brain.empty_check_health')}
+        </Link>
+      }
       toolbarCanRevealRows
       toolbar={
         <ResourceSearch
           label={t('console.brain.objects_search')}
           placeholder={t('console.brain.objects_search_placeholder')}
-          value={query}
-          onChange={setQuery}
+          value={queryDraft}
+          onChange={setQueryDraft}
           filters={
             <>
               {prefixes.map(candidate => (
@@ -581,6 +597,7 @@ export function BrainObjectDrawer() {
             </DialogClose>
             <Button
               disabled={rollback.isPending}
+              variant="destructive"
               onClick={() => rollbackVersionID && rollback.mutate({ body: { slug, version_id: rollbackVersionID } })}>
               {rollback.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.rollback')}

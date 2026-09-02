@@ -100,6 +100,7 @@ export function PrincipalCreatePage() {
       title={t('console.principals.create_title')}
       description={t('console.principals.create_description')}
       backTo="/access/principals"
+      dirty={model.dirty.value}
       validationError={
         model.validationError.value ? principalDraftErrorText(model.validationError.value, t) : undefined
       }

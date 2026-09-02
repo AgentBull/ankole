@@ -35,6 +35,7 @@ import { BackLink, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
+import { principalGroupDisplayName } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useLocalIdentityProvider } from '../use-local-identity-provider'
 import { PermissionGrantsSection } from './permission-grant-editor'
@@ -229,7 +230,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
         // Only operator-domain static groups accept manual membership.
         candidates={(allGroups.data?.principal_groups ?? [])
           .filter(group => group.domain === 'operator' && group.kind === 'static')
-          .map(group => ({ id: group.name, label: group.display_name }))}
+          .map(group => ({ id: group.name, label: principalGroupDisplayName(t, group) }))}
         excludedIDs={new Set(memberships.map(group => group.name))}
         error={allGroups.error}
         isLoading={allGroups.isLoading}
@@ -274,7 +275,9 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
                           to={`/access/groups/${encodeURIComponent(group.name)}`}>
                           {group.name}
                         </Link>
-                        <span className="ml-2 text-sm text-muted-foreground">{group.display_name}</span>
+                        <span className="ml-2 text-sm text-muted-foreground">
+                          {principalGroupDisplayName(t, group)}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1">

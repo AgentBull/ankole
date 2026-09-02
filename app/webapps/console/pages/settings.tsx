@@ -35,9 +35,9 @@ import {
   RiSettings3Line
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useBlocker, useNavigate, useParams } from 'react-router'
+import { Link, Outlet, useNavigate, useParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAppConfigurationControllerDecryptMutation,
@@ -50,7 +50,7 @@ import {
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
-import { DiscardConfirmDialog, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
+import { EditorNavigationGuard, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
@@ -280,9 +280,7 @@ export function SettingEditorDrawer() {
   const params = useParams()
   const key = params.key ?? ''
   const sourceKey = `setting:${key}`
-  const allowNavigation = useRef(false)
   const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
-  const blocker = useBlocker(useCallback(() => !allowNavigation.current && model.dirty.value, [model]))
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const summary = list.data?.app_configurations.find(item => item.key === key)
@@ -311,7 +309,6 @@ export function SettingEditorDrawer() {
   })
   const finish = (message: string) => {
     toast.success(message)
-    allowNavigation.current = true
     model.resetSource()
     decrypt.reset()
     refresh()
@@ -527,11 +524,7 @@ export function SettingEditorDrawer() {
         </DialogContent>
       </Dialog>
 
-      <DiscardConfirmDialog
-        open={blocker.state === 'blocked' && !saving}
-        onDiscard={() => blocker.proceed?.()}
-        onKeep={() => blocker.reset?.()}
-      />
+      <EditorNavigationGuard blocked={model.dirty.value && !saving} />
     </>
   )
 }
@@ -551,7 +544,6 @@ export function SettingGroupDrawer() {
   const params = useParams()
   const groupID = params.group ?? ''
   const prefix = settingGroupPrefix(groupID)
-  const allowNavigation = useRef(false)
   const initializedFor = useRef<string | undefined>(undefined)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [initial, setInitial] = useState<Record<string, string>>({})
@@ -586,7 +578,6 @@ export function SettingGroupDrawer() {
       return !initialDraft || !sameBrainModelDraft(draft, initialDraft)
     })
   const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty || brainModelsDirty
-  const blocker = useBlocker(useCallback(() => !allowNavigation.current && dirty, [dirty]))
 
   useEffect(() => {
     if (!signature || initializedFor.current === signature) return
@@ -744,10 +735,10 @@ export function SettingGroupDrawer() {
       }
     }
 
-    setSaving(false)
     toast.success(t('console.settings.group_saved', { count: pending.length }))
-    allowNavigation.current = true
     refresh()
+    // Navigate while `saving` still reads true, so the draft guard stands down
+    // for this save's own exit; the drawer unmounts with the navigation.
     navigate('/settings')
   }
 
@@ -780,9 +771,14 @@ export function SettingGroupDrawer() {
                   <RiCloseLine />
                 </Button>
               </div>
-              <DrawerTitle className="text-lg">{t(`console.settings.group_${groupID}`)}</DrawerTitle>
+              {/* A stale or hand-typed group id has no catalog entry; the id
+                  itself beats a raw i18n key as the title, and the body below
+                  already explains the miss. */}
+              <DrawerTitle className="text-lg">
+                {t(`console.settings.group_${groupID}`, { defaultValue: groupID })}
+              </DrawerTitle>
               <DrawerDescription className="text-left text-pretty">
-                {t(`console.settings.group_${groupID}_description`)}
+                {t(`console.settings.group_${groupID}_description`, { defaultValue: '' })}
               </DrawerDescription>
             </DrawerHeader>
 
@@ -920,11 +916,7 @@ export function SettingGroupDrawer() {
         </DialogContent>
       </Dialog>
 
-      <DiscardConfirmDialog
-        open={blocker.state === 'blocked' && !busy}
-        onDiscard={() => blocker.proceed?.()}
-        onKeep={() => blocker.reset?.()}
-      />
+      <EditorNavigationGuard blocked={dirty && !saving} />
     </>
   )
 }

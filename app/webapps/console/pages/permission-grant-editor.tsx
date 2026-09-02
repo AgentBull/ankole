@@ -29,8 +29,7 @@ import {
 import type { PermissionGrantItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
-import { BackLink, PageStack } from '../console-page'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
+import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
 import {
   PermissionGrantEditorModel,
@@ -253,12 +252,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   // endpoint, so a missing grant arrives as a 404 rather than an empty result;
   // any other failure keeps its own error on the form below.
   if (mode === 'edit' && grant.error?.error?.code === 'not_found') {
-    return (
-      <PageStack className="mx-auto w-full max-w-3xl">
-        <BackLink to={backTo} />
-        <ErrorBlock title={t('console.not_found.title')} error={new Error(t('console.not_found.description'))} />
-      </PageStack>
-    )
+    return <EditorNotFound backTo={backTo} message={t('console.not_found.description')} />
   }
 
   return (
@@ -266,6 +260,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       title={mode === 'new' ? t('console.permission_grants.new') : t('console.permission_grants.edit')}
       description={t('console.permission_grants.editor_description')}
       backTo={backTo}
+      dirty={model.dirty.value}
       validationError={model.validationError.value}
       error={mutationError ?? (mode === 'edit' ? grant.error : undefined)}
       submitting={createGrant.isPending || updateGrant.isPending}

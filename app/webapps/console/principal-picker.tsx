@@ -23,22 +23,29 @@ export function SinglePrincipalPicker({
   candidates,
   disabled = false,
   error,
+  id,
   isLoading,
   onChange,
   placeholder,
   required = false,
-  value
+  value,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid
 }: {
   ariaLabel: string
   candidates: PrincipalCandidate[]
   disabled?: boolean
   error: unknown
+  /** Adopted from `LabeledField`, so the visible label reaches the input. */
+  id?: string
   isLoading: boolean
   onChange: (id: string) => void
   placeholder: string
   /** Marks the native input, so an empty picker blocks `reportValidity()` like every other field. */
   required?: boolean
   value: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
 }) {
   const { t } = useTranslation()
   const [inputValue, setInputValue] = useState('')
@@ -68,14 +75,18 @@ export function SinglePrincipalPicker({
           otherwise a filled picker would still report the empty filter input
           as invalid and block the save. */}
       <ComboboxInput
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         aria-label={ariaLabel}
         aria-required={required || undefined}
         className="w-full"
         clearLabel={t('common.clear')}
         disabled={disabled}
+        id={id}
         placeholder={selected ? (selected.label ?? selected.id) : placeholder}
         required={required && !selected}
         showClear
+        triggerLabel={t('common.open_options')}
       />
       <ComboboxContent>
         <ComboboxList>
@@ -87,7 +98,11 @@ export function SinglePrincipalPicker({
               <ComboboxItem key={candidate.id} value={candidate}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{candidate.label ?? candidate.id}</span>
-                  <span className="truncate font-mono text-xs text-muted-foreground">{candidate.id}</span>
+                  {/* The id line earns its row only when it adds information;
+                      a label equal to the id would repeat itself. */}
+                  {candidate.label != null && candidate.label !== candidate.id ? (
+                    <span className="truncate font-mono text-xs text-muted-foreground">{candidate.id}</span>
+                  ) : null}
                 </span>
               </ComboboxItem>
             )}

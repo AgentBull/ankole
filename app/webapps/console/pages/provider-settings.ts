@@ -142,7 +142,8 @@ export type BuildResult = { ok: true; value: Record<string, unknown> } | { ok: f
 export function buildSettingOptions(
   settings: ProviderSetting[],
   drafts: Record<string, unknown>,
-  validationMessage: (key: string, error: SettingValidationError) => string
+  validationMessage: (key: string, error: SettingValidationError) => string,
+  labelFor: (key: string) => string = humanizeKey
 ): BuildResult {
   const options: Record<string, unknown> = {}
 
@@ -156,12 +157,12 @@ export function buildSettingOptions(
     }
 
     if (trimmed === '') {
-      if (setting.required) return validationError(setting, 'required', validationMessage)
+      if (setting.required) return validationError(setting, 'required', validationMessage, labelFor)
       continue
     }
 
     const parsed = parseSettingValue(setting, raw)
-    if (!parsed.ok) return validationError(setting, parsed.error, validationMessage)
+    if (!parsed.ok) return validationError(setting, parsed.error, validationMessage, labelFor)
     options[setting.key] = parsed.value
   }
 
@@ -172,17 +173,19 @@ export function buildSettingOptions(
 export function buildConnectionOptions(
   settings: ProviderSetting[],
   drafts: Record<string, unknown>,
-  validationMessage: (key: string, error: SettingValidationError) => string
+  validationMessage: (key: string, error: SettingValidationError) => string,
+  labelFor: (key: string) => string = humanizeKey
 ): BuildResult {
-  return buildSettingOptions(settings, drafts, validationMessage)
+  return buildSettingOptions(settings, drafts, validationMessage, labelFor)
 }
 
 function validationError(
   setting: ProviderSetting,
   error: SettingValidationError,
-  validationMessage: (key: string, error: SettingValidationError) => string
+  validationMessage: (key: string, error: SettingValidationError) => string,
+  labelFor: (key: string) => string
 ): BuildResult {
-  return { ok: false, key: setting.key, error: validationMessage(humanizeKey(setting.key), error) }
+  return { ok: false, key: setting.key, error: validationMessage(labelFor(setting.key), error) }
 }
 
 function parseSettingValue(
