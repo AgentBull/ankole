@@ -11,6 +11,7 @@ const aiGatewayHTTPRefreshedKeyBackoffMs = ms('5s')
 const noObservabilityUserID = 'none'
 
 export const AIGATEWAY_OBSERVABILITY_USER_ID_HEADER = 'x-ankole-observability-user-id'
+export const AIGATEWAY_SESSION_ID_HEADER = 'Session-Id'
 
 export type AIGatewayAPIKeyRefreshOptions = {
   forceRefresh?: boolean
@@ -31,19 +32,26 @@ export interface AIGatewayHTTPClient {
 /**
  * Creates a ModelConfig pointed at AIGateway for the selected worker model.
  *
- * HTTP and WebSocket transports share the same refresh callback so stateful
- * response.create can recover from both expiring and revoked keys.
+ * HTTP and WebSocket transports share the same refresh callback and stable
+ * Actor Session identity. Thus, a reconnect or retry cannot change the
+ * Provider's logical session.
  */
 export function modelConfigFromAIGatewayAPIKey(
   modelRef: TurnModelRef,
   apiKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation
+  turnTracePropagation?: TurnTracePropagation,
+  actorSessionID?: string
 ): ModelConfig {
   const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey, turnTracePropagation)
+  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(
+    apiKey,
+    refreshAPIKey,
+    turnTracePropagation,
+    actorSessionID
+  )
   const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
-  const traceHeaders = aiGatewayTurnTraceHeaders(turnTracePropagation)
+  const turnHeaders = aiGatewayTurnHeaders(turnTracePropagation, actorSessionID)
 
   return createModel({
     apiKey: apiKey.apiKey,
@@ -57,7 +65,7 @@ export function modelConfigFromAIGatewayAPIKey(
       kind: 'aigateway-websocket',
       url: aiGatewayWebSocketURL(baseURL),
       authorization,
-      ...(Object.keys(traceHeaders).length > 0 ? { headers: traceHeaders } : {})
+      ...(Object.keys(turnHeaders).length > 0 ? { headers: turnHeaders } : {})
     }
   })
 }
@@ -68,11 +76,12 @@ export function modelConfigFromAIGatewayAPIKey(
 export function httpClientFromAIGatewayAPIKey(
   apiKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation
+  turnTracePropagation?: TurnTracePropagation,
+  actorSessionID?: string
 ): AIGatewayHTTPClient {
   return {
     baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation)
+    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation, actorSessionID)
   }
 }
 
@@ -94,6 +103,17 @@ export function aiGatewayTurnTraceHeaders(turnTracePropagation?: TurnTracePropag
   }
 }
 
+/** Builds the stable request identity headers shared by one Actor Session. */
+export function aiGatewayTurnHeaders(
+  turnTracePropagation?: TurnTracePropagation,
+  actorSessionID?: string
+): Record<string, string> {
+  return {
+    ...aiGatewayTurnTraceHeaders(turnTracePropagation),
+    ...(actorSessionID ? { [AIGATEWAY_SESSION_ID_HEADER]: actorSessionID } : {})
+  }
+}
+
 /**
  * Converts the control-plane model reference into the selector accepted by
  * AIGateway.
@@ -112,17 +132,19 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
 function aiGatewayFetch(
   initialAPIKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation
+  turnTracePropagation?: TurnTracePropagation,
+  actorSessionID?: string
 ): AIGatewayFetch {
   let currentAPIKey = initialAPIKey
-  const traceHeaders = aiGatewayTurnTraceHeaders(turnTracePropagation)
+  const turnHeaders = aiGatewayTurnHeaders(turnTracePropagation, actorSessionID)
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set('authorization', `Bearer ${currentAPIKey.apiKey}`)
     headers.delete('traceparent')
     headers.delete(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
-    for (const [name, value] of Object.entries(traceHeaders)) headers.set(name, value)
+    headers.delete(AIGATEWAY_SESSION_ID_HEADER)
+    for (const [name, value] of Object.entries(turnHeaders)) headers.set(name, value)
     return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
 

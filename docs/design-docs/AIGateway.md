@@ -390,6 +390,13 @@ OpenAI-family provider and every transport, because a WebSocket upgrade carries
 these as ordinary headers too. Provider-owned values, such as the ChatGPT
 Subscription session and account identity, still overwrite them.
 
+Agent Computer sends the current Actor Session as `Session-Id` on every
+AIGateway model request. Different Actor Sessions keep different values even
+when they use the same Agent, channel, instructions, tools, or prompt cache
+route. A retry or WebSocket reconnect for one model call keeps the same value.
+`prompt_cache_key` remains an independent cache-routing and credential-affinity
+input.
+
 Responses Lite keeps its compact request and response shapes for ChatGPT. For
 other providers, AIGateway restores the normal Responses shape before provider
 preparation. A real Codex client keeps Tool Search and programmatic tool calls

@@ -1,5 +1,5 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { classifyLLMError } from '../core/llm-error-classifier'
+import { classifyLLMError, llmErrorCode } from '../core/llm-error-classifier'
 
 /**
  * Converts an arbitrary Turn failure into durable details for the control plane.
@@ -65,8 +65,9 @@ export function aigatewayErrorDetails(error: unknown): JSONObject | undefined {
 function workerErrorDetails(error: unknown): { code?: string; retryable?: boolean; retryAt?: string } {
   if (!error || typeof error !== 'object') return {}
   const record = error as { code?: unknown; retryable?: unknown; retryAt?: unknown }
+  const code = llmErrorCode(error)
   return {
-    ...(typeof record.code === 'string' ? { code: record.code } : {}),
+    ...(code ? { code } : {}),
     ...(typeof record.retryable === 'boolean' ? { retryable: record.retryable } : {}),
     ...(typeof record.retryAt === 'string' ? { retryAt: record.retryAt } : {})
   }

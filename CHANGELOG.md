@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.0.0-rc.5 (2026-09-03)
+
+- Concurrent scheduled sessions now keep separate model WebSocket identities even when they share one Agent, channel, and prompt prefix, so one session no longer cancels another. Retries keep the same identity, prompt cache routing remains unchanged, and terminal failures retain their specific transport error code for recovery and diagnosis.
+
 ## Version 1.0.0-rc.4 (2026-09-02)
 
 - Console editors protect drafts: leaving an editor page, reloading the tab, or dismissing a dialog that holds typed input asks for confirmation first, the footer marks unsaved changes, and a rejected save scrolls its error into view. The guard stands down for the editor's own save and delete exits and for in-page scope changes such as picking another Agent in the schedule editor.

@@ -6135,6 +6135,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     codex_headers = %{
       "originator" => "codex_cli_rs",
       "user-agent" => "codex_cli_rs/0.147.0 (Linux Unknown; aarch64)",
+      "session-id" => "cron:019ff28d-29f0-78e0-b235-09182d5861b8",
       "session_id" => "01a00000-0000-7000-8000-000000000001",
       "thread-id" => "01a00000-0000-7000-8000-000000000002",
       "x-client-request-id" => "01a00000-0000-7000-8000-000000000003",
@@ -6156,6 +6157,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     # stops it from being dropped at this boundary.
     assert headers["originator"] == "codex_cli_rs"
     assert headers["user-agent"] =~ "codex_cli_rs/0.147.0"
+    assert headers["session-id"] == codex_headers["session-id"]
     assert headers["session_id"] == codex_headers["session_id"]
     assert headers["thread-id"] == codex_headers["thread-id"]
     assert headers["x-client-request-id"] == codex_headers["x-client-request-id"]
@@ -7045,12 +7047,20 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              Providers.build_response_request(
                runtime,
                %{"model" => "primary", "input" => "hello"},
-               stream?: true
+               stream?: true,
+               request_context: %{
+                 "downstream_transport" => "websocket",
+                 "headers" => %{"session-id" => "cron:upstream-websocket-session"}
+               }
              )
 
     assert request.upstream.method == "GET"
     assert request.upstream.kind == :websocket_text
     assert request.upstream.url == "wss://compatible.test/v1/responses"
+
+    assert Map.new(request.upstream.headers)["Session-Id"] ==
+             "cron:upstream-websocket-session"
+
     assert request.api_resolver == :openai_responses
     refute Map.has_key?(request, :body)
     assert request.response_context.model == "compatible-reasoning-model"

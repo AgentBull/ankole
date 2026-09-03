@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { classifyLLMError, isLocallyRetryableLLMError, type LLMErrorKind } from '../src/core/llm-error-classifier'
 import { aigatewayErrorFromFrame } from '../src/core/llm/parse'
+import { turnFailureDetails } from '../src/worker/turn_failure'
 
 describe('LLM error classification', () => {
   it('classifies AIGateway upstream WebSocket transport error frames as retryable transport', () => {
@@ -21,6 +22,19 @@ describe('LLM error classification', () => {
     for (const code of ['websocket_connect_failed', 'websocket_send_failed']) {
       expect(classifyLLMError({ code })).toMatchObject({ kind: 'timeout', retryable: true })
     }
+  })
+
+  it('retains a rendered AIGateway WebSocket code in durable Turn failure details', () => {
+    const error = new Error(
+      'AIGateway response failed code=websocket_read_failed WebSocket protocol error: Connection reset without closing handshake'
+    )
+
+    expect(turnFailureDetails(error)).toMatchObject({
+      llm_error_kind: 'timeout',
+      error_code: 'websocket_read_failed',
+      retryable: true,
+      should_fallback_provider: true
+    })
   })
 
   it('follows wrapped provider cause chains and terminates cyclic graphs', () => {

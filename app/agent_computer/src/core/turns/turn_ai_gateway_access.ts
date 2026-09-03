@@ -47,17 +47,25 @@ export async function acquireTurnAIGatewayAccess(
   const refreshAIGatewayAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
     requestVerifiedAPIKey(turnStart, requestAPIKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
   const turnTracePropagation = turnTracePropagationFromTurnStart(turnStart)
+  const actorSessionID = turnStart.turn.actor.session_id
 
   return {
-    model: modelConfigFromAIGatewayAPIKey(modelRef, apiKey, refreshAIGatewayAPIKey, turnTracePropagation),
-    aiGateway: httpClientFromAIGatewayAPIKey(apiKey, refreshAIGatewayAPIKey, turnTracePropagation),
+    model: modelConfigFromAIGatewayAPIKey(
+      modelRef,
+      apiKey,
+      refreshAIGatewayAPIKey,
+      turnTracePropagation,
+      actorSessionID
+    ),
+    aiGateway: httpClientFromAIGatewayAPIKey(apiKey, refreshAIGatewayAPIKey, turnTracePropagation, actorSessionID),
     ...(modelRef.vision_fallback_model_ref
       ? {
           visionFallbackModel: modelConfigFromAIGatewayAPIKey(
             modelRef.vision_fallback_model_ref,
             apiKey,
             refreshAIGatewayAPIKey,
-            turnTracePropagation
+            turnTracePropagation,
+            actorSessionID
           )
         }
       : {})

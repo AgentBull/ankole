@@ -13,6 +13,17 @@ defmodule Ankole.AIGateway.RequestContextTest do
     assert context["headers"] == %{"x-session-id" => "openrouter-session"}
   end
 
+  test "normalizes an Actor Session header for Provider forwarding" do
+    context = RequestContext.from_headers([{"Session-Id", "cron:session-1"}], "websocket")
+    prepared = RequestContext.prepare(context, %{"prompt_cache_key" => "shared-prefix"})
+
+    assert context["headers"] == %{"session-id" => "cron:session-1"}
+    assert RequestContext.client_identity_headers(context) == [{"Session-Id", "cron:session-1"}]
+    assert RequestContext.session_key(context, %{}) == "cron:session-1"
+    assert prepared["cache_key"] == "shared-prefix"
+    assert prepared["affinity_key"] == "shared-prefix"
+  end
+
   test "forwards W3C traceparent without forwarding authorization" do
     traceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 

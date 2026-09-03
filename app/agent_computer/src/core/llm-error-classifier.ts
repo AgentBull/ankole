@@ -47,8 +47,7 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
     return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599 ? parsed : undefined
   })
-  const code =
-    findErrorProperty(error, ['code'], value => (typeof value === 'string' ? value.toLowerCase() : undefined)) ?? ''
+  const code = llmErrorCode(error)?.toLowerCase() ?? ''
   const message = messageFromError(error)
 
   // Bad/expired API key, disabled org, or region/model not permitted (OpenAI 401, Bedrock 403).
@@ -205,6 +204,14 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
   // back blindly. A genuinely transient failure that lands here will surface to the user rather than
   // being silently re-tried forever.
   return classified('unknown', false, false, false)
+}
+
+/** Returns the most specific structured or rendered provider error code. */
+export function llmErrorCode(error: unknown): string | undefined {
+  const renderedCode = messageFromError(error).match(/\bcode=([a-z0-9_.:-]+)\b/)?.[1]
+  if (renderedCode) return renderedCode
+
+  return findErrorProperty(error, ['code'], value => (typeof value === 'string' && value ? value : undefined))
 }
 
 /** Convenience predicate used on the retry hot path; equivalent to `classifyLLMError(error).retryable`. */

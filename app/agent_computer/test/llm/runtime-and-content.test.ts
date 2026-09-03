@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { zodToJSONSchema, type ContentPart } from '../../src/core/llm'
+import { buildResponseCreateParams } from '../../src/core/llm/wire'
 import { actorEventUserContent } from '../../src/core/turns/actor_event_content'
 import { actorEventText } from '../../src/core/turns/actor_event_text'
 import { channelContextModelMessages } from '../../src/core/turns/channel_context'
@@ -15,6 +16,7 @@ import {
 } from '../../src/core/turns/message_context'
 import {
   AIGATEWAY_OBSERVABILITY_USER_ID_HEADER,
+  AIGATEWAY_SESSION_ID_HEADER,
   modelConfigFromAIGatewayAPIKey
 } from '../../src/core/ai_gateway_transport'
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
@@ -51,10 +53,11 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     expect(access.model.selector).toBe('openrouter/z-ai/glm-5.2')
     expect(access.aiGateway.baseURL).toBe('https://control.test/api/v1/ai-gateway')
+    expect(access.model.responseWebSocket?.headers?.[AIGATEWAY_SESSION_ID_HEADER]).toBe('session-1')
     await expect(access.model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
   })
 
-  it('adds canonical turn trace identity to AIGateway HTTP, WebSocket, and vision transports', async () => {
+  it('adds canonical Actor Session and turn trace identity to AIGateway HTTP, WebSocket, and vision transports', async () => {
     const originalFetch = globalThis.fetch
     const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
     const userID = 'channel:lark:群聊一'
@@ -66,13 +69,14 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       provider_id: 'openrouter-vision',
       model: 'vision-model'
     }
-    const seenTraceHeaders: Array<{ traceparent: string | null; userID: string | null }> = []
+    const seenTraceHeaders: Array<{ traceparent: string | null; userID: string | null; sessionID: string | null }> = []
 
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
       seenTraceHeaders.push({
         traceparent: headers.get('traceparent'),
-        userID: headers.get(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
+        userID: headers.get(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER),
+        sessionID: headers.get(AIGATEWAY_SESSION_ID_HEADER)
       })
       return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
     }) as unknown as typeof fetch
@@ -85,7 +89,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       await access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models', {
         headers: {
           traceparent: '00-99999999999999999999999999999999-9999999999999999-01',
-          [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'principal:spoofed'
+          [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'principal:spoofed',
+          [AIGATEWAY_SESSION_ID_HEADER]: 'spoofed-session'
         }
       })
       await access.visionFallbackModel!.client.responses.create({
@@ -94,14 +99,16 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       })
 
       expect(seenTraceHeaders).toEqual([
-        { traceparent, userID: userCarrier },
-        { traceparent, userID: userCarrier }
+        { traceparent, userID: userCarrier, sessionID: 'session-1' },
+        { traceparent, userID: userCarrier, sessionID: 'session-1' }
       ])
       expect(access.model.responseWebSocket?.headers?.traceparent).toBe(traceparent)
       expect(access.model.responseWebSocket?.headers?.[AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]).toBe(userCarrier)
+      expect(access.model.responseWebSocket?.headers?.[AIGATEWAY_SESSION_ID_HEADER]).toBe('session-1')
       expect(access.visionFallbackModel?.responseWebSocket?.headers).toEqual({
         traceparent,
-        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: userCarrier
+        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: userCarrier,
+        [AIGATEWAY_SESSION_ID_HEADER]: 'session-1'
       })
     } finally {
       globalThis.fetch = originalFetch
@@ -148,12 +155,42 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       ])
       expect(unattributedAccess.model.responseWebSocket?.headers).toEqual({
         traceparent,
-        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'none'
+        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'none',
+        [AIGATEWAY_SESSION_ID_HEADER]: 'session-1'
       })
-      expect(untracedAccess.model.responseWebSocket?.headers).toBeUndefined()
+      expect(untracedAccess.model.responseWebSocket?.headers).toEqual({
+        [AIGATEWAY_SESSION_ID_HEADER]: 'session-1'
+      })
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+
+  it('keeps prompt routing shared while distinct Actor Sessions get distinct AIGateway identities', async () => {
+    const firstTurn = turnStartForTest() as TurnStart
+    const secondTurn = turnStartForTest() as TurnStart
+    secondTurn.turn = {
+      ...secondTurn.turn,
+      actor: { ...secondTurn.turn.actor, session_id: 'cron:second-session' }
+    }
+
+    const [first, second] = await Promise.all(
+      [firstTurn, secondTurn].map(turnStart =>
+        acquireTurnAIGatewayAccess(turnStart, {
+          requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
+        })
+      )
+    )
+    const options = {
+      instructions: 'shared instructions',
+      messages: [{ role: 'user' as const, content: 'dynamic input' }]
+    }
+
+    expect(first.model.responseWebSocket?.headers?.[AIGATEWAY_SESSION_ID_HEADER]).toBe('session-1')
+    expect(second.model.responseWebSocket?.headers?.[AIGATEWAY_SESSION_ID_HEADER]).toBe('cron:second-session')
+    expect(buildResponseCreateParams(first.model, options).prompt_cache_key).toBe(
+      buildResponseCreateParams(second.model, options).prompt_cache_key
+    )
   })
 
   it('rejects AIGateway access acquisition when the key belongs to another agent', async () => {
@@ -361,7 +398,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     const userID = 'channel:lark:oc_ws_retry'
     const userCarrier = Buffer.from(userID).toString('base64url')
     const seenAuthorization: string[] = []
-    const seenTraceIdentity: Array<{ traceparent?: string; userID?: string }> = []
+    const seenTraceIdentity: Array<{ traceparent?: string; userID?: string; sessionID?: string }> = []
     const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
     const sentPayloads: JSONObject[] = []
     let attempts = 0
@@ -377,7 +414,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         refreshOptions.push(options)
         return aiGatewayKeyForTest('agent-1', 'new-key')
       },
-      { traceparent, observabilityUserID: userID }
+      { traceparent, observabilityUserID: userID },
+      'cron:stable-retry-session'
     )
 
     model.responseWebSocket!.createWebSocket = (_url, init) => {
@@ -385,7 +423,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       seenAuthorization.push(init.headers.authorization ?? init.headers.Authorization ?? '')
       seenTraceIdentity.push({
         traceparent: init.headers.traceparent,
-        userID: init.headers[AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]
+        userID: init.headers[AIGATEWAY_OBSERVABILITY_USER_ID_HEADER],
+        sessionID: init.headers[AIGATEWAY_SESSION_ID_HEADER]
       })
 
       if (attempts === 1) {
@@ -432,8 +471,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(sentPayloads).toHaveLength(1)
     expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer new-key'])
     expect(seenTraceIdentity).toEqual([
-      { traceparent, userID: userCarrier },
-      { traceparent, userID: userCarrier }
+      { traceparent, userID: userCarrier, sessionID: 'cron:stable-retry-session' },
+      { traceparent, userID: userCarrier, sessionID: 'cron:stable-retry-session' }
     ])
     expect(refreshOptions).toEqual([{ forceRefresh: true }])
   })
