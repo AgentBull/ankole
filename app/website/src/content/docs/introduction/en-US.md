@@ -5,7 +5,7 @@ section: Getting started
 order: 1
 ---
 
-**Ankole is the open source Claude Code alternative with a Company Brain. Its enterprise Agent Harness gives Agents the context, authority, tools, and feedback required to make decisions and show their evidence.**
+**Ankole is the open source Claude Tag alternative with a Company Brain. Its enterprise Agent Harness gives Agents the context, authority, tools, and feedback required to make decisions and show their evidence.**
 
 Durable Agents use shared company knowledge, live signals, enterprise authority, Agent Computer workers, and persistent execution across company work.
 

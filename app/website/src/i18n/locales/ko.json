@@ -1,6 +1,6 @@
 {
   "site.title": "Ankole",
-  "site.description": "Ankole은 Company Brain을 갖춘 오픈 소스 Claude Code 대안입니다. 기업용 Agent Harness가 회사 의사결정에 필요한 공유 컨텍스트를 Agent에 제공합니다.",
+  "site.description": "Ankole은 Company Brain을 갖춘 오픈 소스 Claude Tag 대안입니다. 기업용 Agent Harness가 회사 의사결정에 필요한 공유 컨텍스트를 Agent에 제공합니다.",
   "nav.docs": "문서",
   "nav.github": "GitHub",
   "nav.menu": "메뉴",
@@ -11,7 +11,7 @@
   "hero.badge": "오픈 소스 · 회사 인프라에서 실행 · 기업용",
   "hero.title.line1": "기업용 Agent Harness",
   "hero.title.line2": "Company Brain 탑재",
-  "hero.subtitle": "Ankole은 회사 전체 업무를 위한 오픈 소스 Claude Code 대안입니다. Company Brain, 실시간 신호, 기업 권한, 실제 결과가 의사결정을 개선합니다.",
+  "hero.subtitle": "Ankole은 회사 전체 업무를 위한 오픈 소스 Claude Tag 대안입니다. Company Brain, 실시간 신호, 기업 권한, 실제 결과가 의사결정을 개선합니다.",
   "hero.cta.primary": "시작하기",
   "hero.cta.secondary": "GitHub",
   "hero.stack.ha": "프로세스 장애 후 작업을 재개하는 Agent",

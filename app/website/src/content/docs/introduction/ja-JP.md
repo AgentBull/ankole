@@ -5,7 +5,7 @@ section: Getting started
 order: 1
 ---
 
-**Ankole は、Company Brain を備えたオープンソースの Claude Code 代替製品です。企業向け Agent Harness が、Agent の判断に必要なコンテキスト、権限、ツール、フィードバックを提供します。**
+**Ankole は、Company Brain を備えたオープンソースの Claude Tag 代替製品です。企業向け Agent Harness が、Agent の判断に必要なコンテキスト、権限、ツール、フィードバックを提供します。**
 
 継続して動く Agent は、会社全体の仕事で、共有の社内知識、リアルタイムのシグナル、企業の権限、Agent Computer の作業環境、永続的な実行機能を使えます。
 

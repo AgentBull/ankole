@@ -5,7 +5,7 @@ section: Getting started
 order: 1
 ---
 
-**Ankole 是配备公司大脑的开源 Claude Code 替代方案，也是一套企业级 Agent Harness。**
+**Ankole 是配备公司大脑的开源 Claude Tag 替代方案，也是一套企业级 Agent Harness。**
 
 实时信号唤醒 Agent。Agent 使用共享知识、企业权限和 Agent Computer 工作环境执行长任务。进程发生故障后，任务可以恢复。
 

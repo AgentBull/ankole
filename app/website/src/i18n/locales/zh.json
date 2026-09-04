@@ -1,6 +1,6 @@
 {
   "site.title": "Ankole",
-  "site.description": "Ankole 是配备公司大脑的开源 Claude Code 替代方案，也是一套企业级 Agent Harness。公司大脑为 Agent 提供企业决策所需的共享上下文。",
+  "site.description": "Ankole 是配备公司大脑的开源 Claude Tag 替代方案，也是一套企业级 Agent Harness。公司大脑为 Agent 提供企业决策所需的共享上下文。",
   "nav.docs": "文档",
   "nav.github": "GitHub",
   "nav.menu": "菜单",
@@ -11,7 +11,7 @@
   "hero.badge": "开源 · 企业自托管 · 企业级",
   "hero.title.line1": "企业级 Agent Harness",
   "hero.title.line2": "配备公司大脑",
-  "hero.subtitle": "Ankole 是面向企业的开源 Claude Code 替代方案。公司大脑提供共享知识，实时信号触发工作，企业权限限定操作范围，实际结果更新后续决策。",
+  "hero.subtitle": "Ankole 是面向企业的开源 Claude Tag 替代方案。公司大脑提供共享知识，实时信号触发工作，企业权限限定操作范围，实际结果更新后续决策。",
   "hero.cta.primary": "快速上手",
   "hero.cta.secondary": "GitHub",
   "hero.stack.ha": "进程故障后可恢复的 Agent",

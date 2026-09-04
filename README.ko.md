@@ -11,7 +11,7 @@
 
 **Company Brain이 모든 Agent에 회사 지식을 제공하고 판단을 개선합니다.**
 
-Ankole은 Company Brain을 갖춘 오픈 소스 Claude Code 대안입니다. 기업용 Agent Harness가 회사 지식, 실시간 신호, 권한, 도구, 실제 결과를 Agent의 판단에 필요한 컨텍스트로 구성합니다.
+Ankole은 Company Brain을 갖춘 오픈 소스 Claude Tag 대안입니다. 기업용 Agent Harness가 회사 지식, 실시간 신호, 권한, 도구, 실제 결과를 Agent의 판단에 필요한 컨텍스트로 구성합니다.
 
 Company Brain은 지속해서 실행되는 Agent에 공유 지식을 제공합니다. Harness는 회사의 권한 규칙을 적용하고 모델 호출이 끝난 뒤에도 업무를 이어 갑니다.
 
