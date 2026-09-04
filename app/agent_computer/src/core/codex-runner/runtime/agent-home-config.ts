@@ -169,6 +169,9 @@ export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string
               input_modalities: runtime.modelProfile.visionFallback.inputModalities
             }
           }
+        : {}),
+      ...(runtime.brain
+        ? { brain: { operations: runtime.brain.operations, actor_event_id: runtime.brain.actorEventID } }
         : {})
     }),
     'utf8'

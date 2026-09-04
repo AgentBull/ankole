@@ -16,8 +16,6 @@ defmodule AnkoleWeb.AgentSkillLessonControllerTest do
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
-    assert {:ok, _result} = Library.sync_builtin_skills(force: true)
-
     :ok
   end
 

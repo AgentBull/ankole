@@ -593,7 +593,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert_receive {:actor_lane, response_envelope}, 2_000
 
-      assert %FabricProto.ActorTurnNoopResponse{status: "noop_completed"} =
+      assert %FabricProto.ActorTurnNoopResponse{status: "turn_completed"} =
                rpc_response_payload!(response_envelope, FabricProto.ActorTurnNoopResponse)
 
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(input.id)

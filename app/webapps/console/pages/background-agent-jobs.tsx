@@ -69,8 +69,15 @@ import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
 import { DiscardConfirmDialog, StatusIndicator, useDialogDiscardGuard } from '../console-form'
-import { ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
+import { CursorPagination, ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
+import {
+  cursorPageNumber,
+  hasPreviousCursor,
+  nextCursorParams,
+  previousCursorParams,
+  resetCursorParams
+} from '../state/cursor-pagination'
 
 type JobStatus = BackgroundAgentJobItem['status']
 
@@ -104,6 +111,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     setSearchParams(current => backgroundAgentJobSearchParams(current, draft), { replace: true })
   )
   const selectedID = resourceID(searchParams.get('job'), 1000)
+  const turnsCursor = searchParams.get('cursor') ?? undefined
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const [completeTargetID, setCompleteTargetID] = useState<number>()
   const [completeSummary, setCompleteSummary] = useState('')
@@ -122,7 +130,8 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter))
   const detail = useQuery({
     ...ankoleWebBackgroundAgentJobControllerShowOptions({
-      path: { job_id: selectedID ?? 1000 }
+      path: { job_id: selectedID ?? 1000 },
+      query: { cursor: turnsCursor }
     }),
     enabled: selectedID !== undefined,
     refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
@@ -163,15 +172,13 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
 
   const openBackgroundAgentJob = (id: number) => {
-    const next = new URLSearchParams(searchParams)
+    const next = resetCursorParams(searchParams)
     next.set('job', String(id))
     setSearchParams(next)
   }
 
   const closeBackgroundAgentJob = () => {
-    const next = new URLSearchParams(searchParams)
-    next.delete('job')
-    setSearchParams(next, { replace: true })
+    setSearchParams(backgroundAgentJobScopeParams(searchParams, scope.agentUID), { replace: true })
   }
 
   const selectAgent = (agentUID: string) => {
@@ -436,8 +443,9 @@ export function backgroundAgentJobSearchParams(current: URLSearchParams, search:
   return next
 }
 
+/** Closes the open detail together with its trajectory page, then applies the scope. */
 export function backgroundAgentJobScopeParams(current: URLSearchParams, agentUID: string): URLSearchParams {
-  const next = new URLSearchParams(current)
+  const next = resetCursorParams(current)
   next.delete('job')
   if (agentUID) next.set('agent', agentUID)
   else next.delete('agent')
@@ -624,7 +632,6 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
         mono
       />
       <Fact label={t('console.background_agent_jobs.attempts')} value={job.attempts} />
-      <Fact label={t('console.background_agent_jobs.turns')} value={job.turns?.length ?? 0} />
       <Fact label={t('console.background_agent_jobs.duration')} value={formatDuration(job.duration_seconds)} />
       <Fact label={t('console.background_agent_jobs.queued_at')} value={formatConsoleDate(job.queued_at)} />
       <Fact label={t('console.background_agent_jobs.started_at')} value={formatConsoleDate(job.started_at)} />
@@ -703,17 +710,35 @@ function JobOutcome({ job }: { job: BackgroundAgentJobItem }) {
   )
 }
 
-/** Recorded runtime Turns, grouped by attempt so a retried job stays legible. */
+/**
+ * Recorded runtime Turns, grouped by attempt so a retried job stays legible.
+ * The server pages the trajectory newest first, so the first page holds the
+ * latest Turns and the pager walks back into the older history.
+ */
 function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
   const { t } = useTranslation()
-  const latest = job.turns?.at(-1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const turns = job.turns ?? []
+  const latest = turns.at(-1)
 
-  if (!job.turns?.length) {
+  const pager = (
+    <CursorPagination
+      page={cursorPageNumber(searchParams)}
+      hasPrevious={hasPreviousCursor(searchParams)}
+      nextCursor={job.turns_next_cursor}
+      resultCount={turns.length}
+      onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
+      onNext={cursor => setSearchParams(nextCursorParams(searchParams, cursor))}
+    />
+  )
+
+  if (turns.length === 0) {
     return (
       <JobSection title={t('console.background_agent_jobs.timeline')}>
         <p className="border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
           {t('console.background_agent_jobs.no_turns')}
         </p>
+        {pager}
       </JobSection>
     )
   }
@@ -723,7 +748,7 @@ function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
       title={t('console.background_agent_jobs.timeline')}
       aside={<IntegrityBadges metadata={latest?.trajectory.metadata} />}>
       <div className="grid gap-6">
-        {groupTurnsByAttempt(job.turns, job.attempts, job.runtime_thread_id).map(group => (
+        {groupTurnsByAttempt(turns, job.attempts, job.runtime_thread_id).map(group => (
           <section key={group.attempt} className="grid min-w-0 gap-3">
             <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               {t('console.background_agent_jobs.attempt_label', { count: group.attempt })}
@@ -736,6 +761,7 @@ function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
           </section>
         ))}
       </div>
+      {pager}
     </JobSection>
   )
 }
@@ -751,11 +777,7 @@ function IntegrityBadges({ metadata }: { metadata: BackgroundAgentJobTurn['traje
         <Badge variant="warning">{t('console.background_agent_jobs.integrity_redacted')}</Badge>
       ) : null}
       {metadata.content_truncated ? (
-        <Badge variant="warning">
-          {metadata.omitted_items
-            ? t('console.background_agent_jobs.integrity_omitted', { count: metadata.omitted_items })
-            : t('console.background_agent_jobs.integrity_truncated')}
-        </Badge>
+        <Badge variant="warning">{t('console.background_agent_jobs.integrity_truncated')}</Badge>
       ) : null}
     </span>
   )

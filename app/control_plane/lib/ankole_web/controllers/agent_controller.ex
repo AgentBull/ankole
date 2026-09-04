@@ -14,6 +14,7 @@ defmodule AnkoleWeb.AgentController do
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentCreateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentListResponse
@@ -163,7 +164,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def show(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "read"),
          {:ok, result} <- Principals.get_agent(agent_uid) do
       json(conn, %{agent: agent_json(result)})
@@ -173,7 +174,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def update(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
          {:ok, attrs} <- update_attrs(conn.body_params),
          {:ok, result} <- Principals.update_agent(agent_uid, attrs) do
@@ -184,7 +185,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def delete(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "delete"),
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
          {:ok, %Principal{} = principal} <- Principals.delete_agent(agent_uid) do
@@ -195,7 +196,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def enable(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
          {:ok, %Principal{} = principal} <- Principals.enable_agent(agent_uid) do
@@ -206,7 +207,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def index_model_profiles(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "read"),
          {:ok, profiles} <- ModelProfiles.get_model_profiles(agent_uid) do
       json(conn, %{
@@ -219,7 +220,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def put_provider_hosted(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "update"),
          {:ok, capabilities} <-
            ModelProfiles.put_provider_hosted_capabilities(agent_uid, conn.body_params) do
@@ -246,7 +247,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def put_model_profile(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          {:ok, profile} <- profile_param(params),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "update"),
@@ -259,7 +260,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   def delete_model_profile(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          {:ok, profile} <- profile_param(params),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profile:#{profile}", "delete"),
@@ -318,21 +319,8 @@ defmodule AnkoleWeb.AgentController do
     end
   end
 
-  defp agent_uid_param(params) do
-    case Map.get(params, :agent_uid, Map.get(params, "agent_uid")) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, "agent_uid"}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing, "agent_uid"}}
-    end
-  end
-
   defp profile_param(params) do
-    case Map.get(params, :profile, Map.get(params, "profile")) do
+    case Map.get(params, :profile) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, "profile"}}
     end

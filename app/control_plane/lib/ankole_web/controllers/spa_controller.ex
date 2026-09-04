@@ -44,12 +44,12 @@ defmodule AnkoleWeb.SpaController do
   setup, already-signed-in admins skip straight to the console, and only the
   remaining case (setup done, not signed in) actually renders the sign-in shell.
   """
-  def sessions_new(conn, _params) do
+  def sessions_new(conn, params) do
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
-      active_admin_session?(conn) ->
+      active_admin_session?(conn) and params["oauth"] != "1" ->
         redirect(conn, to: ~p"/console")
 
       true ->

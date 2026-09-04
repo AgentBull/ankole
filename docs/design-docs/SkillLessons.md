@@ -6,9 +6,11 @@ the Skill text on later runs. Lessons replace the free-text per-skill overlay
 blob with leased, per-item rows that Dreaming maintains and an operator can
 audit and revoke.
 
-The Elixir control plane owns lesson state and every gate;
-`Ankole.AIAgent.Library` is the entry point. The worker only receives the
-rendered notes with the Skill content.
+The Elixir control plane owns lesson state and every gate.
+`Ankole.Brain.SkillLessons` owns the reflection and review rounds,
+`Ankole.BackgroundAgentJobs` owns the evidence read contract, and
+`Ankole.AIAgent.Library` owns lesson storage and delivery. The worker only
+receives the rendered notes with the Skill content.
 
 ## Data Model
 
@@ -30,8 +32,13 @@ disabled or removed.
 
 ## Production: Evidence and Reflection
 
-Terminal Jobs accumulate as evidence. A Job qualifies as a signal when its
-stored item stream shows mid-run human input or at least one failed call.
+Terminal Jobs accumulate as evidence. `BackgroundAgentJobs.evidence_signals`
+and `BackgroundAgentJobs.evidence_sections` project the stored item stream
+through the Jobs-owned `TurnItemProjection`; Brain does not decode Worker
+items. A Job qualifies as a signal when that projection shows mid-run human
+input, a shell command with a nonzero exit code, or a local dynamic tool call
+with `success: false`. Collaboration, MCP, and provider-hosted calls do not
+count as failed calls for this phase.
 When an Agent accumulates `brain.skill_learning_reflection_threshold`
 unconsumed signal Jobs (minimum 2, default 10), the Dreaming `skill_lessons`
 phase starts one reflection Job for that Agent.

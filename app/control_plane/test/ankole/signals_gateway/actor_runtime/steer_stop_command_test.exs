@@ -524,7 +524,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
               %{
                 status: :command_consumed,
                 feedback: "已停止。",
-                stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+                control_outcomes: [%{send_outcome: "sent_or_queued"}]
               }} = result
 
       assert_receive {:ai_gateway_event, :response_failed, event}
@@ -685,7 +685,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
               %{
                 status: :command_consumed,
                 feedback: "Stopped.",
-                stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+                control_outcomes: [%{send_outcome: "sent_or_queued"}]
               }} =
                process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 

@@ -127,50 +127,41 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule ConsoleTokenRequest do
+  defmodule OIDCClientItem do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "ConsoleTokenRequest",
+        title: "OIDCClientItem",
         type: :object,
         properties: %{
-          grant_type: %Schema{type: :string},
-          refresh_token: %Schema{type: :string}
-        },
-        required: [:grant_type],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule ConsoleTokenResponse do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "ConsoleTokenResponse",
-        type: :object,
-        properties: %{
-          access_token: %Schema{type: :string},
-          expires_in: %Schema{type: :integer},
-          refresh_token: %Schema{type: :string},
-          refresh_token_expires_in: %Schema{type: :integer},
-          scope: %Schema{type: :string},
-          token_type: %Schema{type: :string, enum: ["Bearer"]}
+          id: %Schema{type: :string, format: :uuid},
+          name: %Schema{type: :string},
+          enabled: %Schema{type: :boolean},
+          type: %Schema{type: :string, enum: ["public", "confidential"]},
+          redirect_uris: %Schema{type: :array, items: %Schema{type: :string}},
+          scopes: %Schema{type: :array, items: %Schema{type: :string}},
+          allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
+          allowed_models: %Schema{
+            type: :object,
+            additionalProperties: AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
+          },
+          inserted_at: %Schema{type: :string, format: :"date-time"},
+          updated_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
-          :access_token,
-          :expires_in,
-          :refresh_token,
-          :refresh_token_expires_in,
-          :scope,
-          :token_type
+          :id,
+          :name,
+          :enabled,
+          :type,
+          :redirect_uris,
+          :scopes,
+          :allowed_group_ids,
+          :allowed_models,
+          :inserted_at,
+          :updated_at
         ],
         additionalProperties: false
       },
@@ -178,20 +169,130 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule OAuthErrorResponse do
+  defmodule OIDCClientCreateRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "OAuthErrorResponse",
+        title: "OIDCClientCreateRequest",
         type: :object,
         properties: %{
-          error: %Schema{type: :string},
-          error_description: %Schema{type: :string}
+          name: %Schema{type: :string, minLength: 1},
+          enabled: %Schema{type: :boolean},
+          type: %Schema{type: :string, enum: ["public", "confidential"]},
+          redirect_uris: %Schema{type: :array, minItems: 1, items: %Schema{type: :string}},
+          scopes: %Schema{
+            type: :array,
+            minItems: 1,
+            items: %Schema{
+              type: :string,
+              enum: ["openid", "profile", "email", "offline_access", "ai_gateway.write"]
+            }
+          },
+          allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
+          allowed_models: %Schema{
+            type: :object,
+            additionalProperties: AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
+          }
         },
-        required: [:error, :error_description],
+        required: [
+          :name,
+          :enabled,
+          :type,
+          :redirect_uris,
+          :scopes,
+          :allowed_group_ids,
+          :allowed_models
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule OIDCClientUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "OIDCClientUpdateRequest",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string, minLength: 1},
+          enabled: %Schema{type: :boolean},
+          redirect_uris: %Schema{type: :array, minItems: 1, items: %Schema{type: :string}},
+          scopes: %Schema{
+            type: :array,
+            minItems: 1,
+            items: %Schema{
+              type: :string,
+              enum: ["openid", "profile", "email", "offline_access", "ai_gateway.write"]
+            }
+          },
+          allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
+          allowed_models: %Schema{
+            type: :object,
+            additionalProperties: AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
+          }
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule OIDCClientResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "OIDCClientResponse",
+        type: :object,
+        properties: %{oidc_client: OIDCClientItem},
+        required: [:oidc_client],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule OIDCClientListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "OIDCClientListResponse",
+        type: :object,
+        properties: %{oidc_clients: %Schema{type: :array, items: OIDCClientItem}},
+        required: [:oidc_clients],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule OIDCClientSecretResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "OIDCClientSecretResponse",
+        type: :object,
+        properties: %{
+          oidc_client: OIDCClientItem,
+          client_secret: %Schema{type: :string, nullable: true}
+        },
+        required: [:oidc_client, :client_secret],
         additionalProperties: false
       },
       struct?: false
@@ -2283,6 +2384,286 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule ScheduleOccurrences do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduleOccurrences",
+        description:
+          "Bound of a recurring schedule: exactly one of `count` (due slots to run) or `until` (inclusive cutoff instant).",
+        type: :object,
+        properties: %{
+          count: %Schema{type: :integer, minimum: 1},
+          until: %Schema{
+            type: :string,
+            description:
+              "ISO 8601 instant, or a local time that the schedule timezone resolves. Stored as UTC."
+          }
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleRecurrence do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduleRecurrence",
+        description:
+          "Recurrence of one cron schedule. Kind `cron` uses `expression` and `timezone`; kind `every` uses `every_ms` and `anchor_at`.",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["cron", "every"]},
+          expression: %Schema{
+            type: :string,
+            minLength: 1,
+            description:
+              "Crontab expression with five fields, or six fields with leading seconds."
+          },
+          timezone: %Schema{
+            type: :string,
+            description:
+              "IANA timezone. A write can omit it and give the request `timezone` instead. A stored `cron` recurrence carries it."
+          },
+          every_ms: %Schema{type: :integer, minimum: 1, description: "Interval in milliseconds."},
+          anchor_at: %Schema{
+            type: :string,
+            description: "ISO 8601 instant that the interval counts from."
+          },
+          occurrences: ScheduleOccurrences
+        },
+        required: [:kind],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SchedulePayload do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SchedulePayload",
+        description:
+          "Standing input of every fire. `task` is the self-contained instruction of a direct-Agent schedule; it is required unless an automation job consumes the trigger. Other keys pass through unchanged.",
+        type: :object,
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleDeliveryTarget do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduleDeliveryTarget",
+        type: :object,
+        properties: %{
+          binding_name: %Schema{type: :string, minLength: 1},
+          signal_channel_id: %Schema{type: :string, minLength: 1},
+          provider_thread_id: %Schema{type: :string}
+        },
+        required: [:binding_name, :signal_channel_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleDelivery do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduleDelivery",
+        description:
+          "Where the result of a fire goes. The first target is primary and its binding must equal the schedule `binding_name`. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.",
+        type: :object,
+        properties: %{
+          targets: %Schema{type: :array, items: ScheduleDeliveryTarget, minItems: 1},
+          quiet_success: %Schema{type: :boolean}
+        },
+        required: [:targets],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CronScheduleItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "CronScheduleItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string, enum: ["active", "paused", "deleted", "completed"]},
+          agent_uid: %Schema{type: :string},
+          owner_session_id: %Schema{type: :string},
+          execution_session_id: %Schema{
+            type: :string,
+            description: "Derived session `cron:<id>` where every fire runs."
+          },
+          binding_name: %Schema{type: :string},
+          name: %Schema{type: :string},
+          schedule: ScheduleRecurrence,
+          timezone: %Schema{type: :string},
+          payload: SchedulePayload,
+          delivery: %Schema{allOf: [ScheduleDelivery], nullable: true},
+          next_fire_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          last_fire_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          idempotency_key: %Schema{type: :string},
+          created_by: %Schema{
+            type: :object,
+            additionalProperties: true,
+            description: "Origin of the schedule; `kind` names the writer."
+          },
+          automation_job_id: %Schema{type: :integer, nullable: true},
+          inserted_at: %Schema{type: :string, format: :"date-time"},
+          updated_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [
+          :id,
+          :status,
+          :agent_uid,
+          :owner_session_id,
+          :execution_session_id,
+          :binding_name,
+          :name,
+          :schedule,
+          :timezone,
+          :payload,
+          :delivery,
+          :next_fire_at,
+          :last_fire_at,
+          :idempotency_key,
+          :created_by,
+          :automation_job_id,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduledEventItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ScheduledEventItem",
+        description: "One concrete fire: a one-shot checkback or one slot of a cron schedule.",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :integer},
+          kind: %Schema{type: :string, enum: ["check_back_later", "cron_fire"]},
+          status: %Schema{
+            type: :string,
+            enum: ["scheduled", "firing", "fired", "cancelled", "failed"]
+          },
+          agent_uid: %Schema{type: :string},
+          session_id: %Schema{type: :string},
+          binding_name: %Schema{type: :string},
+          due_at: %Schema{type: :string, format: :"date-time"},
+          timezone: %Schema{type: :string},
+          requested_at: %Schema{type: :string, format: :"date-time"},
+          idempotency_key: %Schema{type: :string},
+          cron_schedule_id: %Schema{type: :string, format: :uuid, nullable: true},
+          automation_job_id: %Schema{type: :integer, nullable: true},
+          automation_job_run_id: %Schema{type: :integer, nullable: true},
+          cron_fire_slot_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          tool_call_id: %Schema{type: :string, nullable: true},
+          origin_ai_message_id: %Schema{type: :string, format: :uuid, nullable: true},
+          source_actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
+          signal_channel_id: %Schema{type: :string, nullable: true},
+          provider_thread_id: %Schema{type: :string, nullable: true},
+          source_entry_id: %Schema{type: :string, nullable: true},
+          source_provenance: %Schema{type: :object, additionalProperties: true},
+          wake_payload: %Schema{
+            type: :object,
+            additionalProperties: true,
+            description:
+              "Input of the wake turn. A checkback carries `reason`, `check`, and `context_summary`; a cron fire carries `trigger` and the frozen schedule facts."
+          },
+          oban_job_id: %Schema{type: :integer, nullable: true},
+          actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
+          fire_attempts: %Schema{type: :integer},
+          fire_claimed_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          fired_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          cancelled_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          last_fire_error: %Schema{
+            type: :object,
+            additionalProperties: true,
+            description:
+              "Stored diagnostic of the last cancellation or failure; `reason` names it. Empty when there is none."
+          },
+          inserted_at: %Schema{type: :string, format: :"date-time"},
+          updated_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [
+          :id,
+          :kind,
+          :status,
+          :agent_uid,
+          :session_id,
+          :binding_name,
+          :due_at,
+          :timezone,
+          :requested_at,
+          :idempotency_key,
+          :cron_schedule_id,
+          :automation_job_id,
+          :automation_job_run_id,
+          :cron_fire_slot_at,
+          :tool_call_id,
+          :origin_ai_message_id,
+          :source_actor_event_id,
+          :signal_channel_id,
+          :provider_thread_id,
+          :source_entry_id,
+          :source_provenance,
+          :wake_payload,
+          :oban_job_id,
+          :actor_event_id,
+          :fire_attempts,
+          :fire_claimed_at,
+          :fired_at,
+          :cancelled_at,
+          :last_fire_error,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule ScheduleCronWriteRequest do
     @moduledoc false
 
@@ -2302,10 +2683,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           binding_name: %Schema{type: :string},
           name: %Schema{type: :string, minLength: 1},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
-          schedule: JSONValue,
+          schedule: ScheduleRecurrence,
           timezone: %Schema{type: :string, nullable: true},
-          payload: JSONValue,
-          delivery: JSONValue,
+          payload: SchedulePayload,
+          delivery: ScheduleDelivery,
           idempotency_key: %Schema{type: :string}
         },
         required: [
@@ -2334,10 +2715,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         minProperties: 1,
         properties: %{
           name: %Schema{type: :string, minLength: 1},
-          schedule: JSONValue,
+          schedule: ScheduleRecurrence,
           timezone: %Schema{type: :string, nullable: true},
-          payload: JSONValue,
-          delivery: JSONValue
+          payload: SchedulePayload,
+          delivery: ScheduleDelivery
         },
         additionalProperties: false
       },
@@ -2354,7 +2735,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleCronScheduleResponse",
         type: :object,
-        properties: %{cron_schedule: JSONValue},
+        properties: %{cron_schedule: CronScheduleItem},
         required: [:cron_schedule],
         additionalProperties: false
       },
@@ -2371,7 +2752,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleCronScheduleListResponse",
         type: :object,
-        properties: %{cron_schedules: %Schema{type: :array, items: JSONValue}},
+        properties: %{cron_schedules: %Schema{type: :array, items: CronScheduleItem}},
         required: [:cron_schedules],
         additionalProperties: false
       },
@@ -2388,7 +2769,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleEventResponse",
         type: :object,
-        properties: %{schedule_event: JSONValue},
+        properties: %{schedule_event: ScheduledEventItem},
         required: [:schedule_event],
         additionalProperties: false
       },
@@ -2405,7 +2786,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleEventListResponse",
         type: :object,
-        properties: %{schedule_events: %Schema{type: :array, items: JSONValue}},
+        properties: %{schedule_events: %Schema{type: :array, items: ScheduledEventItem}},
         required: [:schedule_events],
         additionalProperties: false
       },
@@ -2422,7 +2803,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleRunListResponse",
         type: :object,
-        properties: %{schedule_runs: %Schema{type: :array, items: JSONValue}},
+        properties: %{schedule_runs: %Schema{type: :array, items: ScheduledEventItem}},
         required: [:schedule_runs],
         additionalProperties: false
       },
@@ -3897,10 +4278,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
                 type: :object,
                 properties: %{
                   redacted: %Schema{type: :boolean},
-                  content_truncated: %Schema{type: :boolean},
-                  max_bytes: %Schema{type: :integer},
-                  omitted_items: %Schema{type: :integer},
-                  omitted_messages: %Schema{type: :integer}
+                  content_truncated: %Schema{type: :boolean}
                 },
                 additionalProperties: false
               }
@@ -3979,7 +4357,17 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           completed_at: %Schema{type: :string, nullable: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string},
-          turns: %Schema{type: :array, items: BackgroundAgentJobTurnItem}
+          turns: %Schema{
+            type: :array,
+            items: BackgroundAgentJobTurnItem,
+            description:
+              "One bounded page of runtime Turns, newest Turns first, in chronological order."
+          },
+          turns_next_cursor: %Schema{
+            type: :string,
+            nullable: true,
+            description: "Opaque cursor for the page of older Turns; null on the last page."
+          }
         },
         required: [
           :id,

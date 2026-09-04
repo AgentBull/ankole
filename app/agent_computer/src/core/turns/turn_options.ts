@@ -24,7 +24,12 @@ export type TurnHandlerResult =
       finalResponseID: string
       outcome: 'loop_finished' | 'iteration_exhausted'
     }
-  | { kind: 'noop_completed'; reason: string }
+  | {
+      kind: 'noop_completed'
+      reason: string
+      /** The adopted Response when a model loop ran; absent when the turn made no gateway Response. */
+      finalResponseID?: string
+    }
 
 /**
  * Capabilities every worker turn receives. `rpc` is the sole channel to

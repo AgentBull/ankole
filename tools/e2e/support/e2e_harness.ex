@@ -12,7 +12,6 @@ defmodule Ankole.E2E.Harness do
   import ExUnit.Assertions
   import ExUnit.Callbacks
 
-  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.OpaqueContent
   alias Ankole.AIGateway.Schemas.Message
@@ -347,7 +346,6 @@ defmodule Ankole.E2E.Harness do
       "agent-lark-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
 
     provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
-    assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
     %{principal: agent} =
       create_e2e_agent!(%{
@@ -437,7 +435,6 @@ defmodule Ankole.E2E.Harness do
       "agent-lark-real-llm-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
 
     provider_id = "openrouter-lark-real-#{Ecto.UUID.generate()}"
-    assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
     %{principal: agent} =
       create_e2e_agent!(%{

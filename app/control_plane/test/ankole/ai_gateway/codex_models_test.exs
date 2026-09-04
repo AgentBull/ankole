@@ -5,7 +5,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
 
   # Field set from the codex pin's own minimal deserialize test
   # (`model_info_defaults_availability_nux_to_none_when_omitted`,
-  # rust-v0.150.1 codex-rs/protocol/src/openai_models.rs). Every field
+  # rust-v0.153.2 codex-rs/protocol/src/openai_models.rs). Every field
   # listed there is required by serde on the pinned version.
   @required_card_fields ~w(
     slug display_name description supported_reasoning_levels shell_type
@@ -15,7 +15,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
   )
 
   test "codex_manifest_request? keys on the client_version query parameter" do
-    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.150.1"})
+    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.153.2"})
     refute CodexModels.codex_manifest_request?(%{})
     refute CodexModels.codex_manifest_request?(%{"q" => "gpt"})
   end

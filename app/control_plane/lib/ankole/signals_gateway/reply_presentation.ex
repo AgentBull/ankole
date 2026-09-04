@@ -20,6 +20,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @activity_phases ~w(pending running completed failed)
   @action_types ~w(button form)
   @interaction_statuses ~w(pending answered superseded)
+  @action_protocol "ankole.interactive_output.action.v1"
   @result_kinds ~w(table chart image artifact metrics)
   @trigger_context_kinds ~w(background_agent_job_failure scheduled_task)
 
@@ -78,6 +79,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("results", normalize_results(value(presentation, "results")))
     |> Map.put("receipts", normalize_receipts(value(presentation, "receipts")))
     |> Map.put("actions", normalize_actions(value(presentation, "actions")))
+    |> normalize_prompt(value(presentation, "prompt"))
     |> Ankole.Attrs.maybe_put(
       "trigger_context",
       normalize_trigger_context(value(presentation, "trigger_context"))
@@ -138,6 +140,122 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   def apply_event(presentation, _kind, _payload), do: normalize(presentation)
 
+  @doc "Returns the wire protocol identifier for managed reply actions."
+  @spec action_protocol() :: String.t()
+  def action_protocol, do: @action_protocol
+
+  @doc """
+  Builds one clarification request from the portable interaction output.
+
+  This function owns the presentation action locator, choice, and free-text
+  shapes. Provider renderers only encode the resulting actions.
+  """
+  @spec interaction_request(t(), String.t(), map()) :: t()
+  def interaction_request(presentation, source_actor_event_id, output)
+      when is_map(presentation) and is_binary(source_actor_event_id) and is_map(output) do
+    prompt = value(output, "body") || value(output, "text")
+
+    controls =
+      output
+      |> value("choices")
+      |> list()
+      |> Enum.map(&choice_control(&1, source_actor_event_id, output))
+      |> Enum.reject(&is_nil/1)
+      |> append_free_input_control(source_actor_event_id, output)
+
+    apply_interaction_request(presentation, %{
+      "revision" => presentation |> normalize() |> Map.fetch!("revision") |> Kernel.+(1),
+      "prompt" => prompt,
+      "controls" => controls
+    })
+  end
+
+  def interaction_request(presentation, _source_actor_event_id, _output),
+    do: normalize(presentation)
+
+  @doc "Builds the exact provider callback value for one presentation action."
+  @spec callback_value(String.t(), map()) :: {:ok, map()} | {:error, :invalid_callback_action}
+  def callback_value(source_actor_event_id, %{"type" => "button"} = action)
+      when is_binary(source_actor_event_id) do
+    with interaction_id when is_binary(interaction_id) <- action["interaction_id"],
+         control_id when is_binary(control_id) <- action["control_id"],
+         selected_option_id when is_binary(selected_option_id) <- action["selected_option_id"],
+         option_value when is_binary(option_value) <- action["option_value"],
+         revision when is_integer(revision) and revision >= 0 <- action["revision"] do
+      {:ok,
+       %{
+         "version" => @action_protocol,
+         "answerKind" => "choice",
+         "interactionId" => interaction_id,
+         "interactionVersion" => revision,
+         "controlId" => control_id,
+         "selectedOptionId" => selected_option_id,
+         "optionValue" => option_value,
+         "sourceActorEventId" => source_actor_event_id
+       }}
+    else
+      _invalid -> {:error, :invalid_callback_action}
+    end
+  end
+
+  def callback_value(
+        source_actor_event_id,
+        %{
+          "type" => "form",
+          "fields" => [%{"type" => "input", "id" => input_name}]
+        } = action
+      )
+      when is_binary(source_actor_event_id) and is_binary(input_name) do
+    with interaction_id when is_binary(interaction_id) <- action["interaction_id"],
+         control_id when is_binary(control_id) <- action["control_id"],
+         revision when is_integer(revision) and revision >= 0 <- action["revision"] do
+      {:ok,
+       %{
+         "version" => @action_protocol,
+         "answerKind" => "free_text",
+         "interactionId" => interaction_id,
+         "interactionVersion" => revision,
+         "controlId" => control_id,
+         "inputName" => input_name,
+         "sourceActorEventId" => source_actor_event_id
+       }}
+    else
+      _invalid -> {:error, :invalid_callback_action}
+    end
+  end
+
+  def callback_value(_source_actor_event_id, _action),
+    do: {:error, :invalid_callback_action}
+
+  @doc "Returns whether a normalized callback still names an enabled action."
+  @spec matches?(t(), map()) :: boolean()
+  def matches?(presentation, %{kind: "choice"} = callback) do
+    presentation
+    |> normalize()
+    |> Map.fetch!("actions")
+    |> Enum.any?(fn action ->
+      action["type"] == "button" and
+        matching_locator?(action, callback) and
+        action["selected_option_id"] == callback.selected_option_id and
+        action["option_value"] == callback.option_value
+    end)
+  end
+
+  def matches?(presentation, %{kind: "free_text"} = callback) do
+    presentation
+    |> normalize()
+    |> Map.fetch!("actions")
+    |> Enum.any?(fn action ->
+      action["type"] == "form" and
+        matching_locator?(action, callback) and
+        Enum.any?(action["fields"] || [], fn field ->
+          field["type"] == "input" and field["id"] == callback.input_name
+        end)
+    end)
+  end
+
+  def matches?(_presentation, _callback), do: false
+
   @doc """
   Projects the internal event that triggered a visible Agent turn into bounded
   renderer context. The projection is deterministic and never model-authored.
@@ -185,10 +303,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @doc """
   Builds exact terminal truth from a live or checkpointed presentation.
   """
-  @spec terminal(t(), String.t() | atom(), String.t() | nil) :: t()
-  def terminal(presentation, state, answer) do
+  @spec terminal(t(), String.t() | atom(), String.t() | nil, keyword()) :: t()
+  def terminal(presentation, state, answer, opts \\ []) do
     state = normalize_state(state)
     state = if state in @terminal_states, do: state, else: "completed"
+
+    presentation = preserve_terminal_interaction(presentation, state, opts)
 
     presentation
     |> normalize()
@@ -437,6 +557,57 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.delete("interaction_answer")
       |> remove_transient_fields_unless_working()
       |> put_revision(payload)
+    end
+  end
+
+  defp choice_control(choice, source_actor_event_id, output) when is_map(choice) do
+    option_id = value(choice, "id") || value(choice, "option_id")
+    label = value(choice, "label") || value(choice, "text") || option_id
+
+    %{
+      "id" => option_id,
+      "type" => "button",
+      "label" => label,
+      "description" => value(choice, "description"),
+      "source_actor_event_id" => source_actor_event_id,
+      "interaction_id" => value(output, "interaction_id"),
+      "control_id" => value(output, "control_id"),
+      "selected_option_id" => option_id,
+      "option_value" => value(choice, "value") || option_id,
+      "revision" => value(output, "version")
+    }
+  end
+
+  defp choice_control(_choice, _source_actor_event_id, _output), do: nil
+
+  defp append_free_input_control(controls, source_actor_event_id, output) do
+    if value(output, "free_input") == true do
+      controls ++
+        [
+          %{
+            "id" => "clarify-free-input",
+            "type" => "form",
+            "label" => "Reply",
+            "style" => "primary",
+            "source_actor_event_id" => source_actor_event_id,
+            "interaction_id" => value(output, "interaction_id"),
+            "control_id" => "clarify-free-input",
+            "revision" => value(output, "version"),
+            "fields" => [
+              %{
+                "id" => "clarify-answer",
+                "type" => "input",
+                "label" => "Your answer",
+                "placeholder" => value(output, "free_input_hint"),
+                "required" => true,
+                "multiline" => true,
+                "max_length" => @max_interaction_answer_chars
+              }
+            ]
+          }
+        ]
+    else
+      controls
     end
   end
 
@@ -799,6 +970,16 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Enum.take(@max_actions)
   end
 
+  defp normalize_prompt(%{"state" => "awaiting_input"} = presentation, prompt) do
+    Ankole.Attrs.maybe_put(
+      presentation,
+      "prompt",
+      bounded_optional_text(prompt, 2_000)
+    )
+  end
+
+  defp normalize_prompt(presentation, _prompt), do: Map.delete(presentation, "prompt")
+
   defp normalize_form_fields(fields) do
     fields
     |> list()
@@ -963,6 +1144,14 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp maybe_put_selected(action, _status, _option_id), do: Map.delete(action, "selected")
 
+  defp matching_locator?(action, callback) do
+    action["interaction_id"] == Map.get(callback, :interaction_id) and
+      action["revision"] == Map.get(callback, :interaction_version) and
+      action["control_id"] == Map.get(callback, :control_id) and
+      action["source_actor_event_id"] == Map.get(callback, :source_actor_event_id) and
+      action["disabled"] != true
+  end
+
   defp bounded_positive_integer(value, max) when is_integer(value) and value > 0,
     do: min(value, max)
 
@@ -970,6 +1159,24 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp optional_boolean(value) when is_boolean(value), do: value
   defp optional_boolean(_value), do: nil
+
+  defp preserve_terminal_interaction(presentation, "awaiting_input", opts) do
+    source = Keyword.get(opts, :preserve_interaction_from, presentation)
+
+    interaction =
+      source
+      |> string_key_map()
+      |> Map.put("state", "awaiting_input")
+      |> normalize()
+      |> Map.take(["prompt", "actions", "interaction_status", "interaction_answer"])
+
+    presentation
+    |> string_key_map()
+    |> Map.merge(interaction)
+    |> Map.put("state", "awaiting_input")
+  end
+
+  defp preserve_terminal_interaction(presentation, _state, _opts), do: presentation
 
   # A `continued` fragment preserves the same work for its successor. The
   # interaction owner closes `awaiting_input`; neither state terminalizes activities here.

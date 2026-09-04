@@ -10,8 +10,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @mention_regex ~r/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/
   @recent_attachment_window_seconds 120
   @max_backfilled_attachments 3
-  @attachment_id_min 10_000
-  @attachment_id_max 9_007_199_254_740_991
 
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) do
@@ -177,7 +175,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
                maybe_materialize_attachments(input.attachments, event.content || %{}, consumer) do
           input
           |> Map.put(:attachments, attachments)
-          |> put_attachment_materialization(materialization_result(attachments), observed_at)
+          |> put_materialization_result(consumer, observed_at)
           |> emit_normalized_message(consumer)
         end
 
@@ -190,7 +188,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp emit_pending_attachments(input, consumer, observed_at) do
-    if attachment_materialization_required?(input.attachments, consumer) do
+    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments) do
       input
       |> put_attachment_materialization("pending", observed_at)
       |> emit_normalized_message(consumer, false)
@@ -475,63 +473,28 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp maybe_materialize_attachments(attachments, message, consumer) do
-    if Enum.all?(attachments, &materialized_attachment?(&1, consumer)),
-      do: {:ok, attachments},
-      else: materialize_attachments(attachments, message, consumer)
+    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, attachments),
+      do: materialize_attachments(attachments, message, consumer),
+      else: {:ok, attachments}
   end
 
-  defp attachment_materialization_required?([_ | _] = attachments, consumer),
-    do: not Enum.all?(attachments, &materialized_attachment?(&1, consumer))
+  defp put_materialization_result(%{attachments: []} = input, _consumer, _observed_at), do: input
 
-  defp attachment_materialization_required?(_attachments, _consumer), do: false
+  defp put_materialization_result(input, consumer, observed_at) do
+    state =
+      if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments),
+        do: "failed",
+        else: "complete"
 
-  defp materialization_result([_ | _] = attachments) do
-    if Enum.all?(attachments, &materialized_attachment?/1), do: "complete", else: "failed"
+    put_attachment_materialization(input, state, observed_at)
   end
 
-  defp materialization_result(_attachments), do: nil
-
-  defp put_attachment_materialization(input, nil, _observed_at), do: input
-
-  defp put_attachment_materialization(input, state, %DateTime{} = observed_at) do
-    metadata =
-      Map.put(input.metadata, "attachment_materialization", %{
-        "state" => state,
-        "observed_at" => DateTime.to_iso8601(observed_at)
-      })
-
-    Map.put(input, :metadata, metadata)
+  defp put_attachment_materialization(input, state, observed_at) do
+    %{
+      input
+      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
+    }
   end
-
-  defp materialized_attachment?(attachment) when is_map(attachment) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         path when is_binary(path) <- attachment["agent_computer_path"] do
-      String.contains?(path, "/user-files/inbox/#{attachment_id}/")
-    else
-      _missing_or_invalid -> false
-    end
-  end
-
-  defp materialized_attachment?(_attachment), do: false
-
-  defp materialized_attachment?(attachment, %{context: %{agent_uid: agent_uid}})
-       when is_map(attachment) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         path when is_binary(path) <- attachment["agent_computer_path"] do
-      String.starts_with?(
-        path,
-        Path.join([
-          Ankole.AgentHomePaths.user_files(agent_uid),
-          "inbox",
-          Integer.to_string(attachment_id)
-        ]) <> "/"
-      )
-    else
-      _missing_or_invalid -> false
-    end
-  end
-
-  defp materialized_attachment?(_attachment, _consumer), do: false
 
   defp materialize_attachments(attachments, _message, %{
          config: config,
@@ -542,9 +505,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp materialize_attachment(attachment, client, agent_uid) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
-         relative <- materialized_path(attachment_id, attachment, download.filename),
+    with {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
+         relative <- materialized_path(attachment, download.filename),
          lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
          {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
@@ -576,20 +538,13 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       attachment
   end
 
-  defp materialized_path(attachment_id, attachment, downloaded_name) do
+  defp materialized_path(attachment, downloaded_name) do
     Path.join([
       "inbox",
-      Integer.to_string(attachment_id),
+      Integer.to_string(attachment["attachment_id"]),
       WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
     ])
   end
-
-  defp valid_attachment_id(%{"attachment_id" => attachment_id})
-       when is_integer(attachment_id) and attachment_id >= @attachment_id_min and
-              attachment_id <= @attachment_id_max,
-       do: attachment_id
-
-  defp valid_attachment_id(_attachment), do: nil
 
   defp maybe_backfill_attachments(
          [],

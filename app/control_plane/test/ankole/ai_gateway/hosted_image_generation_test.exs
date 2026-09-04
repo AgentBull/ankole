@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
 
   @png_base64 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -261,8 +262,8 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                model: "openai/gpt-image-2"
              })
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, nil} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "Run one tool.",
                "metadata" => %{"actor_event_id" => "hosted-websocket-event"},
@@ -1129,7 +1130,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              Conversations.ensure_conversation(agent.uid, "stateful-image-edit")
 
     assert {:ok, message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.uid,
                conversation_id: conversation.id,
                request_items: [%{"role" => "user", "content" => "draw a lake"}]
@@ -1152,8 +1153,8 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert {:ok, _message} = StatefulResponses.commit_complete(message, [stored_image])
 
-    assert {:ok, prepared} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, prepared, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "change the sky to night",
                "store" => true,

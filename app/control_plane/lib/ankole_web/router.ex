@@ -20,7 +20,7 @@ defmodule AnkoleWeb.Router do
   #                  stateless, because only the same-origin SPAs call it.
   #   :openapi     — serves the spec document itself.
   #   :console_api — the stateless bearer-token REST API for the console.
-  #   :ai_gateway_api — agent/admin-scoped runtime AI API.
+  #   :ai_gateway_api — Agent, Console, and authorized OIDC Human runtime AI API.
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -45,6 +45,15 @@ defmodule AnkoleWeb.Router do
     plug :put_secure_browser_headers
   end
 
+  pipeline :oauth_protocol do
+    # The public token endpoint must accept Client requests without CSRF, while
+    # its Console grant performs its own session, Origin, and CSRF checks after
+    # the request shape has selected that branch.
+    plug :fetch_session
+    plug :put_secure_browser_headers
+    plug AnkoleWeb.Plugs.OIDCCORS
+  end
+
   pipeline :console_api do
     # No session/CSRF here. Each request must present its own bearer token, which
     # RequireConsoleAccessToken verifies and resolves to an active human admin.
@@ -54,10 +63,11 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :ai_gateway_api do
-    # Runtime AI calls are stateless HTTP requests authenticated as either an
-    # agent-scoped AIGateway token or an active human admin console token.
+    # Runtime AI calls are stateless HTTP requests authenticated as an Agent,
+    # an active Console administrator, or an authorized OIDC Human.
     plug :accepts, ["json", "event-stream"]
     plug PutAPISpec, module: AnkoleWeb.APISpec
+    plug AnkoleWeb.Plugs.OIDCCORS
     plug AnkoleWeb.Plugs.RequireAIGatewayAccessToken
   end
 
@@ -89,10 +99,23 @@ defmodule AnkoleWeb.Router do
 
     get "/session", AuthController, :session
     delete "/session", AuthController, :delete_session
-    post "/oauth/token", AuthController, :oauth_token
     get "/identity-providers", AuthController, :identity_providers
     post "/sessions/local-password", AuthController, :local_password_login
     post "/sessions/local-password/change", AuthController, :local_password_change
+  end
+
+  scope "/", AnkoleWeb do
+    pipe_through :oauth_protocol
+
+    get "/.well-known/openid-configuration", OIDCController, :discovery
+    get "/.well-known/jwks.json", OIDCController, :jwks
+    get "/oauth/authorize", OIDCController, :authorize
+    get "/oauth/authorize/resume", OIDCController, :resume_authorize
+    post "/oauth/token", OIDCController, :token
+    get "/oauth/userinfo", OIDCController, :userinfo
+    post "/oauth/userinfo", OIDCController, :userinfo
+    options "/oauth/token", OIDCController, :options
+    options "/oauth/userinfo", OIDCController, :options
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -136,6 +159,13 @@ defmodule AnkoleWeb.Router do
     post "/principals/:uid/local-password-resets",
          PrincipalController,
          :create_local_password_reset
+
+    get "/oidc-clients", OIDCClientController, :index
+    post "/oidc-clients", OIDCClientController, :create
+    get "/oidc-clients/:id", OIDCClientController, :show
+    patch "/oidc-clients/:id", OIDCClientController, :update
+    delete "/oidc-clients/:id", OIDCClientController, :delete
+    post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
 
     get "/principal-groups", AuthZGroupController, :index
     post "/principal-groups", AuthZGroupController, :create
@@ -412,6 +442,7 @@ defmodule AnkoleWeb.Router do
   scope "/api/v1/ai-gateway", AnkoleWeb do
     pipe_through :ai_gateway_api
 
+    options "/*path", AIGatewayController, :options
     get "/models", AIGatewayController, :models
     get "/files", AIGatewayFilesController, :index
     post "/files", AIGatewayFilesController, :create

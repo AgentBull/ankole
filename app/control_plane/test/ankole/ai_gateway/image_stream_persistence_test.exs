@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Artifacts.Image
@@ -603,7 +604,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
              Conversations.ensure_conversation(agent.principal.uid, "image-ws")
 
     assert {:ok, message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.principal.uid,
                conversation_id: conversation.id,
                request_items: []
@@ -707,7 +708,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     }
 
     assert {:ok, message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.principal.uid,
                conversation_id: conversation.id,
                request_items: [prior_item]

@@ -14,8 +14,7 @@ export function turnFailureDetails(error: unknown): JSONObject {
     runtime: 'bun',
     llm_error_kind: classification.kind,
     retryable: workerError.retryable ?? classification.retryable,
-    should_compress: classification.shouldCompress,
-    should_fallback_provider: classification.shouldFallbackProvider
+    should_compress: classification.shouldCompress
   }
 
   if (workerError.code) details.error_code = workerError.code
@@ -37,7 +36,6 @@ export function turnFailureLogFields(error: unknown): JSONObject {
     llm_error_kind: classification.kind,
     retryable: workerError.retryable ?? classification.retryable,
     should_compress: classification.shouldCompress,
-    should_fallback_provider: classification.shouldFallbackProvider,
     ...(workerError.code ? { error_code: workerError.code } : {}),
     ...(typeof gateway?.status === 'number' ? { aigateway_status: gateway.status } : {})
   }

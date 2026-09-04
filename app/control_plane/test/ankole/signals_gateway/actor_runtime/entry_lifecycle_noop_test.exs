@@ -118,7 +118,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
 
     assert {:ok, stale_child} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.uid,
                previous_response_id: "resp_#{anchor.id}",
                metadata: %{"request_metadata" => %{"actor_event_id" => input.id}},
@@ -648,7 +648,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       |> maybe_put(:conversation_id, Keyword.get(opts, :conversation_id))
       |> maybe_put(:previous_response_id, Keyword.get(opts, :previous_response_id))
 
-    assert {:ok, run} = StatefulResponses.start_response_run(attrs)
+    assert {:ok, run} = start_response_run(attrs)
 
     assert {:ok, complete} =
              StatefulResponses.commit_complete(run, Keyword.fetch!(opts, :terminal_items))

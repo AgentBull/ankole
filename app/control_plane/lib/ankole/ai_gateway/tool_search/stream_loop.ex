@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   amplify provider spend independently.
   """
 
+  alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolSearch
@@ -89,7 +90,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   def disable_budgeted_effects(plan, %{} = request)
       when is_nil(plan) or is_struct(plan, ToolSearch.Plan) do
     names =
-      [plan && plan.tool_name, plan && PTC.active_tool_name(plan.ptc)]
+      ([plan && plan.tool_name, plan && PTC.active_tool_name(plan.ptc)] ++
+         Brain.reserved_names(plan && plan.brain))
       |> Enum.filter(&is_binary/1)
       |> MapSet.new()
 
@@ -165,11 +167,16 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
           | {:finalize, [map()], [map()], t()}
           | {:error, term(), t()}
   def complete_local_effect(%__MODULE__{} = loop, %{programs: programs} = context, outcomes) do
-    with {:ok, program_items, downstream, paused?} <-
-           PTC.settle(loop.plan.ptc, programs, outcomes) do
-      extra_items = Map.get(context, :search_outputs, []) ++ program_items
+    brain_jobs = Map.get(context, :brain_jobs, [])
+    {program_outcomes, brain_outcomes} = Enum.split(outcomes, length(programs))
 
-      case remember_provider_items(loop, downstream) do
+    with {:ok, program_items, downstream, paused?} <-
+           PTC.settle(loop.plan.ptc, programs, program_outcomes),
+         {:ok, brain_items, brain_downstream} <-
+           Brain.settle(loop.plan.brain, brain_jobs, brain_outcomes) do
+      extra_items = Map.get(context, :search_outputs, []) ++ program_items ++ brain_items
+
+      case remember_provider_items(loop, downstream ++ brain_downstream) do
         {:ok, loop} ->
           complete_remembered_local_effect(loop, context, programs, extra_items, paused?)
 
@@ -272,7 +279,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
         else: []
 
     program_calls = Enum.filter(output, &PTC.call_item?(loop.plan.ptc, &1))
-    internal_calls? = search_calls != [] or program_calls != []
+    brain_calls = Enum.filter(output, &Brain.call_item?(loop.plan.brain, &1))
+    internal_calls? = search_calls != [] or program_calls != [] or brain_calls != []
 
     cond do
       event_type != "response.completed" or not internal_calls? ->
@@ -291,6 +299,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
         # this terminal. One program therefore cannot gain capabilities based
         # on provider item ordering.
         with {:ok, programs} <- PTC.build_jobs(loop.plan.ptc, program_calls),
+             {:ok, brain_jobs} <- Brain.build_jobs(loop.plan.brain, brain_calls),
              {:ok, parsed_search_calls} <- validate_search_calls(loop.plan, search_calls),
              {:ok, loop, executed_searches} <-
                execute_search_calls(loop, parsed_search_calls) do
@@ -298,17 +307,18 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
           pending_client? = Enum.any?(output, &pending_client_call?(loop, &1))
 
           cond do
-            programs != [] ->
+            programs != [] or brain_jobs != [] ->
               case provider_history_size(loop, PTC.output_reservations(programs)) do
                 {:ok, _count, _bytes, _item_bytes} ->
                   context = %{
                     output: output,
                     search_outputs: search_outputs,
                     programs: programs,
+                    brain_jobs: brain_jobs,
                     pending_client?: pending_client?
                   }
 
-                  {:local, programs, context, loop}
+                  {:local, programs ++ brain_jobs, context, loop}
 
                 {:error, reason} ->
                   {:finalize, rewrite_items(loop, output, programs), search_outputs,
@@ -335,6 +345,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     ResponseItems.client_call_item?(item) and
       cond do
         PTC.call_item?(loop.plan.ptc, item) -> false
+        Brain.call_item?(loop.plan.brain, item) -> false
         not ToolSearch.search_call_item?(loop.plan, item) -> true
         true -> loop.plan.execution == :client
       end
@@ -446,7 +457,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
   defp rewritable_call_item?(loop, item) do
     ToolSearch.search_call_item?(loop.plan, item) or
-      PTC.call_item?(loop.plan.ptc, item)
+      PTC.call_item?(loop.plan.ptc, item) or
+      Brain.call_item?(loop.plan.brain, item)
   end
 
   defp rewrite_call_item(loop, item) do
@@ -456,6 +468,9 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
       PTC.call_item?(loop.plan.ptc, item) ->
         PTC.public_item(loop.plan.ptc, item)
+
+      Brain.call_item?(loop.plan.brain, item) ->
+        Brain.public_call(loop.plan.brain, item)
 
       true ->
         item

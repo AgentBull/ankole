@@ -115,13 +115,15 @@ describe('web tools', () => {
       aiGateway: client,
       workspaceRoot,
       renderedFallback: {
-        fetchURL: async ({ url }) => ({
-          url,
-          title: 'Local Example',
-          text: 'Rendered fallback text',
-          backend: 'chromium',
-          adapter: 'chromium',
-          session: 'web-fetch-conversation-1'
+        fetchBatch: async urls => ({
+          results: urls.map(url => ({
+            url,
+            title: 'Local Example',
+            text: 'Rendered fallback text',
+            backend: 'chromium',
+            adapter: 'chromium',
+            session: 'web-fetch-conversation-1'
+          }))
         })
       }
     })
@@ -246,7 +248,7 @@ describe('web tools', () => {
       aiGateway: client,
       workspaceRoot,
       renderedFallback: {
-        fetchURL: async ({ url }) => ({ url, text: 'Recovered through rendered fallback' })
+        fetchBatch: async urls => ({ results: urls.map(url => ({ url, text: 'Recovered through rendered fallback' })) })
       }
     })
     const webFetch = tools.find(tool => tool.name === 'web_fetch')
@@ -274,9 +276,9 @@ describe('web tools', () => {
       aiGateway: client,
       workspaceRoot,
       renderedFallback: {
-        fetchURL: async ({ url }) => {
-          fetched.push(url)
-          return { url, text: 'Fetched public page' }
+        fetchBatch: async urls => {
+          fetched.push(...urls)
+          return { results: urls.map(url => ({ url, text: 'Fetched public page' })) }
         }
       }
     })
@@ -312,9 +314,9 @@ describe('web tools', () => {
       workspaceRoot,
       renderedFallback: {
         ssrfFilter: false,
-        fetchURL: async ({ url }) => {
-          fetched.push(url)
-          return { url, text: 'Intranet page text' }
+        fetchBatch: async urls => {
+          fetched.push(...urls)
+          return { results: urls.map(url => ({ url, text: 'Intranet page text' })) }
         }
       }
     })
@@ -348,7 +350,7 @@ describe('web tools', () => {
       aiGateway: client,
       workspaceRoot,
       renderedFallback: {
-        fetchURL: async () => {
+        fetchBatch: async () => {
           throw new Error('browser daemon connection failed: connect ENOENT /run/ankole-browser/socket/browser.sock')
         }
       }
@@ -375,6 +377,48 @@ describe('web tools', () => {
       ]
     })
   })
+  it('keeps the request order and the successful pages when one rendered result carries an error', async () => {
+    const batches: string[][] = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () => jsonResponse({ error: { code: 'model_profile_not_configured' } }, 422)
+    }
+
+    const tools = await createWebTools({
+      aiGateway: client,
+      workspaceRoot,
+      renderedFallback: {
+        fetchBatch: async urls => {
+          batches.push(urls)
+          return {
+            results: [
+              { url: urls[0], title: 'Page A', text: 'Text of page A' },
+              { url: urls[1], error: 'navigation timeout', error_code: 'timeout' }
+            ]
+          }
+        }
+      }
+    })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const result = await webFetch!.execute('call-fetch', {
+      urls: ['https://a.example/', 'https://192.168.1.20/console', 'https://b.example/']
+    })
+
+    expect(batches).toEqual([['https://a.example/', 'https://b.example/']])
+    expect(textOf(result)).toContain('Text of page A')
+    expect(textOf(result)).toContain('Error: navigation timeout')
+    expect(result.details).toMatchObject({
+      success: false,
+      source: 'rendered_fallback',
+      results: [
+        { url: 'https://a.example/', title: 'Page A', text_chars: 'Text of page A'.length, truncated: false },
+        { url: 'https://192.168.1.20/console', error: 'blocked non-public URL by the security.ssrf_filter policy' },
+        { url: 'https://b.example/', error: 'navigation timeout' }
+      ]
+    })
+  })
+
   it('bounds one long page, stores its full text, and points at the omitted middle', async () => {
     const page = Array.from({ length: 6_000 }, (_, line) => `line ${line} ${'p'.repeat(20)}`).join('\n')
     expect(page.length).toBeGreaterThan(WEB_FETCH_BUDGET_CHARS * 2)

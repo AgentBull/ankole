@@ -36,6 +36,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
     "interrupted" => ["interrupted"]
   }
 
+  @type t :: %__MODULE__{}
+
   @doc "Returns the durable turn kinds."
   @spec kinds() :: [String.t()]
   def kinds, do: @kinds
@@ -53,6 +55,32 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   def transition_allowed?(current, next) when is_binary(current) and is_binary(next) do
     next in Map.get(@status_transitions, current, [])
   end
+
+  @doc "Whether the turn ran on the given lead thread."
+  @spec lead?(t(), String.t() | nil) :: boolean()
+  def lead?(%__MODULE__{} = turn, lead_thread_id),
+    do: is_binary(lead_thread_id) and turn.runtime_thread_id == lead_thread_id
+
+  @doc "The lead thread of one attempt is the thread of its first turn."
+  @spec attempt_lead_thread_id([t()]) :: String.t() | nil
+  def attempt_lead_thread_id(turns) do
+    case turns do
+      [first | _rest] -> first.runtime_thread_id
+      [] -> nil
+    end
+  end
+
+  @doc "Chronological sort key: start time, then id."
+  @spec start_key(t()) :: {integer(), Ecto.UUID.t()}
+  def start_key(%__MODULE__{} = turn), do: {datetime_key(turn.started_at), turn.id}
+
+  @doc "Recency sort key: last update, then id."
+  @spec update_key(t()) :: {integer(), Ecto.UUID.t()}
+  def update_key(%__MODULE__{} = turn),
+    do: {datetime_key(turn.updated_at || turn.started_at), turn.id}
+
+  defp datetime_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
+  defp datetime_key(_datetime), do: 0
 
   schema "background_agent_job_turns" do
     belongs_to(:job, Job, type: :id)

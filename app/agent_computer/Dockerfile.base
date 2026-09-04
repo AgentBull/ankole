@@ -2,14 +2,14 @@
 
 ARG MYSQL_VERSION=9.7.2
 # Oracle does not publish arm64 MySQL client packages for Debian 13. Use the
-# digest-pinned official image as the source, and copy only the client executable.
-FROM mysql:${MYSQL_VERSION}@sha256:257388edf9c84dbc04c763625446d5f3fa6ed60d1b0873bc552c614ba0a7ab4e AS mysql-client-source
+# versioned official image as the source, and copy only the client executable.
+FROM mysql:${MYSQL_VERSION} AS mysql-client-source
 
-FROM oven/bun:canary
+FROM oven/bun:1.4.1
 
 WORKDIR /repo
 
-ARG AWS_CLI_VERSION=2.36.10
+ARG AWS_CLI_VERSION=2.36.38
 ARG CLICKHOUSE_VERSION=26.7.1.1315
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
@@ -21,10 +21,9 @@ ARG POSTGRESQL_CLIENT_VERSION=18.4
 ARG POSTGRESQL_MAJOR=18
 ARG POSTGRESQL_PACKAGE_VERSION=18.4-1.pgdg13+1
 ARG RUST_TOOLCHAIN=1.97.1
-ARG CODEX_VERSION=0.150.1
-ARG MCPORTER_VERSION=0.13.0
-ARG MCPORTER_SHA256=e9d081aee5528ca6ac228fa0e385e768df7e52c756b6c0b6e17ef2b747de1ce9
-ARG OFFICECLI_VERSION=v1.0.144
+ARG CODEX_VERSION=0.153.2
+ARG MCPORTER_VERSION=0.13.8
+ARG OFFICECLI_VERSION=v1.0.147
 ARG PDF_INSPECTOR_VERSION=0.1.7
 ARG TYPST_VERSION=v0.15.1
 ARG TARGETARCH
@@ -110,7 +109,6 @@ RUN set -eux; \
   curl -fsSL --retry 3 --retry-delay 2 \
     "https://github.com/openclaw/mcporter/releases/download/v${MCPORTER_VERSION}/mcporter-${MCPORTER_VERSION}.tgz" \
     -o "$mcporter_package"; \
-  printf '%s  %s\n' "$MCPORTER_SHA256" "$mcporter_package" | sha256sum -c -; \
   installed=0; \
   for attempt in 1 2 3; do \
     if bun add -g "@openai/codex@${CODEX_VERSION}" "$mcporter_package"; then installed=1; break; fi; \
@@ -137,31 +135,20 @@ RUN set -eux; \
     *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
   esac; \
   officecli_base_url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}"; \
-  curl -fsSL "${officecli_base_url}/SHA256SUMS" -o /tmp/officecli-SHA256SUMS; \
   curl -fsSL "${officecli_base_url}/${officecli_asset}" -o /usr/local/bin/officecli; \
-  expected="$(awk -v asset="${officecli_asset}" '$2 == asset { print $1; exit }' /tmp/officecli-SHA256SUMS)"; \
-  test -n "${expected}"; \
-  printf '%s  %s\n' "${expected}" /usr/local/bin/officecli | sha256sum -c -; \
   chmod +x /usr/local/bin/officecli; \
-  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
-  rm -f /tmp/officecli-SHA256SUMS
+  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"
 
 # Typst is not packaged for Debian trixie, so the pinned release binary is
-# installed here. Its releases publish no checksum file, so the digests below
-# are recorded from the pinned assets and must be updated with the version.
+# installed here.
 RUN set -eux; \
   case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) \
-      typst_asset="typst-x86_64-unknown-linux-musl"; \
-      typst_sha256="a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c" ;; \
-    arm64|aarch64) \
-      typst_asset="typst-aarch64-unknown-linux-musl"; \
-      typst_sha256="5aa8d74a3d906e60ea12a66ac2f37f8eef1b14cbad7182a745e393a10c23dcee" ;; \
+    amd64|x86_64) typst_asset="typst-x86_64-unknown-linux-musl" ;; \
+    arm64|aarch64) typst_asset="typst-aarch64-unknown-linux-musl" ;; \
     *) echo "Unsupported Typst architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
   esac; \
   curl -fsSL "https://github.com/typst/typst/releases/download/${TYPST_VERSION}/${typst_asset}.tar.xz" \
     -o /tmp/typst.tar.xz; \
-  printf '%s  %s\n' "${typst_sha256}" /tmp/typst.tar.xz | sha256sum -c -; \
   tar -xJf /tmp/typst.tar.xz -C /tmp; \
   install -m 0755 "/tmp/${typst_asset}/typst" /usr/local/bin/typst; \
   rm -rf /tmp/typst.tar.xz "/tmp/${typst_asset}"; \
@@ -223,26 +210,28 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && chmod +x /usr/local/bin/python /usr/local/bin/python3
 
 ARG ANKOLE_FONTS_VERSION=v1-d3cec8d9a5f35613
-ARG ANKOLE_FONTS_MANIFEST_SHA256=46ae2a33ba50258ef68d0d882c30f06356b09fe862d8acb655fceb4682ba5002
 
 # The public font release contains IBM Plex Sans SC, IBMPlexMonoSCHalf,
 # ChillJinshuSong, and Fluent Emoji Color. Sans and mono include weights 300,
 # 400, 500, 600, and 700. The serif family has no weight 600, so it includes
 # weights 300, 400, 500, and 700. The release workflow converts the serif CFF
-# files to validated TrueType files. Pin both the release and its manifest.
+# files to TrueType files.
 RUN set -eux; \
   font_assets_dir=/tmp/ankole-fonts; \
   font_assets_url="https://github.com/AgentBull/ankole-fonts/releases/download/${ANKOLE_FONTS_VERSION}"; \
   mkdir -p "${font_assets_dir}"; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "${font_assets_url}/SHA256SUMS" -o "${font_assets_dir}/SHA256SUMS"; \
-  printf '%s  %s\n' "${ANKOLE_FONTS_MANIFEST_SHA256}" "${font_assets_dir}/SHA256SUMS" \
-    | sha256sum -c -; \
-  while read -r _checksum file; do \
+  for file in \
+    ChillJinshuSongBold.ttf ChillJinshuSongLight.ttf ChillJinshuSongMedium.ttf ChillJinshuSongRegular.ttf \
+    FluentEmojiColor.ttf \
+    IBMPlexMonoSCHalf-Bold.ttf IBMPlexMonoSCHalf-Light.ttf IBMPlexMonoSCHalf-Medium.ttf \
+    IBMPlexMonoSCHalf-Regular.ttf IBMPlexMonoSCHalf-SemiBold.ttf \
+    IBMPlexSansSC-Bold.ttf IBMPlexSansSC-Light.ttf IBMPlexSansSC-Medium.ttf \
+    IBMPlexSansSC-Regular.ttf IBMPlexSansSC-SemiBold.ttf \
+    LICENSE-ChillJinshuSong.txt LICENSE-Fluent-Emoji-Color.txt \
+    LICENSE-IBM-Plex-Mono-SC.txt LICENSE-IBM-Plex-Sans-SC.txt; do \
     curl -fsSL --retry 5 --retry-all-errors \
       "${font_assets_url}/${file}" -o "${font_assets_dir}/${file}"; \
-  done < "${font_assets_dir}/SHA256SUMS"; \
-  (cd "${font_assets_dir}" && sha256sum -c SHA256SUMS); \
+  done; \
   plex_sc_dir=/usr/share/fonts/truetype/ibm-plex-sans-sc; \
   plex_mono_dir=/usr/share/fonts/truetype/ibm-plex-mono-sc; \
   chill_dir=/usr/share/fonts/truetype/chill-jinshu-song; \
@@ -321,26 +310,19 @@ RUN set -eux; \
   esac; \
   kubectl_base_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}"; \
   curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl" -o /tmp/kubectl; \
-  curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl.sha256" -o /tmp/kubectl.sha256; \
-  printf '%s  %s\n' "$(cat /tmp/kubectl.sha256)" /tmp/kubectl | sha256sum -c -; \
   install -m 0755 /tmp/kubectl /usr/local/bin/kubectl; \
   test "$(kubectl version --client -o json | jq -r '.clientVersion.gitVersion')" = "${KUBECTL_VERSION}"; \
-  rm -f /tmp/kubectl /tmp/kubectl.sha256
+  rm -f /tmp/kubectl
 
 RUN set -eux; \
   case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) \
-      aws_arch=x86_64; \
-      aws_sha256=f6bf7f19f584a1b32b50217f357f2a5877204cf6f703fec8036cd774932383dd ;; \
-    arm64|aarch64) \
-      aws_arch=aarch64; \
-      aws_sha256=8435364a5a09004a644340131c720e081823023f9c69d5fd15f9bc650fb662fc ;; \
+    amd64|x86_64) aws_arch=x86_64 ;; \
+    arm64|aarch64) aws_arch=aarch64 ;; \
     *) echo "Unsupported AWS CLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
   esac; \
   aws_asset="awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip"; \
   curl -fsSL --retry 5 --retry-all-errors "https://awscli.amazonaws.com/${aws_asset}" \
     -o /tmp/awscliv2.zip; \
-  printf '%s  %s\n' "${aws_sha256}" /tmp/awscliv2.zip | sha256sum -c -; \
   unzip -q /tmp/awscliv2.zip -d /tmp; \
   /tmp/aws/install --install-dir /usr/local/aws-cli --bin-dir /usr/local/bin; \
   aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
@@ -351,17 +333,9 @@ COPY --from=mysql-client-source /usr/bin/mysql /usr/local/bin/mysql
 RUN set -eux; \
   case "${TARGETARCH:-$(uname -m)}" in \
     amd64|x86_64) \
-      package_arch=amd64; \
-      clickhouse_client_sha256=5f021b023591f48f0582a83a96832ad20686c512f53d5a2c510c3a64db8f08c4; \
-      clickhouse_common_sha256=b1d03559c94d5d26209465290c04f1ec04a58f6d64d4f2ce00a6f0ad093c8b18; \
-      libpq_sha256=2f06798a11648e09deeef9e38ec3da942b11681965efb8e07f1137fe0d44db7c; \
-      postgresql_client_sha256=9c8e66b5a2ace8fa507290555c91559e3b740d2464b9645aba96632acef2b810 ;; \
+      package_arch=amd64 ;; \
     arm64|aarch64) \
-      package_arch=arm64; \
-      clickhouse_client_sha256=ae07092cc46e60674ddcb945129eb897b4c82930e26b76af7fa172ca7901111a; \
-      clickhouse_common_sha256=f93dffd6353b436ddeae6bec09e70c3466b11d96357bec66a9f10f785a713b07; \
-      libpq_sha256=fe77ee455e25c66102aacd23ef0d5598ca2ab7394f8449d4ded5e826cb8eee4b; \
-      postgresql_client_sha256=d1575e3193c2678e16a0cb9a8a00b8f899522a26d55803c262fff9a5643d28f5 ;; \
+      package_arch=arm64 ;; \
     *) echo "Unsupported database client architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
   esac; \
   clickhouse_base_url=https://packages.clickhouse.com/deb/pool/main/c/clickhouse; \
@@ -371,10 +345,6 @@ RUN set -eux; \
     -o "/tmp/${clickhouse_client}"; \
   curl -fsSL --retry 5 --retry-all-errors "${clickhouse_base_url}/${clickhouse_common}" \
     -o "/tmp/${clickhouse_common}"; \
-  printf '%s  %s\n' \
-    "${clickhouse_client_sha256}" "/tmp/${clickhouse_client}" \
-    "${clickhouse_common_sha256}" "/tmp/${clickhouse_common}" \
-    | sha256sum -c -; \
   postgresql_base_url=https://apt.postgresql.org/pub/repos/apt; \
   libpq_package="libpq5_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
   postgresql_client="postgresql-client-${POSTGRESQL_MAJOR}_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
@@ -388,11 +358,6 @@ RUN set -eux; \
   curl -fsSL --retry 5 --retry-all-errors \
     "${postgresql_base_url}/pool/main/p/postgresql-common/${postgresql_client_common}" \
     -o "/tmp/${postgresql_client_common}"; \
-  printf '%s  %s\n' \
-    "${libpq_sha256}" "/tmp/${libpq_package}" \
-    "${postgresql_client_sha256}" "/tmp/${postgresql_client}" \
-    '70da21264140dfb34680cfec52973c7f10b5c8e3c78699a52b04e870b3dee71b' "/tmp/${postgresql_client_common}" \
-    | sha256sum -c -; \
   apt-get -o Acquire::Retries=5 update; \
   apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     groff \

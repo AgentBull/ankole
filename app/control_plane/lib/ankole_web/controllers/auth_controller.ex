@@ -2,11 +2,10 @@ defmodule AnkoleWeb.AuthController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  JSON and callback endpoints for normal admin authentication.
+  JSON and callback endpoints for Console and OAuth Human authentication.
 
-  Setup OIDC and admin OIDC share the external provider callback shape, but they
-  are kept apart by separate session state so bootstrap login cannot be replayed
-  as a later admin login.
+  Setup, Console, and OAuth login share the external provider callback shape.
+  Separate session state prevents one flow from being replayed as another.
   """
 
   use AnkoleWeb, :controller
@@ -18,11 +17,7 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.IdentityProviders.Login
   alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.ConsoleTokenRequest
-  alias AnkoleWeb.Schemas.ConsoleAPI.ConsoleTokenResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.OAuthErrorResponse
   alias AnkoleWeb.Session, as: WebSession
 
   tags(["Auth"])
@@ -38,16 +33,6 @@ defmodule AnkoleWeb.AuthController do
     summary: "Clear the current browser admin session",
     responses: [
       ok: {"Deleted session", "application/json", AuthSessionDeleteResponse}
-    ]
-  )
-
-  operation(:oauth_token,
-    summary: "Exchange a browser admin session or refresh token for console bearer tokens",
-    request_body: {"Token grant", "application/json", ConsoleTokenRequest, required: true},
-    responses: [
-      ok: {"Console tokens", "application/json", ConsoleTokenResponse},
-      bad_request: {"Invalid token grant", "application/json", OAuthErrorResponse},
-      unauthorized: {"Inactive browser session", "application/json", OAuthErrorResponse}
     ]
   )
 
@@ -80,50 +65,6 @@ defmodule AnkoleWeb.AuthController do
   end
 
   @doc """
-  Exchanges the browser admin session or refresh token for console bearer tokens.
-
-  This is the bridge from the cookie world to the stateless console API. The
-  custom `browser-session` grant lets the already-authenticated SPA trade its
-  session cookie for short-lived JWTs (see `AnkoleWeb.ConsoleTokens`), so console
-  XHRs can use Bearer auth without re-running OIDC. Multiple `oauth_token/2`
-  clauses below dispatch on `grant_type`, mirroring the OAuth token endpoint shape.
-  """
-  def oauth_token(conn, %{"grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"}) do
-    with {:ok, session} <- active_admin_session(conn),
-         {:ok, token_set} <- ConsoleTokens.mint_for_session(session) do
-      json(conn, token_set)
-    else
-      :error -> oauth_error(conn, 401, "invalid_grant", "active admin session required")
-      {:error, reason} -> oauth_error(conn, 400, "server_error", reason)
-    end
-  end
-
-  # Refresh still requires a live browser session: console tokens are leashed to
-  # the cookie session, so signing out of the browser also kills token refresh.
-  def oauth_token(conn, %{"grant_type" => "refresh_token", "refresh_token" => refresh_token})
-      when is_binary(refresh_token) do
-    with {:ok, session} <- active_admin_session(conn),
-         {:ok, token_set} <- ConsoleTokens.refresh_for_session(refresh_token, session) do
-      json(conn, token_set)
-    else
-      :error -> oauth_error(conn, 401, "invalid_grant", "active admin session required")
-      {:error, reason} -> oauth_error(conn, 400, "invalid_grant", reason)
-    end
-  end
-
-  def oauth_token(conn, %{"grant_type" => "refresh_token"}) do
-    oauth_error(conn, 400, "invalid_request", "refresh_token is required")
-  end
-
-  def oauth_token(conn, %{"grant_type" => _grant_type}) do
-    oauth_error(conn, 400, "unsupported_grant_type", "grant_type is not supported")
-  end
-
-  def oauth_token(conn, _params) do
-    oauth_error(conn, 400, "invalid_request", "grant_type is required")
-  end
-
-  @doc """
   Lists configured login providers.
   """
   def identity_providers(conn, _params) do
@@ -145,25 +86,27 @@ defmodule AnkoleWeb.AuthController do
   end
 
   @doc """
-  Verifies a local email and password and opens an admin session.
+  Verifies a local email and password and opens the requested browser session.
 
   A verified account that must still change its password gets a short-lived
   change ticket instead of a session; `local_password_change/2` completes it.
   """
   def local_password_login(conn, params) do
-    return_to = WebSession.safe_return_to(params["returnTo"])
-
     with {:ok, true} <- SetupConfig.completed?(),
+         {:ok, purpose, return_to} <- login_context(conn, params),
          {:ok, email} <- required_param(params, "email"),
          {:ok, password} <- required_param(params, "password"),
          {:ok, login} <- LocalPassword.authenticate(email, password) do
-      complete_local_password_login(conn, login, return_to)
+      complete_local_password_login(conn, login, purpose, return_to)
     else
       {:ok, false} ->
         error(conn, 409, "setup is not complete")
 
       {:error, {:missing, key}} ->
         error(conn, 422, "#{key} is required")
+
+      {:error, :oauth_authorization_expired} ->
+        local_password_error(conn, 401, "oauth_authorization_expired")
 
       {:error, :no_local_provider} ->
         local_password_error(conn, 404, "no_local_provider")
@@ -185,7 +128,7 @@ defmodule AnkoleWeb.AuthController do
   end
 
   @doc """
-  Completes a forced password change and opens the admin session.
+  Completes a forced password change and opens the requested browser session.
 
   The admin check runs before the password write. The write locks the credential
   and accepts only the version that the ticket verified while a change is still
@@ -198,21 +141,14 @@ defmodule AnkoleWeb.AuthController do
          } = ticket
          when is_integer(credential_version) <- WebSession.local_password_change(conn),
          {:ok, new_password} <- required_param(params, "newPassword"),
-         true <- AdminAuth.active_human_admin?(principal_uid),
+         :ok <- authorize_password_change(conn, ticket),
          {:ok, _credential} <-
            LocalPassword.complete_forced_password_change(
              principal_uid,
              new_password,
              credential_version
            ) do
-      conn
-      |> WebSession.clear_local_password_change()
-      |> WebSession.put_admin_session(%{
-        principal_uid: principal_uid,
-        provider_id: ticket["provider_id"],
-        external_id: ticket["external_id"]
-      })
-      |> json(%{returnTo: WebSession.safe_return_to(ticket["return_to"])})
+      complete_password_change(conn, ticket)
     else
       nil ->
         local_password_error(conn, 401, "change_ticket_expired")
@@ -220,8 +156,11 @@ defmodule AnkoleWeb.AuthController do
       %{} ->
         local_password_error(conn, 401, "change_ticket_expired")
 
-      false ->
+      {:error, :not_an_admin} ->
         local_password_error(conn, 403, "not_an_admin")
+
+      {:error, :oauth_authorization_expired} ->
+        local_password_error(conn, 401, "oauth_authorization_expired")
 
       {:error, {:missing, key}} ->
         error(conn, 422, "#{key} is required")
@@ -237,11 +176,9 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  # The admin check runs before the must-change branch so an account without
-  # console access is refused at once instead of after it sets a new password.
-  defp complete_local_password_login(conn, login, return_to) do
+  defp complete_local_password_login(conn, login, purpose, return_to) do
     cond do
-      not AdminAuth.active_human_admin?(login.principal_uid) ->
+      purpose == :console and not AdminAuth.active_human_admin?(login.principal_uid) ->
         local_password_error(conn, 403, "not_an_admin")
 
       login.must_change_password ->
@@ -251,9 +188,20 @@ defmodule AnkoleWeb.AuthController do
           provider_id: login.provider_id,
           external_id: login.email,
           credential_version: login.credential_version,
+          purpose: Atom.to_string(purpose),
           return_to: return_to
         })
         |> json(%{status: "password_change_required"})
+
+      purpose == :oauth ->
+        conn
+        |> WebSession.clear_local_password_change()
+        |> WebSession.put_oauth_session(%{
+          principal_uid: login.principal_uid,
+          provider_id: login.provider_id,
+          external_id: login.email
+        })
+        |> json(%{status: "ok", returnTo: return_to})
 
       true ->
         conn
@@ -264,6 +212,50 @@ defmodule AnkoleWeb.AuthController do
           external_id: login.email
         })
         |> json(%{status: "ok", returnTo: return_to})
+    end
+  end
+
+  defp complete_password_change(conn, %{"purpose" => "oauth"} = ticket) do
+    conn
+    |> WebSession.clear_local_password_change()
+    |> WebSession.put_oauth_session(%{
+      principal_uid: ticket["principal_uid"],
+      provider_id: ticket["provider_id"],
+      external_id: ticket["external_id"]
+    })
+    |> json(%{returnTo: "/oauth/authorize/resume"})
+  end
+
+  defp complete_password_change(conn, ticket) do
+    conn
+    |> WebSession.clear_local_password_change()
+    |> WebSession.put_admin_session(%{
+      principal_uid: ticket["principal_uid"],
+      provider_id: ticket["provider_id"],
+      external_id: ticket["external_id"]
+    })
+    |> json(%{returnTo: WebSession.safe_return_to(ticket["return_to"])})
+  end
+
+  defp authorize_password_change(conn, %{"purpose" => "oauth"}) do
+    if is_map(WebSession.oauth_authorization(conn)),
+      do: :ok,
+      else: {:error, :oauth_authorization_expired}
+  end
+
+  defp authorize_password_change(_conn, ticket) do
+    if AdminAuth.active_human_admin?(ticket["principal_uid"]),
+      do: :ok,
+      else: {:error, :not_an_admin}
+  end
+
+  defp login_context(conn, params) do
+    if params["oauth"] in [true, "true"] do
+      if is_map(WebSession.oauth_authorization(conn)),
+        do: {:ok, :oauth, "/oauth/authorize/resume"},
+        else: {:error, :oauth_authorization_expired}
+    else
+      {:ok, :console, WebSession.safe_return_to(params["returnTo"])}
     end
   end
 
@@ -288,9 +280,8 @@ defmodule AnkoleWeb.AuthController do
   admin login; a later login replaces an earlier one.
   """
   def oidc_authorization(conn, %{"provider_id" => provider_id} = params) do
-    return_to = WebSession.safe_return_to(params["return_to"])
-
     with {:ok, true} <- SetupConfig.completed?(),
+         {:ok, flow, return_to} <- oidc_login_context(conn, params),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          state <- WebSession.opaque_token(),
          redirect_uri <- Login.oidc_redirect_uri(public_base_url(conn), provider_id),
@@ -299,8 +290,7 @@ defmodule AnkoleWeb.AuthController do
              redirect_uri: redirect_uri,
              state: state
            ) do
-      conn
-      |> WebSession.put_admin_oidc_state(%{
+      put_oidc_login_state(conn, flow, %{
         provider_id: provider_id,
         state: state,
         redirect_uri: redirect_uri,
@@ -308,8 +298,14 @@ defmodule AnkoleWeb.AuthController do
       })
       |> redirect(external: authorization_url)
     else
-      {:ok, false} -> error(conn, 409, "setup is not complete")
-      {:error, reason} -> error(conn, 400, reason)
+      {:ok, false} ->
+        error(conn, 409, "setup is not complete")
+
+      {:error, :oauth_authorization_expired} ->
+        error(conn, 401, "OAuth authorization expired; start again")
+
+      {:error, reason} ->
+        error(conn, 400, reason)
     end
   end
 
@@ -332,6 +328,9 @@ defmodule AnkoleWeb.AuthController do
 
       setup_state_matches?(conn, provider_id, state) ->
         complete_setup_oidc(conn, provider_id, code, state)
+
+      oauth_state_matches?(conn, provider_id, state) ->
+        complete_oauth_oidc(conn, provider_id, code, state)
 
       admin_state_matches?(conn, provider_id, state) ->
         complete_admin_oidc(conn, provider_id, code, state)
@@ -391,6 +390,26 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  defp complete_oauth_oidc(conn, provider_id, code, _state) do
+    oidc_state = WebSession.oauth_oidc_state(conn)
+
+    with authorization when is_map(authorization) <- WebSession.oauth_authorization(conn),
+         {:ok, login} <-
+           Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]) do
+      conn
+      |> WebSession.clear_oauth_oidc_state()
+      |> WebSession.put_oauth_session(%{
+        principal_uid: login.principal_uid,
+        provider_id: login.provider_id,
+        external_id: login.external_id
+      })
+      |> redirect(to: "/oauth/authorize/resume")
+    else
+      nil -> error(conn, 401, "OAuth authorization expired; start again")
+      {:error, reason} -> error(conn, 400, reason)
+    end
+  end
+
   defp active_admin_session(conn) do
     case WebSession.admin_session(conn) do
       %{"principal_uid" => principal_uid} = session ->
@@ -420,6 +439,29 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  defp oauth_state_matches?(conn, provider_id, state) do
+    case WebSession.oauth_oidc_state(conn) do
+      %{"provider_id" => ^provider_id, "state" => ^state} -> true
+      _state -> false
+    end
+  end
+
+  defp oidc_login_context(conn, params) do
+    if params["oauth"] in ["1", "true"] do
+      if is_map(WebSession.oauth_authorization(conn)),
+        do: {:ok, :oauth, "/oauth/authorize/resume"},
+        else: {:error, :oauth_authorization_expired}
+    else
+      {:ok, :admin, WebSession.safe_return_to(params["return_to"])}
+    end
+  end
+
+  defp put_oidc_login_state(conn, :oauth, attrs),
+    do: WebSession.put_oauth_oidc_state(conn, attrs)
+
+  defp put_oidc_login_state(conn, :admin, attrs),
+    do: WebSession.put_admin_oidc_state(conn, attrs)
+
   # OIDC redirect URIs must be absolute, so we rebuild this request's origin from
   # the conn. This trusts the incoming scheme/host/port — fine because the
   # endpoint sits behind a trusted proxy that normalizes them.
@@ -432,12 +474,6 @@ defmodule AnkoleWeb.AuthController do
     conn
     |> put_status(status)
     |> json(%{error: message(reason)})
-  end
-
-  defp oauth_error(conn, status, code, reason) do
-    conn
-    |> put_status(status)
-    |> json(%{error: code, error_description: message(reason)})
   end
 
   defp message(value) when is_binary(value), do: value

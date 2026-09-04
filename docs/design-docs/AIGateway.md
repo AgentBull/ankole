@@ -66,6 +66,13 @@ description. Custom profiles cannot represent embedding, rerank, search,
 fetch, or image generation. The name is immutable after creation. There is no
 separate custom-profile entity.
 
+An OIDC Client stores Client-specific custom LLM aliases with the same name,
+description, provider, model, context-length, and request-option contract. The
+Client stores them in one map on the Client row; there is no separate alias
+entity. OIDC Humans can select only these aliases. They cannot select a raw
+`provider_id/raw-model-id`, a fixed Agent profile, or an alias owned by an Agent
+or another Client.
+
 The Agent Console has sibling `Model profiles` and `Custom model profiles`
 sections. Both use the same provider, model, context-length, and request-option
 form. The custom section also requires the immutable name and description. The
@@ -73,8 +80,10 @@ form. The custom section also requires the immutable name and description. The
 
 For an Agent token, `GET /models` exposes each configured custom name as an
 alias and uses its description in the catalog. Another Agent and an admin
-human do not see or resolve that alias. Explicit `provider_id/raw-model-id`
-selectors remain visible to the subjects that can use AIGateway.
+human do not see or resolve that alias. For an OIDC Human token, the endpoint
+exposes only the current Client aliases and resolves each one through its
+Client-owned profile. Explicit `provider_id/raw-model-id` selectors remain
+visible only to subjects whose contract allows direct selectors.
 
 The `coding` profile is an ordinary AIGateway profile. It contains
 `provider_id`, `model`, and request-level `provider_options`. A ChatGPT
@@ -172,8 +181,10 @@ its `endpoint_kind`: hosted web search is part of the Responses protocol, so a
 connection configured for the Responses wire declares it, and a Chat
 Completions connection declares nothing. `TurnPolicy` reads that stored
 endpoint kind and adds `web_search` to the turn's hosted tools, so Main Turns
-and Background Jobs project one consistent capability. The supported turn hosted-tool types are `image_generation` and
-`web_search`; every boundary rejects other types.
+and Background Jobs project one consistent capability. The supported turn
+hosted-tool types are `image_generation`, `web_search`, and `brain`; every
+boundary rejects other types. `brain` follows the installation's
+`brain.enabled` setting alone, because AIGateway executes it on every provider.
 
 An `openai_compatible` row also declares `supports_openai_tools`. It defaults
 to `false`: AIGateway treats the endpoint as a plain function-calling
@@ -428,16 +439,27 @@ The current routes are:
 
 ## Identify Every Caller
 
-The runtime API accepts an Agent AIGateway token or an active administrator token.
+The runtime API accepts an Agent token, an active administrator Console token,
+or an authorized OIDC Human token. All access tokens use the installation's
+RS256 key and the `at+jwt` type. Agent tokens have the audience
+`ankole.ai_gateway`, the scope `ai_gateway`, and a default lifetime of 30 days.
+Console access tokens include both `ankole.web_console` and
+`ankole.ai_gateway` audiences. OIDC Human access tokens include the AIGateway
+audience only when they have the `ai_gateway.write` scope.
 
-Agent tokens are HS256 JWT credentials.
-They have the audience `ankole.ai_gateway` and the scope `ai_gateway`.
-Their default lifetime is 30 days.
+`Ankole.AIGateway.Tokens` owns Agent token minting and claims.
+`AnkoleWeb.ConsoleTokens` owns Console tokens, and `Ankole.OIDC.Tokens` owns
+OIDC Human access tokens. They all use `Ankole.TokenSigning`. The Phoenix
+authentication plug verifies one raw token once for the AIGateway audience,
+then selects one domain claim validator from the signed `subject_type` and
+`client_id`. The RuntimeFabric broker and other token-specific consumers use
+the complete verifier from the applicable domain service.
 
-`Ankole.AIGateway.Tokens` owns token minting and verification. The RuntimeFabric
-broker and the Phoenix authentication plug consume that domain service.
-
-The control plane derives the signing key from `SecretKeyBase`.
+For an OIDC Human, the authentication plug checks the active Principal, Client,
+scope, group membership, and the requested Client model alias on every HTTP
+request. Each WebSocket `response.create` repeats the same checks and resolves
+the current alias profile before provider resolution. A policy change affects
+the next request. It does not stop a provider stream that has already started.
 The Worker requests an Agent token through an authenticated RuntimeFabric RPC.
 That response also supplies the AIGateway base URL.
 
@@ -450,6 +472,11 @@ external.
 
 Every runtime request has one authenticated `subject_uid`. Every query for a
 conversation, message, or artifact filters by that Principal.
+
+An OIDC Human uses the Human Principal uid as `subject_uid`. Stateful Responses
+therefore remain private to that Human. The same Human can continue a stored
+Response through another Client that still grants access. Removing a Client
+does not remove the Human's stored data.
 
 ## Create a Response without Storing It
 
@@ -824,6 +851,50 @@ history has no safe compaction or truncation boundary. AIGateway rejects it
 instead of guessing or rewriting durable facts. The operator must start a new
 conversation, or use the existing validated tail retraction or deletion when
 the invalid rows form the current removable tail.
+
+## Recall and Write Memory inside a Response
+
+A request declares the Brain as one hosted tool: `{"type": "brain"}`. AIGateway
+then declares the Brain operation catalog to the provider as root function
+tools under the model-facing operation names `remember`, `learn_source`,
+`recall`, `get_page`, `forget`, `entity`, `whoknows`, `synthesize`, and
+`delta`. `Ankole.Brain.Tools` owns the catalog, the JSON schemas, and the
+executor. The declaration reserves those names; a caller tool with one of them
+is invalid. `operations` restricts the declared subset. A Background Agent Job
+and a workflow task declare `recall` and `get_page` only.
+
+AIGateway executes every returned operation call itself, on every provider,
+inside the same public Response. The provider `function_call` becomes a public
+`brain_call` item with `operation` and `arguments`. The executed result becomes
+a public `brain_output` item with the same `call_id`, a `status` of `completed`
+or `failed`, and the JSON `output` the model receives as a
+`function_call_output` in the next provider round. The pair identity is the
+`call_id`. A failed operation fails only its own call. History replays the
+public pair as function items, and the pair takes the built-in tool budget as a
+gateway effect. Every executed operation emits the telemetry event
+`[:ankole, :ai_gateway, :hosted_brain]` with the operation, the result, the
+failure code, the subject, and the latency, and never the arguments or output.
+
+The request subject is the querier and the writer. An Agent request that
+carries `metadata.actor_event_id` runs with its Turn's conversation:
+`Ankole.SignalsGateway.BrainContext` checks that the event belongs to that
+Agent and derives the disclosure recipients, the default write scope, the
+channel parent, and the write fence. The fence requires that the event is still
+the current event of a live activation of the Agent. A request without an actor
+event, such as an OIDC Human, runs as the subject alone: disclosure is open to
+the subject's own knowledge boundary, the default write scope is the subject's
+principal scope, and the parent fallback is the subject's canonical page. A
+codex Job composes its own requests, so its model binding carries the
+declaration and the actor event.
+
+`inject: true` adds the zero-model memory injection to a stateful request. At
+conversation start and after each compaction checkpoint, AIGateway prepends
+the context pack as a recalled-memory user message before the newest user
+message. On every request it adds the `memory:` pointer lines of the newest
+user message text to that message's `agent_environment_info` block. The
+injected items are ordinary request input, so they persist with the Response
+chain. A request without a stateful conversation gets no injection. An
+injection failure leaves the request unchanged.
 
 ## Record Tool Results before the Next Model Call
 
@@ -1272,9 +1343,11 @@ that message for the authenticated caller. They never include the remaining
 provider response body or metadata. A stable fallback message remains when the
 provider does not supply one.
 
-The HTTP edge preserves upstream 4xx responses, maps upstream and transport
-failures to 502, and maps native upstream timeouts to 504. It does not report a
-provider transport failure as a 422 request error.
+One failure projection serves the HTTP and WebSocket edges. It preserves
+upstream 4xx responses, maps upstream and transport failures to 502, and maps
+native upstream timeouts to 504. It does not report a provider transport
+failure as a 422 request error. A rejected request keeps its own 4xx status and
+the same code and message on both edges.
 
 ## Split Work between Elixir and Rust
 
@@ -1285,7 +1358,12 @@ sending it.
 Elixir also owns the complete public stream lifecycle. One `ResponseStream`
 state machine applies the absolute deadline, task monitors, retry boundary,
 item projection, terminal validation, stateful commit, and cancellation for
-streaming and collected calls.
+streaming and collected calls. Every consumer takes the next batch through one
+`ResponseStream.next/2` call that spends one credit and watches the stream
+owner, so a consumer never waits on an owner that has exited. When the owner
+exits before its terminal, the SSE response and the WebSocket send one `error`
+event with the `provider_stream_error` code; the WebSocket connection stays
+open for the next request.
 
 The Rust kernel sends the `UniversalAIRequest` and converts supported HTTP, SSE,
 and WebSocket responses to one event format. It owns native stream and program
@@ -1315,7 +1393,12 @@ signals.
 The public stream rejects a provider completion that contains an incomplete
 client tool call. If a terminal output omits its item identity, AIGateway
 restores the streamed item at the same provider output index only when the
-terminal item is a field-for-field subset of that streamed item.
+terminal item is a field-for-field subset of that streamed item. A missing
+terminal `output` becomes an empty list, then AIGateway appends consecutive
+streamed done items after the terminal list's last index. A conflicting
+terminal item remains authoritative at its index; only the recorded tail is
+appended. The Rust kernel reports the collected terminal body and its recorded
+done-item snapshot separately and does not reconcile public terminal items.
 
 OpenAI Responses mode can use an upstream WebSocket transport. OpenAI and
 OpenAI-compatible provider rows default `upstream_transport` to `sse`. A row

@@ -661,20 +661,31 @@ async fn execute_hosted(
         }
         main_model_rounds = main_model_rounds.saturating_add(1);
         send_hosted_progress(progress, HostedProgress::MainModelRound).await?;
-        let wrapper = match websocket_spec {
+        let (wrapper, recorded_output) = match websocket_spec {
             Some(websocket_spec) => {
                 let mut round_spec = websocket_spec.clone();
                 round_spec.hosted_tools = None;
                 round_spec.response_context.request = Value::Object(private_request.clone());
                 round_spec.response_context.stream = Some(true);
-                super::client::run_websocket_model_request_once(round_spec).await?
+                let collected = super::client::run_websocket_model_request_once(round_spec).await?;
+                let contiguous = collected
+                    .completed_items
+                    .keys()
+                    .copied()
+                    .eq(0..collected.completed_items.len());
+                let recorded_output = (!collected.completed_items.is_empty() && contiguous)
+                    .then(|| collected.completed_items.into_values().collect::<Vec<_>>());
+                (collected.wrapper, recorded_output)
             }
             None => {
                 let mut round_spec = base_spec.clone();
                 round_spec.hosted_tools = None;
                 round_spec.response_context.request = Value::Object(private_request.clone());
                 round_spec.response_context.stream = Some(false);
-                super::client::run_model_request_once(round_spec).await?
+                (
+                    super::client::run_model_request_once(round_spec).await?,
+                    None,
+                )
             }
         };
         let body = wrapper.get("body").cloned().ok_or_else(|| {
@@ -688,11 +699,12 @@ async fn execute_hosted(
             &mut aggregate_usage,
             body.get("usage").unwrap_or(&Value::Null),
         );
-        let round_output = body
-            .get("output")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let round_output = recorded_output.unwrap_or_else(|| {
+            body.get("output")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        });
         let hidden_calls = round_output
             .iter()
             .filter(|item| hidden_function_call(item, &hidden_name))

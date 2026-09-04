@@ -1,56 +1,58 @@
 ---
 title: はじめに
-description: Ankole とは何か、自律的な労働力が copilot とどう違うのか、プライベートデプロイインスタンスの構成部品。
+description: Ankole Agent Harness と Company Brain が提供する機能と、専用環境に配置したインスタンスの動作を説明します。
 section: Getting started
 order: 1
 ---
 
-**Ankole はオープンソースの AI Workforce OS です。AI agent を、業務機能を遂行し、成果によって評価される自律的な労働力に変えます。**
+**Ankole は、Company Brain を備えたオープンソースの Claude Code 代替製品です。企業向け Agent Harness が、Agent の判断に必要なコンテキスト、権限、ツール、フィードバックを提供します。**
 
-Agent に投資調査の機能、権限境界、tools、成果指標を与えます。Agent は仮説を維持し、レポートを生成し、コールを追跡し、後の成果と比較します。
+継続して動く Agent は、会社全体の仕事で、共有の社内知識、リアルタイムのシグナル、企業の権限、Agent Computer の作業環境、永続的な実行機能を使えます。
 
-copilot は次のプロンプトを待ちます。仕事を所有しているのは人だからです。Ankole Agent は自分の機能内で次のアクションを所有し、承認、例外、説明責任の境界で人に戻ります。
+モデルは、与えられたコンテキストを使って推論します。Harness は現在の社内情報を選び、アクセス規則を適用し、機能を付与し、障害後に仕事を復旧し、結果を次の意思決定に引き継ぎます。
 
-## 自律的な労働力が copilot とどう違うか
+## Harness が提供する機能
 
-- **チャット persona ではなく業務機能。** 各 Agent は、継続的な責任、期待される成果物、運用 context、結果指標を持ちます。
-- **活動ではなく成果。** 仕事は、収益、risk、順位、承認率、単位コストなど、業務にとって重要な数字で評価されます。
-- **次のステップの提案ではなく実行 loop。** Agent が計画し、tools を使い、フォローアップし、失敗から復旧し、納品します。
-- **境界のある権限。** Identity、AuthZ、承認、監査記録、エスカレーションパスが、Agent にできることを定義します。
-- **1 回の request ではなく長時間の作業。** Session は数時間または数日動き、新しい入力を受け、失敗後に復旧し、運用 context を保持できます。
+- Brain は、知識の出所、時点、保有者、確信度、矛盾、閲覧範囲を保持します。
+- 証拠、不確実性、競合する仮説、情報不足は、人が確認できる状態で残ります。
+- メッセージ、スケジュール、Webhook、外部イベントが、担当する Agent を起動します。
+- ID、AuthZ、承認、監査記録、エスカレーション経路が、各 Agent の権限を定めます。
+- 仕事は数時間から数日続き、新しい入力を受け、プロセス障害から復旧し、元のコンテキストへ結果を届けます。
+- 修正と実際の結果は、次の意思決定が始まる前に Company Brain を更新できます。
 
 ## デプロイインスタンスの構成部品
 
-これらの言葉は以降のドキュメント全体に繰り返し登場するので、ここで一度だけ定義します。
+以降のドキュメントでは、次の用語を使います。
 
 | 部品 | 内容 | 詳細 |
 |---|---|---|
-| **Agent** | 独自のミッション、アクセス、tools、対外 identity を持つ作業 identity。ミッションと配信基準はいつでも編集できるファイルです。1 つのデプロイインスタンスに複数保持できます。 | [Agents](../agents/) |
-| **Session** | 長時間実行される実行単位であり、context、workspace 状態、steering、キャンセル、回復が交わる場所。 | [Actor runtime](../actor-runtime/) |
-| **Signal routing rule** | Agent を signal ソースに接続し、そこでできることの境界を設定します。 | [Signal routing rules](../signal-bindings/) |
-| **Background job** | Session から送り出される作業で、数時間実行でき、送り出し元の channel に納品して戻ります。 | [Background Agent Jobs](../background-agent-jobs/) |
-| **Skill** | ある種の仕事をこなす定まった方法。agent が改善を提案でき、人が次の session 用に承認します。 | [Skills](../skills/) |
-| **Principal** | 人と agent は同じ種類の主体であるため、runtime は両者に権限と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | 実行フロア。LLM loop、tools、files、terminal 状態、streaming 出力がすべてここで実行されます。 | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent** | 固有のミッション、アクセス権、ツール、対外 ID を持つ作業主体です。ミッションと納品基準は、編集可能なファイルで定義します。1 つのインスタンスで複数の Agent を運用できます。 | [Agents](../agents/) |
+| **Brain** | 共有の社内知識を保存します。出所、Claim、時点、確信度、矛盾、閲覧範囲を保持し、権限を持つ Agent に現在の知識を提供します。 | [Brain](../brain/) |
+| **Session** | コンテキスト、ワークスペースの状態、実行中の誘導、キャンセル、復旧を管理する実行単位です。 | [Actor runtime](../actor-runtime/) |
+| **Signal routing rule** | Agent をシグナルの送信元に接続し、その場所で使える権限を設定します。 | [Signal routing rules](../signal-bindings/) |
+| **Background job** | Session から実行する長時間の仕事です。完了した結果は、元のチャネルへ配信します。 | [Background Agent Jobs](../background-agent-jobs/) |
+| **Skill** | 特定の仕事を実行するための確定した手順です。Agent が改善を提案し、人が次の Session で使う変更を承認します。 | [Skills](../skills/) |
+| **Principal** | 人と Agent を表す権限主体です。ランタイムは、両方に権限と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
+| **Agent Computer Worker** | モデルループ、ツール、ファイル、ターミナルの状態、ストリーミング出力を実行します。 | [Agent Computer Worker](../agent-computer-worker/) |
 
-Agent はまた、長時間の多ソース調査に [Deep Research](../deep-research-job/) を、実際の Web ページを操作する [browser automation](../browser-automation/) を使うこともできます。
+Agent は、複数の情報源を使う長時間の調査に [Deep Research](../deep-research-job/) を使えます。[ブラウザー自動化](../browser-automation/)では、実際の Web ページを操作できます。
 
-## 実行できる業務機能
+## 対応する意思決定の仕事
 
-Ankole は、デジタルで完結でき、検査可能な成果物を生成し、宣言された成果指標を持つ仕事に適しています。
+Ankole は、検査できる証拠を生成し、実際の結果で検証する重要なデジタル業務に適しています。
 
-例としては、増分 ROAS で測定されるパフォーマンスマーケティング、risk 調整後リターンで測定されるトレーディング、順位変動で測定される SEO、登録率で測定される特許出願などがあります。
+例には、競合する仮説を扱う業界調査、シナリオモデルを使う製品と市場の選定、再現可能な手法と複数の因果仮説を含む詳細なデータ分析があります。
 
-単位は業務機能であって、Agent 数ではありません。マルチエージェントの調整は実装の選択であり、製品の約束ではありません。
+Harness は多様な仕事に対応します。1 つの Agent が意思決定全体を担当できます。独立したコンテキストが相関する誤りを減らす場合は、Workflow が複数の Agent に仕事を分けます。
 
-共通のコントラクトは次のとおりです: **機能を定義し、境界のある権限を付与し、Agent に作業させ、成果を評価すること。**
+社内知識とシグナルがコンテキストを構成します。限定した権限で Agent が仕事を実行します。証拠と実際の結果が、次の意思決定を更新します。
 
 ## 現在のステータス
 
-Ankole は、本番環境で稼働する完全でセルフホスト可能な AI Workforce OS ですが、まだ初期段階です。control plane、Agent Computer Worker、kernel、オペレーターコンソールはエンドツーエンドで動作します。
+Ankole は、本番環境で稼働する完全な企業向け Agent Harness です。企業が管理する基盤に、Control Plane、Agent Computer Worker、Kernel、Company Brain、運用コンソールを配置できます。
 
-パブリック API にはまだ互換性コントラクトがありません。それができるまで、リリース間の破壊的変更を想定してください。
+パブリック API の互換性契約は現在策定中です。リリース間で互換性のない変更が発生する場合があります。
 
 ## 次のステップ
 
-[クイックスタート](../quickstart/) でローカルに動かしてみてください。全体像を先に見たい場合は、[アーキテクチャ概要](../architecture/) を読んでください。
+ローカル環境への配置手順は、[クイックスタート](../quickstart/)で説明します。[アーキテクチャ概要](../architecture/)では、各コンポーネントの責務と境界を説明します。

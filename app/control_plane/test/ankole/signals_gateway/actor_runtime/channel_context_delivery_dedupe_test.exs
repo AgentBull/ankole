@@ -142,7 +142,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
       Conversations.ensure_conversation(agent.uid, first_event.session_id)
 
     {:ok, round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => first_event.id}},

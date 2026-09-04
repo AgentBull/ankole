@@ -180,7 +180,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
             %{
               status: :command_consumed,
               feedback: "Stopped.",
-              stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+              control_outcomes: [%{send_outcome: "sent_or_queued"}]
             }} =
              process_ready_event_for_actor!(
                stop_input,
@@ -263,7 +263,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
        %{
          status: :waiting_for_worker,
          command: "command.new",
-         stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+         control_outcomes: [%{send_outcome: "sent_or_queued"}]
        }} ->
         assert {:ok, _worker} =
                  wait_for_worker_projection(worker_id, container, deadline(30_000))

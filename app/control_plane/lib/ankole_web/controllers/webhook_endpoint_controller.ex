@@ -70,7 +70,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
   def delete(conn, params) do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, webhook_resource(agent_uid), "delete"),
-         {:ok, endpoint_id} <- uuid_param(params, "webhook_endpoint_id"),
+         {:ok, endpoint_id} <- uuid_param(params, :webhook_endpoint_id),
          {:ok, %{webhook_endpoint: endpoint}} <-
            Webhooks.cancel_endpoint(agent_uid, nil, endpoint_id) do
       json(conn, %{webhook_endpoint: Webhooks.console_projection(endpoint)})
@@ -80,37 +80,19 @@ defmodule AnkoleWeb.WebhookEndpointController do
   end
 
   defp agent_uid_param(params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid") do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid) do
       {:ok, String.downcase(agent_uid)}
     end
   end
 
   defp uuid_param(params, key) do
-    with {:ok, value} <- text_param(params, key),
+    with {:ok, value} <- ConsoleParams.text(params, key),
          {:ok, uuid} <- Ecto.UUID.cast(value) do
       {:ok, uuid}
     else
       _reason -> {:error, {:invalid_uuid, key}}
     end
   end
-
-  defp text_param(params, key) do
-    value = Map.get(params, key) || Map.get(params, param_atom(key))
-
-    case value do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          trimmed -> {:ok, trimmed}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
-    end
-  end
-
-  defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("webhook_endpoint_id"), do: :webhook_endpoint_id
 
   defp webhook_resource(agent_uid), do: "agent:#{agent_uid}:webhooks"
 

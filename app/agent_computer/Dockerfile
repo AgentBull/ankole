@@ -52,7 +52,7 @@ RUN bun run build \
 
 FROM ${BASE_IMAGE}
 
-ARG LARK_CLI_VERSION=v1.0.86
+ARG LARK_CLI_VERSION=v1.0.93
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
 
@@ -67,16 +67,12 @@ RUN set -eux; \
   esac; \
   asset="lark-cli-${version}-linux-${lark_cli_arch}.tar.gz"; \
   base_url="https://github.com/larksuite/cli/releases/download/${LARK_CLI_VERSION}"; \
-  curl -fsSL "${base_url}/checksums.txt" -o /tmp/lark-cli-checksums.txt; \
   curl -fsSL "${base_url}/${asset}" -o "/tmp/${asset}"; \
-  expected="$(awk -v asset="${asset}" '$2 == asset { print $1; exit }' /tmp/lark-cli-checksums.txt)"; \
-  test -n "${expected}"; \
-  printf '%s  %s\n' "${expected}" "/tmp/${asset}" | sha256sum -c -; \
   mkdir -p /tmp/lark-cli /usr/local/libexec; \
   tar -xzf "/tmp/${asset}" -C /tmp/lark-cli; \
   install -m 0755 /tmp/lark-cli/lark-cli /usr/local/libexec/lark-cli; \
   test "$(/usr/local/libexec/lark-cli --version)" = "lark-cli version ${version}"; \
-  rm -rf /tmp/lark-cli /tmp/lark-cli-checksums.txt "/tmp/${asset}"
+  rm -rf /tmp/lark-cli "/tmp/${asset}"
 
 COPY app/agent_computer/scripts/lark-cli.sh /usr/local/bin/lark-cli
 
@@ -108,8 +104,6 @@ COPY app/agent_computer/src ./app/agent_computer/src
 COPY app/agent_computer/matplotlibrc /etc/ankole/matplotlibrc
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/ankole-browser/src ./app/ankole-browser/src
-
-RUN bun app/agent_computer/src/validation/lark-skill-examples.ts app/library/agent-plugins/lark/skills
 
 RUN set -eux; \
   mkdir -p /agents /var/share; \

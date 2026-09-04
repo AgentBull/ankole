@@ -10,7 +10,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   Dreaming trigger, a real reflection BackgroundAgentJob on the Docker worker,
   the completion hook and its mechanical gates, rendered delivery, and then a
   real lease review. The other proves a background job reaches instance memory
-  through the read-only Brain `recall` tool over the live RPC boundary.
+  through the read-only `recall` operation of the AIGateway-hosted Brain tool.
   """
 
   import Ecto.Query
@@ -135,7 +135,8 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
   @doc """
   Proves a background job reads instance memory: a real codex job calls the
-  read-only `recall` tool over the live RPC boundary and reports what it found.
+  read-only `recall` operation, AIGateway executes it inside the job's own
+  Response as the hosted Brain tool, and the job reports what it found.
   """
   def run_real_job_brain_recall_turn(%{
         agent: agent,
@@ -162,6 +163,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
              )
 
     recall_session_id = "signal-channel:skill-lesson-recall-e2e"
+    handler_id = attach_hosted_brain_telemetry!()
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -180,6 +182,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     dispatch_job!(agent.uid, job.id)
     finished = wait_for_terminal_job!(job.id)
+    :telemetry.detach(handler_id)
 
     assert finished.status == "succeeded",
            "recall job ended #{finished.status}: #{inspect(finished.error)}"
@@ -187,15 +190,46 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     assert finished.result["output_text"] =~ @codename,
            "the job did not report the recalled codename: #{inspect(finished.result["output_text"])}"
 
-    recall_calls = job_tool_calls(finished.id, "recall")
+    # AIGateway answers the hosted operation inside the job's own Response,
+    # which codex does not store, so the proof is the gateway's telemetry.
+    hosted_calls = hosted_brain_calls(agent.uid)
 
-    assert recall_calls != [], "the job never called the recall tool"
-    assert Enum.any?(recall_calls, &(&1["success"] == true))
+    assert Enum.any?(hosted_calls, &(&1.operation == "recall" and &1.result == "success")),
+           "the job never called the hosted recall operation: #{inspect(hosted_calls)}"
 
-    # Write tools stay out of the Job runtime.
-    assert job_tool_calls(finished.id, "remember") == []
+    # Write operations stay out of the Job runtime.
+    refute Enum.any?(hosted_calls, &(&1.operation == "remember"))
 
-    %{job: finished, recall_calls: recall_calls}
+    %{job: finished, hosted_calls: hosted_calls}
+  end
+
+  defp attach_hosted_brain_telemetry! do
+    handler_id = "hosted-brain-e2e-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:ankole, :ai_gateway, :hosted_brain],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:hosted_brain, metadata})
+        end,
+        nil
+      )
+
+    handler_id
+  end
+
+  defp hosted_brain_calls(agent_uid) do
+    receive do
+      {:hosted_brain, %{subject_uid: ^agent_uid} = metadata} ->
+        [metadata | hosted_brain_calls(agent_uid)]
+
+      {:hosted_brain, _other_subject} ->
+        hosted_brain_calls(agent_uid)
+    after
+      0 -> []
+    end
   end
 
   # -- lease review -----------------------------------------------------------
@@ -272,16 +306,6 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     AgentSkillLesson
     |> where([lesson], lesson.agent_uid == ^agent_uid)
     |> order_by([lesson], asc: lesson.inserted_at)
-    |> Repo.all()
-  end
-
-  defp job_tool_calls(job_id, tool) do
-    TurnItem
-    |> join(:inner, [item], turn in Turn, on: item.turn_id == turn.id)
-    |> where([_item, turn], turn.job_id == ^job_id)
-    |> where([item, _turn], fragment("? ->> 'type'", item.item) == "dynamicToolCall")
-    |> where([item, _turn], fragment("? ->> 'tool'", item.item) == ^tool)
-    |> select([item, _turn], item.item)
     |> Repo.all()
   end
 

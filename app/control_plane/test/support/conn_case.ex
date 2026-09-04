@@ -98,7 +98,8 @@ defmodule AnkoleWeb.ConnCase do
     {session_conn, principal_uid} = active_admin_conn_with_principal(conn)
 
     session_conn
-    |> post(~p"/.internal-apis/oauth/token", %{
+    |> with_console_csrf()
+    |> post(~p"/oauth/token", %{
       "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
     })
     |> json_response(200)
@@ -120,5 +121,19 @@ defmodule AnkoleWeb.ConnCase do
     |> recycle()
     |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
     |> put_req_header("content-type", "application/json")
+  end
+
+  @doc "Adds the same-origin and CSRF proof required by the Console token grant."
+  def with_console_csrf(conn) do
+    csrf_token = Plug.CSRFProtection.get_csrf_token()
+    csrf_state = Plug.CSRFProtection.dump_state()
+
+    origin =
+      URI.to_string(%URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port})
+
+    conn
+    |> put_session("_csrf_token", csrf_state)
+    |> put_req_header("origin", origin)
+    |> put_req_header("x-csrf-token", csrf_token)
   end
 end

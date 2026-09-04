@@ -22,11 +22,6 @@ export interface LLMErrorClassification {
    * Advisory hint that the fix is to shrink the context, not to retry (set only for `overflow`).
    */
   shouldCompress: boolean
-  /**
-   * Advisory hint that switching to a fallback provider could help. False for classes whose fix
-   * is not a different provider, such as `overflow` and `content_filter`.
-   */
-  shouldFallbackProvider: boolean
 }
 
 /**
@@ -51,9 +46,9 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
   const message = messageFromError(error)
 
   // Bad/expired API key, disabled org, or region/model not permitted (OpenAI 401, Bedrock 403).
-  // Not retryable: the same credentials will keep failing. Fallback provider may have valid keys.
+  // Not retryable: the same credentials will keep failing.
   if (status === 401 || status === 403 || includesAny(code, ['401', '403', 'auth', 'unauthorized', 'forbidden'])) {
-    return classified('auth', false, false, true)
+    return classified('auth', false, false)
   }
 
   // Throttling: OpenAI 429 / `rate_limit_exceeded`, Bedrock `ThrottlingException`, Vertex
@@ -80,7 +75,7 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
     ]) ||
     (status === 413 && includesAny(message, ['tpm', 'tokens per minute']))
   ) {
-    return classified('rate_limit', true, false, true)
+    return classified('rate_limit', true, false)
   }
 
   // Transport reset / stall: HTTP 408, an aborted/timed-out fetch, or a dropped socket mid-stream.
@@ -132,7 +127,7 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
       'terminated'
     ])
   ) {
-    return classified('timeout', true, false, true)
+    return classified('timeout', true, false)
   }
 
   // Provider-side fault: any 5xx, plus Anthropic's 529 "Overloaded" and the matching
@@ -154,23 +149,22 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
       'temporarily unavailable'
     ])
   ) {
-    return classified('server', true, false, true)
+    return classified('server', true, false)
   }
 
-  // Safety truncation: the provider stopped the response for content policy reasons. Not retryable,
-  // not compressible, and not a fallback-provider candidate because the response must not be surfaced
-  // as a normal assistant reply.
+  // Safety truncation: the provider stopped the response for content policy reasons. Not retryable
+  // and not compressible, because the response must not be surfaced as a normal assistant reply.
   if (
     includesAny(code, ['content_filter', 'content-filter']) ||
     includesAny(message, ['content_filter', 'content-filter', 'content filter'])
   ) {
-    return classified('content_filter', false, false, false)
+    return classified('content_filter', false, false)
   }
 
   // Prompt exceeds the model's context window. Matched on message text only: providers usually return
   // this as a 400 (OpenAI `context_length_exceeded`, Anthropic "prompt is too long"), and 400 is too
-  // generic to key on, so the wording is the signal. Not retryable and not a fallback candidate — the
-  // only fix is to send less, hence `shouldCompress`. Legacy terminal-error paths can also surface
+  // generic to key on, so the wording is the signal. Not retryable — the only fix is to send less,
+  // hence `shouldCompress`. Legacy terminal-error paths can also surface
   // max_output_tokens as a bare error string; the WebSocket terminal mapper should handle that as
   // `length` first, but the classifier keeps this fallback for durable error details already in flight.
   // Reached after the status-based classes above so a 413/429 that also mentions tokens is treated as
@@ -197,13 +191,13 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
     ]) ||
     includesAny(code, ['context_overflow', 'context_length_exceeded', 'context_window_exceeded'])
   ) {
-    return classified('overflow', false, true, false)
+    return classified('overflow', false, true)
   }
 
-  // Unrecognized. Treated as fatal and provider-stable: nothing matched, so we neither retry nor fall
-  // back blindly. A genuinely transient failure that lands here will surface to the user rather than
-  // being silently re-tried forever.
-  return classified('unknown', false, false, false)
+  // Unrecognized. Treated as fatal: nothing matched, so we do not retry blindly. A genuinely
+  // transient failure that lands here will surface to the user rather than being silently re-tried
+  // forever.
+  return classified('unknown', false, false)
 }
 
 /** Returns the most specific structured or rendered provider error code. */
@@ -233,13 +227,8 @@ export function isLocallyRetryableLLMError(error: unknown): boolean {
 /**
  * Builds the normalized classification object.
  */
-function classified(
-  kind: LLMErrorKind,
-  retryable: boolean,
-  shouldCompress: boolean,
-  shouldFallbackProvider: boolean
-): LLMErrorClassification {
-  return { kind, retryable, shouldCompress, shouldFallbackProvider }
+function classified(kind: LLMErrorKind, retryable: boolean, shouldCompress: boolean): LLMErrorClassification {
+  return { kind, retryable, shouldCompress }
 }
 
 /**

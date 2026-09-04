@@ -15,7 +15,6 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
-  alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Brain.Config, as: BrainConfig
   alias Ankole.Brain.Sanitize
@@ -25,7 +24,6 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  @sync_name "app/library/skills"
   @skill_file "SKILL.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
@@ -60,45 +58,6 @@ defmodule Ankole.AIAgent.Library do
     with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
          {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts) do
       reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources)
-    end
-  end
-
-  @doc """
-  Scans first-party builtin skill files and updates the global sync cursor.
-
-  Per-agent registry rows are created by `sync_agent_skills/2`, because builtin
-  skill enablement is now agent-local state.
-  """
-  @spec sync_builtin_skills(keyword()) :: {:ok, sync_result()} | {:error, term()}
-  def sync_builtin_skills(opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-    force? = Keyword.get(opts, :force, false)
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    with {:ok, sources} <- shipped_skill_sources() do
-      content_hash = SourceReader.catalog_hash(sources)
-      current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
-
-      result = %{
-        changed: force? or not match?(%{content_hash: ^content_hash}, current_state),
-        content_hash: content_hash,
-        skills: length(sources),
-        files: Enum.reduce(sources, 0, fn source, sum -> sum + length(source.files) end)
-      }
-
-      case result.changed do
-        false ->
-          {:ok, result}
-
-        true ->
-          repo.transact(fn repo ->
-            upsert_sync_state(repo, content_hash, result, now)
-            |> case do
-              {:ok, _state} -> {:ok, result}
-              {:error, _reason} = error -> error
-            end
-          end)
-      end
     end
   end
 
@@ -608,38 +567,6 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
-  Returns the current agent soul text, falling back to the bundled template.
-  """
-  @spec get_soul(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def get_soul(agent_uid, opts \\ []),
-    do: get_agent_document_text(agent_uid, "soul", opts)
-
-  @doc """
-  Returns the current agent mission text, falling back to the bundled template.
-  """
-  @spec get_mission(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def get_mission(agent_uid, opts \\ []),
-    do: get_agent_document_text(agent_uid, "mission", opts)
-
-  @doc """
-  Returns the current agent visual identity document, falling back to the bundled template.
-  """
-  @spec get_design(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def get_design(agent_uid, opts \\ []),
-    do: get_agent_document_text(agent_uid, "design", opts)
-
-  @doc """
-  Returns the agent confidentiality policy, falling back to the bundled template.
-
-  Brain reads it when an Agent writes memory itself, so the model can choose
-  an audience scope; system learning paths do not read it.
-  """
-  @spec get_confidentiality_policy(String.t(), keyword()) ::
-          {:ok, String.t()} | {:error, term()}
-  def get_confidentiality_policy(agent_uid, opts \\ []),
-    do: get_agent_document_text(agent_uid, "confidentiality_policy", opts)
-
-  @doc """
   Returns the operator-visible agent documents (MISSION, SOUL, DESIGN, and
   the confidentiality policy) for one agent.
 
@@ -970,22 +897,6 @@ defmodule Ankole.AIAgent.Library do
     |> SourceReader.hash()
   end
 
-  defp upsert_sync_state(repo, content_hash, result, now) do
-    attrs = %{
-      name: @sync_name,
-      content_hash: content_hash,
-      synced_at: now,
-      metadata: %{"skills" => result.skills, "files" => result.files}
-    }
-
-    %LibraryBuiltinSyncState{}
-    |> LibraryBuiltinSyncState.changeset(attrs)
-    |> repo.insert(
-      on_conflict: {:replace, [:content_hash, :synced_at, :metadata, :updated_at]},
-      conflict_target: :name
-    )
-  end
-
   defp seed_agent_document_in_tx(repo, agent_uid, kind) do
     with {:ok, spec} <- agent_document_spec(kind) do
       upsert_agent_document_in_tx(
@@ -1031,23 +942,6 @@ defmodule Ankole.AIAgent.Library do
       conflict_target: {:unsafe_fragment, "(agent_uid, path) WHERE deleted_at IS NULL"},
       returning: true
     )
-  end
-
-  defp get_agent_document_text(agent_uid, kind, opts) do
-    with {:ok, spec} <- agent_document_spec(kind) do
-      get_agent_text(agent_uid, spec.path, spec.fallback, opts)
-    end
-  end
-
-  defp get_agent_text(agent_uid, path, fallback, opts) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      case active_agent_entry(repo, agent_uid, path) do
-        %AgentLibraryContainerEntry{content: content} when is_binary(content) -> {:ok, content}
-        _entry -> {:ok, fallback}
-      end
-    end
   end
 
   defp agent_document_spec("mission") do

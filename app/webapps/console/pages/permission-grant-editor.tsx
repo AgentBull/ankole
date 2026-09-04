@@ -16,7 +16,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -27,7 +27,7 @@ import {
   ankoleWebPermissionGrantControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { PermissionGrantItem } from '../api/generated/types.gen'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
@@ -36,6 +36,7 @@ import {
   type PermissionGrantEditorDraft,
   type PermissionGrantOwner
 } from '../state/permission-grant-editor-model'
+import { useEditorDraft } from '../use-editor-draft'
 
 /**
  * Grants table shared by the group editor and the principal detail page: one
@@ -183,11 +184,15 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   const ownerGroupName = loadedGrant?.group_id
     ? groups.data?.principal_groups.find(group => group.id === loadedGrant.group_id)?.name
     : undefined
-
-  useEffect(() => {
-    if (mode === 'new') model.initialize('new', emptyGrantForm())
-    else if (loadedGrant) model.initialize(`grant:${loadedGrant.id}`, formFromGrant(loadedGrant))
-  }, [mode, model, loadedGrant])
+  const grantDraft = useMemo(
+    () => (mode === 'new' ? emptyGrantForm() : loadedGrant ? formFromGrant(loadedGrant) : undefined),
+    [loadedGrant, mode]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'permission-grant', id: grantID },
+    source: grantDraft,
+    absent: () => mode === 'edit' && requestErrorCode(grant.error) === 'not_found'
+  })
 
   const backTo = ownerBackTo(owner) ?? grantBackTo(loadedGrant, ownerGroupName)
   const ownerLabel = owner
@@ -251,7 +256,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   // render an editable form under a red request failure. This is a show
   // endpoint, so a missing grant arrives as a 404 rather than an empty result;
   // any other failure keeps its own error on the form below.
-  if (mode === 'edit' && grant.error?.error?.code === 'not_found') {
+  if (draftStatus === 'absent') {
     return <EditorNotFound backTo={backTo} message={t('console.not_found.description')} />
   }
 
@@ -265,6 +270,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       error={mutationError ?? (mode === 'edit' ? grant.error : undefined)}
       submitting={createGrant.isPending || updateGrant.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
+      submitUnavailable={draftStatus !== 'ready'}
       onSubmit={submit}>
       <LabeledField label={t('console.permission_grants.owner')}>
         <ReadOnlyValue mono>{ownerLabel}</ReadOnlyValue>

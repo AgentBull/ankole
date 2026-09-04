@@ -53,12 +53,6 @@ defmodule Ankole.AIGateway.Compaction do
   @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
-  @type result :: %{
-          history: [Message.t()],
-          previous_response_id: binary() | nil,
-          compaction: Message.t() | nil,
-          run_metadata: map()
-        }
 
   @type history_plan :: %{
           history: [Message.t()],
@@ -207,30 +201,6 @@ defmodule Ankole.AIGateway.Compaction do
       compute_threshold_tokens(context_length, threshold_percent, max_output_tokens)
 
     tokens
-  end
-
-  @spec maybe_compact_history(String.t(), binary(), [Message.t()], [map()], map(), map()) ::
-          {:ok, result()} | {:error, term()}
-  def maybe_compact_history(
-        subject_uid,
-        conversation_id,
-        history,
-        current_input,
-        request,
-        runtime \\ %{}
-      )
-      when is_list(history) and is_list(current_input) and is_map(request) do
-    with {:ok, plan} <-
-           maybe_plan_history(
-             subject_uid,
-             conversation_id,
-             history,
-             current_input,
-             request,
-             runtime
-           ) do
-      materialize_history_plan(subject_uid, conversation_id, plan)
-    end
   end
 
   @doc false
@@ -1012,48 +982,6 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp preserve_visible_anchor(result, _previous_response_id), do: result
-
-  defp materialize_history_plan(_subject_uid, _conversation_id, %{compaction: nil} = plan) do
-    {:ok, Map.delete(plan, :expected_previous_response_id)}
-  end
-
-  defp materialize_history_plan(
-         subject_uid,
-         conversation_id,
-         %{
-           previous_response_id: previous_response_id,
-           compaction: %{
-             artifact_attrs: artifact_attrs,
-             checkpoint_metadata: checkpoint_metadata
-           }
-         } = plan
-       ) do
-    with {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
-         {:ok, checkpoint} <-
-           StatefulResponses.create_compaction_checkpoint(%{
-             subject_uid: subject_uid,
-             previous_response_id: previous_response_id,
-             artifact: artifact,
-             metadata: checkpoint_metadata
-           }) do
-      checkpoint_response_id = "resp_#{checkpoint.id}"
-
-      {:ok,
-       plan
-       |> Map.put(
-         :history,
-         StatefulResponses.expand_history(conversation_id,
-           previous_response_id: checkpoint_response_id
-         )
-       )
-       |> Map.put(:previous_response_id, checkpoint_response_id)
-       |> Map.put(:compaction, checkpoint)
-       |> Map.update!(:run_metadata, fn run_metadata ->
-         put_checkpoint_response_id(run_metadata, checkpoint_response_id)
-       end)
-       |> Map.delete(:expected_previous_response_id)}
-    end
-  end
 
   defp create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary) do
     CompactionArtifacts.insert_artifact(

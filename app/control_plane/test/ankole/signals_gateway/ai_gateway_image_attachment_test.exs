@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Conversations
 
@@ -57,7 +58,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
              )
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}},
@@ -140,7 +141,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
              )
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}
@@ -164,7 +165,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}

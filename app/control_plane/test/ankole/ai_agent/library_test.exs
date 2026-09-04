@@ -77,13 +77,16 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "new agents are seeded with soul, mission, and design library entries" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, soul} = Library.get_soul(agent.uid)
-    assert {:ok, mission} = Library.get_mission(agent.uid)
-    assert {:ok, design} = Library.get_design(agent.uid)
+    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
 
-    assert soul == File.read!(Path.expand("../../../../library/templates/SOUL.md", __DIR__))
-    assert mission == File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
-    assert design == File.read!(Path.expand("../../../../library/templates/DESIGN.md", __DIR__))
+    assert documents["soul"]["content"] ==
+             File.read!(Path.expand("../../../../library/templates/SOUL.md", __DIR__))
+
+    assert documents["mission"]["content"] ==
+             File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
+
+    assert documents["design"]["content"] ==
+             File.read!(Path.expand("../../../../library/templates/DESIGN.md", __DIR__))
   end
 
   test "rejects unimplemented library source kinds" do
@@ -358,9 +361,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     write_agent_plugin!(library_root, "collision-plugin", "shared-name")
     with_library_config(library_root: library_root)
-
-    assert {:error, {:skill_source_name_conflicts, ["shared-name"]}} =
-             Library.sync_builtin_skills(force: true)
 
     assert {:error, {:skill_source_name_conflicts, ["shared-name"]}} =
              Library.global_capabilities()

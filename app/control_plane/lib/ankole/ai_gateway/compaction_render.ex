@@ -164,6 +164,33 @@ defmodule Ankole.AIGateway.CompactionRender do
     "tool_search_output execution=#{execution} call_ref=#{call_ref} status=#{status} tools=#{tools}"
   end
 
+  def item_text(%{"type" => "brain_call"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    operation = Map.get(item, "operation") || "unknown"
+
+    arguments =
+      Map.get(item, "arguments")
+      |> stringify()
+      |> truncate_text(cap(caps, :function_call_arguments))
+
+    "brain_call operation=#{operation} call_ref=#{call_ref} arguments=#{arguments}"
+  end
+
+  def item_text(%{"type" => "brain_output"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    operation = Map.get(item, "operation") || "unknown"
+    status = Map.get(item, "status") || "unknown"
+
+    output =
+      Map.get(item, "output")
+      |> stringify()
+      |> truncate_text(cap(caps, :function_call_output))
+
+    "brain_output operation=#{operation} call_ref=#{call_ref} status=#{status} output=#{output}"
+  end
+
   def item_text(%{"type" => "reasoning"} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
 

@@ -63,7 +63,6 @@ import {
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
-  BrainRequestSchema,
   CodexLogs2DailyMaintenanceRequestSchema,
   CodexLogs2DailyMaintenanceResponseSchema,
   InstalledSkillReplaceRequestSchema,
@@ -123,17 +122,6 @@ import {
 export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
-  brainRemember: 'brain.remember',
-  brainLearnSource: 'brain.learn_source',
-  brainRecall: 'brain.recall',
-  brainGetPage: 'brain.get_page',
-  brainForget: 'brain.forget',
-  brainEntity: 'brain.entity',
-  brainWhoknows: 'brain.whoknows',
-  brainSynthesize: 'brain.synthesize',
-  brainDelta: 'brain.delta',
-  brainContextPack: 'brain.context_pack',
-  brainVolunteerPointers: 'brain.volunteer_pointers',
   actorTurnAbort: 'actor_turn.abort',
   actorTurnComplete: 'actor_turn.complete',
   actorTurnNoop: 'actor_turn.noop',
@@ -207,17 +195,6 @@ export type RPCOperationMeta =
 export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainRemember]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.brainLearnSource]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.brainRecall]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainGetPage]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainForget]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.brainEntity]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainWhoknows]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainSynthesize]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.brainDelta]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainContextPack]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.brainVolunteerPointers]: { scope: 'turn', effect: 'read' },
   [rpcMethods.actorTurnAbort]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnNoop]: { scope: 'turn', effect: 'complete' },
@@ -284,20 +261,6 @@ export const rpcSchemas = {
   [rpcMethods.agentConversationContextResolve]: {
     request: AgentConversationContextRequestSchema,
     response: AgentConversationContextResponseSchema
-  },
-  [rpcMethods.brainRemember]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainLearnSource]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainRecall]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainGetPage]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainForget]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainEntity]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainWhoknows]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainSynthesize]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainDelta]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainContextPack]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.brainVolunteerPointers]: {
-    request: BrainRequestSchema,
-    response: JSONPassthroughResponseSchema
   },
   [rpcMethods.actorTurnAbort]: {
     request: ActorTurnAbortRequestSchema,
@@ -523,7 +486,6 @@ export type RPCRequester = <M extends ControlPlaneOwnedRPCMethod>(
 export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
 export type SignalChannelRPCMethod = Extract<RPCMethod, `signal_channel.${string}`>
-export type BrainRPCMethod = Extract<RPCMethod, `brain.${string}`>
 export type AutomationJobManagementRPCMethod =
   | typeof rpcMethods.automationJobCreate
   | typeof rpcMethods.automationJobList
@@ -555,18 +517,6 @@ export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMet
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
 
-/**
- * Every brain method carries one free-form JSON params document
- * (`BrainRequest`), so this requester owns both codec directions and the
- * params keys are the control-plane BrainBroker contract. The optional
- * timeout serves the short-deadline context injections.
- */
-export type BrainRPCRequester = (
-  method: BrainRPCMethod,
-  params: JSONObject,
-  options?: { timeoutMs?: number }
-) => Promise<JSONObject>
-
 export function scheduleRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): ScheduleRPCRequester {
   // Every schedule method is turn-scoped; the conditional frame type cannot
   // be discharged over a generic method union.
@@ -589,11 +539,6 @@ export function signalChannelRPCRequester(rpc: RPCRequester, turn: ActorTurnRef)
 export function automationJobRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): AutomationJobRPCRequester {
   return async (method, payload) =>
     passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
-}
-
-export function brainRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): BrainRPCRequester {
-  return async (method, params, options) =>
-    passthroughJSON(await rpc(method, { paramsJson: jsonBytes(params) }, { turn }, options), method)
 }
 
 function passthroughJSON(response: { bodyJson: Uint8Array }, method: string): JSONObject {

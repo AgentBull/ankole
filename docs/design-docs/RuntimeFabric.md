@@ -473,6 +473,11 @@ The Worker ends an attempt with one of three turn-scoped RPCs:
 
 Neither outcome proves the broader user task succeeded.
 
+`actor_turn.noop` records the outcome `silent`. It carries the final Response
+ID when the Worker ran a model loop and adopted a Response, and no ID when the
+turn made no gateway Response. A completed ActorEvent therefore always records
+how the turn ended, and which Response ended it when one exists.
+
 SignalsGateway checks that the Response chain did not change. It then completes
 the main ActorEvent and every input delivery with `revision <= R`, and it stores
 the replies in one transaction. A delivery with `revision > R` stays open.
@@ -480,7 +485,8 @@ Completion is stronger than `turn_accepted`, so it can commit an applied
 delivery that is still `sent`. This removes a race between the actor-lane
 acceptance task and the RPC task.
 
-`actor_turn.noop` consumes the same applied prefix. `actor_turn.abort` validates
+`actor_turn.noop` consumes the same applied prefix through the same completion
+transaction, without provider-visible output. `actor_turn.abort` validates
 the static attempt fence and `R <= A`, supersedes the attempt deliveries, and
 keeps every ActorEvent open for retry or dead-letter handling. It does not
 depend on the lease still being alive.
@@ -506,10 +512,11 @@ AIGateway output before it makes the ActorEvent ready again. A suffix containing
 only message and reasoning items is replay-safe: ActorRuntime retracts that
 visible suffix, fails any generating Response, and retries the event. A suffix
 that contains a tool call, tool result, or another effect-bearing item is not
-replayed. ActorRuntime dead-letters the event and commits a provider-visible
-failure notice for manual recovery. A notice with no route, because its channel
-takes no replies or its route rows are deleted, is logged and skipped. Worker
-takeover never depends on an old event's channel.
+replayed. ActorRuntime dead-letters the event, records a bounded and redacted
+copy of the failure reason on it, and commits a provider-visible failure notice
+for manual recovery. A notice with no route, because its channel takes no
+replies or its route rows are deleted, is logged and skipped. Worker takeover
+never depends on an old event's channel.
 
 A Turn with no reply uses `actor_turn.noop`. Silence alone never completes a
 Turn. A Worker failure uses `actor_turn.abort` and the normal retry path. The

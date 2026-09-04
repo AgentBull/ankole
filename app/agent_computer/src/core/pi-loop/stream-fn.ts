@@ -14,8 +14,8 @@
  *
  * Tool results must reach AIGateway even on a round pi's own loop never
  * revisits. `recordToolResultsEagerly` shares this private cursor and is called
- * from `prepareNextTurnWithContext`; `run()`'s delta therefore never contains
- * a tool result.
+ * from `shouldStopAfterTurn`; `run()`'s delta therefore never contains a tool
+ * result.
  */
 
 import type {
@@ -51,6 +51,15 @@ import type { PiTurnState, ToolCallWireMeta } from './turn-state'
 
 const PI_API = 'openai-responses'
 
+/**
+ * Local attempts per model call, retried inside this Worker on transient
+ * provider errors. The control plane redelivers a failed Turn up to its own
+ * dead-letter count (`@worker_turn_error_dead_letter_attempts` in
+ * `app/control_plane/lib/ankole/signals_gateway/actor_runtime/turn_lifecycle.ex`),
+ * so one actor event can cost this number x that count model calls.
+ */
+const LOCAL_ATTEMPTS_PER_MODEL_CALL = 3
+
 /** See `recordToolResultsEagerly`'s doc inside `createPiStreamFn`. */
 export type RecordToolResultsEagerly = (context: PiContext, followUps: PiUserMessage[]) => Promise<string>
 
@@ -72,6 +81,7 @@ export function createPiStreamFn(
     | 'temperature'
     | 'text'
     | 'hostedTools'
+    | 'onHostedBrainItem'
     | 'logger'
   >,
   turnState: PiTurnState
@@ -90,6 +100,7 @@ export function createPiStreamFn(
     stateful: config.stateful,
     abortSignal: config.abortSignal,
     onActivity: config.onActivity,
+    onHostedBrainItem: config.onHostedBrainItem,
     onTextDelta: delta => currentTextSink?.(delta)
   })
 
@@ -148,14 +159,18 @@ export function createPiStreamFn(
           config.logger?.warning('worker.tool_results_record_failed', 'worker tool results record failed', {
             ...recordFields,
             duration_ms: Date.now() - startedAt,
-            will_retry: attempt < 3 && retryable && !config.abortSignal?.aborted
+            will_retry: attempt < LOCAL_ATTEMPTS_PER_MODEL_CALL && retryable && !config.abortSignal?.aborted
           })
           throw error
         } finally {
           config.onActivity?.('tool_results_record_done')
         }
       },
-      { maxAttempts: 3, signal: config.abortSignal, isRetryable: isLocallyRetryableLLMError }
+      {
+        maxAttempts: LOCAL_ATTEMPTS_PER_MODEL_CALL,
+        signal: config.abortSignal,
+        isRetryable: isLocallyRetryableLLMError
+      }
     )
     context.messages.push(...followUps)
     cursor = context.messages.length
@@ -182,7 +197,7 @@ export function createPiStreamFn(
     // as ordinary input items from the previous anchor.
     //
     // The delta otherwise never contains a tool result: `recordToolResultsEagerly`
-    // (called from `prepareNextTurnWithContext`, before pi ever gets back here)
+    // (called from `shouldStopAfterTurn`, before pi ever gets back here)
     // already consumed and advanced the cursor past those. Whatever remains is
     // plain steering — external, iteration-limit synthesis, empty-response
     // nudge, or response repair — bound for `.call()` as-is.
@@ -262,12 +277,16 @@ export function createPiStreamFn(
               ...requestFields,
               duration_ms: Date.now() - startedAt,
               ...modelErrorFields(error),
-              will_retry: modelAttempt < 3 && retryable && !config.abortSignal?.aborted
+              will_retry: modelAttempt < LOCAL_ATTEMPTS_PER_MODEL_CALL && retryable && !config.abortSignal?.aborted
             })
             throw error
           }
         },
-        { maxAttempts: 3, signal: config.abortSignal, isRetryable: isLocallyRetryableLLMError }
+        {
+          maxAttempts: LOCAL_ATTEMPTS_PER_MODEL_CALL,
+          signal: config.abortSignal,
+          isRetryable: isLocallyRetryableLLMError
+        }
       )
       currentTextSink = undefined
 

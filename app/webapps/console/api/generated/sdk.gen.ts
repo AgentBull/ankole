@@ -183,9 +183,6 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
-  AnkoleWebAuthControllerOauthTokenData,
-  AnkoleWebAuthControllerOauthTokenErrors,
-  AnkoleWebAuthControllerOauthTokenResponses,
   AnkoleWebAuthZGroupControllerAddMemberData,
   AnkoleWebAuthZGroupControllerAddMemberErrors,
   AnkoleWebAuthZGroupControllerAddMemberResponses,
@@ -324,6 +321,24 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncErrors,
   AnkoleWebIdentityProviderControllerRunSyncResponses,
+  AnkoleWebOidcClientControllerCreateData,
+  AnkoleWebOidcClientControllerCreateErrors,
+  AnkoleWebOidcClientControllerCreateResponses,
+  AnkoleWebOidcClientControllerDeleteData,
+  AnkoleWebOidcClientControllerDeleteErrors,
+  AnkoleWebOidcClientControllerDeleteResponses,
+  AnkoleWebOidcClientControllerIndexData,
+  AnkoleWebOidcClientControllerIndexErrors,
+  AnkoleWebOidcClientControllerIndexResponses,
+  AnkoleWebOidcClientControllerRotateSecretData,
+  AnkoleWebOidcClientControllerRotateSecretErrors,
+  AnkoleWebOidcClientControllerRotateSecretResponses,
+  AnkoleWebOidcClientControllerShowData,
+  AnkoleWebOidcClientControllerShowErrors,
+  AnkoleWebOidcClientControllerShowResponses,
+  AnkoleWebOidcClientControllerUpdateData,
+  AnkoleWebOidcClientControllerUpdateErrors,
+  AnkoleWebOidcClientControllerUpdateResponses,
   AnkoleWebPermissionGrantControllerCreateData,
   AnkoleWebPermissionGrantControllerCreateErrors,
   AnkoleWebPermissionGrantControllerCreateResponses,
@@ -2134,6 +2149,84 @@ export const ankoleWebBrainControllerCreateSource = <ThrowOnError extends boolea
   })
 
 /**
+ * Delete an OIDC Client
+ */
+export const ankoleWebOidcClientControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebOidcClientControllerDeleteResponses,
+  AnkoleWebOidcClientControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebOidcClientControllerDeleteResponses,
+    AnkoleWebOidcClientControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * Read an OIDC Client
+ */
+export const ankoleWebOidcClientControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebOidcClientControllerShowResponses, AnkoleWebOidcClientControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebOidcClientControllerShowResponses,
+    AnkoleWebOidcClientControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * Update an OIDC Client
+ */
+export const ankoleWebOidcClientControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebOidcClientControllerUpdateResponses,
+  AnkoleWebOidcClientControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebOidcClientControllerUpdateResponses,
+    AnkoleWebOidcClientControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Retrieve a stored stateful OpenResponses response
  */
 export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
@@ -2165,7 +2258,7 @@ export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extend
   })
 
 /**
- * Read one background Agent Job and its runtime Turn trajectory
+ * Read one background Agent Job and one page of its runtime Turn trajectory
  */
 export const ankoleWebBackgroundAgentJobControllerShow = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebBackgroundAgentJobControllerShowData, ThrowOnError>
@@ -2258,6 +2351,32 @@ export const ankoleWebAgentControllerUpdate = <ThrowOnError extends boolean = fa
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Rotate a confidential OIDC Client secret
+ */
+export const ankoleWebOidcClientControllerRotateSecret = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerRotateSecretData, ThrowOnError>
+): RequestResult<
+  AnkoleWebOidcClientControllerRotateSecretResponses,
+  AnkoleWebOidcClientControllerRotateSecretErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebOidcClientControllerRotateSecretResponses,
+    AnkoleWebOidcClientControllerRotateSecretErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}/secret-rotations',
+    ...options
   })
 
 /**
@@ -4479,6 +4598,58 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnErro
   })
 
 /**
+ * List OIDC Clients
+ */
+export const ankoleWebOidcClientControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebOidcClientControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebOidcClientControllerIndexResponses, AnkoleWebOidcClientControllerIndexErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebOidcClientControllerIndexResponses,
+    AnkoleWebOidcClientControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients',
+    ...options
+  })
+
+/**
+ * Create an OIDC Client
+ */
+export const ankoleWebOidcClientControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebOidcClientControllerCreateResponses,
+  AnkoleWebOidcClientControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebOidcClientControllerCreateResponses,
+    AnkoleWebOidcClientControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Delete one agent-tier worker shell variable
  */
 export const ankoleWebWorkerEnvControllerDeleteForAgent = <ThrowOnError extends boolean = false>(
@@ -4527,25 +4698,6 @@ export const ankoleWebWorkerEnvControllerUpdateForAgent = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/agents/{agent_uid}/worker-envs/{name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Exchange a browser admin session or refresh token for console bearer tokens
- */
-export const ankoleWebAuthControllerOauthToken = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthControllerOauthTokenData, ThrowOnError>
-): RequestResult<AnkoleWebAuthControllerOauthTokenResponses, AnkoleWebAuthControllerOauthTokenErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAuthControllerOauthTokenResponses,
-    AnkoleWebAuthControllerOauthTokenErrors,
-    ThrowOnError
-  >({
-    url: '/.internal-apis/oauth/token',
     ...options,
     headers: {
       'Content-Type': 'application/json',

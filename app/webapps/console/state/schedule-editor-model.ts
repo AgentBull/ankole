@@ -1,19 +1,25 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
+import type {
+  ScheduleCronUpdateRequest,
+  ScheduleCronWriteRequest,
+  ScheduleDelivery,
+  ScheduleDeliveryTarget,
+  ScheduleRecurrence
+} from '../api/generated/types.gen'
 
 /**
  * Editor model for one cron schedule.
  *
- * The wire shape splits across several JSON-value fields the backend validates
- * loosely (`schedule`, `delivery`, `payload`), so the model flattens them into
- * individually editable signals and reassembles them on save. `task` edits
- * `payload.task` — the self-contained standing instruction a direct-Agent
- * schedule must carry — while the rest of the stored payload passes through
- * untouched.
+ * The wire shape splits across the nested `schedule`, `delivery`, and `payload`
+ * objects, so the model flattens them into individually editable signals and
+ * reassembles them on save. `task` edits `payload.task` — the self-contained
+ * standing instruction a direct-Agent schedule must carry — while the rest of
+ * the stored payload passes through untouched.
  */
 
-export type CronStatus = 'active' | 'paused'
+export type CronStatus = NonNullable<ScheduleCronWriteRequest['status']>
 
-export type ScheduleKind = 'cron' | 'every'
+export type ScheduleKind = ScheduleRecurrence['kind']
 
 export type ScheduleOccurrenceBound = { count: number } | { until: string }
 
@@ -41,61 +47,23 @@ export type ScheduleEditorDraft = {
   idempotencyKey: string
 }
 
-export type CronCreateBody = {
-  owner_session_id: string
-  binding_name: string
-  name: string
-  status?: CronStatus
-  schedule: Record<string, unknown>
-  timezone?: string | null
-  payload?: unknown
-  delivery: { targets: DeliveryTarget[] }
-  idempotency_key: string
-}
-
-export type CronUpdateBody = {
-  name?: string
-  schedule?: Record<string, unknown>
-  timezone?: string | null
-  payload?: unknown
-  delivery?: { targets: DeliveryTarget[] }
-}
-
-type DeliveryTarget = {
-  binding_name: string
-  signal_channel_id: string
-  provider_thread_id?: string
-}
-
-/** The stored multi-target delivery projection. */
-export type CronDeliveryProjection = {
-  targets?: Array<{
-    binding_name?: string
-    signal_channel_id?: string
-    provider_thread_id?: string
-  }>
-}
-
 /** Maps stored delivery targets to editable drafts. */
-export function deliveryTargetDrafts(delivery: CronDeliveryProjection | null | undefined): DeliveryTargetDraft[] {
-  const targets = Array.isArray(delivery?.targets) ? delivery.targets : []
-  return targets.map(target => ({
-    bindingName: target.binding_name ?? '',
-    channelId: target.signal_channel_id ?? '',
+export function deliveryTargetDrafts(delivery: ScheduleDelivery | null | undefined): DeliveryTargetDraft[] {
+  return (delivery?.targets ?? []).map(target => ({
+    bindingName: target.binding_name,
+    channelId: target.signal_channel_id,
     threadId: target.provider_thread_id ?? ''
   }))
 }
 
 /** Reads the normalized occurrence bound that the editor must preserve. */
-export function scheduleOccurrenceBound(schedule: Record<string, unknown>): ScheduleOccurrenceBound | undefined {
-  const occurrences = schedule.occurrences
-  if (!occurrences || typeof occurrences !== 'object' || Array.isArray(occurrences)) return undefined
-
-  const count = (occurrences as { count?: unknown }).count
-  if (Number.isSafeInteger(count) && Number(count) > 0) return { count: Number(count) }
-
-  const until = (occurrences as { until?: unknown }).until
-  return typeof until === 'string' && until ? { until } : undefined
+export function scheduleOccurrenceBound(
+  schedule: Pick<ScheduleRecurrence, 'occurrences'>
+): ScheduleOccurrenceBound | undefined {
+  const bound = schedule.occurrences
+  if (!bound) return undefined
+  if (bound.count != null && bound.count > 0) return { count: bound.count }
+  return bound.until ? { until: bound.until } : undefined
 }
 
 export function isMutableCronStatus(status: string): status is CronStatus {
@@ -142,13 +110,13 @@ export const ScheduleEditorModel = createModel(() => {
     })
   }
 
-  const buildSchedule = (): Record<string, unknown> | null => {
+  const buildSchedule = (): ScheduleRecurrence | null => {
     const occurrences = initialDraft.value?.occurrences
-    const kind = (scheduleKind.value || 'cron') as ScheduleKind
+    const kind: ScheduleKind = scheduleKind.value || 'cron'
     if (kind === 'cron') {
       const expression = cronExpression.value.trim()
       if (!expression) return null
-      const out: Record<string, unknown> = { kind: 'cron', expression }
+      const out: ScheduleRecurrence = { kind: 'cron', expression }
       if (timezone.value.trim()) out.timezone = timezone.value.trim()
       if (occurrences) out.occurrences = { ...occurrences }
       return out
@@ -171,9 +139,9 @@ export const ScheduleEditorModel = createModel(() => {
   // before switching kinds must not ride along and stick to an `every` row.
   const effectiveTimezone = (): string => ((scheduleKind.value || 'cron') === 'cron' ? timezone.value.trim() : '')
 
-  const buildDelivery = (): { targets: DeliveryTarget[] } | null => {
+  const buildDelivery = (): ScheduleDelivery | null => {
     const targets = deliveryTargets.value.map(target => {
-      const out: DeliveryTarget = {
+      const out: ScheduleDeliveryTarget = {
         binding_name: target.bindingName.trim(),
         signal_channel_id: target.channelId.trim()
       }
@@ -297,7 +265,7 @@ export const ScheduleEditorModel = createModel(() => {
         buildPayload() !== null
       )
     },
-    toCreateBody(): CronCreateBody | null {
+    toCreateBody(): ScheduleCronWriteRequest | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
@@ -317,7 +285,7 @@ export const ScheduleEditorModel = createModel(() => {
       ) {
         return null
       }
-      const body: CronCreateBody = {
+      const body: ScheduleCronWriteRequest = {
         owner_session_id: ownerSession,
         binding_name: binding,
         name: trimmedName,
@@ -330,13 +298,13 @@ export const ScheduleEditorModel = createModel(() => {
       body.payload = nextPayload
       return body
     },
-    toUpdateBody(): CronUpdateBody | null {
+    toUpdateBody(): ScheduleCronUpdateRequest | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const original = initialDraft.value
       const nextPayload = buildPayload()
       if (!schedule || !delivery || !original || nextPayload === null || !taskSatisfied()) return null
-      const body: CronUpdateBody = {}
+      const body: ScheduleCronUpdateRequest = {}
       const trimmedName = name.value.trim()
       if (!trimmedName) return null
       if (trimmedName !== original.name.trim()) body.name = trimmedName

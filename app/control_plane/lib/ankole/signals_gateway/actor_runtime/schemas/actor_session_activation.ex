@@ -21,7 +21,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation do
   # `starting/active/draining` are the "live" statuses (the activation owns the
   # session); `stopped/failed` are terminal. Only one live activation may exist
   # per actor key at a time (enforced by a partial unique index, see changeset).
-  @statuses ~w(starting active draining stopped failed)
+  @live_statuses ~w(starting active draining)
+  @statuses @live_statuses ++ ~w(stopped failed)
+
+  @type t :: %__MODULE__{}
 
   schema "actor_session_activations" do
     field :activation_uid, :string
@@ -117,4 +120,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation do
       name: :actor_session_activations_live_actor_index
     )
   end
+
+  @doc """
+  Statuses in which the activation still owns its actor session.
+  """
+  @spec live_statuses() :: [String.t()]
+  def live_statuses, do: @live_statuses
+
+  @spec live?(t()) :: boolean()
+  def live?(%__MODULE__{status: status}), do: status in @live_statuses
+
+  @doc """
+  Returns true while `now` is before the lease deadline.
+  """
+  @spec lease_alive?(t(), DateTime.t()) :: boolean()
+  def lease_alive?(
+        %__MODULE__{lease_expires_at: %DateTime{} = lease_expires_at},
+        %DateTime{} = now
+      ),
+      do: DateTime.compare(lease_expires_at, now) == :gt
 end

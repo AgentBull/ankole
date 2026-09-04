@@ -2,7 +2,7 @@ import { buttonVariants, Checkbox, cn, Input } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { ankoleWebPrincipalControllerCreateMutation } from '../api/generated/@tanstack/react-query.gen'
@@ -11,6 +11,7 @@ import { LabeledField, ResourceEditorPage } from '../console-form'
 import { BackLink, PageStack } from '../console-page'
 import { InitialPasswordReveal } from '../initial-password-reveal'
 import { PrincipalEditorModel, type PrincipalDraftError } from '../state/principal-editor-model'
+import { useEditorDraft } from '../use-editor-draft'
 
 type Translate = (key: string, values?: Record<string, unknown>) => string
 
@@ -45,10 +46,11 @@ export function PrincipalCreatePage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const model = useModel(PrincipalEditorModel)
-
-  useEffect(() => {
-    model.initialize('new', { displayName: '', email: '' })
-  }, [model])
+  const principalDraft = useMemo(() => ({ displayName: '', email: '' }), [])
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'principal' },
+    source: principalDraft
+  })
 
   const create = useMutation({
     ...ankoleWebPrincipalControllerCreateMutation(),
@@ -106,6 +108,7 @@ export function PrincipalCreatePage() {
       }
       error={principalRequestError(create.error, t)}
       submitting={create.isPending}
+      submitUnavailable={draftStatus !== 'ready'}
       submitLabel={t('console.principals.create_submit')}
       onSubmit={submit}>
       <LabeledField label={t('console.principals.display_name')} required>

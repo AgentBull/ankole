@@ -59,9 +59,9 @@ export type TurnStart = {
   runtime_env?: Record<string, string>
 }
 
-export type TurnHostedTool = { type: 'image_generation' } | { type: 'web_search' }
+export type TurnHostedTool = { type: 'image_generation' } | { type: 'web_search' } | { type: 'brain' }
 
-const TURN_HOSTED_TOOL_TYPES = new Set(['image_generation', 'web_search'])
+const TURN_HOSTED_TOOL_TYPES = new Set(['image_generation', 'web_search', 'brain'])
 
 export type TurnSteerUpdate = {
   turn: ActorTurnRef

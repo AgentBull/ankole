@@ -48,7 +48,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
                       Actors.mark_event_dead_letter_in_tx(
                         repo,
                         source,
-                        DateTime.add(@base_time, 2, :second)
+                        DateTime.add(@base_time, 2, :second),
+                        "cron_failed"
                       ),
                     {:ok, outbox} <-
                       Ankole.SignalsGateway.Outbox.commit_dead_letter_notice_outbox_in_tx(
@@ -503,7 +504,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
                Actors.mark_event_dead_letter_in_tx(
                  repo,
                  steer_event,
-                 DateTime.add(@base_time, 1, :second)
+                 DateTime.add(@base_time, 1, :second),
+                 "steer_failed"
                )
              end)
 
@@ -940,7 +942,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     {:ok, generating} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => input.id}},
@@ -1125,7 +1127,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
             %{
               status: :input_superseded,
               actor_event: superseded,
-              retry_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+              control_outcomes: [%{send_outcome: "sent_or_queued"}]
             }} =
              Ingress.emit_entry(agent.uid, "bot", pending, now: observed_at)
 
@@ -1554,7 +1556,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent_uid, input.session_id)
 
     {:ok, generating} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent_uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => input.id}},

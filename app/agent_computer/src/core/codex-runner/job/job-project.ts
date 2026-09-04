@@ -2,9 +2,9 @@ import { existsSync, lstatSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { agentHomePaths, jobWorkspacePath } from '../../agent-home-paths'
 
+/** The Job Workspace root is the real process directory and the Codex project root. */
 export type PreparedCodexJobProject = {
   root: string
-  codexCwd: string
 }
 
 export function codexJobProjectLocation(
@@ -34,7 +34,7 @@ export function prepareCodexJobProject(input: { jobProjectRoot: string }): Prepa
   if (existsSync(join(input.jobProjectRoot, '.git'))) {
     throw new Error('Background agent job workspace must remain non-Git')
   }
-  return { root: input.jobProjectRoot, codexCwd: input.jobProjectRoot }
+  return { root: input.jobProjectRoot }
 }
 
 function ensureRealDirectory(path: string, label: string): void {

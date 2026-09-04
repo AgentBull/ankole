@@ -111,6 +111,7 @@ defmodule Ankole.MixProject do
       {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
+      {:boruta, "2.3.8"},
       {:toml_elixir, "~> 3.1"},
       {:yaml_elixir, "~> 2.12"},
       {:pgvector, "~> 0.4"},

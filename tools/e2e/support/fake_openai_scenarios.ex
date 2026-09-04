@@ -9,6 +9,46 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   alias Ankole.E2E.FakeOpenAISkillScenarios
 
+  @trigger_markers [
+    "CHAOS_WF_KILL_TASK",
+    "CHAOS_WF_KILL_RUN",
+    "CHAOS_WF_KILL_START",
+    "CHAOS_MALFORMED_STREAM",
+    "CHAOS_IDLE_STEER_OK",
+    "CHAOS_STEERED_OK",
+    "CHAOS_FOLLOWUP_SECOND_OK",
+    "CHAOS_FOLLOWUP_SLOW",
+    "CHAOS_FOLLOWUP_RECALL_SLOW",
+    "CHAOS_DM_ISOLATION_SEED",
+    "CHAOS_GROUP_ISOLATION_CHECK",
+    "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
+    "CHAOS_REPLY_ATTACHMENT",
+    "CHAOS_TODO_TOOL",
+    "CHAOS_SKILL_VIEW_ALL",
+    "CHAOS_SKILL_VIEW",
+    "CHAOS_SKILL_DISABLED",
+    "CHAOS_INSTALLED_SKILL_DELETED",
+    "CHAOS_INSTALLED_SKILL",
+    "CHAOS_READ_FILE",
+    "CHAOS_PATCH_TOOL",
+    "CHAOS_WORKSPACE_WRITE",
+    "CHAOS_WORKSPACE_READ",
+    "CHAOS_AFTER_NEW_RECALL_OK",
+    "CHAOS_OLD_RECALL_OK",
+    "CHAOS_NEW_AFTER_OK",
+    "CHAOS_SLOW_NEW",
+    "CHAOS_RECALL_SLOW",
+    "CHAOS_STEER_TOOL",
+    "CHAOS_SLOW_STOP",
+    "CHAOS_CHECKBACK_WAKE_OK",
+    "CHAOS_CHECKBACK_TOOL",
+    "CHAOS_CRON_WAKE_OK",
+    "CHAOS_CRON_TOOL",
+    "CHAOS_AMBIENT_IGNORE",
+    "CHAOS_AMBIENT_OK",
+    "CHAOS_DIRECT_OK"
+  ]
+
   @doc """
   Classifies one OpenAI-compatible chat request into a deterministic scenario.
   """
@@ -249,43 +289,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   end
 
   defp latest_request_trigger_text(request_text) when is_binary(request_text) do
-    [
-      {"CHAOS_MALFORMED_STREAM", "CHAOS_MALFORMED_STREAM"},
-      {"CHAOS_IDLE_STEER_OK", "CHAOS_IDLE_STEER_OK"},
-      {"CHAOS_STEERED_OK", "CHAOS_STEERED_OK"},
-      {"CHAOS_FOLLOWUP_SECOND_OK", "CHAOS_FOLLOWUP_SECOND_OK"},
-      {"CHAOS_FOLLOWUP_SLOW", "CHAOS_FOLLOWUP_SLOW"},
-      {"CHAOS_FOLLOWUP_RECALL_SLOW", "CHAOS_FOLLOWUP_RECALL_SLOW"},
-      {"CHAOS_DM_ISOLATION_SEED", "CHAOS_DM_ISOLATION_SEED"},
-      {"CHAOS_GROUP_ISOLATION_CHECK", "CHAOS_GROUP_ISOLATION_CHECK"},
-      {"CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN", "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"},
-      {"CHAOS_REPLY_ATTACHMENT", "CHAOS_REPLY_ATTACHMENT"},
-      {"CHAOS_TODO_TOOL", "CHAOS_TODO_TOOL"},
-      {"CHAOS_SKILL_VIEW_ALL", "CHAOS_SKILL_VIEW_ALL"},
-      {"CHAOS_SKILL_VIEW", "CHAOS_SKILL_VIEW"},
-      {"CHAOS_SKILL_DISABLED", "CHAOS_SKILL_DISABLED"},
-      {"CHAOS_INSTALLED_SKILL_DELETED", "CHAOS_INSTALLED_SKILL_DELETED"},
-      {"CHAOS_INSTALLED_SKILL", "CHAOS_INSTALLED_SKILL"},
-      {"CHAOS_READ_FILE", "CHAOS_READ_FILE"},
-      {"CHAOS_PATCH_TOOL", "CHAOS_PATCH_TOOL"},
-      {"CHAOS_WORKSPACE_WRITE", "CHAOS_WORKSPACE_WRITE"},
-      {"CHAOS_WORKSPACE_READ", "CHAOS_WORKSPACE_READ"},
-      {"CHAOS_AFTER_NEW_RECALL_OK", "CHAOS_AFTER_NEW_RECALL_OK"},
-      {"CHAOS_OLD_RECALL_OK", "CHAOS_OLD_RECALL_OK"},
-      {"CHAOS_NEW_AFTER_OK", "CHAOS_NEW_AFTER_OK"},
-      {"CHAOS_SLOW_NEW", "CHAOS_SLOW_NEW"},
-      {"CHAOS_RECALL_SLOW", "CHAOS_RECALL_SLOW"},
-      {"CHAOS_STEER_TOOL", "CHAOS_STEER_TOOL"},
-      {"CHAOS_SLOW_STOP", "CHAOS_SLOW_STOP"},
-      {"CHAOS_CHECKBACK_WAKE_OK", "CHAOS_CHECKBACK_WAKE_OK"},
-      {"CHAOS_CHECKBACK_TOOL", "CHAOS_CHECKBACK_TOOL"},
-      {"CHAOS_CRON_WAKE_OK", "CHAOS_CRON_WAKE_OK"},
-      {"CHAOS_CRON_TOOL", "CHAOS_CRON_TOOL"},
-      {"CHAOS_AMBIENT_IGNORE", "CHAOS_AMBIENT_IGNORE"},
-      {"CHAOS_AMBIENT_OK", "CHAOS_AMBIENT_OK"},
-      {"CHAOS_DIRECT_OK", "CHAOS_DIRECT_OK"}
-    ]
-    |> Enum.map(fn {needle, marker} -> {marker, last_index(request_text, needle)} end)
+    @trigger_markers
+    |> Enum.map(fn marker -> {marker, last_index(request_text, marker)} end)
     |> Enum.reject(fn {_marker, index} -> is_nil(index) end)
     |> Enum.max_by(fn {_marker, index} -> index end, fn -> nil end)
     |> case do
@@ -352,45 +357,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp content_text(_content), do: nil
 
   defp marker_text?(text) when is_binary(text) do
-    Enum.any?(
-      [
-        "CHAOS_MALFORMED_STREAM",
-        "CHAOS_STEERED_OK",
-        "CHAOS_IDLE_STEER_OK",
-        "CHAOS_FOLLOWUP_SECOND_OK",
-        "CHAOS_FOLLOWUP_SLOW",
-        "CHAOS_FOLLOWUP_RECALL_SLOW",
-        "CHAOS_DM_ISOLATION_SEED",
-        "CHAOS_GROUP_ISOLATION_CHECK",
-        "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
-        "CHAOS_REPLY_ATTACHMENT",
-        "CHAOS_TODO_TOOL",
-        "CHAOS_SKILL_VIEW_ALL",
-        "CHAOS_SKILL_VIEW",
-        "CHAOS_SKILL_DISABLED",
-        "CHAOS_INSTALLED_SKILL_DELETED",
-        "CHAOS_INSTALLED_SKILL",
-        "CHAOS_READ_FILE",
-        "CHAOS_PATCH_TOOL",
-        "CHAOS_WORKSPACE_WRITE",
-        "CHAOS_WORKSPACE_READ",
-        "CHAOS_AFTER_NEW_RECALL_OK",
-        "CHAOS_OLD_RECALL_OK",
-        "CHAOS_NEW_AFTER_OK",
-        "CHAOS_SLOW_NEW",
-        "CHAOS_RECALL_SLOW",
-        "CHAOS_CHECKBACK_WAKE_OK",
-        "CHAOS_STEER_TOOL",
-        "CHAOS_CRON_WAKE_OK",
-        "CHAOS_SLOW_STOP",
-        "CHAOS_CHECKBACK_TOOL",
-        "CHAOS_CRON_TOOL",
-        "CHAOS_AMBIENT_IGNORE",
-        "CHAOS_AMBIENT_OK",
-        "CHAOS_DIRECT_OK"
-      ],
-      &String.contains?(text, &1)
-    )
+    Enum.any?(@trigger_markers, &String.contains?(text, &1))
   end
 
   defp marker_text?(_text), do: false

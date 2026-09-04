@@ -29,6 +29,8 @@ type LoginProvider = {
  * change view.
  */
 export function AuthApp() {
+  'use no memo'
+
   useSignals()
   const model = useModel(LoginModel)
   const { t } = useTranslation()
@@ -135,8 +137,11 @@ export function AuthApp() {
 }
 
 function oidcAuthorizationPath(providerID: string): string {
-  const returnTo = new URLSearchParams(window.location.search).get('return_to') ?? '/console'
+  const pageQuery = new URLSearchParams(window.location.search)
+  const returnTo = pageQuery.get('return_to') ?? '/console'
   const query = new URLSearchParams({ return_to: returnTo })
+
+  if (pageQuery.get('oauth') === '1') query.set('oauth', '1')
 
   return `/sessions/oidc/${encodeURIComponent(providerID)}/authorization?${query}`
 }

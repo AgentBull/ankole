@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   alias Ankole.Plugins.TelegramAdapter
 
   alias Ankole.Plugins.TelegramAdapter.{
-    ActionToken,
     Client,
     Config,
     ConnectionOwner,
@@ -26,9 +25,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ReplyActionToken
   alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
   alias Ankole.SignalsGateway.{
@@ -36,6 +38,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     Actors,
     AdapterContext,
     Entry,
+    InboundBatch,
     OutboxEntry,
     ReplyInteractionState,
     ReplyPresentation
@@ -539,6 +542,81 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert_receive {:materialized_attachment_path, ^expected_lane}
     end
 
+    test "anchors the batch window at the attachment observation, not at the download" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+
+      Application.put_env(:ankole, Config,
+        client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
+      )
+
+      assert {:ok, _binding} =
+               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-media", %{
+                 "config" => %{"botToken" => "606:media-secret"},
+                 "unmatched_sender_policy" => "create_standalone"
+               })
+
+      open_batch = fn ->
+        Repo.get_by!(InboundBatch,
+          agent_uid: agent.uid,
+          binding_name: "telegram-media",
+          signal_channel_id: "telegram:606:chat:501",
+          batch_state: "open"
+        )
+      end
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case conn.request_path do
+          "/bot606:media-secret/getFile" ->
+            send(parent, {:pending_batch, open_batch.()})
+
+            Req.Test.json(conn, %{
+              "ok" => true,
+              "result" => %{"file_path" => "documents/slow.txt", "file_size" => 10}
+            })
+
+          "/file/bot606:media-secret/documents/slow.txt" ->
+            Plug.Conn.send_resp(conn, 400, "download unavailable")
+        end
+      end)
+
+      message =
+        private_message(9003, nil)
+        |> Map.put("document", %{
+          "file_id" => "slow-file",
+          "file_unique_id" => "slow-unique",
+          "file_name" => "slow.txt",
+          "mime_type" => "text/plain",
+          "file_size" => 10
+        })
+
+      assert {:ok, [%{signal_entry: %Entry{} = entry}]} =
+               Inbound.handle_message_receive(
+                 "message",
+                 telegram_update(1, message, %{id: "606", username: "AnkoleBot"}),
+                 [consumer(agent.uid, "telegram-media", %{"botToken" => "606:media-secret"})]
+               )
+
+      assert_receive {:pending_batch, pending_batch}
+
+      assert [%{"metadata" => %{"attachment_materialization" => pending_observation}}] =
+               pending_batch.entries
+
+      assert %{"state" => "pending", "observed_at" => observed_at_text} = pending_observation
+      {:ok, observed_at, 0} = DateTime.from_iso8601(observed_at_text)
+      assert pending_batch.available_at == DateTime.add(observed_at, 4_000, :millisecond)
+      assert pending_batch.hard_cap_at == pending_batch.available_at
+
+      assert entry.metadata["attachment_materialization"] == %{
+               "state" => "failed",
+               "observed_at" => observed_at_text
+             }
+
+      settled_batch = open_batch.()
+      assert settled_batch.available_at == DateTime.add(observed_at, 1_200, :millisecond)
+      assert is_nil(settled_batch.hard_cap_at)
+    end
+
     test "deduplicates an update delivered again before Telegram receives the next offset" do
       %{principal: agent} = agent_fixture()
 
@@ -884,7 +962,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         mode: :working
       }
 
-      assert {:ok, first} = ReplyPreview.update(request)
+      assert {:ok, first} = preview_update(request)
       assert first.created_source_entry_id == "900"
 
       assert first.reply_preview_checkpoint["messages"] == [
@@ -896,7 +974,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       updated = ReplyPresentation.replace_answer(presentation, "final draft")
 
       assert {:ok, second} =
-               ReplyPreview.update(%{
+               preview_update(%{
                  request
                  | presentation: updated,
                    checkpoint: first.reply_preview_checkpoint
@@ -955,21 +1033,23 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
           }
         )
 
+      {:ok, event} =
+        Actors.put_reply_preview_checkpoint(event.id, %{
+          "message_id" => "900",
+          "messages" => [%{"index" => 0, "message_id" => "900"}]
+        })
+
       request = %Request{
         actor_event: event,
         presentation:
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer("recovered draft"),
-        checkpoint: %{
-          "message_id" => "900",
-          "messages" => [%{"index" => 0, "message_id" => "900"}]
-        },
         subject_uid: "human-a",
         conversation_id: "conversation-a",
         mode: :working
       }
 
-      assert {:ok, result} = ReplyPreview.update(request)
+      assert {:ok, result} = preview_update(request)
       assert result.created_source_entry_id == "901"
 
       assert_received {:telegram_request, "/bot909:repost-secret/editMessageText", _edit_body}
@@ -1028,10 +1108,19 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         |> ReplyInteractionState.initialize(presentation, base_time())
 
       assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
-      assert {:ok, token} = ActionToken.encode(event.id, 0, hd(presentation["actions"]))
+
+      assert {:ok, token} =
+               ReplyActionToken.encode(event.id, 0, hd(presentation["actions"]),
+                 prefix: "tg1",
+                 max_bytes: 64,
+                 too_long_error: :callback_token_too_long
+               )
+
       assert byte_size(token) < 64
 
-      assert {:ok, value} = ActionToken.resolve(token, agent.uid, "telegram-action", "900")
+      assert {:ok, value} =
+               ReplyActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
+
       assert value["version"] == "ankole.interactive_output.action.v1"
       assert value["sourceActorEventId"] == event.id
       assert value["optionValue"] == "approved"
@@ -1039,11 +1128,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       # A forged event id must fail as an invalid token, not raise in the
       # event lookup: a raise would wedge the poll loop on the same update.
       assert {:error, :invalid_callback_token} =
-               ActionToken.resolve(
+               ReplyActionToken.resolve(
                  "tg1:not-a-uuid:0:AAAAAAAAAAA",
                  agent.uid,
                  "telegram-action",
-                 "900"
+                 "900",
+                 prefix: "tg1"
                )
 
       changed_checkpoint =
@@ -1057,7 +1147,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                Actors.put_reply_preview_checkpoint(event.id, changed_checkpoint)
 
       assert {:error, :invalid_callback_action} =
-               ActionToken.resolve(token, agent.uid, "telegram-action", "900")
+               ReplyActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
 
       assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
 
@@ -1348,4 +1438,9 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
+
+  defp preview_update(request) do
+    {:ok, adapter} = ReplyPreviewAdapter.from_module(ReplyPreview)
+    ReplyPreviewAdapter.update(adapter, request)
+  end
 end

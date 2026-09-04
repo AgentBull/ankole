@@ -7,7 +7,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
   For each stateful `response.create + store=true` run it:
 
     1. Resolves `previous_response_id` / `conversation` into a message chain.
-    2. Creates one `ai_gateway_messages` row with `status = "generating"`.
+    2. Admits the run with `start_planned_response_run/1`: one
+       `ai_gateway_messages` row with `status = "generating"` is created after
+       the conversation lock, the single generating run rule, and the expected
+       visible leaf check pass.
     3. Returns the row so the transport can build the provider-facing input
        (expanded history + current request items) and call the provider.
     4. Publishes generic response events keyed by the owning conversation.
@@ -17,8 +20,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   The loop itself is driven by the worker (one `response.create` per round);
   this module does NOT call the provider internally. Each call to
-  `start_response_run/2` corresponds to exactly one `response.create` and
-  exactly one `ai_gateway_messages` row (see plan §3.9 step 5–10).
+  `start_planned_response_run/1` corresponds to exactly one `response.create`
+  and exactly one `ai_gateway_messages` row (see plan §3.9 step 5–10).
   """
 
   import Ecto.Query, warn: false
@@ -41,64 +44,30 @@ defmodule Ankole.AIGateway.StatefulResponses do
   # Public API
 
   @doc """
-  Starts a stateful response run: creates a `generating` message row.
+  Admits a stateful response run and creates its `generating` message row.
 
   ## Parameters
 
     * `attrs` — a map with:
       - `subject_uid` (required) — the owning principal uid
-      - `conversation_id` (required) — the ai_gateway_conversations.id
-      - `previous_response_id` (optional) — "resp_{uuid}" decoded to a
-        raw UUID pointing at the anchor message
+      - `previous_response_id` — explicit "resp_{uuid}" anchor; the anchor
+        must be a `complete` row in an active conversation of the subject
+      - `conversation_id` — implicit anchor at the conversation's current
+        visible leaf; used instead of `previous_response_id`
+      - `expected_previous_response_id` — the visible leaf the caller planned
+        against (implicit runs only); admission fails with
+        `:response_run_in_progress` when the leaf moved
+      - `compaction` (optional) — `artifact_attrs` and `checkpoint_metadata`
+        from `Compaction.maybe_plan_history/6`; the checkpoint is inserted in
+        the same transaction and becomes the run's anchor
       - `request_items` (optional) — initial content items, including tool outputs
       - `metadata` (optional) — extra metadata merged into the row
 
-  Returns `{:ok, %Message{}}` or `{:error, changeset}`.
-
-  The returned message row's `id` becomes the `resp_{id}` for this run.
-  Its `previous_message_id` is set from the decoded anchor (or nil for a
-  fresh conversation). The caller uses this row to build the provider input
-  and initiate the provider call.
+  An implicit run takes the conversation lock and is rejected while another
+  `generating` run exists in the conversation. The returned message row's `id`
+  becomes the `resp_{id}` for this run, and the caller uses the row to build
+  the provider input and initiate the provider call.
   """
-  @spec start_response_run(map()) ::
-          {:ok, Message.t()}
-          | {:error,
-             Ecto.Changeset.t()
-             | :invalid_anchor
-             | :invalid_conversation
-             | :stateful_anchor_conflict}
-  def start_response_run(attrs) do
-    raw_subject_uid = Map.fetch!(attrs, :subject_uid)
-    conversation_id = conversation_id(attrs)
-    previous_response_id = previous_response_id(attrs)
-
-    with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
-         :ok <- validate_anchor_selector(conversation_id, previous_response_id),
-         {:ok, previous_message_id} <- decode_optional_response_id(previous_response_id),
-         {:ok, conversation} <-
-           resolve_run_conversation(subject_uid, conversation_id, previous_message_id) do
-      extra_metadata =
-        response_run_metadata(attrs)
-
-      initial_content = response_run_request_items(attrs)
-      merged_metadata = Map.merge(extra_metadata, request_items_metadata(initial_content))
-
-      insert_response_run(%{
-        subject_uid: subject_uid,
-        conversation_id: conversation.id,
-        previous_message_id: previous_message_id,
-        initial_content: initial_content,
-        merged_metadata: merged_metadata
-      })
-    else
-      {:error, :invalid_response_id} -> {:error, :invalid_anchor}
-      {:error, :invalid_uuid} -> {:error, :invalid_conversation}
-      {:error, :invalid_uid} -> {:error, :invalid_conversation}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @doc false
   @spec start_planned_response_run(map()) ::
           {:ok, Message.t()}
           | {:error,
@@ -321,38 +290,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
       {:error, :invalid_uid} -> {:error, :invalid_conversation}
       {:error, _reason} = error -> error
       _not_found_or_invalid -> {:error, :invalid_anchor}
-    end
-  end
-
-  defp insert_response_run(%{
-         subject_uid: subject_uid,
-         conversation_id: conversation_id,
-         previous_message_id: previous_message_id,
-         initial_content: initial_content,
-         merged_metadata: merged_metadata
-       }) do
-    case Repo.transact(fn repo ->
-           with {:ok, message} <-
-                  insert_response_run_in_tx(repo, %{
-                    subject_uid: subject_uid,
-                    conversation_id: conversation_id,
-                    previous_message_id: previous_message_id,
-                    initial_content: initial_content,
-                    merged_metadata: merged_metadata
-                  }),
-                :ok <- notify_ai_message_deadline(repo, message) do
-             {:ok, message}
-           end
-         end) do
-      {:ok, %Message{} = message} ->
-        Events.publish(message, :response_started, %{})
-        {:ok, message}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:error, changeset}
-
-      {:error, _reason} = error ->
-        error
     end
   end
 
@@ -1908,35 +1845,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp conversation_id(attrs),
     do: Map.get(attrs, :conversation_id, Map.get(attrs, "conversation_id"))
-
-  defp validate_anchor_selector(nil, nil), do: {:error, :invalid_conversation}
-
-  defp validate_anchor_selector(conversation_id, previous_response_id)
-       when not is_nil(conversation_id) and not is_nil(previous_response_id),
-       do: {:error, :stateful_anchor_conflict}
-
-  defp validate_anchor_selector(_conversation_id, _previous_response_id), do: :ok
-
-  defp resolve_run_conversation(subject_uid, conversation_id, nil),
-    do: get_conversation_for_subject(subject_uid, conversation_id)
-
-  defp resolve_run_conversation(subject_uid, nil, previous_message_id) do
-    case Repo.one(
-           from(m in Message,
-             join: c in Conversation,
-             on: c.id == m.conversation_id,
-             where:
-               m.id == ^previous_message_id and
-                 m.status == "complete" and
-                 c.subject_uid == ^subject_uid and
-                 is_nil(c.ended_at),
-             select: c
-           )
-         ) do
-      %Conversation{} = conversation -> {:ok, conversation}
-      nil -> {:error, :invalid_anchor}
-    end
-  end
 
   defp complete_message_for_subject(subject_uid, message_id) do
     complete_message_for_subject(Repo, subject_uid, message_id)

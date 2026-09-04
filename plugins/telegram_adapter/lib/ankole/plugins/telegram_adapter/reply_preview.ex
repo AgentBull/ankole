@@ -1,131 +1,65 @@
 defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
-  @moduledoc "Crash-recoverable Telegram mutable reply lifecycle."
+  @moduledoc "Telegram transport for the shared crash-recoverable message preview ledger."
 
   @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Plugins.ChunkedMessagePreview
 
+  alias Ankole.Plugins.ChunkedMessagePreview
   alias Ankole.Plugins.TelegramAdapter.{Client, Config, ErrorPolicy, Outbox, Presentation}
-  alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{ActorEvent, Actors, ReplyInteractionState, ReplyPresentation}
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
-  @checkpoint_version 1
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  def open(%Request{} = request), do: deliver(request)
 
-  @impl true
-  def open(%Request{} = request),
-    do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  def update(%Request{} = request), do: deliver(request)
 
-  @impl true
-  def update(%Request{} = request),
-    do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
-
-  @impl true
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
   def finalize(%Request{} = request) do
+    case ChunkedMessagePreview.reconcile(%{request | mode: :terminal}, __MODULE__, "telegram") do
+      {:error, reason} when reason in [:telegram_partial_delivery, :telegram_send_uncertain] ->
+        :unknown
+
+      result ->
+        ErrorPolicy.normalize_delivery_result(result)
+    end
+  end
+
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  def refresh(%Request{} = request), do: deliver(request)
+
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  def surface_ids(checkpoint), do: ChunkedMessagePreview.surface_ids(checkpoint)
+
+  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  def surface_open?(checkpoint), do: ChunkedMessagePreview.surface_open?(checkpoint)
+
+  defp deliver(request) do
     request
-    |> Map.put(:mode, :terminal)
-    |> reconcile()
+    |> ChunkedMessagePreview.reconcile(__MODULE__, "telegram")
     |> ErrorPolicy.normalize_delivery_result()
   end
 
-  @impl true
-  def refresh(%Request{} = request),
-    do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
-
-  defp reconcile(%Request{} = request) do
-    with {:ok, event} <- fresh_event(request.actor_event),
-         {:ok, config} <- config_for_event(event),
+  @impl Ankole.Plugins.ChunkedMessagePreview
+  def render_chunks(presentation, %Request{actor_event: event} = request) do
+    with {:ok, config} <- Config.validate_binding_config(request.config),
          client <- Config.client(config),
-         checkpoint <- current_checkpoint(event, request),
-         presentation <-
-           request.presentation
-           |> ReplyPresentation.normalize()
-           |> ReplyInteractionState.project(checkpoint),
          {:ok, chunks} <- Presentation.render(presentation, event.id),
-         {:ok, channel} <- Outbox.parse_channel(event.signal_channel_id),
-         {:ok, messages, responses} <-
-           reconcile_messages(client, event, checkpoint, presentation, chunks, channel, request),
-         first_id <- first_message_id(messages),
-         :ok <-
-           Actors.record_reply_preview_source_entry(event.id, first_id, event.signal_channel_id),
-         checkpoint <- build_checkpoint(checkpoint, messages, presentation, request),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
-      {:ok,
-       %{
-         created_source_entry_id: first_id,
-         provider_thread_id: event.signal_channel_id,
-         reply_preview_checkpoint: checkpoint,
-         raw_payload: %{"messages" => responses},
-         recovery_state: %{
-           "message_id" => first_id,
-           "messages" => messages,
-           "streaming_state" => checkpoint["streaming_state"]
-         }
-       }
-       |> maybe_put_payload(request.outbox)}
+         {:ok, channel} <- Outbox.parse_channel(event.signal_channel_id) do
+      {:ok, chunks, {client, channel}, event.signal_channel_id}
     end
   end
 
-  defp reconcile_messages(client, event, checkpoint, presentation, chunks, channel, request) do
-    existing = checkpoint |> message_records() |> Map.new(&{&1["index"], &1})
-
-    chunks
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, existing, [], false}, fn {chunk, index},
-                                                        {:ok, records, responses, changed?} ->
-      current = Map.get(records, index)
-
-      case upsert_message(client, event, current, chunk, channel, index) do
-        {:ok, message, response} ->
-          records = Map.put(records, index, message)
-          staged_messages = sorted_message_records(records)
-          staged = build_checkpoint(checkpoint, staged_messages, presentation, request)
-
-          case Actors.put_reply_preview_checkpoint(event.id, staged) do
-            {:ok, _event} ->
-              {:cont, {:ok, records, [response | responses], true}}
-
-            # The upsert already changed the visible reply, so an unrecorded
-            # checkpoint means a retry would post the chunk again.
-            {:error, _reason} ->
-              {:halt, {:error, :telegram_partial_delivery}}
-          end
-
-        {:error, :telegram_send_uncertain} ->
-          {:halt, {:error, :telegram_send_uncertain}}
-
-        {:error, _reason} when changed? ->
-          {:halt, {:error, :telegram_partial_delivery}}
-
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, records, responses, _changed?} ->
-        messages =
-          records
-          |> Enum.filter(fn {index, _message} -> index < length(chunks) end)
-          |> Map.new()
-          |> sorted_message_records()
-
-        with :ok <- delete_surplus_messages(client, existing, length(messages), channel) do
-          {:ok, messages, Enum.reverse(responses)}
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp upsert_message(
-         client,
-         event,
-         %{"message_id" => message_id} = current,
-         chunk,
-         channel,
-         index
-       )
-       when is_binary(message_id) do
+  @impl Ankole.Plugins.ChunkedMessagePreview
+  def upsert_message(
+        {client, channel},
+        event,
+        %{"message_id" => message_id} = current,
+        chunk,
+        index
+      )
+      when is_binary(message_id) do
     with {:ok, message_id} <- Outbox.integer_value(message_id) do
       body =
         %{
@@ -137,23 +71,20 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
       case Client.call(client, "editMessageText", body) do
         {:ok, response} ->
-          {:ok, Map.put(current, "index", index), compact_response(response)}
+          {:ok, Map.put(current, "index", index), compact_response(response), nil}
 
         {:error, %Client.Error{error_code: 400, description: description}}
         when is_binary(description) ->
-          normalized_description = String.downcase(description)
-
-          cond do
-            String.contains?(normalized_description, "message is not modified") ->
-              {:ok, Map.put(current, "index", index),
-               %{"message_id" => message_id, "not_modified" => true}}
-
-            String.contains?(normalized_description, "message to edit not found") ->
-              post_message(client, event, chunk, channel, index)
-
-            true ->
-              {:error, %Client.Error{kind: :api, error_code: 400, description: description}}
-          end
+          classify_edit_error(
+            description,
+            client,
+            event,
+            chunk,
+            channel,
+            index,
+            current,
+            message_id
+          )
 
         {:error, %Client.Error{} = error} ->
           uncertain_or_error(error)
@@ -161,8 +92,56 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
     end
   end
 
-  defp upsert_message(client, event, _missing, chunk, channel, index),
+  def upsert_message({client, channel}, event, _missing, chunk, index),
     do: post_message(client, event, chunk, channel, index)
+
+  @impl Ankole.Plugins.ChunkedMessagePreview
+  def delete_message({client, channel}, _event, %{"message_id" => message_id}) do
+    with {:ok, message_id} <- Outbox.integer_value(message_id) do
+      case Client.call(client, "deleteMessage", %{
+             "chat_id" => channel.chat_id,
+             "message_id" => message_id
+           }) do
+        {:ok, _response} -> :ok
+        {:error, %Client.Error{error_code: 400}} -> :ok
+        {:error, %Client.Error{} = error} -> uncertain_or_error(error)
+      end
+    end
+  end
+
+  @impl Ankole.Plugins.ChunkedMessagePreview
+  def classify_error(_reason, stage, _changed?)
+      when stage in [:checkpoint, :source_entry],
+      do: :telegram_partial_delivery
+
+  def classify_error(_reason, :upsert, true), do: :telegram_partial_delivery
+  def classify_error(:telegram_send_uncertain, :delete, _changed?), do: :telegram_partial_delivery
+  def classify_error(reason, _stage, _changed?), do: reason
+
+  defp classify_edit_error(
+         description,
+         client,
+         event,
+         chunk,
+         channel,
+         index,
+         current,
+         message_id
+       ) do
+    normalized_description = String.downcase(description)
+
+    cond do
+      String.contains?(normalized_description, "message is not modified") ->
+        {:ok, Map.put(current, "index", index),
+         %{"message_id" => message_id, "not_modified" => true}, nil}
+
+      String.contains?(normalized_description, "message to edit not found") ->
+        post_message(client, event, chunk, channel, index)
+
+      true ->
+        {:error, %Client.Error{kind: :api, error_code: 400, description: description}}
+    end
+  end
 
   defp post_message(client, event, chunk, channel, index) do
     body =
@@ -173,17 +152,8 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
     case Client.call(client, "sendMessage", body) do
       {:ok, %{"message_id" => message_id} = response} when is_integer(message_id) ->
-        id = Integer.to_string(message_id)
-
-        case maybe_record_first_message(event, id) do
-          :ok ->
-            {:ok, %{"index" => index, "message_id" => id}, compact_response(response)}
-
-          # The message is already visible, so a failed record must not read
-          # as a clean failure a retry could repeat.
-          {:error, _reason} ->
-            {:error, :telegram_partial_delivery}
-        end
+        {:ok, %{"index" => index, "message_id" => Integer.to_string(message_id)},
+         compact_response(response), nil}
 
       {:ok, _invalid} ->
         {:error, :telegram_message_id_missing}
@@ -208,121 +178,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
   defp maybe_reply(body, _event), do: body
 
-  defp maybe_record_first_message(%ActorEvent{reply_preview_source_entry_id: nil} = event, id),
-    do: Actors.record_reply_preview_source_entry(event.id, id, event.signal_channel_id)
-
-  defp maybe_record_first_message(_event, _id), do: :ok
-
-  defp delete_surplus_messages(client, existing, retained_count, channel) do
-    existing
-    |> Enum.filter(fn {index, _message} -> index >= retained_count end)
-    |> Enum.reduce_while(:ok, fn {_index, %{"message_id" => message_id}}, :ok ->
-      with {:ok, message_id} <- Outbox.integer_value(message_id) do
-        case Client.call(client, "deleteMessage", %{
-               "chat_id" => channel.chat_id,
-               "message_id" => message_id
-             }) do
-          {:ok, _response} -> {:cont, :ok}
-          {:error, %Client.Error{error_code: 400}} -> {:cont, :ok}
-          {:error, %Client.Error{} = error} -> {:halt, uncertain_or_error(error)}
-        end
-      else
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:error, :telegram_send_uncertain} -> {:error, :telegram_partial_delivery}
-      other -> other
-    end
-  end
-
-  defp build_checkpoint(checkpoint, messages, presentation, request) do
-    previous = checkpoint["presentation"]
-    terminal? = request.mode == :terminal or ReplyPresentation.terminal_state?(presentation)
-
-    checkpoint
-    |> Map.merge(%{
-      "schema_version" => @checkpoint_version,
-      "adapter" => "telegram",
-      "subject_uid" => request.subject_uid || checkpoint["subject_uid"],
-      "conversation_id" => request.conversation_id || checkpoint["conversation_id"],
-      "message_id" => first_message_id(messages),
-      "messages" => messages,
-      "presentation" => ReplyPresentation.checkpoint(presentation),
-      "streaming_state" => if(terminal?, do: "closed", else: "open")
-    })
-    |> put_previous_presentation(previous, presentation)
-    |> Map.delete("refresh_pending")
-    |> Map.delete("refresh_reason")
-    |> Map.delete("recovery_state")
-  end
-
-  defp put_previous_presentation(checkpoint, previous, presentation) when is_map(previous) do
-    if ReplyPresentation.normalize(previous) == ReplyPresentation.normalize(presentation) do
-      Map.delete(checkpoint, "previous_presentation")
-    else
-      Map.put(checkpoint, "previous_presentation", ReplyPresentation.checkpoint(previous))
-    end
-  end
-
-  defp put_previous_presentation(checkpoint, _previous, _presentation),
-    do: Map.delete(checkpoint, "previous_presentation")
-
-  defp message_records(%{"messages" => messages}) when is_list(messages) do
-    messages
-    |> Enum.filter(fn
-      %{"index" => index, "message_id" => message_id}
-      when is_integer(index) and is_binary(message_id) and message_id != "" ->
-        true
-
-      _invalid ->
-        false
-    end)
-    |> Enum.sort_by(& &1["index"])
-  end
-
-  defp message_records(%{"message_id" => message_id}) when is_binary(message_id),
-    do: [%{"index" => 0, "message_id" => message_id}]
-
-  defp message_records(_checkpoint), do: []
-
-  defp sorted_message_records(records) do
-    records
-    |> Map.values()
-    |> Enum.sort_by(& &1["index"])
-    |> Enum.with_index()
-    |> Enum.map(fn {record, index} -> Map.put(record, "index", index) end)
-  end
-
-  defp first_message_id([%{"message_id" => message_id} | _rest]), do: message_id
-  defp first_message_id(_messages), do: nil
-
-  defp current_checkpoint(%ActorEvent{reply_preview_checkpoint: checkpoint}, _request)
-       when is_map(checkpoint),
-       do: checkpoint
-
-  defp current_checkpoint(_event, %Request{checkpoint: checkpoint}) when is_map(checkpoint),
-    do: checkpoint
-
-  defp current_checkpoint(_event, _request), do: %{}
-
-  defp config_for_event(%ActorEvent{} = event) do
-    with {:ok, binding} <- SignalsGateway.get_binding(event.agent_uid, event.binding_name),
-         {:ok, config} <- Config.load_config_ref(binding.config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp fresh_event(%ActorEvent{id: id}) do
-    case Repo.get(ActorEvent, id) do
-      %ActorEvent{} = event -> {:ok, event}
-      nil -> {:error, :actor_event_not_found}
-    end
-  end
-
   defp uncertain_or_error(%Client.Error{kind: :transport}),
     do: {:error, :telegram_send_uncertain}
 
@@ -335,9 +190,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
     do: Map.take(response, ["message_id", "date", "edit_date"])
 
   defp compact_response(_response), do: %{}
-
-  defp maybe_put_payload(result, %{} = outbox), do: Map.put(result, :payload, outbox.payload)
-  defp maybe_put_payload(result, _outbox), do: result
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

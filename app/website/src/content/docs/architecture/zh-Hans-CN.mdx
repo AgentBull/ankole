@@ -1,148 +1,146 @@
 ---
 title: 架构
-description: 了解控制面、Agent Computer Worker、Actor Runtime、Brain 和后台 Agent 任务如何组成 Ankole。
+description: 说明控制面、Agent Computer Worker、Actor Runtime、Brain 和后台 Agent 任务如何构成 Ankole Agent Harness。
 section: Developer guide
 order: 100
 ---
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole 是一套自托管的 AI Workforce OS。它让 AI Agent 成为自主劳动力：承担岗位职能并接受考核。
+Ankole 是一套配备公司大脑的企业级 Agent Harness。Ankole 部署在企业基础设施中，为企业 Agent 提供公司知识、权限控制、长任务恢复和结果反馈。
 
-一个 Agent 可以围绕一项职能连续运行数小时，使用共享的工作上下文，并交付可检查、可评分的结果。
+Agent 可以连续工作数小时，使用共享的公司大脑，通过浏览器、终端、文件和外部系统执行任务。Agent 交付的判断附带可供人工检查的证据，并由后续结果检验。
 
-这要求系统同时解决聊天机器人通常不会处理的问题：谁在行动、谁有权限、长任务怎样恢复、工作上下文怎样保持有效，以及一次纠正怎样影响之后的工作。
+Harness 识别每个行动主体，执行访问规则，恢复中断的长任务，根据新信息更新上下文，并将人工纠正用于后续决策。
 
 ## 系统总图
 
 <DocsArchitectureDiagram lang="zh-Hans-CN" />
 
-一套私有化部署实例只有一个逻辑控制面，但可以连接一台或多台 Agent Computer Worker。控制面管理身份、状态和调度；Worker 提供 Agent 真正工作的计算环境。
+每个私有部署实例包含一个逻辑控制面，并可连接一台或多台 Agent Computer Worker。控制面管理身份、状态和调度。Worker 提供 Agent 的执行环境。
 
-外部聊天、Webhook 和计划任务从 SignalsGateway 进入。人员与组织架构来自身份源提供商。模型、Embedding、Rerank、图像和 Web 能力则统一经过 AIGateway。
+SignalsGateway 接收外部聊天、Webhook 和计划任务。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
 
 ## 控制面与 Agent Computer Worker
 
-### 控制面保存状态并作出决定
+### 控制面保存状态并提交决策
 
-控制面基于 Elixir/OTP 运行，负责 Console、主体与权限、系统配置、信号路由、Actor 会话、Brain、后台 Agent 任务、AIGateway 和 Control Plane Plugins。
+控制面使用 Elixir/OTP，负责 Console、主体与权限、系统配置、信号路由、Actor 会话、Brain、后台 Agent 任务、AIGateway 和 Control Plane Plugin。
 
-这些模块共享同一个原则：会改变用户可见结果的状态先写入 PostgreSQL，再驱动执行或对外投递。进程可以重启，但已经接收的消息、任务状态、记忆和审计记录不能随进程一起消失。
+所有会改变用户可见结果的状态都先写入 PostgreSQL，再驱动执行或对外投递。进程重启后，已接收的消息、任务状态、记忆和审计记录仍然保留。
 
-OTP 监督树把不同 Agent、连接和后台任务分成独立的故障域。某个执行分支卡住或崩溃时，控制面可以只恢复这一支，不必让整个实例一起失败。
+OTP 监督树为 Agent、连接和后台任务划分独立故障域。某个执行分支卡住或崩溃时，控制面只恢复该分支，其他部分继续运行。
 
-### Worker 是 Agent 的工作电脑
+### Worker 提供 Agent 工作环境
 
-Agent Computer Worker 负责运行模型循环、工具、Skills、浏览器、终端和文件操作，也执行 automation job 的脚本。它不自行发明持久业务状态，而是接受控制面的调度，并把执行结果提交回控制面。
+Agent Computer Worker 运行模型循环、工具、Skill、浏览器、终端和文件操作，也运行 Automation Job 脚本。控制面创建并提交需要持久保存的业务状态。Worker 接受控制面调度，并将执行结果提交给控制面。
 
-一台 Worker 可以服务多个 Agent，每个 Agent 仍运行在独立的轻量沙盒中。需要更强隔离时，可以给一个 Agent 分配专用 Worker。增加 Worker 可以扩展并发能力，也能把不同安全等级的工作放到不同节点。
+一台 Worker 可以运行多个 Agent，每个 Agent 使用独立的轻量沙盒。需要加强隔离时，可为 Agent 分配专用 Worker。增加 Worker 可以提高并发量，也可以将安全要求不同的任务调度到不同节点。
 
-RuntimeFabric 通过 ZeroMQ 连接控制面与 Worker，传递唤醒、插话、取消、进度和执行结果。它是低延迟的实时通道，不是数据库；连接中断后，恢复依据仍来自 PostgreSQL 中的状态。
+RuntimeFabric 通过 ZeroMQ 连接控制面与 Worker，传递唤醒、引导、取消、进度和执行结果。RuntimeFabric 负责低延迟实时通信。连接中断后，控制面根据 PostgreSQL 中的状态恢复任务。
 
 ## 一条消息如何变成可恢复的工作
 
-### SignalsGateway 接住外部世界
+### SignalsGateway 接收外部事件
 
-聊天适配器、Webhook 和计划任务先把外部事件转换为统一的信号。信号路由规则决定把它交给哪个 Agent、使用哪个会话，以及回复应当回到哪个频道或话题。
+聊天适配器、Webhook 和计划任务先将外部事件转换为统一信号。信号路由规则指定接收信号的 Agent 和会话，以及回复的目标频道或话题。
 
-群聊可以只处理明确提及 Agent 的消息，也可以记录没有 @Agent 的对话，或允许 Agent 判断是否主动介入。具体能力取决于聊天平台和信号路由规则。
+群聊可以只处理明确提及 Agent 的消息，也可以记录未提及 Agent 的对话，或允许 Agent 判断是否主动介入。可用模式取决于聊天平台和信号路由规则。
 
-SignalsGateway 会先保存收到的消息及其来源，再唤醒 Agent。回复也会先形成可追踪的投递状态，再由适配器发回聊天平台。因此，第三方接口短暂失败不会把“已经决定回复什么”和“是否成功发出”混为一件事。
+SignalsGateway 先保存收到的消息及其来源，再唤醒 Agent。回复在发送前进入可追踪的投递状态，再由适配器发送到聊天平台。系统分别记录回复内容和投递结果。
 
 ### 触发器可以唤醒 Agent，也可以运行脚本
 
-Cron、Checkback 和 webhook endpoint 是同一体系里的三种触发器。每个触发器默认唤醒一个 Agent 会话，也可以绑定一个 automation job：一段由 Agent 编写的确定性脚本。触发事件保持不变，改变的只是收件人。
+Cron、Checkback 和 Webhook 端点都可以作为触发器。触发器默认唤醒 Agent 会话。绑定 Automation Job 后，触发器运行 Agent 编写的确定性脚本。
 
-脚本静默完成机械检查，每次运行留下可查的记录；需要判断时，它经 `emitEvent` 把事件发回归属会话，再由 Agent 复核和行动。模型因此不必为轮询空转。参见 [Automation Job](../automation-jobs/)。
+脚本静默执行确定性检查，每次运行都留下可查询的记录。需要 Agent 判断时，脚本通过 `emitEvent` 将事件发送到发起任务的会话，再由 Agent 复核并执行操作。模型无需持续轮询。参见 [Automation Job](../automation-jobs/)。
 
 ### Actor Runtime 管理长时会话
 
-每个活跃会话都是一个可寻址的 Virtual Actor。它拥有信箱、生命周期和恢复位置，可以被新消息或计划任务唤醒，也可以在执行过程中接收补充信息、取消请求和人工介入。
+每个活跃会话都是可寻址的 Virtual Actor，包含信箱、生命周期和恢复点。新消息或计划任务可以唤醒 Actor。Actor 在执行期间可以接收补充信息、取消请求和人工引导。
 
-Actor Runtime 管理这份长期工作身份，并为每个回合建立新的执行凭证和隔离栏。Worker 只执行当前获得授权的回合；过期 Worker 不能在恢复或重试之后覆盖较新的结果。
+Actor Runtime 管理长任务身份，并为每个回合创建新的执行实例和提交隔离标识。Worker 只能提交当前获得授权的回合。恢复或重试后，过期 Worker 无法覆盖较新的结果。
 
-流式内容只表示进度。只有控制面确认并持久化的消息、工具结果和状态迁移才是事实。这让“界面上正在生成”与“工作已经完成”保持清晰边界。
+流式内容表示执行进度。控制面确认并持久化的消息、工具结果和状态迁移构成已提交记录。控制面将「界面显示工作进度」与「工作已经完成」作为两种状态分别记录。
 
-## Brain：保持当前的世界模型
+## Brain 维护当前世界模型
 
-Brain 不是把聊天原文堆进向量数据库。它维护的是持续演化的世界模型：新证据可以补充、修正或取代已有 Claim。证据发生冲突时，Dreaming 会记录矛盾并交给人复核，不会静默改写相关 Claim。
+Brain 将聊天、Source 和 Agent 写入的内容整理为可更新的世界模型。新证据可以补充、修正或取代已有 Claim。证据发生冲突时，Dreaming 保留冲突并提交人工复核，原有 Claim 继续保留来源和历史。
 
-知识可以来自 Agent 参与的对话、符合条件且没有人专门对它说的群聊消息，以及已注册的文件或 URL Source。
+知识可以来自 Agent 参与的对话、未明确提及 Agent 但符合学习条件的群聊消息，以及已注册的文件或 URL Source。
 
-同一实例中的所有 Agent 共用一个知识空间。每个受保护的正文段落、Claim 和 Timeline 事件使用 `world`、权限组或单个 Principal 的披露范围。Source 或 Channel 只记录出处，不授予学习产物的访问权。
+同一实例中的所有 Agent 共用一个知识空间。每个受保护的正文段落、Claim 和时间线事件都使用以下一种可见范围：`world`、权限组或单个 Principal。Source 或 Channel 记录出处。学习所得知识的访问权限由可见范围决定。
 
-运行中的 Agent 通过统一召回获得当前任务需要的长期上下文。离线的 Dreaming 会整理新证据、发现模式、为已有预测判分，并标记等待复核的冲突。
+运行中的 Agent 通过统一的召回接口获得当前任务需要的长期上下文。离线 Dreaming 整理新证据、发现模式、评估到期预测，并标记等待复核的冲突。
 
-[Brain](../brain/) 负责“世界现在是什么样”。[Skill Lessons](../skill-lessons/)保存 Agent 从反复出现的工作证据中学到的过程护栏。它们随对应 Skill 一同提供，但不改写 Skill 来源；不再适用时会退场。
+[Brain](../brain/) 负责维护当前世界状态。[Skill Lessons](../skill-lessons/) 保存 Agent 从重复工作中学到的规则。Skill Lesson 随对应 Skill 提供，保留 Skill 的来源，并在失效后停用。
 
-这套结构对应首页所说的“合作越久，它越懂你们的规则”：积累不是简单增加日志，而是让下一次工作的初始认知和做法都发生变化。
+Brain 为 Agent 提供长期记忆，并负责存储、Dreaming 和写入权限。
 
-在用户看来，这套机制就是长期记忆；存储、Dreaming 与写入权限由 Brain 负责。
+## 后台 Agent 任务运行长时工作
 
-## 后台 Agent 任务：不阻塞主会话的长工作
+主 Agent 可以将调研、数据分析、文件处理、代码修改和 Deep Research 等边界明确的工作交给后台 Agent 任务。后台任务运行期间，主会话仍可继续与用户交流。
 
-主 Agent 可以把调研、数据分析、文件处理、代码修改和 Deep Research 等边界清楚的工作交给后台 Agent 任务。主会话不必停下来等待，仍可继续与用户交流。
+后台任务的生命周期保存在控制面中，Worker 负责实际执行。如果 Worker 中断，控制面会重新派发任务，并从已保存的状态继续执行。
 
-后台任务的生命周期保存在控制面中，实际执行发生在 Worker。Worker 中断后，任务可以重新派发并从已有状态继续，而不是把一次进程退出当作整项工作消失。
+主 Agent 与后台任务可以继续通信。后台任务可以请求用户补充信息、返回失败信息和最终结果，也可以按要求静默运行。等待用户输入时，后台任务释放执行资源，并在收到回答后恢复。
 
-主 Agent 与后台任务可以继续通信。任务可以请求用户补充信息、回传失败和最终结果，也可以按要求静默运行。需要等待用户时，它会释放执行资源，收到回答后再恢复。
+Deep Research 使用这套机制。Agent Plugin 提供工作区模板，Skill 提供研究方法，后台任务负责持久执行，Agent Home 保存研究资料与交付物。
 
-Deep Research 是建立在这套机制上的高级用例：Agent Plugin 提供工作区模板，Skills 提供研究方法，后台任务负责持久执行，Agent Home 保留研究资料与交付物。
+参见 [后台 Agent 任务](../background-jobs/) 和 [Deep Research](../deep-research-job/)。
 
-参见 [后台 Agent 任务](../background-jobs/)和 [Deep Research](../deep-research-job/)。
+## AIGateway 统一模型调用边界
 
-## AIGateway：统一的 AI 能力边界
+AIGateway 是模型调用的统一边界。主 Agent、后台任务、Brain 和外部 API 客户端都通过 AIGateway 使用 LLM、Embedding、Rerank、图像、Web Search 和 Web Fetch 服务。
 
-AIGateway 把模型能力与 Agent 执行解耦。主 Agent、后台任务、Brain 和外部 API 客户端都通过同一条边界使用 LLM、Embedding、Rerank、图像、Web Search 和 Web Fetch Provider。
+Agent 的模型档案指定执行所用的模型。Brain 使用 AppConfigure 中的五项实例级模型设置。控制面加密保存 Provider 凭证，AIGateway 使用这些凭证请求上游服务。Agent 与 Worker 只能访问获准使用的模型和调用结果。
 
-Agent 模型档案为 Agent 执行选择模型。Brain 使用 AppConfigure 中五项实例级模型设置。控制面加密保存 Provider 凭证，AIGateway 在请求上游服务时使用它们；Agent 与 Worker 只接触允许使用的模型和调用结果。
+AIGateway 支持不保存历史的单次调用和可继续的有状态会话。AIGateway 负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，并统一处理各 Provider 的生命周期。
 
-AIGateway 同时支持不保存历史的调用和可以继续的有状态会话。它负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，Worker 不需要为每家 Provider 重写一套生命周期。
+工具数量较多时，模型可以通过 Tool Search 按需检索工具，也可以提交程序，在受限沙盒中批量调用工具并返回结果。原生支持这些能力的 Provider 直接处理请求，其他 Provider 由 AIGateway 提供对应实现。一个 Provider 可以配置多个凭证组成凭证池，其中包括 ChatGPT 订阅等账号凭证。系统按单个凭证记录失败、重试和用量。
 
-工具目录很大时，模型可以经 Tool Search 按需检索工具，或提交一段程序，在受限沙盒中成批调用工具后只带回结果。原生支持这些能力的 Provider 直接透传；其余 Provider 由 AIGateway 在网关内补齐同一能力。一个 Provider 还可以配置多个凭证组成凭据池（包括 ChatGPT 订阅这类账号凭证），失败归属、重试和用量记录都按单个凭证计。
-
-参见 [AIGateway](../ai-gateway/)和 [添加 LLM Provider](../adding-a-provider/)。
+参见 [AIGateway](../ai-gateway/) 和 [添加 LLM Provider](../adding-a-provider/)。
 
 ## 企业身份、权限与扩展
 
-Ankole 把人员、Agent 和系统服务统一表示为主体（Principal）。身份源提供商负责 Console 的 SSO 登录，并同步员工、通讯录和组织架构；聊天渠道负责收发消息，两类 Provider 可以来自不同平台。
+Ankole 将人员、Agent 和系统服务统一表示为主体（Principal）。身份提供商（IdP）负责 Console 的 SSO 登录，并同步员工、通讯录和组织目录。聊天渠道负责收发消息。身份提供商和聊天平台可以不同。
 
-AuthZ 根据主体、权限组、资源、动作和条件在运行时作出授权决定。权限不是 Prompt 中的一句要求，模型也不能自行声明拥有某项权限。
+AuthZ 根据主体、权限组、资源、动作和条件，在运行时作出授权决定。AuthZ 判定由运行时执行，提示词和模型输出不能授予权限。
 
-Control Plane Plugins 把 IdP、聊天渠道和其他控制面能力接入实例。Agent Plugins 为 Agent 增加工具和工作区模板；Skills 则描述完成某类工作的步骤，并可以限定只在主 Agent 或后台任务中出现。
+Control Plane Plugin 将 IdP、聊天渠道和其他控制面能力接入实例。Agent Plugin 为 Agent 增加工具和工作区模板。Skill 描述完成某类工作的步骤，并可限定在主 Agent 或后台任务中使用。
 
-外部 MCP server 以 Skill 为单位接入：Skill 声明连接，Worker 在执行时按次生成配置，执行结束即回收，模型不面对一份常驻的全量 MCP 工具清单。
+外部 MCP 服务器通过 Skill 接入。Skill 声明连接，Worker 为每次执行生成配置，并在执行结束后删除配置。模型只会看到当前 Skill 声明的 MCP 工具。
 
-参见 [主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/)和 [MCP server 参考](../mcp/)。
+参见 [主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/) 和 [MCP 服务器参考](../mcp/)。
 
 ## 持久化边界
 
-PostgreSQL 保存身份、权限、配置、消息、会话、任务、记忆、投递状态和审计记录等持久语义事实。需要判断一项工作是否已经提交时，应以这些记录为准。
+PostgreSQL 保存身份、权限、配置、消息、会话、任务、记忆、投递状态和审计记录等权威领域状态。需要判断一项工作是否已经提交时，以这些记录为准。
 
-Agent Home 保存工作区文件、工具产生的中间文件和最终交付物。单机部署可以使用本地或虚拟磁盘；多 Worker 的 Kubernetes 部署需要 NFS 等支持 `ReadWriteMany` 的共享卷。
+Agent Home 保存工作区文件、工具产生的中间文件和最终交付物。单机部署可以使用本地磁盘或虚拟磁盘。多 Worker 的 Kubernetes 部署需要 NFS 等支持 `ReadWriteMany` 的共享卷。
 
-RuntimeFabric、Worker 进程内状态和流式预览都可以重建。它们为实时执行服务，但不能代替 PostgreSQL 或 Agent Home。
+RuntimeFabric、Worker 进程内状态和流式预览都可以重建。任务恢复以 PostgreSQL 和 Agent Home 中的状态为准。
 
 ## 三种部署形态
 
 | 形态 | 控制面与 Worker | 持久化 |
 | --- | --- | --- |
 | **Docker Compose · 单机推荐** | 一台 Linux、macOS 或 Windows 主机运行控制面和一个 Worker | PostgreSQL 与 Agent Home 使用本机持久化卷 |
-| **Kubernetes · 企业级推荐** | 一个控制面连接一个或多个 Worker Pod，可按节点和安全要求调度 | PostgreSQL 加支持 `ReadWriteMany` 的共享 Agent Home |
+| **Kubernetes · 企业级推荐** | 一个控制面连接一个或多个 Worker Pod，可按节点和安全要求调度 | PostgreSQL 和支持 `ReadWriteMany` 的共享 Agent Home |
 | **源码安装** | 在开发环境中分别运行控制面和 Worker | 使用开发环境配置的 PostgreSQL 与本地工作区 |
 
-无论采用哪种方式，逻辑边界都相同：控制面只有一套，Worker 可以横向增加。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
+三种部署方式使用相同的逻辑边界。每个实例包含一个控制面，并可按需增加 Worker。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
 
-## 底层的五个技术判断
+## 支撑运行时的五项技术选择
 
-| 判断 | 解决的问题 |
+| 机制 | 作用 |
 | --- | --- |
-| **Virtual Actor 承载 AI 工作** | 让每个会话拥有地址、信箱、生命周期和恢复位置 |
+| **Virtual Actor 承载 AI 工作** | 让每个会话拥有地址、信箱、生命周期和恢复点 |
 | **OTP 监督树划分故障域** | 让一个 Agent 或连接失败时只恢复对应分支 |
 | **ZeroMQ 承载实时控制** | 在 Agent 执行期间低延迟传递唤醒、插话、进度和背压 |
-| **Agent Computer Worker 提供执行环境** | 把模型循环、工具、文件、终端和沙箱放在靠近工作区的位置 |
-| **PostgreSQL 持久账本保存事实** | 让消息、任务、记忆、决定和已提交操作可以恢复与审计 |
+| **Agent Computer Worker 提供执行环境** | 在可直接访问工作区的环境中运行模型循环、工具、文件、终端和沙箱 |
+| **PostgreSQL 保存权威状态** | 让消息、任务、记忆、决策和已提交操作可以恢复与审计 |
 
-这五个选择共同服务于同一个结果：Agent 可以连续工作数小时，在运行中接收新信息，独立失败并恢复，而且每项已提交的工作都能追溯。
+Agent 可以连续工作数小时，并在运行中接收新信息。运行时可以独立恢复失败的执行分支，并为每项已提交的工作保留审计记录。
 
 更完整的运行时论证见 <a href="https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">《为什么 OTP 是更好的多智能体编排运行时》</a>。

@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   @moduledoc false
 
   alias Ankole.I18n
-  alias Ankole.Plugins.DiscordAdapter.ActionToken
+  alias Ankole.SignalsGateway.ReplyActionToken
   alias Ankole.SignalsGateway.ReplyPresentation
 
   @message_utf16_units 2_000
@@ -59,7 +59,12 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
 
   defp button({%{"type" => "button"} = action, index}, event_id) do
     with label when is_binary(label) <- action["label"],
-         {:ok, custom_id} <- ActionToken.encode(event_id, index, action) do
+         {:ok, custom_id} <-
+           ReplyActionToken.encode(event_id, index, action,
+             prefix: "dc1",
+             max_bytes: 100,
+             too_long_error: :custom_id_too_long
+           ) do
       [
         %{
           "type" => @button,

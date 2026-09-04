@@ -1,29 +1,23 @@
 import { isRecord } from '@agentbull/active-support'
-import type { TurnStart, TurnHostedTool } from '../../lanes/actor_lane'
-import { brainRPCRequester, type AgentConversationContextResponse } from '../../lanes/rpc_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
+import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 import { workerTurnTrace } from '../../observability/turn-tracing'
 import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
 import { createSendMessageToBackgroundJobTool } from '../../tools/background-agent-job/send-message-to-background-job'
 import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent-job/show-background-job-details'
 import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
-import { createBrainJobTools } from '../../tools/brain/brain-tools'
 import { createWorkflowSleepTool } from '../../tools/workflow/sleep'
 import { createWorkflowSubmitResultTool, submitWorkflowTaskFailure } from '../../tools/workflow/submit-result'
 import { runAgentLoop } from '../agent-loop'
-import { assistantText, userMessage } from '../llm'
+import { assistantText, BRAIN_JOB_OPERATIONS, userMessage, type HostedTool } from '../llm'
 import type { WorkerAgentTool } from '../types'
 import { actorEventText } from './actor_event_text'
 import { resolveAgentWorkerEnvParts } from '../execution/worker_env'
-import { resolveBrainEnabled } from './brain_context'
 import { createTurnActivity } from './turn_activity'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { resolveAgentConversationContext } from './turn_context'
 import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
-import {
-  agentRuntimePolicyFromTurnStart,
-  statefulTruncationFromActorEventPayload,
-  webSearchIsProviderHosted
-} from './turn_runtime_policy'
+import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
 import type { TurnHandlerOptions, TurnHandlerResult } from './turn_options'
 import { createTurnWebTools } from './turn_web_tools'
 
@@ -60,9 +54,8 @@ export async function runWorkflowTaskTurn(turnStart: TurnStart, opts: TurnHandle
     const conversationID = agentContext.conversation?.id
     if (!conversationID) throw new Error('Workflow task is missing its AIGateway conversation id.')
 
-    const [renderedFetchRuntimeConfig, brainEnabled, workerEnv] = await Promise.all([
+    const [renderedFetchRuntimeConfig, workerEnv] = await Promise.all([
       turnActivity.runStep(resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc), 'rendered fetch runtime config'),
-      turnActivity.runStep(resolveBrainEnabled(turnStart, opts.rpc, opts.logger), 'brain runtime config'),
       turnActivity.runStep(
         resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
         'worker environment'
@@ -70,6 +63,7 @@ export async function runWorkflowTaskTurn(turnStart: TurnStart, opts: TurnHandle
     ])
     const webTools = await turnActivity.runStep(
       createTurnWebTools({
+        turnStart,
         aiGateway,
         renderedFetchRuntimeConfig,
         workerEnv: workerEnv.vars,
@@ -99,10 +93,7 @@ export async function runWorkflowTaskTurn(turnStart: TurnStart, opts: TurnHandle
         sleeping = true
       }
     })
-    const brainTools = brainEnabled
-      ? createBrainJobTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn) })
-      : []
-    const tools = workflowTaskTools(turnStart, agentContext, webTools, brainTools, submitResult, sleep, opts)
+    const tools = workflowTaskTools(turnStart, agentContext, webTools, submitResult, sleep, opts)
     const hostedTools = workflowTaskHostedTools(turnStart)
 
     opts.logger?.info('worker.workflow_task_tools_resolved', 'Workflow task tools resolved.', {
@@ -187,15 +178,12 @@ function workflowTaskTools(
   turnStart: TurnStart,
   agentContext: AgentConversationContextResponse,
   webTools: WorkerAgentTool[],
-  brainTools: WorkerAgentTool[],
   submitResult: WorkerAgentTool,
   sleep: WorkerAgentTool,
   opts: TurnHandlerOptions
 ): WorkerAgentTool[] {
-  const providerHostedWebSearch = webSearchIsProviderHosted(turnStart)
   return [
-    ...webTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search'),
-    ...brainTools.filter(tool => tool.name === 'recall' || tool.name === 'get_page'),
+    ...webTools,
     createCreateBackgroundJobTool({
       turnStart,
       agentPluginCatalog: agentContext.agentPlugins ?? [],
@@ -209,10 +197,14 @@ function workflowTaskTools(
   ]
 }
 
-function workflowTaskHostedTools(turnStart: TurnStart): TurnHostedTool[] {
-  return (turnStart.hosted_tools ?? []).filter(
-    (tool): tool is Extract<TurnHostedTool, { type: 'web_search' }> => tool.type === 'web_search'
-  )
+// A workflow task reads memory but never writes it; its findings enter memory
+// through the owning main session.
+function workflowTaskHostedTools(turnStart: TurnStart): HostedTool[] {
+  return (turnStart.hosted_tools ?? []).flatMap((tool): HostedTool[] => {
+    if (tool.type === 'web_search') return [tool]
+    if (tool.type === 'brain') return [{ type: 'brain', operations: BRAIN_JOB_OPERATIONS }]
+    return []
+  })
 }
 
 function workflowTaskSystemPrompt(

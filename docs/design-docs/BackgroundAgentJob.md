@@ -14,6 +14,11 @@ instance. Its optional Agent filter and search combine. Search matches an exact
 Job ID or a case-insensitive title fragment before the 100-row page limit is
 applied, so an older matching Job is not hidden by newer unrelated work.
 
+The Job detail shows the runtime Turn trajectory in bounded pages. The first
+page holds the newest Turns. Each page contains at most 20 semantic item groups
+within 24 KiB, and the pager walks back into the older history. A Turn that
+recorded no readable item still appears on its page with its status and error.
+
 ## What the Main Agent Can Do
 
 Each model tool performs one BackgroundAgentJob operation. A tool does not use
@@ -324,7 +329,11 @@ Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The AP
 rebuilds trajectory pages from the header and the messages that the stored
 items project.
 
-The stored Turn `kind` is Worker-to-control-plane metadata. It is not a Responses
+The stored Turn `kind` is Worker-to-control-plane metadata. The Worker sets
+`kind=compaction` only on the Turn that its own `thread/compact/start` request
+creates. A compaction that Codex runs automatically inside an agent Turn stays a
+`contextCompaction` item of that agent Turn. The kind does not change after the
+Worker records the Turn. It is not a Responses
 object and does not define a Job type, lead or child ownership, trajectory
 visibility, causal message matching, or recovery. The Job `runtime_thread_id`
 identifies the root thread. Trajectory `item_key` values identify causal inputs.

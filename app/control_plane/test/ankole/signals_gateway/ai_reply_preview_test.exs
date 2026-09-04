@@ -3,12 +3,14 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockSignalProviderOutbox
+  alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
@@ -23,6 +25,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     @moduledoc false
 
     @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+
+    alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
 
     @recipient_key {__MODULE__, :recipient}
     @refresh_result_key {__MODULE__, :refresh_result}
@@ -47,6 +51,15 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       send(:persistent_term.get(@recipient_key), {:recovery_refresh, request})
       :persistent_term.get(@refresh_result_key, {:ok, %{}})
     end
+
+    @impl true
+    def surface_ids(checkpoint) do
+      [{:handle, checkpoint["card_id"]} | MockReplyPreview.surface_ids(checkpoint)]
+      |> Enum.filter(fn {_kind, id} -> is_binary(id) and id != "" end)
+    end
+
+    @impl true
+    def surface_open?(checkpoint), do: MockReplyPreview.surface_open?(checkpoint)
   end
 
   defmodule PostOnlySignalProviderPlugin do
@@ -201,13 +214,26 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   test "preview ignores another opaque actor_event_id in the same conversation" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("metadata-filter")
 
-    %{conversation: conversation, response: response} =
-      start_dispatched_preview(subject.uid, actor_event)
+    {:ok, conversation} =
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
 
-    {:ok, unrelated_response} =
-      StatefulResponses.start_response_run(%{
+    {:ok, root} =
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id,
+        metadata: request_metadata(%{"actor_event_id" => Ecto.UUID.generate()})
+      })
+
+    {:ok, root} = StatefulResponses.commit_complete(root, [])
+
+    %{response: response} = start_dispatched_preview(subject.uid, actor_event)
+
+    # Implicit admission allows one generating run per conversation; the
+    # unrelated in-flight run exists only through an explicit anchor.
+    {:ok, unrelated_response} =
+      start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{root.id}",
         metadata: request_metadata(%{"actor_event_id" => Ecto.UUID.generate()})
       })
 
@@ -249,7 +275,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     refute_receive {:mock_provider_outbox_sent, _terminal_reply}, 100
 
     {:ok, second_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{first_round.id}",
         request_items: [
@@ -445,6 +471,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
@@ -502,6 +530,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     owner = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         send(owner, {:rich_sync, request.presentation["answer"]})
@@ -530,6 +560,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     owner = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         send(owner, {:rich_owner_update, request.actor_event.id, request.presentation})
@@ -619,6 +651,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     owner = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request ->
@@ -661,6 +695,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     owner = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         result = persist_preview_request(request, "open")
@@ -718,6 +754,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
@@ -788,6 +826,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       |> ReplyPresentation.checkpoint()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
@@ -1232,7 +1272,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     RecoveryReplyPreview.put_refresh_result(
       {:error,
-       {:cardkit_plain_text_fallback,
+       {:degraded, :plain_text,
         %{
           "code" => 230_099,
           "message" =>
@@ -1376,6 +1416,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     owner = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request ->
         Repo.checkout(fn ->
@@ -1434,6 +1476,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
              )
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request ->
         send(owner, {:hung_rich_update_started, self()})
@@ -1525,7 +1569,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     on_exit(fn -> stop_preview_and_wait(actor_event.id) end)
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject_uid,
         conversation_id: conversation.id,
         request_items: [%{"role" => "user", "content" => "ping"}],

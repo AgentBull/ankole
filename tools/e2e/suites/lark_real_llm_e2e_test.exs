@@ -92,7 +92,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :skill_lessons
-  test "a real codex background job recalls instance memory over the live RPC boundary" do
+  test "a real codex background job recalls instance memory through the hosted Brain tool" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     %{job: job} = run_real_job_brain_recall_turn(ctx)
@@ -252,7 +252,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       )
 
     assert get_in(completed.result, ["output_text"]) =~ marker
-    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.150.1 "
+    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.153.2 "
 
     legacy_auth_path =
       Path.join([ctx.container.agents_root, ctx.agent.uid, ".codex", "auth.json"])

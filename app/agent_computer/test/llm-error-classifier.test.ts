@@ -32,8 +32,7 @@ describe('LLM error classification', () => {
     expect(turnFailureDetails(error)).toMatchObject({
       llm_error_kind: 'timeout',
       error_code: 'websocket_read_failed',
-      retryable: true,
-      should_fallback_provider: true
+      retryable: true
     })
   })
 

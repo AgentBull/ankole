@@ -6,9 +6,7 @@ import { join } from 'node:path'
 import {
   LARK_TENANT_TOKEN_ENV,
   LARK_TENANT_TOKEN_FILE_ENV,
-  materializeLarkCredential,
-  sameLarkBindingIdentity,
-  withoutLarkTenantTokenValue
+  materializeLarkCredential
 } from '../src/core/execution/lark-credential'
 import type { ResolvedAgentWorkerEnv } from '../src/core/execution/worker_env'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -21,25 +19,6 @@ afterEach(() => {
 })
 
 describe('Lark execution credential', () => {
-  it('removes a frozen token from a final flat projection', () => {
-    expect(withoutLarkTenantTokenValue({ SAFE: 'value', [LARK_TENANT_TOKEN_ENV]: 'frozen-token' })).toEqual({
-      SAFE: 'value'
-    })
-  })
-
-  it('compares the app and domain that own a refreshed token', () => {
-    const current = workerEnv('tenant-token-1')
-    const otherApp = workerEnv('tenant-token-2')
-    otherApp.bindingVars.LARKSUITE_CLI_APP_ID = 'app-2'
-    const otherDomain = workerEnv('tenant-token-3')
-    otherDomain.bindingVars.LARKSUITE_CLI_BRAND = 'lark'
-
-    expect(sameLarkBindingIdentity(current, workerEnv('tenant-token-4'))).toBe(true)
-    expect(sameLarkBindingIdentity(current, otherApp)).toBe(false)
-    expect(sameLarkBindingIdentity(current, otherDomain)).toBe(false)
-    expect(sameLarkBindingIdentity(current, workerEnv(undefined))).toBe(false)
-  })
-
   it('removes the raw token and refreshes one private file until cleanup', async () => {
     const agentHome = fixtureAgentHome()
     let refreshToken = 'tenant-token-2'

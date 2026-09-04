@@ -724,6 +724,54 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert response["output"] == [streamed_item]
   end
 
+  test "a missing or short terminal output materializes the recorded item tail" do
+    first = %{
+      "type" => "message",
+      "id" => "msg_first",
+      "role" => "assistant",
+      "status" => "completed",
+      "content" => [%{"type" => "output_text", "text" => "first"}]
+    }
+
+    second = %{
+      "type" => "function_call",
+      "id" => "fc_second",
+      "call_id" => "call_second",
+      "name" => "command",
+      "arguments" => "{}",
+      "status" => "completed"
+    }
+
+    state =
+      State.new("agent-test", %{}, %{})
+      |> observe_done(first, 0, 0)
+      |> observe_done(second, 1, 1)
+
+    short_terminal =
+      first
+      |> Map.drop(["id", "status"])
+      |> completed_event()
+      |> Map.put("sequence_number", 2)
+
+    assert {:ok, _state, [public_terminal],
+            {:terminal, %{terminal_response: response}, :keep_upstream}} =
+             State.observe(state, short_terminal, 2)
+
+    assert public_terminal["response"]["output"] == [first, second]
+    assert response["output"] == [first, second]
+
+    missing_output =
+      completed_event(first)
+      |> Map.update!("response", &Map.delete(&1, "output"))
+
+    single_state = State.new("agent-test", %{}, %{}) |> observe_done(first)
+
+    assert {:ok, _state, [public_terminal], {:terminal, _outcome, :keep_upstream}} =
+             State.observe(single_state, missing_output, 1)
+
+    assert public_terminal["response"]["output"] == [first]
+  end
+
   test "a conflicting anonymous terminal item is not reconciled by output index" do
     streamed_item = %{
       "type" => "message",
@@ -882,6 +930,35 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
     assert_receive {:collector_read, ^pid, 1}
     assert_receive {:collector_cancel, ^pid, "synchronous_collector_timeout"}
+  end
+
+  test "next/2 reports an owner killed mid-stream instead of hanging" do
+    ref = make_ref()
+    receiver = self()
+
+    killer =
+      spawn_link(fn ->
+        receive do
+          {:collector_read, pid, 1} ->
+            receive do
+              {:collector_read, ^pid, 1} ->
+                Process.exit(pid, :kill)
+                send(receiver, {:owner_killed, pid})
+            end
+        end
+      end)
+
+    {:ok, pid} = CollectorStream.start(self(), ref, [:continue, :hold], killer)
+    stream = %ResponseStream{pid: pid, ref: ref}
+
+    assert {:ok, [], :continue} = ResponseStream.next(stream, 1_000)
+    assert {:error, {:response_stream_closed, :killed}} = ResponseStream.next(stream, 5_000)
+    assert_receive {:owner_killed, ^pid}
+    refute Process.alive?(pid)
+
+    assert {:error, {:response_stream_closed, :noproc}} = ResponseStream.next(stream, 1_000)
+    assert {:error, :response_stream_collect_timeout} = ResponseStream.next(stream, 0)
+    refute_receive {:DOWN, _monitor, :process, ^pid, _reason}
   end
 
   test "resumed program execution leaves read heartbeat and cancel responsive" do
@@ -1112,15 +1189,17 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     }
   end
 
-  defp observe_done(state, item) do
+  defp observe_done(state, item, output_index \\ 0, sequence_number \\ 0) do
     event = %{
       "type" => "response.output_item.done",
-      "sequence_number" => 0,
-      "output_index" => 0,
+      "sequence_number" => sequence_number,
+      "output_index" => output_index,
       "item" => item
     }
 
-    assert {:ok, new_state, [_done], :continue} = State.observe(state, event, 0)
+    assert {:ok, new_state, [_done], :continue} =
+             State.observe(state, event, sequence_number)
+
     new_state
   end
 

@@ -17,6 +17,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.ProviderSealedContent
@@ -83,41 +84,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  @spec prepare_websocket_provider_request(String.t(), map(), keyword()) ::
-          {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
-  def prepare_websocket_provider_request(subject_uid, request, opts \\ []) do
-    normalized_request = Attrs.normalize_external_attrs(request)
-    request_context = websocket_request_context(opts, normalized_request)
-
-    with :ok <- validate_websocket_stateful_shape(request),
-         {:ok, runtime} <-
-           Resolver.resolve_request_model(
-             subject_uid,
-             "llm",
-             Map.put(normalized_request, "__ankole_request_context", request_context)
-           ),
-         {:ok, normalized_request} <-
-           CodexVision.adapt(
-             subject_uid,
-             normalized_request,
-             request_context: request_context,
-             subject_type: Keyword.get(opts, :subject_type)
-           ),
-         {:ok, request_for_provider, run_attrs} <-
-           provider_websocket_request(subject_uid, normalized_request, runtime),
-         {:ok, %{spec: prepared_request}} <-
-           ResponsesPreparation.prepare_with_runtime(
-             subject_uid,
-             runtime,
-             request_for_provider,
-             stream?: true,
-             request_context: put_run_conversation_id(request_context, run_attrs)
-           ) do
-      {:ok, prepared_request, run_attrs}
-    end
-  end
-
-  @doc false
   @spec prepare_and_start_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_and_start_websocket_provider_request(subject_uid, request, opts \\ []) do
@@ -126,7 +92,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     resolver_request = Map.put(request, "__ankole_request_context", request_context)
 
     with :ok <- validate_websocket_stateful_shape(request),
-         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", resolver_request),
+         {:ok, runtime} <-
+           Resolver.resolve_request_model(subject_uid, "llm", resolver_request,
+             model_binding: Keyword.get(opts, :model_binding)
+           ),
          {:ok, request} <-
            CodexVision.adapt(
              subject_uid,
@@ -142,13 +111,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           request_context
         )
       else
-        with {:ok, request_for_provider, nil} <-
-               provider_websocket_request(subject_uid, request, runtime),
+        with {:ok, request} <-
+               CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
              {:ok, %{spec: prepared_request}} <-
                ResponsesPreparation.prepare_with_runtime(
                  subject_uid,
                  runtime,
-                 request_for_provider,
+                 strip_stateful_provider_fields(request),
                  stream?: true,
                  request_context: request_context
                ) do
@@ -245,55 +214,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def recover_provider_replay(_stateful_context),
     do: {:error, :stateful_replay_recovery_unavailable}
 
-  # Step 1: Expands the message chain for a stateful run and injects the
-  # expanded history into the provider-facing request input.
-  #
-  # This replaces the old worker-side history resolution path: the gateway now
-  # owns history expansion (plan §3.9 step 3).
-  #
-  # After expansion, stateful fields are stripped from the request so they
-  # are not sent to the upstream provider (plan §3.9 step 6):
-  #   - previous_response_id (Ankole UUID, would 404 on OpenAI)
-  #   - store (Ankole stateful switch; provider dispatch disables upstream storage)
-  #   - conversation (internal correlation)
-  defp provider_websocket_request(subject_uid, request, runtime) do
-    request = Attrs.normalize_external_attrs(request)
-
-    if request["store"] == true do
-      expand_and_inject_history(subject_uid, request, runtime)
-    else
-      with {:ok, request} <-
-             CompactionArtifacts.resolve_request_input_handles(subject_uid, request) do
-        {:ok, strip_stateful_provider_fields(request), nil}
-      end
-    end
-  end
-
-  defp expand_and_inject_history(subject_uid, request, runtime) do
-    with {:ok, context} <-
-           build_stateful_request_context(
-             subject_uid,
-             request,
-             runtime,
-             &Compaction.maybe_compact_history/6
-           ) do
-      provider_request_from_stateful_context(context, runtime)
-    end
-  end
-
   defp prepare_and_start_stateful_provider_request(
          subject_uid,
          request,
          runtime,
          request_context
        ) do
-    with {:ok, context} <-
-           build_stateful_request_context(
-             subject_uid,
-             request,
-             runtime,
-             &Compaction.maybe_plan_history/6
-           ),
+    with {:ok, context} <- build_stateful_request_context(subject_uid, request, runtime),
          {:ok, message} <-
            StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
       stateful_context = response_stream_context(message)
@@ -343,13 +270,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> RequestContext.prepare(request)
   end
 
-  defp put_run_conversation_id(request_context, %{conversation_id: conversation_id})
-       when is_binary(conversation_id),
-       do: Map.put(request_context, "conversation_id", conversation_id)
-
-  defp put_run_conversation_id(request_context, _run_attrs), do: request_context
-
-  defp build_stateful_request_context(subject_uid, request, runtime, compact_history) do
+  defp build_stateful_request_context(subject_uid, request, runtime) do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
@@ -371,6 +292,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          effective_previous_response_id <-
            effective_previous_response_id(conversation.id, previous_response_id),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
+         current_input <- Brain.inject_stateful(subject_uid, request, conversation, current_input),
          history <-
            StatefulResponses.expand_history(conversation.id,
              previous_response_id: effective_previous_response_id,
@@ -381,7 +303,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
-           compact_history.(
+           Compaction.maybe_plan_history(
              subject_uid,
              conversation.id,
              history,

@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @codex_version "0.150.1"
+  @codex_version "0.153.2"
   provider :chatgpt_subscription do
     label(%{
       "default" => "ChatGPT Subscription",

@@ -93,7 +93,8 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
       { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },
-      { to: '/identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine }
+      { to: '/identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
+      { to: '/oidc-clients', label: 'console.nav.oidc_clients', icon: RiKey2Line }
     ]
   },
   {

@@ -193,7 +193,9 @@ Tests verify:
 - full-text storage, stored-size limit, and the `read_file` offset that continues the page
 - bounded results and a stated missing full text when storage fails
 - route material injection and source-variable removal
-- partial URL failure and result order
+- partial URL failure and result order across one rendered batch call: a
+  blocked URL, a returned result that carries an error, and a failed batch each
+  keep their request position
 - bounded extraction and cancellation
 - document-commit extraction while `DOMContentLoaded` remains pending
 - HTTPS and SSRF checks

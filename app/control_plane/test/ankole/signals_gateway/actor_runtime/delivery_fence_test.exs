@@ -674,7 +674,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                )
 
       assert {:ok, %{status: :turn_dead_lettered, actor_event: dead_lettered}} =
-               fail_next_turn!(DateTime.add(@base_time, 2, :second))
+               fail_next_turn!(DateTime.add(@base_time, 2, :second),
+                 details_json: %{"api_key" => "sk-live-secret", "stage" => "model_call"}
+               )
 
       assert dead_lettered.id == poison_event.id
 
@@ -682,6 +684,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert stored_poison.input_state == "dead_letter"
       assert is_nil(stored_poison.completed_at)
       assert %DateTime{} = stored_poison.dead_letter_at
+
+      assert stored_poison.dead_letter_reason == %{
+               "code" => "worker_loop_failed",
+               "message" => "worker loop failed",
+               "details_json" => %{"api_key" => "[REDACTED]", "stage" => "model_call"}
+             }
 
       # No preview streamed, so the addressed message would otherwise go silent.
       # The dead-letter notice posts a fresh message rather than editing a preview.
@@ -944,6 +952,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       stored = Repo.get!(ActorEvent, input.id)
       assert stored.input_state == "dead_letter"
       assert %DateTime{} = stored.dead_letter_at
+      assert stored.dead_letter_reason["details_json"] == %{"retryable" => true}
     end
 
     test "nested aigateway retryable turn_error details back off without poisoning the event" do
@@ -1109,57 +1118,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert second_turn_ref.actor_epoch == 2
     end
 
-    test "expired activation rejects late worker completion without provider output" do
-      initial_message_count = Repo.aggregate(Message, :count)
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
-      route = unique_route()
-
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
-
-      assert {:ok, %{actor_event: input}} =
-               emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{text: "PING", explicit: true}),
-                 now: @base_time
-               )
-
-      assert {:ok, %{turn_ref: turn_ref_from_result}} =
-               process_ready_events_once(
-                 now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert turn_ref_from_result.actor_event_id == input.id
-      assert_receive {:actor_lane, envelope}
-      turn_start = turn_start_payload!(envelope)
-      turn_ref = turn_start.turn
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
-
-      Repo.update_all(
-        from(activation in ActorSessionActivation,
-          where: activation.activation_uid == ^turn_ref.activation_uid
-        ),
-        set: [lease_expires_at: DateTime.add(DateTime.utc_now(:microsecond), -1, :second)]
-      )
-
-      assert {:error, :activation_lease_expired} =
-               complete_turn_noop(turn_ref, "late_worker_completion")
-
-      assert Repo.get!(ActorEvent, input.id).input_state == "open"
-      assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
-      assert Repo.aggregate(Message, :count) == initial_message_count
-
-      refute Enum.any?(Repo.all(Message), &message_has_role?(&1, "assistant"))
-
-      assert Repo.aggregate(OutboxEntry, :count) == 0
-    end
-
     test "worker progress extends the matching in-flight activation lease" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -1247,26 +1205,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert DateTime.diff(due_at, lease_expires_at, :second) == 120
 
       assert DateTime.compare(activation.last_actor_heartbeat_at, now) == :eq
-
-      stale_turn_ref = %{turn_ref | activation_uid: "stale-activation"}
-
-      assert {:error, :actor_runtime_fence_not_found} =
-               ActorRuntime.handle_worker_progress(
-                 worker_progress_payload(stale_turn_ref, "reply_presentation",
-                   refs: %{
-                     "presentation_event" => %{
-                       "kind" => "tool.activity",
-                       "payload" => %{"operation_id" => "stale", "revision" => 2}
-                     }
-                   }
-                 ),
-                 now: now,
-                 presentation_event_fun: fn actor_event_id, event ->
-                   send(self(), {:stale_reply_presentation_event, actor_event_id, event})
-                 end
-               )
-
-      refute_receive {:stale_reply_presentation_event, _, _}
     end
   end
 

@@ -5,9 +5,9 @@ import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 import type { RPCRequestInit } from '../src/lanes/rpc_lane'
-import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
 import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
+import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import {
   configureWorkerTracing,
@@ -71,27 +71,12 @@ const actorTurn: ActorTurnRef = {
 }
 
 describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () => {
-  it('keeps the exact app-server delta opt-out contract', () => {
-    expect(CODEX_OPT_OUT_NOTIFICATION_METHODS).toEqual([
-      'item/agentMessage/delta',
-      'item/plan/delta',
-      'item/reasoning/summaryPartAdded',
-      'item/reasoning/summaryTextDelta',
-      'item/reasoning/textDelta',
-      'item/commandExecution/outputDelta',
-      'item/commandExecution/terminalInteraction',
-      'item/fileChange/outputDelta',
-      'item/fileChange/patchUpdated',
-      'item/mcpToolCall/progress'
-    ])
-  })
-
   it('retries an explicitly retryable control-plane checkpoint failure and preserves its failure id', async () => {
     const { recorder, attempts } = rejectingFixture({
       code: 'rpc_handler_failed',
       details: { failure_id: 'failure-read-1', retryable: true }
     })
-    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
 
     await expect(recorder.flush()).rejects.toMatchObject({
       code: 'background_agent_job_turn_persistence_failed',
@@ -125,7 +110,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
         return create(BackgroundAgentJobTurnUpsertResponseSchema, { jobId: request.jobId })
       }
     })
-    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
     await recorder.flush()
     recorder.handleNotification(
       notification('turn/completed', {
@@ -153,7 +138,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       code: 'background_agent_job_turn_stale_revision',
       details: { retryable: false }
     })
-    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
 
     await expect(recorder.flush()).rejects.toMatchObject({
       code: 'background_agent_job_turn_persistence_rejected',
@@ -168,7 +153,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('ignores opted-out notifications without changing revision, trajectory, progress, or checkpoint count', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
     await recorder.flush()
     const baseline = structuredClone(upserts.at(-1)!)
     const checkpointCount = upserts.length
@@ -185,7 +170,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('ships the initial input as one client-keyed user item exactly once', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行命令', 'event-1')
     await recorder.flush()
 
     const entries = turnItems(upserts)
@@ -208,7 +193,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('uses item start only for active progress and completion for one canonical item', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行命令', 'event-1')
     await recorder.flush()
 
     recorder.handleNotification(
@@ -283,7 +268,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     })
     const { recorder } = fixture(0, turnTrace)
 
-    recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行命令', 'event-1')
     recorder.handleNotification(
       notification('item/started', {
         item: commandItem('command-1', 'printf hello', '', 'inProgress')
@@ -316,7 +301,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('distinguishes provider-hosted search from a same-name local dynamic tool', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '搜索并核对', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '搜索并核对', 'event-1')
 
     recorder.handleNotification(
       notification('item/completed', {
@@ -355,7 +340,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('persists the model-visible MCP namespace and name for durable replay', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '查询指标', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '查询指标', 'event-1')
 
     recorder.handleNotification(
       notification('rawResponseItem/completed', {
@@ -399,7 +384,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('reconstructs legacy MCP progress with the Codex name sanitizer', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '查询价格', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '查询价格', 'event-1')
 
     recorder.handleNotification(
       notification('item/completed', {
@@ -422,7 +407,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('records the exact MultiAgentV2 calls, outputs, and stable child identities', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '委派并收取结果', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '委派并收取结果', 'event-1')
 
     const calls = [
       {
@@ -543,7 +528,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('keeps a stable child identity when a resumed thread has no raw response events', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '观察子 Agent', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '观察子 Agent', 'event-1')
     const activity = {
       type: 'subAgentActivity',
       id: 'activity-1',
@@ -579,7 +564,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('checkpoints the bounded set of Skills with runtime usage evidence', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), 'Use $pdf.', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', 'Use $pdf.', 'event-1')
     recorder.recordSkillUsed('turn-1', 'pdf')
     recorder.recordSkillUsed('turn-1', 'pdf')
     recorder.recordSkillUsed('turn-1', 'docx')
@@ -590,7 +575,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('coalesces plan, usage, and diff snapshots and flushes them on a terminal Turn', async () => {
     const { recorder, upserts } = fixture(60_000)
-    recorder.recordTurnStarted('thread-1', startedTurn(), '实现并验证', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '实现并验证', 'event-1')
     await recorder.flush()
     const baselineCount = upserts.length
 
@@ -657,7 +642,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('persists every completed tool without a total item eviction limit', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '执行批量任务', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行批量任务', 'event-1')
 
     for (let index = 0; index < 270; index += 1) {
       recorder.handleNotification(
@@ -698,7 +683,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('sorts tool names with the same deterministic order enforced by PostgreSQL changesets', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '执行工具', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行工具', 'event-1')
 
     for (const [id, tool] of [
       ['upper', 'Zeta_tool'],
@@ -730,7 +715,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 
   it('persists pending request_user_input as one in-progress dynamic tool item', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '需要时提问', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '需要时提问', 'event-1')
     recorder.recordRequestUserInput(
       'turn-1',
       jsonObject({
@@ -754,9 +739,65 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
   })
 
+  it('keeps an agent Turn as agent when Codex compacts automatically inside it', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '长任务', 'event-1')
+    recorder.handleNotification(
+      notification('item/completed', { item: { type: 'contextCompaction', id: 'compaction-1' } })
+    )
+    recorder.handleNotification(
+      notification('item/completed', { item: commandItem('command-1', 'printf hello', 'hello', 'completed') })
+    )
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: {
+          ...startedTurn(),
+          status: 'completed',
+          items: [{ type: 'contextCompaction', id: 'compaction-1' }],
+          completedAt: Date.now() / 1_000
+        }
+      })
+    )
+    await recorder.flush()
+
+    expect(new Set(upserts.map(upsert => upsert.kind))).toEqual(new Set(['agent']))
+    expect(upserts.at(-1)).toMatchObject({ runtime_turn_id: 'turn-1', kind: 'agent', status: 'completed' })
+    expect(turnItems(upserts).map(entry => entry.item.type)).toEqual([
+      'userMessage',
+      'contextCompaction',
+      'commandExecution'
+    ])
+    expect(upserts.at(-1)?.progress.tools_used).toEqual([
+      { name: 'context_compaction', calls: 1 },
+      { name: 'shell', calls: 1 }
+    ])
+  })
+
+  it('persists the declared compaction kind through the terminal checkpoint', async () => {
+    const { recorder, upserts } = fixture()
+    const compactionTurn = { ...startedTurn(), id: 'turn-compact' }
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: compactionTurn }, 'compaction')
+    recorder.handleNotification(
+      notification('item/completed', {
+        turnId: 'turn-compact',
+        item: { type: 'contextCompaction', id: 'compaction-1' }
+      })
+    )
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: { ...compactionTurn, status: 'completed', completedAt: Date.now() / 1_000 }
+      })
+    )
+    await recorder.flush()
+
+    expect(new Set(upserts.map(upsert => upsert.kind))).toEqual(new Set(['compaction']))
+    expect(upserts.at(-1)).toMatchObject({ runtime_turn_id: 'turn-compact', kind: 'compaction', status: 'completed' })
+    expect(turnItems(upserts).map(entry => entry.item.type)).toEqual(['contextCompaction'])
+  })
+
   it('keeps only reasoning summaries and never raw reasoning text', async () => {
     const { recorder, upserts } = fixture()
-    recorder.recordTurnStarted('thread-1', startedTurn(), '分析问题', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '分析问题', 'event-1')
     recorder.handleNotification(
       notification('item/completed', {
         item: {
@@ -781,7 +822,12 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
   it('redacts secrets while retaining the full sequence across append-only items', async () => {
     const { recorder, upserts } = fixture()
     const secret = 'sk-secret-value-1234567890'
-    recorder.recordTurnStarted('thread-1', startedTurn(), `Use api_key=${secret}`, 'event-1')
+    recorder.recordTurnStarted(
+      { threadId: 'thread-1', turn: startedTurn() },
+      'agent',
+      `Use api_key=${secret}`,
+      'event-1'
+    )
 
     for (let index = 0; index < 80; index += 1) {
       recorder.handleNotification(

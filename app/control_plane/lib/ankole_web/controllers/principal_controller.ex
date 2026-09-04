@@ -207,7 +207,7 @@ defmodule AnkoleWeb.PrincipalController do
   end
 
   defp uid_param(params) do
-    case Map.get(params, :uid, Map.get(params, "uid")) do
+    case Map.get(params, :uid) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, "uid"}}
     end

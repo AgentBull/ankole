@@ -21,6 +21,7 @@ import type {
   Message,
   ModelConfig,
   ContentPart,
+  HostedBrainItemEvent,
   HostedTool,
   StatefulResponseContext,
   UserMessage
@@ -80,6 +81,9 @@ export interface AgentLoopConfig {
 
   /** AIGateway-hosted tools declared by the control plane for this turn. */
   hostedTools?: HostedTool[]
+
+  /** Reports each hosted Brain operation AIGateway ran inside a response. */
+  onHostedBrainItem?: (event: HostedBrainItemEvent) => void
 
   /** Max main-loop model/API iterations before a final no-tools summary call. */
   maxModelIterations: number

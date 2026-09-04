@@ -24,7 +24,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   # and Markdown tables again so no renderer path can pass the provider limit.
   @max_tables 5
   @markdown_element_tables 4
-  @action_value_version "ankole.interactive_output.action.v1"
   @metadata_element_ids ~w(state receipts plan thought activity meta)
   @separator_id "separator"
 
@@ -616,48 +615,33 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp render_choice_action(
          %{
            "type" => "button",
-           "interaction_id" => interaction_id,
-           "source_actor_event_id" => source_actor_event_id,
-           "control_id" => control_id,
-           "selected_option_id" => selected_option_id,
-           "option_value" => option_value,
-           "revision" => revision
+           "source_actor_event_id" => source_actor_event_id
          } = action
        )
-       when is_binary(interaction_id) and is_binary(source_actor_event_id) and
-              is_binary(control_id) and is_binary(selected_option_id) and
-              is_binary(option_value) and is_integer(revision) do
-    [
-      %{
-        "tag" => "interactive_container",
-        "width" => "fill",
-        "height" => "auto",
-        "background_style" => choice_background(action["style"]),
-        "has_border" => true,
-        "border_color" => choice_border(action["style"]),
-        "corner_radius" => "8px",
-        "padding" => "8px 12px 8px 12px",
-        "disabled" => action["disabled"] == true,
-        "behaviors" => [
+       when is_binary(source_actor_event_id) do
+    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+      {:ok, value} ->
+        [
           %{
-            "type" => "callback",
-            "value" => %{
-              "version" => @action_value_version,
-              "answerKind" => "choice",
-              "interactionId" => interaction_id,
-              "interactionVersion" => revision,
-              "controlId" => control_id,
-              "selectedOptionId" => selected_option_id,
-              "optionValue" => option_value,
-              "sourceActorEventId" => source_actor_event_id
-            }
+            "tag" => "interactive_container",
+            "width" => "fill",
+            "height" => "auto",
+            "background_style" => choice_background(action["style"]),
+            "has_border" => true,
+            "border_color" => choice_border(action["style"]),
+            "corner_radius" => "8px",
+            "padding" => "8px 12px 8px 12px",
+            "disabled" => action["disabled"] == true,
+            "behaviors" => [%{"type" => "callback", "value" => value}],
+            "elements" =>
+              [choice_title(action)]
+              |> append(choice_description(action["description"]))
           }
-        ],
-        "elements" =>
-          [choice_title(action)]
-          |> append(choice_description(action["description"]))
-      }
-    ]
+        ]
+
+      {:error, :invalid_callback_action} ->
+        []
+    end
   end
 
   defp render_choice_action(_action), do: []
@@ -666,21 +650,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
          %{
            "type" => "form",
            "id" => id,
-           "interaction_id" => interaction_id,
            "source_actor_event_id" => source_actor_event_id,
-           "control_id" => control_id,
-           "revision" => revision,
            "fields" => [%{"type" => "input", "id" => input_name} = field]
          } = action,
          %{"interaction_status" => "pending"},
          index
        )
-       when is_binary(id) and is_binary(interaction_id) and
-              is_binary(source_actor_event_id) and is_binary(control_id) and
-              is_integer(revision) and is_binary(input_name) do
-    if action["disabled"] == true do
-      []
-    else
+       when is_binary(id) and is_binary(source_actor_event_id) and is_binary(input_name) do
+    with false <- action["disabled"] == true,
+         {:ok, value} <- ReplyPresentation.callback_value(source_actor_event_id, action) do
       [
         %{
           "tag" => "form",
@@ -696,24 +674,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
               "width" => "fill",
               "form_action_type" => "submit",
               "text" => CardI18n.plain_text("submit_reply"),
-              "behaviors" => [
-                %{
-                  "type" => "callback",
-                  "value" => %{
-                    "version" => @action_value_version,
-                    "answerKind" => "free_text",
-                    "interactionId" => interaction_id,
-                    "interactionVersion" => revision,
-                    "controlId" => control_id,
-                    "inputName" => input_name,
-                    "sourceActorEventId" => source_actor_event_id
-                  }
-                }
-              ]
+              "behaviors" => [%{"type" => "callback", "value" => value}]
             }
           ]
         }
       ]
+    else
+      _disabled_or_invalid -> []
     end
   end
 

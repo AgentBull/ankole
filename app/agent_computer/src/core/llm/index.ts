@@ -2,10 +2,13 @@ import type { AssistantMessage, CallModelOptions, ContentPart, ModelConfig, User
 import { buildResponseCreateParams } from './wire'
 import { parseResponse } from './parse'
 
+export { BRAIN_JOB_OPERATIONS, BRAIN_OPERATIONS } from './types'
 export type {
   AssistantMessage,
+  BrainOperation,
   CallModelOptions,
   ContentPart,
+  HostedBrainItemEvent,
   ImageContent,
   Message,
   ModelCallResult,

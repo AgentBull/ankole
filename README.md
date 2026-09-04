@@ -1,4 +1,4 @@
-# Ankole — The Open-Source AI Workforce OS
+# Ankole, the enterprise Agent Harness with a Company Brain
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -7,81 +7,67 @@
 
 [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-[Why it is different](#from-ai-capability-to-autonomous-labor) · [Business functions](#business-functions) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
+[Why Ankole](#why-ankole) · [Company Brain](#company-brain) · [Decision work](#decision-work) · [Enterprise runtime](#enterprise-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
 
-**Turn AI agents into autonomous labor that performs business functions and is measured by outcomes.**
+**Give your company a Brain and every Agent better judgment.**
 
-Most AI products give a person a model, an assistant, or a copilot. The person still decides each next step, moves context, calls tools, handles failures, and completes the work.
+Ankole is the open source Claude Code alternative for company work. Its enterprise Agent Harness assembles company knowledge, live signals, permissions, tools, and observed results into the context an Agent needs to make a decision and show its evidence.
 
-Ankole gives the execution loop to the Agent. You define the business function, outcome measure, authority, tools, and context.
+Company Brain gives durable Agents shared knowledge. The Harness applies enterprise authority and carries work across model calls.
 
-The Agent plans and executes the work, asks at approval or exception boundaries, and delivers a result that you can inspect and score.
+A model can reason only over the context it receives. Ankole selects the relevant facts and capabilities, enforces authority, preserves work through failure, and records results for later decisions.
 
-Ankole is open source and self-hosted. Identities, context, credentials, artifacts, audit records, and execution stay on infrastructure that you control.
+Ankole runs on infrastructure that the company controls. Identity, context, credentials, artifacts, audit records, and execution stay in that environment.
 
-This is **service as software**: software does not only help a person provide a service; it performs the service. Ankole provides the runtime that makes this possible for high-value knowledge work.
+The Harness gives each model call continuity, authority, durable state, and feedback from results.
 
-## From AI Capability to Autonomous Labor
+## Why Ankole
 
-A copilot reduces the effort needed to do work. The human still drives. Ankole changes the default owner of the execution loop: the Agent observes, decides, acts, follows up, and delivers within a defined business function.
+Most Agent stacks combine a model, a prompt, and a set of tools. Each call begins with context assembled for that moment. Ankole maintains the company state and runtime required for work that continues after the call.
 
-- **A business function, not a chat persona.** Each Agent has an ongoing responsibility, expected deliverables, operating context, and result measure. Its identity exists to hold authority and history, not to imitate a person.
-- **Outcomes, not activity.** Work is measured by the number that matters to the business: return, risk, ranking, approval rate, cost per unit, or another declared result.
-- **An execution loop, not next-step suggestions.** The Agent owns planning, tool use, follow-up, recovery, and delivery. People do not have to drive every step.
-- **Authority with boundaries.** Identity, AuthZ, audit records, approval points, and escalation paths define what the Agent can do and when a person must decide.
-- **Long-running work, not one request.** Sessions can work for hours or days, receive new input, recover after failure, and retain the context needed for the next action.
+- The Harness assembles current context, selects capabilities, enforces authority, and preserves state across model calls.
+- Messages, schedules, webhooks, market changes, and internal events can wake the right Agent.
+- Stable identities, AuthZ, approval points, audit records, and delivery state define the authority of each Agent.
+- Corrections, new evidence, expired facts, and observed outcomes update the context for later decisions.
 
-Autonomous work depends on current context. Ankole records rules, decisions, corrections, and outcomes with time and source, instead of treating every old message as equally true.
+## Company Brain
 
-Brain retires stale facts, merges related corrections, surfaces conflicts, and compares predictions with later results. Each run starts from a more accurate operating picture.
+Company Brain gives every authorized Agent access to the same current company knowledge.
 
-## What Makes Autonomous Labor Possible
+It learns from conversations, registered files and URLs, and deliberate Agent writes. Every claim keeps its source, time, holder, confidence, and audience.
 
-- **Long jobs run in the background.** A Job can run for hours, return to the same channel, report a failed step, and retry without blocking the main Agent.
-- **Shared context becomes working memory.** Rules, preferences, and rejected options can enter memory even when nobody addressed the Agent.
-- **Memory models a changing world.** Brain curates instance-shared knowledge behind per-Principal boundaries, retires stale entries, reasons over evidence, and learns from registered sources directly.
-- **Deep Research becomes a playbook.** Fan-out retrieval, layered checks, and competing hypotheses produce a cited report. A successful method can guide the next run.
-- **A real browser does real work.** The Agent can read rendered pages, click, type, capture evidence, run Playwright scripts, and keep a signed-in session across steps.
-- **Skills improve under human control.** An Agent can propose a skill update. A person approves it before the change applies to later sessions.
-- **Run one Agent or many.** Each Agent can have its own function, authority, tools, memory, and outbound identity. Multi-agent execution is optional.
-- **Enterprise identity and work channels connect directly.** Lark, Slack, DingTalk, Teams, Google Workspace, webhooks, schedules, and internal systems enter through one signal boundary.
+- A judgment stays attached to its holder, and each source stays attached to the claim it supports.
+- New evidence updates the current view while preserving the history of earlier decisions.
+- Contradictions remain visible for review.
+- Recall applies Principal and group visibility before protected knowledge reaches a model.
+- Dreaming organizes evidence, finds patterns, grades due predictions, and proposes changes for human approval.
 
-## Business Functions
+## Decision work
 
-Ankole fits work that can be done digitally, produces inspectable deliverables, and has a result measure. The measure can be ROI, risk-adjusted return, ranking movement, approval rate, or another business outcome.
+Ankole supports decisions with explicit assumptions and observable outcomes. Current examples include industry research, product selection, deep data analysis, and forecasting.
 
-| Business function | Delivered work | Measured by |
-|---|---|---|
-| Performance marketing | Campaign plans, bids, creatives, and budget shifts | Incremental ROAS and customer acquisition cost |
-| Industry research and trading | Research, hypotheses, portfolio actions, and reviews | Excess return, Sharpe ratio, and maximum drawdown |
-| Search engine optimization | Keyword plans, content briefs, and on-page changes | Ranking movement and qualified organic traffic |
-| Regulatory affairs | Submission dossiers and deficiency responses | First-pass approval rate and rounds of questions |
-| Patent prosecution | Prior-art searches, claim drafts, and office-action responses | Grant rate and office-action rounds |
-| Smart contract audit | Reports with reproducible proofs of concept | Critical misses and false-positive rate |
+- The Agent starts with current rules, prior decisions, relevant evidence, available authority, and recent changes.
+- Deep Research divides evidence gathering across independent workers, tests competing hypotheses, records evidence gaps, and returns a cited report.
+- A browser, terminal, files, models, and connected systems let the Agent investigate and act within its authority.
+- Predictions, corrections, and observed outcomes become evidence for later decisions.
 
-The unit is a business function, not an Agent count. One Agent can own a narrow function, or several can share its execution. Multi-agent coordination is an implementation choice, not the product promise.
+## Enterprise runtime
 
-The common contract is: **define the function, grant bounded authority, let the Agent work, and score the outcome.**
+Ankole runs each active session as an addressable Virtual Actor. The actor can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue.
 
-## Actor Runtime
+Five mechanisms keep the work alive and accountable:
 
-Ankole is an actor-oriented runtime for long-running AI work. Each active session is an addressable virtual actor: it can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue without pretending an agent is just an HTTP request or a queue job.
+- A Virtual Actor gives each session an address, mailbox, lifecycle, and recovery path.
+- OTP supervision trees isolate a session that hangs, times out, or crashes.
+- ZeroMQ carries wakeups, steering, checkpoints, streams, and backpressure with low latency.
+- Agent Computer runs the model loop, tools, files, terminal state, and streaming output close to the workspace.
+- PostgreSQL keeps mailboxes, turns, reminders, decisions, and committed actions for recovery and audit.
 
-The runtime is built around five technical bets:
-
-- **Virtual Actors for AI work.** A session is a stateful work identity with an address, mailbox, lifecycle, and recovery path, not loose background work.
-- **OTP Supervision Trees as failure domains.** If one agent hangs, times out, or crashes, Ankole can isolate or restart that branch without turning it into a deployment-wide failure.
-- **ZeroMQ Activation Fabric for live control.** Wakeups, steering, checkpoints, streaming, and backpressure move through a low-latency routing layer while the agent is still working.
-- **Agent Computer as the execution substrate.** The LLM loop, tools, files, terminal state, and streaming output run inside a Bun + TypeScript computer close to the workspace.
-- **Durable Ledger for recovery and audit.** Mailboxes, turns, reminders, decisions, and committed side effects outlive processes. Streaming is progress; committed work is truth.
-
-For users and operators, the promise is simple: agents can work for hours or days, receive new input while running, fail independently, recover with context, and keep their side effects accountable. A longer version of the runtime argument is in [Why OTP Is a Better Runtime for Multi-Agent Orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/).
-
-That is the technical bet: actor model for long-lived work identity, OTP for failure semantics, ZeroMQ for live activation, and Agent Computer for local execution. It lets Ankole operate as an AI Workforce OS instead of a chatbot backend.
+Agents can work for hours or days, receive input while running, fail independently, recover with context, and record committed effects. The [runtime design article](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) explains the role of OTP in detail.
 
 ## Architecture
 
-This diagram shows ownership and durability boundaries. It does not show every internal call.
+This diagram shows the boundaries for ownership and durability. Internal calls are omitted.
 
 ```mermaid
 flowchart TB
@@ -98,11 +84,11 @@ flowchart TB
     AI["AIGateway<br/>model routing · conversations · credentials"]
   end
 
-  Fabric["RuntimeFabric<br/>live actor traffic · bounded RPC · worker files<br/>not durable storage"]
+  Fabric["RuntimeFabric<br/>transient actor traffic · bounded RPC · worker files"]
   Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turns · Background Job / Codex · Automation scripts<br/>tools · Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  PG[("PostgreSQL · durability boundary<br/>durable semantic truth")]
+  PG[("PostgreSQL · durability boundary<br/>committed domain facts")]
   Home[("Shared Agent Home · durability boundary<br/>workspaces · artifacts · resumable files")]
 
   External -->|"inputs and administration"| Control
@@ -119,57 +105,59 @@ flowchart TB
   Workers -.-> Home
 ```
 
-At a high level:
+The Elixir/OTP control plane owns durable decisions for Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycles, Brain, and AIGateway. PostgreSQL stores their domain facts.
 
-- **One control plane owns state and coordination.** Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycles, Brain, and AIGateway make durable decisions in Elixir/OTP. PostgreSQL stores their semantic facts.
-- **Trigger owners stay separate.** SignalsGateway owns channel and webhook admission. Schedule owns checkbacks and cron. Each trigger wakes an Actor session by default or creates a durable Automation Job run when it has a binding.
-- **Workers provide replaceable execution.** A pool of one or more Agent Computer Workers runs Main Agent turns, Background Job/Codex turns, and Automation scripts. RuntimeFabric carries live actor traffic, bounded RPC, and worker-file operations; it is not a durable queue.
-- **AIGateway is the unified AI boundary.** Its OpenResponses-compatible HTTP, SSE, and WebSocket API supports stateless requests and Principal-scoped stateful conversations. It resolves models across LLM, embedding, rerank, web-search, and web-fetch providers while upstream credentials remain in the control plane.
-- **Brain is the shared knowledge space.** Agents, humans, and background learning write one body of pages and claims; every read applies the querier's knowledge boundary. PostgreSQL rows are truth; rendered pages and injected context are projections.
-- **The two Job types make different promises.** A Background Agent Job is interactive, model-driven work that can resume and wait for input. An Automation Job is an Agent-owned deterministic script; each trigger consumption is a durable run that can emit an event to its owner session.
-- **Durability has two forms.** PostgreSQL owns semantic truth. Shared Agent Home storage holds workspaces, artifacts, and resumable files. RuntimeFabric and Worker process state are rebuildable.
+- SignalsGateway owns channel and webhook admission. Schedule owns checkbacks and cron.
+- Agent Computer Workers run Main Agent turns, Background Job and Codex turns, and Automation scripts.
+- RuntimeFabric carries transient actor traffic, bounded RPC, and worker file operations.
+- AIGateway routes LLM, embedding, rerank, web search, and web fetch requests through one control plane boundary.
+- Brain stores shared pages and claims. Every read applies the knowledge boundary of the requesting Principal.
+- Background Agent Jobs support interactive model work. Automation Jobs run deterministic scripts owned by an Agent.
+- Shared Agent Home stores workspaces, artifacts, and resumable files. Worker process state can be rebuilt.
 
-## Current Status
+## Current status
 
-Ankole is a complete, self-hostable AI Workforce OS in production. The control plane, Agent Computer, kernel, and operator console run end to end.
+Ankole runs in production as a complete enterprise Agent Harness. Companies can host the control plane, Agent Computer, kernel, and operator console on their own infrastructure.
 
-- **Many model providers.** OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other OpenAI-compatible endpoints are first-class, with compaction, stateful conversations, reasoning-effort control, and per-provider usage handling.
-- **Real IM integration.** Lark/Feishu and Slack are integrated as first-party providers with lifecycle, transport, main-flow, and real-LLM end-to-end coverage.
-- **Brain.** Instance-shared knowledge with scoped disclosure, conversation and source learning, dreaming (offline consolidation), and operator review, backed by PostgreSQL full-text and vector search.
-- **Long-running actor runtime.** Sessions wake, checkpoint, stream progress, hibernate, and recover with context; steering and cancellation are live-control operations, not request/response.
-- **Operator console.** Agents, Agent Library defaults and overrides, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker environments, Brain knowledge, and Background Agent Jobs are managed from a built-in web console.
-- **Tested for real conditions.** Unit suites plus dedicated end-to-end suites for Lark and Slack main flows, transport, lifecycle, real-LLM, scheduling, worker computer, chaos recovery, and concurrency/performance.
+- OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other endpoints compatible with the OpenAI API support compaction, stateful conversations, reasoning effort control, and provider usage records.
+- Lark/Feishu and Slack integrations have dedicated coverage for lifecycle, transport, main flows, and real LLM calls.
+- Brain provides scoped disclosure, conversation and source learning, offline consolidation, operator review, full text search, and vector search.
+- Sessions wake, checkpoint, stream progress, hibernate, recover with context, and accept live steering or cancellation.
+- The operator console included with Ankole manages Agents, library settings, plugins, providers, models, identity, signals, Workers, Brain knowledge, and Background Agent Jobs.
+- Unit suites and dedicated system suites cover scheduling, Worker computers, recovery under failure, concurrency, and performance.
 
-Ankole's public APIs do not yet carry a compatibility contract; expect breaking changes between releases.
+Ankole is still defining its public API compatibility contract. Releases can include breaking changes.
 
 | Area | Status |
 | --- | --- |
 | Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, Brain, SignalsGateway, and operator APIs. |
-| Agent Computer | Bun/TypeScript worker runtime under `app/agent_computer`. Runs the agent loop and local tools inside an isolated Linux worker image; not a standalone CLI. |
+| Agent Computer | Bun/TypeScript Worker runtime under `app/agent_computer`. Runs the Agent loop and local tools inside an isolated Linux Worker image. Its supported role is Worker execution. |
 | Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ transport. |
 | Frontend | Vite + React console, auth, and setup surfaces under `app/webapps`, built into the Phoenix static shell. |
 | Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
 | Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
-| Production readiness | Running in production. The durable path, live control, and operator surfaces are complete; the public API has no compatibility contract yet. |
+| Production readiness | Running in production. State persistence, live control, and operator interfaces are complete. Ankole is still defining its public API compatibility contract. |
 
-## Current Repository
+## Current repository
 
-This repository is the active Ankole control-plane and runtime workspace.
+This repository is the active Ankole control plane and runtime workspace.
 
-- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and PostgreSQL-owned durable state.
+- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and durable state in PostgreSQL.
 - `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, protobuf envelopes, and ZeroMQ RuntimeFabric transport.
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
 - `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
-- `app/library` - built-in standalone Skills, first-party Agent Plugins, and starter templates such as `MISSION.md` and `SOUL.md`.
+- `app/library` - bundled Skills, Agent Plugins provided by Ankole, and starter templates such as `MISSION.md` and `SOUL.md`.
 - `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
 - `libs/uikit` - shared UI primitives for Ankole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
 - `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
-- `internals/plugins` - private first-party Control Plane Plugin code compiled into private releases.
+- `internals/plugins` - private Control Plane Plugin code compiled into private releases.
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
 - `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.
 
-RuntimeFabric is the live control-plane-to-worker fabric. It carries actor traffic, bounded RPC, and worker-file frames over ZeroMQ while PostgreSQL remains the source of durable replay, fences, reconciliation, and final commits. SignalsGateway is the provider-ingress layer: external chats, webhooks, and provider events become actor events without turning source facts into execution state.
+RuntimeFabric carries live traffic from the control plane to Workers. It moves actor traffic, bounded RPC, and Worker file frames over ZeroMQ. PostgreSQL owns durable replay, fences, reconciliation, and final commits.
+
+SignalsGateway receives provider traffic. It converts external chats, webhooks, and provider events into actor events while preserving the source facts.
 
 ## Development
 
@@ -178,7 +166,7 @@ Ankole defaults to Bun for workspace scripts and Elixir/Phoenix for the control 
 For a first local setup, copy this single prompt into a coding agent:
 
 ```text
-Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local Ankole setup and its documented end-to-end verification. Treat that guide as the source of truth, perform and verify every safe reversible step you can, pause for human account, secret, OAuth, or destructive-approval actions, and do not claim completion until its stated success criteria pass.
+Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local Ankole setup and its documented verification from entry to result. Treat that guide as the source of truth. Perform and verify every safe reversible step. Pause for actions that require a human account, secret, OAuth flow, or approval for a destructive step. Declare completion only after its success criteria pass.
 ```
 
 ```shell
@@ -211,10 +199,10 @@ seccomp/profile setup. In Kubernetes, put the equivalent
 `capabilities.add: ["SYS_ADMIN"]`, `seccompProfile`, and `procMount: Unmasked`
 on the Agent Computer container `securityContext`. If strong bubblewrap is
 unavailable, the worker may downgrade to weak bubblewrap (container `/proc`
-bind-mounted into bwrap) and emits a startup warning. It never falls back to
-unsandboxed model-facing commands.
+mounted into bwrap) and emits a startup warning. It never exposes model commands
+without a sandbox.
 
-Package-local validation is preferred while the workspace is moving quickly:
+Run checks for each affected package:
 
 ```shell
 bun run --filter @ankole/control-plane test
@@ -231,7 +219,7 @@ cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
-Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.
+Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Store runtime application configuration in the AppConfigure records in PostgreSQL.
 
 Brain requires PostgreSQL with `pg_search` preloaded and the `pg_search`,
 `vector`, and `pg_trgm` extensions available; the BrainV3 migration installs

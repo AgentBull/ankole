@@ -19,7 +19,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @states ~w(open dead_letter)
-  @turn_outcomes ~w(loop_finished iteration_exhausted)
+  @turn_outcomes ~w(loop_finished iteration_exhausted silent)
 
   @type t :: %__MODULE__{}
 
@@ -54,6 +54,8 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     field :sender_key, :string
     field :payload, :map
     field :dead_letter_at, :utc_datetime_usec
+    # Bounded, redacted copy of the failure that dead-lettered the event.
+    field :dead_letter_reason, :map
 
     timestamps()
   end
@@ -86,7 +88,8 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :turn_outcome,
       :sender_key,
       :payload,
-      :dead_letter_at
+      :dead_letter_at,
+      :dead_letter_reason
     ])
     |> normalize_blank([
       :agent_uid,
@@ -120,6 +123,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     |> validate_number(:reply_preview_sequence_high_water, greater_than_or_equal_to: 0)
     |> JSONPayload.validate_map(:payload)
     |> JSONPayload.validate_map(:reply_preview_checkpoint)
+    |> JSONPayload.validate_map(:dead_letter_reason)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :binding_name, :source_event_id],
       name: :actor_events_signal_idempotency_index

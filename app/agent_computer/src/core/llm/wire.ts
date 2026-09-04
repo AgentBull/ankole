@@ -9,6 +9,7 @@ import type {
 import type {
   CallModelOptions,
   ContentPart,
+  HostedTool,
   ImageContent,
   Message,
   ModelConfig,
@@ -26,7 +27,7 @@ export function buildResponseCreateParams(model: ModelConfig, options: CallModel
     ...localTools,
     ...(hasDeferredTools ? [{ type: 'tool_search' as const, execution: 'server' as const }] : []),
     ...(options.programmaticToolCalling ? [{ type: 'programmatic_tool_calling' as const }] : []),
-    ...(options.hostedTools ?? []).map(tool => ({ type: tool.type }))
+    ...(options.hostedTools ?? []).map(hostedToolSpec)
   ]
   const promptCacheKey = reusablePromptCacheKey(options.instructions, tools)
 
@@ -113,6 +114,17 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
       ])
       .exhaustive()
   )
+}
+
+// The hosted brain declaration carries its operation subset and injection
+// flag to AIGateway; every other hosted tool is its type alone.
+function hostedToolSpec(tool: HostedTool): Record<string, unknown> {
+  if (tool.type !== 'brain') return { type: tool.type }
+  return {
+    type: 'brain',
+    ...(tool.operations ? { operations: tool.operations } : {}),
+    ...(tool.inject ? { inject: true } : {})
+  }
 }
 
 function localToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[string][]): unknown[] {

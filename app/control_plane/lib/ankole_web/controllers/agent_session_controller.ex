@@ -10,6 +10,7 @@ defmodule AnkoleWeb.AgentSessionController do
 
   alias Ankole.SignalsGateway.ActorRuntime.SessionQueries
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentSessionListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -31,26 +32,11 @@ defmodule AnkoleWeb.AgentSessionController do
   )
 
   def index(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, sessions_resource(agent_uid), "read") do
       json(conn, %{sessions: SessionQueries.list_agent_sessions(agent_uid)})
     else
       {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  defp text_param(params, "agent_uid" = key) do
-    value = Map.get(params, key) || Map.get(params, :agent_uid)
-
-    case value do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          trimmed -> {:ok, trimmed}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
     end
   end
 

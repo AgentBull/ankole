@@ -7,10 +7,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   `InteractiveCard`; without a configured `cardTemplateId` the row's
   `fallback_visible_text` posts as a plain message instead). DingTalk has no
   anchored reply, no message edit, and no outbound reconciliation, so those
-  capabilities are not declared. A terminal AI reply (`reply_presentation`
-  payload) routes through `AICard.finalize/1` — the same module declared as the
-  `reply_preview_module` — which seals the streaming card chain or degrades once
-  to plain Markdown.
+  capabilities are not declared. SignalsGateway finalizes a terminal AI reply
+  (`reply_presentation` payload with a source ActorEvent) through `AICard`, the
+  declared `reply_preview_module`; such a row without a source ActorEvent posts
+  its plain Markdown text here.
 
   A successful send returns `processQueryKey` (the provider message id used as the
   outbound entry id and recall handle). `/robot/*/send` has no idempotency
@@ -21,18 +21,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Robot
@@ -44,34 +40,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   @file_extensions ~w(.xlsx .pdf .zip .rar .doc .docx .ppt .pptx .txt .csv .md .xls .7z .gz .svg .html .json)
 
   @impl true
-  def send(
-        %OutboxEntry{
-          payload: %{"reply_presentation" => presentation},
-          source_actor_event_id: actor_event_id
-        } = outbox
-      )
-      when is_map(presentation) and is_binary(actor_event_id) do
-    # The durable terminal AI reply finalizes the streaming card (or degrades to a
-    # plain Markdown message when no template is configured).
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{} = event ->
-        checkpoint = event.reply_preview_checkpoint || %{}
-
-        ReplyPreviewAdapter.finalize_module(AICard, %Request{
-          actor_event: event,
-          presentation: presentation,
-          checkpoint: checkpoint,
-          subject_uid: checkpoint["subject_uid"],
-          conversation_id: checkpoint["conversation_id"],
-          outbox: outbox,
-          mode: :terminal
-        })
-
-      nil ->
-        {:error, :actor_event_not_found}
-    end
-  end
-
   def send(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox)
       when is_map(presentation) do
     deliver_text(outbox)

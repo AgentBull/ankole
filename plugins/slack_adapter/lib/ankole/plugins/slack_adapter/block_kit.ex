@@ -4,8 +4,7 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.Mrkdwn
   alias Ankole.I18n
-
-  @action_value_version "ankole.interactive_output.action.v1"
+  alias Ankole.SignalsGateway.ReplyPresentation
 
   @spec render(map()) :: {:ok, [map()]} | {:error, :missing_card_payload}
   def render(payload) when is_map(payload) do
@@ -77,7 +76,8 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
       |> add_interaction_result(presentation)
       |> add_presentation_actions(presentation)
 
-    {:ok, if(blocks == [], do: [section(I18n.t("signals_gateway.reply.no_content"))], else: blocks)}
+    {:ok,
+     if(blocks == [], do: [section(I18n.t("signals_gateway.reply.no_content"))], else: blocks)}
   end
 
   defp add_status(blocks, presentation) do
@@ -291,37 +291,28 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
 
   defp reply_button(
          %{
-           "interaction_id" => interaction_id,
            "source_actor_event_id" => source_actor_event_id,
            "control_id" => control_id,
-           "selected_option_id" => selected_option_id,
-           "option_value" => option_value,
-           "revision" => revision
+           "selected_option_id" => selected_option_id
          } = action
        )
-       when is_binary(interaction_id) and is_binary(source_actor_event_id) and
-              is_binary(control_id) and is_binary(selected_option_id) and
-              is_binary(option_value) and is_integer(revision) do
-    value = %{
-      "version" => @action_value_version,
-      "answerKind" => "choice",
-      "interactionId" => interaction_id,
-      "interactionVersion" => revision,
-      "controlId" => control_id,
-      "selectedOptionId" => selected_option_id,
-      "optionValue" => option_value,
-      "sourceActorEventId" => source_actor_event_id
-    }
+       when is_binary(source_actor_event_id) and is_binary(control_id) and
+              is_binary(selected_option_id) do
+    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+      {:ok, value} ->
+        [
+          %{
+            "type" => "button",
+            "action_id" => truncate("ankole:choice:#{control_id}:#{selected_option_id}", 255),
+            "text" => %{"type" => "plain_text", "text" => truncate(action["label"], 75)},
+            "value" => Torque.encode!(value)
+          }
+          |> maybe_put_button_style(action["style"])
+        ]
 
-    [
-      %{
-        "type" => "button",
-        "action_id" => truncate("ankole:choice:#{control_id}:#{selected_option_id}", 255),
-        "text" => %{"type" => "plain_text", "text" => truncate(action["label"], 75)},
-        "value" => Torque.encode!(value)
-      }
-      |> maybe_put_button_style(action["style"])
-    ]
+      {:error, :invalid_callback_action} ->
+        []
+    end
   end
 
   defp reply_button(_action), do: []
@@ -391,7 +382,7 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
             "text" => truncate(to_string(Map.get(choice, "label", value)), 75)
           },
           "value" =>
-            Torque.encode!(%{"v" => "ankole.interactive_output.action.v1", "value" => value})
+            Torque.encode!(%{"v" => ReplyPresentation.action_protocol(), "value" => value})
         }
       end)
       |> Enum.chunk_every(5)

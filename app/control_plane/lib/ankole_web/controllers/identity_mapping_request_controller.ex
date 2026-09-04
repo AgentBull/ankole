@@ -140,7 +140,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   end
 
   defp body_text(conn, key) do
-    case Map.get(conn.body_params, key, Map.get(conn.body_params, Atom.to_string(key))) do
+    case Map.get(conn.body_params, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _missing -> {:error, {:missing_param, key}}
     end

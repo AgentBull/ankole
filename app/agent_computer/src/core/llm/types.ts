@@ -126,7 +126,34 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
 
 export type ToolSet = Record<string, ToolDefinition>
 
-export type HostedTool = { type: 'image_generation' } | { type: 'web_search' }
+export const BRAIN_OPERATIONS = [
+  'remember',
+  'learn_source',
+  'recall',
+  'get_page',
+  'forget',
+  'entity',
+  'whoknows',
+  'synthesize',
+  'delta'
+] as const
+
+export type BrainOperation = (typeof BRAIN_OPERATIONS)[number]
+
+/** Read-only Brain operations offered to Background Agent Jobs and workflow tasks. */
+export const BRAIN_JOB_OPERATIONS: BrainOperation[] = ['recall', 'get_page']
+
+export type HostedTool =
+  | { type: 'image_generation' }
+  | { type: 'web_search' }
+  | { type: 'brain'; operations?: BrainOperation[]; inject?: boolean }
+
+/** A hosted Brain item observed on the Responses stream. */
+export type HostedBrainItemEvent = {
+  callID: string
+  operation: string
+  phase: 'running' | 'completed' | 'failed'
+}
 
 export interface CallModelOptions {
   instructions?: string
@@ -181,4 +208,6 @@ export interface ModelTurnOptions {
   abortSignal?: AbortSignal
   onTextDelta?: (delta: string) => void
   onActivity?: (description?: string) => void
+  /** AIGateway executed a hosted Brain operation inside this response. */
+  onHostedBrainItem?: (event: HostedBrainItemEvent) => void
 }

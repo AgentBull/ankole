@@ -13,14 +13,19 @@ defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway.CodexModels
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.FailureDiagnostics
-  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.RequestContext
+  alias Ankole.AIGateway.ResponseStream
+  alias Ankole.OIDC.Grant
   alias OpenAPISpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
 
   tags(["AIGateway"])
   security([%{"aiGatewayBearer" => []}, %{"consoleBearer" => []}])
+
+  operation(:options, false)
+
+  def options(conn, _params), do: send_resp(conn, 204, "")
 
   operation(:responses,
     summary: "Create a stateless OpenResponses response",
@@ -36,6 +41,7 @@ defmodule AnkoleWeb.AIGatewayController do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
     subject_type = conn.assigns.current_ai_gateway_subject_type
     request_context = RequestContext.from_headers(conn.req_headers, "http")
+    response_opts = response_opts(conn, subject_type, request_context)
 
     with {:ok, request} <- bind_codex_request(conn, request) do
       cond do
@@ -50,13 +56,10 @@ defmodule AnkoleWeb.AIGatewayController do
           )
 
         AIGateway.stream_requested?(request) ->
-          stream_response(conn, subject_uid, request, request_context)
+          stream_response(conn, subject_uid, request, response_opts)
 
         true ->
-          case AIGateway.create_response(subject_uid, request,
-                 request_context: request_context,
-                 subject_type: subject_type
-               ) do
+          case AIGateway.create_response(subject_uid, request, response_opts) do
             {:ok, %{body: body}} -> json(conn, body)
             {:error, reason} -> error(conn, reason)
           end
@@ -231,12 +234,17 @@ defmodule AnkoleWeb.AIGatewayController do
   def models(conn, params) do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
     subject_type = conn.assigns.current_ai_gateway_subject_type
+    grant = conn.assigns[:oidc_grant]
 
     {:ok, body} =
-      if CodexModels.codex_manifest_request?(params) do
-        CodexModels.manifest(subject_uid, subject_type)
-      else
-        AIGateway.list_models(subject_uid, subject_type, params)
+      case grant do
+        %Grant{client: client} ->
+          AIGateway.list_model_aliases(client.model_aliases, params)
+
+        nil ->
+          if CodexModels.codex_manifest_request?(params),
+            do: CodexModels.manifest(subject_uid, subject_type),
+            else: AIGateway.list_models(subject_uid, subject_type, params)
       end
 
     json(conn, body)
@@ -270,11 +278,8 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  defp stream_response(conn, subject_uid, request, request_context) do
-    case AIGateway.open_sse_stream(subject_uid, request,
-           request_context: request_context,
-           subject_type: conn.assigns.current_ai_gateway_subject_type
-         ) do
+  defp stream_response(conn, subject_uid, request, response_opts) do
+    case AIGateway.open_sse_stream(subject_uid, request, response_opts) do
       {:ok, stream, _meta} ->
         conn =
           conn
@@ -289,34 +294,52 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
+  defp response_opts(conn, subject_type, request_context) do
+    model_binding =
+      case conn.assigns[:oidc_grant] do
+        %Grant{model_binding: binding} -> binding
+        nil -> nil
+      end
+
+    [
+      request_context: request_context,
+      subject_type: subject_type,
+      model_binding: model_binding
+    ]
+  end
+
+  # A stream that ends without its terminal, including an owner that exits, is
+  # closed with one error event so the client never waits on a dead stream.
   defp stream_sse_events(conn, stream) do
-    case AIGateway.read_response_stream(stream, 1) do
-      :ok ->
-        receive do
-          {:ai_gateway_response_stream, ref, :events, events, :continue}
-          when ref == stream.ref ->
-            case chunk_all(conn, Enum.map(events, &encode_sse_event/1)) do
-              {:ok, conn} ->
-                stream_sse_events(conn, stream)
+    case ResponseStream.next(stream, :infinity) do
+      {:ok, events, :continue} ->
+        case chunk_all(conn, Enum.map(events, &encode_sse_event/1)) do
+          {:ok, conn} ->
+            stream_sse_events(conn, stream)
 
-              {:error, conn} ->
-                _ = AIGateway.cancel_response_stream(stream, "sse_client_disconnected")
-                conn
-            end
-
-          {:ai_gateway_response_stream, ref, :events, events, {:terminal, _outcome}}
-          when ref == stream.ref ->
-            chunks = Enum.map(events, &encode_sse_event/1) ++ [done_sse_chunk()]
-
-            case chunk_all(conn, chunks) do
-              {:ok, conn} -> conn
-              {:error, conn} -> conn
-            end
+          {:error, conn} ->
+            _ = AIGateway.cancel_response_stream(stream, "sse_client_disconnected")
+            conn
         end
 
-      {:error, _reason} ->
-        conn
+      {:ok, events, {:terminal, _outcome}} ->
+        finish_sse(conn, Enum.map(events, &encode_sse_event/1))
+
+      {:error, reason} ->
+        finish_sse(conn, [encode_sse_event(sse_error_event(reason))])
     end
+  end
+
+  defp finish_sse(conn, chunks) do
+    case chunk_all(conn, chunks ++ [done_sse_chunk()]) do
+      {:ok, conn} -> conn
+      {:error, conn} -> conn
+    end
+  end
+
+  defp sse_error_event(reason) do
+    %{status: status, error: error} = FailureDiagnostics.project(reason)
+    %{"type" => "error", "sequence_number" => 0, "status" => status, "error" => error}
   end
 
   defp chunk_all(conn, chunks) do
@@ -351,205 +374,14 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  defp error(conn, %OpenAIError{} = error) do
-    conn
-    |> put_status(error.status)
-    |> json(OpenAIError.envelope(error))
-  end
-
-  defp error(conn, {:credential_pool_exhausted, details}) when is_map(details) do
-    retry_at = pool_retry_at(details)
-
-    conn
-    |> put_pool_retry_headers(retry_at)
-    |> put_status(429)
-    |> json(%{
-      error:
-        %{
-          type: "usage_limit_reached",
-          code: "credential_pool_exhausted",
-          message: pool_exhausted_message(retry_at),
-          details_json: public_pool_exhausted_details(retry_at)
-        }
-        |> maybe_put_resets_at(retry_at)
-    })
-  end
-
+  # One projection names every failure; the controller adds only the HTTP
+  # status, response headers, and JSON envelope.
   defp error(conn, reason) do
-    {status, code, message} = error_tuple(reason)
+    %{status: status, headers: headers, error: error} = FailureDiagnostics.project(reason)
 
-    conn
+    headers
+    |> Enum.reduce(conn, fn {name, value}, conn -> put_resp_header(conn, name, value) end)
     |> put_status(status)
-    |> json(%{error: %{code: code, message: message}})
+    |> json(%{"error" => error})
   end
-
-  defp error_tuple(:missing_model), do: {400, "missing_model", "model is required"}
-  defp error_tuple(:missing_input), do: {400, "missing_input", "input is required"}
-  defp error_tuple(:missing_query), do: {400, "missing_query", "query is required"}
-  defp error_tuple(:missing_urls), do: {400, "missing_urls", "urls is required"}
-  defp error_tuple(:invalid_query), do: {400, "invalid_query", "query is too long"}
-
-  defp error_tuple(:invalid_limit),
-    do: {400, "invalid_limit", "limit must be an integer from 1 to 100"}
-
-  defp error_tuple(:invalid_urls),
-    do: {400, "invalid_urls", "urls must contain 1 to 5 public HTTPS URLs"}
-
-  defp error_tuple(:invalid_embedding_input),
-    do: {400, "invalid_embedding_input", "input must be text, token arrays, or input blocks"}
-
-  defp error_tuple(:invalid_documents),
-    do: {400, "invalid_documents", "documents must be a non-empty array"}
-
-  defp error_tuple(:invalid_top_n), do: {400, "invalid_top_n", "top_n must be a positive integer"}
-
-  defp error_tuple(:invalid_request_body),
-    do: {400, "invalid_request_body", "JSON object body required"}
-
-  defp error_tuple(:invalid_codex_model_binding),
-    do: {400, "invalid_codex_model_binding", "Codex model binding is invalid"}
-
-  defp error_tuple(:invalid_compaction_item),
-    do: {400, "invalid_compaction_item", "input must contain exactly one compaction item"}
-
-  defp error_tuple(:invalid_compaction_handle),
-    do: {400, "invalid_compaction_handle", "compaction encrypted_content handle is invalid"}
-
-  # The caller's request is well formed: the summarizer produced nothing usable
-  # after its retry. That is an upstream fault, so it must not read as a client
-  # error that the caller could fix by changing the request.
-  defp error_tuple(reason) when reason in [:empty_compaction_summary, :invalid_summary_shape],
-    do: {502, Atom.to_string(reason), "upstream provider returned no usable compaction summary"}
-
-  defp error_tuple(:no_compaction_candidate),
-    do:
-      {400, "no_compaction_candidate",
-       "input has no compactable items after the last compaction item"}
-
-  defp error_tuple(:invalid_anchor),
-    do:
-      {400, "invalid_previous_response_id",
-       "previous_response_id must reference a stored response"}
-
-  defp error_tuple(:invalid_conversation),
-    do: {400, "invalid_conversation", "conversation must reference a stored conversation"}
-
-  defp error_tuple({:stateful_http_field_forbidden, field}),
-    do:
-      {400, "stateful_responses_require_websocket",
-       "#{field} is only supported on WebSocket response.create with store=true"}
-
-  defp error_tuple(:provider_disabled), do: {422, "provider_disabled", "provider is disabled"}
-  defp error_tuple(:not_found), do: {404, "not_found", "resource not found"}
-  defp error_tuple(:agent_not_found), do: {404, "agent_not_found", "agent not found"}
-
-  defp error_tuple({:unknown_model_selector, _capability, selector}),
-    do: {422, "unknown_model_selector", "unknown model selector: #{selector}"}
-
-  defp error_tuple({:model_binding_not_configured, capability, name}),
-    do: {422, "model_binding_not_configured", "#{capability}.#{name} is not configured"}
-
-  # A model name that is neither provider/model nor a configured profile reaches
-  # here, because any valid profile name is a candidate once an Agent can own
-  # custom profiles. That is a caller or configuration fault, not a server fault.
-  defp error_tuple(:model_profile_not_configured),
-    do: {422, "model_profile_not_configured", "model profile is not configured for this Agent"}
-
-  defp error_tuple({:unsupported_capability, capability}),
-    do: {422, "unsupported_capability", "provider does not support #{capability}"}
-
-  defp error_tuple({:upstream_response_failed, status, _body} = reason)
-       when is_integer(status) do
-    classification = FailureDiagnostics.classify(reason)
-
-    {upstream_public_status(status), "upstream_response_failed",
-     FailureDiagnostics.public_message(classification)}
-  end
-
-  defp error_tuple({:upstream_response_failed, status, body, _headers})
-       when is_integer(status),
-       do: error_tuple({:upstream_response_failed, status, body})
-
-  defp error_tuple({:invalid_upstream_response, status, _body}) when is_integer(status),
-    do: {502, "invalid_upstream_response", "upstream provider returned an invalid response"}
-
-  defp error_tuple(:invalid_response_stream_collect_timeout),
-    do:
-      {400, "invalid_response_stream_collect_timeout",
-       "response stream collect timeout must be a positive integer"}
-
-  defp error_tuple(:response_stream_collect_timeout),
-    do: {504, "upstream_timeout", "upstream provider timed out"}
-
-  defp error_tuple(:universal_ai_stream_ready_timeout),
-    do: {504, "upstream_timeout", "upstream provider timed out"}
-
-  defp error_tuple(:response_stream_missing_terminal_response),
-    do: {502, "invalid_upstream_response", "upstream provider closed without a terminal response"}
-
-  defp error_tuple(:response_stream_closed),
-    do: {502, "upstream_transport_failed", "upstream provider stream closed unexpectedly"}
-
-  defp error_tuple({:response_stream_closed, _reason}),
-    do: error_tuple(:response_stream_closed)
-
-  defp error_tuple({:universal_ai_request_failed, _details} = reason) do
-    case FailureDiagnostics.classify(reason) do
-      %{failure_kind: :timeout} ->
-        {504, "upstream_timeout", "upstream provider timed out"}
-
-      %{failure_kind: :transport} ->
-        {502, "upstream_transport_failed", "upstream provider request failed"}
-
-      _classification ->
-        {502, "ai_gateway_request_failed", "upstream provider request failed"}
-    end
-  end
-
-  defp error_tuple({reason, details}) when is_atom(reason),
-    do: {422, Atom.to_string(reason), inspect(details)}
-
-  defp error_tuple(reason) when is_atom(reason),
-    do: {422, Atom.to_string(reason), Atom.to_string(reason)}
-
-  defp error_tuple(reason), do: {422, "ai_gateway_request_failed", inspect(reason)}
-
-  defp upstream_public_status(status) when status in 400..499, do: status
-  defp upstream_public_status(_status), do: 502
-
-  defp pool_retry_at(%{"retry_at" => retry_at}) when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, parsed, _offset} -> parsed
-      _error -> nil
-    end
-  end
-
-  defp pool_retry_at(_details), do: nil
-
-  defp put_pool_retry_headers(conn, %DateTime{} = retry_at) do
-    retry_after = max(DateTime.diff(retry_at, DateTime.utc_now(), :second), 0)
-
-    conn
-    |> put_resp_header("retry-after", Integer.to_string(retry_after))
-    |> put_resp_header("x-codex-primary-reset-at", Integer.to_string(DateTime.to_unix(retry_at)))
-  end
-
-  defp put_pool_retry_headers(conn, nil), do: conn
-
-  defp pool_exhausted_message(%DateTime{} = retry_at),
-    do:
-      "All credentials in this provider pool are unavailable. retry_at=#{DateTime.to_iso8601(retry_at)}"
-
-  defp pool_exhausted_message(nil),
-    do: "All credentials in this provider pool are unavailable. Try again later."
-
-  defp public_pool_exhausted_details(%DateTime{} = retry_at),
-    do: %{retry_at: DateTime.to_iso8601(retry_at)}
-
-  defp public_pool_exhausted_details(nil), do: %{}
-
-  defp maybe_put_resets_at(error, %DateTime{} = retry_at),
-    do: Map.put(error, :resets_at, DateTime.to_unix(retry_at))
-
-  defp maybe_put_resets_at(error, nil), do: error
 end

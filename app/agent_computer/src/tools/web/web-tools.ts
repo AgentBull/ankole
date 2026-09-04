@@ -35,12 +35,11 @@ export interface CreateWebToolsOptions {
 
 export interface RenderedWebFetchOptions {
   ssrfFilter?: boolean
-  fetchBatch?: RenderedWebFetchBatch
-  fetchURL?: RenderedWebFetchURL
+  fetchBatch: RenderedWebFetchBatch
 }
 
+/** Fetches the accepted URLs in one call and answers `{ results }` in the same order. */
 export type RenderedWebFetchBatch = (urls: string[], signal?: AbortSignal) => Promise<unknown>
-export type RenderedWebFetchURL = (input: { url: string; index: number }, signal?: AbortSignal) => Promise<unknown>
 
 const WebSearchParams = z.object({
   query: z.string().min(1).describe('Search query.'),
@@ -256,7 +255,9 @@ function repeatFetchNote(ageMs: number): string {
 /**
  * Fetches URLs through an ephemeral, materialized browser route.
  *
- * Per-URL errors are returned in the result array so one bad page does not hide
+ * Every accepted URL goes to the adapter in one batch call. A rejected URL, a
+ * returned result that carries an error, and a failed batch each become
+ * per-URL errors at the request position, so one bad page does not hide
  * successful fetches from the model.
  */
 async function renderedFallbackFetch(
@@ -286,7 +287,7 @@ async function renderedFallbackFetch(
     }
   }
 
-  if (accepted.length > 0 && config.fetchBatch) {
+  if (accepted.length > 0) {
     try {
       const body = await config.fetchBatch(
         accepted.map(item => item.url),
@@ -302,20 +303,6 @@ async function renderedFallbackFetch(
       if (signal?.aborted) throw error
       for (const item of accepted) results[item.index] = renderedFetchError(item.url, error)
     }
-  } else if (accepted.length > 0 && config.fetchURL) {
-    for (const item of accepted) {
-      try {
-        results[item.index] = normalizeRenderedFetchResult(
-          item.url,
-          await config.fetchURL({ url: item.url, index: item.index }, signal)
-        )
-      } catch (error) {
-        if (signal?.aborted) throw error
-        results[item.index] = renderedFetchError(item.url, error)
-      }
-    }
-  } else if (accepted.length > 0) {
-    throw new Error('rendered fallback adapter is unavailable')
   }
 
   const normalizedResults = results.map((result, index) => result ?? renderedFetchError(urls[index]!, 'no result'))

@@ -90,6 +90,16 @@ Job files must first be copied or moved there.
 under `sessions/`. CodexRunner creates the direct Job Workspace under `jobs/`.
 Both receive a `temp` directory.
 
+CodexRunner first produces one `PreparedCodexJobExecution`. `CodexJobSession`
+then owns the complete app-server lifecycle: it opens or resumes the declared
+thread, applies the bounded recovery ladder, records each Turn, and closes the
+session resources. A caller does not reconstruct part of this handoff.
+
+Foreground Turns, Codex Jobs, and Automation Jobs prepare execution materials
+through one owner. It resolves WorkerEnv values and materializes the optional
+Lark credential, mcporter configuration, and browser runtime. Cleanup runs in
+the fixed browser, mcporter, then Lark order and preserves the first failure.
+
 Agent-installed Skill source is
 `/agents/<agent-key>/installed-skills/<skill-name>`. A Job projects selected
 effective Skills into its real `.ankole/skills` directory and passes that path

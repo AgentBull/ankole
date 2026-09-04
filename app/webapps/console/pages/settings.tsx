@@ -38,7 +38,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from 'react-router'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAppConfigurationControllerDecryptMutation,
   ankoleWebAppConfigurationControllerDeleteMutation,
@@ -65,6 +65,7 @@ import {
 import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from '../state/setting-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
+import { useEditorDraft } from '../use-editor-draft'
 import {
   OBSERVABILITY_TRACE_KEYS,
   observabilityHeaderRows,
@@ -279,7 +280,6 @@ export function SettingEditorDrawer() {
   const model = useModel(SettingEditorModel)
   const params = useParams()
   const key = params.key ?? ''
-  const sourceKey = `setting:${key}`
   const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
@@ -290,7 +290,20 @@ export function SettingEditorDrawer() {
   })
   const item = detail.data?.app_configuration ?? summary
   const description = item ? settingDescription(t, item) : undefined
-  const initialized = model.sourceKey.value === sourceKey
+  const settingDraft =
+    !item || detail.isLoading
+      ? undefined
+      : item.encrypted
+        ? item.present
+          ? ENCRYPTED_VALUE_MASK
+          : ''
+        : formatJSON(item.value ?? null)
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'setting', key },
+    source: settingDraft,
+    absent: () => requestErrorCode(detail.error) === 'not_found' || (list.isSuccess && !list.isFetching && !item)
+  })
+  const initialized = draftStatus === 'ready'
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
@@ -333,14 +346,6 @@ export function SettingEditorDrawer() {
   // back under a new object identity.
   useEffect(() => decrypt.reset(), [decrypt.reset, key])
 
-  useEffect(() => {
-    if (!item || detail.isLoading) return
-    model.initialize(
-      sourceKey,
-      item.encrypted ? (item.present ? ENCRYPTED_VALUE_MASK : '') : formatJSON(item.value ?? null)
-    )
-  }, [detail.isLoading, item, model, sourceKey])
-
   const saving = update.isPending || restoreDefault.isPending
   const requestClose = () => {
     if (!saving) navigate('/settings')
@@ -350,8 +355,8 @@ export function SettingEditorDrawer() {
     update.error ??
     restoreDefault.error ??
     decrypt.error ??
+    (draftStatus === 'absent' ? t('console.settings.not_found') : undefined) ??
     detail.error ??
-    (list.isSuccess && !item ? t('console.settings.not_found') : undefined) ??
     (item && !item.editable ? t('console.settings.read_only') : undefined)
 
   const submit = (event: FormEvent<HTMLFormElement>) => {

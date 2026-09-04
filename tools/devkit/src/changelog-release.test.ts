@@ -133,7 +133,11 @@ describe('changelog release metadata', () => {
 `
       )
 
-      const result = Bun.spawnSync([process.execPath, entrypoint, 'extract', changelog, notes])
+      const result = Bun.spawnSync([process.execPath, entrypoint, 'extract', changelog, notes], {
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe'
+      })
 
       expect(result.exitCode).toBe(0)
       expect(result.stdout.toString()).toBe('1.2.3\n')
@@ -145,7 +149,11 @@ describe('changelog release metadata', () => {
 
   test('prints shell-safe release policy through the workflow CLI', () => {
     const entrypoint = fileURLToPath(new URL('./changelog-release.ts', import.meta.url))
-    const result = Bun.spawnSync([process.execPath, entrypoint, 'classify', '1.0.0-beta.1'])
+    const result = Bun.spawnSync([process.execPath, entrypoint, 'classify', '1.0.0-beta.1'], {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe'
+    })
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout.toString()).toBe('true true\n')

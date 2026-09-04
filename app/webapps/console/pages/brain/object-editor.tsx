@@ -16,7 +16,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -31,7 +31,7 @@ import {
 import type { BrainObjectPage } from '../../api/generated/types.gen'
 import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
+import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
 import { BackLink, PageStack } from '../../console-page'
 import { MarkdownBody } from '../../markdown-body'
 import {
@@ -41,6 +41,7 @@ import {
   type BrainObjectDraftError
 } from '../../state/brain-object-editor-model'
 import { brainObjectPath } from './brain-nav'
+import { useEditorDraft } from '../../use-editor-draft'
 
 const MARKDOC_ERROR_CODES = new Set([
   'nested_audience_tag',
@@ -61,7 +62,6 @@ export function BrainObjectEditorPage() {
   const [latest, setLatest] = useState<BrainObjectPage>()
   const slug = params.slug ?? ''
   const mode = slug ? 'edit' : 'new'
-  const sourceKey = mode === 'new' ? 'new' : `object:${slug}`
 
   const detail = useQuery({
     ...ankoleWebBrainControllerShowObjectOptions({ query: { slug } }),
@@ -71,11 +71,15 @@ export function BrainObjectEditorPage() {
   const page = detail.data?.object
   const types = useQuery({ ...ankoleWebBrainControllerObjectTypesOptions(), enabled: mode === 'new' })
   const typeNames = types.data?.types ?? []
-
-  useEffect(() => {
-    if (mode === 'new') model.initialize(sourceKey, emptyBrainObjectSnapshot())
-    else if (page) model.initialize(sourceKey, brainObjectSnapshot(page))
-  }, [mode, model, page, sourceKey])
+  const brainObjectDraft = useMemo(
+    () => (mode === 'new' ? emptyBrainObjectSnapshot() : page ? brainObjectSnapshot(page) : undefined),
+    [mode, page]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'brain-object', slug: slug || undefined },
+    source: brainObjectDraft,
+    absent: () => mode === 'edit' && requestErrorCode(detail.error) === 'not_found'
+  })
 
   useEffect(
     () => () => {
@@ -120,7 +124,6 @@ export function BrainObjectEditorPage() {
   const diagnostic = markdocDiagnostic(writeError)
   const conflict = errorCode === 'content_hash_conflict'
   const pending = create.isPending || update.isPending
-  const initialized = model.sourceKey.value === sourceKey
   const readOnly = mode === 'edit' && page?.editable === false
 
   const submit = () => {
@@ -142,7 +145,7 @@ export function BrainObjectEditorPage() {
     }
   }
 
-  if (mode === 'edit' && detail.isLoading && !initialized) {
+  if (mode === 'edit' && draftStatus === 'loading' && !detail.error) {
     return (
       <PageStack className="mx-auto w-full max-w-6xl">
         <BackLink to="/brain/objects" />
@@ -150,6 +153,10 @@ export function BrainObjectEditorPage() {
         <Skeleton className="h-[36rem] w-full" />
       </PageStack>
     )
+  }
+
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo="/brain/objects" message={t('console.not_found.description')} />
   }
 
   if (mode === 'edit' && detail.error && !page) {
@@ -333,7 +340,7 @@ export function BrainObjectEditorPage() {
       validationError={validationError}
       onSubmit={submit}
       submitDisabled={!model.dirty.value}
-      submitUnavailable={mode === 'edit' && !model.contentHash.value}
+      submitUnavailable={draftStatus !== 'ready' || (mode === 'edit' && !model.contentHash.value)}
       submitting={pending}
       title={title}>
       {fields}

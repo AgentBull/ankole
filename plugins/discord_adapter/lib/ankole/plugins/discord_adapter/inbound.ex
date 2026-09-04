@@ -2,9 +2,10 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   @moduledoc false
 
   alias Ankole.{Logging, Principals, WorkerFiles}
-  alias Ankole.Plugins.DiscordAdapter.{ActionToken, Client, Config, Emoji}
+  alias Ankole.Plugins.DiscordAdapter.{Client, Config, Emoji}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
+  alias Ankole.SignalsGateway.ReplyActionToken
 
   # Discord serves attachments from its CDN without a documented size ceiling,
   # so this is Ankole's own download budget rather than a provider limit.
@@ -120,7 +121,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
 
   defp emit_with_materialization(input, consumer, event) do
     if materialization_required?(input.attachments) do
-      pending = put_materialization_state(input, "pending")
+      observed_at = DateTime.utc_now(:microsecond)
+      pending = put_materialization_state(input, "pending", observed_at)
 
       case emit_entry(pending, consumer) do
         {:ok, %{signal_entry: %Entry{attachments: attachments}}} when is_list(attachments) ->
@@ -128,7 +130,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
 
           input
           |> Map.put(:attachments, attachments)
-          |> put_materialization_state(materialization_state(attachments))
+          |> put_materialization_state(materialization_state(attachments), observed_at)
           |> emit_entry(consumer)
 
         {:ok, _held_or_ignored} = result ->
@@ -196,11 +198,12 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
          {:ok, principal} <- Principals.resolve_platform_subject("discord", user_id),
          channel <- signal_channel_id(bot.id, channel_id),
          {:ok, value} <-
-           ActionToken.resolve(
+           ReplyActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
-             message_id
+             message_id,
+             prefix: "dc1"
            ) do
       Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: interaction_id,
@@ -437,9 +440,11 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
     ])
   end
 
-  defp put_materialization_state(input, state) do
-    metadata = Map.put(input.metadata, "attachment_materialization", %{"state" => state})
-    %{input | metadata: metadata}
+  defp put_materialization_state(input, state, observed_at) do
+    %{
+      input
+      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
+    }
   end
 
   defp materialization_state(attachments) do

@@ -56,6 +56,18 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   def custom_profile_name?(_profile), do: false
 
+  @doc "Validates and normalizes one standalone custom LLM profile."
+  @spec normalize_custom_model_profile(profile(), map()) :: {:ok, map()} | {:error, term()}
+  def normalize_custom_model_profile(profile, attrs) do
+    with {:ok, profile} <- normalize_custom_profile(profile),
+         {:ok, %{} = normalized} <- normalize_profile_attrs(profile, attrs) do
+      {:ok, normalized}
+    else
+      {:ok, nil} -> {:error, :invalid_custom_model_profile}
+      {:error, _reason} = error -> error
+    end
+  end
+
   @doc """
   Returns the capability served by a profile slot.
   """

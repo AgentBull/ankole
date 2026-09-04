@@ -5,8 +5,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   alias Ankole.{Logging, Principals, Repo, WorkerFiles}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.TelegramAdapter.{ActionToken, Client, EntityText}
+  alias Ankole.Plugins.TelegramAdapter.{Client, EntityText}
   alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
+  alias Ankole.SignalsGateway.ReplyActionToken
 
   @download_limit_bytes 20 * 1024 * 1024
   @supported_chat_types ["private", "group", "supergroup"]
@@ -154,7 +155,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   defp emit_with_materialization(input, consumer) do
     if materialization_required?(input.attachments) do
-      pending = put_materialization_state(input, "pending")
+      observed_at = DateTime.utc_now(:microsecond)
+      pending = put_materialization_state(input, "pending", observed_at)
 
       case emit_entry(pending, consumer) do
         {:ok, %{signal_entry: %Entry{attachments: attachments}}}
@@ -163,7 +165,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
           input
           |> Map.put(:attachments, attachments)
-          |> put_materialization_state(materialization_state(attachments))
+          |> put_materialization_state(materialization_state(attachments), observed_at)
           |> emit_entry(consumer)
 
         {:ok, _held_or_ignored} = result ->
@@ -244,11 +246,12 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
            Principals.resolve_platform_subject("telegram", Integer.to_string(user_id)),
          channel_id <- signal_channel_id(bot.id, chat_id, message["message_thread_id"]),
          {:ok, value} <-
-           ActionToken.resolve(
+           ReplyActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
-             Integer.to_string(message_id)
+             Integer.to_string(message_id),
+             prefix: "tg1"
            ),
          {:ok, _action_result} = result <-
            Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
@@ -557,9 +560,11 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     ])
   end
 
-  defp put_materialization_state(input, state) do
-    metadata = Map.put(input.metadata, "attachment_materialization", %{"state" => state})
-    %{input | metadata: metadata}
+  defp put_materialization_state(input, state, observed_at) do
+    %{
+      input
+      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
+    }
   end
 
   defp materialization_state(attachments) do

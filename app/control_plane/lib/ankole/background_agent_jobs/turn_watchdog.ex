@@ -14,9 +14,9 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
+  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
 
   # A Worker heartbeat and its activation lease only prove that the Worker
   # process is alive. Codex can stop producing runtime notifications while the
@@ -149,7 +149,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
          {:stalled,
           %{
             turn_ref: turn_ref,
-            controls: stop_controls(repo, turn_ref),
+            controls: TurnControl.collect(live_deliveries(repo, turn_ref), :retry, @stall_code),
             stalls: stall_count(repo, job.id) + 1,
             silent_seconds: DateTime.diff(now, activity, :second)
           }}}
@@ -166,7 +166,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
              async_work_unit: BackgroundAgentJobs,
              compensate_turn_error_in_tx: &__MODULE__.compensate_in_tx/4
            ) do
-      TurnRetry.dispatch_retry_controls({:ok, %{retry_controls: plan.controls}})
+      TurnControl.dispatch(plan.controls)
       {:ok, :stalled}
     end
   end
@@ -222,20 +222,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
     }
   end
 
-  defp stop_controls(repo, %TurnRef{} = turn_ref) do
+  defp live_deliveries(repo, %TurnRef{} = turn_ref) do
     ActorEventDelivery
     |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
     |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
     |> repo.all()
-    |> Enum.map(
-      &%{
-        route: &1.transport_route || &1.worker_id,
-        turn_ref: TurnRef.from_delivery(&1),
-        reason: @stall_code
-      }
-    )
-    |> Enum.reject(&is_nil(&1.route))
-    |> Enum.uniq()
   end
 
   # One stall aborts one attempt, but it marks every active Turn of that

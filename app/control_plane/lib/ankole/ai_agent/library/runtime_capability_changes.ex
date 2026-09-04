@@ -4,6 +4,8 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   PostgreSQL capability state changes first. This module then sends a best-effort
   runtime hint. The hint does not replace credential revocation or a Job stop.
+  A route that cannot receive the hint is marked unusable, like any other turn
+  control.
   """
 
   import Ecto.Query, warn: false
@@ -13,9 +15,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
-  alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
 
   @type capability :: {:agent_plugin, String.t()} | {:skill, String.t()}
 
@@ -44,11 +44,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
       {:ok, current} ->
         current
         |> disabled_skill_names(capability)
-        |> dispatch(
-          repo,
-          agent_uid,
-          Keyword.get(opts, :send, &Broker.send_mandatory/2)
-        )
+        |> dispatch(repo, agent_uid)
 
       {:error, reason} ->
         Logging.warning(
@@ -106,35 +102,15 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
     |> repo.all()
   end
 
-  defp dispatch([], _repo, _agent_uid, _send), do: :ok
+  defp dispatch([], _repo, _agent_uid), do: :ok
 
-  defp dispatch(skill_names, repo, agent_uid, send) do
+  defp dispatch(skill_names, repo, agent_uid) do
     repo
     |> active_deliveries(agent_uid)
-    |> Enum.uniq_by(fn delivery ->
-      {delivery.transport_route || delivery.worker_id, delivery.activation_uid,
-       delivery.actor_event_id_fence}
-    end)
-    |> Enum.each(fn delivery ->
-      route = delivery.transport_route || delivery.worker_id
+    |> TurnControl.collect(:skill_disabled, nil, payload: %{"skill_names" => skill_names})
+    |> TurnControl.dispatch()
 
-      envelope =
-        TurnEnvelope.turn_control(TurnRef.from_delivery(delivery), "skill_disabled", %{
-          "skill_names" => skill_names
-        })
-
-      case send.(route, envelope) do
-        {:ok, :sent_or_queued} ->
-          :ok
-
-        {:error, reason} ->
-          Logging.warning(
-            "agent_library.skill_disable_send_failed",
-            "active Job Skill disable event failed",
-            %{agent_uid: agent_uid, route: route, reason: inspect(reason)}
-          )
-      end
-    end)
+    :ok
   end
 
   defp active_deliveries(repo, agent_uid) do
@@ -145,11 +121,6 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
       [delivery],
       like(delivery.session_id, ^"#{BackgroundAgentJobs.job_session_prefix()}%")
     )
-    |> where(
-      [delivery],
-      not is_nil(delivery.transport_route) or not is_nil(delivery.worker_id)
-    )
-    |> order_by([delivery], desc: delivery.attempt_no, desc: delivery.inserted_at)
     |> repo.all()
   end
 

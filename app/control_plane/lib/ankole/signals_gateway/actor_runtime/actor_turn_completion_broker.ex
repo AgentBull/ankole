@@ -17,12 +17,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker do
   @spec handle_noop(TurnRef.t(), FabricProto.ActorTurnNoopRequest.t(), map()) ::
           {:ok, FabricProto.ActorTurnNoopResponse.t()} | {:error, map()}
   def handle_noop(%TurnRef{} = turn_ref, %FabricProto.ActorTurnNoopRequest{} = request, ctx) do
-    case ActorRuntime.handle_turn_noop_completed(turn_ref, request.reason) do
+    case ActorTurnCompletion.handle(turn_ref, request.final_response_id, "silent", []) do
       {:ok, result} ->
         {:ok,
          %FabricProto.ActorTurnNoopResponse{
            status: Atom.to_string(result.status),
-           reason: result.reason
+           reason: request.reason
          }}
 
       {:error, reason} ->

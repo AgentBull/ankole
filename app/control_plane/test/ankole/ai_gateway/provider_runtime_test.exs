@@ -515,7 +515,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     http_client = fn request ->
       assert request.url ==
-               "https://chatgpt.com/backend-api/codex/models?client_version=0.150.1"
+               "https://chatgpt.com/backend-api/codex/models?client_version=0.153.2"
 
       assert {"Authorization", "Bearer chatgpt-access"} in request.headers
       assert {"ChatGPT-Account-ID", "account-fedramp"} in request.headers
@@ -908,6 +908,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "turn start specs declare image generation when the primary or fallback route supports it" do
     %{principal: agent} = agent_fixture()
+    # The hosted brain declaration follows `brain.enabled`, not the provider.
+    # The configuration cache outlives the sandbox transaction, so clear it.
+    assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
+    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
@@ -1005,6 +1009,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "turn start specs declare hosted web search for a Responses endpoint the Agent leaves to it" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
+    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
@@ -1045,6 +1051,36 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                "connection_options" => %{"endpoint_kind" => "chat_completions"}
              })
 
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+  end
+
+  test "turn start specs declare the hosted brain tool while Brain is enabled" do
+    Ankole.AppConfigure.Cache.clear_for_test()
+    on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compat-brain-turn",
+               provider_kind: "openai_compatible",
+               base_url: "https://compat.example.test/v1",
+               connection_options: %{"endpoint_kind" => "chat_completions"},
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-brain-turn",
+               model: "sonar-live"
+             })
+
+    actor_key = %{agent_uid: agent.uid, session_id: "session-hosted-brain"}
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert turn_start_spec.hosted_tools == [%{"type" => "brain"}]
+
+    assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
   end
@@ -1462,19 +1498,33 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     |> Ecto.Changeset.change(%{revision: 1})
     |> Repo.update!()
 
+    now = DateTime.utc_now(:microsecond)
+
+    channel =
+      Repo.insert!(
+        Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
+          id: "test:steered-write-#{System.unique_integer([:positive])}",
+          kind: :im_group,
+          reply_mode: :entry,
+          metadata: %{},
+          raw_payload: %{},
+          first_seen_at: now,
+          last_seen_at: now
+        })
+      )
+
+    ActorEvent
+    |> Repo.get!(turn.actor_event_id)
+    |> Ecto.Changeset.change(signal_channel_id: channel.id)
+    |> Repo.update!()
+
     assert {:ok, envelope} =
              RPCLane.handle_request(
                rpc_request(
-                 "brain-remember-after-steer",
-                 "brain.remember",
-                 %FabricProto.BrainRequest{
-                   params_json:
-                     Torque.encode!(%{
-                       "claim" => "Steered turns can still write memory.",
-                       "kind" => "fact",
-                       "scope" => "world",
-                       "provenance" => "provider runtime steer test"
-                     })
+                 "standing-orders-after-steer",
+                 "signal_channel.standing_orders.set",
+                 %FabricProto.SignalChannelStandingOrdersSetRequest{
+                   orders: "Steered turns can still write channel state."
                  },
                  turn: turn
                ),

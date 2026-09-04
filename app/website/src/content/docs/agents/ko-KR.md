@@ -1,11 +1,11 @@
 ---
 title: Agents
-description: Console에서 Agent를 생성한 다음 소유자, durable 동작, 모델, 기능, environment variable을 구성하는 방법을 설명합니다.
+description: Console에서 Agent를 만들고 소유자, 지속 동작, 모델, 기능, 환경 변수를 설정하는 방법을 설명합니다.
 section: User guide
 order: 13
 ---
 
-Agent는 시간을 두고 비즈니스 기능을 수행하는 AI 동료입니다. 각 Agent는 고유한 identity, 소유자, 작업 지침, 모델, 기능, file space를 가집니다. signal routing 규칙이 Agent를 chat channel의 메시지에 연결합니다.
+Agent는 Ankole Agent Harness 안에서 업무를 지속해서 수행하는 작업 주체입니다. 각 Agent에는 고유한 미션, 소유자, 접근 권한, 도구, 모델 프로필, 파일 공간이 있습니다. 지식 공개 범위에 따라 Company Brain을 사용합니다. 신호 라우팅 규칙은 메시지와 외부 이벤트를 담당 Agent에 연결합니다.
 
 ## Agent 생성
 

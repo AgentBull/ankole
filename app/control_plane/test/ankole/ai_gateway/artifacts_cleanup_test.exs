@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Conversations
@@ -27,7 +28,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
              Conversations.ensure_conversation(agent.principal.uid, "artifact-cleanup")
 
     assert {:ok, complete_message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.principal.uid,
                conversation_id: conversation.id,
                request_items: []
@@ -37,7 +38,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
     assert {:ok, _message} = StatefulResponses.commit_complete(complete_message, [])
 
     assert {:ok, failed_message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.principal.uid,
                conversation_id: conversation.id,
                request_items: []

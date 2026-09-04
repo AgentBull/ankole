@@ -5,6 +5,11 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   PostgreSQL checkpoints carry the state; provider surfaces are projections. A
   terminal answer or supersession is monotonic, including when a delayed
   provider write tries to persist an older pending projection.
+
+  Every transition returns a checkpoint for `Actors.put_reply_preview_checkpoint`.
+  That write projects the terminal interaction into the presentation through
+  `merge_checkpoint/3`, so no transition needs to know whether a provider
+  surface exists.
   """
 
   alias Ankole.SignalsGateway.ActorEvent
@@ -13,6 +18,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   @terminal_states ~w(answered superseded)
 
   @type checkpoint :: %{optional(String.t()) => term()}
+  @type surface_fun :: (checkpoint() -> boolean())
 
   @spec initialize(checkpoint(), map(), DateTime.t(), keyword()) :: checkpoint()
   def initialize(checkpoint, presentation, %DateTime{} = now, opts \\ [])
@@ -30,7 +36,6 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
     checkpoint
     |> Map.put("presentation", ReplyPresentation.checkpoint(presentation))
     |> Map.put("interactions", initialize_interactions(interactions, initialized))
-    |> project_checkpoint_transition()
   end
 
   @spec pending_interaction_ids(checkpoint()) :: [String.t()]
@@ -61,10 +66,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
           |> Map.put("interaction_id", interaction_id)
         )
 
-      {:ok,
-       checkpoint
-       |> Map.put("interactions", interactions)
-       |> project_checkpoint_transition()}
+      {:ok, Map.put(checkpoint, "interactions", interactions)}
     else
       :stale
     end
@@ -90,10 +92,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
             Map.put(acc, interaction_id, Map.put(resolution, "interaction_id", interaction_id))
           end)
 
-        {:ok,
-         checkpoint
-         |> Map.put("interactions", interactions)
-         |> project_checkpoint_transition()}
+        {:ok, Map.put(checkpoint, "interactions", interactions)}
     end
   end
 
@@ -126,11 +125,13 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
 
   Provider calls can span network I/O. A provider write that started from a
   pending provider write may therefore finish after PostgreSQL already recorded an answer
-  or a newer turn. The terminal interaction wins and schedules a corrective
-  refresh when that stale write introduced a provider surface handle.
+  or a newer turn. The terminal interaction wins. When the projection changes
+  the stored presentation and `surface_fun` reports a provider surface, the
+  write also schedules a corrective refresh of that surface.
   """
-  @spec merge_checkpoint(checkpoint() | nil, checkpoint()) :: checkpoint()
-  def merge_checkpoint(existing, incoming) when is_map(incoming) do
+  @spec merge_checkpoint(checkpoint() | nil, checkpoint(), surface_fun()) :: checkpoint()
+  def merge_checkpoint(existing, incoming, surface_fun)
+      when is_map(incoming) and is_function(surface_fun, 1) do
     existing = if is_map(existing), do: existing, else: %{}
     merged_interactions = merge_interactions(interactions(existing), interactions(incoming))
     incoming = put_interactions(incoming, merged_interactions)
@@ -146,7 +147,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
           incoming
           |> Map.put("previous_presentation", ReplyPresentation.checkpoint(proposed))
           |> Map.put("presentation", ReplyPresentation.checkpoint(projected))
-          |> maybe_schedule_refresh()
+          |> maybe_schedule_refresh(surface_fun)
         end
 
       _missing ->
@@ -171,28 +172,8 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
     }
   end
 
-  defp project_checkpoint_transition(checkpoint) do
-    case checkpoint["presentation"] do
-      %{} = previous ->
-        previous = ReplyPresentation.normalize(previous)
-        current = project(previous, checkpoint)
-
-        if current == previous do
-          checkpoint
-        else
-          checkpoint
-          |> Map.put("previous_presentation", ReplyPresentation.checkpoint(previous))
-          |> Map.put("presentation", ReplyPresentation.checkpoint(current))
-          |> maybe_schedule_refresh()
-        end
-
-      _missing ->
-        checkpoint
-    end
-  end
-
-  defp maybe_schedule_refresh(checkpoint) do
-    if provider_preview_surface?(checkpoint) do
+  defp maybe_schedule_refresh(checkpoint, surface_fun) do
+    if surface_fun.(checkpoint) do
       checkpoint
       |> Map.put("refresh_pending", true)
       |> Map.put("refresh_reason", "interaction")
@@ -200,27 +181,6 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
       checkpoint
     end
   end
-
-  defp provider_preview_surface?(%{"card_id" => card_id}) when is_binary(card_id), do: true
-
-  defp provider_preview_surface?(%{"cards" => cards}) when is_list(cards) do
-    Enum.any?(cards, fn
-      %{"card_id" => card_id} when is_binary(card_id) -> true
-      _card -> false
-    end)
-  end
-
-  defp provider_preview_surface?(%{"message_id" => message_id}) when is_binary(message_id),
-    do: true
-
-  defp provider_preview_surface?(%{"messages" => messages}) when is_list(messages) do
-    Enum.any?(messages, fn
-      %{"message_id" => message_id} when is_binary(message_id) -> true
-      _message -> false
-    end)
-  end
-
-  defp provider_preview_surface?(_checkpoint), do: false
 
   defp merge_interactions(existing, proposed) do
     Map.merge(existing, proposed, fn _interaction_id, current, next ->

@@ -359,9 +359,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
                )
 
       first = rpc_response_payload!(first_envelope, FabricProto.ActorTurnNoopResponse)
-      assert first.status == "noop_completed"
+      assert first.status == "turn_completed"
       assert first.reason == "ambient_silent"
-      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+
+      assert %ActorEvent{
+               completed_at: %DateTime{},
+               turn_outcome: "silent",
+               final_response_id: nil
+             } =
+               Repo.get!(ActorEvent, event.id)
 
       assert {:ok, retry_envelope} =
                RPCLane.handle_request(
@@ -1184,7 +1190,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
     {:ok, conversation} = Conversations.ensure_conversation(subject_uid, conversation_key)
 
     {:ok, run} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject_uid,
         conversation_id: conversation.id,
         request_items: [

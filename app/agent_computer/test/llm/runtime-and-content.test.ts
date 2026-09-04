@@ -704,7 +704,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_silent', 'loop_finished')
     ).toEqual({
       kind: 'noop_completed',
-      reason: 'schedule_silent_success'
+      reason: 'schedule_silent_success',
+      finalResponseID: 'resp_silent'
     })
     expect(textTurnResultFromAssistantReply(scheduledTurnStart, '   ', 'resp_silent', 'loop_finished')).toEqual({
       kind: 'turn_completed',
@@ -796,13 +797,16 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       { name: 'apply_patch', isReadOnly: false },
       { name: 'undeclared_legacy_tool' }
     ]
-    const hostedTools = [{ type: 'web_search' }, { type: 'image_generation' }]
+    const hostedTools = [{ type: 'web_search' }, { type: 'image_generation' }, { type: 'brain' }]
     const foregroundReply = { action: 'FOREGROUND_REPLY', authority: 'NONE' } as const
     const confirmation = { action: 'NEW_WORK', authority: 'NONE' } as const
     const authorizedWork = { action: 'NEW_WORK', authority: 'EXPLICIT_REQUEST' } as const
 
     expect(toolsForAmbientRoute(localTools, foregroundReply).map(tool => tool.name)).toEqual(['read_file'])
-    expect(hostedToolsForAmbientRoute(hostedTools, foregroundReply).map(tool => tool.type)).toEqual(['web_search'])
+    expect(hostedToolsForAmbientRoute(hostedTools, foregroundReply).map(tool => tool.type)).toEqual([
+      'web_search',
+      'brain'
+    ])
     expect(toolsForAmbientRoute(localTools, confirmation)).toEqual([])
     expect(hostedToolsForAmbientRoute(hostedTools, confirmation)).toEqual([])
     expect(toolsForAmbientRoute(localTools, authorizedWork)).toBe(localTools)
@@ -906,7 +910,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     const withLazySkillRouting = prompt(['remember', 'recall', 'get_page', 'skill_view'])
     expect(withLazySkillRouting).toContain(
-      'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`, while `get_page` delegates to `skill_view` and returns the loaded Skill.'
+      'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`.'
     )
 
     const readOnly = prompt(['recall', 'get_page', 'skill_view'])

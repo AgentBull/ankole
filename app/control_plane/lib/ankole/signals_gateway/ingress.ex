@@ -15,8 +15,10 @@ defmodule Ankole.SignalsGateway.Ingress do
   recovery path nobody needs.
   """
 
+  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEventEnvelope
@@ -62,7 +64,7 @@ defmodule Ankole.SignalsGateway.Ingress do
         {:ok, fact} ->
           binding
           |> accept_entry(fact, now)
-          |> TurnRetry.dispatch_retry_controls()
+          |> dispatch_turn_controls()
 
         {:held, result} ->
           {:ok, result}
@@ -182,6 +184,36 @@ defmodule Ankole.SignalsGateway.Ingress do
     end
   end
 
+  @doc """
+  Tells an adapter whether at least one attachment still needs its bytes.
+
+  An attachment is satisfied only when its gateway-assigned ID and its
+  `agent_computer_path` both point into this agent's inbox. A true result means
+  the adapter must emit a `pending` observation first, download, and then emit
+  the final observation with the same `observed_at`.
+  """
+  @spec attachments_need_bytes?(String.t(), [map()]) :: boolean()
+  def attachments_need_bytes?(agent_uid, attachments) when is_list(attachments) do
+    Enum.any?(attachments, &(not Projection.materialized_attachment?(agent_uid, &1)))
+  end
+
+  @doc """
+  Puts the two-phase attachment observation into entry metadata.
+
+  `state` is `"pending"` before the download and `"complete"` or `"failed"`
+  after it. `observed_at` is the moment the adapter first saw the attachment.
+  It anchors the inbound batch window and the materialization cap, so the
+  final observation must carry the same value as the pending one.
+  """
+  @spec put_attachment_materialization(map(), String.t(), DateTime.t()) :: map()
+  def put_attachment_materialization(metadata, state, %DateTime{} = observed_at)
+      when is_map(metadata) and state in ["pending", "complete", "failed"] do
+    Map.put(metadata, "attachment_materialization", %{
+      "state" => state,
+      "observed_at" => DateTime.to_iso8601(observed_at)
+    })
+  end
+
   defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -192,12 +224,32 @@ defmodule Ankole.SignalsGateway.Ingress do
          :match <- BindingFilters.match?(binding.filters, fact) do
       binding
       |> accept_lifecycle(fact, now)
-      |> TurnRetry.dispatch_retry_controls()
+      |> dispatch_turn_controls()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
     end
   end
+
+  # The durable decision is committed. The worker control and the preview
+  # effects are best-effort follow-ups, in that order.
+  defp dispatch_turn_controls({:ok, result}) when is_map(result) do
+    outcomes = result |> Map.get(:controls, []) |> TurnControl.dispatch()
+
+    result
+    |> Map.get(:input_superseded_actor_event_ids, [])
+    |> Enum.each(&AIReplyPreview.input_superseded/1)
+
+    # A preview whose input is gone would keep editing cards the outbox deletes.
+    result
+    |> Map.get(:runtime_retractions, %{})
+    |> Map.get(:canceled_actor_event_ids, [])
+    |> Enum.each(&AIReplyPreview.stop/1)
+
+    {:ok, Map.put(result, :control_outcomes, outcomes)}
+  end
+
+  defp dispatch_turn_controls(other), do: other
 
   # Whole acceptance runs in one transaction behind the per-entry advisory lock,
   # so concurrent receives for the same message serialize and the
@@ -267,6 +319,7 @@ defmodule Ankole.SignalsGateway.Ingress do
            canceled_actor_events: runtime_retractions.canceled_actor_events,
            retried_actor_events: runtime_retractions.retried_actor_events,
            runtime_retractions: runtime_retractions,
+           controls: runtime_retractions.controls,
            lifecycle_events: lifecycle_events
          }}
       end

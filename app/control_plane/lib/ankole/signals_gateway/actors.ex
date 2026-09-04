@@ -26,6 +26,8 @@ defmodule Ankole.SignalsGateway.Actors do
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyInteractionState
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
+  alias Ankole.SignalsGateway.Sanitizer
 
   import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1]
 
@@ -216,13 +218,20 @@ defmodule Ankole.SignalsGateway.Actors do
           {:ok, ActorEvent.t()} | {:error, term()}
   def put_reply_preview_checkpoint_in_tx(repo, %ActorEvent{} = event, checkpoint)
       when is_map(checkpoint) do
-    existing = event.reply_preview_checkpoint || %{}
+    existing = ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint)
+    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(checkpoint)
     checkpoint = preserve_reply_preview_owner_fence(existing, checkpoint)
 
     with :ok <- validate_reply_preview_owner_fence(event.id, existing, checkpoint) do
+      surface_fun = fn merged ->
+        event
+        |> ReplyPreviewAdapter.for_event()
+        |> ReplyPreviewAdapter.surface?(merged)
+      end
+
       checkpoint =
         existing
-        |> ReplyInteractionState.merge_checkpoint(checkpoint)
+        |> ReplyInteractionState.merge_checkpoint(checkpoint, surface_fun)
         |> then(fn checkpoint ->
           Map.put(
             checkpoint,
@@ -233,6 +242,7 @@ defmodule Ankole.SignalsGateway.Actors do
             )
           )
         end)
+        |> ReplyPreviewAdapter.persisted_checkpoint()
 
       cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
 
@@ -317,7 +327,7 @@ defmodule Ankole.SignalsGateway.Actors do
     Repo.transact(fn repo ->
       case lock_actor_event_in_tx(repo, actor_event_id) do
         %ActorEvent{} = event ->
-          checkpoint = event.reply_preview_checkpoint || %{}
+          checkpoint = ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint)
 
           case checkpoint["pending_mutation"] do
             %{
@@ -388,6 +398,7 @@ defmodule Ankole.SignalsGateway.Actors do
         checkpoint
         |> Map.put("pending_mutation", mutation)
         |> Map.put("sequence_high_water", sequence)
+        |> ReplyPreviewAdapter.persisted_checkpoint()
 
       with {:ok, updated} <-
              event
@@ -613,7 +624,7 @@ defmodule Ankole.SignalsGateway.Actors do
           module(),
           ActorEvent.t(),
           DateTime.t(),
-          String.t(),
+          String.t() | nil,
           String.t()
         ) :: actor_commit_result()
   def mark_turn_event_completed_in_tx(
@@ -644,23 +655,27 @@ defmodule Ankole.SignalsGateway.Actors do
   Moves an actor event into the terminal dead-letter bucket.
 
   Dead-letter is reserved for real poison inputs after worker execution has
-  repeatedly failed. Normal completion still uses `completed_at`.
+  repeatedly failed. Normal completion still uses `completed_at`. The event
+  keeps a bounded, redacted copy of `reason`, so the row itself says why it
+  was dead-lettered.
   """
-  @spec mark_event_dead_letter_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+  @spec mark_event_dead_letter_in_tx(module(), ActorEvent.t(), DateTime.t(), term()) ::
           actor_commit_result()
   def mark_event_dead_letter_in_tx(
         _repo,
         %ActorEvent{completed_at: %DateTime{}} = actor_event,
-        _dead_letter_at
+        _dead_letter_at,
+        _reason
       ),
       do: {:ok, actor_event}
 
-  def mark_event_dead_letter_in_tx(repo, %ActorEvent{} = actor_event, dead_letter_at) do
+  def mark_event_dead_letter_in_tx(repo, %ActorEvent{} = actor_event, dead_letter_at, reason) do
     with {:ok, %ActorEvent{} = event} <-
            actor_event
            |> ActorEvent.changeset(%{
              input_state: "dead_letter",
-             dead_letter_at: dead_letter_at
+             dead_letter_at: dead_letter_at,
+             dead_letter_reason: dead_letter_reason(reason)
            })
            |> repo.update(),
          :ok <-
@@ -673,6 +688,9 @@ defmodule Ankole.SignalsGateway.Actors do
       {:ok, event}
     end
   end
+
+  defp dead_letter_reason(reason) when is_map(reason), do: Sanitizer.transport(reason)
+  defp dead_letter_reason(reason), do: %{"reason" => Sanitizer.transport(reason)}
 
   defp mark_event_completed(repo, %ActorEvent{} = actor_event, attrs) when is_map(attrs) do
     actor_event

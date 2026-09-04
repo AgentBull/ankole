@@ -24,13 +24,8 @@ export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): 
     }
   }
 
-  const prepared = await prepareCodexJobExecution({
-    turnStart,
-    opts,
-    jobID,
-    job
-  })
-  return runCodexJobSession(prepared)
+  const prepared = await prepareCodexJobExecution({ turnStart, opts, jobID, job })
+  return runCodexJobSession(turnStart, opts, jobID, job, prepared)
 }
 
 function jobIDFromTurn(turnStart: TurnStart): string {

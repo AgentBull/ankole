@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.MapHelpers
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.WorkerFiles
@@ -25,7 +26,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   import MapHelpers,
     only: [collect_results: 1, compact_map: 1, fetch_value: 2, optional_text: 2]
 
-  @managed_action_protocol "ankole.interactive_output.action.v1"
+  @managed_action_protocol ReplyPresentation.action_protocol()
 
   @doc "Builds the dispatcher consumer record for one SignalsGateway chat binding."
   @spec chat_consumer(AdapterContext.t(), map()) :: map()

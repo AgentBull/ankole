@@ -15,6 +15,7 @@ defmodule AnkoleWeb.AgentSkillLessonController do
 
   alias Ankole.AIAgent.Library
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentSkillLessonCreateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentSkillLessonsResponse
@@ -58,7 +59,7 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   )
 
   def index(conn, params) do
-    with {:ok, agent_uid} <- required_path_text(params, :agent_uid),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "read") do
       render_lessons(conn, agent_uid)
     else
@@ -67,7 +68,7 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   end
 
   def create(conn, params) do
-    with {:ok, agent_uid} <- required_path_text(params, :agent_uid),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "update"),
          {:ok, skill_name} <- body_text(conn.body_params, :skill_name),
          {:ok, content} <- body_text(conn.body_params, :content),
@@ -85,8 +86,8 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   end
 
   def retire(conn, params) do
-    with {:ok, agent_uid} <- required_path_text(params, :agent_uid),
-         {:ok, lesson_id} <- required_path_text(params, :lesson_id),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, lesson_id} <- ConsoleParams.text(params, :lesson_id),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "update"),
          {:ok, _lesson} <- Library.retire_skill_lesson(agent_uid, lesson_id) do
       render_lessons(conn, agent_uid)
@@ -102,29 +103,14 @@ defmodule AnkoleWeb.AgentSkillLessonController do
     end
   end
 
-  defp required_path_text(params, key) do
-    case map_value(params, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, Atom.to_string(key)}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing, Atom.to_string(key)}}
-    end
-  end
-
   defp body_text(params, key) when is_map(params) do
-    case map_value(params, key) do
+    case Map.get(params, key) do
       value when is_binary(value) -> {:ok, value}
       _value -> {:error, {:missing, Atom.to_string(key)}}
     end
   end
 
   defp body_text(_params, key), do: {:error, {:missing, Atom.to_string(key)}}
-
-  defp map_value(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")

@@ -8,9 +8,11 @@ defmodule Ankole.AIGateway.ProgramExecution do
   death races before registration, the native watchdog bounds the lost slot.
   """
 
+  alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.Kernel.ProgramRunner
 
   @supervisor Ankole.AIGateway.ProgramTaskSupervisor
+  @brain_supervisor Ankole.AIGateway.BrainTaskSupervisor
 
   @type handle :: %{
           required(:pid) => pid(),
@@ -22,7 +24,7 @@ defmodule Ankole.AIGateway.ProgramExecution do
   @spec start(pid(), [map()], keyword()) ::
           {:ok, handle()} | {:complete, [map()]} | {:error, term()}
   def start(owner, jobs, opts \\ []) when is_pid(owner) and is_list(jobs) do
-    supervisor = Keyword.get(opts, :supervisor, @supervisor)
+    supervisor = Keyword.get(opts, :supervisor, default_supervisor(jobs))
     runner = Keyword.get(opts, :runner)
 
     cond do
@@ -31,6 +33,11 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
       not Process.alive?(owner) ->
         {:error, :program_owner_unavailable}
+
+      # Brain jobs never enter V8, so a batch of only Brain jobs needs no
+      # native run id and no native cancellation.
+      Enum.all?(jobs, &brain_job?/1) ->
+        launch(owner, supervisor, nil, fn -> run_jobs(jobs, &no_program_runner/3) end)
 
       is_nil(runner) ->
         run_id = ProgramRunner.new_run_id()
@@ -85,7 +92,21 @@ defmodule Ankole.AIGateway.ProgramExecution do
     :ok
   end
 
+  def cancel(%{pid: pid, run_id: nil}) when is_pid(pid) do
+    Process.exit(pid, :kill)
+    :ok
+  end
+
   def cancel(_handle), do: :ok
+
+  defp brain_job?(%{kind: :brain}), do: true
+  defp brain_job?(_job), do: false
+
+  defp default_supervisor(jobs) do
+    if jobs != [] and Enum.all?(jobs, &brain_job?/1), do: @brain_supervisor, else: @supervisor
+  end
+
+  defp no_program_runner(_code, _bindings, _memo), do: {:error, :program_runner_unavailable}
 
   defp safe_cancel_run(run_id) do
     ProgramRunner.cancel(run_id)
@@ -108,6 +129,9 @@ defmodule Ankole.AIGateway.ProgramExecution do
         case job do
           %{preflight_outcome: %{} = outcome} ->
             outcome
+
+          %{kind: :brain} = job ->
+            Brain.run_job(job)
 
           %{code: code, runtime_bindings: bindings, memo: memo} ->
             safe_run(runner, [code, bindings, memo])

@@ -26,8 +26,16 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert claims["scope"] == "ai_gateway"
     assert claims["sub"] == agent.uid
     assert claims["subject_type"] == "agent"
-    assert claims["token_use"] == "api_key"
+    assert claims["token_use"] == "access"
+    assert is_binary(claims["jti"])
+    assert is_integer(claims["iat"])
+    assert is_integer(claims["nbf"])
     assert claims["exp"] == api_key.expires_at
+
+    assert %{"alg" => "RS256", "typ" => "at+jwt", "kid" => kid} =
+             jwt_header(api_key.api_key)
+
+    assert is_binary(kid)
   end
 
   test "RuntimeFabric RPC returns an agent AIGateway API key from explicit agent uid" do
@@ -53,6 +61,12 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert String.ends_with?(response.base_url, "/api/v1/ai-gateway")
     assert {:ok, claims} = Tokens.verify_api_key(response.api_key)
     assert claims["sub"] == agent.uid
+  end
+
+  defp jwt_header(token) do
+    [encoded | _parts] = String.split(token, ".", parts: 3)
+    {:ok, json} = Base.url_decode64(encoded, padding: false)
+    Ankole.JSON.decode!(json)
   end
 
   test "RuntimeFabric RPC returns the configured AIGateway base URL" do

@@ -60,6 +60,57 @@ export type AgentLibraryDocumentItem = {
 }
 
 /**
+ * ScheduledEventItem
+ *
+ * One concrete fire: a one-shot checkback or one slot of a cron schedule.
+ */
+export type ScheduledEventItem = {
+  actor_event_id: string | null
+  agent_uid: string
+  automation_job_id: number | null
+  automation_job_run_id: number | null
+  binding_name: string
+  cancelled_at: string | null
+  cron_fire_slot_at: string | null
+  cron_schedule_id: string | null
+  due_at: string
+  fire_attempts: number
+  fire_claimed_at: string | null
+  fired_at: string | null
+  id: number
+  idempotency_key: string
+  inserted_at: string
+  kind: 'check_back_later' | 'cron_fire'
+  /**
+   * Stored diagnostic of the last cancellation or failure; `reason` names it. Empty when there is none.
+   */
+  last_fire_error: {
+    [key: string]: unknown
+  }
+  oban_job_id: number | null
+  origin_ai_message_id: string | null
+  provider_thread_id: string | null
+  requested_at: string
+  session_id: string
+  signal_channel_id: string | null
+  source_actor_event_id: string | null
+  source_entry_id: string | null
+  source_provenance: {
+    [key: string]: unknown
+  }
+  status: 'scheduled' | 'firing' | 'fired' | 'cancelled' | 'failed'
+  timezone: string
+  tool_call_id: string | null
+  updated_at: string
+  /**
+   * Input of the wake turn. A checkback carries `reason`, `check`, and `context_summary`; a cron fire carries `trigger` and the frozen schedule facts.
+   */
+  wake_payload: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * AIGatewayProviderListResponse
  */
 export type AiGatewayProviderListResponse = {
@@ -215,6 +266,14 @@ export type WorkerEnvDecryptionResponse = {
 }
 
 /**
+ * OIDCClientSecretResponse
+ */
+export type OidcClientSecretResponse = {
+  client_secret: string | null
+  oidc_client: OidcClientItem
+}
+
+/**
  * BackgroundAgentJobTurnPlanStep
  */
 export type BackgroundAgentJobTurnPlanStep = {
@@ -270,6 +329,32 @@ export type BackgroundAgentJobHealthResponse = {
 }
 
 /**
+ * ScheduleRecurrence
+ *
+ * Recurrence of one cron schedule. Kind `cron` uses `expression` and `timezone`; kind `every` uses `every_ms` and `anchor_at`.
+ */
+export type ScheduleRecurrence = {
+  /**
+   * ISO 8601 instant that the interval counts from.
+   */
+  anchor_at?: string
+  /**
+   * Interval in milliseconds.
+   */
+  every_ms?: number
+  /**
+   * Crontab expression with five fields, or six fields with leading seconds.
+   */
+  expression?: string
+  kind: 'cron' | 'every'
+  occurrences?: ScheduleOccurrences
+  /**
+   * IANA timezone. A write can omit it and give the request `timezone` instead. A stored `cron` recurrence carries it.
+   */
+  timezone?: string
+}
+
+/**
  * BrainSourceLearnResponse
  */
 export type BrainSourceLearnResponse = {
@@ -308,6 +393,20 @@ export type WorkerFileEntry = {
  */
 export type WorkerEnvListResponse = {
   worker_envs: Array<WorkerEnvItem>
+}
+
+/**
+ * OIDCClientUpdateRequest
+ */
+export type OidcClientUpdateRequest = {
+  allowed_group_ids?: Array<string>
+  allowed_models?: {
+    [key: string]: ModelProfileWriteRequest
+  }
+  enabled?: boolean
+  name?: string
+  redirect_uris?: Array<string>
+  scopes?: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
 }
 
 /**
@@ -454,9 +553,6 @@ export type BackgroundAgentJobTurnItem = {
     >
     metadata?: {
       content_truncated?: boolean
-      max_bytes?: number
-      omitted_items?: number
-      omitted_messages?: number
       redacted?: boolean
     }
     version: 1
@@ -748,7 +844,7 @@ export type ConsoleReadinessResponse = {
  * ScheduleCronScheduleResponse
  */
 export type ScheduleCronScheduleResponse = {
-  cron_schedule: JsonValue
+  cron_schedule: CronScheduleItem
 }
 
 /**
@@ -866,6 +962,38 @@ export type BrainObjectSummaryResponse = {
 }
 
 /**
+ * CronScheduleItem
+ */
+export type CronScheduleItem = {
+  agent_uid: string
+  automation_job_id: number | null
+  binding_name: string
+  /**
+   * Origin of the schedule; `kind` names the writer.
+   */
+  created_by: {
+    [key: string]: unknown
+  }
+  delivery: ScheduleDelivery | null
+  /**
+   * Derived session `cron:<id>` where every fire runs.
+   */
+  execution_session_id: string
+  id: string
+  idempotency_key: string
+  inserted_at: string
+  last_fire_at: string | null
+  name: string
+  next_fire_at: string | null
+  owner_session_id: string
+  payload: SchedulePayload
+  schedule: ScheduleRecurrence
+  status: 'active' | 'paused' | 'deleted' | 'completed'
+  timezone: string
+  updated_at: string
+}
+
+/**
  * BrainContradiction
  */
 export type BrainContradiction = {
@@ -935,7 +1063,14 @@ export type BackgroundAgentJobItem = {
   status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
   task: string
   title: string
+  /**
+   * One bounded page of runtime Turns, newest Turns first, in chronological order.
+   */
   turns?: Array<BackgroundAgentJobTurnItem>
+  /**
+   * Opaque cursor for the page of older Turns; null on the last page.
+   */
+  turns_next_cursor?: string | null
   updated_at: string
   workspace_template_id: string | null
 }
@@ -1120,10 +1255,10 @@ export type BrainContradictionDecisionResponse = {
  * ScheduleCronUpdateRequest
  */
 export type ScheduleCronUpdateRequest = {
-  delivery?: JsonValue
+  delivery?: ScheduleDelivery
   name?: string
-  payload?: JsonValue
-  schedule?: JsonValue
+  payload?: SchedulePayload
+  schedule?: ScheduleRecurrence
   timezone?: string | null
 }
 
@@ -1181,14 +1316,6 @@ export type SignalAdapterField = {
 }
 
 /**
- * ConsoleTokenRequest
- */
-export type ConsoleTokenRequest = {
-  grant_type: string
-  refresh_token?: string
-}
-
-/**
  * IdentityMappingResponse
  */
 export type IdentityMappingResponse = {
@@ -1219,7 +1346,7 @@ export type AiGatewayCredentialWriteRequest = {
  * ScheduleEventListResponse
  */
 export type ScheduleEventListResponse = {
-  schedule_events: Array<JsonValue>
+  schedule_events: Array<ScheduledEventItem>
 }
 
 /**
@@ -1425,6 +1552,13 @@ export type SignalBindingWriteRequest = {
 }
 
 /**
+ * OIDCClientListResponse
+ */
+export type OidcClientListResponse = {
+  oidc_clients: Array<OidcClientItem>
+}
+
+/**
  * IdentityMappingWriteRequest
  */
 export type IdentityMappingWriteRequest = {
@@ -1545,7 +1679,7 @@ export type BrainMergeResultResponse = {
  * ScheduleCronScheduleListResponse
  */
 export type ScheduleCronScheduleListResponse = {
-  cron_schedules: Array<JsonValue>
+  cron_schedules: Array<CronScheduleItem>
 }
 
 /**
@@ -1575,15 +1709,15 @@ export type ModelProfileWriteRequest = {
  */
 export type ScheduleCronWriteRequest = {
   binding_name: string
-  delivery: JsonValue
+  delivery: ScheduleDelivery
   idempotency_key: string
   name: string
   /**
    * Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`.
    */
   owner_session_id: string
-  payload?: JsonValue
-  schedule: JsonValue
+  payload?: SchedulePayload
+  schedule: ScheduleRecurrence
   status?: 'active' | 'paused'
   timezone?: string | null
 }
@@ -1633,14 +1767,6 @@ export type AgentLibraryDocuments = {
  */
 export type AgentComputerWorkerListResponse = {
   workers: Array<AgentComputerWorkerItem>
-}
-
-/**
- * OAuthErrorResponse
- */
-export type OAuthErrorResponse = {
-  error: string
-  error_description: string
 }
 
 /**
@@ -1705,12 +1831,38 @@ export type BrainRecallChunk = {
 }
 
 /**
+ * ScheduleDelivery
+ *
+ * Where the result of a fire goes. The first target is primary and its binding must equal the schedule `binding_name`. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.
+ */
+export type ScheduleDelivery = {
+  quiet_success?: boolean
+  targets: Array<ScheduleDeliveryTarget>
+}
+
+/**
+ * OIDCClientResponse
+ */
+export type OidcClientResponse = {
+  oidc_client: OidcClientItem
+}
+
+/**
  * AIGatewayChatGPTLoginStartRequest
  */
 export type AiGatewayChatGptLoginStartRequest = {
   id?: string
   label?: string
   priority?: number
+}
+
+/**
+ * ScheduleDeliveryTarget
+ */
+export type ScheduleDeliveryTarget = {
+  binding_name: string
+  provider_thread_id?: string
+  signal_channel_id: string
 }
 
 /**
@@ -1795,7 +1947,16 @@ export type AiGatewayProviderKindItem = {
  * ScheduleEventResponse
  */
 export type ScheduleEventResponse = {
-  schedule_event: JsonValue
+  schedule_event: ScheduledEventItem
+}
+
+/**
+ * SchedulePayload
+ *
+ * Standing input of every fire. `task` is the self-contained instruction of a direct-Agent schedule; it is required unless an automation job consumes the trigger. Other keys pass through unchanged.
+ */
+export type SchedulePayload = {
+  [key: string]: unknown
 }
 
 /**
@@ -2095,7 +2256,7 @@ export type AiGatewayProviderResponse = {
  * ScheduleRunListResponse
  */
 export type ScheduleRunListResponse = {
-  schedule_runs: Array<JsonValue>
+  schedule_runs: Array<ScheduledEventItem>
 }
 
 /**
@@ -2232,22 +2393,25 @@ export type BrainObjectPage = {
 }
 
 /**
- * ConsoleTokenResponse
- */
-export type ConsoleTokenResponse = {
-  access_token: string
-  expires_in: number
-  refresh_token: string
-  refresh_token_expires_in: number
-  scope: string
-  token_type: 'Bearer'
-}
-
-/**
  * LocalPasswordResetRequest
  */
 export type LocalPasswordResetRequest = {
   must_change_password?: boolean
+}
+
+/**
+ * OIDCClientCreateRequest
+ */
+export type OidcClientCreateRequest = {
+  allowed_group_ids: Array<string>
+  allowed_models: {
+    [key: string]: ModelProfileWriteRequest
+  }
+  enabled: boolean
+  name: string
+  redirect_uris: Array<string>
+  scopes: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
+  type: 'public' | 'confidential'
 }
 
 /**
@@ -2473,6 +2637,37 @@ export type BrainMergeSuggestion = {
   id: string
   reason: string
   status: string
+}
+
+/**
+ * ScheduleOccurrences
+ *
+ * Bound of a recurring schedule: exactly one of `count` (due slots to run) or `until` (inclusive cutoff instant).
+ */
+export type ScheduleOccurrences = {
+  count?: number
+  /**
+   * ISO 8601 instant, or a local time that the schedule timezone resolves. Stored as UTC.
+   */
+  until?: string
+}
+
+/**
+ * OIDCClientItem
+ */
+export type OidcClientItem = {
+  allowed_group_ids: Array<string>
+  allowed_models: {
+    [key: string]: ModelProfileWriteRequest
+  }
+  enabled: boolean
+  id: string
+  inserted_at: string
+  name: string
+  redirect_uris: Array<string>
+  scopes: Array<string>
+  type: 'public' | 'confidential'
+  updated_at: string
 }
 
 /**
@@ -4829,6 +5024,124 @@ export type AnkoleWebBrainControllerCreateSourceResponses = {
 export type AnkoleWebBrainControllerCreateSourceResponse =
   AnkoleWebBrainControllerCreateSourceResponses[keyof AnkoleWebBrainControllerCreateSourceResponses]
 
+export type AnkoleWebOidcClientControllerDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}'
+}
+
+export type AnkoleWebOidcClientControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerDeleteError =
+  AnkoleWebOidcClientControllerDeleteErrors[keyof AnkoleWebOidcClientControllerDeleteErrors]
+
+export type AnkoleWebOidcClientControllerDeleteResponses = {
+  /**
+   * Deleted OIDC Client
+   */
+  200: OidcClientResponse
+}
+
+export type AnkoleWebOidcClientControllerDeleteResponse =
+  AnkoleWebOidcClientControllerDeleteResponses[keyof AnkoleWebOidcClientControllerDeleteResponses]
+
+export type AnkoleWebOidcClientControllerShowData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}'
+}
+
+export type AnkoleWebOidcClientControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerShowError =
+  AnkoleWebOidcClientControllerShowErrors[keyof AnkoleWebOidcClientControllerShowErrors]
+
+export type AnkoleWebOidcClientControllerShowResponses = {
+  /**
+   * OIDC Client
+   */
+  200: OidcClientResponse
+}
+
+export type AnkoleWebOidcClientControllerShowResponse =
+  AnkoleWebOidcClientControllerShowResponses[keyof AnkoleWebOidcClientControllerShowResponses]
+
+export type AnkoleWebOidcClientControllerUpdateData = {
+  /**
+   * OIDC Client fields
+   */
+  body: OidcClientUpdateRequest
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}'
+}
+
+export type AnkoleWebOidcClientControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid OIDC Client
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerUpdateError =
+  AnkoleWebOidcClientControllerUpdateErrors[keyof AnkoleWebOidcClientControllerUpdateErrors]
+
+export type AnkoleWebOidcClientControllerUpdateResponses = {
+  /**
+   * OIDC Client
+   */
+  200: OidcClientResponse
+}
+
+export type AnkoleWebOidcClientControllerUpdateResponse =
+  AnkoleWebOidcClientControllerUpdateResponses[keyof AnkoleWebOidcClientControllerUpdateResponses]
+
 export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
   body?: never
   path: {
@@ -4876,7 +5189,12 @@ export type AnkoleWebBackgroundAgentJobControllerShowData = {
   path: {
     job_id: number
   }
-  query?: never
+  query?: {
+    /**
+     * The `turns_next_cursor` of the preceding page; omit it for the newest Turns.
+     */
+    cursor?: string
+  }
   url: '/api/v1/background-agent-jobs/{job_id}'
 }
 
@@ -4893,6 +5211,10 @@ export type AnkoleWebBackgroundAgentJobControllerShowErrors = {
    * Not found
    */
   404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid cursor
+   */
+  422: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerShowError =
@@ -5025,6 +5347,47 @@ export type AnkoleWebAgentControllerUpdateResponses = {
 
 export type AnkoleWebAgentControllerUpdateResponse =
   AnkoleWebAgentControllerUpdateResponses[keyof AnkoleWebAgentControllerUpdateResponses]
+
+export type AnkoleWebOidcClientControllerRotateSecretData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}/secret-rotations'
+}
+
+export type AnkoleWebOidcClientControllerRotateSecretErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Public Client
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerRotateSecretError =
+  AnkoleWebOidcClientControllerRotateSecretErrors[keyof AnkoleWebOidcClientControllerRotateSecretErrors]
+
+export type AnkoleWebOidcClientControllerRotateSecretResponses = {
+  /**
+   * OIDC Client and one-time secret
+   */
+  200: OidcClientSecretResponse
+}
+
+export type AnkoleWebOidcClientControllerRotateSecretResponse =
+  AnkoleWebOidcClientControllerRotateSecretResponses[keyof AnkoleWebOidcClientControllerRotateSecretResponses]
 
 export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData = {
   /**
@@ -8087,6 +8450,75 @@ export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses = {
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses]
 
+export type AnkoleWebOidcClientControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/oidc-clients'
+}
+
+export type AnkoleWebOidcClientControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerIndexError =
+  AnkoleWebOidcClientControllerIndexErrors[keyof AnkoleWebOidcClientControllerIndexErrors]
+
+export type AnkoleWebOidcClientControllerIndexResponses = {
+  /**
+   * OIDC Clients
+   */
+  200: OidcClientListResponse
+}
+
+export type AnkoleWebOidcClientControllerIndexResponse =
+  AnkoleWebOidcClientControllerIndexResponses[keyof AnkoleWebOidcClientControllerIndexResponses]
+
+export type AnkoleWebOidcClientControllerCreateData = {
+  /**
+   * OIDC Client
+   */
+  body: OidcClientCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/oidc-clients'
+}
+
+export type AnkoleWebOidcClientControllerCreateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid OIDC Client
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebOidcClientControllerCreateError =
+  AnkoleWebOidcClientControllerCreateErrors[keyof AnkoleWebOidcClientControllerCreateErrors]
+
+export type AnkoleWebOidcClientControllerCreateResponses = {
+  /**
+   * OIDC Client and one-time secret
+   */
+  201: OidcClientSecretResponse
+}
+
+export type AnkoleWebOidcClientControllerCreateResponse =
+  AnkoleWebOidcClientControllerCreateResponses[keyof AnkoleWebOidcClientControllerCreateResponses]
+
 export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
   body?: never
   path: {
@@ -8173,40 +8605,6 @@ export type AnkoleWebWorkerEnvControllerUpdateForAgentResponses = {
 
 export type AnkoleWebWorkerEnvControllerUpdateForAgentResponse =
   AnkoleWebWorkerEnvControllerUpdateForAgentResponses[keyof AnkoleWebWorkerEnvControllerUpdateForAgentResponses]
-
-export type AnkoleWebAuthControllerOauthTokenData = {
-  /**
-   * Token grant
-   */
-  body: ConsoleTokenRequest
-  path?: never
-  query?: never
-  url: '/.internal-apis/oauth/token'
-}
-
-export type AnkoleWebAuthControllerOauthTokenErrors = {
-  /**
-   * Invalid token grant
-   */
-  400: OAuthErrorResponse
-  /**
-   * Inactive browser session
-   */
-  401: OAuthErrorResponse
-}
-
-export type AnkoleWebAuthControllerOauthTokenError =
-  AnkoleWebAuthControllerOauthTokenErrors[keyof AnkoleWebAuthControllerOauthTokenErrors]
-
-export type AnkoleWebAuthControllerOauthTokenResponses = {
-  /**
-   * Console tokens
-   */
-  200: ConsoleTokenResponse
-}
-
-export type AnkoleWebAuthControllerOauthTokenResponse =
-  AnkoleWebAuthControllerOauthTokenResponses[keyof AnkoleWebAuthControllerOauthTokenResponses]
 
 export type AnkoleWebAuthZGroupControllerGrantsData = {
   body?: never

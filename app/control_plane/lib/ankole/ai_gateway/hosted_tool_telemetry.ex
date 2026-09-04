@@ -1,15 +1,16 @@
 defmodule Ankole.AIGateway.HostedToolTelemetry do
   @moduledoc """
-  Emits bounded hosted image-generation telemetry without public response data.
+  Emits bounded hosted tool telemetry without public response data.
 
-  Prompts, URLs, base64 payloads, file contents, and provider credentials are
-  intentionally not accepted by this boundary.
+  Prompts, URLs, base64 payloads, file contents, Brain arguments and results,
+  and provider credentials are intentionally not accepted by this boundary.
   """
 
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
 
   @event [:ankole, :ai_gateway, :hosted_image_generation]
+  @brain_event [:ankole, :ai_gateway, :hosted_brain]
   @measurement_keys ~w(
     hosted_tool_calls successful_image_calls main_model_rounds image_latency_ms
     input_bytes output_bytes partial_images provider_cost
@@ -35,6 +36,25 @@ defmodule Ankole.AIGateway.HostedToolTelemetry do
   end
 
   def emit(_metadata), do: :ok
+
+  @doc """
+  Emits one event per hosted Brain operation call: the operation, its result,
+  the failure code, the calling subject, and the latency. Arguments and outputs
+  never enter the event.
+  """
+  @spec emit_brain(map()) :: :ok
+  def emit_brain(%{} = raw) do
+    :telemetry.execute(
+      @brain_event,
+      %{count: 1, latency_ms: number(raw, "latency_ms")},
+      %{
+        operation: string(raw, "operation"),
+        result: string(raw, "result") || "success",
+        failure_reason: string(raw, "failure_reason"),
+        subject_uid: string(raw, "subject_uid")
+      }
+    )
+  end
 
   @spec emit_summary(map() | nil) :: :ok
   def emit_summary(%{"hosted_tool_metadata" => %{} = metadata}), do: emit(metadata)

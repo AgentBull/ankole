@@ -1,56 +1,58 @@
 ---
 title: Introduction
-description: What Ankole is, how autonomous labor differs from a copilot, and the parts in a private deployment instance.
+description: What the Ankole Agent Harness and Company Brain provide, and how a private deployment instance works.
 section: Getting started
 order: 1
 ---
 
-**Ankole is the open-source AI Workforce OS. It turns AI agents into autonomous labor that performs business functions and is measured by outcomes.**
+**Ankole is the open source Claude Code alternative with a Company Brain. Its enterprise Agent Harness gives Agents the context, authority, tools, and feedback required to make decisions and show their evidence.**
 
-Give an Agent an investment research function, authority boundaries, tools, and performance measures. It maintains hypotheses, produces reports, tracks calls, and compares them with later outcomes.
+Durable Agents use shared company knowledge, live signals, enterprise authority, Agent Computer workers, and persistent execution across company work.
 
-A copilot waits for the next prompt because the person owns the work. An Ankole Agent owns the next action within its function and returns to people at approval, exception, and accountability boundaries.
+A model reasons over the context it receives. The Harness selects current company facts, applies access rules, grants capabilities, restores work after failure, and records results for later decisions.
 
-## How autonomous labor differs from a copilot
+## What the Harness provides
 
-- **A business function, not a chat persona.** Each Agent has ongoing responsibility, expected deliverables, operating context, and a result measure.
-- **Outcomes, not activity.** Work is scored by the number that matters to the business, such as return, risk, ranking, approval rate, or cost per unit.
-- **An execution loop, not next-step suggestions.** The Agent plans, uses tools, follows up, recovers from failure, and delivers.
-- **Authority with boundaries.** Identity, AuthZ, approvals, audit records, and escalation paths define what the Agent can do.
-- **Long-running work, not one request.** Sessions can run for hours or days, receive new input, recover after failure, and retain operating context.
+- Brain keeps knowledge attached to its source, time, holder, confidence, conflicts, and audience.
+- Evidence, uncertainty, competing hypotheses, and missing information remain visible for review.
+- Messages, schedules, webhooks, and external events wake the Agent responsible for the work.
+- Identity, AuthZ, approvals, audit records, and escalation paths enforce the authority of each Agent.
+- Work can run for hours or days, accept new input, recover after process failure, and deliver to its original context.
+- Corrections and observed outcomes can revise Company Brain before the next decision begins.
 
 ## The parts of a deployment instance
 
-These words recur throughout the rest of the docs, so here they are once.
+The following terms appear throughout the documentation.
 
 | Part | What it is | More |
 |---|---|---|
-| **Agent** | A working identity with its own mission, access, tools, and outbound identity; the mission and delivery standards are files you can edit at any time. One deployment instance can hold several. | [Agents](../agents/) |
-| **Session** | The long-running unit of execution, and where context, workspace state, steering, cancellation, and recovery meet. | [Actor runtime](../actor-runtime/) |
+| **Agent** | A working identity with its own mission, access, tools, and outbound identity. Editable files hold its mission and delivery standards. One deployment instance can hold several Agents. | [Agents](../agents/) |
+| **Brain** | Shared company knowledge with sources, claims, time, confidence, conflicts, and audience boundaries. Authorized Agents use the same current company context. | [Brain](../brain/) |
+| **Session** | The unit of execution that owns context, workspace state, steering, cancellation, and recovery. | [Actor runtime](../actor-runtime/) |
 | **Signal routing rule** | Connects an Agent to a signal source and sets the boundary of what it can do there. | [Signal routing rules](../signal-bindings/) |
-| **Background job** | Work sent out of a session that can run for hours, then delivers back to the channel it came from. | [Background Agent Jobs](../background-agent-jobs/) |
-| **Skill** | The settled way to do one kind of job. An agent can propose an improvement; a human approves it for the next session. | [Skills](../skills/) |
-| **Principal** | People and agents are the same kind of subject, so the runtime enforces permissions and audit for both. | [Principal and AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | The execution floor: the LLM loop, tools, files, terminal state, and streaming output all run here. | [Agent Computer Worker](../agent-computer-worker/) |
+| **Background job** | A task that runs outside a Session for hours and delivers its result to the originating channel. | [Background Agent Jobs](../background-agent-jobs/) |
+| **Skill** | An approved procedure for one kind of work. An Agent can propose an improvement, and a human approves it for the next Session. | [Skills](../skills/) |
+| **Principal** | The permission subject for a person or Agent. The runtime applies permissions and audit rules to each Principal. | [Principal and AuthZ](../principal-authz/) |
+| **Agent Computer Worker** | The environment that runs the LLM loop, tools, files, terminal state, and streaming output. | [Agent Computer Worker](../agent-computer-worker/) |
 
-An Agent can also use [Deep Research](../deep-research-job/) for long, multi-source research and [browser automation](../browser-automation/) to work with real web pages.
+An Agent can also use [Deep Research](../deep-research-job/) for long research across several sources and [browser automation](../browser-automation/) to work with real web pages.
 
-## Business functions it can perform
+## Decision work it supports
 
-Ankole fits work that can be done digitally, produces inspectable deliverables, and has a declared outcome measure.
+Ankole fits consequential digital work that produces inspectable evidence and observable results.
 
-Examples include performance marketing measured by incremental ROAS, trading measured by risk-adjusted return, SEO measured by ranking movement, and patent prosecution measured by grant rate.
+Examples include industry research with competing hypotheses, product and market selection with scenario models, and deep data analysis with reproducible methods and causal alternatives.
 
-The unit is a business function, not an Agent count. Multi-agent coordination is an implementation choice, not the product promise.
+The Harness supports many kinds of work. One Agent can own a decision. A Workflow can divide it across independent Agent contexts when separate contexts reduce correlated errors.
 
-The common contract is: **define the function, grant bounded authority, let the Agent work, and score the outcome.**
+Company knowledge and signals establish context. Bounded authority lets the Agent act. Evidence and observed outcomes update later decisions.
 
 ## Current status
 
-Ankole is a complete, self-hostable AI Workforce OS running in production, and it is still early. The control plane, Agent Computer Worker, kernel, and operator console work end to end.
+Ankole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Agent Computer Worker, kernel, Company Brain, and operator console on its own infrastructure.
 
-The public APIs do not have a compatibility contract yet. Expect breaking changes between releases until they do.
+Ankole is still defining its public API compatibility contract. Releases can include breaking changes.
 
 ## Next steps
 
-Get it running locally with the [quick start](../quickstart/). To see the whole shape first, read the [architecture overview](../architecture/).
+Local setup starts with the [quick start](../quickstart/). The [architecture overview](../architecture/) explains each component and boundary.

@@ -6,9 +6,9 @@ defmodule Ankole.Brain.SkillLessonsTest do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AppConfigure
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
+  alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Brain.SkillLessons
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Binding
@@ -32,60 +32,68 @@ defmodule Ankole.Brain.SkillLessonsTest do
     %{agent: agent}
   end
 
-  defp insert_job!(agent, attrs) do
-    %{rows: [[id]]} =
-      Repo.query!("SELECT nextval(pg_get_serial_sequence('background_agent_jobs', 'id'))")
-
+  defp create_job!(agent, attrs \\ %{}) do
     base = %{
       "agent_uid" => agent.uid,
       "owner_session_id" => "signal-channel:lesson-test",
       "source_tool_call_id" => "call-" <> Integer.to_string(System.unique_integer([:positive])),
-      "workspace_owner_job_id" => id,
-      "status" => "succeeded",
       "title" => "evidence job",
       "task" => "Build the quarterly workbook.",
       "reply_route" => %{"binding_name" => "lark-main"},
-      "metadata" => %{},
-      "completed_at" => DateTime.utc_now()
+      "metadata" => %{}
     }
 
-    %Job{id: id}
-    |> Job.creation_changeset(Map.merge(base, attrs))
-    |> Repo.insert!()
+    assert {:ok, %{job: job}} = BackgroundAgentJobs.create_with_dispatch(Map.merge(base, attrs))
+    job
   end
 
-  defp insert_turn!(job, items) do
-    turn =
-      %Turn{}
-      |> Turn.changeset(%{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: "thread-#{job.id}",
-        runtime_turn_id: "turn-#{job.id}-#{System.unique_integer([:positive])}",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: %{"format" => "ankole_chatml", "version" => 1},
-        started_at: DateTime.utc_now(),
-        completed_at: DateTime.utc_now()
-      })
-      |> Repo.insert!()
+  defp record_evidence_turn!(job, items) do
+    started_at = DateTime.utc_now(:microsecond)
 
-    items
-    |> Enum.with_index()
-    |> Enum.each(fn {item, position} ->
-      %TurnItem{}
-      |> TurnItem.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: 1,
-        item_key: "item-#{position}",
-        item: item
-      })
-      |> Repo.insert!()
-    end)
+    running =
+      job
+      |> Ecto.Changeset.change(
+        status: "running",
+        attempts: 1,
+        runtime_thread_id: "thread-#{job.id}"
+      )
+      |> Repo.update!()
 
-    turn
+    attrs = %{
+      "attempt" => 1,
+      "runtime_thread_id" => running.runtime_thread_id,
+      "runtime_turn_id" => "turn-#{job.id}-#{System.unique_integer([:positive])}",
+      "kind" => "agent",
+      "status" => "completed",
+      "revision" => 1,
+      "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
+      "started_at" => DateTime.to_iso8601(started_at),
+      "completed_at" => DateTime.to_iso8601(started_at),
+      "turn_items" =>
+        items
+        |> Enum.with_index()
+        |> Enum.map(fn {item, position} ->
+          %{"position" => position, "item_key" => "item-#{position}", "item" => item}
+        end)
+    }
+
+    assert {:ok, _turn} =
+             Repo.transact(fn repo -> Turns.upsert_from_worker_in_tx(repo, running, attrs) end)
+
+    running
+    |> Ecto.Changeset.change(status: "succeeded", completed_at: started_at)
+    |> Repo.update!()
+  end
+
+  defp terminal_job!(agent, attrs, result) do
+    agent
+    |> create_job!(attrs)
+    |> Ecto.Changeset.change(
+      status: "succeeded",
+      result: result,
+      completed_at: DateTime.utc_now(:microsecond)
+    )
+    |> Repo.update!()
   end
 
   defp task_message(text), do: %{"type" => "userMessage", "content" => [%{"text" => text}]}
@@ -101,32 +109,28 @@ defmodule Ankole.Brain.SkillLessonsTest do
   end
 
   defp signal_job_with_steering!(agent) do
-    job = insert_job!(agent, %{})
+    job = create_job!(agent)
 
-    insert_turn!(job, [
+    record_evidence_turn!(job, [
       task_message(job.task),
       task_message("不要再扩大范围，尽快收敛交付。")
     ])
-
-    job
   end
 
   defp signal_job_with_failure!(agent) do
-    job = insert_job!(agent, %{})
+    job = create_job!(agent)
 
-    insert_turn!(job, [
+    record_evidence_turn!(job, [
       task_message(job.task),
       failed_command("python3 build.py", "openpyxl 3.1.2 TypeError: ws.append() got dict"),
       %{"type" => "commandExecution", "command" => "python3 build.py --list", "exitCode" => 0}
     ])
-
-    job
   end
 
   test "phase counts only unconsumed signal jobs and stays below threshold", %{agent: agent} do
     # One clean job (task message only, no failures) and one signal job.
-    clean = insert_job!(agent, %{})
-    insert_turn!(clean, [task_message(clean.task)])
+    clean = create_job!(agent)
+    record_evidence_turn!(clean, [task_message(clean.task)])
     signal_job_with_steering!(agent)
 
     assert %{status: :ok, agents: agents} = SkillLessons.run_phase()
@@ -205,18 +209,21 @@ defmodule Ankole.Brain.SkillLessonsTest do
       })
 
     reflection =
-      insert_job!(agent, %{
-        "title" => "Skill lessons reflection",
-        "task" => "reflection",
-        "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
-        "metadata" => %{
-          "skill_lesson_reflection" => true,
-          "through_job_id" => second.id,
-          "evidence_job_ids" => [first.id, second.id],
-          "human_input_job_ids" => [first.id]
+      terminal_job!(
+        agent,
+        %{
+          "title" => "Skill lessons reflection",
+          "task" => "reflection",
+          "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
+          "metadata" => %{
+            "skill_lesson_reflection" => true,
+            "through_job_id" => second.id,
+            "evidence_job_ids" => [first.id, second.id],
+            "human_input_job_ids" => [first.id]
+          }
         },
-        "result" => %{"output_text" => output}
-      })
+        %{"output_text" => output}
+      )
 
     assert :ok = SkillLessons.apply_reflection_output(reflection.id)
 
@@ -240,15 +247,18 @@ defmodule Ankole.Brain.SkillLessonsTest do
 
   test "unparsable reflection output leaves the watermark unmoved", %{agent: agent} do
     reflection =
-      insert_job!(agent, %{
-        "metadata" => %{
-          "skill_lesson_reflection" => true,
-          "through_job_id" => 1,
-          "evidence_job_ids" => [],
-          "human_input_job_ids" => []
+      terminal_job!(
+        agent,
+        %{
+          "metadata" => %{
+            "skill_lesson_reflection" => true,
+            "through_job_id" => 1,
+            "evidence_job_ids" => [],
+            "human_input_job_ids" => []
+          }
         },
-        "result" => %{"output_text" => "I could not produce JSON today."}
-      })
+        %{"output_text" => "I could not produce JSON today."}
+      )
 
     assert :ok = SkillLessons.apply_reflection_output(reflection.id)
     refute Map.has_key?(Repo.get!(Job, reflection.id).metadata, "lessons_applied_at")

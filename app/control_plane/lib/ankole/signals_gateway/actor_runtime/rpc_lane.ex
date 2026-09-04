@@ -35,7 +35,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
-  alias Ankole.SignalsGateway.ActorRuntime.BrainBroker
   alias Ankole.SignalsGateway.ActorRuntime.ObservabilityBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker
@@ -72,39 +71,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "app_configure.resolve" =>
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest,
        FabricProto.AppConfigureResolveResponse},
-    "brain.remember" =>
-      {BrainBroker, :handle_remember, :turn_write, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.learn_source" =>
-      {BrainBroker, :handle_learn_source, :turn_write, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.recall" =>
-      {BrainBroker, :handle_recall, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.get_page" =>
-      {BrainBroker, :handle_get_page, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.forget" =>
-      {BrainBroker, :handle_forget, :turn_write, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.entity" =>
-      {BrainBroker, :handle_entity, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.whoknows" =>
-      {BrainBroker, :handle_whoknows, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.synthesize" =>
-      {BrainBroker, :handle_synthesize, :turn_write, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.delta" =>
-      {BrainBroker, :handle_delta, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.context_pack" =>
-      {BrainBroker, :handle_context_pack, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
-    "brain.volunteer_pointers" =>
-      {BrainBroker, :handle_volunteer_pointers, :turn_read, FabricProto.BrainRequest,
-       FabricProto.JSONPassthroughResponse},
     "automation_job.create" =>
       {AutomationJobRPCBroker, :handle_create, :turn_write,
        FabricProto.AutomationJobCreateRequest, FabricProto.JSONPassthroughResponse},

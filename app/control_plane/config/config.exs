@@ -31,6 +31,24 @@ config :ankole, AnkoleWeb.Endpoint,
   ],
   pubsub_server: Ankole.PubSub
 
+config :boruta, Boruta.Oauth,
+  repo: Ankole.Repo,
+  contexts: [
+    access_tokens: Ankole.OIDC.Boruta.AccessTokens,
+    clients: Ankole.OIDC.Boruta.Clients,
+    codes: Ankole.OIDC.Boruta.Codes,
+    resource_owners: Ankole.OIDC.Boruta.ResourceOwners,
+    scopes: Ankole.OIDC.Boruta.Scopes
+  ],
+  max_ttl: [
+    authorization_code: 5 * 60,
+    access_token: 30 * 60,
+    id_token: 5 * 60,
+    refresh_token: 30 * 24 * 60 * 60
+  ],
+  token_generator: Ankole.OIDC.Boruta.TokenGenerator,
+  issuer: "http://localhost:4000"
+
 # Configure Elixir's Logger for Docker/Kubernetes structured-log ingestion.
 config :logger, :default_handler,
   formatter:
@@ -66,7 +84,8 @@ config :ankole, Oban,
        {"* * * * *", Ankole.Brain.Jobs.Tick},
        {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
-       {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts}
+       {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
+       {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials}
      ]}
   ]
 

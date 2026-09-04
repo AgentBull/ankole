@@ -382,7 +382,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(active_turn_ref))
 
       {:ok, active_run} =
-        StatefulResponses.start_response_run(%{
+        start_response_run(%{
           subject_uid: agent.uid,
           previous_response_id: "resp_#{tail.id}",
           metadata: %{"request_metadata" => %{"actor_event_id" => active_input.id}},
@@ -494,7 +494,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                 status: :command_consumed,
                 command: "command.stop",
                 feedback: "Stopped.",
-                stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+                control_outcomes: [%{send_outcome: "sent_or_queued"}]
               }} =
                process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
 
@@ -719,7 +719,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
               %{
                 status: :waiting_for_worker,
                 command: "command.new",
-                stop_control_outcomes: []
+                control_outcomes: []
               }} =
                process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
@@ -867,7 +867,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
         message_id -> Map.put(attrs, :previous_response_id, "resp_#{message_id}")
       end
 
-    {:ok, message} = StatefulResponses.start_response_run(attrs)
+    {:ok, message} = start_response_run(attrs)
     {:ok, message} = StatefulResponses.commit_complete(message, [])
 
     message

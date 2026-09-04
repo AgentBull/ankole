@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.ReplyAttachment
   alias Ankole.SignalsGateway.ReplyInteractionState
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Channel
@@ -879,10 +880,8 @@ defmodule Ankole.SignalsGateway.Outbox do
       end
 
     latest
-    |> ReplyPresentation.terminal(state, answer)
+    |> ReplyPresentation.terminal(state, answer, preserve_interaction_from: original)
     |> preserve_empty_stopped_answer(state, answer)
-    |> preserve_terminal_field(original, "prompt")
-    |> preserve_terminal_field(original, "actions")
     |> merge_terminal_meta(original)
   end
 
@@ -894,13 +893,6 @@ defmodule Ankole.SignalsGateway.Outbox do
     do: Map.put(presentation, "answer", "")
 
   defp preserve_empty_stopped_answer(presentation, _state, _answer), do: presentation
-
-  defp preserve_terminal_field(presentation, original, key) do
-    case Map.fetch(original, key) do
-      {:ok, value} -> Map.put(presentation, key, value)
-      :error -> presentation
-    end
-  end
 
   defp merge_terminal_meta(presentation, original) do
     original_meta = Map.get(original, "meta")
@@ -1241,65 +1233,9 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp clarify_reply_presentation(actor_event, text, interactive_output) do
     card_visible_text = Map.get(interactive_output, "body") || text
 
-    presentation =
-      terminal_reply_presentation(actor_event, "awaiting_input", card_visible_text)
-
-    controls =
-      interactive_output
-      |> json_list("choices")
-      |> Enum.map(fn choice ->
-        %{
-          "id" => Map.get(choice, "id"),
-          "type" => "button",
-          "label" => Map.get(choice, "label"),
-          "description" => Map.get(choice, "description"),
-          "source_actor_event_id" => actor_event.id,
-          "interaction_id" => Map.get(interactive_output, "interaction_id"),
-          "control_id" => Map.get(interactive_output, "control_id"),
-          "selected_option_id" => Map.get(choice, "id"),
-          "option_value" => Map.get(choice, "value"),
-          "revision" => Map.get(interactive_output, "version")
-        }
-      end)
-      |> maybe_append_free_input_control(actor_event, interactive_output)
-
-    ReplyPresentation.apply_event(presentation, "interaction.request", %{
-      "operation_id" => Map.get(interactive_output, "interaction_id") || "clarify",
-      "revision" => presentation["revision"] + 1,
-      "prompt" => Map.get(interactive_output, "body") || text,
-      "controls" => controls
-    })
-  end
-
-  defp maybe_append_free_input_control(controls, actor_event, interactive_output) do
-    if Map.get(interactive_output, "free_input") == true do
-      controls ++
-        [
-          %{
-            "id" => "clarify-free-input",
-            "type" => "form",
-            "label" => "Reply",
-            "style" => "primary",
-            "source_actor_event_id" => actor_event.id,
-            "interaction_id" => Map.get(interactive_output, "interaction_id"),
-            "control_id" => "clarify-free-input",
-            "revision" => Map.get(interactive_output, "version"),
-            "fields" => [
-              %{
-                "id" => "clarify-answer",
-                "type" => "input",
-                "label" => "Your answer",
-                "placeholder" => Map.get(interactive_output, "free_input_hint"),
-                "required" => true,
-                "multiline" => true,
-                "max_length" => 1_000
-              }
-            ]
-          }
-        ]
-    else
-      controls
-    end
+    actor_event
+    |> terminal_reply_presentation("awaiting_input", card_visible_text)
+    |> ReplyPresentation.interaction_request(actor_event.id, interactive_output)
   end
 
   defp reply_presentation_checkpoint(%ActorEvent{} = actor_event) do
@@ -1634,13 +1570,42 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> repo.update()
   end
 
+  # A durable AI reply whose adapter declares a reply-preview module is the
+  # terminal step of that preview: the preview module finalizes the surface it
+  # already owns instead of the adapter posting a second message. Reconciling
+  # such a row repeats that finalize, because the preview checkpoint records
+  # every provider mutation and finalize is idempotent against it.
   defp call_adapter_send(adapter, outbox) do
-    OutboxAdapter.deliver(adapter, project_reply_interaction(outbox))
+    case terminal_reply_preview(adapter, outbox) do
+      %ReplyPreviewAdapter{} = preview ->
+        ReplyPreviewAdapter.finalize_outbox(preview, project_reply_interaction(outbox))
+
+      nil ->
+        OutboxAdapter.deliver(adapter, project_reply_interaction(outbox))
+    end
   end
 
   defp call_adapter_reconcile(adapter, outbox) do
-    OutboxAdapter.reconcile(adapter, project_reply_interaction(outbox))
+    case terminal_reply_preview(adapter, outbox) do
+      %ReplyPreviewAdapter{} = preview ->
+        ReplyPreviewAdapter.finalize_outbox(preview, project_reply_interaction(outbox))
+
+      nil ->
+        OutboxAdapter.reconcile(adapter, project_reply_interaction(outbox))
+    end
   end
+
+  defp terminal_reply_preview(
+         %OutboxAdapter{reply_preview: %ReplyPreviewAdapter{} = preview},
+         %OutboxEntry{
+           payload: %{"reply_presentation" => presentation},
+           source_actor_event_id: actor_event_id
+         }
+       )
+       when is_map(presentation) and is_binary(actor_event_id),
+       do: preview
+
+  defp terminal_reply_preview(_adapter, _outbox), do: nil
 
   defp project_reply_interaction(
          %OutboxEntry{

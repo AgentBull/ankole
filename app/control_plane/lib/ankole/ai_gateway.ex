@@ -469,24 +469,8 @@ defmodule Ankole.AIGateway do
 
   def open_websocket_stream(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
-  @doc false
-  @spec prepare_websocket_request(String.t(), map()) ::
-          {:ok, UniversalAIRequest.t()} | {:error, term()}
-  def prepare_websocket_request(subject_uid, request) when is_map(request) do
-    with {:ok, prepared_request, _run_attrs} <-
-           prepare_websocket_provider_request(subject_uid, request) do
-      {:ok, prepared_request}
-    end
-  end
-
-  def prepare_websocket_request(_subject_uid, _request), do: {:error, :invalid_request_body}
-
   defp prepare_websocket_stream_request(subject_uid, request, opts) do
     StatefulLifecycle.prepare_and_start_websocket_provider_request(subject_uid, request, opts)
-  end
-
-  defp prepare_websocket_provider_request(subject_uid, request) do
-    StatefulLifecycle.prepare_websocket_provider_request(subject_uid, request)
   end
 
   @doc false
@@ -676,6 +660,10 @@ defmodule Ankole.AIGateway do
   """
   @spec list_models(String.t(), String.t(), map()) :: {:ok, map()}
   defdelegate list_models(subject_uid, subject_type, params \\ %{}), to: Models
+
+  @doc "Lists OpenRouter-shaped model aliases configured for one OIDC Client."
+  @spec list_model_aliases(map(), map()) :: {:ok, map()}
+  defdelegate list_model_aliases(model_aliases, params \\ %{}), to: Models
 
   @doc """
   Returns whether a request asked for an SSE response.

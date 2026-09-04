@@ -1,13 +1,11 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
-  brainRPCRequester,
   scheduleRPCRequester,
   signalChannelRPCRequester,
   type AgentPluginCatalogEntry,
   type RPCRequester,
   type RuntimeSkillSummary
 } from '../../lanes/rpc_lane'
-import { createBrainTools } from '../../tools/brain/brain-tools'
 import { createComputerTools } from '../../tools/computer'
 import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
 import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
@@ -26,7 +24,6 @@ import { createSendMessageToWorkflowTaskTool } from '../../tools/workflow/send-m
 import { createShowWorkflowTool } from '../../tools/workflow/show-workflow'
 import { createWorkflowTool } from '../../tools/workflow/workflow'
 import type { WorkerAgentTool } from '../types'
-import { webSearchIsProviderHosted } from './turn_runtime_policy'
 import { createSkillLoader } from '../../skills/skill-loader'
 
 type TextTurnToolsOptions = {
@@ -38,8 +35,6 @@ type TextTurnToolsOptions = {
   enabledSkills: RuntimeSkillSummary[]
   agentPluginCatalog: AgentPluginCatalogEntry[]
   skillRoots: SkillFileRoots
-  /** Per-turn `brain.enabled` resolution; false leaves the Brain tools unregistered. */
-  brainEnabled: boolean
   rpc: RPCRequester
   waitForSteering?: (signal?: AbortSignal) => Promise<void>
   workerEnv: Record<string, string>
@@ -48,9 +43,9 @@ type TextTurnToolsOptions = {
 }
 
 /**
- * Owns the model-visible tool catalog for Text Turns.
- * Provider-hosted search removes only the local web_search tool.
- * Brain memory tools register only when `brain.enabled` resolved true.
+ * Owns the model-visible local tool catalog for Text Turns. The web tools
+ * arrive already projected by createTurnWebTools. Brain memory is an
+ * AIGateway-hosted tool and never registers here.
  */
 export function createTextTurnTools(opts: TextTurnToolsOptions): WorkerAgentTool[] {
   const turnStart = opts.turnStart
@@ -81,10 +76,7 @@ export function createTextTurnTools(opts: TextTurnToolsOptions): WorkerAgentTool
       turnStart,
       requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
     }),
-    ...(opts.brainEnabled
-      ? createBrainTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn), skillLoader })
-      : []),
-    ...opts.webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
+    ...opts.webTools,
     createClarifyTool(),
     ...backgroundAgentJobTools,
     createWorkflowTool({ turnStart, rpc: opts.rpc }),

@@ -26,16 +26,6 @@ message JSONPassthroughResponse {
   bytes body_json = 1;
 }
 
-// brain
-
-// Brain memory operations share one request message: the params document is
-// free-form JSON whose per-method contract the Brain domain layer owns and
-// validates (scope rules, weight grids, holder resolution). Responses are
-// model-facing JSON through JSONPassthroughResponse.
-message BrainRequest {
-  bytes params_json = 1;
-}
-
 // actor turn completion
 
 // Completion is a terminal write. The turn fence stays on the RPC frame so a
@@ -52,12 +42,16 @@ message ActorTurnCompleteResponse {
 }
 
 // A no-op consumes the applied input prefix without provider-visible output.
+// It commits through the same completion transaction with outcome `silent`.
+// `final_response_id` names the adopted Response when the worker ran a model
+// loop; it is empty when the turn produced no gateway Response.
 message ActorTurnNoopRequest {
   string reason = 1;
+  string final_response_id = 2;
 }
 
 message ActorTurnNoopResponse {
-  string status = 1; // noop_completed | already_completed
+  string status = 1; // turn_completed | turn_canceled | already_completed
   string reason = 2;
 }
 

@@ -520,9 +520,14 @@ async fn run_websocket_stream(
     }
 }
 
+pub(in crate::universal_ai_client) struct CollectedWebSocketModelResponse {
+    pub wrapper: Value,
+    pub completed_items: BTreeMap<usize, Value>,
+}
+
 pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
     mut spec: StreamSpec,
-) -> Result<Value, StreamError> {
+) -> Result<CollectedWebSocketModelResponse, StreamError> {
     if spec.upstream.kind != UpstreamKind::WebSocketText {
         return Err(StreamError::new(
             "invalid_websocket_model_request",
@@ -607,16 +612,23 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
                 let events = resolver.ingest(value)?;
                 remember_completed_items(&events, &mut completed_items);
 
-                if let Some(body) = collected_terminal_body(&events, &completed_items) {
+                if let Some(body) = collected_terminal_body(&events) {
                     ensure_collected_body_size(&body, spec.limits.max_pending_bytes)?;
-                    return Ok(json!({
+                    ensure_collected_body_size(
+                        &Value::Array(completed_items.values().cloned().collect()),
+                        spec.limits.max_pending_bytes,
+                    )?;
+                    return Ok(CollectedWebSocketModelResponse {
+                        wrapper: json!({
                         "status": status,
                         "headers": response_headers,
                         "body": body,
                         "raw_body_bytes": raw_body_bytes,
                         "upstream_kind": spec.upstream.kind.as_str(),
                         "websocket_initial_messages": initial_messages.len()
-                    }));
+                        }),
+                        completed_items,
+                    });
                 }
             }
             Ok(Some(Ok(Message::Close(Some(frame))))) if frame.code == CloseCode::Size => {
@@ -675,10 +687,7 @@ fn remember_completed_items(events: &[Value], completed_items: &mut BTreeMap<usi
     }
 }
 
-fn collected_terminal_body(
-    events: &[Value],
-    completed_items: &BTreeMap<usize, Value>,
-) -> Option<Value> {
+fn collected_terminal_body(events: &[Value]) -> Option<Value> {
     events.iter().find_map(|event| {
         let event_type = event.get("type").and_then(Value::as_str)?;
         if !matches!(
@@ -688,62 +697,13 @@ fn collected_terminal_body(
             return None;
         }
 
-        let mut response = event
-            .get("response")
-            .filter(|value| value.is_object())?
-            .clone();
-        reconcile_terminal_items(&mut response, completed_items);
-        Some(response)
+        Some(
+            event
+                .get("response")
+                .filter(|value| value.is_object())?
+                .clone(),
+        )
     })
-}
-
-fn reconcile_terminal_items(response: &mut Value, completed_items: &BTreeMap<usize, Value>) {
-    let Some(response) = response.as_object_mut() else {
-        return;
-    };
-    let items = response
-        .entry("output".to_string())
-        .or_insert_with(|| Value::Array(Vec::new()));
-    let Some(items) = items.as_array_mut() else {
-        return;
-    };
-
-    for (output_index, item) in items.iter_mut().enumerate() {
-        let Some(recorded_item) = completed_items.get(&output_index) else {
-            continue;
-        };
-        if terminal_item_subset(item, recorded_item) {
-            *item = recorded_item.clone();
-        }
-    }
-
-    while let Some(recorded_item) = completed_items.get(&items.len()) {
-        items.push(recorded_item.clone());
-    }
-}
-
-fn terminal_item_subset(item: &Value, recorded_item: &Value) -> bool {
-    let (Some(item), Some(recorded_item)) = (item.as_object(), recorded_item.as_object()) else {
-        return false;
-    };
-    if item.get("id").and_then(Value::as_str).is_some() {
-        return false;
-    }
-    let Some(item_type) = item.get("type").and_then(Value::as_str) else {
-        return false;
-    };
-    if recorded_item.get("type").and_then(Value::as_str) != Some(item_type) {
-        return false;
-    }
-
-    let snapshot = item
-        .iter()
-        .filter(|(key, _value)| key.as_str() != "id")
-        .collect::<Vec<_>>();
-    !snapshot.is_empty()
-        && snapshot
-            .into_iter()
-            .all(|(key, value)| recorded_item.get(key) == Some(value))
 }
 
 fn ensure_collected_body_size(body: &Value, max_response_bytes: usize) -> Result<(), StreamError> {
@@ -1283,66 +1243,6 @@ mod tests {
 
     use super::*;
     use crate::universal_ai_client::spec::{APIResolverKind, DownstreamKind, ResponseContext};
-
-    #[test]
-    fn terminal_output_uses_completed_items_when_the_provider_omits_it() {
-        let completed_items = BTreeMap::from([
-            (
-                0,
-                json!({
-                    "id": "msg_complete",
-                    "type": "message",
-                    "role": "assistant",
-                    "status": "completed",
-                    "content": [{"type": "output_text", "text": "done"}]
-                }),
-            ),
-            (
-                1,
-                json!({
-                    "id": "fc_complete",
-                    "type": "function_call",
-                    "call_id": "call_complete",
-                    "name": "command",
-                    "arguments": "{}",
-                    "status": "completed"
-                }),
-            ),
-        ]);
-        let mut response = json!({"id": "resp_complete", "status": "completed", "output": []});
-
-        reconcile_terminal_items(&mut response, &completed_items);
-
-        assert_eq!(response["output"].as_array().unwrap().len(), 2);
-        assert_eq!(response["output"][0], completed_items[&0]);
-        assert_eq!(response["output"][1], completed_items[&1]);
-    }
-
-    #[test]
-    fn terminal_output_does_not_replace_a_conflicting_authoritative_item() {
-        let completed_items = BTreeMap::from([(
-            0,
-            json!({
-                "id": "msg_streamed",
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [{"type": "output_text", "text": "streamed"}]
-            }),
-        )]);
-        let terminal_item = json!({
-            "id": "msg_terminal",
-            "type": "message",
-            "role": "assistant",
-            "status": "completed",
-            "content": [{"type": "output_text", "text": "terminal"}]
-        });
-        let mut response = json!({"output": [terminal_item.clone()]});
-
-        reconcile_terminal_items(&mut response, &completed_items);
-
-        assert_eq!(response["output"][0], terminal_item);
-    }
 
     fn test_delivery(
         limits: &StreamLimits,

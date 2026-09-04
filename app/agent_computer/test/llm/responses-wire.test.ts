@@ -924,14 +924,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(classifyLLMError(new Error('AIGateway response incomplete reason=content_filter'))).toMatchObject({
       kind: 'content_filter',
       retryable: false,
-      shouldCompress: false,
-      shouldFallbackProvider: false
+      shouldCompress: false
     })
     expect(classifyLLMError(new Error('max_output_tokens'))).toMatchObject({
       kind: 'overflow',
       retryable: false,
-      shouldCompress: true,
-      shouldFallbackProvider: false
+      shouldCompress: true
     })
   })
 

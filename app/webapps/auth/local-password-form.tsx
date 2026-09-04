@@ -23,11 +23,14 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
     mutationFn: (input: { email: string; password: string }) => {
       // Mirrors the OIDC path: the page URL carries the destination and the
       // server clamps it to a safe same-origin path.
-      const returnTo = new URLSearchParams(window.location.search).get('return_to')
-      return internalAPIPost<LoginResult>(
-        '/.internal-apis/sessions/local-password',
-        returnTo ? { ...input, returnTo } : input
-      )
+      const query = new URLSearchParams(window.location.search)
+      const returnTo = query.get('return_to')
+      const oauth = query.get('oauth') === '1'
+      return internalAPIPost<LoginResult>('/.internal-apis/sessions/local-password', {
+        ...input,
+        ...(returnTo ? { returnTo } : {}),
+        ...(oauth ? { oauth: true } : {})
+      })
     },
     onSuccess: result => {
       if (result.status === 'ok') window.location.assign(result.returnTo)

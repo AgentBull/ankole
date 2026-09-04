@@ -35,12 +35,13 @@ defmodule Ankole.ScheduleTest do
       turn_proto_ref: 1,
       turn_accepted_payload: 1,
       commit_turn_completion: 3,
-      complete_turn_noop: 2,
+      complete_turn_silent: 1,
       turn_start_payload!: 1,
       decoded_request_context: 1
     ]
 
   import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2]
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   @base_time DateTime.utc_now(:microsecond)
   @long_lease_seconds 604_800
@@ -1589,7 +1590,7 @@ defmodule Ankole.ScheduleTest do
                Conversations.ensure_conversation(agent.uid, source_event.session_id)
 
       assert {:ok, generating_message} =
-               StatefulResponses.start_response_run(%{
+               start_response_run(%{
                  subject_uid: agent.uid,
                  conversation_id: conversation.id,
                  metadata: %{
@@ -2187,8 +2188,8 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
-      assert {:ok, %{status: :noop_completed}} =
-               complete_turn_noop(turn_ref, "schedule_silent_success")
+      assert {:ok, %{status: :turn_completed}} =
+               complete_turn_silent(turn_ref)
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -2507,8 +2508,8 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
-      assert {:ok, %{status: :noop_completed}} =
-               complete_turn_noop(turn_ref, "schedule_silent_success")
+      assert {:ok, %{status: :turn_completed}} =
+               complete_turn_silent(turn_ref)
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -2666,7 +2667,7 @@ defmodule Ankole.ScheduleTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
 
     {:ok, run} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent_uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}

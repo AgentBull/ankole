@@ -5,6 +5,7 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
 
   alias Ankole.PluginFixtures.MockSignalProvider.Inbound
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox
+  alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview
 
   @impl true
   def plugin_id, do: "mock-signal-provider"
@@ -12,6 +13,9 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
   @impl true
   def display_name, do: %{"default" => "Mock Signal Provider"}
 
+  # `mock-provider` is a plain-text provider; `mock-rich-provider` also declares
+  # a reply-preview module, so a gateway test can cover the mutable reply
+  # surface and its terminal outbox route in-process.
   @impl true
   def adapter_declarations do
     [
@@ -29,9 +33,129 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
           "reply_entry",
           "outbound_reconciliation"
         ]
+      },
+      %{
+        contract_id: "signals_gateway.adapter",
+        id: "mock-rich-provider",
+        adapter_category: "enterprise_im",
+        plugin_id: plugin_id(),
+        display_name: %{"default" => "Mock Rich Signal Provider"},
+        ingress_module: Inbound,
+        outbox_module: Outbox,
+        reply_preview_module: ReplyPreview,
+        inbound_capabilities: ["entry_receive"],
+        outbound_capabilities: [
+          "post_entry",
+          "reply_entry",
+          "outbound_reconciliation"
+        ]
       }
     ]
   end
+end
+
+defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
+  @moduledoc false
+
+  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+
+  alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  @recipient_key {__MODULE__, :recipient}
+  @finalize_result_key {__MODULE__, :finalize_result}
+
+  @doc false
+  def put_recipient(pid) when is_pid(pid), do: :persistent_term.put(@recipient_key, pid)
+
+  @doc false
+  def delete_recipient, do: :persistent_term.erase(@recipient_key)
+
+  @doc false
+  def put_finalize_result(result), do: :persistent_term.put(@finalize_result_key, result)
+
+  @doc false
+  def delete_finalize_result, do: :persistent_term.erase(@finalize_result_key)
+
+  @impl true
+  def open(%Request{} = request), do: sync(:open, request, "open")
+
+  @impl true
+  def update(%Request{} = request), do: sync(:update, request, "open")
+
+  @impl true
+  def finalize(%Request{} = request) do
+    notify(:finalize, request)
+
+    case :persistent_term.get(@finalize_result_key, :checkpoint) do
+      :checkpoint -> checkpoint(request, "closed")
+      result -> result
+    end
+  end
+
+  @impl true
+  def refresh(%Request{} = request),
+    do: sync(:refresh, request, request.checkpoint["streaming_state"] || "open")
+
+  @impl true
+  def surface_ids(checkpoint) when is_map(checkpoint) do
+    checkpoint
+    |> Map.get("messages", [])
+    |> Enum.map(& &1["message_id"])
+    |> Kernel.++([checkpoint["message_id"]])
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.map(&{:entry, &1})
+  end
+
+  @impl true
+  def surface_open?(checkpoint) when is_map(checkpoint),
+    do: checkpoint["streaming_state"] != "closed"
+
+  defp sync(kind, request, streaming_state) do
+    notify(kind, request)
+    checkpoint(request, streaming_state)
+  end
+
+  defp notify(kind, request) do
+    case :persistent_term.get(@recipient_key, nil) do
+      pid when is_pid(pid) -> send(pid, {:mock_provider_preview, kind, request})
+      _value -> :ok
+    end
+  end
+
+  defp checkpoint(%Request{actor_event: event} = request, streaming_state) do
+    message_id = "mock-preview-#{event.id}"
+
+    checkpoint =
+      request.checkpoint
+      |> Map.merge(%{
+        "schema_version" => 1,
+        "adapter" => "mock-rich-provider",
+        "message_id" => message_id,
+        "messages" => [%{"index" => 0, "message_id" => message_id}],
+        "presentation" => ReplyPresentation.checkpoint(request.presentation),
+        "streaming_state" => streaming_state
+      })
+      |> put_text("subject_uid", request.subject_uid)
+      |> put_text("conversation_id", request.conversation_id)
+      |> Map.delete("refresh_pending")
+      |> Map.delete("refresh_reason")
+
+    with :ok <- Actors.record_reply_preview_source_entry(event.id, message_id),
+         {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      {:ok,
+       %{
+         created_source_entry_id: message_id,
+         reply_preview_checkpoint: event.reply_preview_checkpoint,
+         raw_payload: %{"provider" => "mock-signal-provider"}
+       }}
+    end
+  end
+
+  defp put_text(map, key, value) when is_binary(value), do: Map.put(map, key, value)
+  defp put_text(map, _key, _value), do: map
 end
 
 defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do

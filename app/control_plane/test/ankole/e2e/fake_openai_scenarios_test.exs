@@ -26,6 +26,25 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
     end
   end
 
+  describe "Workflow kill scenario classification" do
+    test "keeps the earlier Workflow marker when a later user message has no marker" do
+      for {marker, expected_kind} <- [
+            {"CHAOS_WF_KILL_TASK", :workflow_kill_task},
+            {"CHAOS_WF_KILL_RUN", :workflow_kill_done},
+            {"CHAOS_WF_KILL_START", :workflow_kill_start}
+          ] do
+        request = %{
+          "messages" => [
+            %{"role" => "user", "content" => "Run #{marker}."},
+            %{"role" => "user", "content" => "Continue the active Workflow."}
+          ]
+        }
+
+        assert FakeOpenAIScenarios.classify(request) == expected_kind
+      end
+    end
+  end
+
   describe "ambient scenario classification" do
     test "uses the latest ambient marker when observed history contains an older ignore marker" do
       request = %{

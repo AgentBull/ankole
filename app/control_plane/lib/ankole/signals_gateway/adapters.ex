@@ -204,7 +204,7 @@ defmodule Ankole.SignalsGateway.Adapters do
          author_hydrator: value(declaration, :author_hydrator),
          supported_group_message_modes:
            optional_list_value(declaration, :supported_group_message_modes),
-         outbox_adapter: outbox_adapter,
+         outbox_adapter: attach_reply_preview(outbox_adapter, reply_preview_adapter),
          reply_preview_adapter: reply_preview_adapter
        }}
     else
@@ -273,6 +273,11 @@ defmodule Ankole.SignalsGateway.Adapters do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp attach_reply_preview(%OutboxAdapter{} = outbox_adapter, reply_preview_adapter),
+    do: %{outbox_adapter | reply_preview: reply_preview_adapter}
+
+  defp attach_reply_preview(nil, _reply_preview_adapter), do: nil
 
   defp validate_optional_adapter_module(declaration, key, callback, arity) do
     case declaration_module(declaration, key) do

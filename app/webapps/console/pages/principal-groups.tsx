@@ -23,7 +23,7 @@ import { RiKey2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -40,14 +40,15 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { PrincipalGroupItem, PrincipalGroupMemberItem } from '../api/generated/types.gen'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { AddMembershipPicker } from '../add-membership-picker'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
-import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
+import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { principalGroupDescription, principalGroupDisplayName } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 import {
   PrincipalGroupEditorModel,
   type PrincipalGroupEditorDraft,
@@ -183,11 +184,15 @@ export function PrincipalGroupEditorPage() {
     enabled: Boolean(name)
   })
   const loadedGroup = group.data?.principal_group
-
-  useEffect(() => {
-    if (mode === 'new') model.initialize('new', emptyGroupForm())
-    else if (loadedGroup) model.initialize(`group:${loadedGroup.name}`, formFromGroup(loadedGroup))
-  }, [mode, model, loadedGroup])
+  const groupDraft = useMemo(
+    () => (mode === 'new' ? emptyGroupForm() : loadedGroup ? formFromGroup(loadedGroup) : undefined),
+    [loadedGroup, mode]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'principal-group', name },
+    source: groupDraft,
+    absent: () => mode === 'edit' && requestErrorCode(group.error) === 'not_found'
+  })
 
   const refresh = () => void queryClient.invalidateQueries()
   const createGroup = useMutation({
@@ -226,6 +231,10 @@ export function PrincipalGroupEditorPage() {
   // Built-in groups keep their seeded condition; the server ignores edits to it.
   const conditionReadOnly = Boolean(mode === 'edit' && loadedGroup?.built_in)
 
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo="/access/groups" message={t('console.not_found.description')} />
+  }
+
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.principal_groups.new') : (name ?? '')}
@@ -236,6 +245,7 @@ export function PrincipalGroupEditorPage() {
       error={createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)}
       submitting={createGroup.isPending || updateGroup.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
+      submitUnavailable={draftStatus !== 'ready'}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && loadedGroup ? (

@@ -63,19 +63,27 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   )
 
   operation(:show,
-    summary: "Read one background Agent Job and its runtime Turn trajectory",
+    summary: "Read one background Agent Job and one page of its runtime Turn trajectory",
     parameters: [
       job_id: [
         in: :path,
         schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
         required: true
+      ],
+      cursor: [
+        in: :query,
+        type: :string,
+        required: false,
+        description:
+          "The `turns_next_cursor` of the preceding page; omit it for the newest Turns."
       ]
     ],
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid cursor", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -127,11 +135,11 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "read"),
          {:ok, page} <-
            BackgroundAgentJobs.list_for_console(
-             status: param(params, "status"),
+             status: params[:status],
              agent_uid: ConsoleParams.agent_filter_param(params),
-             search: param(params, "q"),
-             cursor: param(params, "cursor"),
-             limit: integer_param(params, "limit", 50)
+             search: params[:q],
+             cursor: params[:cursor],
+             limit: ConsoleParams.integer(params, :limit, 50)
            ) do
       json(conn, %{
         jobs: Enum.map(page.jobs, &BackgroundAgentJobs.console_list_projection/1),
@@ -152,8 +160,9 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
 
   def show(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "read"),
-         %Job{} = job <- job(params) do
-      json(conn, %{job: detail_projection(job)})
+         %Job{} = job <- job(params),
+         {:ok, detail} <- detail_projection(job, params[:cursor]) do
+      json(conn, %{job: detail})
     else
       nil -> error(conn, :not_found)
       {:error, reason} -> error(conn, reason)
@@ -170,9 +179,10 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
            BackgroundAgentJobs.request_complete(job.id, %{
              "agent_uid" => job.agent_uid,
              "completed_by" => "operator:#{conn.assigns.current_principal_uid}",
-             "result_summary" => param(conn.body_params, "result_summary")
-           }) do
-      json(conn, %{job: detail_projection(completed)})
+             "result_summary" => conn.body_params.result_summary
+           }),
+         {:ok, detail} <- detail_projection(completed, nil) do
+      json(conn, %{job: detail})
     else
       nil -> error(conn, :not_found)
       {:error, :background_agent_job_terminal} -> error(conn, :conflict)
@@ -188,56 +198,23 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
              "agent_uid" => job.agent_uid,
              "cancel_requested_by" => "operator:#{conn.assigns.current_principal_uid}",
              "reason" => "Cancelled from the operator console"
-           }) do
-      json(conn, %{job: detail_projection(cancelled)})
+           }),
+         {:ok, detail} <- detail_projection(cancelled, nil) do
+      json(conn, %{job: detail})
     else
       nil -> error(conn, :not_found)
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  defp job(params) do
-    params
-    |> param("job_id")
-    |> BackgroundAgentJobs.parse_job_id()
-    |> case do
-      {:ok, id} -> BackgroundAgentJobs.get_job(id)
-      :error -> nil
-    end
-  end
+  defp job(%{job_id: job_id}), do: BackgroundAgentJobs.get_job(job_id)
 
-  defp detail_projection(job) do
-    job
-    |> BackgroundAgentJobs.console_projection()
-    |> Map.put(
-      :turns,
-      job.id
-      |> BackgroundAgentJobs.list_turns()
-      |> BackgroundAgentJobs.console_turn_projections()
-    )
-  end
-
-  defp param(params, key), do: Map.get(params, key) || Map.get(params, param_atom(key))
-
-  defp param_atom("status"), do: :status
-  defp param_atom("q"), do: :q
-  defp param_atom("cursor"), do: :cursor
-  defp param_atom("limit"), do: :limit
-  defp param_atom("job_id"), do: :job_id
-  defp param_atom("result_summary"), do: :result_summary
-
-  defp integer_param(params, key, default) do
-    case param(params, key) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value, default)
-      _value -> default
-    end
-  end
-
-  defp parse_integer(value, default) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> default
+  defp detail_projection(job, cursor) do
+    with {:ok, page} <- BackgroundAgentJobs.console_turn_page(job, cursor) do
+      {:ok,
+       job
+       |> BackgroundAgentJobs.console_projection()
+       |> Map.merge(%{turns: page.turns, turns_next_cursor: page.next_cursor})}
     end
   end
 

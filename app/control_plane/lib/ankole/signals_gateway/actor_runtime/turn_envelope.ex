@@ -165,7 +165,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     end
   end
 
-  @supported_hosted_tool_types ["image_generation", "web_search"]
+  @supported_hosted_tool_types ["image_generation", "web_search", "brain"]
 
   defp turn_hosted_tools(turn_start_spec) do
     case map_get(turn_start_spec, :hosted_tools) do

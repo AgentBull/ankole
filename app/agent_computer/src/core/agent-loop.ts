@@ -7,17 +7,19 @@
  * WS transport (`pi-loop/stream-fn.ts`, unchanged transport underneath),
  * caller gating and image/presentation/lifecycle bookkeeping
  * (`beforeToolCall`/`afterToolCall`), and the iteration-budget/recovery nudges
- * that used to be inline loop logic and are now `agent.steer()` calls timed
- * off `prepareNextTurnWithContext`. The worker still owns the local iteration
- * budget; it does not own history expansion, compaction, continuation
- * anchors, or durable response state — those stay in AIGateway.
+ * that used to be inline loop logic and are now `agent.steer()` calls made
+ * after each completed turn. The worker still owns the local iteration budget;
+ * it does not own history expansion, compaction, continuation anchors, or
+ * durable response state — those stay in AIGateway.
  */
 
 import {
   Agent,
   type AfterToolCallResult,
+  type AgentLoopTurnUpdate,
   type AgentTool as PiAgentTool,
-  type BeforeToolCallResult
+  type BeforeToolCallResult,
+  type ShouldStopAfterTurnContext
 } from '@earendil-works/pi-agent-core'
 import type {
   AssistantMessage as PiAssistantMessage,
@@ -33,7 +35,14 @@ import {
   safeJsonStringify as safeJSONStringify,
   type JsonObject as JSONObject
 } from '@agentbull/active-support'
-import { assistantText, type AssistantMessage, type ContentPart, type ImageContent, type Message } from './llm'
+import {
+  assistantText,
+  type AssistantMessage,
+  type ContentPart,
+  type HostedBrainItemEvent,
+  type ImageContent,
+  type Message
+} from './llm'
 import { errorMessage } from '../common/errors'
 import { finishWorkerSpan, startWorkerSpan } from '../observability/turn-tracing'
 import { contentText, modelImageAdaptation, imageSummaryBlock, responseImageUnavailableText } from './vision'
@@ -87,6 +96,11 @@ interface ToolFailure {
   arguments: unknown
 }
 
+interface CompletedTurnFinalization {
+  shouldStop: boolean
+  nextTurnUpdate?: AgentLoopTurnUpdate
+}
+
 /**
  * Runs the model/tool loop until the model returns a final assistant message.
  */
@@ -94,8 +108,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   assertNoDuplicateTools(config.tools)
 
   const turnState = createPiTurnState()
-  const { streamFn, recordToolResultsEagerly, replaceHostedTools, close } = createPiStreamFn(config, turnState)
   const emitPresentationEvent = createPresentationEmitter(config)
+  const { streamFn, recordToolResultsEagerly, replaceHostedTools, close } = createPiStreamFn(
+    {
+      ...config,
+      onHostedBrainItem: event => void emitHostedBrainActivity(emitPresentationEvent, event)
+    },
+    turnState
+  )
   const semaphore = createSemaphore(MAX_PARALLEL_TOOL_EXECUTIONS)
 
   let modelIterations = 0
@@ -104,6 +124,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let repairedFinalResponse = false
   let truncatedRounds = 0
   let outcome: AgentLoopResult['outcome'] = 'loop_finished'
+  let nextTurnUpdate: AgentLoopTurnUpdate | undefined
+  let turnFinalizationError: unknown
   // Set on every `recordToolResultsEagerly` call. A round whose tool results
   // terminate the run (or otherwise leave nothing pending) never causes
   // another `streamFn` call, so `agent.state.messages` can end on a tool
@@ -168,6 +190,135 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       throw new Error(formatToolError(invalidToolArgumentsMessage(args) ?? 'Unknown tool'))
     }
   }
+
+  async function finalizeCompletedTurn(ctx: ShouldStopAfterTurnContext): Promise<CompletedTurnFinalization> {
+    const roundTerminated = turnState.roundTerminated
+    turnState.roundTerminated = false
+
+    // An abort mid-round converts every in-flight tool call into a normal
+    // error result. Stop before another provider request; the caller sees the
+    // real abort reason after `agent.prompt()` settles.
+    if (config.abortSignal?.aborted) return { shouldStop: true }
+
+    modelIterations += 1
+
+    // A round cut by the output token limit: pi already failed every one of
+    // its calls with an error result, without executing anything. Those
+    // results pair with calls that live only in the unanchored cut response,
+    // so they ride the next `response.create` input from the previous anchor
+    // (see `stream-fn.ts`'s cursor accounting). The anchor does not hold the
+    // calls, so do not send them through `recordToolResults`.
+    if (ctx.message.stopReason === 'length' && ctx.toolResults.length > 0) {
+      truncatedRounds += 1
+      config.logger?.warning('worker.tool_call_truncated', 'worker failed tool calls cut off by the output limit', {
+        actor_event_id: config.stateful.actorEventID,
+        model_iteration: modelIterations,
+        tool_names: ctx.toolResults.map(result => result.toolName)
+      })
+      // One retry per turn against the output token limit. pi itself would
+      // retry a cut tool-call round without bound; the retry only helps once
+      // the model has seen the error results, so the second cut accepts the
+      // cut response as final.
+      return { shouldStop: truncatedRounds >= 2 }
+    }
+
+    if (ctx.toolResults.length > 0) {
+      sawToolResults = true
+      nudgedEmptyAfterTools = false
+      // Eager, not deferred to the next `streamFn` call: a terminating (or
+      // otherwise not-continuing) round never causes one. See `stream-fn.ts`'s
+      // module doc and `recordToolResultsEagerly`'s own doc for the full reasoning.
+      // `ctx.context` is pi-agent-core's `AgentContext` (`messages` widened
+      // for its own `CustomAgentMessages` extension point); harmless to
+      // narrow since we never register one, same as the `tools` cast above.
+      latestRecordedResponseID = await recordToolResultsEagerly(
+        ctx.context as unknown as PiContext,
+        turnState.pendingToolResultFollowUps.splice(0)
+      )
+    }
+
+    // pi's own batch check ends a round only when every call terminated.
+    // Preserve the Worker's ANY-semantics after all results are recorded,
+    // including when a terminating call follows an ordinary call.
+    if (roundTerminated) return { shouldStop: true }
+
+    // Only relevant when this round's tool results would otherwise start
+    // another one. A round that finished with a plain text answer needs no
+    // synthesis on the last allowed iteration. The outcome guard makes this
+    // a one-shot and prevents the synthesis round from queuing it again.
+    if (
+      ctx.toolResults.length > 0 &&
+      modelIterations >= config.maxModelIterations &&
+      outcome !== 'iteration_exhausted'
+    ) {
+      outcome = 'iteration_exhausted'
+      agent.steer(
+        userMessage(`${MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT}\nmax_model_iterations=${config.maxModelIterations}`)
+      )
+      return {
+        shouldStop: false,
+        nextTurnUpdate: { context: { ...ctx.context, tools: [] } }
+      }
+    }
+
+    // Fetch once so a queue-draining `getSteeringMessages` is not called twice
+    // for the same round.
+    const steeringMessages =
+      ctx.toolResults.length > 0 && config.getSteeringMessages ? await config.getSteeringMessages() : []
+    if (ctx.toolResults.length > 0) {
+      await emitPresentationEvent({
+        kind: 'turn.phase',
+        payload: {
+          operation_id: 'turn',
+          state: 'working',
+          label_key:
+            steeringMessages.length > 0
+              ? 'signals_gateway.reply.activity.turn_reprocessing'
+              : 'signals_gateway.reply.activity.turn_finishing'
+        }
+      })
+    }
+
+    // One corrective steer per round: the empty-response nudge goes first,
+    // and the repair only examines a round the nudge left alone. Firing both
+    // at once would spend the two one-shot budgets on one response.
+    const text = piAssistantText(ctx.message)
+    let nextContext: typeof ctx.context | undefined
+    if (
+      config.nudgeEmptyAfterTools !== false &&
+      sawToolResults &&
+      !nudgedEmptyAfterTools &&
+      ctx.message.stopReason === 'stop' &&
+      text.trim().length === 0
+    ) {
+      nudgedEmptyAfterTools = true
+      agent.steer(userMessage(EMPTY_AFTER_TOOL_NUDGE_TEXT))
+    } else if (!repairedFinalResponse && ctx.message.stopReason === 'stop' && config.repairFinalResponse) {
+      const repair = config.repairFinalResponse(toOurAssistantMessage(ctx.message))
+      if (repair) {
+        repairedFinalResponse = true
+        agent.steer(toPiUserMessage(repair))
+        if (config.repairTools) {
+          const identities = new Set(config.repairTools.map(tool => toolIdentity(tool.namespace, tool.name)))
+          nextContext = {
+            ...ctx.context,
+            tools: [
+              ...wrappedTools.filter(tool => identities.has(tool.name)),
+              unknownToolSentinel
+            ] as unknown as PiAgentTool[]
+          }
+        }
+        if (config.repairHostedTools) replaceHostedTools(config.repairHostedTools)
+      }
+    }
+
+    for (const message of steeringMessages) agent.steer(toPiUserMessage(message))
+    return {
+      shouldStop: false,
+      ...(nextContext ? { nextTurnUpdate: { context: nextContext } } : {})
+    }
+  }
+
   agent = new Agent({
     initialState: {
       systemPrompt: config.systemPrompt ?? '',
@@ -346,146 +497,27 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       return override
     },
 
-    prepareNextTurnWithContext: async ctx => {
-      // An abort mid-round converts every in-flight tool call into a normal
-      // (non-throwing) error result — pi has no other way to signal it. Once
-      // the signal has actually fired, nothing here should record, steer, or
-      // otherwise treat the round as real progress; the caller sees the
-      // real abort reason once `agent.prompt()` settles (see the final
-      // abort check after it).
-      if (config.abortSignal?.aborted) return undefined
-
-      modelIterations += 1
-      // Read-only snapshot: `shouldStopAfterTurn` (the round's last hook)
-      // consumes the flag. A terminated round must not steer, synthesize, or
-      // emit progress — the turn is over; `shouldStopAfterTurn` ends it.
-      const roundTerminated = turnState.roundTerminated
-
-      // A round cut by the output token limit: pi already failed every one
-      // of its calls with an error result, without executing anything. Those
-      // results pair with calls that live only in the un-anchored cut
-      // response, so they ride the next `response.create` input from the
-      // previous anchor (see `stream-fn.ts`'s cursor accounting) — never
-      // `recordToolResults`, whose anchor does not hold the calls.
-      if (ctx.message.stopReason === 'length' && ctx.toolResults.length > 0) {
-        truncatedRounds += 1
-        config.logger?.warning('worker.tool_call_truncated', 'worker failed tool calls cut off by the output limit', {
-          actor_event_id: config.stateful.actorEventID,
-          model_iteration: modelIterations,
-          tool_names: ctx.toolResults.map(result => result.toolName)
-        })
-        return undefined
+    shouldStopAfterTurn: async ctx => {
+      try {
+        const finalization = await finalizeCompletedTurn(ctx)
+        nextTurnUpdate = finalization.nextTurnUpdate
+        return finalization.shouldStop
+      } catch (error) {
+        // Upstream requires this callback to resolve. End the loop and surface
+        // the original finalization failure after `agent.prompt()` settles.
+        turnFinalizationError = error ?? new Error('Agent turn finalization failed')
+        nextTurnUpdate = undefined
+        return true
       }
-
-      if (ctx.toolResults.length > 0) {
-        sawToolResults = true
-        nudgedEmptyAfterTools = false
-        // Eager, not deferred to the next `streamFn` call: a terminating (or
-        // otherwise not-continuing) round never causes one. See `stream-fn.ts`'s
-        // module doc and `recordToolResultsEagerly`'s own doc for the full reasoning.
-        // `ctx.context` is pi-agent-core's `AgentContext` (`messages` widened
-        // for its own `CustomAgentMessages` extension point); harmless to
-        // narrow since we never register one, same as the `tools` cast above.
-        latestRecordedResponseID = await recordToolResultsEagerly(
-          ctx.context as unknown as PiContext,
-          turnState.pendingToolResultFollowUps.splice(0)
-        )
-      }
-
-      // Only relevant when this round's tool results would otherwise start
-      // another one — a round that already finished with a plain text answer
-      // needs no synthesis even exactly on the last allowed iteration.
-      // One-shot beyond that: `modelIterations` never decreases, so without
-      // the outcome guard this would re-fire on every later round too (the
-      // synthesis round itself included), re-queuing the same steer message
-      // forever instead of the single corrective nudge the old `while`
-      // loop's `break` used to guarantee.
-      if (
-        ctx.toolResults.length > 0 &&
-        !roundTerminated &&
-        modelIterations >= config.maxModelIterations &&
-        outcome !== 'iteration_exhausted'
-      ) {
-        outcome = 'iteration_exhausted'
-        agent.steer(
-          userMessage(`${MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT}\nmax_model_iterations=${config.maxModelIterations}`)
-        )
-        return { context: { ...ctx.context, tools: [] } }
-      }
-
-      // Fetched once (not just for the label below) so a queue-draining
-      // `getSteeringMessages` isn't called twice for the same round.
-      const steeringMessages =
-        ctx.toolResults.length > 0 && !roundTerminated && config.getSteeringMessages
-          ? await config.getSteeringMessages()
-          : []
-      if (ctx.toolResults.length > 0 && !roundTerminated) {
-        await emitPresentationEvent({
-          kind: 'turn.phase',
-          payload: {
-            operation_id: 'turn',
-            state: 'working',
-            label_key:
-              steeringMessages.length > 0
-                ? 'signals_gateway.reply.activity.turn_reprocessing'
-                : 'signals_gateway.reply.activity.turn_finishing'
-          }
-        })
-      }
-
-      // One corrective steer per round: the empty-response nudge goes first,
-      // and the repair only examines a round the nudge left alone. Firing
-      // both at once would spend the two one-shot budgets on one response.
-      const text = piAssistantText(ctx.message)
-      let nextContext: typeof ctx.context | undefined
-      if (
-        config.nudgeEmptyAfterTools !== false &&
-        sawToolResults &&
-        !nudgedEmptyAfterTools &&
-        ctx.message.stopReason === 'stop' &&
-        text.trim().length === 0
-      ) {
-        nudgedEmptyAfterTools = true
-        agent.steer(userMessage(EMPTY_AFTER_TOOL_NUDGE_TEXT))
-      } else if (!repairedFinalResponse && ctx.message.stopReason === 'stop' && config.repairFinalResponse) {
-        const repair = config.repairFinalResponse(toOurAssistantMessage(ctx.message))
-        if (repair) {
-          repairedFinalResponse = true
-          agent.steer(toPiUserMessage(repair))
-          if (config.repairTools) {
-            const identities = new Set(config.repairTools.map(tool => toolIdentity(tool.namespace, tool.name)))
-            nextContext = {
-              ...ctx.context,
-              tools: [
-                ...wrappedTools.filter(tool => identities.has(tool.name)),
-                unknownToolSentinel
-              ] as unknown as PiAgentTool[]
-            }
-          }
-          if (config.repairHostedTools) replaceHostedTools(config.repairHostedTools)
-        }
-      }
-
-      for (const message of steeringMessages) agent.steer(toPiUserMessage(message))
-
-      return nextContext ? { context: nextContext } : undefined
     },
 
-    // The round's last hook, and the only place `roundTerminated` is
-    // consumed. pi's own batch check ends a round only when *every* call in
-    // it terminated, so a terminating call sharing its round with an
-    // ordinary one (`[todo_update, clarify]`) would otherwise start another
-    // model round past the termination. The old hand-rolled loop's `break`
-    // was ANY-semantics; this restores it without touching pi.
-    shouldStopAfterTurn: async ctx => {
-      const terminated = turnState.roundTerminated
-      turnState.roundTerminated = false
-      if (terminated) return true
-      // One retry per turn against the output token limit. pi itself would
-      // retry a cut tool-call round without bound; the retry only helps once
-      // the model has seen the error results, so the second cut accepts the
-      // cut response as final.
-      return ctx.message.stopReason === 'length' && ctx.toolResults.length > 0 && truncatedRounds >= 2
+    // pi-agent-core 0.84.4 calls this only when another turn will start. The
+    // preceding hook has already recorded the completed turn and built the
+    // update, so this hook only applies it to the next provider request.
+    prepareNextTurnWithContext: () => {
+      const update = nextTurnUpdate
+      nextTurnUpdate = undefined
+      return update
     }
   })
 
@@ -532,6 +564,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   if (config.abortSignal?.aborted) {
     throw config.abortSignal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
   }
+  if (turnFinalizationError !== undefined) throw turnFinalizationError
 
   // The run can end on a trailing tool-result message instead of an assistant
   // message: a terminating tool call (or one with nothing else pending) never
@@ -588,6 +621,37 @@ function assertNoDuplicateTools(tools: WorkerAgentTool[] | undefined): void {
  * delivery best-effort. A transport failure must not turn a successful tool
  * execution into a failed Agent turn.
  */
+const HOSTED_BRAIN_ACTIVITY_KEYS: Record<string, string> = {
+  remember: 'signals_gateway.reply.activity.memory_remember',
+  learn_source: 'signals_gateway.reply.activity.memory_learn_source',
+  recall: 'signals_gateway.reply.activity.memory_recall',
+  get_page: 'signals_gateway.reply.activity.memory_page_read',
+  forget: 'signals_gateway.reply.activity.memory_forget',
+  entity: 'signals_gateway.reply.activity.memory_entity',
+  whoknows: 'signals_gateway.reply.activity.memory_whoknows',
+  synthesize: 'signals_gateway.reply.activity.memory_synthesize',
+  delta: 'signals_gateway.reply.activity.memory_delta'
+}
+
+/**
+ * Shows a hosted Brain operation as the activity a local memory tool showed:
+ * AIGateway's `brain_call` opens it and the matching `brain_output` closes it.
+ */
+async function emitHostedBrainActivity(
+  emit: (event: ReplyPresentationEvent) => Promise<void>,
+  event: HostedBrainItemEvent
+): Promise<void> {
+  await emit({
+    kind: 'tool.activity',
+    payload: {
+      operation_id: event.callID,
+      label_key: HOSTED_BRAIN_ACTIVITY_KEYS[event.operation] ?? 'signals_gateway.reply.activity.processing',
+      consequential: event.operation === 'forget',
+      phase: event.phase
+    }
+  })
+}
+
 function createPresentationEmitter(config: AgentLoopConfig): (event: ReplyPresentationEvent) => Promise<void> {
   let revision = 0
   return async event => {

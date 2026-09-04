@@ -70,10 +70,15 @@ describe('turn completion RPC', () => {
       }
     }
 
-    const result = await noopTurnWithAck(rpcClient, turn, 'ambient_silent', {
-      retryDelayMs: 0,
-      timeoutMs: 10
-    })
+    const result = await noopTurnWithAck(
+      rpcClient,
+      turn,
+      { reason: 'ambient_silent' },
+      {
+        retryDelayMs: 0,
+        timeoutMs: 10
+      }
+    )
 
     expect(attempts).toBe(2)
     expect(result.status).toBe('already_completed')

@@ -106,6 +106,7 @@ describe('@ankole/agent-computer Codex config', () => {
       turnTracePropagation: { traceparent, observabilityUserID },
       projectConfig: {
         features: { plugins: false, code_mode: { enabled: true } },
+        tools: { update_plan: { enabled: false } },
         mcp_servers: { native: { command: 'native-server' } },
         model_providers: {
           ankole_aigateway: {
@@ -139,6 +140,7 @@ describe('@ankole/agent-computer Codex config', () => {
       remote_plugin: false,
       code_mode: { enabled: true }
     })
+    expect(threadConfig.tools).toEqual({ update_plan: { enabled: true } })
     expect(threadConfig.mcp_servers).toEqual({ native: { command: 'native-server' } })
     const traceHeaders = (threadConfig as any).model_providers.ankole_aigateway.http_headers
     expect(traceHeaders.traceparent).toBe(traceparent)

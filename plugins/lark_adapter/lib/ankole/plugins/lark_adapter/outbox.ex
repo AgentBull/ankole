@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   alias Ankole.I18n
   alias Ankole.Plugins.LarkAdapter.Card
-  alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.DriveUpload
   alias Ankole.Plugins.LarkAdapter.Emoji
@@ -16,8 +15,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
   alias Ankole.WorkerFiles
   alias FeishuOpenAPI.Error
@@ -68,33 +65,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   @impl true
-  def send(
-        %OutboxEntry{
-          payload: %{"reply_presentation" => presentation},
-          source_actor_event_id: actor_event_id
-        } = outbox
-      )
-      when is_map(presentation) and is_binary(actor_event_id) do
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{} = event ->
-        checkpoint = event.reply_preview_checkpoint || %{}
-
-        ReplyPreviewAdapter.finalize_module(CardKit, %Request{
-          actor_event: event,
-          presentation: presentation,
-          previous_presentation: checkpoint["presentation"],
-          checkpoint: checkpoint,
-          subject_uid: checkpoint["subject_uid"],
-          conversation_id: checkpoint["conversation_id"],
-          outbox: outbox,
-          mode: :terminal
-        })
-
-      nil ->
-        {:error, :actor_event_not_found}
-    end
-  end
-
   def send(%OutboxEntry{} = outbox) do
     result =
       with {:ok, config} <- config_for_outbox(outbox),
@@ -110,10 +80,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   @impl true
-  def reconcile(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox)
-      when is_map(presentation),
-      do: send(outbox)
-
   def reconcile(%OutboxEntry{created_source_entry_id: nil}), do: :unknown
 
   def reconcile(%OutboxEntry{} = outbox) do

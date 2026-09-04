@@ -1,11 +1,13 @@
 ---
 title: Agents
-description: Console で Agent を作成し、所有者、永続的な動作、モデル、機能、環境変数を設定する。
+description: Console で Agent を作成し、所有者、永続的な動作、モデル、機能、環境変数を設定する方法を説明します。
 section: User guide
 order: 13
 ---
 
-Agent は、時間をかけて業務機能を遂行する AI 同僚です。各 Agent は独自の identity、所有者、作業指示、モデル、機能、ファイルスペースを持ちます。signal routing ルールが Agent を chat channel からのメッセージに接続します。
+Agent は、Ankole Agent Harness 内で継続して存在する作業主体です。各 Agent は、固有のミッション、所有者、アクセス権、ツール、モデルプロファイル、ファイル領域を持ちます。
+
+Agent は、知識境界の範囲で Company Brain を使えます。Signal routing rule は、Agent をメッセージやその他のイベントに接続します。
 
 ## Agent を作成する
 

@@ -12,6 +12,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTBrowserLoginRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTEnterpriseCredentialRequest
@@ -285,7 +286,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def put_credential(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
-         {:ok, credential_id} <- credential_id_param(params),
+         {:ok, credential_id} <- ConsoleParams.text(params, :credential_id),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <-
            ProviderConfigs.update_credential(
@@ -301,7 +302,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def delete_credential(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
-         {:ok, credential_id} <- credential_id_param(params),
+         {:ok, credential_id} <- ConsoleParams.text(params, :credential_id),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <- ProviderConfigs.delete_credential(provider_id, credential_id) do
       render_provider(conn, provider)
@@ -312,10 +313,9 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def put_credential_strategy(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
-         {:ok, strategy} <- body_param(conn.body_params, "strategy"),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <-
-           ProviderConfigs.update_credential_strategy(provider_id, strategy) do
+           ProviderConfigs.update_credential_strategy(provider_id, conn.body_params.strategy) do
       render_provider(conn, provider)
     else
       {:error, reason} -> error(conn, reason)
@@ -335,9 +335,8 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   def poll_chatgpt_login(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
-         {:ok, login_context} <- body_param(conn.body_params, "login_context"),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
-         {:ok, login} <- ChatGPTAuth.poll_login(provider_id, login_context) do
+         {:ok, login} <- ChatGPTAuth.poll_login(provider_id, conn.body_params.login_context) do
       json(conn, login)
     else
       {:error, reason} -> error(conn, reason)
@@ -345,9 +344,9 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   def complete_chatgpt_browser_login(conn, params) do
+    %{login_context: login_context, callback_url: callback_url} = conn.body_params
+
     with {:ok, provider_id} <- provider_id_param(params),
-         {:ok, login_context} <- body_param(conn.body_params, "login_context"),
-         {:ok, callback_url} <- body_param(conn.body_params, "callback_url"),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, login} <-
            ChatGPTAuth.complete_browser_login(provider_id, login_context, callback_url) do
@@ -405,49 +404,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   defp provider_attrs(_provider_id, _attrs), do: {:error, :invalid_provider}
 
-  defp provider_id_param(params) do
-    with {:ok, provider_id} <- fetch_param(params, "provider_id") do
-      normalize_provider_id(provider_id)
-    end
-  end
-
-  defp credential_id_param(params) do
-    with {:ok, credential_id} <- fetch_param(params, "credential_id"),
-         credential_id when is_binary(credential_id) <- credential_id,
-         credential_id when credential_id != "" <- String.trim(credential_id) do
-      {:ok, credential_id}
-    else
-      _value -> {:error, {:missing, "credential_id"}}
-    end
-  end
-
-  defp body_param(params, key) when is_map(params) do
-    fetch_param(params, key)
-  end
-
-  defp body_param(_params, key), do: {:error, {:missing, key}}
-
-  # Console params arrive with string keys from the raw request body, but with
-  # atom keys once OpenAPISpex has cast the declared path parameters, so both
-  # spellings of the same key are accepted.
-  defp fetch_param(params, key) do
-    atom_key = param_atom(key)
-
-    cond do
-      Map.has_key?(params, key) -> {:ok, Map.fetch!(params, key)}
-      Map.has_key?(params, atom_key) -> {:ok, Map.fetch!(params, atom_key)}
-      true -> {:error, {:missing, key}}
-    end
-  end
-
-  # Fixed key -> atom mapping. Request data must never reach String.to_atom/1
-  # (an attacker could otherwise exhaust the global atom table), so only these
-  # known parameter names are allowed to become atoms.
-  defp param_atom("provider_id"), do: :provider_id
-  defp param_atom("credential_id"), do: :credential_id
-  defp param_atom("strategy"), do: :strategy
-  defp param_atom("login_context"), do: :login_context
-  defp param_atom("callback_url"), do: :callback_url
+  defp provider_id_param(%{provider_id: provider_id}), do: normalize_provider_id(provider_id)
 
   defp normalize_provider_id(value) when is_binary(value) do
     # Provider ids are treated as case- and whitespace-insensitive, so they are

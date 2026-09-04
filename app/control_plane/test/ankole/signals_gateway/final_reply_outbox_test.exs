@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
+  alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
@@ -275,6 +276,8 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
 
       rich_adapter = %ReplyPreviewAdapter{
+        surface_ids_fun: &MockReplyPreview.surface_ids/1,
+        surface_open_fun: &MockReplyPreview.surface_open?/1,
         open_fun: fn _request -> {:ok, %{}} end,
         update_fun: fn _request -> {:ok, %{}} end,
         finalize_fun: fn _request -> {:ok, %{}} end
@@ -747,7 +750,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              Conversations.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.uid,
                conversation_id: conversation.id,
                metadata: %{"request_metadata" => %{"actor_event_id" => event.id}}

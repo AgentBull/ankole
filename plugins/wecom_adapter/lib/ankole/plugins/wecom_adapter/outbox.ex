@@ -5,10 +5,11 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   Supports `post_entry` (text and single attachment) and `card` (a template
   card rendered by `TemplateCard`). WeCom AI bots have no recall API, no
   message edit, no anchored reply parameter, and no history query, so
-  `delete_entry`, `edit_entry`, and reconciliation are not declared. A
-  terminal AI reply (`reply_presentation` payload) routes through
-  `AIStream.finalize/1` — the module declared as the `reply_preview_module` —
-  which seals the streaming chain or degrades once to plain Markdown.
+  `delete_entry`, `edit_entry`, and reconciliation are not declared.
+  SignalsGateway finalizes a terminal AI reply (`reply_presentation` payload
+  with a source ActorEvent) through `AIStream`, the declared
+  `reply_preview_module`; such a row without a source ActorEvent posts its
+  plain Markdown text here.
 
   Delivery resolves a channel per send: the respond anchor (the newest inbound
   frame's `req_id`, valid 24 hours, kept in channel-mirror metadata) rides
@@ -22,18 +23,14 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Error
@@ -50,34 +47,6 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   @file_max_bytes 20 * 1024 * 1024
 
   @impl true
-  def send(
-        %OutboxEntry{
-          payload: %{"reply_presentation" => presentation},
-          source_actor_event_id: actor_event_id
-        } = outbox
-      )
-      when is_map(presentation) and is_binary(actor_event_id) do
-    # The durable terminal AI reply finalizes the streaming chain (or degrades
-    # to plain Markdown messages when no stream ever opened).
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{} = event ->
-        checkpoint = event.reply_preview_checkpoint || %{}
-
-        ReplyPreviewAdapter.finalize_module(AIStream, %Request{
-          actor_event: event,
-          presentation: presentation,
-          checkpoint: checkpoint,
-          subject_uid: checkpoint["subject_uid"],
-          conversation_id: checkpoint["conversation_id"],
-          outbox: outbox,
-          mode: :terminal
-        })
-
-      nil ->
-        {:error, :actor_event_not_found}
-    end
-  end
-
   def send(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox)
       when is_map(presentation) do
     deliver_text(outbox)

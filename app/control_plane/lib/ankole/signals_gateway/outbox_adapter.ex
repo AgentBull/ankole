@@ -8,9 +8,14 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   Real provider modules should declare `@behaviour #{inspect(__MODULE__)}` and
   implement `send/1`. `reconcile/1` is optional and is only used for recovery of
   a durable `sending` outbox row. Capabilities come from the plugin declaration.
+
+  `send/1` receives provider operations only. A durable AI reply row whose
+  adapter declares a reply-preview module never reaches `send/1`: SignalsGateway
+  finalizes it through `reply_preview`.
   """
 
   alias Ankole.SignalsGateway.OutboundSecretFilter
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Utils
 
@@ -38,14 +43,15 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
                     end)
 
   @enforce_keys [:capabilities, :send_fun, :reconcile_fun]
-  defstruct [:capabilities, :send_fun, :reconcile_fun]
+  defstruct [:capabilities, :send_fun, :reconcile_fun, reply_preview: nil]
 
   @type adapter_result :: {:ok, map()} | {:error, term()} | :unknown
 
   @type t :: %__MODULE__{
           capabilities: MapSet.t(atom()),
           send_fun: nil | (term() -> term()),
-          reconcile_fun: nil | (term() -> term())
+          reconcile_fun: nil | (term() -> term()),
+          reply_preview: ReplyPreviewAdapter.t() | nil
         }
 
   @callback send(term()) :: adapter_result() | term()

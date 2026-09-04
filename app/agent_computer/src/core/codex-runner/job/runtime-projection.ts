@@ -2,6 +2,7 @@ import { compareCodePointStrings } from '../../../common/ordering'
 import { isRecord } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
 import type { AgentPluginCatalogEntry, BackgroundAgentJobResponse, RuntimeSkillSummary } from '../../../lanes/rpc_lane'
+import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
 
 /**
@@ -60,43 +61,73 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
   }
 }
 
-export function selectProjectedStandaloneSkills(
+/**
+ * Derives the Skills one Job run can load: the frozen selections that still
+ * exist in the Agent's current catalog and run in a Background Job, in name
+ * order. Standalone Skills come first; Agent Plugin Skills follow in the
+ * projection's plugin order, sorted by catalog name inside each plugin.
+ */
+export function selectJobSkills(
+  projection: CodexJobRuntimeProjection,
+  catalog: { skills: RuntimeSkillSummary[]; agentPlugins: AgentPluginCatalogEntry[] }
+): RuntimeSkillSummary[] {
+  return [
+    ...selectedStandaloneSkills(projection, catalog.skills),
+    ...selectedAgentPluginSkills(projection, catalog)
+  ].filter(skill => skillAvailableInRuntime(skill, 'background_job'))
+}
+
+function selectedStandaloneSkills(
   projection: CodexJobRuntimeProjection,
   current: RuntimeSkillSummary[]
 ): RuntimeSkillSummary[] {
   const selected = new Set(projection.skillSelections.filter(skill => !skill.agentPluginID).map(skill => skill.name))
-  return current.filter(skill => !skill.agentPluginId && selected.has(skill.skillName))
+  const byName = new Map<string, RuntimeSkillSummary>()
+  for (const skill of current) {
+    if (skill.agentPluginId || !selected.has(skill.skillName)) continue
+    if (byName.has(skill.skillName)) {
+      throw new Error(`Agent conversation Skill catalog has duplicate name: ${skill.skillName}`)
+    }
+    byName.set(skill.skillName, skill)
+  }
+  return [...byName.values()].sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 }
 
-export function selectProjectedAgentPlugins(
+function selectedAgentPluginSkills(
   projection: CodexJobRuntimeProjection,
-  currentPlugins: AgentPluginCatalogEntry[],
-  currentSkills: RuntimeSkillSummary[]
-): { agentPlugins: AgentPluginCatalogEntry[]; skills: RuntimeSkillSummary[] } {
-  const currentByID = new Map(currentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
-  const currentSkillsByID = new Map(
-    currentSkills
+  catalog: { skills: RuntimeSkillSummary[]; agentPlugins: AgentPluginCatalogEntry[] }
+): RuntimeSkillSummary[] {
+  const currentPlugins = new Map(catalog.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
+  const currentMembers = new Map(
+    catalog.skills
       .filter(skill => skill.agentPluginId)
-      .map(skill => [`${skill.agentPluginId}:${skill.skillName}`, skill])
+      .map(skill => [memberKey(skill.agentPluginId, skill.skillName), skill])
   )
-  const skills: RuntimeSkillSummary[] = []
-  const agentPlugins: AgentPluginCatalogEntry[] = []
+  const selectedMembers = new Set<string>()
+  return projection.agentPluginSelections.flatMap(selection => {
+    const currentPlugin = currentPlugins.get(selection.id)
+    if (!currentPlugin) return []
+    const selectedNames = new Set(selection.skills)
+    return [...currentPlugin.skills]
+      .filter(member => selectedNames.has(member.catalogName))
+      .sort((left, right) => compareCodePointStrings(left.catalogName, right.catalogName))
+      .map(member => {
+        const key = memberKey(selection.id, member.catalogName)
+        const skill = currentMembers.get(key)
+        if (!skill) throw new Error(`Current Agent Plugin Skill is unavailable: ${selection.id}/${member.catalogName}`)
+        if (selectedMembers.has(key)) {
+          throw new Error(
+            `Agent conversation Plugin Skill catalog has duplicate member: ${selection.id}/${member.catalogName}`
+          )
+        }
+        selectedMembers.add(key)
+        return skill
+      })
+  })
+}
 
-  for (const selectedPlugin of projection.agentPluginSelections) {
-    const currentPlugin = currentByID.get(selectedPlugin.id)
-    if (!currentPlugin) continue
-    const selectedNames = new Set(selectedPlugin.skills)
-    const projectedMembers = currentPlugin.skills.filter(member => selectedNames.has(member.catalogName))
-    for (const member of projectedMembers) {
-      const skill = currentSkillsByID.get(`${selectedPlugin.id}:${member.catalogName}`)
-      if (!skill) {
-        throw new Error(`Current Agent Plugin Skill is unavailable: ${selectedPlugin.id}/${member.catalogName}`)
-      }
-      skills.push(skill)
-    }
-    agentPlugins.push({ ...currentPlugin, skills: projectedMembers })
-  }
-  return { agentPlugins, skills }
+function memberKey(agentPluginID: string, catalogName: string): string {
+  return `${agentPluginID}\0${catalogName}`
 }
 
 /**

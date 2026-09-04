@@ -221,7 +221,7 @@ function longTermMemorySection(opts: BuildAgentSystemPromptOptions): string {
   const canGetPage = toolAvailable(opts, 'get_page')
   const lazySkillRouting =
     canGetPage && toolAvailable(opts, 'skill_view')
-      ? 'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`, while `get_page` delegates to `skill_view` and returns the loaded Skill.'
+      ? 'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`.'
       : ''
 
   if (!canRemember) {
@@ -290,7 +290,7 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. The runtime context gives its file paths. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
-Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun canary for JavaScript/TypeScript work, OfficeCLI/Pandoc with the WeasyPrint and Typst PDF engines/nano-pdf/QPDF for document work. Verify exact versions with a quick command when the task depends on them.
+Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.4.1 for JavaScript/TypeScript work, OfficeCLI/Pandoc with the WeasyPrint and Typst PDF engines/nano-pdf/QPDF for document work. Verify exact versions with a quick command when the task depends on them.
 
 Tool processes can receive task-scoped credentials and unrelated runtime secrets. These values authorize external systems; they are not diagnostic data. Use only credentials named by the task or a loaded Skill. If one is missing, report the configuration blocker; do not enumerate the environment or credential stores, and never print secret values.
 

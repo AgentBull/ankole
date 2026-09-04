@@ -165,7 +165,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
         previous_response_id -> Map.put(attrs, :previous_response_id, previous_response_id)
       end
 
-    assert {:ok, run} = StatefulResponses.start_response_run(attrs)
+    assert {:ok, run} = start_response_run(attrs)
     assert {:ok, response} = StatefulResponses.commit_complete(run, assistant_content(text))
     response
   end

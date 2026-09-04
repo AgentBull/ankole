@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.20
 
-ARG ELIXIR_IMAGE=elixir:1.20.1-otp-28-slim
-ARG BUN_IMAGE=oven/bun:canary
+ARG ELIXIR_IMAGE=elixir:1.20.4-otp-29-slim
+ARG BUN_IMAGE=oven/bun:1.4.1
 ARG RUNNER_IMAGE=debian:trixie-slim
 
 FROM ${BUN_IMAGE} AS bun
@@ -13,7 +13,7 @@ WORKDIR /repo
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG RUST_TOOLCHAIN=1.91.0
+ARG RUST_TOOLCHAIN=1.98.1
 
 ENV MIX_ENV=prod
 ENV RUSTFLAGS="--cfg reqwest_unstable"

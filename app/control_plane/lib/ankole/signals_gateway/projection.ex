@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.Projection do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
+  alias Ankole.AgentHomePaths
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Channel
@@ -252,6 +253,27 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp materialized_attachment_id(_attachment), do: nil
+
+  # One provider file keeps one gateway ID across agents, but each agent
+  # downloads its own copy, so only a path in this agent's inbox proves that
+  # this agent has the bytes.
+  def materialized_attachment?(agent_uid, %{"agent_computer_path" => path} = attachment)
+      when is_binary(agent_uid) and is_binary(path) do
+    case valid_attachment_id(attachment) do
+      attachment_id when is_integer(attachment_id) ->
+        String.starts_with?(path, inbox_prefix(agent_uid, attachment_id))
+
+      _missing_or_invalid ->
+        false
+    end
+  end
+
+  def materialized_attachment?(_agent_uid, _attachment), do: false
+
+  defp inbox_prefix(agent_uid, attachment_id) do
+    Path.join([AgentHomePaths.user_files(agent_uid), "inbox", Integer.to_string(attachment_id)]) <>
+      "/"
+  end
 
   defp valid_attachment_id(%{"attachment_id" => attachment_id})
        when is_integer(attachment_id) and attachment_id >= @attachment_id_min and

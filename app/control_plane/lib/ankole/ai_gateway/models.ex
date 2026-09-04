@@ -34,6 +34,22 @@ defmodule Ankole.AIGateway.Models do
     {:ok, %{"data" => models}}
   end
 
+  @doc "Lists one OIDC Client's custom LLM aliases."
+  @spec list_model_aliases(map(), map()) :: {:ok, map()}
+  def list_model_aliases(model_aliases, params \\ %{})
+
+  def list_model_aliases(model_aliases, params) when is_map(model_aliases) and is_map(params) do
+    models =
+      model_aliases
+      |> Enum.flat_map(fn {alias_selector, attrs} ->
+        selector_entries("llm", alias_selector, alias_selector, attrs)
+      end)
+      |> filter_model_entries(params)
+      |> sort_model_entries(params)
+
+    {:ok, %{"data" => models}}
+  end
+
   defp subject_model_entries(subject_uid, "agent") do
     explicit_provider_entries() ++ agent_alias_entries(subject_uid)
   end
@@ -41,6 +57,8 @@ defmodule Ankole.AIGateway.Models do
   defp subject_model_entries(_subject_uid, "admin_human") do
     explicit_provider_entries()
   end
+
+  defp subject_model_entries(_subject_uid, "oidc_human"), do: []
 
   defp subject_model_entries(_subject_uid, _subject_type), do: []
 

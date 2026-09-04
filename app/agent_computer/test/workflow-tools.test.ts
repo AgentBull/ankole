@@ -310,7 +310,6 @@ describe('@ankole/agent-computer Workflow parent tools', () => {
         builtinSkillsRoot: '/skills',
         agentInstalledSkillsRoot: '/agents/agent-1/skills'
       },
-      brainEnabled: false,
       rpc: (async (method: unknown) => {
         throw new Error(`unexpected RPC during tool registration: ${String(method)}`)
       }) as RPCRequester,

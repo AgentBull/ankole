@@ -3,10 +3,11 @@ defmodule Ankole.E2E.SlackMainFlowTest do
 
   alias Ankole.AppConfigure
   alias Ankole.E2E.FakeSlack.{Server, State}
-  alias Ankole.Plugins.SlackAdapter.{Config, Outbox, ReplyPreview}
+  alias Ankole.Plugins.SlackAdapter.{Config, Outbox}
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
   import Ankole.E2E.Harness, only: [put_slack_test_client_opts!: 1]
@@ -99,6 +100,9 @@ defmodule Ankole.E2E.SlackMainFlowTest do
       })
       |> Repo.insert!()
 
+    preview_adapter = ReplyPreviewAdapter.for_event(actor_event)
+    assert %ReplyPreviewAdapter{} = preview_adapter
+
     working = %{
       "state" => "working",
       "revision" => 1,
@@ -120,7 +124,7 @@ defmodule Ankole.E2E.SlackMainFlowTest do
                 "streaming_state" => "open"
               }
             }} =
-             ReplyPreview.update(%Request{
+             ReplyPreviewAdapter.update(preview_adapter, %Request{
                actor_event: actor_event,
                presentation: working,
                subject_uid: "u1",
@@ -138,7 +142,7 @@ defmodule Ankole.E2E.SlackMainFlowTest do
     terminal = %{working | "state" => "completed", "revision" => 2, "answer" => "final answer"}
 
     assert {:ok, %{created_source_entry_id: ^preview_ts}} =
-             Outbox.send(%{
+             ReplyPreviewAdapter.finalize_outbox(preview_adapter, %{
                base
                | outbound_key: "terminal-reply",
                  source_actor_event_id: actor_event.id,

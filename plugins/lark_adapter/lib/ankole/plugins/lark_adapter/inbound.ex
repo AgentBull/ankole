@@ -32,8 +32,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @max_backfilled_attachments 3
   @post_locale_priority ~w(zh_cn en_us ja_jp)
   @markdown_inline_token ~r/(`+)|!\[[^\]]*\]\(\s*(img_[A-Za-z0-9_-]+)(?:\s+["'][^"']*["'])?\s*\)/u
-  @attachment_id_min 10_000
-  @attachment_id_max 9_007_199_254_740_991
 
   @doc """
   Builds the dispatcher consumer record for one SignalsGateway chat binding.
@@ -238,7 +236,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     prepared
     |> Enum.reduce_while({:ok, []}, fn
       %{consumer: consumer, input: input, observed_at: observed_at} = item, {:ok, items} ->
-        if attachment_materialization_required?(input.attachments, consumer) do
+        if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments) do
           input
           |> put_attachment_materialization("pending", observed_at)
           |> emit_normalized_message(consumer, false)
@@ -288,7 +286,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
            maybe_materialize_attachments(input.attachments, message, consumer) do
       input
       |> Map.put(:attachments, attachments)
-      |> put_attachment_materialization(materialization_result(attachments), observed_at)
+      |> put_materialization_result(consumer, observed_at)
       |> emit_normalized_message(consumer, true)
     end
   end
@@ -983,64 +981,28 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     do: []
 
   defp maybe_materialize_attachments(attachments, message, consumer) do
-    case Enum.all?(attachments, &materialized_attachment?(&1, consumer)) do
-      true -> {:ok, attachments}
-      false -> materialize_lark_attachments(attachments, message, consumer)
-    end
+    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, attachments),
+      do: materialize_lark_attachments(attachments, message, consumer),
+      else: {:ok, attachments}
   end
 
-  defp attachment_materialization_required?([_ | _] = attachments, consumer),
-    do: not Enum.all?(attachments, &materialized_attachment?(&1, consumer))
+  defp put_materialization_result(%{attachments: []} = input, _consumer, _observed_at), do: input
 
-  defp attachment_materialization_required?(_attachments, _consumer), do: false
+  defp put_materialization_result(input, consumer, observed_at) do
+    state =
+      if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments),
+        do: "failed",
+        else: "complete"
 
-  defp materialization_result([_ | _] = attachments) do
-    if Enum.all?(attachments, &materialized_attachment?/1), do: "complete", else: "failed"
+    put_attachment_materialization(input, state, observed_at)
   end
 
-  defp materialization_result(_attachments), do: nil
-
-  defp put_attachment_materialization(input, nil, _observed_at), do: input
-
-  defp put_attachment_materialization(input, state, %DateTime{} = observed_at) do
-    metadata =
-      Map.put(input.metadata, "attachment_materialization", %{
-        "state" => state,
-        "observed_at" => DateTime.to_iso8601(observed_at)
-      })
-
-    Map.put(input, :metadata, metadata)
+  defp put_attachment_materialization(input, state, observed_at) do
+    %{
+      input
+      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
+    }
   end
-
-  defp materialized_attachment?(attachment) when is_map(attachment) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         path when is_binary(path) <- attachment["agent_computer_path"] do
-      String.contains?(path, "/user-files/inbox/#{attachment_id}/")
-    else
-      _missing_or_invalid -> false
-    end
-  end
-
-  defp materialized_attachment?(_attachment), do: false
-
-  defp materialized_attachment?(attachment, %{context: %{agent_uid: agent_uid}})
-       when is_map(attachment) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         path when is_binary(path) <- attachment["agent_computer_path"] do
-      String.starts_with?(
-        path,
-        Path.join([
-          Ankole.AgentHomePaths.user_files(agent_uid),
-          "inbox",
-          Integer.to_string(attachment_id)
-        ]) <> "/"
-      )
-    else
-      _missing_or_invalid -> false
-    end
-  end
-
-  defp materialized_attachment?(_attachment, _consumer), do: false
 
   defp materialize_lark_attachments(attachments, _message, %{
          config: config,
@@ -1052,8 +1014,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp materialize_lark_attachment(%{} = attachment, client, agent_uid) do
-    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
-         source_message_id when is_binary(source_message_id) <- attachment["source_message_id"],
+    with source_message_id when is_binary(source_message_id) <- attachment["source_message_id"],
          file_key when is_binary(file_key) <- attachment["file_key"],
          download_type when is_binary(download_type) <- attachment["download_type"],
          {:ok, download} <-
@@ -1061,7 +1022,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              path_params: %{message_id: source_message_id, file_key: file_key},
              query: [type: download_type]
            ),
-         relative_path <- materialized_relative_path(attachment_id, attachment, download),
+         relative_path <- materialized_relative_path(attachment, download),
          lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path),
          {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
@@ -1101,7 +1062,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       attachment
   end
 
-  defp materialized_relative_path(attachment_id, attachment, download) do
+  defp materialized_relative_path(attachment, download) do
     filename =
       download.filename ||
         attachment["name"] ||
@@ -1109,17 +1070,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
     Path.join([
       "inbox",
-      Integer.to_string(attachment_id),
+      Integer.to_string(attachment["attachment_id"]),
       WorkerFiles.sanitize_path_segment(filename)
     ])
   end
-
-  defp valid_attachment_id(%{"attachment_id" => attachment_id})
-       when is_integer(attachment_id) and attachment_id >= @attachment_id_min and
-              attachment_id <= @attachment_id_max,
-       do: attachment_id
-
-  defp valid_attachment_id(_attachment), do: nil
 
   defp recent_attachment_intent?(text) when is_binary(text) do
     # Lark sends attachment-only messages separately from the later textual

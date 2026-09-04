@@ -130,17 +130,90 @@ export class BackgroundAgentJobTurnRecorder {
     }
   ) {}
 
-  recordTurnStarted(runtimeThreadID: string, payload: JSONObject, input?: string, clientUserMessageID?: string): void {
-    this.startTurn(jsonObject({ threadId: runtimeThreadID, turn: payload }), input, clientUserMessageID)
+  /**
+   * Records a started Turn from the `{ threadId, turn }` shape that Codex
+   * returns from `turn/start` and sends in `turn/started`. The session declares
+   * `kind`; the recorder never infers it from items, so an automatic
+   * compaction stays an item of the agent Turn that contains it.
+   */
+  recordTurnStarted(
+    params: JSONObject,
+    kind: BackgroundAgentJobTurnKind,
+    input?: string,
+    clientUserMessageID?: string
+  ): void {
+    const payload = jsonObject(params.turn)
+    const runtimeTurnID = stringValue(payload.id)
+    if (!runtimeTurnID) return
+    const runtimeThreadID =
+      stringValue(params.threadId) ??
+      this.turns.get(runtimeTurnID)?.runtimeThreadID ??
+      [...this.turns.values()].at(-1)?.runtimeThreadID
+    if (!runtimeThreadID) return
+
+    let turn = this.turns.get(runtimeTurnID)
+    if (!turn) {
+      const startedAt = timestampSeconds(payload.startedAt) ?? now()
+      turn = {
+        runtimeThreadID,
+        runtimeTurnID,
+        kind,
+        status: turnStatus(payload.status) ?? 'in_progress',
+        revision: -1,
+        items: new Map(),
+        itemOrder: [],
+        itemPositions: new Map(),
+        nextTrajectoryPosition: 0,
+        enqueuedItemKeys: new Set(),
+        anchoredItemKeys: new Set(),
+        completedItemIDs: new Set(),
+        modelToolIdentities: new Map(),
+        toolItemIdentities: new Map(),
+        toolItemExecutionMechanisms: new Map(),
+        usedSkillNames: new Set(),
+        filesChanged: new Set(),
+        error: {},
+        startedAt,
+        traceSpan: startWorkerSpan(
+          this.input.turnTrace,
+          'codex.turn',
+          {
+            'ankole.codex.thread.id': runtimeThreadID,
+            'ankole.codex.turn.id': runtimeTurnID
+          },
+          { startTime: timestampDate(payload.startedAt) }
+        ),
+        toolSpans: new Map(),
+        dirty: true,
+        redacted: false,
+        contentTruncated: false
+      }
+      this.turns.set(runtimeTurnID, turn)
+    }
+
+    this.ensureInitialInput(turn, input, clientUserMessageID)
+    this.applyCanonicalItems(turn, payload)
+    const reportedStatus = turnStatus(payload.status)
+    const acceptsReportedTerminal = !terminal(turn.status) || reportedStatus === turn.status
+    if (!terminal(turn.status)) turn.status = reportedStatus ?? turn.status
+    const payloadError = jsonObject(payload.error)
+    if (acceptsReportedTerminal && Object.keys(payloadError).length > 0) {
+      turn.error = this.sanitizeObject(payloadError, turn)
+    }
+    if (terminal(turn.status)) {
+      turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
+      turn.activeItem = undefined
+      this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
+      this.markDirty(turn, true)
+    } else {
+      this.markDirty(turn, true)
+    }
   }
 
   handleNotification(message: JSONRPCMessage): void {
     const params = jsonObject(message.params)
 
     switch (message.method) {
-      case 'turn/started':
-        this.startTurn(params)
-        return
       case 'turn/completed':
         this.completeTurn(params)
         return
@@ -245,76 +318,6 @@ export class BackgroundAgentJobTurnRecorder {
     if (this.checkpointError) throw this.checkpointError
   }
 
-  private startTurn(params: JSONObject, input?: string, clientUserMessageID?: string): void {
-    const payload = jsonObject(params.turn)
-    const runtimeTurnID = stringValue(payload.id)
-    if (!runtimeTurnID) return
-    const runtimeThreadID =
-      stringValue(params.threadId) ??
-      this.turns.get(runtimeTurnID)?.runtimeThreadID ??
-      [...this.turns.values()].at(-1)?.runtimeThreadID
-    if (!runtimeThreadID) return
-
-    let turn = this.turns.get(runtimeTurnID)
-    if (!turn) {
-      const startedAt = timestampSeconds(payload.startedAt) ?? now()
-      turn = {
-        runtimeThreadID,
-        runtimeTurnID,
-        kind: 'agent',
-        status: turnStatus(payload.status) ?? 'in_progress',
-        revision: -1,
-        items: new Map(),
-        itemOrder: [],
-        itemPositions: new Map(),
-        nextTrajectoryPosition: 0,
-        enqueuedItemKeys: new Set(),
-        anchoredItemKeys: new Set(),
-        completedItemIDs: new Set(),
-        modelToolIdentities: new Map(),
-        toolItemIdentities: new Map(),
-        toolItemExecutionMechanisms: new Map(),
-        usedSkillNames: new Set(),
-        filesChanged: new Set(),
-        error: {},
-        startedAt,
-        traceSpan: startWorkerSpan(
-          this.input.turnTrace,
-          'codex.turn',
-          {
-            'ankole.codex.thread.id': runtimeThreadID,
-            'ankole.codex.turn.id': runtimeTurnID
-          },
-          { startTime: timestampDate(payload.startedAt) }
-        ),
-        toolSpans: new Map(),
-        dirty: true,
-        redacted: false,
-        contentTruncated: false
-      }
-      this.turns.set(runtimeTurnID, turn)
-    }
-
-    this.ensureInitialInput(turn, input, clientUserMessageID)
-    this.applyCanonicalItems(turn, payload)
-    turn.kind = nextTurnKind(turn)
-    const reportedStatus = turnStatus(payload.status)
-    const acceptsReportedTerminal = !terminal(turn.status) || reportedStatus === turn.status
-    if (!terminal(turn.status)) turn.status = reportedStatus ?? turn.status
-    const payloadError = jsonObject(payload.error)
-    if (acceptsReportedTerminal && Object.keys(payloadError).length > 0) {
-      turn.error = this.sanitizeObject(payloadError, turn)
-    }
-    if (terminal(turn.status)) {
-      turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
-      turn.activeItem = undefined
-      this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
-      this.markDirty(turn, true)
-    } else {
-      this.markDirty(turn, true)
-    }
-  }
-
   private completeTurn(params: JSONObject): void {
     const payload = jsonObject(params.turn)
     const runtimeTurnID = stringValue(payload.id)
@@ -322,13 +325,12 @@ export class BackgroundAgentJobTurnRecorder {
 
     let turn = this.turns.get(runtimeTurnID)
     if (!turn) {
-      this.startTurn(params)
+      this.recordTurnStarted(params, 'agent')
       turn = this.turns.get(runtimeTurnID)
     }
     if (!turn) return
 
     this.applyCanonicalItems(turn, payload, true)
-    turn.kind = nextTurnKind(turn)
     const reportedStatus = turnStatus(payload.status) ?? 'failed'
     const acceptsReportedTerminal = !terminal(turn.status) || reportedStatus === turn.status
     if (!terminal(turn.status)) turn.status = reportedStatus
@@ -403,7 +405,6 @@ export class BackgroundAgentJobTurnRecorder {
     const tracked = this.trackCompletedItem(turn, item)
     const cleared = turn.activeItem?.id === id
     if (cleared) turn.activeItem = undefined
-    turn.kind = nextTurnKind(turn)
     if (changed || tracked || cleared || redacted !== turn.redacted || truncated !== turn.contentTruncated) {
       this.markDirty(turn, true)
     }
@@ -978,14 +979,6 @@ function itemKey(item: JSONObject): string | undefined {
 
 function shouldRecordItem(item: JSONObject): boolean {
   return item.type !== 'subAgentActivity'
-}
-
-function turnKind(items: JSONObject[]): BackgroundAgentJobTurnKind {
-  return items.some(item => item.type === 'contextCompaction') ? 'compaction' : 'agent'
-}
-
-function nextTurnKind(turn: RuntimeTurn): BackgroundAgentJobTurnKind {
-  return turn.kind === 'compaction' ? 'compaction' : turnKind([...turn.items.values()])
 }
 
 function turnStatus(value: unknown): BackgroundAgentJobTurnStatus | undefined {

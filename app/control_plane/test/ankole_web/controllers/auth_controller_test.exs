@@ -34,13 +34,15 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert WebSession.safe_return_to("https://evil.example/console") == "/console"
   end
 
-  test "POST /.internal-apis/oauth/token exchanges an active admin session for bearer tokens", %{
+  test "POST /oauth/token exchanges an active admin session for bearer tokens", %{
     conn: conn
   } do
     {conn, principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
-      post(conn, ~p"/.internal-apis/oauth/token", %{
+      conn
+      |> with_console_csrf()
+      |> post(~p"/oauth/token", %{
         "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
       })
 
@@ -58,17 +60,36 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert expires_in in 1..1800
     assert refresh_expires_in >= expires_in
 
-    assert {:ok, %{"sub" => ^principal_uid, "token_use" => "access"}} =
+    assert {:ok,
+            %{
+              "sub" => ^principal_uid,
+              "token_use" => "access",
+              "subject_type" => "human",
+              "aud" => audiences,
+              "sid_hash" => sid_hash,
+              "jti" => jti,
+              "iat" => iat,
+              "nbf" => nbf
+            }} =
              ConsoleTokens.verify_access_token(access_token)
+
+    assert MapSet.new(audiences) == MapSet.new(["ankole.web_console", "ankole.ai_gateway"])
+    assert Enum.all?([sid_hash, jti], &is_binary/1)
+    assert Enum.all?([iat, nbf], &is_integer/1)
+    assert %{"alg" => "RS256", "typ" => "at+jwt", "kid" => kid} = jwt_header(access_token)
+    assert is_binary(kid)
+    assert %{"alg" => "RS256", "typ" => "rt+jwt", "kid" => ^kid} = jwt_header(refresh_token)
   end
 
-  test "POST /.internal-apis/oauth/token refreshes only against the current admin session", %{
+  test "POST /oauth/token refreshes only against the current admin session", %{
     conn: conn
   } do
     {conn, _principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
-      post(conn, ~p"/.internal-apis/oauth/token", %{
+      conn
+      |> with_console_csrf()
+      |> post(~p"/oauth/token", %{
         "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
       })
 
@@ -76,8 +97,8 @@ defmodule AnkoleWeb.AuthControllerTest do
 
     conn =
       conn
-      |> recycle()
-      |> post(~p"/.internal-apis/oauth/token", %{
+      |> recycle(~w(accept accept-language authorization origin x-csrf-token))
+      |> post(~p"/oauth/token", %{
         "grant_type" => "refresh_token",
         "refresh_token" => refresh_token
       })
@@ -90,8 +111,8 @@ defmodule AnkoleWeb.AuthControllerTest do
 
     conn =
       conn
-      |> recycle()
-      |> post(~p"/.internal-apis/oauth/token", %{
+      |> recycle(~w(accept accept-language authorization origin x-csrf-token))
+      |> post(~p"/oauth/token", %{
         "grant_type" => "refresh_token",
         "refresh_token" => access_token
       })
@@ -105,7 +126,9 @@ defmodule AnkoleWeb.AuthControllerTest do
     {conn, _principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
-      post(conn, ~p"/.internal-apis/oauth/token", %{
+      conn
+      |> with_console_csrf()
+      |> post(~p"/oauth/token", %{
         "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
       })
 
@@ -122,7 +145,8 @@ defmodule AnkoleWeb.AuthControllerTest do
         provider_id: "lark-main",
         external_id: "external-2"
       })
-      |> post(~p"/.internal-apis/oauth/token", %{
+      |> with_console_csrf()
+      |> post(~p"/oauth/token", %{
         "grant_type" => "refresh_token",
         "refresh_token" => refresh_token
       })
@@ -130,11 +154,12 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert %{"error" => "invalid_grant"} = json_response(conn, 400)
   end
 
-  test "POST /.internal-apis/oauth/token rejects missing admin session", %{conn: conn} do
+  test "POST /oauth/token rejects missing admin session", %{conn: conn} do
     conn =
       conn
       |> init_test_session(%{})
-      |> post(~p"/.internal-apis/oauth/token", %{
+      |> with_console_csrf()
+      |> post(~p"/oauth/token", %{
         "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
       })
 
@@ -313,6 +338,30 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert json_response(conn, 403)["error"] == "not_an_admin"
       assert get_session(conn, :admin_session) == nil
       assert get_session(conn, :local_password_change) == nil
+    end
+
+    test "a verified non-admin can open only the OAuth Human session", %{conn: conn} do
+      %{principal: principal, email: email} = local_user_with_password("correct-horse")
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> WebSession.put_oauth_authorization(%{
+          "client_id" => Ankole.Ecto.UUIDv7.autogenerate(),
+          "redirect_uri" => "https://client.example.test/callback"
+        })
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "correct-horse",
+          "oauth" => true
+        })
+
+      assert %{"status" => "ok", "returnTo" => "/oauth/authorize/resume"} =
+               json_response(conn, 200)
+
+      assert %{"principal_uid" => principal_uid} = WebSession.oauth_session(conn)
+      assert principal_uid == principal.uid
+      assert WebSession.admin_session(conn) == nil
     end
 
     test "a disabled account is refused with its own error", %{conn: conn} do
@@ -528,5 +577,11 @@ defmodule AnkoleWeb.AuthControllerTest do
     %{principal: principal, email: email} = local_user_with_password(password, must_change)
     {:ok, _root} = AuthZ.root_init_admin(principal.uid)
     %{principal: principal, email: email}
+  end
+
+  defp jwt_header(token) do
+    [encoded | _parts] = String.split(token, ".", parts: 3)
+    {:ok, json} = Base.url_decode64(encoded, padding: false)
+    Ankole.JSON.decode!(json)
   end
 end

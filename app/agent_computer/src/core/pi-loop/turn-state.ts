@@ -53,10 +53,10 @@ export interface PiTurnState {
    * stopped there) — `beforeToolCall` blocks the rest of the round once this
    * is set, so a dangling model-requested call still gets a paired result
    * (just an immediate "turn already ended" one) instead of actually running.
-   * Consumed (read and reset) once per round by `shouldStopAfterTurn`, the
-   * last hook of a round — pi's own batch-terminate check requires *every*
-   * call in the round to terminate, so this flag, not pi, is what ends the
-   * turn when a terminating call shares its round with an ordinary one.
+   * Consumed (read and reset) once per round by `shouldStopAfterTurn`. pi's
+   * own batch-terminate check requires *every* call in the round to terminate,
+   * so this flag, not pi, is what ends the turn when a terminating call shares
+   * its round with an ordinary one.
    */
   roundTerminated: boolean
   /**

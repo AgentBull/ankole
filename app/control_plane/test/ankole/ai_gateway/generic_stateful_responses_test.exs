@@ -3,6 +3,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   import Ecto.Query, warn: false
   import Ankole.PrincipalsFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Conversations
 
@@ -22,7 +23,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert :ok = Events.subscribe(subject.uid, conversation.id)
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id,
         metadata: %{
@@ -62,7 +63,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       Conversations.ensure_conversation(subject.uid, "generic-tool-journal")
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"request" => "one"}}
@@ -108,7 +109,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "generic-orphan")
 
     {:ok, live} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id
       })
@@ -160,7 +161,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-detach")
 
     {:ok, anchor} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id
       })
@@ -168,7 +169,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, anchor} = StatefulResponses.commit_complete(anchor, [])
 
     {:ok, child} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{anchor.id}"
       })
@@ -197,7 +198,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-retract")
 
     {:ok, predecessor} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id
       })
@@ -205,7 +206,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
 
     {:ok, first} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{predecessor.id}"
       })
@@ -213,7 +214,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, first} = StatefulResponses.commit_complete(first, [])
 
     {:ok, second} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{first.id}"
       })
@@ -256,7 +257,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert :ok = AIGateway.subscribe(subject.uid, conversation.id)
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"opaque" => "kept"}}

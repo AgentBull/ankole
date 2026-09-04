@@ -24,11 +24,11 @@ defmodule AnkoleWeb.APISpec do
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
         title: "Ankole API",
-        version: "2026-07-15"
+        version: "2026-09-04"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
-      # The documented `consoleBearer` scheme is the spec-side mirror of
-      # RequireConsoleAccessToken; controllers reference it via `security/1`.
+      # The documented bearer schemes mirror the Console and AIGateway plugs;
+      # `aiGatewayBearer` accepts Agent and authorized OIDC Human tokens.
       components: %Components{
         securitySchemes: %{
           "consoleBearer" => %SecurityScheme{
@@ -78,7 +78,7 @@ defmodule AnkoleWeb.APISpec do
         },
         %Tag{
           name: "AIGateway",
-          description: "Agent-authenticated AI provider gateway"
+          description: "Agent, Console, and OIDC Human AI provider gateway"
         },
         %Tag{
           name: "AI Gateway Conversations",

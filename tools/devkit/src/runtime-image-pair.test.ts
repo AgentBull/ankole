@@ -116,29 +116,32 @@ describe('runtime image pair rollout gate', () => {
       writeFileSync(controlPlaneMetadata, JSON.stringify(controlPlane.metadata))
       writeFileSync(workerMetadata, JSON.stringify(worker.metadata))
 
-      const result = Bun.spawnSync([
-        process.execPath,
-        entrypoint,
-        'verify',
-        '--revision',
-        revision,
-        '--protocol-version',
-        protocolVersion,
-        '--control-plane-ref',
-        controlPlane.ref,
-        '--control-plane-metadata',
-        controlPlaneMetadata,
-        '--worker-ref',
-        worker.ref,
-        '--worker-metadata',
-        workerMetadata,
-        '--pair-output',
-        pairOutput,
-        '--control-plane-values-output',
-        controlPlaneValuesOutput,
-        '--worker-values-output',
-        workerValuesOutput
-      ])
+      const result = Bun.spawnSync(
+        [
+          process.execPath,
+          entrypoint,
+          'verify',
+          '--revision',
+          revision,
+          '--protocol-version',
+          protocolVersion,
+          '--control-plane-ref',
+          controlPlane.ref,
+          '--control-plane-metadata',
+          controlPlaneMetadata,
+          '--worker-ref',
+          worker.ref,
+          '--worker-metadata',
+          workerMetadata,
+          '--pair-output',
+          pairOutput,
+          '--control-plane-values-output',
+          controlPlaneValuesOutput,
+          '--worker-values-output',
+          workerValuesOutput
+        ],
+        { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' }
+      )
 
       expect(result.exitCode).toBe(0)
       expect(await Bun.file(pairOutput).json()).toMatchObject({

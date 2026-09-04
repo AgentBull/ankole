@@ -5,7 +5,9 @@ section: User guide
 order: 13
 ---
 
-An Agent is an AI colleague that performs business functions over time. Each Agent has its own identity, owner, work instructions, models, capabilities, and file space. A signal routing rule connects the Agent to messages from a chat channel.
+An Agent is a durable working identity inside the Ankole Agent Harness. Each Agent has a mission, owner, access, tools, model profiles, and file space.
+
+The Agent can use Company Brain within its knowledge boundary. A signal routing rule connects it to messages and other events.
 
 ## Create an Agent
 

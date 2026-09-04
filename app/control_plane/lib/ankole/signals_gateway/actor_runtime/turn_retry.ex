@@ -14,21 +14,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
 
   import Ecto.Query, warn: false
 
+  import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
+  import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1, signal_session_id: 1]
+
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.ActorRuntime.ReplyDeletion
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
-  alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
+  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
-
-  import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1, signal_session_id: 1]
 
   @attachment_materialization_hard_cap_ms 4_000
 
@@ -68,7 +65,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
          status: :command_consumed,
          command: command_event.type,
          retry_actor_events: retry_events,
-         retry_controls: retry_controls(live_deliveries(deliveries), "command.retry"),
+         controls: TurnControl.collect(deliveries, :retry, "command.retry"),
          ai_message: cancelled_message,
          actor_event: completed_event
        }}
@@ -100,7 +97,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
            canceled_actor_event_ids:
              for(%{status: :canceled, actor_event: event} <- results, do: event.id),
            retried_actor_events: Enum.count(results, &(&1.status == :retried)),
-           retry_controls: results |> Enum.flat_map(& &1.retry_controls) |> Enum.uniq()
+           controls: results |> Enum.flat_map(& &1.controls) |> Enum.uniq()
          }}
 
       {:error, _reason} = error ->
@@ -152,56 +149,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
       merge_into_open_event(repo, event, entry, now, true)
     else
       _missing -> {:ok, :not_supplement}
-    end
-  end
-
-  @doc """
-  Dispatches best-effort retry controls described by a successful mutation result.
-  """
-  @spec dispatch_retry_controls({:ok, map()} | term()) :: {:ok, map()} | term()
-  def dispatch_retry_controls({:ok, result}) when is_map(result) do
-    controls = retry_controls_from_result(result)
-
-    outcomes = Enum.map(controls, &dispatch_retry_control/1)
-
-    result
-    |> Map.get(:input_superseded_actor_event_ids, [])
-    |> Enum.each(&AIReplyPreview.input_superseded/1)
-
-    # A preview whose input is gone would keep editing cards the outbox deletes.
-    result
-    |> Map.get(:runtime_retractions, %{})
-    |> Map.get(:canceled_actor_event_ids, [])
-    |> Enum.each(&AIReplyPreview.stop/1)
-
-    {:ok, Map.put(result, :retry_control_outcomes, outcomes)}
-  end
-
-  def dispatch_retry_controls(other), do: other
-
-  defp retry_controls_from_result(result) do
-    direct = Map.get(result, :retry_controls, [])
-    retractions = result |> Map.get(:runtime_retractions, %{}) |> Map.get(:retry_controls, [])
-
-    (direct ++ retractions)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp dispatch_retry_control(%{route: route, turn_ref: turn_ref, reason: reason} = control) do
-    payload = Map.get(control, :payload, %{}) |> Map.put("reason", reason)
-    envelope = TurnEnvelope.turn_control(turn_ref, "retry", payload)
-
-    case Broker.send_mandatory(route, envelope) do
-      {:ok, :sent_or_queued} ->
-        Map.put(control, :send_outcome, "sent_or_queued")
-
-      {:error, reason} ->
-        WorkerAdmission.mark_route_unusable(route, reason)
-
-        control
-        |> Map.put(:send_outcome, reason_text(reason))
-        |> Map.put(:send_error, reason)
     end
   end
 
@@ -296,7 +243,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
                 status: reason,
                 actor_event: updated_event,
                 ai_message: retracted_message,
-                retry_controls: retry_controls(deliveries, "input_superseded"),
+                controls: TurnControl.collect(deliveries, :retry, "input_superseded"),
                 input_superseded_actor_event_ids: if(deliveries == [], do: [], else: [event.id])
               }}}
           end
@@ -559,7 +506,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
              actor_event: input,
              ai_message: cancellation.message,
              reply_deletions: length(reply_deletions),
-             retry_controls: cancellation.retry_controls
+             controls: cancellation.controls
            }}
         end
 
@@ -581,7 +528,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
              status: :retried,
              actor_event: updated_event,
              ai_message: cancellation.message,
-             retry_controls: cancellation.retry_controls
+             controls: cancellation.controls
            }}
         end
     end
@@ -630,7 +577,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
 
     case deliveries do
       [] ->
-        {:ok, %{message: nil, retry_controls: []}}
+        {:ok, %{message: nil, controls: []}}
 
       [delivery | _rest] ->
         actor_event_id = delivery.actor_event_id_fence
@@ -646,7 +593,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
           {:ok,
            %{
              message: cancelled_message,
-             retry_controls: retry_controls(deliveries, reason_text(reason))
+             controls: TurnControl.collect(deliveries, :retry, reason)
            }}
         end
     end
@@ -819,23 +766,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
 
   defp event_entries(_input), do: []
 
-  defp retry_controls(deliveries, reason) do
-    deliveries
-    |> Enum.map(fn delivery ->
-      %{
-        route: delivery.transport_route || delivery.worker_id,
-        turn_ref: turn_ref(delivery),
-        reason: reason
-      }
-    end)
-    |> Enum.reject(&is_nil(&1.route))
-    |> Enum.uniq()
-  end
-
-  defp live_deliveries(deliveries) do
-    Enum.filter(deliveries, &(&1.state in ActorEventDelivery.live_states()))
-  end
-
   defp retry_actor_event_ids(%{request_ref_actor_event_ids: request_ref_ids}, deliveries) do
     deliveries
     |> Enum.map(& &1.actor_event_id)
@@ -851,18 +781,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     |> Enum.uniq()
   end
 
-  defp turn_ref(%ActorEventDelivery{} = delivery) do
-    TurnRef.from_delivery(delivery)
-  end
-
   defp current_actor_event_id([
          %ActorEventDelivery{actor_event_id_fence: actor_event_id} | _rest
        ]),
        do: actor_event_id
 
   defp current_actor_event_id(_deliveries), do: nil
-
-  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_text(reason) when is_binary(reason), do: reason
-  defp reason_text(reason), do: inspect(reason)
 end

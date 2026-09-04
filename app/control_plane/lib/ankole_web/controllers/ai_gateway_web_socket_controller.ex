@@ -15,11 +15,13 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
         %{
           subject_uid: conn.assigns.current_ai_gateway_subject_uid,
           subject_type: conn.assigns.current_ai_gateway_subject_type,
+          oidc_grant: conn.assigns[:oidc_grant],
           request_context: RequestContext.from_headers(conn.req_headers, "websocket")
         }
         |> maybe_put_model_binding(binding)
 
       conn
+      |> maybe_select_application_protocol()
       |> WebSockAdapter.upgrade(
         AnkoleWeb.AIGatewayResponsesSocket,
         socket_state,
@@ -63,4 +65,14 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
 
   defp maybe_put_model_binding(state, nil), do: state
   defp maybe_put_model_binding(state, binding), do: Map.put(state, :codex_model_binding, binding)
+
+  defp maybe_select_application_protocol(conn) do
+    case conn.assigns[:ai_gateway_websocket_protocol] do
+      protocol when is_binary(protocol) ->
+        put_resp_header(conn, "sec-websocket-protocol", protocol)
+
+      _missing ->
+        conn
+    end
+  end
 end

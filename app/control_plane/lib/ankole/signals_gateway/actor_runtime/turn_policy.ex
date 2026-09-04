@@ -94,10 +94,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
   # silently change who executes the work and what the result looks like.
   defp hosted_tools(agent_uid, model_ref, hosted_capabilities) do
     case image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) ++
-           web_search_hosted_tools(model_ref, hosted_capabilities) do
+           web_search_hosted_tools(model_ref, hosted_capabilities) ++ brain_hosted_tools() do
       [] -> nil
       tools -> tools
     end
+  end
+
+  # Memory is an installation capability that AIGateway executes on every
+  # provider, so its declaration follows `brain.enabled` alone. The Worker
+  # decides the operation subset and the injection per Turn kind.
+  defp brain_hosted_tools do
+    if Ankole.Brain.Config.enabled?(), do: [%{"type" => "brain"}], else: []
   end
 
   defp image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) do

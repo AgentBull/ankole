@@ -63,7 +63,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.150.1')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.153.2')
   })
 
   it('does not retry a canonical Provider validation failure', async () => {
@@ -755,10 +755,10 @@ test ! -e ./AGENTS.override.md
       let stage = 'initialize'
       try {
         const initializeResponse = await realClient.initialize()
-        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.150.1 ')
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.153.2 ')
         const threadEnv = codexJobThreadEnv({ materialized, workerEnv: { ANKOLE_JOB_SCOPE: 'job-1000' } })
         const threadConfig = codexJobThreadConfig({
-          cwd: project.codexCwd,
+          cwd: project.root,
           codexHome: materialized.codexHome,
           env: threadEnv,
           runtime: runtimeConfig,
@@ -766,7 +766,7 @@ test ! -e ./AGENTS.override.md
         })
         stage = 'thread/start'
         const thread = (await realClient.request('thread/start', {
-          cwd: project.codexCwd,
+          cwd: project.root,
           approvalPolicy: 'never',
           sandbox: 'danger-full-access',
           model: runtimeConfig.modelProfile.model,

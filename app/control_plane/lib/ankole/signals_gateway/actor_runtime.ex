@@ -90,13 +90,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   defdelegate handle_worker_progress(payload, opts \\ []), to: TurnLifecycle
 
   @doc """
-  Completes a worker turn that deliberately adopts no provider-visible output.
-  """
-  @spec handle_turn_noop_completed(TurnRef.t(), String.t() | nil) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_noop_completed(turn_ref, reason), to: TurnLifecycle
-
-  @doc """
   Handles a worker turn abort and releases the actor event for retry.
   """
   @spec handle_turn_error(TurnRef.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}

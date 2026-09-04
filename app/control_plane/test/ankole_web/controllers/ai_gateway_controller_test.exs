@@ -4,7 +4,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import Ankole.PrincipalsFixtures
 
   import Ankole.AIGatewayCase,
-    only: [chat_completion_stream_events: 2, start_upstream_server: 1]
+    only: [chat_completion_stream_events: 2, start_upstream_server: 1, start_response_run: 1]
 
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
@@ -71,6 +71,31 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
               "error" => %{"message" => "native upstream rate limit"}
             })
           )
+
+        :created_then_hold ->
+          conn =
+            conn
+            |> put_resp_content_type("text/event-stream")
+            |> send_chunked(200)
+
+          created = %{
+            "type" => "response.created",
+            "sequence_number" => 0,
+            "response" => %{
+              "id" => "resp_native_hold",
+              "object" => "response",
+              "status" => "in_progress",
+              "output" => []
+            }
+          }
+
+          {:ok, conn} = Plug.Conn.chunk(conn, "data: #{Ankole.JSON.encode!(created)}\n\n")
+
+          receive do
+            :release_upstream -> conn
+          after
+            30_000 -> conn
+          end
 
         _mode ->
           conn =
@@ -198,7 +223,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       Conversations.ensure_conversation(agent.uid, "retrieve-response-controller")
 
     {:ok, first} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [input_item],
@@ -230,7 +255,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     }
 
     {:ok, second} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         previous_response_id: "resp_#{first.id}",
         request_items: [second_input_item],
@@ -307,7 +332,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       Conversations.ensure_conversation(agent.uid, "retrieve-role-only-input")
 
     {:ok, message} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [input_item],
@@ -338,7 +363,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       Conversations.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
 
     {:ok, message} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: owner.uid,
         conversation_id: conversation.id,
         request_items: [
@@ -388,7 +413,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       Conversations.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
 
     {:ok, generating} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [
@@ -1167,8 +1192,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert %{
              "error" => %{
+               "type" => "server_error",
                "code" => "invalid_upstream_response",
-               "message" => "upstream provider returned an invalid response"
+               "message" => "The upstream provider returned an invalid response."
              }
            } = json_response(conn, 502)
 
@@ -1838,13 +1864,128 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert resets_at == DateTime.to_unix(reset_at)
     assert {:ok, parsed_retry_at, _offset} = DateTime.from_iso8601(retry_at)
     assert DateTime.compare(parsed_retry_at, reset_at) == :eq
-    assert message =~ "All credentials in this provider pool are unavailable."
+    assert message == "AIGateway credential pool exhausted. retry_at=#{retry_at}"
     assert get_resp_header(conn, "x-codex-primary-reset-at") == [Integer.to_string(resets_at)]
     assert [retry_after] = get_resp_header(conn, "retry-after")
     assert {seconds, ""} = Integer.parse(retry_after)
     assert seconds in 0..600
     assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
     refute response(conn, 429) =~ "data: [DONE]"
+  end
+
+  test "native streaming route ends the response when the stream owner dies mid-stream", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesUpstreamPlug, test_pid: self(), mode: :created_then_hold},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-native-controller-owner-death",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{
+                   "http_versions" => ["h1"],
+                   "compression" => ["zstd", "br", "gzip"]
+                 }
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-controller-owner-death",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+
+    # The request blocks this process inside the SSE loop, so another process
+    # kills the stream owner once the owner has forwarded the created event.
+    receiver = self()
+
+    spawn_link(fn ->
+      owner = await_stream_owner(receiver)
+      await_provider_output(owner)
+      Process.exit(owner, :kill)
+      send(receiver, {:owner_killed, owner})
+    end)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "hello",
+        "stream" => true
+      })
+
+    assert_receive {:owner_killed, owner}
+    refute Process.alive?(owner)
+
+    assert response = response(conn, 200)
+    assert get_resp_header(conn, "content-type") == ["text/event-stream"]
+    events = decode_sse_events(response)
+    assert Enum.map(events, & &1["type"]) == ["response.created", "error"]
+
+    assert %{
+             "status" => 502,
+             "error" => %{
+               "type" => "server_error",
+               "code" => "provider_stream_error",
+               "message" => "AIGateway provider stream failed before a terminal response."
+             }
+           } = List.last(events)
+
+    assert String.ends_with?(response, "data: [DONE]\n\n")
+    assert_sse_event_names_match_body_types(response)
+  end
+
+  defp await_stream_owner(receiver) do
+    Ankole.AIGateway.ResponseStream.Supervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.find_value(fn {_id, pid, _type, _modules} ->
+      if is_pid(pid) and Map.get(stream_owner_state(pid), :receiver) == receiver, do: pid
+    end)
+    |> case do
+      nil ->
+        Process.sleep(10)
+        await_stream_owner(receiver)
+
+      pid ->
+        pid
+    end
+  end
+
+  defp await_provider_output(owner) do
+    case stream_owner_state(owner) do
+      %{provider_output?: true} ->
+        :ok
+
+      _not_yet ->
+        Process.sleep(10)
+        await_provider_output(owner)
+    end
+  end
+
+  defp stream_owner_state(pid) do
+    :sys.get_state(pid)
+  catch
+    :exit, _reason -> %{}
   end
 
   test "a provider error before close yields only the canonical Responses terminal", %{conn: conn} do
@@ -2503,7 +2644,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       Conversations.ensure_conversation(agent.uid, "compact-response-controller")
 
     {:ok, anchor} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [

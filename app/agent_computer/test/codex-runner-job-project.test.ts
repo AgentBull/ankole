@@ -11,7 +11,6 @@ describe('@ankole/agent-computer Codex Job workspace', () => {
       const location = codexJobProjectLocation(agentsRoot, 'agent-1', '1000')
       const project = prepareCodexJobProject({ jobProjectRoot: location.hostPath })
       expect(project.root).toBe(join(agentsRoot, 'agent-1', 'jobs', '1000'))
-      expect(project.codexCwd).toBe(project.root)
       expect(existsSync(join(project.root, 'temp'))).toBeTrue()
       expect(location.agentHome).toBe(join(agentsRoot, 'agent-1'))
     } finally {

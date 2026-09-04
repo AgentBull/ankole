@@ -1,17 +1,17 @@
 ---
 title: アーキテクチャ
-description: control plane、Agent Computer Worker、Actor Runtime、Brain、Background Agent Job がどのように Ankole を構成するかを説明します。
+description: control plane、Agent Computer Worker、Actor Runtime、Brain、Background Agent Job が Ankole Agent Harness をどう構成するかを説明します。
 section: Developer guide
 order: 100
 ---
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole はセルフホスト型の AI Workforce OS です。AI Agent を、業務機能を自律的に遂行し、成果で評価される労働力に変えます。
+Ankole は、Company Brain を備えた企業向け Agent Harness です。企業が管理する基盤で動作し、意思決定に必要なコンテキスト、権限、永続的な実行、フィードバックをモデルに提供します。
 
-1 つの Agent は、1 つの業務機能を数時間にわたって実行し、共有の作業 context を使い、人が検査と採点を行える成果を納品できます。
+Agent は数時間にわたって作業し、共有の Company Brain を使い、ブラウザー、ターミナル、ファイル、外部システムで仕事を実行し、人が確認して後の結果で検証できる判断を提示します。
 
-これには、chat endpoint の背後にある model 以上のものが求められます。システムは、誰が行動するか、誰がアクセス権を持つか、長時間の仕事がどう復旧するか、context がどう最新に保たれるか、1 つの修正が後の仕事をどう変えるかを把握している必要があります。
+Harness は各行動主体を識別し、アクセス規則を適用し、長時間の仕事を復旧し、コンテキストを最新に保ち、修正を次の意思決定に引き継ぎます。
 
 ## システム全体図
 

@@ -138,4 +138,42 @@ defmodule Ankole.AIGateway.HostedToolTelemetryTest do
     refute failure_log =~ "private provider message"
     refute failure_log =~ "private provider body"
   end
+
+  test "emits one bounded event per hosted Brain operation" do
+    handler_id = "hosted-brain-telemetry-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:ankole, :ai_gateway, :hosted_brain],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert :ok =
+             HostedToolTelemetry.emit_brain(%{
+               "operation" => "recall",
+               "result" => "failure",
+               "failure_reason" => "brain_operation_timeout",
+               "subject_uid" => "agent-1",
+               "latency_ms" => 60_000,
+               "arguments" => %{"query" => "must not escape"},
+               "output" => %{"claims" => ["must not escape"]}
+             })
+
+    assert_receive {:telemetry, [:ankole, :ai_gateway, :hosted_brain], measurements, metadata}
+    assert measurements == %{count: 1, latency_ms: 60_000}
+
+    assert metadata == %{
+             operation: "recall",
+             result: "failure",
+             failure_reason: "brain_operation_timeout",
+             subject_uid: "agent-1"
+           }
+  end
 end

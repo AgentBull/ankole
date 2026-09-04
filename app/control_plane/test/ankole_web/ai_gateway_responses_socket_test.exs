@@ -4,7 +4,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   import ExUnit.CaptureLog
 
   import Ankole.AIGatewayCase,
-    only: [start_upstream_server: 1, chat_completion_stream_events: 2]
+    only: [start_upstream_server: 1, chat_completion_stream_events: 2, start_response_run: 1]
 
   import Ankole.PrincipalsFixtures
 
@@ -333,6 +333,56 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert %{"response_id" => ^expected_response_id} = Ankole.JSON.decode!(pushed)
   end
 
+  test "a stream owner that dies mid-response ends it with one error frame and frees the connection" do
+    ref = make_ref()
+    {:ok, pid} = GenServer.start(FakeResponseStream, :ok)
+    stream = %ResponseStream{pid: pid, ref: ref}
+    monitor = ResponseStream.monitor(stream)
+
+    state = %{
+      subject_uid: "agent-test",
+      subject_type: "agent",
+      active_stream: %{
+        ref: ref,
+        stream: stream,
+        monitor: monitor,
+        started_at_ms: System.monotonic_time(:millisecond)
+      }
+    }
+
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed} = down
+
+    assert {:push, {:text, pushed}, next_state} =
+             AIGatewayResponsesSocket.handle_info(down, state)
+
+    assert %{
+             "type" => "error",
+             "sequence_number" => 0,
+             "status" => 502,
+             "error" => %{
+               "type" => "server_error",
+               "code" => "provider_stream_error",
+               "message" => "AIGateway provider stream failed before a terminal response."
+             }
+           } = Ankole.JSON.decode!(pushed)
+
+    refute Map.has_key?(next_state, :active_stream)
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [text_message("user", "again")]
+      })
+
+    assert {:push, {:text, again}, _state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, next_state)
+
+    refute Ankole.JSON.decode!(again)["error"]["code"] == "response_in_progress"
+    assert :ok = AIGatewayResponsesSocket.terminate(:remote, next_state)
+  end
+
   test "response.create rejects a second in-flight response on the same WebSocket" do
     request =
       Ankole.JSON.encode!(%{
@@ -383,7 +433,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       Conversations.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
 
     {:ok, root} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id
       })
@@ -391,7 +441,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, root} = StatefulResponses.commit_complete(root, [text_message("assistant", "done")])
 
     {:ok, active_run} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         previous_response_id: "resp_#{root.id}"
       })
@@ -1531,7 +1581,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       Conversations.ensure_conversation(agent.uid, "socket-issuer-change")
 
     {:ok, root} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id
       })
@@ -2623,7 +2673,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-tool-results-record")
 
     {:ok, anchor} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}},
@@ -2710,7 +2760,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       Conversations.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
 
     {:ok, anchor} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [text_message("user", "stable input")]
@@ -2791,7 +2841,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
 
     {:ok, first_run} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}},
@@ -3012,7 +3062,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert retry_after_seconds in 0..900
     assert {:ok, parsed_retry_at, _offset} = DateTime.from_iso8601(retry_at)
     assert DateTime.compare(parsed_retry_at, reset_at) == :eq
-    assert message =~ "All credentials in this provider pool are unavailable."
+    assert message == "AIGateway credential pool exhausted. retry_at=#{retry_at}"
 
     [run] =
       Message
@@ -3026,7 +3076,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert run.metadata["error"] == %{
              "code" => "credential_pool_exhausted",
              "failure_kind" => "provider_response",
-             "message" => "All credentials in this provider pool are temporarily unavailable.",
+             "message" => "AIGateway credential pool exhausted. retry_at=#{retry_at}",
              "provider_status" => 429,
              "retryable" => true,
              "retry_at" => retry_at,
@@ -3099,8 +3149,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert %{
              "type" => "error",
-             "status" => 503,
+             "status" => 502,
              "error" => %{
+               "type" => "server_error",
                "code" => "upstream_response_failed",
                "message" => "The upstream provider request failed.",
                "details_json" => %{
@@ -3165,7 +3216,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       )
 
     {:ok, message} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: request_items,

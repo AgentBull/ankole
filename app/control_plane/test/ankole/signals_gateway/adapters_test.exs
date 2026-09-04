@@ -2,10 +2,12 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
+  alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
@@ -13,8 +15,8 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
-  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
@@ -186,7 +188,23 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   end
 
   test "rejects string-key reply preview callback results" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "string-key-preview", :ignore)
+
+    %{actor_event: event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "string-key-preview",
+        group_entry(%{
+          source_event_id: "string-key-preview-event",
+          source_entry_id: "string-key-preview-msg",
+          explicit: true
+        })
+      )
+
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn _request -> {:ok, %{"created_source_entry_id" => "provider-id"}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end,
@@ -194,7 +212,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     }
 
     request = %ReplyPreviewAdapter.Request{
-      actor_event: %Ankole.SignalsGateway.ActorEvent{},
+      actor_event: event,
       presentation: %{},
       mode: :working
     }
@@ -262,13 +280,34 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
 
   test "filters runtime secrets before a rich reply preview adapter runs" do
     %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "filtered-preview", :ignore)
+
+    %{actor_event: event} =
+      emit_addressed_actor_event(
+        agent.uid,
+        "filtered-preview",
+        group_entry(%{
+          source_event_id: "filtered-preview-event",
+          source_entry_id: "filtered-preview-msg",
+          explicit: true
+        })
+      )
 
     {worker_auth_key, worker_env_secret, _visible_env_value} =
       configure_runtime_secrets!(agent.uid)
 
+    # The reloaded checkpoint feeds `checkpoint`, `previous_presentation`, and
+    # the ActorEvent copy, so the stored secret must vanish from all three.
+    {:ok, _event} =
+      Actors.put_reply_preview_checkpoint(event.id, %{
+        "presentation" => %{"answer" => "#{worker_auth_key} #{worker_env_secret}"}
+      })
+
     parent = self()
 
     adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
       open_fun: fn request ->
         send(parent, {:filtered_preview, request})
         {:ok, %{}}
@@ -279,13 +318,8 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     }
 
     request = %ReplyPreviewAdapter.Request{
-      actor_event: %ActorEvent{
-        agent_uid: agent.uid,
-        reply_preview_checkpoint: %{"presentation" => %{"answer" => worker_auth_key}}
-      },
+      actor_event: event,
       presentation: %{"answer" => "answer #{worker_auth_key} #{worker_env_secret}"},
-      previous_presentation: %{"answer" => worker_auth_key},
-      checkpoint: %{"presentation" => %{"answer" => worker_env_secret}},
       outbox: %OutboxEntry{
         agent_uid: agent.uid,
         payload: %{"text" => worker_auth_key},
@@ -295,7 +329,11 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     }
 
     assert {:ok, %{}} = ReplyPreviewAdapter.open(adapter, request)
-    assert_receive {:filtered_preview, filtered}
+    assert_receive {:filtered_preview, %ReplyPreviewAdapter.Request{} = filtered}
+
+    assert filtered.actor_event.id == event.id
+    assert filtered.checkpoint["presentation"] == %{"answer" => "[REDACTED] [REDACTED]"}
+    assert filtered.previous_presentation == %{"answer" => "[REDACTED] [REDACTED]"}
 
     rendered = inspect(filtered)
     refute rendered =~ worker_auth_key

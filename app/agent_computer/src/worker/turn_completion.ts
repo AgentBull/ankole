@@ -71,17 +71,22 @@ export async function completeTurnWithAck(
   )
 }
 
+export type TurnNoop = {
+  reason: string
+  finalResponseID?: string
+}
+
 export async function noopTurnWithAck(
   rpcClient: TurnNoopRequester,
   turn: ActorTurnRef,
-  reason: string,
+  noop: TurnNoop,
   options: CompletionRetryOptions = {}
 ): Promise<RPCResponseOf<typeof noopMethod>> {
   return terminalTurnWithAck(
     rpcClient,
     noopMethod,
     turn,
-    { reason },
+    { reason: noop.reason, finalResponseId: noop.finalResponseID ?? '' },
     options,
     rejection => new TurnTerminalRejectedError(noopMethod, rejection)
   )

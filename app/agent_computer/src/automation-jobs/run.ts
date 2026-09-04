@@ -6,11 +6,10 @@ import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import { agentHomePaths, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import { pathIsWithin } from '../core/path-boundary'
 import { startSocketLineBridge, type SocketLineBridge } from '../core/socket-line-bridge'
-import { materializeLarkCredential } from '../core/execution/lark-credential'
-import { resolveAgentWorkerEnvParts } from '../core/execution/worker_env'
+import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../core/execution/execution-materials'
 import { bubblewrapArgv } from '../sandbox/bubblewrap'
 import { commandEnv } from '../sandbox/command-env'
-import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../tools/mcp'
+import { loadEnabledSkillMCPServers } from '../tools/mcp'
 import {
   rpcMethods,
   type AutomationJobRunRequest,
@@ -45,17 +44,8 @@ export async function runAutomationJob(
     return failedResult(errorMessage(error))
   }
 
-  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(request.agentUid, opts.rpc, request.bindingName)
-  const larkCredential = materializeLarkCredential({
-    agentUID: request.agentUid,
-    agentHome: execution.agentHome,
-    rpc: opts.rpc,
-    workerEnv: resolvedWorkerEnv,
-    bindingName: request.bindingName
-  })
-  const workerEnv = larkCredential.workerEnv.vars
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
-  let mcporterConfig: MaterializedMCPorterConfig
+  let materials: PreparedExecutionMaterials
 
   try {
     const skillMCPServers = await loadEnabledSkillMCPServers({
@@ -66,9 +56,14 @@ export async function runAutomationJob(
         ...(opts.config.internalSkillsRoot ? { internalSkillsRoot: opts.config.internalSkillsRoot } : {})
       }
     })
-    mcporterConfig = materializeMCPorterConfig(skillMCPServers)
+    materials = await prepareExecutionMaterials({
+      agentUID: request.agentUid,
+      agentHome: execution.agentHome,
+      rpc: opts.rpc,
+      bindingName: request.bindingName,
+      mcpServers: skillMCPServers
+    })
   } catch (error) {
-    larkCredential.cleanup()
     return failedResult(errorMessage(error))
   }
 
@@ -90,21 +85,17 @@ export async function runAutomationJob(
       return await runProcess(
         request,
         execution,
-        { ...workerEnv, ...mcporterConfig.env },
+        materials.workerEnv,
         contextPath,
         emitBridge.socketPath,
-        larkCredential.runtimeEnv
+        materials.runtimeEnv
       )
     } finally {
       emitBridge.close()
       if (existsSync(contextPath)) unlinkSync(contextPath)
     }
   } finally {
-    try {
-      mcporterConfig.cleanup()
-    } finally {
-      larkCredential.cleanup()
-    }
+    await materials.cleanup()
   }
 }
 
@@ -148,7 +139,7 @@ async function runProcess(
   workerEnv: Record<string, string>,
   contextPath: string,
   socketPath: string,
-  larkRuntimeEnv: Record<string, string>
+  executionRuntimeEnv: Record<string, string>
 ): Promise<RunResult> {
   const timeoutMs = Math.max(1, request.timeoutMs)
   const env = commandEnv(undefined, {
@@ -156,7 +147,7 @@ async function runProcess(
     runtimeEnv: {
       [contextFileEnv]: contextPath,
       [emitSocketEnv]: socketPath,
-      ...larkRuntimeEnv
+      ...executionRuntimeEnv
     },
     home: execution.agentHome,
     ankoleAgentHome: execution.agentHome

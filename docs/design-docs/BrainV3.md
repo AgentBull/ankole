@@ -5,9 +5,9 @@ learning write into one body of pages and claims, and every read applies the
 querier's knowledge boundary. Brain replaces per-agent memory files: what one
 Agent learns, every authorized Principal can reach.
 
-The Elixir control plane owns all Brain state and logic. Workers reach Brain
-only through RuntimeFabric RPC methods; the worker tool layer holds no Brain
-state.
+The Elixir control plane owns all Brain state and logic. A model reaches Brain
+only through the AIGateway-hosted `brain` tool, which executes inside the
+Response; the Worker holds no Brain state and no Brain tool code.
 
 ## Storage
 
@@ -170,23 +170,28 @@ resolved entities and channel, current facts first, under a fixed budget.
 
 ## Tools
 
-Workers expose Brain to the model as tools; each tool call is one
-RuntimeFabric RPC into the control plane, executed as the turn's Agent.
+`Ankole.Brain.Tools` is the model-facing catalog and executor. AIGateway
+declares it as the hosted `brain` tool and executes each call inside the
+Response as the request subject: an Agent Turn, a codex Job, or an OIDC Human.
+The subject is the querier; a Turn's conversation supplies the disclosure
+recipients and the default write scope. A Job and a workflow task get the
+read-only subset `recall` and `get_page`.
 
-| Tool | RPC | What it does |
-| --- | --- | --- |
-| `remember` | `brain.remember` | Writes one Fact or Take through the shared write contract |
-| `learn_source` | `brain.learn_source` | Registers one web URL Source and starts a background learning run |
-| `recall` | `brain.recall` | Fused retrieval over reachable claims and chunks |
-| `get_page` | `brain.get_page` | Renders one page; the Worker delegates a lazy Skill record to the shared `skill_view` loader |
-| `forget` | `brain.forget` | Expires or retracts a claim; soft-deletes a page |
-| `entity` | `brain.entity` | Resolves a name to a page through aliases; ambiguity returns candidates |
-| `whoknows` | `brain.whoknows` | Reports which Principals' scopes hold knowledge on a topic |
-| `synthesize` | `brain.synthesize` | Writes an analysis page from reachable knowledge, at the caller's eligibility |
-| `delta` | `brain.delta` | Reports knowledge changes since a cursor |
+| Operation | What it does |
+| --- | --- |
+| `remember` | Writes one Fact or Take through the shared write contract |
+| `learn_source` | Registers one web URL Source and starts a background learning run |
+| `recall` | Fused retrieval over reachable claims and chunks |
+| `get_page` | Renders one page; a lazy Skill record comes back with the hint to load it with `skill_view` |
+| `forget` | Expires or retracts a claim; soft-deletes a page |
+| `entity` | Resolves a name to a page through aliases; ambiguity returns candidates |
+| `whoknows` | Reports which Principals' scopes hold knowledge on a topic |
+| `synthesize` | Writes an analysis page from reachable knowledge, at the caller's eligibility |
+| `delta` | Reports knowledge changes since a cursor |
 
-`brain.context_pack` and `brain.volunteer_pointers` serve the turn runtime
-directly rather than the model.
+`context_pack` and `volunteer_pointers` serve the memory injection of a
+stateful Response rather than the model. `docs/design-docs/AIGateway.md`
+describes the declaration, the public items, and the injection.
 
 ## Learning
 

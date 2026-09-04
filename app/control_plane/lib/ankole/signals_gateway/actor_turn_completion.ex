@@ -6,6 +6,11 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   worker's completion RPC is the declaration that the Agent loop has ended.
   This module then validates runtime fences and atomically commits provider
   outbox intents plus ActorEvent consumption.
+
+  A `silent` completion consumes the same applied input prefix without a
+  provider-visible reply. It records the outcome and, when the worker adopted
+  a Response chain, the final Response ID, so a finished turn stays
+  distinguishable from one that never ran.
   """
 
   import Ecto.Query, warn: false
@@ -13,8 +18,6 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Logging
@@ -25,16 +28,13 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyInteractions
+  alias Ankole.BackgroundAgentJobs
 
-  # Activation states that can still own the Turn being completed.
-  @live_activation_statuses ~w(starting active draining)
-
-  @spec handle(TurnRef.t(), String.t(), String.t(), keyword()) ::
+  @spec handle(TurnRef.t(), String.t() | nil, String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def handle(%TurnRef{} = turn_ref, final_response_id, outcome, opts) when is_list(opts) do
-    with {:ok, final_response_id} <- required_text(final_response_id),
-         :ok <- validate_final_response_id(final_response_id),
-         {:ok, outcome} <- completion_outcome(outcome) do
+    with {:ok, outcome} <- completion_outcome(outcome),
+         {:ok, final_response_id} <- completion_response_id(final_response_id, outcome) do
       case completed_actor_event(turn_ref) do
         %ActorEvent{} = event ->
           with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
@@ -43,8 +43,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
           end
 
         nil ->
-          with {:ok, completion} <-
-                 AIGatewayLink.load_turn_completion(turn_ref, final_response_id) do
+          with {:ok, completion} <- load_completion(turn_ref, final_response_id, outcome) do
             now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
             Repo.transact(fn repo ->
@@ -53,6 +52,28 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
             |> after_commit(turn_ref, final_response_id, outcome, completion.final_text)
           end
       end
+    end
+  end
+
+  # A silent turn projects no reply. When the worker adopted a Response, that
+  # chain still has to belong to this turn and end in success.
+  defp load_completion(turn_ref, final_response_id, "silent") do
+    with :ok <- validate_silent_response(turn_ref, final_response_id) do
+      {:ok, %{final_response_id: final_response_id, final_text: nil}}
+    end
+  end
+
+  defp load_completion(turn_ref, final_response_id, _outcome) do
+    with {:ok, completion} <- AIGatewayLink.load_turn_completion(turn_ref, final_response_id) do
+      {:ok, Map.put(completion, :final_response_id, final_response_id)}
+    end
+  end
+
+  defp validate_silent_response(_turn_ref, nil), do: :ok
+
+  defp validate_silent_response(turn_ref, final_response_id) do
+    with {:ok, _turn_chain} <- AIGatewayLink.load_turn_chain(turn_ref, final_response_id) do
+      :ok
     end
   end
 
@@ -68,22 +89,21 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp commit_in_tx(repo, turn_ref, completion, outcome, now) do
     case lock_actor_event(repo, turn_ref) do
       %ActorEvent{completed_at: %DateTime{}} = event ->
-        final_response_id = "resp_#{completion.final_response.id}"
-
-        with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
+        with :ok <- validate_completion_anchor(event, completion.final_response_id, outcome) do
           {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
         end
 
       %ActorEvent{} = event ->
-        with {:ok, activation} <- lock_and_validate_activation(repo, turn_ref, now),
-             {:ok, deliveries} <- lock_and_validate_deliveries(repo, turn_ref) do
+        rows = TurnRef.lookup(repo, turn_ref, deliveries: :live)
+
+        with :ok <- TurnRef.match(rows, turn_ref, :complete, now: now) do
           case Actors.ensure_event_source_live_in_tx(repo, event, now) do
             :ok ->
               commit_live_source_in_tx(
                 repo,
                 event,
-                activation,
-                deliveries,
+                rows.activation,
+                rows.deliveries,
                 turn_ref,
                 completion,
                 outcome,
@@ -94,8 +114,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
               cancel_tombstoned_source_in_tx(
                 repo,
                 event,
-                activation,
-                deliveries,
+                rows.activation,
+                rows.deliveries,
                 turn_ref,
                 completion,
                 outcome,
@@ -126,7 +146,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
            complete_accepted_events(repo, event, deliveries, turn_ref, completion, outcome, now),
          {deleted_count, superseded_count} <-
            cleanup_deliveries(repo, turn_ref.actor_event_id, now),
-         {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
+         {:ok, activation} <- release_turn_in_tx(repo, turn_ref, activation, now) do
       {:ok,
        %{
          status: :turn_completed,
@@ -179,7 +199,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
            ),
          {deleted_count, superseded_count} <-
            cleanup_deliveries(repo, turn_ref.actor_event_id, now),
-         {:ok, activation} <- TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now) do
+         {:ok, activation} <- release_turn_in_tx(repo, turn_ref, activation, now) do
       {:ok,
        %{
          status: :turn_canceled,
@@ -195,6 +215,15 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
+  # The Session stays briefly on its worker for follow-up work. A finished
+  # BackgroundAgentJob releases that worker slot in the same commit; every other
+  # Session keeps its assignment.
+  defp release_turn_in_tx(repo, turn_ref, activation, now) do
+    with :ok <- BackgroundAgentJobs.finalize_worker_turn_in_tx(repo, turn_ref, now) do
+      TurnLifecycle.mark_activation_idle_in_tx(repo, activation, now)
+    end
+  end
+
   defp lock_actor_event(repo, turn_ref) do
     ActorEvent
     |> where([event], event.id == ^turn_ref.actor_event_id)
@@ -204,108 +233,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     |> repo.one()
   end
 
-  defp lock_and_validate_activation(repo, turn_ref, now) do
-    activation =
-      ActorSessionActivation
-      |> where([item], item.agent_uid == ^turn_ref.agent_uid)
-      |> where([item], item.session_id == ^turn_ref.session_id)
-      |> where([item], item.activation_uid == ^turn_ref.activation_uid)
-      |> repo.one()
-
-    with %ActorSessionActivation{assigned_worker_id: worker_id} when is_binary(worker_id) <-
-           activation,
-         %AgentComputerWorker{} <- lock_worker(repo, worker_id),
-         %ActorSessionActivation{} = activation <-
-           lock_activation(repo, turn_ref, worker_id),
-         :ok <- validate_activation(activation, turn_ref, now) do
-      {:ok, activation}
-    else
-      {:error, _reason} = error -> error
-      _missing -> {:error, :actor_runtime_fence_not_found}
-    end
-  end
-
-  defp lock_worker(repo, worker_id) do
-    AgentComputerWorker
-    |> where([worker], worker.worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp lock_activation(repo, turn_ref, worker_id) do
-    ActorSessionActivation
-    |> where([item], item.agent_uid == ^turn_ref.agent_uid)
-    |> where([item], item.session_id == ^turn_ref.session_id)
-    |> where([item], item.activation_uid == ^turn_ref.activation_uid)
-    |> where([item], item.assigned_worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp validate_activation(activation, turn_ref, now) do
-    cond do
-      activation.status not in @live_activation_statuses ->
-        {:error, :activation_not_live}
-
-      DateTime.compare(activation.lease_expires_at, now) != :gt ->
-        {:error, :activation_lease_expired}
-
-      activation.actor_epoch != turn_ref.actor_epoch ->
-        {:error, :stale_actor_epoch}
-
-      activation.revision < turn_ref.revision ->
-        {:error, :stale_revision}
-
-      activation.current_actor_event_id != turn_ref.actor_event_id ->
-        {:error, :stale_actor_event_id}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp lock_and_validate_deliveries(repo, turn_ref) do
-    deliveries =
-      ActorEventDelivery
-      |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
-      |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-      |> lock("FOR UPDATE")
-      |> repo.all()
-
-    case deliveries do
-      [] -> {:error, :actor_runtime_fence_not_found}
-      deliveries -> validate_deliveries(deliveries, turn_ref)
-    end
-  end
-
-  defp validate_deliveries(deliveries, turn_ref) do
-    mismatch = Enum.find_value(deliveries, &delivery_mismatch(&1, turn_ref))
-
-    cond do
-      mismatch ->
-        {:error, mismatch}
-
-      not Enum.any?(deliveries, fn delivery ->
-        delivery.actor_event_id == turn_ref.actor_event_id and
-            delivery.state in ["sent", "accepted"]
-      end) ->
-        {:error, :main_delivery_not_received}
-
-      true ->
-        {:ok, deliveries}
-    end
-  end
-
-  defp delivery_mismatch(delivery, turn_ref) do
-    cond do
-      delivery.agent_uid != turn_ref.agent_uid -> :stale_actor_key
-      delivery.session_id != turn_ref.session_id -> :stale_actor_key
-      delivery.activation_uid != turn_ref.activation_uid -> :stale_activation_uid
-      delivery.actor_epoch != turn_ref.actor_epoch -> :stale_actor_epoch
-      delivery.actor_event_id_fence != turn_ref.actor_event_id -> :stale_actor_event_id
-      true -> nil
-    end
-  end
+  defp commit_outboxes(_repo, _event, _completion, "silent", _now), do: {:ok, no_outboxes()}
 
   defp commit_outboxes(repo, event, completion, outcome, now) do
     if AIReplyPreview.channel_reply_eligible?(event) do
@@ -610,12 +538,28 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp completion_outcome("loop_finished"), do: {:ok, "loop_finished"}
   defp completion_outcome("iteration_exhausted"), do: {:ok, "iteration_exhausted"}
+  defp completion_outcome("silent"), do: {:ok, "silent"}
 
   defp completion_outcome(_outcome), do: {:error, :invalid_turn_completion_outcome}
 
-  defp validate_final_response_id("resp_" <> uuid) do
+  # A reply outcome always names the adopted Response. A silent outcome names
+  # it only when the worker ran a model loop.
+  defp completion_response_id(final_response_id, "silent") do
+    case presence(final_response_id) do
+      nil -> {:ok, nil}
+      final_response_id -> validate_final_response_id(final_response_id)
+    end
+  end
+
+  defp completion_response_id(final_response_id, _outcome) do
+    with {:ok, final_response_id} <- required_text(final_response_id) do
+      validate_final_response_id(final_response_id)
+    end
+  end
+
+  defp validate_final_response_id("resp_" <> uuid = final_response_id) do
     case Ecto.UUID.cast(uuid) do
-      {:ok, _uuid} -> :ok
+      {:ok, _uuid} -> {:ok, final_response_id}
       :error -> {:error, :invalid_final_response_id}
     end
   end
@@ -623,10 +567,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp validate_final_response_id(_response_id), do: {:error, :invalid_final_response_id}
 
   defp completion_anchor(completion, outcome) do
-    %{
-      final_response_id: "resp_#{completion.final_response.id}",
-      turn_outcome: outcome
-    }
+    %{final_response_id: completion.final_response_id, turn_outcome: outcome}
   end
 
   defp validate_completion_anchor(
@@ -640,11 +581,20 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     do: {:error, :actor_turn_completion_conflict}
 
   defp required_text(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, {:required_text_blank, "final_response_id"}}
+    case presence(value) do
+      nil -> {:error, {:required_text_blank, "final_response_id"}}
       value -> {:ok, value}
     end
   end
 
   defp required_text(_value), do: {:error, {:required_text_missing, "final_response_id"}}
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp presence(_value), do: nil
 end

@@ -168,7 +168,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
     test "completed reset makes a predecessor clarification callback stale without a successor turn" do
       %{principal: agent} = agent_fixture()
       %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
-      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-rich-provider")
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())

@@ -864,6 +864,9 @@ sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
 features.remote_compaction_v2 = false
 
+[tools.update_plan]
+enabled = true
+
 [model_providers.contract]
 name = "Ankole Codex durable resume contract"
 base_url = "http://127.0.0.1:${port}/v1"

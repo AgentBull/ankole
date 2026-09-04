@@ -154,6 +154,65 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
     end
   end
 
+  test "carries the Job's hosted Brain declaration and applies it to the request" do
+    actor_event_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+    encoded =
+      %{
+        "selector" => "openrouter/openai/gpt-5.6-sol",
+        "provider_options" => %{},
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"],
+        "brain" => %{"operations" => ["recall", "get_page"], "actor_event_id" => actor_event_id}
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    assert {:ok, binding} = CodexModelBinding.decode(encoded)
+
+    assert binding["brain"] == %{
+             "operations" => ["recall", "get_page"],
+             "actor_event_id" => actor_event_id
+           }
+
+    request = %{
+      "model" => "codex-mini",
+      "input" => [],
+      "tools" => [%{"type" => "function", "name" => "shell", "parameters" => %{}}],
+      "metadata" => %{"trace" => "abc"}
+    }
+
+    applied = CodexModelBinding.apply(request, binding)
+
+    assert Enum.at(applied["tools"], -1) == %{
+             "type" => "brain",
+             "operations" => ["recall", "get_page"]
+           }
+
+    assert applied["metadata"] == %{"trace" => "abc", "actor_event_id" => actor_event_id}
+  end
+
+  test "rejects a Brain declaration with unknown operations or no actor event" do
+    for brain <- [
+          %{"operations" => ["erase"], "actor_event_id" => "event-1"},
+          %{"operations" => ["recall"], "actor_event_id" => ""},
+          %{"operations" => [], "actor_event_id" => "event-1"}
+        ] do
+      encoded =
+        %{
+          "selector" => "openrouter/openai/gpt-5.6-sol",
+          "provider_options" => %{},
+          "supports_parallel_tool_calls" => true,
+          "input_modalities" => ["text"],
+          "brain" => brain
+        }
+        |> Ankole.JSON.encode!()
+        |> Base.url_encode64(padding: false)
+
+      assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(encoded)
+    end
+  end
+
   test "rejects a fallback that cannot receive images" do
     encoded =
       %{

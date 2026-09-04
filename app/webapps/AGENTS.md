@@ -21,6 +21,7 @@ This file applies to all files under `app/webapps/`. It supplements the root `AG
 - React can own transient state that is local to one component. Do not store the same value in React state and a Signal.
 - Use `computed` for derived state. Use an effect only to synchronize with an external system, and clean up the effect.
 - Let TanStack Query own request state and the remote cache. Do not copy query data into a Signal only to make it observable. A Signal model can own an editable draft that starts from query data.
+- Console editor pages must seed Signal drafts through `useEditorDraft`. Pass a structured resource identity, the loaded draft source or `undefined`, and the real absence check. The hook owns source keys and seeds each selected identity once, so a query refetch cannot replace operator edits. Setup forms do not use this hook because they do not have the Console draft lifecycle.
 
 ## UI and API boundaries
 

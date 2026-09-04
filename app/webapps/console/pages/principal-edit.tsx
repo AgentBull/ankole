@@ -2,15 +2,17 @@ import { Input, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import {
   ankoleWebPrincipalControllerShowOptions,
   ankoleWebPrincipalControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import { LabeledField, ResourceEditorPage } from '../console-form'
+import { requestErrorCode } from '../../common/request-errors'
+import { EditorNotFound, LabeledField, ResourceEditorPage } from '../console-form'
 import { PrincipalEditorModel } from '../state/principal-editor-model'
+import { useEditorDraft } from '../use-editor-draft'
 import { principalDraftErrorText, principalRequestError } from './principal-create'
 
 /** Edits the display name and email of one human user. */
@@ -26,14 +28,18 @@ export function PrincipalEditPage() {
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
   const loadedPrincipal = principal.data?.principal
   const emailRequired = Boolean(loadedPrincipal?.email || loadedPrincipal?.local_credential)
-
-  useEffect(() => {
-    if (!loadedPrincipal) return
-    model.initialize(`principal:${loadedPrincipal.uid}`, {
-      displayName: loadedPrincipal.display_name ?? '',
-      email: loadedPrincipal.email ?? ''
-    })
-  }, [loadedPrincipal, model])
+  const principalDraft = useMemo(
+    () =>
+      loadedPrincipal
+        ? { displayName: loadedPrincipal.display_name ?? '', email: loadedPrincipal.email ?? '' }
+        : undefined,
+    [loadedPrincipal]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'principal', uid },
+    source: principalDraft,
+    absent: () => requestErrorCode(principal.error) === 'not_found'
+  })
 
   const update = useMutation({
     ...ankoleWebPrincipalControllerUpdateMutation(),
@@ -54,6 +60,10 @@ export function PrincipalEditPage() {
     if (loadedPrincipal) update.mutate({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } })
   }
 
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo="/access/principals" message={t('console.not_found.description')} />
+  }
+
   return (
     <ResourceEditorPage
       title={t('console.principals.edit_title')}
@@ -65,6 +75,7 @@ export function PrincipalEditPage() {
       error={principalRequestError(update.error, t) ?? principal.error}
       submitting={update.isPending}
       submitDisabled={!model.dirty.value}
+      submitUnavailable={draftStatus !== 'ready'}
       onSubmit={submit}>
       <LabeledField label={t('console.principals.display_name')} required>
         <Input

@@ -422,4 +422,209 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     assert log =~ "retryable=true"
     refute log =~ "untrusted provider prose"
   end
+
+  describe "project/2" do
+    test "projects known failures and keeps unknown failures server-side" do
+      rows = [
+        {:missing_model, 400, "missing_model", "model"},
+        {:missing_input, 400, "missing_input", "input"},
+        {:invalid_anchor, 400, "invalid_previous_response_id", nil},
+        {:invalid_conversation, 400, "invalid_stateful_conversation", nil},
+        {:previous_response_not_found, 400, "previous_response_not_found",
+         "previous_response_id"},
+        {{:stateful_http_field_forbidden, "conversation"}, 400,
+         "stateful_responses_require_websocket", nil},
+        {:invalid_oidc_access, 401, "invalid_token", nil},
+        {{:oidc_access_denied, :model_not_allowed}, 403, "access_denied", "model"},
+        {{:oidc_access_denied, :not_found}, 403, "access_denied", nil},
+        {:not_found, 404, "not_found", nil},
+        {:response_run_in_progress, 409, "response_in_progress", nil},
+        {{:tool_results_quarantined, %{"reason" => "orphan"}}, 409, "tool_results_quarantined",
+         "input"},
+        {:model_profile_not_configured, 422, "model_profile_not_configured", "model"},
+        {{:unknown_model_selector, :responses, "nope"}, 422, "unknown_model_selector", "model"},
+        {{:model_binding_not_configured, "responses", "main"}, 422,
+         "model_binding_not_configured", "model"},
+        {{:context_overflow, %{"budget" => 1}}, 422, "context_overflow", nil},
+        {:empty_compaction_summary, 502, "empty_compaction_summary", nil},
+        {:invalid_summary_shape, 502, "invalid_summary_shape", nil},
+        {{:tool_results_record_unavailable, %{"attempts" => 3}}, 503,
+         "tool_results_record_unavailable", nil},
+        {:response_stream_collect_timeout, 504, "upstream_timeout", nil},
+        {:universal_ai_stream_ready_timeout, 504, "upstream_timeout", nil},
+        {:response_stream_missing_terminal_response, 502, "invalid_upstream_response", nil},
+        {:response_stream_closed, 502, "provider_stream_error", nil},
+        {{:response_stream_closed, :killed}, 502, "provider_stream_error", nil},
+        {{:exception, RuntimeError, "private crash"}, 502, "ai_gateway_request_failed", nil},
+        {{:exit, :shutdown}, 502, "ai_gateway_request_failed", nil},
+        {:request_too_large, 422, "request_too_large", nil},
+        {{:invalid_provider_options, %{"private" => "detail"}}, 422, "invalid_provider_options",
+         nil},
+        {:response_stream_start_ignored, 502, "ai_gateway_request_failed", nil},
+        {:response_stream_unavailable, 502, "ai_gateway_request_failed", nil},
+        {{"unexpected", 1}, 502, "ai_gateway_request_failed", nil}
+      ]
+
+      for {reason, status, code, param} <- rows do
+        assert %{status: ^status, headers: %{}, error: error} =
+                 FailureDiagnostics.project(reason),
+               "reason #{inspect(reason)}"
+
+        assert %{"code" => ^code, "param" => ^param, "message" => message, "type" => type} =
+                 error
+
+        assert is_binary(message) and message != ""
+        assert type == if(status >= 500, do: "server_error", else: "invalid_request_error")
+        refute inspect(error) =~ "private"
+      end
+
+      assert %{error: %{"details_json" => %{"reason" => "orphan"}}} =
+               FailureDiagnostics.project({:tool_results_quarantined, %{"reason" => "orphan"}})
+    end
+
+    test "upstream failures follow the HTTP status rule and carry safe details" do
+      body = %{"error" => %{"code" => "rate_limited", "message" => "provider rate limit"}}
+
+      assert %{
+               status: 429,
+               error: %{
+                 "code" => "upstream_response_failed",
+                 "message" => "provider rate limit",
+                 "details_json" => %{
+                   "provider_status" => 429,
+                   "provider_error_code" => "rate_limited",
+                   "retryable" => true,
+                   "stage" => "socket_open"
+                 }
+               }
+             } =
+               FailureDiagnostics.project({:upstream_response_failed, 429, body},
+                 stage: "socket_open"
+               )
+
+      assert %{
+               status: 502,
+               error: %{
+                 "code" => "upstream_response_failed",
+                 "message" => "The upstream provider request failed.",
+                 "details_json" => details
+               }
+             } =
+               FailureDiagnostics.project({:upstream_response_failed, 503, "private body", %{}})
+
+      assert details["provider_status"] == 503
+      refute Map.has_key?(details, "stage")
+
+      assert %{
+               status: 502,
+               error: %{
+                 "code" => "invalid_upstream_response",
+                 "message" => "The upstream provider returned an invalid response."
+               }
+             } = FailureDiagnostics.project({:invalid_upstream_response, 200, ["private"]})
+
+      assert %{
+               status: 504,
+               error: %{
+                 "code" => "upstream_timeout",
+                 "message" => "The upstream provider timed out."
+               }
+             } =
+               FailureDiagnostics.project(
+                 {:universal_ai_request_failed, %{"code" => "total_timeout"}}
+               )
+
+      assert %{
+               status: 502,
+               error: %{
+                 "code" => "upstream_transport_failed",
+                 "message" => "The upstream provider connection failed.",
+                 "details_json" => %{
+                   "error_code" => "websocket_connect_failed",
+                   "error_stage" => "connect",
+                   "retryable" => true
+                 }
+               }
+             } =
+               FailureDiagnostics.project(
+                 {:universal_ai_request_failed,
+                  %{"code" => "websocket_connect_failed", "stage" => "connect"}}
+               )
+
+      assert %{status: 400, error: %{"code" => "upstream_response_failed"}} =
+               FailureDiagnostics.project(
+                 {:universal_ai_request_failed,
+                  %{"code" => "upstream_response_failed", "provider_status" => 400}}
+               )
+
+      assert %{
+               status: 502,
+               error: %{
+                 "code" => "ai_gateway_request_failed",
+                 "message" => "The AIGateway request failed."
+               }
+             } = FailureDiagnostics.project({:universal_ai_request_failed, %{"code" => "other"}})
+    end
+
+    test "an exhausted credential pool keeps one wording, retry headers, and resets_at" do
+      retry_at = DateTime.utc_now(:second) |> DateTime.add(600)
+      iso = DateTime.to_iso8601(retry_at)
+
+      assert %{
+               status: 429,
+               headers: %{
+                 "retry-after" => retry_after,
+                 "x-codex-primary-reset-at" => reset_header
+               },
+               error: %{
+                 "type" => "usage_limit_reached",
+                 "code" => "credential_pool_exhausted",
+                 "message" => message,
+                 "resets_at" => resets_at,
+                 "details_json" => %{"retry_at" => ^iso}
+               }
+             } = FailureDiagnostics.project({:credential_pool_exhausted, %{"retry_at" => iso}})
+
+      assert message == "AIGateway credential pool exhausted. retry_at=#{iso}"
+      assert resets_at == DateTime.to_unix(retry_at)
+      assert reset_header == Integer.to_string(resets_at)
+      assert {seconds, ""} = Integer.parse(retry_after)
+      assert seconds in 0..600
+
+      assert %{
+               status: 429,
+               headers: %{},
+               error:
+                 %{
+                   "message" => "AIGateway credential pool exhausted. Try again later.",
+                   "details_json" => %{}
+                 } = error
+             } = FailureDiagnostics.project({:credential_pool_exhausted, %{"retry_at" => "soon"}})
+
+      refute Map.has_key?(error, "resets_at")
+
+      assert %{retry_at: ^iso} =
+               FailureDiagnostics.classify({:credential_pool_exhausted, %{"retry_at" => iso}})
+
+      assert %{"code" => "credential_pool_exhausted", "retry_at" => iso}
+             |> FailureDiagnostics.classify_stored()
+             |> FailureDiagnostics.public_message() ==
+               "AIGateway credential pool exhausted. retry_at=#{iso}"
+    end
+
+    test "an OpenAI error projects its own envelope" do
+      error = OpenAIError.invalid("input", "invalid_input", "input is invalid")
+
+      assert %{
+               status: 400,
+               headers: %{},
+               error: %{
+                 "type" => "invalid_request_error",
+                 "code" => "invalid_input",
+                 "message" => "input is invalid",
+                 "param" => "input"
+               }
+             } = FailureDiagnostics.project(error)
+    end
+  end
 end

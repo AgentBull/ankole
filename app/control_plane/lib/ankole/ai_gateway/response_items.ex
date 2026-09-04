@@ -38,6 +38,7 @@ defmodule Ankole.AIGateway.ResponseItems do
       call_key: "call_id",
       output_key: "call_id"
     },
+    "brain_call" => %{output: "brain_output", call_key: "call_id", output_key: "call_id"},
     "computer_call" => %{
       output: "computer_call_output",
       call_key: "call_id",
@@ -108,6 +109,7 @@ defmodule Ankole.AIGateway.ResponseItems do
   )
   @budgeted_tool_declaration_types ~w(
     apply_patch
+    brain
     code_interpreter
     computer
     computer_use_preview
@@ -269,6 +271,9 @@ defmodule Ankole.AIGateway.ResponseItems do
   # client, rather than the gateway, will execute the returned search call.
   def budget_role(%{"type" => "tool_search_call"}), do: :gateway_effect
 
+  # A Brain operation is executed by AIGateway for every provider.
+  def budget_role(%{"type" => "brain_call"}), do: :gateway_effect
+
   def budget_role(%{"type" => type}) when type in @provider_budget_call_types,
     do: :provider_effect
 
@@ -374,6 +379,13 @@ defmodule Ankole.AIGateway.ResponseItems do
       item["execution"] in ["client", "server"] and
       is_map(item["arguments"]) and
       valid_search_call_id?(item)
+  end
+
+  def executable_call?(%{"type" => "brain_call"} = item) do
+    completed_status?(item) and
+      non_empty_binary?(item["call_id"]) and
+      non_empty_binary?(item["operation"]) and
+      is_map(item["arguments"])
   end
 
   def executable_call?(%{"type" => "computer_call"} = item) do
@@ -727,6 +739,17 @@ defmodule Ankole.AIGateway.ResponseItems do
       :ok
     else
       {:error, {:invalid_tool_search_output, item["call_id"]}}
+    end
+  end
+
+  defp validate_item(%{"type" => "brain_output"} = item) do
+    if non_empty_binary?(item["call_id"]) and
+         item["status"] in ["completed", "failed"] and
+         non_empty_binary?(item["operation"]) and
+         is_map(item["output"]) do
+      :ok
+    else
+      {:error, {:invalid_brain_output, item["call_id"]}}
     end
   end
 

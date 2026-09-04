@@ -441,17 +441,20 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   # field-for-field subset of the item that its done event already admitted.
   defp reconcile_terminal_item_snapshots(
          state,
-         %{"response" => %{"output" => output} = response} = event
-       )
-       when is_list(output) do
-    output =
-      output
-      |> Enum.with_index()
-      |> Enum.map(fn {item, provider_index} ->
-        reconcile_terminal_item_snapshot(state, item, provider_index)
-      end)
+         %{"response" => %{} = response} = event
+       ) do
+    case Map.fetch(response, "output") do
+      {:ok, output} when is_list(output) ->
+        output = reconcile_terminal_output(state, output)
+        Map.put(event, "response", Map.put(response, "output", output))
 
-    Map.put(event, "response", Map.put(response, "output", output))
+      :error ->
+        output = reconcile_terminal_output(state, [])
+        Map.put(event, "response", Map.put(response, "output", output))
+
+      {:ok, _invalid_output} ->
+        event
+    end
   end
 
   defp reconcile_terminal_item_snapshots(_state, event), do: event
@@ -467,6 +470,26 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp reconcile_terminal_item_snapshot(_state, item, _provider_index), do: item
+
+  defp reconcile_terminal_output(state, output) do
+    reconciled =
+      output
+      |> Enum.with_index()
+      |> Enum.map(fn {item, provider_index} ->
+        reconcile_terminal_item_snapshot(state, item, provider_index)
+      end)
+
+    tail =
+      Stream.unfold(length(reconciled), fn provider_index ->
+        case terminal_snapshot_candidate(state, provider_index) do
+          {:ok, item} -> {item, provider_index + 1}
+          :error -> nil
+        end
+      end)
+      |> Enum.to_list()
+
+    reconciled ++ tail
+  end
 
   defp terminal_snapshot_candidate(
          %{tool_loop: %StreamLoop{current_round_items_rev: provider_items}} = state,

@@ -434,11 +434,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert waiting.status == "waiting_on_user"
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(
-               turn_start_payload!(envelope).turn,
-               "background_agent_job_committed"
-             )
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(turn_start_payload!(envelope).turn)
 
     assert %ActorSessionWorkerAssignment{status: "released"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
@@ -525,8 +522,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     refute Repo.get_by(Ankole.BackgroundAgentJobs.Schemas.Job, continued_from_job_id: job.id)
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at == nil
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(reply_start.turn, "background_agent_job_committed")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(reply_start.turn)
 
     assert %DateTime{} =
              Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at
@@ -634,8 +631,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     refute Repo.get_by(Ankole.BackgroundAgentJobs.Schemas.Job, continued_from_job_id: job.id)
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(mailbox.turn, "background_agent_job_committed")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(mailbox.turn)
 
     assert %DateTime{} =
              Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at

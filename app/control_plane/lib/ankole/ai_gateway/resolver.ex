@@ -21,10 +21,27 @@ defmodule Ankole.AIGateway.Resolver do
   only explicit `provider_id/model` selectors; other capabilities also accept
   `default` or their explicit default bindings such as `web_search.default`.
   """
-  @spec resolve_request_model(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def resolve_request_model(subject_uid, capability, request) do
+  @spec resolve_request_model(String.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_request_model(subject_uid, capability, request, opts \\ []) do
     with {:ok, selector} <- model_selector(request) do
-      resolve_model(subject_uid, capability, selector, request)
+      case Keyword.get(opts, :model_binding) do
+        nil -> resolve_model(subject_uid, capability, selector, request)
+        %{} = binding -> resolve_bound_model(subject_uid, capability, selector, binding, request)
+        _invalid -> {:error, {:unknown_model_selector, capability, selector}}
+      end
+    end
+  end
+
+  defp resolve_bound_model(subject_uid, capability, selector, binding, request) do
+    case binding do
+      %{"profile" => ^selector} ->
+        with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid) do
+          build_runtime(subject_uid, capability, selector, binding, request)
+        end
+
+      _different_alias ->
+        {:error, {:unknown_model_selector, capability, selector}}
     end
   end
 

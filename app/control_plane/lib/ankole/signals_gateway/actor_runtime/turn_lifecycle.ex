@@ -12,7 +12,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
   alias Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
@@ -32,15 +31,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Sanitizer
-  alias Ankole.BackgroundAgentJobs
 
-  # Activation states that still own an actor session.
-  @live_activation_statuses ~w(starting active draining)
   # Keep a responsive Worker activation through long model or tool work.
   @activation_progress_lease_seconds 2_100
   # Prevent scheduler delay from expiring an activation at its exact deadline.
   @activation_lease_grace_seconds 120
-  # Stop retry loops after repeated recoverable Worker failures.
+  # Stop retry loops after repeated recoverable Worker failures. Each delivery
+  # attempt lets the Worker retry one model call locally
+  # (`app/agent_computer/src/core/pi-loop/stream-fn.ts`), so one actor event
+  # can cost local attempts x this delivery count model calls before it
+  # dead-letters.
   @worker_turn_error_dead_letter_attempts 5
   # Give a transient Worker failure a short recovery window before redispatch.
   @worker_turn_error_retry_base_seconds 5
@@ -270,8 +270,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
                deliveries =
                  deliveries_for_turn_acceptance(repo, turn_ref)
 
-               with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id),
-                    :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :exact_revision) do
+               with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id) do
                  deliveries
                  |> Enum.map(fn delivery ->
                    case delivery.state do
@@ -325,13 +324,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
       with {:ok, activation} <-
              Repo.transact(fn repo ->
-               with %ActorSessionActivation{} = activation <-
-                      activation_for_turn_ref(repo, turn_ref),
-                    :ok <- activation_accepts_progress(activation, turn_ref, now) do
-                 renew_activation_lease(repo, activation, now, lease_seconds)
-               else
-                 nil -> {:error, :actor_runtime_fence_not_found}
-                 {:error, _reason} = error -> error
+               rows = TurnRef.lookup(repo, turn_ref)
+
+               with :ok <- TurnRef.match(rows, turn_ref, :progress, now: now) do
+                 renew_activation_lease(repo, rows.activation, now, lease_seconds)
                end
              end) do
         forward_reply_presentation(payload, turn_ref, opts)
@@ -352,83 +348,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     :ok
   end
 
-  @doc """
-  Completes a worker turn that deliberately adopts no provider-visible output.
-
-  This is only for runtime decisions that consume an actor event without
-  provider-visible output, such as ambient silence. Normal text turns complete
-  through an explicit completion RPC carrying the adopted Response ID.
-  """
-  @spec handle_turn_noop_completed(TurnRef.t(), String.t() | nil) ::
-          {:ok, map()} | {:error, term()}
-  def handle_turn_noop_completed(%TurnRef{} = turn_ref, reason) do
-    reason = presence(reason) || "noop_completed"
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.transact(fn repo ->
-      case lock_actor_event_for_turn_ref(repo, turn_ref) do
-        %ActorEvent{completed_at: %DateTime{}} = event ->
-          {:ok,
-           %{
-             status: :already_completed,
-             reason: reason,
-             actor_event: event,
-             activation: activation_snapshot_for_turn_ref(repo, turn_ref),
-             delivery_count: 0,
-             deleted_deliveries: 0,
-             superseded_deliveries: 0
-           }}
-
-        %ActorEvent{} = event ->
-          with %ActorSessionActivation{} = activation <-
-                 activation_for_turn_ref(repo, turn_ref),
-               :ok <- activation_accepts_progress(activation, turn_ref, now),
-               {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
-               {:ok, _completed_events} <-
-                 mark_noop_delivery_events_completed(repo, deliveries, turn_ref, now),
-               {:ok, event} <- mark_noop_event_completed(repo, event, now),
-               {deleted_count, superseded_count} <-
-                 cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
-               :ok <-
-                 BackgroundAgentJobs.finalize_worker_turn_in_tx(repo, turn_ref, now),
-               {:ok, activation} <- mark_activation_idle_in_tx(repo, activation, now) do
-            {:ok,
-             %{
-               status: :noop_completed,
-               reason: reason,
-               actor_event: event,
-               activation: activation,
-               delivery_count: length(deliveries),
-               deleted_deliveries: deleted_count,
-               superseded_deliveries: superseded_count
-             }}
-          else
-            nil -> {:error, :actor_runtime_fence_not_found}
-            {:error, _reason} = error -> error
-          end
-
-        nil ->
-          {:error, :actor_runtime_fence_not_found}
-      end
-    end)
-    |> stop_preview_after_terminal(turn_ref.actor_event_id)
-    |> finish_turn_after_terminal(turn_ref.actor_event_id)
-  end
-
-  defp stop_preview_after_terminal({:ok, _result} = success, actor_event_id) do
-    AIReplyPreview.stop(actor_event_id)
-    success
-  end
-
-  defp stop_preview_after_terminal({:error, _reason} = error, _actor_event_id), do: error
-
-  defp finish_turn_after_terminal({:ok, _result} = success, actor_event_id) do
-    Observability.finish_turn(actor_event_id)
-    success
-  end
-
-  defp finish_turn_after_terminal({:error, _reason} = error, _actor_event_id), do: error
-
   @doc false
   @spec handle_turn_abort(TurnRef.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def handle_turn_abort(%TurnRef{} = turn_ref, %{} = reason, opts \\ []) do
@@ -440,7 +359,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
     Repo.transact(fn repo ->
       with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
-           %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref) do
+           rows = TurnRef.lookup(repo, turn_ref, deliveries: :live),
+           %ActorSessionActivation{} = activation <- rows.activation do
         case prior_abort_result(repo, event, activation, turn_ref, reason) do
           {:ok, result} ->
             {:ok, result}
@@ -449,7 +369,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
             abort_live_attempt_in_tx(
               repo,
               event,
-              activation,
+              rows,
               turn_ref,
               reason,
               now,
@@ -470,20 +390,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   defp abort_live_attempt_in_tx(
          repo,
          event,
-         activation,
+         %{activation: activation, deliveries: deliveries} = rows,
          turn_ref,
          reason,
          now,
          async_work_unit,
          compensate_in_tx
        ) do
-    with :ok <- activation_accepts_abort(activation, turn_ref),
-         {:ok, deliveries} <- live_deliveries_for_turn_ref(repo, turn_ref),
+    with :ok <- TurnRef.match(rows, turn_ref, :abort),
          {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
          dead_letter? =
            dead_letter_after_turn_error?(event, deliveries, reason, async_work_unit),
          {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
-         {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, now),
+         {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, reason, now),
          {:ok, event} <-
            maybe_delay_retryable_turn_error(
              repo,
@@ -528,7 +447,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     expected_reason = inspect(reason)
 
     cond do
-      activation.status in @live_activation_statuses ->
+      ActorSessionActivation.live?(activation) ->
         :not_aborted
 
       activation.status == "failed" and prior_reasons == [expected_reason] and
@@ -666,7 +585,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     activations =
       ActorSessionActivation
       |> where([activation], activation.assigned_worker_id == ^worker_id)
-      |> where([activation], activation.status in ^@live_activation_statuses)
+      |> where([activation], activation.status in ^ActorSessionActivation.live_statuses())
       |> lock("FOR UPDATE")
       |> repo.all()
 
@@ -758,10 +677,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       case lock_activation_by_uid(repo, activation_uid) do
         %ActorSessionActivation{} = activation ->
           cond do
-            activation.status not in @live_activation_statuses ->
+            not ActorSessionActivation.live?(activation) ->
               {:error, :activation_not_due}
 
-            DateTime.compare(activation.lease_expires_at, cutoff) == :gt ->
+            ActorSessionActivation.lease_alive?(activation, cutoff) ->
               {:error, :activation_not_due}
 
             true ->
@@ -780,7 +699,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   defp ensure_activation(repo, actor_key, assignment, now, opts) do
     case lock_live_activation(repo, actor_key) do
       %ActorSessionActivation{} = activation ->
-        case activation_lease_alive?(activation, now) do
+        case ActorSessionActivation.lease_alive?(activation, now) do
           true ->
             refresh_activation_assignment(repo, activation, assignment, now)
 
@@ -792,66 +711,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
       nil ->
         insert_activation(repo, actor_key, assignment, now, opts)
-    end
-  end
-
-  defp activation_lease_alive?(%ActorSessionActivation{lease_expires_at: lease_expires_at}, now) do
-    DateTime.compare(lease_expires_at, now) == :gt
-  end
-
-  defp activation_accepts_progress(%ActorSessionActivation{} = activation, turn_ref, now) do
-    cond do
-      activation.status not in @live_activation_statuses ->
-        {:error, :activation_not_live}
-
-      not activation_lease_alive?(activation, now) ->
-        {:error, :activation_lease_expired}
-
-      activation.agent_uid != turn_ref.agent_uid ->
-        {:error, :stale_actor_key}
-
-      activation.session_id != turn_ref.session_id ->
-        {:error, :stale_actor_key}
-
-      activation.activation_uid != turn_ref.activation_uid ->
-        {:error, :stale_activation_uid}
-
-      activation.actor_epoch != turn_ref.actor_epoch ->
-        {:error, :stale_actor_epoch}
-
-      activation.revision < turn_ref.revision ->
-        {:error, :stale_revision}
-
-      activation.current_actor_event_id != turn_ref.actor_event_id ->
-        {:error, :stale_actor_event_id}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp activation_accepts_abort(%ActorSessionActivation{} = activation, turn_ref) do
-    cond do
-      activation.agent_uid != turn_ref.agent_uid ->
-        {:error, :stale_actor_key}
-
-      activation.session_id != turn_ref.session_id ->
-        {:error, :stale_actor_key}
-
-      activation.activation_uid != turn_ref.activation_uid ->
-        {:error, :stale_activation_uid}
-
-      activation.actor_epoch != turn_ref.actor_epoch ->
-        {:error, :stale_actor_epoch}
-
-      activation.revision < turn_ref.revision ->
-        {:error, :stale_revision}
-
-      activation.current_actor_event_id != turn_ref.actor_event_id ->
-        {:error, :stale_actor_event_id}
-
-      true ->
-        :ok
     end
   end
 
@@ -1012,7 +871,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     ActorSessionActivation
     |> where([activation], activation.agent_uid == ^actor_key.agent_uid)
     |> where([activation], activation.session_id == ^actor_key.session_id)
-    |> where([activation], activation.status in ["starting", "active", "draining"])
+    |> where([activation], activation.status in ^ActorSessionActivation.live_statuses())
     |> lock("FOR UPDATE")
     |> repo.one()
   end
@@ -1026,7 +885,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp activation_deadline_events do
     ActorSessionActivation
-    |> where([activation], activation.status in ^@live_activation_statuses)
+    |> where([activation], activation.status in ^ActorSessionActivation.live_statuses())
     |> Repo.all()
     |> Enum.map(fn activation ->
       {RuntimeEvents.activation_deadline_channel(),
@@ -1085,50 +944,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  # Resolves the activation named by a worker turn reference. The turn_ref is
-  # trusted only after matching the locked row, not because it came from a route.
-  # Lock the worker first so worker-originated progress/error paths share the
-  # placement and admission prefix instead of forming worker/agent/activation
-  # lock cycles during recovery.
-  defp activation_for_turn_ref(repo, turn_ref) do
-    case activation_snapshot_for_turn_ref(repo, turn_ref) do
-      %ActorSessionActivation{assigned_worker_id: worker_id} when is_binary(worker_id) ->
-        with %AgentComputerWorker{} <- lock_activation_worker(repo, worker_id) do
-          lock_activation_for_turn_ref(repo, turn_ref, worker_id)
-        else
-          nil -> nil
-        end
-
-      _activation ->
-        nil
-    end
-  end
-
-  defp activation_snapshot_for_turn_ref(repo, turn_ref) do
-    ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
-    |> where([activation], activation.session_id == ^turn_ref.session_id)
-    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
-    |> repo.one()
-  end
-
-  defp lock_activation_worker(repo, worker_id) do
-    AgentComputerWorker
-    |> where([worker], worker.worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp lock_activation_for_turn_ref(repo, turn_ref, worker_id) do
-    ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
-    |> where([activation], activation.session_id == ^turn_ref.session_id)
-    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
-    |> where([activation], activation.assigned_worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
   defp lock_actor_event_for_turn_ref(repo, turn_ref) do
     ActorEvent
     |> where([event], event.id == ^turn_ref.actor_event_id)
@@ -1136,83 +951,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> where([event], event.session_id == ^turn_ref.session_id)
     |> lock("FOR UPDATE")
     |> repo.one()
-  end
-
-  defp live_deliveries_for_turn_ref(repo, turn_ref) do
-    deliveries =
-      ActorEventDelivery
-      |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
-      |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-      |> lock("FOR UPDATE")
-      |> repo.all()
-
-    cond do
-      deliveries == [] ->
-        {:error, :actor_runtime_fence_not_found}
-
-      true ->
-        with :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :any_revision) do
-          {:ok, deliveries}
-        end
-    end
-  end
-
-  defp live_deliveries_for_noop(repo, %ActorEvent{}, turn_ref) do
-    live_deliveries_for_turn_ref(repo, turn_ref)
-  end
-
-  defp mark_noop_delivery_events_completed(_repo, [], _turn_ref, _now), do: {:ok, []}
-
-  defp mark_noop_delivery_events_completed(repo, deliveries, turn_ref, now) do
-    deliveries
-    |> Enum.filter(&ActorEventDelivery.applied_by_worker?(&1, turn_ref.revision))
-    |> Enum.uniq_by(& &1.actor_event_id)
-    |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, completed_events} ->
-      case Actors.lock_actor_event_in_tx(repo, delivery.actor_event_id) do
-        %ActorEvent{completed_at: nil} = event ->
-          case Actors.mark_event_completed_in_tx(repo, event, now) do
-            {:ok, completed_event} -> {:cont, {:ok, [completed_event | completed_events]}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-
-        %ActorEvent{} = event ->
-          {:cont, {:ok, [event | completed_events]}}
-
-        nil ->
-          {:cont, {:ok, completed_events}}
-      end
-    end)
-  end
-
-  defp mark_noop_event_completed(repo, %ActorEvent{} = event, now) do
-    Actors.mark_event_completed_in_tx(repo, event, now)
-  end
-
-  defp cleanup_noop_deliveries(repo, actor_event_id, now, reason) do
-    {deleted_count, _rows} = delete_accepted_deliveries(repo, actor_event_id)
-    {superseded_count, _rows} = supersede_pending_deliveries(repo, actor_event_id, now, reason)
-    {deleted_count, superseded_count}
-  end
-
-  defp delete_accepted_deliveries(repo, actor_event_id) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.state == "accepted")
-    |> repo.delete_all()
-  end
-
-  defp supersede_pending_deliveries(repo, actor_event_id, now, reason) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-    |> where([delivery], delivery.state in ["created", "sent"])
-    |> repo.update_all(
-      set: [
-        state: "superseded",
-        superseded_at: now,
-        error: %{"reason" => inspect(reason)},
-        updated_at: now
-      ]
-    )
   end
 
   defp supersede_live_deliveries(repo, turn_ref, now, reason) do
@@ -1267,11 +1005,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   defp recoverable_turn_error?(reason),
     do: retryable_turn_error?(reason) or overflow_turn_error?(reason)
 
-  defp maybe_mark_event_dead_letter(repo, %ActorEvent{} = event, true, now) do
-    Actors.mark_event_dead_letter_in_tx(repo, event, now)
+  defp maybe_mark_event_dead_letter(repo, %ActorEvent{} = event, true, reason, now) do
+    Actors.mark_event_dead_letter_in_tx(repo, event, now, reason)
   end
 
-  defp maybe_mark_event_dead_letter(_repo, %ActorEvent{} = event, false, _now), do: {:ok, event}
+  defp maybe_mark_event_dead_letter(_repo, %ActorEvent{} = event, false, _reason, _now),
+    do: {:ok, event}
 
   # The dead-letter row and its provider-visible terminal intent are one durable
   # fact. Committing them in separate transactions leaves an accepted message
@@ -1399,13 +1138,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     case Enum.map(deliveries, & &1.attempt_no) do
       [] -> 0
       attempt_numbers -> Enum.max(attempt_numbers)
-    end
-  end
-
-  defp presence(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
     end
   end
 
@@ -1668,7 +1400,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
            ),
          {_count, _rows} <-
            supersede_turn_deliveries_by_actor_event_id(actor_event_id, repo, now, reason),
-         {:ok, event} <- Actors.mark_event_dead_letter_in_tx(repo, event, now),
+         {:ok, event} <- Actors.mark_event_dead_letter_in_tx(repo, event, now, reason),
          {:ok, _notice} <- maybe_commit_dead_letter_notice(repo, event, true, reason) do
       mark_activation_failed(repo, activation, reason, now)
     else
@@ -1745,57 +1477,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       false -> {:error, :accepted_delivery_mismatch}
     end
   end
-
-  # Checks every accepted delivery against the same turn fence before commit.
-  defp validate_deliveries_turn_ref(deliveries, turn_ref, revision_mode) do
-    Enum.reduce_while(deliveries, :ok, fn
-      delivery, :ok ->
-        case delivery_matches_turn_ref(delivery, turn_ref, revision_mode) do
-          :ok -> {:cont, :ok}
-          {:error, _reason} = error -> {:halt, error}
-        end
-
-      _delivery, {:error, _reason} = error ->
-        {:halt, error}
-    end)
-  end
-
-  # Rejects late replies from an old activation, actor epoch, or turn reference.
-  # The route alone is not a durable identity, because workers reconnect.
-  defp delivery_matches_turn_ref(%ActorEventDelivery{} = delivery, turn_ref, revision_mode) do
-    cond do
-      delivery.agent_uid != turn_ref.agent_uid ->
-        {:error, :stale_actor_key}
-
-      delivery.session_id != turn_ref.session_id ->
-        {:error, :stale_actor_key}
-
-      delivery.activation_uid != turn_ref.activation_uid ->
-        {:error, :stale_activation_uid}
-
-      delivery.actor_epoch != turn_ref.actor_epoch ->
-        {:error, :stale_actor_epoch}
-
-      delivery.actor_event_id_fence != turn_ref.actor_event_id ->
-        {:error, :stale_actor_event_id}
-
-      not delivery_revision_matches?(
-        delivery.revision,
-        turn_ref.revision,
-        revision_mode
-      ) ->
-        {:error, :stale_revision}
-
-      true ->
-        :ok
-    end
-  end
-
-  # Acceptance proves one exact applied revision. Terminal commits validate the
-  # static attempt fence and use the worker revision to partition applied input
-  # from a newer pending suffix.
-  defp delivery_revision_matches?(revision, turn_revision, :exact_revision),
-    do: revision == turn_revision
-
-  defp delivery_revision_matches?(_revision, _turn_revision, :any_revision), do: true
 end

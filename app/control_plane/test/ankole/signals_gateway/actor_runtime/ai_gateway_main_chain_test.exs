@@ -82,7 +82,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     ]
 
     {:ok, first_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: actor_event_metadata(actor_event.id),
@@ -115,7 +115,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     ]
 
     {:ok, second_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         metadata: actor_event_metadata(actor_event.id),
         previous_response_id: "resp_#{first_committed.id}",
@@ -180,7 +180,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: actor_event_metadata(actor_event.id),
@@ -213,7 +213,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     }
 
     {:ok, second_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         metadata: actor_event_metadata(actor_event.id),
         previous_response_id: "resp_#{first_committed.id}",
@@ -296,7 +296,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: actor_event_metadata(actor_event.id),
@@ -350,7 +350,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert journal.metadata["tool_result_journal"] == true
 
     {:ok, final_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         metadata: actor_event_metadata(actor_event.id),
         previous_response_id: "resp_#{journal.id}",
@@ -423,7 +423,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         metadata: actor_event_metadata(actor_event.id),
@@ -448,7 +448,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
              ])
 
     {:ok, final_round} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         metadata: actor_event_metadata(actor_event.id),
         previous_response_id: "resp_#{first_committed.id}",

@@ -97,7 +97,7 @@ export async function executeActiveTurn(
     if (active.controlledStopRequested) return
 
     if (result.kind === 'noop_completed') {
-      await noopTurnWithAck(rpcClient, turnStart.turn, result.reason, {
+      await noopTurnWithAck(rpcClient, turnStart.turn, result, {
         onRetry: (attempt, error) => {
           workerLogger.warning('worker.turn_noop_retry', 'worker turn no-op acknowledgement missing', {
             actor_event_id: turnStart.turn.actor_event_id,

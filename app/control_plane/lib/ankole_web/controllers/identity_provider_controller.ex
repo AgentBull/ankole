@@ -11,6 +11,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.DirectorySync
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderAdapterListResponse
@@ -89,7 +90,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   end
 
   def put_provider(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
+    with {:ok, provider_id} <- ConsoleParams.text(params, :provider_id),
          :ok <- ConsolePolicy.authorize(conn, "identity_provider:#{provider_id}", "update"),
          {:ok, attrs} <- provider_attrs(conn.body_params),
          {:ok, _provider} <-
@@ -108,7 +109,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   end
 
   def run_sync(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
+    with {:ok, provider_id} <- ConsoleParams.text(params, :provider_id),
          :ok <- ConsolePolicy.authorize(conn, "identity_provider:#{provider_id}", "sync"),
          {:ok, job} <-
            DirectorySync.enqueue_sync(provider_id, reason: "manual", source: "console") do
@@ -124,35 +125,19 @@ defmodule AnkoleWeb.IdentityProviderController do
     end
   end
 
-  defp provider_attrs(params) when is_map(params) do
-    adapter_id = params[:adapter_id] || params["adapter_id"]
-
-    config = Map.get(params, :config, Map.get(params, "config", %{}))
-    enabled = Map.get(params, :enabled, Map.get(params, "enabled", true))
-
-    with {:ok, adapter_id} <- non_empty_string(adapter_id, :adapter_id),
-         true <- is_map(config) || {:error, :invalid_config},
-         true <- is_boolean(enabled) || {:error, :invalid_enabled} do
-      {:ok, %{adapter_id: adapter_id, config: config, enabled: enabled}}
+  defp provider_attrs(%{config: config} = params) do
+    with {:ok, adapter_id} <- ConsoleParams.text(params, :adapter_id),
+         true <- is_map(config) || {:error, :invalid_config} do
+      {:ok,
+       %{
+         adapter_id: adapter_id,
+         config: config,
+         enabled: ConsoleParams.boolean(params, :enabled, true)
+       }}
     end
   end
 
   defp provider_attrs(_params), do: {:error, :invalid_request_body}
-
-  defp provider_id_param(params) do
-    params
-    |> Map.get(:provider_id, Map.get(params, "provider_id"))
-    |> non_empty_string(:provider_id)
-  end
-
-  defp non_empty_string(value, field) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, {:missing_param, field}}
-      trimmed -> {:ok, trimmed}
-    end
-  end
-
-  defp non_empty_string(_value, field), do: {:error, {:missing_param, field}}
 
   defp adapter_json(adapter) do
     %{
@@ -188,16 +173,14 @@ defmodule AnkoleWeb.IdentityProviderController do
     )
   end
 
-  defp error(conn, {:missing_param, field}) do
-    error(conn, 422, "validation_failed", "#{field} is required")
+  # An atom key names a request parameter. A string key names a provider config
+  # field, which the fallback clause renders with its field path.
+  defp error(conn, {:missing, key}) when is_atom(key) do
+    error(conn, 422, "validation_failed", "#{key} is required")
   end
 
   defp error(conn, :invalid_config) do
     error(conn, 422, "validation_failed", "config must be an object")
-  end
-
-  defp error(conn, :invalid_enabled) do
-    error(conn, 422, "validation_failed", "enabled must be a boolean")
   end
 
   defp error(conn, {:local_provider_exists, existing_id}) do

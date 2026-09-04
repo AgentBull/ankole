@@ -68,7 +68,6 @@ import {
   ankoleWebAppConfigurationControllerShow,
   ankoleWebAppConfigurationControllerUpdate,
   ankoleWebAuthControllerDeleteSession,
-  ankoleWebAuthControllerOauthToken,
   ankoleWebAuthZGroupControllerAddMember,
   ankoleWebAuthZGroupControllerCreate,
   ankoleWebAuthZGroupControllerDelete,
@@ -124,6 +123,12 @@ import {
   ankoleWebIdentityProviderControllerIndex,
   ankoleWebIdentityProviderControllerPutProvider,
   ankoleWebIdentityProviderControllerRunSync,
+  ankoleWebOidcClientControllerCreate,
+  ankoleWebOidcClientControllerDelete,
+  ankoleWebOidcClientControllerIndex,
+  ankoleWebOidcClientControllerRotateSecret,
+  ankoleWebOidcClientControllerShow,
+  ankoleWebOidcClientControllerUpdate,
   ankoleWebPermissionGrantControllerCreate,
   ankoleWebPermissionGrantControllerDelete,
   ankoleWebPermissionGrantControllerShow,
@@ -347,9 +352,6 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateResponse,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponse,
-  AnkoleWebAuthControllerOauthTokenData,
-  AnkoleWebAuthControllerOauthTokenError,
-  AnkoleWebAuthControllerOauthTokenResponse,
   AnkoleWebAuthZGroupControllerAddMemberData,
   AnkoleWebAuthZGroupControllerAddMemberError,
   AnkoleWebAuthZGroupControllerAddMemberResponse,
@@ -488,6 +490,24 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncError,
   AnkoleWebIdentityProviderControllerRunSyncResponse,
+  AnkoleWebOidcClientControllerCreateData,
+  AnkoleWebOidcClientControllerCreateError,
+  AnkoleWebOidcClientControllerCreateResponse,
+  AnkoleWebOidcClientControllerDeleteData,
+  AnkoleWebOidcClientControllerDeleteError,
+  AnkoleWebOidcClientControllerDeleteResponse,
+  AnkoleWebOidcClientControllerIndexData,
+  AnkoleWebOidcClientControllerIndexError,
+  AnkoleWebOidcClientControllerIndexResponse,
+  AnkoleWebOidcClientControllerRotateSecretData,
+  AnkoleWebOidcClientControllerRotateSecretError,
+  AnkoleWebOidcClientControllerRotateSecretResponse,
+  AnkoleWebOidcClientControllerShowData,
+  AnkoleWebOidcClientControllerShowError,
+  AnkoleWebOidcClientControllerShowResponse,
+  AnkoleWebOidcClientControllerUpdateData,
+  AnkoleWebOidcClientControllerUpdateError,
+  AnkoleWebOidcClientControllerUpdateResponse,
   AnkoleWebPermissionGrantControllerCreateData,
   AnkoleWebPermissionGrantControllerCreateError,
   AnkoleWebPermissionGrantControllerCreateResponse,
@@ -2477,6 +2497,85 @@ export const ankoleWebBrainControllerCreateSourceMutation = (
   return mutationOptions
 }
 
+/**
+ * Delete an OIDC Client
+ */
+export const ankoleWebOidcClientControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebOidcClientControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebOidcClientControllerDeleteResponse,
+  AnkoleWebOidcClientControllerDeleteError,
+  Options<AnkoleWebOidcClientControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebOidcClientControllerDeleteResponse,
+    AnkoleWebOidcClientControllerDeleteError,
+    Options<AnkoleWebOidcClientControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebOidcClientControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebOidcClientControllerShowQueryKey = (options: Options<AnkoleWebOidcClientControllerShowData>) =>
+  createQueryKey('ankoleWebOidcClientControllerShow', options)
+
+/**
+ * Read an OIDC Client
+ */
+export const ankoleWebOidcClientControllerShowOptions = (options: Options<AnkoleWebOidcClientControllerShowData>) =>
+  queryOptions<
+    AnkoleWebOidcClientControllerShowResponse,
+    AnkoleWebOidcClientControllerShowError,
+    AnkoleWebOidcClientControllerShowResponse,
+    ReturnType<typeof ankoleWebOidcClientControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebOidcClientControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebOidcClientControllerShowQueryKey(options)
+  })
+
+/**
+ * Update an OIDC Client
+ */
+export const ankoleWebOidcClientControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebOidcClientControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebOidcClientControllerUpdateResponse,
+  AnkoleWebOidcClientControllerUpdateError,
+  Options<AnkoleWebOidcClientControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebOidcClientControllerUpdateResponse,
+    AnkoleWebOidcClientControllerUpdateError,
+    Options<AnkoleWebOidcClientControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebOidcClientControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
   options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
 ) => createQueryKey('ankoleWebAiGatewayControllerRetrieveResponse', options)
@@ -2510,7 +2609,7 @@ export const ankoleWebBackgroundAgentJobControllerShowQueryKey = (
 ) => createQueryKey('ankoleWebBackgroundAgentJobControllerShow', options)
 
 /**
- * Read one background Agent Job and its runtime Turn trajectory
+ * Read one background Agent Job and one page of its runtime Turn trajectory
  */
 export const ankoleWebBackgroundAgentJobControllerShowOptions = (
   options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
@@ -2532,6 +2631,55 @@ export const ankoleWebBackgroundAgentJobControllerShowOptions = (
     },
     queryKey: ankoleWebBackgroundAgentJobControllerShowQueryKey(options)
   })
+
+export const ankoleWebBackgroundAgentJobControllerShowInfiniteQueryKey = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
+): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>> =>
+  createQueryKey('ankoleWebBackgroundAgentJobControllerShow', options, true)
+
+/**
+ * Read one background Agent Job and one page of its runtime Turn trajectory
+ */
+export const ankoleWebBackgroundAgentJobControllerShowInfiniteOptions = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebBackgroundAgentJobControllerShowResponse,
+    AnkoleWebBackgroundAgentJobControllerShowError,
+    InfiniteData<AnkoleWebBackgroundAgentJobControllerShowResponse>,
+    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>,
+    | string
+    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebBackgroundAgentJobControllerShow({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebBackgroundAgentJobControllerShowInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 /**
  * Disable an active agent, or delete an agent that is already disabled
@@ -2602,6 +2750,33 @@ export const ankoleWebAgentControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Rotate a confidential OIDC Client secret
+ */
+export const ankoleWebOidcClientControllerRotateSecretMutation = (
+  options?: Partial<Options<AnkoleWebOidcClientControllerRotateSecretData>>
+): UseMutationOptions<
+  AnkoleWebOidcClientControllerRotateSecretResponse,
+  AnkoleWebOidcClientControllerRotateSecretError,
+  Options<AnkoleWebOidcClientControllerRotateSecretData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebOidcClientControllerRotateSecretResponse,
+    AnkoleWebOidcClientControllerRotateSecretError,
+    Options<AnkoleWebOidcClientControllerRotateSecretData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebOidcClientControllerRotateSecret({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -5127,6 +5302,58 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions = (
     queryKey: ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey(options)
   })
 
+export const ankoleWebOidcClientControllerIndexQueryKey = (options?: Options<AnkoleWebOidcClientControllerIndexData>) =>
+  createQueryKey('ankoleWebOidcClientControllerIndex', options)
+
+/**
+ * List OIDC Clients
+ */
+export const ankoleWebOidcClientControllerIndexOptions = (options?: Options<AnkoleWebOidcClientControllerIndexData>) =>
+  queryOptions<
+    AnkoleWebOidcClientControllerIndexResponse,
+    AnkoleWebOidcClientControllerIndexError,
+    AnkoleWebOidcClientControllerIndexResponse,
+    ReturnType<typeof ankoleWebOidcClientControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebOidcClientControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebOidcClientControllerIndexQueryKey(options)
+  })
+
+/**
+ * Create an OIDC Client
+ */
+export const ankoleWebOidcClientControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebOidcClientControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebOidcClientControllerCreateResponse,
+  AnkoleWebOidcClientControllerCreateError,
+  Options<AnkoleWebOidcClientControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebOidcClientControllerCreateResponse,
+    AnkoleWebOidcClientControllerCreateError,
+    Options<AnkoleWebOidcClientControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebOidcClientControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Delete one agent-tier worker shell variable
  */
@@ -5171,33 +5398,6 @@ export const ankoleWebWorkerEnvControllerUpdateForAgentMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebWorkerEnvControllerUpdateForAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Exchange a browser admin session or refresh token for console bearer tokens
- */
-export const ankoleWebAuthControllerOauthTokenMutation = (
-  options?: Partial<Options<AnkoleWebAuthControllerOauthTokenData>>
-): UseMutationOptions<
-  AnkoleWebAuthControllerOauthTokenResponse,
-  AnkoleWebAuthControllerOauthTokenError,
-  Options<AnkoleWebAuthControllerOauthTokenData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAuthControllerOauthTokenResponse,
-    AnkoleWebAuthControllerOauthTokenError,
-    Options<AnkoleWebAuthControllerOauthTokenData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAuthControllerOauthToken({
         ...options,
         ...fnOptions,
         throwOnError: true

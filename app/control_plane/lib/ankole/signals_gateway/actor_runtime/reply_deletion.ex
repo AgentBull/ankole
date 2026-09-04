@@ -16,6 +16,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   @spec outbox_intents(module(), Ecto.UUID.t(), [binary()]) :: [map()]
   def outbox_intents(repo, actor_event_id, ai_message_ids \\ [])
@@ -110,30 +111,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
     end
   end
 
-  # A checkpoint can hold a card chain or a message chain. Older rows can hold
-  # one provider entry at the top level.
+  # The adapter that owns the checkpoint names the provider entries it holds.
   defp preview_surface_source_entry_ids(%ActorEvent{} = event) do
+    adapter = ReplyPreviewAdapter.for_event(event)
     checkpoint = event.reply_preview_checkpoint || %{}
 
-    card_message_ids =
-      case checkpoint["cards"] do
-        cards when is_list(cards) ->
-          Enum.map(cards, fn card -> is_map(card) && card["message_id"] end)
-
-        _absent ->
-          []
-      end
-
-    message_ids =
-      case checkpoint["messages"] do
-        messages when is_list(messages) ->
-          Enum.map(messages, fn message -> is_map(message) && message["message_id"] end)
-
-        _absent ->
-          [checkpoint["message_id"]]
-      end
-
-    [event.reply_preview_source_entry_id | card_message_ids ++ message_ids]
+    [
+      event.reply_preview_source_entry_id
+      | ReplyPreviewAdapter.surface_entry_ids(adapter, checkpoint)
+    ]
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
     |> Enum.uniq()
   end

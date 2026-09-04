@@ -3,7 +3,7 @@ import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -30,6 +30,7 @@ import {
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
 import { profileUsesConfigurableModel } from './model-profile-options'
+import { useEditorDraft } from '../use-editor-draft'
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
@@ -69,6 +70,19 @@ export function ModelProfilesEditor({
   currentAgentUID.current = agent.uid
   const pendingSaveSubmissions = useRef(new Map<string, ModelProfileSubmission>())
   const pendingClearSubmissions = useRef(new Map<string, ModelProfileSubmission>())
+  const modelProfileDrafts = useMemo(
+    () =>
+      loading
+        ? undefined
+        : Object.fromEntries(
+            PROFILE_NAMES.map(profile => [profile, draftFromProfile(recordValue(profiles[profile]) ?? {})])
+          ),
+    [loading, profiles]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'model-profiles', agentUID: agent.uid },
+    source: modelProfileDrafts
+  })
 
   const finishPersistence = (
     savedAgentUID: string,
@@ -122,16 +136,6 @@ export function ModelProfilesEditor({
       )
     }
   })
-
-  useEffect(() => {
-    if (loading) return
-    model.initialize(
-      `agent:${agent.uid}`,
-      Object.fromEntries(
-        PROFILE_NAMES.map(profile => [profile, draftFromProfile(recordValue(profiles[profile]) ?? {})])
-      )
-    )
-  }, [agent.uid, loading, model, profiles])
 
   const updateDraft = (profile: ProfileName, patch: Partial<ProfileDraft>) => model.update(profile, patch)
 
@@ -226,7 +230,7 @@ export function ModelProfilesEditor({
         ) : null}
       </div>
       <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error ?? saveProviderHosted.error} />
-      {loading ? (
+      {draftStatus === 'loading' ? (
         <div className="grid gap-4" aria-busy="true">
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-48 w-full" />

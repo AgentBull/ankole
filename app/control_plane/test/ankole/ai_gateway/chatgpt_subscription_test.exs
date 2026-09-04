@@ -13,13 +13,13 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
           "downstream_transport" => "sse",
           "headers" => %{
             "originator" => "codex_cli_rs",
-            "user-agent" => "codex_cli_rs/0.150.1 (Linux 6.8; x86_64) xterm",
+            "user-agent" => "codex_cli_rs/0.153.2 (Linux 6.8; x86_64) xterm",
             "x-codex-beta-features" => "feature-a,feature-b",
             "x-codex-turn-metadata" => "turn-meta",
             "x-codex-turn-state" => "turn-state",
             "x-client-request-id" => "request-from-codex",
             "x-responsesapi-include-timing-metrics" => "true",
-            "version" => "0.150.1"
+            "version" => "0.153.2"
           }
         },
         "provider_options" => %{
@@ -49,7 +49,7 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
     assert headers["authorization"] == "Bearer oauth-access"
     assert headers["chatgpt-account-id"] == "account-stored"
     assert headers["originator"] == "codex_cli_rs"
-    assert headers["user-agent"] == "codex_cli_rs/0.150.1 (Linux 6.8; x86_64) xterm"
+    assert headers["user-agent"] == "codex_cli_rs/0.153.2 (Linux 6.8; x86_64) xterm"
     assert headers["openai-beta"] == "responses=experimental"
     assert headers["content-type"] == "application/json"
     assert headers["accept"] == "text/event-stream"
@@ -62,7 +62,7 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
     assert headers["x-codex-turn-metadata"] == "turn-meta"
     assert headers["x-codex-turn-state"] == "turn-state"
     assert headers["x-responsesapi-include-timing-metrics"] == "true"
-    assert headers["version"] == "0.150.1"
+    assert headers["version"] == "0.153.2"
 
     provider_request = spec.response_context.request
     assert provider_request["store"] == false
@@ -134,7 +134,7 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
         "request_context" =>
           context("provider-priority", %{
             "originator" => "ankole_agent_computer",
-            "user-agent" => "ankole_agent_computer/0.150.1 (Linux; x86_64)"
+            "user-agent" => "ankole_agent_computer/0.153.2 (Linux; x86_64)"
           })
       })
 
@@ -150,20 +150,20 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
         "request_context" =>
           context("inbound-priority", %{
             "originator" => "codex_cli_rs",
-            "user-agent" => "codex_cli_rs/0.150.1 (Linux 6.8; x86_64) xterm"
+            "user-agent" => "codex_cli_rs/0.153.2 (Linux 6.8; x86_64) xterm"
           })
       })
 
     assert {:ok, attached} = Providers.build_response_request(inbound, %{"input" => []})
     {_attempt, spec} = CredentialAttempts.pop(attached)
     assert headers(spec)["originator"] == "codex_cli_rs"
-    assert headers(spec)["user-agent"] == "codex_cli_rs/0.150.1 (Linux 6.8; x86_64) xterm"
+    assert headers(spec)["user-agent"] == "codex_cli_rs/0.153.2 (Linux 6.8; x86_64) xterm"
 
     defaults = runtime(%{"request_context" => context("default-priority")})
     assert {:ok, attached} = Providers.build_response_request(defaults, %{"input" => []})
     {_attempt, spec} = CredentialAttempts.pop(attached)
     assert headers(spec)["originator"] == "codex_cli_rs"
-    assert String.starts_with?(headers(spec)["user-agent"], "codex_cli_rs/0.150.1 (")
+    assert String.starts_with?(headers(spec)["user-agent"], "codex_cli_rs/0.153.2 (")
     refute String.contains?(headers(spec)["user-agent"], "openai-")
   end
 

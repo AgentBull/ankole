@@ -277,7 +277,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
              Conversations.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent.uid,
                conversation_id: conversation.id,
                metadata: %{"request_metadata" => %{"actor_event_id" => event.id}}

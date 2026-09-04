@@ -162,4 +162,6 @@ if config_env() == :prod do
     http: [
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ]
+
+  config :boruta, Boruta.Oauth, issuer: "https://#{host}"
 end

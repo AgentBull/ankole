@@ -266,49 +266,58 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     refute inspect(detail) =~ "json_rpc"
   end
 
-  test "Console Turn projection loads all item trajectories in one query" do
+  test "Console detail pages the Turn trajectory newest first within one budget", %{conn: conn} do
     agent = background_agent_fixture().principal
-    job = create_job!(agent.uid, "batched-turn-projection")
-    first = insert_turn!(job, "thread-batch", "turn-batch-1")
-    second = insert_turn!(job, "thread-batch", "turn-batch-2")
-    turns = BackgroundAgentJobs.list_turns(job.id)
+    job = create_job!(agent.uid, "paged-turn-detail")
+    base = DateTime.add(DateTime.utc_now(:microsecond), -30, :second)
+    silent = insert_turn!(job, "thread-page", "turn-page-0", items: 0, started_at: base)
 
-    handler_id = "background-agent-job-turn-query-#{System.unique_integer([:positive])}"
-    test_pid = self()
-    event = Ankole.Repo.config()[:telemetry_prefix] ++ [:query]
-
-    :ok =
-      :telemetry.attach(
-        handler_id,
-        event,
-        fn _event, _measurements, metadata, pid ->
-          cond do
-            String.contains?(metadata.query, ~s(FROM "background_agent_job_turn_items")) ->
-              send(pid, :turn_item_query)
-
-            String.contains?(
-              metadata.query,
-              ~s(FROM "background_agent_job_turn_trajectory_groups")
-            ) ->
-              send(pid, :trajectory_group_query)
-
-            true ->
-              :ok
-          end
-        end,
-        test_pid
+    older =
+      insert_turn!(job, "thread-page", "turn-page-1",
+        items: 15,
+        started_at: DateTime.add(base, 1, :second)
       )
 
-    on_exit(fn -> :telemetry.detach(handler_id) end)
+    newer =
+      insert_turn!(job, "thread-page", "turn-page-2",
+        items: 15,
+        started_at: DateTime.add(base, 2, :second)
+      )
 
-    projections = BackgroundAgentJobs.console_turn_projections(turns)
+    conn = bearer_conn(conn)
 
-    assert Enum.map(projections, & &1.id) == Enum.map(turns, & &1.id)
-    assert Enum.find(projections, &(&1.id == first.id)).trajectory["messages"] != []
-    assert Enum.find(projections, &(&1.id == second.id)).trajectory["messages"] != []
-    assert_receive :turn_item_query
-    refute_receive :turn_item_query
-    refute_receive :trajectory_group_query
+    first =
+      conn
+      |> get(~p"/api/v1/background-agent-jobs/#{job.id}")
+      |> json_response(200)
+      |> Map.fetch!("job")
+
+    assert Enum.map(first["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
+             {older.id, 5},
+             {newer.id, 15}
+           ]
+
+    assert is_binary(first["turns_next_cursor"])
+
+    second =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=#{first["turns_next_cursor"]}")
+      |> json_response(200)
+      |> Map.fetch!("job")
+
+    assert Enum.map(second["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
+             {silent.id, 0},
+             {older.id, 10}
+           ]
+
+    assert second["turns_next_cursor"] == nil
+
+    assert %{"error" => %{"code" => "invalid_background_agent_job_request"}} =
+             conn
+             |> recycle_bearer()
+             |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=not-a-cursor")
+             |> json_response(422)
   end
 
   defp create_job!(agent_uid, suffix, title \\ nil) do
@@ -339,8 +348,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     |> Enum.map(& &1["id"])
   end
 
-  defp insert_turn!(job, runtime_thread_id, runtime_turn_id) do
-    now = DateTime.utc_now(:microsecond)
+  defp insert_turn!(job, runtime_thread_id, runtime_turn_id, opts \\ []) do
+    now = Keyword.get(opts, :started_at, DateTime.utc_now(:microsecond))
 
     turn =
       %Turn{}
@@ -388,19 +397,21 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
       })
       |> Repo.insert!()
 
-    %TurnItem{}
-    |> TurnItem.changeset(%{
-      turn_id: turn.id,
-      position: 0,
-      revision: turn.revision,
-      item_key: "assistant:finished",
-      item: %{
-        "type" => "agentMessage",
-        "id" => "assistant:finished",
-        "text" => "Finished semantic report."
-      }
-    })
-    |> Repo.insert!()
+    for position <- 0..(Keyword.get(opts, :items, 1) - 1)//1 do
+      %TurnItem{}
+      |> TurnItem.changeset(%{
+        turn_id: turn.id,
+        position: position,
+        revision: turn.revision,
+        item_key: "assistant:finished:#{position}",
+        item: %{
+          "type" => "agentMessage",
+          "id" => "assistant:finished",
+          "text" => "Finished semantic report."
+        }
+      })
+      |> Repo.insert!()
+    end
 
     turn
   end

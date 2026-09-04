@@ -3,7 +3,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentLibraryControllerIndexQueryKey,
@@ -23,6 +23,7 @@ import {
   type AgentLibraryDocumentSubmission,
   type AgentLibraryDocumentsSnapshot
 } from '../state/agent-library-editor-model'
+import { useEditorDraft } from '../use-editor-draft'
 
 /** Mounted with `key={agentUID}`, so every per-agent state resets structurally. */
 export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
@@ -33,6 +34,11 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
   const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'agent-library', agentUID },
+    source: documents.data?.library_documents as AgentLibraryDocumentsSnapshot | undefined,
+    absent: () => requestErrorCode(documents.error) === 'not_found'
+  })
   const replaceDocument = useMutation({
     ...ankoleWebAgentLibraryControllerUpdateMutation(),
     onSuccess: (response, variables) => {
@@ -64,11 +70,6 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
     }
   })
 
-  useEffect(() => {
-    if (!documents.data) return
-    model.initialize(agentUID, documents.data.library_documents as AgentLibraryDocumentsSnapshot)
-  }, [agentUID, documents.data, model])
-
   const save = (kind: AgentLibraryDocumentKind) => {
     const draft = model.snapshot(kind)
     model.setError(kind, '')
@@ -92,8 +93,6 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
     if (result.error) model.setError(kind, requestErrorMessage(result.error))
   }
 
-  const initialized = model.sourceKey.value === `agent:${agentUID}`
-
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
@@ -103,12 +102,12 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
       </div>
 
       <ErrorBlock error={documents.error} />
-      {documents.isLoading ? (
+      {draftStatus === 'loading' && !documents.error ? (
         <div className="grid gap-4 border border-border bg-card p-4 md:p-5" aria-busy="true">
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-80 w-full" />
         </div>
-      ) : initialized ? (
+      ) : draftStatus === 'ready' ? (
         <Tabs
           className="grid gap-4 border border-border bg-card p-4 md:p-5"
           value={activeKind}

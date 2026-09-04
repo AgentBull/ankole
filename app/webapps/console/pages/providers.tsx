@@ -67,6 +67,7 @@ import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../.
 import {
   ConfirmDeleteButton,
   DiscardConfirmDialog,
+  EditorNotFound,
   LabeledField,
   ReadOnlyValue,
   ResourceEditorPage,
@@ -79,6 +80,7 @@ import { EncryptedValueInput } from '../encrypted-value-input'
 import { formatConsoleDate } from '../console-primitives'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 import { ProviderSettingField, providerSettingLabel } from './provider-setting-field'
 import {
   buildConnectionOptions,
@@ -297,20 +299,21 @@ export function ProviderEditorPage() {
       ? selected.provider_kind
       : undefined
 
-  const ready = kinds.length > 0 && (mode === 'new' ? Boolean(configuredProviders) : Boolean(selected))
-  useEffect(() => {
-    if (!ready) return
+  const sourceReady = kinds.length > 0 && (mode === 'new' ? Boolean(configuredProviders) : Boolean(selected))
+  const providerDraft = useMemo(() => {
+    if (!sourceReady) return undefined
     if (mode === 'edit' && selected) {
       const kind = kinds.find(item => item.provider_kind === selected.provider_kind)
-      model.initialize(`provider:${selected.provider_id}`, {
+      return {
         providerID: selected.provider_id,
         providerKind: selected.provider_kind,
         baseURL: selected.base_url ?? '',
         options: initialOptions(connectionSettings(kind), selected)
-      })
-    } else if (mode === 'new') {
+      }
+    }
+    if (mode === 'new') {
       const kind = kinds[0]
-      model.initialize('new', {
+      return {
         providerID: nextProviderID(
           kind?.provider_kind ?? '',
           configuredProviders?.map(provider => provider.provider_id) ?? []
@@ -318,9 +321,15 @@ export function ProviderEditorPage() {
         providerKind: kind?.provider_kind ?? '',
         baseURL: kind?.default_base_url ?? '',
         options: initialOptions(connectionSettings(kind), undefined)
-      })
+      }
     }
-  }, [configuredProviders, kinds, mode, model, providerID, ready, selected])
+    return undefined
+  }, [configuredProviders, kinds, mode, selected, sourceReady])
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'ai-provider', providerID },
+    source: providerDraft,
+    absent: () => mode === 'edit' && requestErrorCode(providerDetail.error) === 'not_found'
+  })
 
   const saveProvider = useMutation({
     ...putProviderMutation(),
@@ -384,6 +393,10 @@ export function ProviderEditorPage() {
     </LabeledField>
   )
 
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo="/providers" message={t('console.not_found.description')} />
+  }
+
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
@@ -399,7 +412,7 @@ export function ProviderEditorPage() {
       }
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready || Boolean(unavailableKind)}
+      submitUnavailable={draftStatus !== 'ready' || Boolean(unavailableKind)}
       contentWidth="wide"
       supplementary={
         mode === 'edit' && selected ? (

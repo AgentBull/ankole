@@ -4,47 +4,15 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, ErrorPolicy, Mrkdwn, ReplyPreview}
-  alias Ankole.Repo
+  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, ErrorPolicy, Mrkdwn}
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.WorkerFiles
   alias SlackOpenAPI.Error
 
   @max_text_chars 12_000
 
   @impl true
-  def send(
-        %OutboxEntry{
-          payload: %{"reply_presentation" => presentation},
-          source_actor_event_id: actor_event_id
-        } = outbox
-      )
-      when is_map(presentation) and is_binary(actor_event_id) do
-    result =
-      case Repo.get(ActorEvent, actor_event_id) do
-        %ActorEvent{} = event ->
-          checkpoint = event.reply_preview_checkpoint || %{}
-
-          ReplyPreviewAdapter.finalize_module(ReplyPreview, %Request{
-            actor_event: event,
-            presentation: presentation,
-            checkpoint: checkpoint,
-            subject_uid: checkpoint["subject_uid"],
-            conversation_id: checkpoint["conversation_id"],
-            outbox: outbox,
-            mode: :terminal
-          })
-
-        nil ->
-          {:error, :actor_event_not_found}
-      end
-
-    ErrorPolicy.normalize_delivery_result(result)
-  end
-
   def send(%OutboxEntry{} = outbox) do
     result =
       with {:ok, config} <- config_for_outbox(outbox),

@@ -92,7 +92,7 @@ export function materializeLarkCredential(input: {
 }
 
 /** Removes the raw Lark token before any WorkerEnv reaches a child process. */
-export function withoutLarkTenantToken(workerEnv: ResolvedAgentWorkerEnv): ResolvedAgentWorkerEnv {
+function withoutLarkTenantToken(workerEnv: ResolvedAgentWorkerEnv): ResolvedAgentWorkerEnv {
   return {
     vars: withoutLarkTenantTokenValue(workerEnv.vars),
     operatorVars: withoutLarkTenantTokenValue(workerEnv.operatorVars),
@@ -100,16 +100,10 @@ export function withoutLarkTenantToken(workerEnv: ResolvedAgentWorkerEnv): Resol
   }
 }
 
-export function withoutLarkTenantTokenValue(env: Record<string, string>): Record<string, string> {
+function withoutLarkTenantTokenValue(env: Record<string, string>): Record<string, string> {
   const next = { ...env }
   delete next[LARK_TENANT_TOKEN_ENV]
   return next
-}
-
-/** Compares the app and brand that own a binding credential. */
-export function sameLarkBindingIdentity(left: ResolvedAgentWorkerEnv, right: ResolvedAgentWorkerEnv): boolean {
-  const identity = larkBindingIdentity(left.bindingVars)
-  return identity !== undefined && identity === larkBindingIdentity(right.bindingVars)
 }
 
 function larkBindingIdentity(bindingVars: Record<string, string>): string | undefined {

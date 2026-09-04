@@ -605,44 +605,6 @@ fn golden_worker_ready() -> proto::Envelope {
     )
 }
 
-fn golden_brain_recall_request() -> proto::Envelope {
-    base_envelope(
-        "golden-rpc-brain-recall-request-1",
-        "golden-rpc-brain-recall-1",
-        RPCLane,
-        proto::DurabilityClass::ControlEphemeral,
-        RPCRequestBody(proto::RpcRequest {
-            request_id: "golden-rpc-brain-recall-1".into(),
-            method: "brain.recall".into(),
-            deadline_unix_ms: 1_782_300_001_000,
-            payload: proto::BrainRequest {
-                params_json: br#"{"budget_tokens":512,"query":"golden memory"}"#.to_vec(),
-            }
-            .encode_to_vec(),
-            turn: Some(turn_ref()),
-            agent_uid: String::new(),
-        }),
-    )
-}
-
-fn golden_brain_recall_response() -> proto::Envelope {
-    base_envelope(
-        "golden-rpc-brain-recall-response-1",
-        "golden-rpc-brain-recall-1",
-        RPCLane,
-        proto::DurabilityClass::ControlEphemeral,
-        RPCResponseBody(proto::RpcResponse {
-            request_id: "golden-rpc-brain-recall-1".into(),
-            payload: proto::JsonPassthroughResponse {
-                body_json:
-                    br#"{"chunks":[{"object_slug":"concepts/golden","text":"Golden memory."}]}"#
-                        .to_vec(),
-            }
-            .encode_to_vec(),
-        }),
-    )
-}
-
 fn golden_skill_overlay_resolve_request() -> proto::Envelope {
     base_envelope(
         "golden-rpc-skill-overlay-resolve-request-1",
@@ -708,14 +670,6 @@ fn regenerate_golden_envelope_fixtures() {
         ("turn_start.v5.bin", golden_turn_start(Some(32_000))),
         ("worker_ready.v5.bin", golden_worker_ready()),
         (
-            "rpc_brain_recall_request.v5.bin",
-            golden_brain_recall_request(),
-        ),
-        (
-            "rpc_brain_recall_response.v5.bin",
-            golden_brain_recall_response(),
-        ),
-        (
             "rpc_skill_overlay_resolve_request.v5.bin",
             golden_skill_overlay_resolve_request(),
         ),
@@ -735,34 +689,6 @@ fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
         golden_turn_start(Some(32_000))
     );
     assert_eq!(read_golden("worker_ready.v5.bin"), golden_worker_ready());
-
-    let brain_request = read_golden("rpc_brain_recall_request.v5.bin");
-    assert_eq!(brain_request, golden_brain_recall_request());
-    let Some(RPCRequestBody(brain_request)) = brain_request.body else {
-        panic!("expected brain recall rpc_request fixture");
-    };
-    let brain_request = proto::BrainRequest::decode(brain_request.payload.as_slice())
-        .expect("brain request payload");
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&brain_request.params_json)
-            .expect("brain params json"),
-        serde_json::json!({"budget_tokens": 512, "query": "golden memory"})
-    );
-
-    let brain_response = read_golden("rpc_brain_recall_response.v5.bin");
-    assert_eq!(brain_response, golden_brain_recall_response());
-    let Some(RPCResponseBody(brain_response)) = brain_response.body else {
-        panic!("expected brain recall rpc_response fixture");
-    };
-    let brain_response = proto::JsonPassthroughResponse::decode(brain_response.payload.as_slice())
-        .expect("brain response payload");
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&brain_response.body_json)
-            .expect("brain response json"),
-        serde_json::json!({
-            "chunks": [{"object_slug": "concepts/golden", "text": "Golden memory."}]
-        })
-    );
 
     let overlay_request = read_golden("rpc_skill_overlay_resolve_request.v5.bin");
     assert_eq!(overlay_request, golden_skill_overlay_resolve_request());

@@ -4,8 +4,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
   import Ecto.Query, warn: false
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorEvent
@@ -48,136 +46,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
 
   def authorize_turn_route_in_tx(repo, %TurnRef{} = turn_ref, route, effect, opts)
       when is_binary(route) and effect in [:read, :write] and is_list(opts) do
-    lock? = Keyword.get(opts, :lock, false)
+    rows = TurnRef.lookup(repo, turn_ref, route: route, lock: Keyword.get(opts, :lock, false))
 
-    with %AgentComputerWorker{} = worker <- worker_by_route(repo, route, lock?),
-         %ActorSessionActivation{} = activation <-
-           live_activation(repo, turn_ref, worker, lock?),
-         %ActorSessionWorkerAssignment{} <- live_assignment(repo, turn_ref, worker, lock?),
-         :ok <- authorize_revision(activation, turn_ref, effect) do
+    with :ok <- TurnRef.match(rows, turn_ref, route_mode(effect)) do
       {:ok, :authorized}
-    else
-      nil -> {:error, :worker_not_assigned_to_turn}
-      {:error, _reason} = error -> error
     end
   end
 
   def authorize_turn_route_in_tx(_repo, _turn_ref, _route, _effect, _opts),
     do: {:error, :invalid_turn_ref}
 
-  defp worker_by_route(repo, route, lock?) do
-    AgentComputerWorker
-    |> where([worker], worker.transport_route == ^route)
-    |> where([worker], worker.status in ["ready", "draining"])
-    |> maybe_lock(lock?)
-    |> repo.one()
-  end
+  defp route_mode(:read), do: :route_read
+  defp route_mode(:write), do: :route_write
 
-  defp live_assignment(
-         repo,
-         %TurnRef{} = turn_ref,
-         %AgentComputerWorker{} = worker,
-         lock?
-       ) do
-    ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^turn_ref.agent_uid)
-    |> where([assignment], assignment.session_id == ^turn_ref.session_id)
-    |> where([assignment], assignment.worker_id == ^worker.worker_id)
-    |> where([assignment], assignment.status in ["assigned", "draining"])
-    |> maybe_lock(lock?)
-    |> repo.one()
-  end
-
-  defp live_activation(repo, turn_ref, %AgentComputerWorker{} = worker, lock?) do
-    ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
-    |> where([activation], activation.session_id == ^turn_ref.session_id)
-    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
-    |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
-    |> where([activation], activation.current_actor_event_id == ^turn_ref.actor_event_id)
-    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
-    |> where([activation], activation.status in ["starting", "active", "draining"])
-    |> maybe_lock(lock?)
-    |> repo.one()
-  end
-
-  defp authorize_completed_turn_retry_in_tx(repo, turn_ref, route) do
-    with %AgentComputerWorker{} = worker <- worker_by_route(repo, route, false),
-         %ActorSessionActivation{} <- completed_turn_activation(repo, turn_ref, worker),
-         %ActorEvent{} <- completed_actor_event(repo, turn_ref) do
-      {:ok, :authorized}
-    else
-      nil -> {:error, :worker_not_assigned_to_turn}
-    end
-  end
-
+  # A terminal RPC can repeat after its commit already happened. The activation
+  # keeps the static fence and may hold a newer revision than the worker's; the
+  # terminal record proves which end the turn reached.
   defp authorize_terminal_retry_in_tx(repo, turn_ref, route) do
-    case authorize_completed_turn_retry_in_tx(repo, turn_ref, route) do
-      {:ok, :authorized} = authorized -> authorized
-      {:error, _reason} -> authorize_aborted_turn_retry_in_tx(repo, turn_ref, route)
-    end
-  end
+    rows = TurnRef.lookup(repo, turn_ref, route: route, lock: false)
 
-  defp authorize_aborted_turn_retry_in_tx(repo, turn_ref, route) do
-    with %AgentComputerWorker{} = worker <- worker_by_route(repo, route, false),
-         %ActorSessionActivation{} <- aborted_turn_activation(repo, turn_ref, worker),
-         true <- aborted_turn_delivery?(repo, turn_ref) do
+    with :ok <- TurnRef.match(rows, turn_ref, :terminal_retry),
+         true <- terminal_record?(repo, rows.activation, turn_ref) do
       {:ok, :authorized}
     else
       _missing -> {:error, :worker_not_assigned_to_turn}
     end
   end
 
-  defp aborted_turn_activation(repo, turn_ref, worker) do
-    ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
-    |> where([activation], activation.session_id == ^turn_ref.session_id)
-    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
-    |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
-    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
-    |> where([activation], activation.revision >= ^turn_ref.revision)
-    |> where([activation], activation.status == "failed")
-    |> repo.one()
-  end
+  defp terminal_record?(repo, %ActorSessionActivation{status: "failed"}, turn_ref),
+    do: TurnLifecycle.aborted_delivery_exists_in_tx(repo, turn_ref)
 
-  defp aborted_turn_delivery?(repo, turn_ref) do
-    TurnLifecycle.aborted_delivery_exists_in_tx(repo, turn_ref)
-  end
-
-  defp completed_turn_activation(repo, turn_ref, worker) do
-    ActorSessionActivation
-    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
-    |> where([activation], activation.session_id == ^turn_ref.session_id)
-    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
-    |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
-    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
-    |> where([activation], activation.revision >= ^turn_ref.revision)
-    |> where([activation], activation.status in ["active", "draining"])
-    |> repo.one()
-  end
-
-  defp completed_actor_event(repo, turn_ref) do
+  defp terminal_record?(repo, %ActorSessionActivation{}, turn_ref) do
     ActorEvent
     |> where([event], event.id == ^turn_ref.actor_event_id)
     |> where([event], event.agent_uid == ^turn_ref.agent_uid)
     |> where([event], event.session_id == ^turn_ref.session_id)
     |> where([event], not is_nil(event.completed_at))
-    |> repo.one()
+    |> repo.exists?()
   end
-
-  defp maybe_lock(query, true), do: lock(query, "FOR UPDATE")
-  defp maybe_lock(query, false), do: query
-
-  defp authorize_revision(%ActorSessionActivation{}, _turn_ref, :read), do: :ok
-
-  defp authorize_revision(
-         %ActorSessionActivation{revision: activation_revision},
-         %{revision: turn_revision},
-         :write
-       )
-       when activation_revision >= turn_revision,
-       do: :ok
-
-  defp authorize_revision(%ActorSessionActivation{}, _turn_ref, :write),
-    do: {:error, :stale_revision}
 end

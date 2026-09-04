@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.StatefulResponsesTest do
   use Ankole.DataCase, async: true
 
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
@@ -13,7 +14,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
 
-  describe "start_response_run/1" do
+  describe "start_planned_response_run/1" do
     test "records request-side tool result metadata when creating a run" do
       agent = agent_fixture()
 
@@ -90,7 +91,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, first_complete} = StatefulResponses.commit_complete(first, [%{"type" => "message"}])
 
       assert {:error, :stateful_anchor_conflict} =
-               StatefulResponses.start_response_run(%{
+               StatefulResponses.start_planned_response_run(%{
                  subject_uid: agent.principal.uid,
                  conversation_id: conversation.id,
                  previous_response_id: "resp_#{first_complete.id}"
@@ -132,14 +133,27 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(owner.principal.uid, "test-conv-cross-agent")
 
       assert {:error, :invalid_conversation} =
-               StatefulResponses.start_response_run(%{
-                 subject_uid: caller.principal.uid,
-                 conversation_id: conversation.id
-               })
+               start_run(caller, conversation, "event-cross-agent")
     end
-  end
 
-  describe "start_planned_response_run/1" do
+    test "anchors an implicit run at the visible leaf and admits one generating run at a time" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        Conversations.ensure_conversation(agent.principal.uid, "test-conv-implicit-leaf")
+
+      {:ok, root} = start_run(agent, conversation, "event-implicit-leaf-root")
+
+      assert {:error, :response_run_in_progress} =
+               start_run(agent, conversation, "event-implicit-leaf-blocked")
+
+      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+      {:ok, next} = start_run(agent, conversation, "event-implicit-leaf-next")
+
+      assert next.previous_message_id == root.id
+      assert StatefulResponses.latest_visible_leaf(conversation.id) == root.id
+    end
+
     test "admits only one concurrent implicit continuation and commits its compaction atomically" do
       agent = agent_fixture()
 
@@ -202,7 +216,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert Repo.aggregate(CompactionArtifact, :count) == 1
 
       assert {:ok, explicit_branch} =
-               StatefulResponses.start_response_run(%{
+               StatefulResponses.start_planned_response_run(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{root.id}",
                  metadata: %{"request_metadata" => %{"source" => "explicit-branch-test"}}
@@ -1224,13 +1238,11 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
     }
 
     base =
-      if Map.has_key?(attrs, :previous_response_id) or Map.has_key?(attrs, "previous_response_id") do
-        base
-      else
-        Map.put(base, :conversation_id, conversation.id)
-      end
+      if Map.has_key?(attrs, :previous_response_id),
+        do: base,
+        else: Map.put(base, :conversation_id, conversation.id)
 
-    StatefulResponses.start_response_run(Map.merge(base, attrs))
+    start_response_run(Map.merge(base, attrs))
   end
 
   defp insert_compaction_artifact(agent, conversation, summary_text, retained_items) do

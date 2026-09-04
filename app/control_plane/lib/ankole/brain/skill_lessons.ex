@@ -20,12 +20,9 @@ defmodule Ankole.Brain.SkillLessons do
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIGateway.OpaqueContent
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.Brain.Config
   alias Ankole.Brain.ModelCalls
   alias Ankole.Logging
@@ -36,14 +33,6 @@ defmodule Ankole.Brain.SkillLessons do
   @terminal_statuses ~w(succeeded failed stopped)
   @evidence_age_days 30
   @bundle_job_limit 30
-  @per_job_char_limit 3_000
-  @task_head_chars 500
-  @error_summary_chars 300
-  @human_input_chars 400
-  @human_input_limit 8
-  @failed_call_chars 300
-  @bypass_call_chars 200
-  @failed_group_limit 10
   @docket_horizon_hours 26
   @review_index_days 7
   @review_index_limit 40
@@ -197,57 +186,20 @@ defmodule Ankole.Brain.SkillLessons do
     |> Repo.exists?()
   end
 
-  # A signal job carries admissible evidence: human input beyond the task
-  # injection (userMessage items >= 2) or at least one failed call. Both
-  # predicates read fields verified against production data.
   defp signal_candidates(agent_uid, watermark, now) do
-    age_floor = DateTime.add(now, -@evidence_age_days, :day)
-
-    job_ids =
-      Job
-      |> where([job], job.agent_uid == ^agent_uid)
-      |> where([job], job.status in ^@terminal_statuses)
-      |> where([job], job.id > ^watermark)
-      |> where([job], coalesce(job.completed_at, job.updated_at) > ^age_floor)
-      |> Queries.excluding_reflection_jobs()
-      |> select([job], job.id)
-      |> Repo.all()
-
-    signal_stats(job_ids)
-  end
-
-  defp signal_stats([]), do: []
-
-  defp signal_stats(job_ids) do
-    TurnItem
-    |> join(:inner, [item], turn in Turn, on: item.turn_id == turn.id)
-    |> where([_item, turn], turn.job_id in ^job_ids)
-    |> group_by([_item, turn], turn.job_id)
-    |> select([item, turn], %{
-      job_id: turn.job_id,
-      user_messages: fragment("count(*) FILTER (WHERE ? ->> 'type' = 'userMessage')", item.item),
-      failed_calls:
-        fragment(
-          """
-          count(*) FILTER (WHERE
-            (? ->> 'type' = 'commandExecution' AND coalesce(? ->> 'exitCode', '0') <> '0')
-            OR (? ->> 'type' = 'dynamicToolCall' AND ? ->> 'success' = 'false'))
-          """,
-          item.item,
-          item.item,
-          item.item,
-          item.item
-        )
-    })
-    |> Repo.all()
-    |> Enum.filter(&(&1.user_messages >= 2 or &1.failed_calls > 0))
-    |> Enum.sort_by(& &1.job_id, :desc)
+    BackgroundAgentJobs.evidence_signals(
+      agent_uid,
+      watermark,
+      DateTime.add(now, -@evidence_age_days, :day)
+    )
   end
 
   defp create_reflection_job(agent_uid, candidates) do
     bundle = Enum.take(candidates, @bundle_job_limit)
     through_job_id = hd(bundle).job_id
-    human_input_ids = for candidate <- bundle, candidate.user_messages >= 2, do: candidate.job_id
+
+    human_input_ids =
+      for candidate <- bundle, candidate.human_input_count > 0, do: candidate.job_id
 
     owner_session_id = "brain:skill-lessons:" <> agent_uid
 
@@ -294,187 +246,10 @@ defmodule Ankole.Brain.SkillLessons do
   # Evidence bundle
 
   defp bundle_sections(bundle) do
-    job_ids = Enum.map(bundle, & &1.job_id)
-
-    jobs =
-      Job
-      |> where([job], job.id in ^job_ids)
-      |> Repo.all()
-      |> Map.new(&{&1.id, &1})
-
-    items_by_job =
-      TurnItem
-      |> join(:inner, [item], turn in Turn, on: item.turn_id == turn.id)
-      |> where([_item, turn], turn.job_id in ^job_ids)
-      |> where(
-        [item, _turn],
-        fragment("? ->> 'type'", item.item) in ~w(userMessage commandExecution dynamicToolCall contextCompaction)
-      )
-      |> order_by([item, turn], asc: turn.started_at, asc: item.position)
-      |> select([item, turn], %{job_id: turn.job_id, turn_id: turn.id, item: item.item})
-      |> Repo.all()
-      |> Enum.map(&%{&1 | item: OpaqueContent.reveal(&1.item)})
-      |> Enum.group_by(& &1.job_id)
-
-    usage_by_job = last_turn_usage(job_ids)
-
     bundle
-    |> Enum.map(fn candidate ->
-      job_section(
-        Map.fetch!(jobs, candidate.job_id),
-        Map.get(items_by_job, candidate.job_id, []),
-        Map.get(usage_by_job, candidate.job_id)
-      )
-    end)
+    |> Enum.map(& &1.job_id)
+    |> BackgroundAgentJobs.evidence_sections()
     |> Enum.join("\n\n")
-  end
-
-  defp last_turn_usage(job_ids) do
-    Turn
-    |> where([turn], turn.job_id in ^job_ids)
-    |> where([turn], not is_nil(turn.usage))
-    |> order_by([turn], asc: turn.job_id, desc: turn.started_at)
-    |> distinct([turn], turn.job_id)
-    |> select([turn], {turn.job_id, turn.usage})
-    |> Repo.all()
-    |> Map.new()
-  end
-
-  defp job_section(job, items, usage) do
-    lines =
-      [
-        "### Job #{job.id} — #{job.title} (#{job.status})",
-        "TASK: " <> head(job.task, @task_head_chars)
-      ] ++
-        terminal_lines(job) ++
-        human_input_lines(items) ++
-        failed_call_lines(items) ++
-        compaction_line(items) ++
-        usage_line(usage)
-
-    lines
-    |> Enum.join("\n")
-    |> head(@per_job_char_limit)
-  end
-
-  defp terminal_lines(job) do
-    [
-      job.error["summary"] && "ERROR: " <> head(job.error["summary"], @error_summary_chars),
-      job.metadata["cancel_reason"] && "CANCEL REASON: " <> job.metadata["cancel_reason"],
-      job.metadata["stop_reason"] && "STOP REASON: " <> job.metadata["stop_reason"]
-    ]
-    |> Enum.filter(&is_binary/1)
-  end
-
-  # The first userMessage is the task injection (verified production
-  # invariant); everything after it is human input during the run.
-  defp human_input_lines(items) do
-    inputs =
-      items
-      |> Enum.filter(&(&1.item["type"] == "userMessage"))
-      |> Enum.drop(1)
-      |> Enum.take(@human_input_limit)
-      |> Enum.map(&("- \"" <> head(message_text(&1.item), @human_input_chars) <> "\""))
-
-    case inputs do
-      [] -> ["HUMAN INPUT DURING RUN: none."]
-      inputs -> ["HUMAN INPUT DURING RUN:" | inputs]
-    end
-  end
-
-  defp message_text(%{"content" => content}) when is_list(content) do
-    content
-    |> Enum.map(fn
-      %{"text" => text} when is_binary(text) -> text
-      _part -> ""
-    end)
-    |> Enum.join(" ")
-    |> String.trim()
-  end
-
-  defp message_text(_item), do: ""
-
-  defp failed_call_lines(items) do
-    groups =
-      items
-      |> Enum.with_index()
-      |> Enum.filter(fn {entry, _index} -> failed_call?(entry.item) end)
-      |> Enum.map(fn {entry, index} -> failed_group(entry, index, items) end)
-      |> Enum.uniq_by(& &1.dedup_key)
-      |> Enum.take(@failed_group_limit)
-
-    case groups do
-      [] ->
-        ["FAILED CALLS: none."]
-
-      groups ->
-        ["FAILED CALLS:" | Enum.flat_map(groups, & &1.lines)]
-    end
-  end
-
-  defp failed_call?(%{"type" => "commandExecution"} = item),
-    do: (item["exitCode"] || 0) != 0
-
-  defp failed_call?(%{"type" => "dynamicToolCall"} = item), do: item["success"] == false
-  defp failed_call?(_item), do: false
-
-  defp failed_group(entry, index, items) do
-    call_head = call_description(entry.item)
-    error_tail = tail(call_error(entry.item), @failed_call_chars)
-
-    bypass =
-      items
-      |> Enum.drop(index + 1)
-      |> Enum.find(fn next ->
-        next.turn_id == entry.turn_id and
-          next.item["type"] in ~w(commandExecution dynamicToolCall)
-      end)
-
-    bypass_lines =
-      case bypass do
-        nil -> []
-        next -> ["  next call in turn: " <> head(call_description(next.item), @bypass_call_chars)]
-      end
-
-    %{
-      dedup_key: {head(call_head, 80), head(error_tail, 80)},
-      lines:
-        [
-          "- call: " <> head(call_head, @failed_call_chars),
-          "  error tail: \"" <> error_tail <> "\""
-        ] ++ bypass_lines
-    }
-  end
-
-  defp call_description(%{"type" => "commandExecution"} = item), do: item["command"] || ""
-
-  defp call_description(%{"type" => "dynamicToolCall"} = item) do
-    tool = [item["namespace"], item["tool"]] |> Enum.filter(&is_binary/1) |> Enum.join(".")
-    tool <> " args: " <> Torque.encode!(item["arguments"] || %{})
-  end
-
-  defp call_description(_item), do: ""
-
-  defp call_error(%{"type" => "commandExecution"} = item), do: item["aggregatedOutput"] || ""
-
-  defp call_error(%{"type" => "dynamicToolCall"} = item),
-    do: Torque.encode!(item["contentItems"] || item["status"] || "")
-
-  defp call_error(_item), do: ""
-
-  defp compaction_line(items) do
-    count = Enum.count(items, &(&1.item["type"] == "contextCompaction"))
-    if count > 0, do: ["CONTEXT COMPACTIONS: #{count}"], else: []
-  end
-
-  defp usage_line(nil), do: []
-
-  defp usage_line(usage) do
-    total = usage["thread_total"] || %{}
-
-    [
-      "USAGE: input #{total["input_tokens"] || 0}, output #{total["output_tokens"] || 0} tokens"
-    ]
   end
 
   defp reflection_task(skills, active, revoked, evidence_sections) do
@@ -725,11 +500,4 @@ defmodule Ankole.Brain.SkillLessons do
 
   defp head(nil, _limit), do: ""
   defp head(text, limit) when is_binary(text), do: String.slice(text, 0, limit)
-
-  defp tail(nil, _limit), do: ""
-
-  defp tail(text, limit) when is_binary(text) do
-    length = String.length(text)
-    if length <= limit, do: text, else: String.slice(text, length - limit, limit)
-  end
 end

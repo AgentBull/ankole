@@ -214,6 +214,25 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
            } = json_response(conn, 422)
   end
 
+  test "a missing required adapter config field names the field in the error", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/identity-providers/lark-main", %{
+        "adapter_id" => "lark",
+        "enabled" => true,
+        "config" => %{"appSecret" => "secret-console"}
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "appID is required",
+               "details" => [%{"path" => "appID", "kind" => "missing"}]
+             }
+           } = json_response(conn, 422)
+  end
+
   test "write and manual sync error paths return explicit envelopes", %{conn: conn} do
     conn = bearer_conn(conn)
 

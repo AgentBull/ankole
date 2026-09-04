@@ -194,8 +194,8 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def show(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, binding_name} <- text_param(params, "binding_name"),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
          {:ok, result} <-
@@ -211,9 +211,9 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def put_binding(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, adapter_id} <- text_param(params, "adapter_id"),
-         {:ok, binding_name} <- text_param(params, "binding_name"),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, adapter_id} <- ConsoleParams.text(params, :adapter_id),
+         {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
          {:ok, result} <-
@@ -225,9 +225,9 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def update_binding(conn, params) do
-    with {:ok, source_agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, target_agent_uid} <- text_param(conn.body_params, "target_agent_uid"),
-         {:ok, binding_name} <- text_param(params, "binding_name"),
+    with {:ok, source_agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, target_agent_uid} <- ConsoleParams.text(conn.body_params, :target_agent_uid),
+         {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <- authorize_binding_update(conn, source_agent_uid, target_agent_uid),
          {:ok, result} <-
            SignalsGateway.update_binding(
@@ -243,8 +243,8 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def delete(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, binding_name} <- text_param(params, "binding_name"),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "delete"),
          {:ok, binding} <- SignalsGateway.disable_binding(agent_uid, binding_name) do
@@ -255,9 +255,9 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def requeue_delivery(conn, params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, binding_name} <- text_param(conn.body_params, "binding_name"),
-         {:ok, outbound_key} <- text_param(conn.body_params, "outbound_key"),
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         {:ok, binding_name} <- ConsoleParams.text(conn.body_params, :binding_name),
+         {:ok, outbound_key} <- ConsoleParams.text(conn.body_params, :outbound_key),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
          {:ok, _outbox} <-
@@ -269,7 +269,7 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def show_channel_standing_orders(conn, params) do
-    with {:ok, channel_id} <- text_param(params, "channel_id"),
+    with {:ok, channel_id} <- ConsoleParams.text(params, :channel_id),
          :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "read"),
          {:ok, standing_orders} <- AmbientCuration.channel_standing_orders(channel_id) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
@@ -278,14 +278,14 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
+  # An empty `orders` string is a valid value: it clears the standing orders.
   def put_channel_standing_orders(conn, params) do
-    with {:ok, channel_id} <- text_param(params, "channel_id"),
+    with {:ok, channel_id} <- ConsoleParams.text(params, :channel_id),
          :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "update"),
-         {:ok, orders} <- text_body_param(conn.body_params, "orders"),
          {:ok, standing_orders} <-
            AmbientCuration.put_channel_standing_orders(
              channel_id,
-             orders,
+             conn.body_params.orders,
              conn.assigns.current_principal_uid
            ) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
@@ -302,15 +302,6 @@ defmodule AnkoleWeb.SignalBindingController do
       set_by: standing_orders.set_by,
       updated_at: standing_orders.updated_at
     }
-  end
-
-  # Unlike text_param, an empty string is a valid value here: it clears the
-  # standing orders.
-  defp text_body_param(params, key) when is_map(params) do
-    case Map.get(params, param_atom(key), Map.get(params, key)) do
-      value when is_binary(value) -> {:ok, value}
-      _value -> {:error, {:missing_param, key}}
-    end
   end
 
   defp signal_binding_json(%{binding: %Binding{} = binding, config_key: config_key}) do
@@ -358,29 +349,6 @@ defmodule AnkoleWeb.SignalBindingController do
 
   defp config_key_from_ref("app-config://" <> key), do: key
   defp config_key_from_ref(config_ref) when is_binary(config_ref), do: config_ref
-
-  defp text_param(params, key) do
-    params
-    |> Map.get(param_atom(key), Map.get(params, key))
-    |> case do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing_param, key}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing_param, key}}
-    end
-  end
-
-  defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("adapter_id"), do: :adapter_id
-  defp param_atom("binding_name"), do: :binding_name
-  defp param_atom("target_agent_uid"), do: :target_agent_uid
-  defp param_atom("channel_id"), do: :channel_id
-  defp param_atom("orders"), do: :orders
-  defp param_atom("outbound_key"), do: :outbound_key
 
   defp authorize_binding_update(conn, agent_uid, agent_uid) do
     ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update")
@@ -433,8 +401,10 @@ defmodule AnkoleWeb.SignalBindingController do
   defp error(conn, :missing_config),
     do: error(conn, 422, "validation_failed", "config is required")
 
-  defp error(conn, {:missing_param, param}) do
-    error(conn, 422, "validation_failed", "#{param} is required")
+  # An atom key names a request parameter. A string key names a binding config
+  # field, which the fallback clause renders with its field path.
+  defp error(conn, {:missing, key}) when is_atom(key) do
+    error(conn, 422, "validation_failed", "#{key} is required")
   end
 
   defp error(conn, reason) do

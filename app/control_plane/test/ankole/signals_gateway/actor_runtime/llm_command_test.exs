@@ -69,8 +69,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     assert %DateTime{} = Repo.get!(ActorEvent, help_event.id).completed_at
     refute_receive {:actor_lane, _envelope}, 100
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(active_turn, "test_complete")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(active_turn)
   end
 
   test "/llm profile without a body applies to one turn and the next normal message returns to primary" do
@@ -108,8 +108,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     assert {:ok, [_delivery]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(custom_start.turn))
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(custom_start.turn, "test_complete")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(custom_start.turn)
 
     assert {:ok, %{actor_event: normal_input}} =
              emit_entry(
@@ -179,8 +179,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     assert is_nil(Repo.get!(ActorEvent, queued_input.id).completed_at)
     refute_receive {:actor_lane, _envelope}, 100
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(active_turn, "test_complete")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(active_turn)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_events_once(
@@ -240,8 +240,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     assert {:ok, [_delivery]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_start.turn))
 
-    assert {:ok, %{status: :noop_completed}} =
-             complete_turn_noop(first_start.turn, "test_complete")
+    assert {:ok, %{status: :turn_completed}} =
+             complete_turn_silent(first_start.turn)
 
     configure_custom_profile(agent.uid, "kimi", "moonshotai/kimi-k3-code", "max")
 

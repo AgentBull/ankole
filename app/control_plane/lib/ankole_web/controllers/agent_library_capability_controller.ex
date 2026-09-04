@@ -96,8 +96,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
   def put_global_agent_plugin(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "agent_library", "update"),
          {:ok, id} <- path_text(params, :id),
-         {:ok, enabled} <- body_enabled(conn.body_params, false),
-         {:ok, _value} <- AgentPlugins.set_global_default(id, enabled),
+         {:ok, _value} <- AgentPlugins.set_global_default(id, conn.body_params.enabled),
          {:ok, capabilities} <- Library.global_capabilities(),
          :ok <- RuntimeCapabilityChanges.notify_global({:agent_plugin, id}) do
       json(conn, capabilities)
@@ -109,8 +108,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
   def put_global_skill(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "agent_library", "update"),
          {:ok, id} <- path_text(params, :id),
-         {:ok, enabled} <- body_enabled(conn.body_params, false),
-         {:ok, _value} <- Library.set_global_skill_default(id, enabled),
+         {:ok, _value} <- Library.set_global_skill_default(id, conn.body_params.enabled),
          {:ok, capabilities} <- Library.global_capabilities(),
          :ok <- RuntimeCapabilityChanges.notify_global({:skill, id}) do
       json(conn, capabilities)
@@ -133,8 +131,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
     with {:ok, agent_uid} <- path_text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "update"),
          {:ok, id} <- path_text(params, :id),
-         {:ok, enabled} <- body_enabled(conn.body_params, true),
-         {:ok, _override} <- AgentPlugins.set_agent_override(agent_uid, id, enabled),
+         {:ok, _override} <-
+           AgentPlugins.set_agent_override(agent_uid, id, conn.body_params.enabled),
          {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid),
          :ok <-
            RuntimeCapabilityChanges.notify_agent(agent_uid, {:agent_plugin, id},
@@ -150,8 +148,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
     with {:ok, agent_uid} <- path_text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "update"),
          {:ok, id} <- path_text(params, :id),
-         {:ok, enabled} <- body_enabled(conn.body_params, true),
-         {:ok, _skill} <- Library.set_agent_skill_override(agent_uid, id, enabled),
+         {:ok, _skill} <-
+           Library.set_agent_skill_override(agent_uid, id, conn.body_params.enabled),
          {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid),
          :ok <-
            RuntimeCapabilityChanges.notify_agent(agent_uid, {:skill, id},
@@ -164,23 +162,11 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
   end
 
   defp path_text(params, key) do
-    case Map.get(params, key, Map.get(params, Atom.to_string(key))) do
+    case Map.get(params, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, :invalid_capability_id}
     end
   end
-
-  defp body_enabled(params, nullable?) when is_map(params) do
-    value = Map.get(params, :enabled, Map.get(params, "enabled", :missing))
-
-    cond do
-      is_boolean(value) -> {:ok, value}
-      nullable? and is_nil(value) -> {:ok, nil}
-      true -> {:error, :invalid_enabled}
-    end
-  end
-
-  defp body_enabled(_params, _nullable?), do: {:error, :invalid_enabled}
 
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
 

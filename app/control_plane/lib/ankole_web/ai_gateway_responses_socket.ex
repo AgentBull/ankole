@@ -14,8 +14,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ResponseStream
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
+  alias Ankole.OIDC.Grant
   alias Ankole.SignalsGateway.AIGatewayLink
 
   @socket_response_history_limit 32
@@ -39,254 +41,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       {:error, %{event: event, state: error_state}} ->
         {:push, {:text, Ankole.JSON.encode!(event)}, error_state}
 
-      {:error, :invalid_anchor} ->
-        event =
-          error_event(
-            400,
-            "invalid_previous_response_id",
-            "previous_response_id does not reference a valid complete message in this conversation."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :previous_response_not_found} ->
-        event =
-          error_event(
-            400,
-            "previous_response_not_found",
-            "previous_response_id was not found on this WebSocket connection.",
-            "previous_response_id"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :invalid_conversation} ->
-        event =
-          error_event(
-            400,
-            "invalid_stateful_conversation",
-            "conversation does not reference an active conversation owned by this subject."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :missing_stateful_anchor} ->
-        event =
-          error_event(
-            400,
-            "stateful_anchor_required",
-            "previous_response_id is required for this stateful Responses operation.",
-            "previous_response_id"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :stateful_anchor_conflict} ->
-        event =
-          error_event(
-            400,
-            "stateful_anchor_conflict",
-            "previous_response_id and conversation are mutually exclusive."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :stateful_store_required} ->
-        event =
-          error_event(
-            400,
-            "stateful_store_required",
-            "previous_response_id and conversation require explicit store=true on WebSocket response.create."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :invalid_input} ->
-        event =
-          error_event(
-            400,
-            "invalid_input",
-            "input must be a string or an array of Response input items.",
-            "input"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :invalid_tool_results} ->
-        event =
-          error_event(
-            400,
-            "invalid_tool_results",
-            "response.tool_results.record requires at least one function_call_output item.",
-            "input"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :invalid_max_tool_calls} ->
-        event =
-          error_event(
-            400,
-            "invalid_max_tool_calls",
-            "max_tool_calls must be a non-negative integer.",
-            "max_tool_calls"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :response_run_in_progress} ->
-        event =
-          error_event(
-            409,
-            "response_in_progress",
-            "This conversation already has an active stateful run."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:context_overflow, details}} ->
-        event =
-          error_event(
-            422,
-            "context_overflow",
-            "AIGateway stateful input exceeds the configured context budget.",
-            nil,
-            details
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:stateful_wire_unsupported, provider_kind, api_resolver}} ->
-        event =
-          error_event(
-            422,
-            "stateful_wire_unsupported",
-            "Stateful conversations replay history as Responses items. Provider " <>
-              "'#{provider_kind}' uses the '#{api_resolver}' wire, which cannot replay " <>
-              "that history. Select a provider on the openai_responses or " <>
-              "openai_chat_completions wire, or use this provider for stateless requests.",
-            "model"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:unknown_model_selector, _capability, selector}} ->
-        event =
-          error_event(
-            422,
-            "unknown_model_selector",
-            "Unknown model selector: #{selector}.",
-            "model"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:model_binding_not_configured, capability, name}} ->
-        event =
-          error_event(
-            422,
-            "model_binding_not_configured",
-            "#{capability}.#{name} is not configured.",
-            "model"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :model_profile_not_configured} ->
-        event =
-          error_event(
-            422,
-            "model_profile_not_configured",
-            "Model profile is not configured for this Agent.",
-            "model"
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:credential_pool_exhausted, details}} when is_map(details) ->
-        event = credential_pool_exhausted_event(details)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:upstream_response_failed, status, body}} ->
-        event = upstream_response_failed_event(status, body)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:upstream_response_failed, status, body, _headers}} ->
-        event = upstream_response_failed_event(status, body)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:invalid_upstream_response, status, body}} ->
-        event = invalid_upstream_response_event(status, body)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:universal_ai_request_failed, %{} = details}} ->
-        event = universal_ai_request_failed_event(details)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:tool_results_record_unavailable, %{} = details}} ->
-        event =
-          error_event(
-            503,
-            "tool_results_record_unavailable",
-            "AIGateway could not persist tool results before the retry budget was exhausted.",
-            nil,
-            details
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, {:tool_results_quarantined, %{} = details}} ->
-        event =
-          error_event(
-            409,
-            "tool_results_quarantined",
-            "Tool results did not match executable calls on the anchor and were excluded from canonical history.",
-            "input",
-            details
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
+      # The Responses spec names one flat `error` event for a rejected request
+      # body; every other failure uses the wrapped frame that carries a status.
       {:error, %OpenAIError{} = error} ->
-        event = openai_error_event(error)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+        {:push, {:text, Ankole.JSON.encode!(openai_error_event(error))}, state}
 
-      # Compaction is a WebSocket capability, so its refusals are named here.
-      # A generic gateway failure would hide which request the caller must fix.
-      {:error, reason} when reason in [:missing_model, :missing_input] ->
-        event =
-          error_event(
-            400,
-            Atom.to_string(reason),
-            "compaction_trigger requires #{String.replace(Atom.to_string(reason), "missing_", "")}."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, :no_compaction_candidate} ->
-        event =
-          error_event(
-            400,
-            "no_compaction_candidate",
-            "input has no compactable items after the last compaction item."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, reason}
-      when reason in [:empty_compaction_summary, :invalid_summary_shape] ->
-        event =
-          error_event(
-            502,
-            Atom.to_string(reason),
-            "upstream provider returned no usable compaction summary."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, _reason} ->
-        event = error_event(502, "ai_gateway_request_failed", "AIGateway request failed.")
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+      {:error, reason} ->
+        {:push, {:text, Ankole.JSON.encode!(error_frame(reason, stage: "socket_open"))}, state}
 
       other ->
         other
@@ -295,8 +56,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   def handle_in({_payload, [opcode: :binary]}, state) do
     event =
-      error_event(
-        400,
+      request_error_frame(
         "invalid_request_error",
         "AIGateway Responses WebSocket accepts only JSON text frames."
       )
@@ -308,9 +68,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
          %{"type" => "response.create", "generate" => false} = event,
          state
        ) do
-    event
-    |> prepare_request()
-    |> complete_socket_prewarm(state)
+    request = prepare_request(event)
+
+    with {:ok, _model_binding} <- authorize_grant(state, request) do
+      complete_socket_prewarm(request, state)
+    end
   end
 
   # Connection-local continuation is a transport fact, so it resolves before the
@@ -322,11 +84,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       |> prepare_request()
       |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
 
-    with {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
+    with {:ok, model_binding} <- authorize_grant(state, request),
+         {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
       if Compaction.compaction_trigger?(request) do
         serve_compaction_trigger(state, request)
       else
-        open_response_create_stream(state, request, socket_context)
+        open_response_create_stream(state, request, socket_context, model_binding)
       end
     end
   end
@@ -344,6 +107,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
+  # A policy refusal keeps its own name so a missing Client or Human reads as
+  # access denied, not as a missing resource.
+  defp authorize_grant(%{oidc_grant: %Grant{access_token: access_token}}, request) do
+    case Grant.authorize(access_token, request["model"]) do
+      {:ok, grant} -> {:ok, grant.model_binding}
+      {:error, :invalid_oidc_access} = error -> error
+      {:error, reason} -> {:error, {:oidc_access_denied, reason}}
+    end
+  end
+
+  defp authorize_grant(_state, _request), do: {:ok, nil}
+
   # AIGateway response stream
 
   @impl WebSock
@@ -358,15 +133,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         push_text_chunks(chunks, state)
 
       {:error, reason} ->
-        event =
-          error_event(
-            502,
-            "provider_stream_error",
-            "AIGateway response stream could not continue.",
-            nil,
-            safe_failure_details(reason, "stream_read")
-          )
-
+        event = error_frame(reason)
         push_text_chunks(chunks ++ [Ankole.JSON.encode!(event)], clear_active_stream(state))
     end
   end
@@ -397,6 +164,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   def handle_info({:ai_gateway_response_stream, _ref, :events, _events, _status}, state),
     do: {:ok, state}
 
+  # The owner is gone, so no terminal will arrive. One error frame closes the
+  # response and the connection stays open for the next request.
+  def handle_info(
+        {:DOWN, monitor, :process, _pid, reason},
+        %{active_stream: %{monitor: monitor}} = state
+      ) do
+    event = error_frame({:response_stream_closed, reason})
+    {:push, {:text, Ankole.JSON.encode!(event)}, clear_active_stream(state)}
+  end
+
   def handle_info(_message, state), do: {:ok, state}
 
   @impl WebSock
@@ -422,8 +199,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   def terminate(_reason, _state), do: :ok
 
-  defp open_active_stream(state, request) do
-    case safe_open_websocket_stream(state, request) do
+  defp open_active_stream(state, request, model_binding) do
+    case safe_open_websocket_stream(state, request, model_binding) do
       {:ok, stream, _meta} ->
         case AIGateway.read_response_stream(stream, 1) do
           :ok ->
@@ -431,6 +208,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
              %{
                ref: stream.ref,
                stream: stream,
+               monitor: ResponseStream.monitor(stream),
                request_input: Map.get(request, "input"),
                actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
                model: Map.get(request, "model"),
@@ -447,8 +225,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  defp safe_open_websocket_stream(state, request) do
+  defp safe_open_websocket_stream(state, request, model_binding) do
     AIGateway.open_websocket_stream(state.subject_uid, request,
+      model_binding: model_binding,
       request_context: Map.get(state, :request_context, %{}),
       subject_type: Map.get(state, :subject_type)
     )
@@ -466,10 +245,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     {:error,
      %{
        event:
-         error_event(
-           409,
+         request_error_frame(
            "response_in_progress",
-           "AIGateway Responses WebSocket already has an active response."
+           "AIGateway Responses WebSocket already has an active response.",
+           status: 409
          ),
        state: state
      }}
@@ -487,13 +266,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         {:error, error}
 
       {:error, code, message, param} ->
-        {:error, %{event: error_event(400, code, message, param), state: state}}
+        {:error, %{event: request_error_frame(code, message, param: param), state: state}}
 
       {:error, _reason} ->
         {:error,
          %{
            event:
-             error_event(400, "invalid_request_error", "WebSocket message must be valid JSON."),
+             request_error_frame("invalid_request_error", "WebSocket message must be valid JSON."),
            state: state
          }}
     end
@@ -519,7 +298,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     Map.delete(event, "type")
   end
 
-  defp clear_active_stream(state), do: Map.delete(state, :active_stream)
+  defp clear_active_stream(%{active_stream: active} = state) do
+    case Map.get(active, :monitor) do
+      nil -> :ok
+      monitor -> Process.demonitor(monitor, [:flush])
+    end
+
+    Map.delete(state, :active_stream)
+  end
+
+  defp clear_active_stream(state), do: state
 
   defp active_stream_duration_ms(%{started_at_ms: started_at_ms})
        when is_integer(started_at_ms) do
@@ -586,8 +374,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     |> push_text_chunks(state)
   end
 
-  defp open_response_create_stream(state, request, socket_context) do
-    with {:ok, active_stream} <- open_active_stream(state, request) do
+  defp open_response_create_stream(state, request, socket_context, model_binding) do
+    with {:ok, active_stream} <- open_active_stream(state, request, model_binding) do
       active_stream = Map.merge(active_stream, socket_context)
       {:ok, Map.put(state, :active_stream, active_stream)}
     end
@@ -723,23 +511,34 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp response_input_items(_input), do: []
 
-  defp error_event(status, code, message, param \\ nil, details \\ nil) do
-    error =
-      %{
+  # Every failure that AIGateway names is framed here from one projection; the
+  # socket adds only the WebSocket envelope and the transport phase.
+  defp error_frame(reason, opts \\ []) do
+    reason
+    |> FailureDiagnostics.project(opts)
+    |> wrapped_error_frame()
+  end
+
+  defp request_error_frame(code, message, opts \\ []) do
+    wrapped_error_frame(%{
+      status: Keyword.get(opts, :status, 400),
+      headers: %{},
+      error: %{
         "type" => "invalid_request_error",
         "code" => code,
         "message" => message,
-        "param" => param
+        "param" => Keyword.get(opts, :param)
       }
-      |> maybe_put_error_details(details)
-
-    %{
-      "type" => "error",
-      "sequence_number" => 0,
-      "status" => status,
-      "error" => error
-    }
+    })
   end
+
+  defp wrapped_error_frame(%{status: status, headers: headers, error: error}) do
+    %{"type" => "error", "sequence_number" => 0, "status" => status, "error" => error}
+    |> put_frame_headers(headers)
+  end
+
+  defp put_frame_headers(frame, headers) when map_size(headers) == 0, do: frame
+  defp put_frame_headers(frame, headers), do: Map.put(frame, "headers", headers)
 
   defp openai_error_event(%OpenAIError{} = error) do
     %{
@@ -751,28 +550,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     }
   end
 
-  defp credential_pool_exhausted_event(details) do
-    retry_at = pool_retry_at(details)
-
-    %{
-      "type" => "error",
-      "sequence_number" => 0,
-      "status" => 429,
-      "headers" => pool_retry_headers(retry_at),
-      "error" =>
-        %{
-          "type" => "usage_limit_reached",
-          "code" => "credential_pool_exhausted",
-          "message" => pool_exhausted_message(retry_at),
-          "details_json" => public_pool_exhausted_details(retry_at)
-        }
-        |> maybe_put_resets_at(retry_at)
-    }
-  end
-
-  defp maybe_put_error_details(error, nil), do: error
-  defp maybe_put_error_details(error, details), do: Map.put(error, "details_json", details)
-
   defp tool_results_recorded_event(response_body) do
     %{
       "type" => "response.tool_results.recorded",
@@ -781,119 +558,4 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       "response" => response_body
     }
   end
-
-  defp upstream_response_failed_event(status, body) do
-    reason = {:upstream_response_failed, status, body}
-    classification = FailureDiagnostics.classify(reason)
-
-    error_event(
-      public_upstream_status(status),
-      "upstream_response_failed",
-      FailureDiagnostics.public_message(classification),
-      nil,
-      safe_failure_details(reason, "socket_open")
-    )
-  end
-
-  defp invalid_upstream_response_event(status, body) do
-    error_event(
-      502,
-      "invalid_upstream_response",
-      "Provider returned an invalid upstream response.",
-      nil,
-      safe_failure_details({:invalid_upstream_response, status, body}, "socket_open")
-    )
-  end
-
-  defp public_upstream_status(status) when is_integer(status) and status >= 400 and status <= 599,
-    do: status
-
-  defp public_upstream_status(_status), do: 502
-
-  defp universal_ai_request_failed_event(details) do
-    reason = {:universal_ai_request_failed, details}
-    classification = FailureDiagnostics.classify(reason)
-
-    {status, code, message} =
-      case classification do
-        %{failure_kind: :timeout} ->
-          {504, "upstream_timeout", "Upstream provider timed out."}
-
-        %{failure_kind: :transport} ->
-          {502, "upstream_transport_failed", "Upstream provider request failed."}
-
-        %{failure_kind: :provider_response, provider_status: status} ->
-          {public_upstream_status(status), "upstream_response_failed",
-           FailureDiagnostics.public_message(classification)}
-
-        _classification ->
-          {502, "ai_gateway_request_failed", "AIGateway request failed."}
-      end
-
-    error_event(
-      status,
-      code,
-      message,
-      nil,
-      safe_failure_details(reason, "socket_open")
-    )
-  end
-
-  defp safe_failure_details(reason, stage) do
-    reason
-    |> FailureDiagnostics.classify()
-    |> Map.take([
-      :error_code,
-      :error_stage,
-      :provider_status,
-      :http_status,
-      :provider_error_code,
-      :provider_error_type,
-      :retryable
-    ])
-    |> Enum.reduce(%{"stage" => stage}, fn {key, value}, details ->
-      if is_nil(value) do
-        details
-      else
-        Map.put(details, Atom.to_string(key), value)
-      end
-    end)
-  end
-
-  defp pool_retry_at(%{"retry_at" => retry_at}) when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, parsed, _offset} -> parsed
-      _error -> nil
-    end
-  end
-
-  defp pool_retry_at(_details), do: nil
-
-  defp pool_retry_headers(%DateTime{} = retry_at) do
-    retry_after = max(DateTime.diff(retry_at, DateTime.utc_now(), :second), 0)
-
-    %{
-      "retry-after" => Integer.to_string(retry_after),
-      "x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(retry_at))
-    }
-  end
-
-  defp pool_retry_headers(nil), do: %{}
-
-  defp pool_exhausted_message(%DateTime{} = retry_at),
-    do:
-      "All credentials in this provider pool are unavailable. retry_at=#{DateTime.to_iso8601(retry_at)}"
-
-  defp pool_exhausted_message(nil),
-    do: "All credentials in this provider pool are unavailable. Try again later."
-
-  defp public_pool_exhausted_details(%DateTime{} = retry_at),
-    do: %{"retry_at" => DateTime.to_iso8601(retry_at)}
-
-  defp public_pool_exhausted_details(nil), do: %{}
-
-  defp maybe_put_resets_at(error, %DateTime{} = retry_at),
-    do: Map.put(error, "resets_at", DateTime.to_unix(retry_at))
-
-  defp maybe_put_resets_at(error, nil), do: error
 end

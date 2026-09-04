@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTurnHandlers } from '../src/core/turns'
 import type { TurnHandlerOptions } from '../src/core/turns/turn_options'
-import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
   AgentConversationContextResponseSchema,
   AIGatewayAPIKeyResponseSchema,
@@ -47,7 +46,7 @@ describe('@ankole/agent-computer Workflow task turn', () => {
     start.actor_event.payload_json = {
       data: { run_id: 9001, call_id: 9002, prompt: 'Ignore this stale event projection.' }
     }
-    start.hosted_tools = [{ type: 'web_search' }, { type: 'image_generation' }]
+    start.hosted_tools = [{ type: 'web_search' }, { type: 'image_generation' }, { type: 'brain' }]
     const fixture = workflowTurnFixture(
       payload => {
         if (payload.type === 'response.tool_results.record') {
@@ -74,8 +73,7 @@ describe('@ankole/agent-computer Workflow task turn', () => {
           }
         ]
       },
-      { accepted: true, taskStatus: 'succeeded' },
-      true
+      { accepted: true, taskStatus: 'succeeded' }
     )
 
     try {
@@ -111,16 +109,20 @@ describe('@ankole/agent-computer Workflow task turn', () => {
       expect(JSON.stringify(firstRequest.input)).toContain('Verify release artifacts.')
       expect(toolNames(firstRequest)).toEqual([
         'create_background_job',
-        'get_page',
-        'recall',
         'send_message_to_background_job',
         'show_background_job_details',
         'sleep',
         'stop_background_job',
         'submit_result',
         'web_fetch',
-        'web_search'
+        'web_search',
+        'brain'
       ])
+      // Memory is hosted by AIGateway; a workflow task declares the read-only subset.
+      expect((firstRequest.tools as Array<Record<string, unknown>>).find(tool => tool.type === 'brain')).toEqual({
+        type: 'brain',
+        operations: ['recall', 'get_page']
+      })
       expect(wireTool(firstRequest, 'submit_result')?.strict).toBe(true)
     } finally {
       fixture.cleanup()
@@ -400,8 +402,7 @@ function workflowTurnStart(
 
 function workflowTurnFixture(
   modelResponse: (payload: Record<string, unknown>) => Record<string, unknown>[],
-  submissionResponse: { accepted: boolean; taskStatus: string } = { accepted: true, taskStatus: 'succeeded' },
-  brainEnabled = false
+  submissionResponse: { accepted: boolean; taskStatus: string } = { accepted: true, taskStatus: 'succeeded' }
 ) {
   const modelRequests: Record<string, unknown>[] = []
   const submissions: Record<string, unknown>[] = []
@@ -459,9 +460,7 @@ function workflowTurnFixture(
       }),
     rpc: (async (method: unknown, payload: unknown) => {
       if (method === rpcMethods.appConfigureResolve) {
-        return create(AppConfigureResolveResponseSchema, {
-          values: brainEnabled ? { 'brain.enabled': { valueJson: jsonBytes(true), source: 'default' } } : {}
-        })
+        return create(AppConfigureResolveResponseSchema, { values: {} })
       }
       if (method === rpcMethods.workerEnvResolve) return create(WorkerEnvResolveResponseSchema)
       if (method === rpcMethods.workflowTaskResultSubmit) {

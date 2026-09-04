@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   alias Ankole.AIGateway.Conversations
 
+  alias Ankole.AIGatewayCase
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
@@ -48,6 +49,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
           wait_for_final_mirror: 1,
           wait_for_final_mirror: 2
         ]
+
+      import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
       alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIGateway.StatefulResponses, warn: false
@@ -220,8 +223,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     ActorTurnCompletion.handle(domain_turn_ref(turn_ref), final_response_id, outcome, [])
   end
 
-  def complete_turn_noop(turn_ref, reason \\ "") do
-    ActorRuntime.handle_turn_noop_completed(domain_turn_ref(turn_ref), reason)
+  def complete_turn_silent(turn_ref, final_response_id \\ nil) do
+    ActorTurnCompletion.handle(domain_turn_ref(turn_ref), final_response_id, "silent", [])
   end
 
   def fail_turn(turn_ref, code, message \\ "", details \\ nil) do
@@ -715,7 +718,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
 
     {:ok, run} =
-      StatefulResponses.start_response_run(%{
+      AIGatewayCase.start_response_run(%{
         subject_uid: agent_uid,
         conversation_id: conversation.id,
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}},

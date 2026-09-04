@@ -24,7 +24,7 @@ import { RiTerminalBoxLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -42,6 +42,7 @@ import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-pa
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 
 export const WORKER_ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -214,7 +215,27 @@ export function WorkerEnvEditorPage() {
   const list = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
   const item = name ? list.data?.worker_envs.find(entry => entry.name === name) : undefined
   const declared = item?.kind === 'declared'
-  const missing = mode === 'edit' && list.isSuccess && !item
+  const workerEnvDraft = useMemo(() => {
+    if (mode === 'new') return { name: '', value: '', secret: true, description: '' }
+    if (!item || list.isLoading) return undefined
+    return {
+      name: item.name,
+      value: item.secret
+        ? item.present
+          ? ENCRYPTED_VALUE_MASK
+          : ''
+        : typeof item.value === 'string'
+          ? item.value
+          : formatJSON(item.value ?? null),
+      secret: item.secret,
+      description: item.description ?? ''
+    }
+  }, [item, list.isLoading, mode])
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'worker-env', name },
+    source: workerEnvDraft,
+    absent: () => mode === 'edit' && list.isSuccess && !list.isFetching && !item
+  })
 
   const refresh = () => void queryClient.invalidateQueries()
   const update = useMutation({
@@ -258,26 +279,6 @@ export function WorkerEnvEditorPage() {
   // back under a new object identity, which would clear an unread
   // `decrypt.error` from the page.
   useEffect(() => decrypt.reset(), [decrypt.reset, name])
-
-  useEffect(() => {
-    if (mode === 'new') {
-      model.initialize('worker-env:new', { name: '', value: '', secret: true, description: '' })
-      return
-    }
-    if (!item || list.isLoading) return
-    model.initialize(`worker-env:${item.name}`, {
-      name: item.name,
-      value: item.secret
-        ? item.present
-          ? ENCRYPTED_VALUE_MASK
-          : ''
-        : typeof item.value === 'string'
-          ? item.value
-          : formatJSON(item.value ?? null),
-      secret: item.secret,
-      description: item.description ?? ''
-    })
-  }, [item, list.isLoading, mode, model])
 
   const saveCustom = (submittedName: string) => {
     update.mutate({
@@ -329,7 +330,7 @@ export function WorkerEnvEditorPage() {
 
   const submitDisabled = mode === 'edit' && !model.dirty.value
 
-  if (missing) {
+  if (draftStatus === 'absent') {
     return <EditorNotFound backTo="/worker-envs" message={t('console.worker_envs.not_found', { name: name ?? '' })} />
   }
 
@@ -344,7 +345,7 @@ export function WorkerEnvEditorPage() {
         error={update.error ?? decrypt.error ?? list.error}
         submitting={update.isPending}
         submitDisabled={submitDisabled}
-        submitUnavailable={mode === 'edit' && !item}
+        submitUnavailable={draftStatus !== 'ready'}
         onSubmit={submit}
         secondary={
           mode === 'edit' && item ? (

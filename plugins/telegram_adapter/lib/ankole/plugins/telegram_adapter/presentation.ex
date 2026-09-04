@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Presentation do
   @moduledoc false
 
   alias Ankole.I18n
-  alias Ankole.Plugins.TelegramAdapter.ActionToken
+  alias Ankole.SignalsGateway.ReplyActionToken
   alias Ankole.SignalsGateway.ReplyPresentation
 
   @message_utf16_units 4_000
@@ -46,7 +46,12 @@ defmodule Ankole.Plugins.TelegramAdapter.Presentation do
 
       {%{"type" => "button"} = action, index} ->
         with label when is_binary(label) <- action["label"],
-             {:ok, token} <- ActionToken.encode(event_id, index, action) do
+             {:ok, token} <-
+               ReplyActionToken.encode(event_id, index, action,
+                 prefix: "tg1",
+                 max_bytes: 64,
+                 too_long_error: :callback_token_too_long
+               ) do
           [%{"text" => String.slice(label, 0, @button_chars), "callback_data" => token}]
         else
           _invalid -> []

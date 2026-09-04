@@ -143,6 +143,32 @@ Every outbound adapter implements `send/1`. An adapter that declares
 `outbound_reconciliation` also implements `reconcile/1`. Callback result maps
 use atom keys.
 
+`send/1` receives provider operations only. When an adapter also declares a
+reply-preview module, SignalsGateway finalizes a durable AI reply row through
+that module instead of calling `send/1`: it reloads the source ActorEvent,
+builds one request from the row and the stored checkpoint, and records the
+result as the row outcome. Reconciling such a row repeats the same finalize,
+because the preview checkpoint records every provider mutation. A finalize can
+answer `unknown`, which the row records as `unknown_after_send`.
+
+The checkpoint keys that name a provider surface belong to the reply-preview
+module. SignalsGateway asks that module which provider ids the checkpoint holds
+and whether the surface still accepts updates; it never reads provider
+vocabulary from the checkpoint. A provider entry that the module reports is a
+deletion target for `/retry` and the anchor that an inbound card callback must
+name. A module can also answer that the surface cannot show a presentation and
+plain text must go through the durable outbox instead; SignalsGateway then
+stops the preview without a retry.
+
+A version 2 reply-preview checkpoint keeps lifecycle, interaction, owner,
+deadline, and presentation fields at the top level. It keeps provider fields
+under `adapter_state`. Reply-preview modules receive one flattened logical view,
+so they do not know how PostgreSQL separates the fields. A flat version 1 row
+remains readable. Its next checkpoint write converts it to version 2 and
+replaces the complete adapter state. The legacy reader can be removed only
+after every supported upgrade has run and PostgreSQL contains no flat
+reply-preview checkpoint.
+
 SignalsGateway filters provider-visible text immediately before it calls an
 outbound or reply-preview adapter. The filter replaces the exact RuntimeFabric
 worker authentication key and the declared or custom WorkerEnv secrets of that

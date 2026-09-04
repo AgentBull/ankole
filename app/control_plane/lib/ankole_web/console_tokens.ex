@@ -8,18 +8,15 @@ defmodule AnkoleWeb.ConsoleTokens do
   """
 
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.SecretKeyBase
+  alias Ankole.TokenSigning
 
-  @issuer "ankole.control_plane"
-  @audience "ankole.web_console"
+  @console_audience "ankole.web_console"
+  @ai_gateway_audience "ankole.ai_gateway"
   @scope "web_console"
   @access_token_use "access"
   @refresh_token_use "refresh"
-  @access_sub_key_id "web_console.jwt.access"
-  @refresh_sub_key_id "web_console.jwt.refresh"
   @access_ttl_seconds 30 * 60
   @refresh_ttl_seconds 24 * 60 * 60
-  @clock_leeway_seconds 60
 
   @type token_set :: %{
           access_token: String.t(),
@@ -93,9 +90,23 @@ defmodule AnkoleWeb.ConsoleTokens do
   """
   @spec verify_access_token(String.t()) :: {:ok, map()} | {:error, term()}
   def verify_access_token(token) when is_binary(token) do
-    with {:ok, claims} <- verify_token(token, :access),
-         :ok <- require_claim(claims, "token_use", @access_token_use),
+    with {:ok, claims} <- verify_token(token, :access) do
+      validate_access_claims(claims)
+    end
+  end
+
+  def verify_access_token(_token), do: {:error, :invalid_token}
+
+  @doc """
+  Validates Console access-token claims after `TokenSigning` verifies the token.
+
+  This function does not verify a token signature or registered JWT claims.
+  """
+  @spec validate_access_claims(map()) :: {:ok, map()} | {:error, term()}
+  def validate_access_claims(%{} = claims) do
+    with :ok <- require_claim(claims, "token_use", @access_token_use),
          :ok <- require_claim(claims, "scope", @scope),
+         :ok <- require_claim(claims, "subject_type", "human"),
          %{"sub" => sub} <- claims,
          true <- is_binary(sub) and sub != "" do
       {:ok, claims}
@@ -106,17 +117,20 @@ defmodule AnkoleWeb.ConsoleTokens do
     end
   end
 
-  def verify_access_token(_token), do: {:error, :invalid_token}
+  def validate_access_claims(_claims), do: {:error, :invalid_token}
 
   defp verify_refresh_token(token), do: verify_token(token, :refresh)
 
   defp verify_token(token, token_kind) do
-    with {:ok, key} <- signing_key(token_kind),
-         claims when is_map(claims) <- NativeKernel.jwt_verify(token, key, validation()) do
+    with {:ok, claims} <-
+           TokenSigning.verify(
+             token,
+             @console_audience,
+             if(token_kind == :access, do: "at+jwt", else: "rt+jwt")
+           ) do
       {:ok, claims}
     else
       {:error, reason} -> {:error, reason}
-      other -> {:error, {:jwt_verify_failed, other}}
     end
   end
 
@@ -129,61 +143,36 @@ defmodule AnkoleWeb.ConsoleTokens do
     case ttl > 0 do
       true ->
         claims = %{
-          aud: @audience,
+          aud:
+            if(token_use == @access_token_use,
+              do: [@console_audience, @ai_gateway_audience],
+              else: @console_audience
+            ),
           exp: expires_at,
           iat: now,
-          iss: @issuer,
+          iss: TokenSigning.issuer(),
           jti: NativeKernel.gen_uuid_v7(),
           nbf: now,
           scope: @scope,
           sid_hash: sid_hash,
           sub: principal_uid,
+          subject_type: "human",
           token_use: token_use
         }
 
-        with {:ok, key} <- signing_key(token_use),
-             token when is_binary(token) <-
-               NativeKernel.jwt_sign(claims, key, %{algorithm: "HS256"}) do
+        with {:ok, token} <-
+               TokenSigning.sign(
+                 claims,
+                 if(token_use == @access_token_use, do: "at+jwt", else: "rt+jwt")
+               ) do
           {:ok, token, ttl}
         else
           {:error, reason} -> {:error, reason}
-          other -> {:error, {:jwt_sign_failed, other}}
         end
 
       false ->
         {:error, :admin_session_expired}
     end
-  end
-
-  # Access and refresh tokens are signed under different derived keys, so a
-  # refresh token can never be presented (or mistaken) as an access token even
-  # though both are HS256 over the same root secret.
-  defp signing_key(@access_token_use), do: signing_key(:access)
-  defp signing_key(@refresh_token_use), do: signing_key(:refresh)
-
-  defp signing_key(:access), do: derive_signing_key(@access_sub_key_id)
-  defp signing_key(:refresh), do: derive_signing_key(@refresh_sub_key_id)
-
-  defp derive_signing_key(sub_key_id) do
-    with {:ok, secret} <- SecretKeyBase.fetch(),
-         key when is_binary(key) <- NativeKernel.derive_key(secret, sub_key_id, nil) do
-      {:ok, key}
-    else
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:derive_key_failed, other}}
-    end
-  end
-
-  defp validation do
-    %{
-      algorithms: ["HS256"],
-      aud: [@audience],
-      iss: [@issuer],
-      leeway: @clock_leeway_seconds,
-      required_spec_claims: ["exp", "nbf", "aud", "iss", "sub"],
-      validate_exp: true,
-      validate_nbf: true
-    }
   end
 
   # Binds a token to the exact admin session that produced it. The hash covers the

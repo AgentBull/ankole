@@ -134,6 +134,27 @@ defmodule Ankole.Schedule.PlannerTest do
     assert Planner.occurrences_bound(unbounded) == nil
   end
 
+  test "accepts a validated console request recurrence, whose keys are atoms" do
+    assert {:ok, normalized, "Etc/UTC"} =
+             Planner.normalize_schedule_json(
+               %{
+                 kind: "cron",
+                 expression: "0 9 * * *",
+                 timezone: "Etc/UTC",
+                 occurrences: %{count: 3}
+               },
+               %{},
+               []
+             )
+
+    assert normalized == %{
+             "kind" => "cron",
+             "expression" => "0 9 * * *",
+             "timezone" => "Etc/UTC",
+             "occurrences" => %{"count" => 3}
+           }
+  end
+
   test "rejects an occurrence bound that is not exactly count or until" do
     base = %{"kind" => "cron", "expression" => "0 9 * * *", "timezone" => "Etc/UTC"}
 

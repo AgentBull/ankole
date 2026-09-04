@@ -17,7 +17,7 @@ import { runCodexJob } from '../src/core/codex-runner'
 import { create } from '@bufbuild/protobuf'
 import { xxh3String128Hex } from '@ankole/kernel'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonFromBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
   AgentConversationContextResponseSchema,
   AIGatewayAPIKeyResponseSchema,
@@ -68,6 +68,8 @@ type FakeCodexBehavior = {
   mcpStartupFailure?: { name: string; error: string }
   cleanupError?: boolean
   suppressTurnNotifications?: boolean
+  /** The first turn overflows the context window; the retry turn compacts automatically part-way through. */
+  compactFirstTurn?: boolean
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -106,7 +108,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        codex_user_agent: 'codex-cli 0.150.1',
+        codex_user_agent: 'codex-cli 0.153.2',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
         projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
@@ -314,6 +316,42 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(recordedItems).toContain('"collaboration"')
       expect(recordedItems).toContain('child-thread')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('records the explicit compaction Turn as compaction and an automatic compaction inside an agent Turn as agent', async () => {
+    const fixture = prepareFixture('unused: the first turn overflows', { compactFirstTurn: true })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+    const itemTypes = (turnID: string) =>
+      turnUpserts
+        .filter(update => update.runtimeTurnId === turnID && update.turnItemsJson)
+        .flatMap(update => jsonFromBytes(update.turnItemsJson!) as Array<{ item: { type: string } }>)
+        .map(entry => entry.item.type)
+
+    try {
+      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+
+      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).toMatchObject({ output_text: 'final response after retry' })
+      expect(existsSync(join(codexHomeFor(fixture.root), 'compact-start.json'))).toBe(true)
+      const kindsByTurn = new Map<string, Set<string>>()
+      for (const update of turnUpserts) {
+        const turnID = update.runtimeTurnId ?? ''
+        kindsByTurn.set(turnID, (kindsByTurn.get(turnID) ?? new Set()).add(update.kind ?? ''))
+      }
+      expect([...kindsByTurn].map(([turnID, kinds]) => [turnID, [...kinds]])).toEqual([
+        ['turn-1', ['agent']],
+        ['turn-compact', ['compaction']],
+        ['turn-2', ['agent']]
+      ])
+      expect(turnUpserts.filter(update => update.runtimeTurnId === 'turn-1').at(-1)?.status).toBe('failed')
+      expect(turnUpserts.filter(update => update.runtimeTurnId === 'turn-compact').at(-1)?.status).toBe('completed')
+      expect(itemTypes('turn-compact')).toEqual(['contextCompaction'])
+      expect(itemTypes('turn-2')).toEqual(['userMessage', 'contextCompaction', 'agentMessage'])
     } finally {
       fixture.cleanup()
     }
@@ -1321,7 +1359,7 @@ function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodex
     `#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.150.1')
+  console.log('codex-cli 0.153.2')
   process.exit(0)
 }
 let buffer = ''
@@ -1344,6 +1382,7 @@ const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRac
 const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
 const cleanupError = ${JSON.stringify(behavior.cleanupError)}
 const suppressTurnNotifications = ${JSON.stringify(behavior.suppressTurnNotifications)}
+const compactFirstTurn = ${JSON.stringify(behavior.compactFirstTurn)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
@@ -1356,7 +1395,7 @@ function handle(message) {
   }
   if (message.method === 'initialize') {
     writeFileSync(process.env.CODEX_HOME + '/initialize-started.txt', 'started')
-    const response = { id: message.id, result: { userAgent: 'codex-cli 0.150.1' } }
+    const response = { id: message.id, result: { userAgent: 'codex-cli 0.153.2' } }
     if (initializeDelayMs) return setTimeout(() => write(response), initializeDelayMs)
     return write(response)
   }
@@ -1406,6 +1445,19 @@ function handle(message) {
     const turnID = 'turn-' + turnCount
     write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } })
     if (suppressTurnNotifications) return
+    if (compactFirstTurn) {
+      write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: turnID, status: 'inProgress', items: [] } } })
+      setTimeout(() => {
+        if (turnCount === 1) {
+          write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'failed', error: { message: 'context window exceeded', codexErrorInfo: 'contextWindowExceeded' } } } })
+          return
+        }
+        write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'contextCompaction', id: 'auto-compaction-' + turnCount } } })
+        write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'agentMessage', id: 'message-' + turnCount, text: 'final response after retry' } } })
+        write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
+      }, 10)
+      return
+    }
     if (turnError) {
       setTimeout(() => {
         write({
@@ -1517,6 +1569,16 @@ function handle(message) {
     return
   }
   if (message.method === 'turn/interrupt') return write({ id: message.id, result: {} })
+  if (message.method === 'thread/compact/start') {
+    writeFileSync(process.env.CODEX_HOME + '/compact-start.json', JSON.stringify(message.params))
+    write({ id: message.id, result: {} })
+    setTimeout(() => {
+      write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-compact', status: 'inProgress', items: [] } } })
+      write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-compact', item: { type: 'contextCompaction', id: 'compaction-1' } } })
+      write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-compact', status: 'completed' } } })
+    }, 10)
+    return
+  }
   if (message.method === 'thread/unsubscribe' && cleanupError) {
     return write({ id: message.id, error: { code: -32000, message: 'cleanup failed after completion' } })
   }

@@ -20,13 +20,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias DingTalkOpenAPI.Card
   alias DingTalkOpenAPI.Client
   alias DingTalkOpenAPI.Error
 
   import MapHelpers, only: [fetch_list: 2, fetch_value: 2, optional_text: 2]
-
-  @action_value_version "ankole.interactive_output.action.v1"
 
   @type space :: {:dm, String.t()} | {:group, String.t()}
 
@@ -119,24 +118,30 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
       if is_binary(option_id) and is_binary(label) and is_binary(interaction_id) and
            is_binary(source_actor_event_id) do
-        [
-          %{
-            "id" => option_id,
-            "label" => label,
-            "style" => "default",
-            "disabled" => locked?,
-            "value" => %{
-              "version" => @action_value_version,
-              "answerKind" => "choice",
-              "interactionId" => interaction_id,
-              "interactionVersion" => version,
-              "controlId" => control_id,
-              "selectedOptionId" => option_id,
-              "optionValue" => to_string(fetch_value(choice, "value") || option_id),
-              "sourceActorEventId" => source_actor_event_id
-            }
-          }
-        ]
+        action = %{
+          "type" => "button",
+          "interaction_id" => interaction_id,
+          "control_id" => control_id,
+          "selected_option_id" => option_id,
+          "option_value" => to_string(fetch_value(choice, "value") || option_id),
+          "revision" => version
+        }
+
+        case ReplyPresentation.callback_value(source_actor_event_id, action) do
+          {:ok, value} ->
+            [
+              %{
+                "id" => option_id,
+                "label" => label,
+                "style" => "default",
+                "disabled" => locked?,
+                "value" => value
+              }
+            ]
+
+          {:error, :invalid_callback_action} ->
+            []
+        end
       else
         []
       end
@@ -178,24 +183,21 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
               is_binary(source_actor_event_id) and is_binary(control_id) and
               is_binary(selected_option_id) and is_binary(option_value) and
               is_integer(revision) do
-    [
-      %{
-        "id" => id,
-        "label" => if(action["selected"], do: "#{label}（已选择）", else: label),
-        "style" => action["style"] || "default",
-        "disabled" => action["disabled"] == true,
-        "value" => %{
-          "version" => @action_value_version,
-          "answerKind" => "choice",
-          "interactionId" => interaction_id,
-          "interactionVersion" => revision,
-          "controlId" => control_id,
-          "selectedOptionId" => selected_option_id,
-          "optionValue" => option_value,
-          "sourceActorEventId" => source_actor_event_id
-        }
-      }
-    ]
+    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+      {:ok, value} ->
+        [
+          %{
+            "id" => id,
+            "label" => if(action["selected"], do: "#{label}（已选择）", else: label),
+            "style" => action["style"] || "default",
+            "disabled" => action["disabled"] == true,
+            "value" => value
+          }
+        ]
+
+      {:error, :invalid_callback_action} ->
+        []
+    end
   end
 
   defp presentation_action_descriptor(
@@ -216,28 +218,26 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
     if action["disabled"] == true do
       []
     else
-      [
-        %{
-          "id" => id,
-          "label" => label,
-          "style" => action["style"] || "primary",
-          "disabled" => false,
-          "input" => %{
-            "name" => input_name,
-            "placeholder" => field["placeholder"] || "",
-            "required" => field["required"] == true
-          },
-          "value" => %{
-            "version" => @action_value_version,
-            "answerKind" => "free_text",
-            "interactionId" => interaction_id,
-            "interactionVersion" => revision,
-            "controlId" => control_id,
-            "inputName" => input_name,
-            "sourceActorEventId" => source_actor_event_id
-          }
-        }
-      ]
+      case ReplyPresentation.callback_value(source_actor_event_id, action) do
+        {:ok, value} ->
+          [
+            %{
+              "id" => id,
+              "label" => label,
+              "style" => action["style"] || "primary",
+              "disabled" => false,
+              "input" => %{
+                "name" => input_name,
+                "placeholder" => field["placeholder"] || "",
+                "required" => field["required"] == true
+              },
+              "value" => value
+            }
+          ]
+
+        {:error, :invalid_callback_action} ->
+          []
+      end
     end
   end
 

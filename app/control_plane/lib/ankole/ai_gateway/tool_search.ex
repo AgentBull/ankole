@@ -22,6 +22,7 @@ defmodule Ankole.AIGateway.ToolSearch do
   only after loading.
   """
 
+  alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolContract
@@ -46,7 +47,8 @@ defmodule Ankole.AIGateway.ToolSearch do
               search_context: "",
               contracts: [],
               loaded_identities: MapSet.new(),
-              ptc: %PTC.Plan{}
+              ptc: %PTC.Plan{},
+              brain: nil
 
     @type t :: %__MODULE__{
             execution: :server | :client | nil,
@@ -56,7 +58,8 @@ defmodule Ankole.AIGateway.ToolSearch do
             search_context: String.t(),
             contracts: [Descriptor.t()],
             loaded_identities: MapSet.t({String.t() | nil, String.t()}),
-            ptc: PTC.Plan.t()
+            ptc: PTC.Plan.t(),
+            brain: Ankole.AIGateway.HostedTools.Brain.Plan.t() | nil
           }
   end
 
@@ -68,8 +71,36 @@ defmodule Ankole.AIGateway.ToolSearch do
   through unchanged with a `nil` plan. Invalid declarations fail loudly instead
   of reaching a provider that cannot serve them.
   """
-  @spec plan(map()) :: {:ok, map(), Plan.t() | nil} | {:error, term()}
-  def plan(%{} = request) do
+  @spec plan(map(), keyword()) :: {:ok, map(), Plan.t() | nil} | {:error, term()}
+  def plan(request, opts \\ [])
+
+  def plan(%{} = request, opts) when is_list(opts) do
+    brain = Keyword.get(opts, :brain)
+
+    if Keyword.get(opts, :native_tools?, false),
+      do: plan_native(request, brain),
+      else: plan_local(request, brain)
+  end
+
+  # A first-party Responses provider owns Tool Search and PTC natively, so only
+  # the hosted Brain tool, which AIGateway executes on every provider, needs a
+  # local plan there. Public Brain history always replays as function pairs.
+  defp plan_native(request, nil), do: {:ok, Brain.project_history(request), nil}
+
+  defp plan_native(request, %Brain.Plan{} = brain) do
+    tools = list_tools(request)
+
+    with :ok <- ensure_no_brain_collision(tools, brain) do
+      provider_request =
+        request
+        |> Brain.project_history()
+        |> put_tools(tools ++ Brain.function_specs(brain))
+
+      {:ok, provider_request, %Plan{brain: brain}}
+    end
+  end
+
+  defp plan_local(request, brain) do
     tools = list_tools(request)
 
     with {:ok, declaration, plain_tools} <- split_tool_search_declaration(tools),
@@ -79,7 +110,7 @@ defmodule Ankole.AIGateway.ToolSearch do
          tool_name = declared_tool_name(declaration),
          {:ok, contracts} <-
            ToolContract.normalize(contract_specs,
-             reserved_names: [PTC.tool_name(), tool_name]
+             reserved_names: [PTC.tool_name(), tool_name | Brain.reserved_names(brain)]
            ) do
       deferred = Enum.filter(contracts, & &1.deferred?)
       declared_search? = not is_nil(declaration) or deferred != []
@@ -89,7 +120,7 @@ defmodule Ankole.AIGateway.ToolSearch do
         declared_search? or settled_search_history?(history) or client_search_history?(history)
 
       projection_required? =
-        settled_program_history?(history) or
+        settled_program_history?(history) or brain_history?(history) or
           Enum.any?(contracts, fn contract ->
             contract.deferred? or contract.allowed_callers != ["direct"]
           end)
@@ -101,7 +132,8 @@ defmodule Ankole.AIGateway.ToolSearch do
                ptc
              ),
            :ok <- validate_history_error(history) do
-        if not search_managed? and not PTC.enabled?(ptc) and not projection_required? do
+        if not search_managed? and not PTC.enabled?(ptc) and not projection_required? and
+             is_nil(brain) do
           {:ok, request, nil}
         else
           build_plan(
@@ -110,7 +142,8 @@ defmodule Ankole.AIGateway.ToolSearch do
             contracts,
             passthrough_tools,
             ptc,
-            history
+            history,
+            brain
           )
         end
       end
@@ -119,8 +152,9 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   @doc "Returns whether a composite tool plan requires ResponseStream ownership."
   @spec response_stream_required?(Plan.t() | nil) :: boolean()
-  def response_stream_required?(%Plan{execution: execution, ptc: ptc}) do
-    execution in [:server, :client] or PTC.response_stream_required?(ptc)
+  def response_stream_required?(%Plan{execution: execution, ptc: ptc, brain: brain}) do
+    execution in [:server, :client] or PTC.response_stream_required?(ptc) or
+      not is_nil(brain)
   end
 
   def response_stream_required?(_plan), do: false
@@ -284,12 +318,14 @@ defmodule Ankole.AIGateway.ToolSearch do
          contracts,
          passthrough_tools,
          ptc,
-         history
+         history,
+         brain
        ) do
     deferred = Enum.filter(contracts, & &1.deferred?)
     remaining_tools = Enum.reject(contracts, & &1.deferred?)
     execution = execution_mode(declaration, deferred)
     tool_name = declared_tool_name(declaration)
+    reserved_names = [PTC.tool_name(), tool_name | Brain.reserved_names(brain)]
 
     with :ok <- validate_search_execution_contract(declaration, execution),
          :ok <- validate_search_history(history),
@@ -297,23 +333,11 @@ defmodule Ankole.AIGateway.ToolSearch do
           server_loaded_spec_groups} <-
            rewrite_input_items(history, tool_name),
          {:ok, loaded_tools} <-
-           validate_loaded_history(
-             loaded_spec_groups,
-             contracts,
-             [PTC.tool_name(), tool_name]
-           ),
+           validate_loaded_history(loaded_spec_groups, contracts, reserved_names),
          {:ok, client_loaded_tools} <-
-           validate_loaded_history(
-             client_loaded_spec_groups,
-             contracts,
-             [PTC.tool_name(), tool_name]
-           ),
+           validate_loaded_history(client_loaded_spec_groups, contracts, reserved_names),
          {:ok, server_loaded_tools} <-
-           validate_loaded_history(
-             server_loaded_spec_groups,
-             contracts,
-             [PTC.tool_name(), tool_name]
-           ) do
+           validate_loaded_history(server_loaded_spec_groups, contracts, reserved_names) do
       search_declared? = not is_nil(declaration) or deferred != []
 
       callable_server_loaded_tools =
@@ -339,6 +363,7 @@ defmodule Ankole.AIGateway.ToolSearch do
       with {:ok, ptc} <- PTC.build_plan(ptc, program_bindings, history),
            :ok <- ensure_no_tool_name_collision(direct_tools, passthrough_tools, tool_name),
            :ok <- PTC.ensure_no_collision(direct_tools, passthrough_tools, ptc),
+           :ok <- ensure_no_brain_collision(passthrough_tools, brain),
            :ok <- validate_search_surface_paths(deferred, execution) do
         catalog = Enum.map(deferred, &ToolContract.public_spec/1)
         callable_loaded_specs = Enum.map(callable_loaded_tools, &ToolContract.public_spec/1)
@@ -360,13 +385,15 @@ defmodule Ankole.AIGateway.ToolSearch do
           search_context: search_context(Map.get(request, "input")),
           contracts: merge_contracts(contracts, loaded_tools),
           loaded_identities: MapSet.new(callable_loaded_tools, &ToolContract.identity/1),
-          ptc: ptc
+          ptc: ptc,
+          brain: brain
         }
 
         provider_tools =
           passthrough_tools ++
             ToolContract.response_specs(direct_tools) ++
-            if(search_declared?, do: [synthesized], else: [])
+            if(search_declared?, do: [synthesized], else: []) ++
+            Brain.function_specs(brain)
 
         provider_tools = PTC.append_provider_tool(provider_tools, ptc)
 
@@ -459,6 +486,24 @@ defmodule Ankole.AIGateway.ToolSearch do
       true -> {:error, {:invalid_tool_search, {:tool_name_collision, tool_name}}}
     end
   end
+
+  # Contract tools already reject the reserved operation names during
+  # normalization; passthrough declarations carry no contract and are checked
+  # by their root name here.
+  defp ensure_no_brain_collision(_tools, nil), do: :ok
+
+  defp ensure_no_brain_collision(tools, %Brain.Plan{} = brain) do
+    Enum.reduce_while(Brain.reserved_names(brain), :ok, fn name, :ok ->
+      if Enum.any?(tools, &root_tool_named?(&1, name)),
+        do: {:halt, {:error, {:invalid_brain_tool, {:tool_name_collision, name}}}},
+        else: {:cont, :ok}
+    end)
+  end
+
+  defp brain_history?(%ResponseItems.History{entries: entries}) when is_list(entries),
+    do: Enum.any?(entries, &Brain.history_item?(&1.item))
+
+  defp brain_history?(_history), do: false
 
   defp validate_search_surface_paths(_deferred, execution) when execution != :server, do: :ok
 
@@ -805,10 +850,16 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp rewrite_input_entry(%{item: item}, _tool_name) do
-    case PTC.provider_history_item(item) do
-      {:handled, %{} = provider_item} -> {:item, provider_item}
-      {:handled, nil} -> :omit
-      :unhandled -> {:item, item}
+    case Brain.provider_history_item(item) do
+      {:handled, %{} = provider_item} ->
+        {:item, provider_item}
+
+      :unhandled ->
+        case PTC.provider_history_item(item) do
+          {:handled, %{} = provider_item} -> {:item, provider_item}
+          {:handled, nil} -> :omit
+          :unhandled -> {:item, item}
+        end
     end
   end
 

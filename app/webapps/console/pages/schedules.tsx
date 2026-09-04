@@ -30,10 +30,10 @@ import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentSessionControllerIndexOptions,
@@ -50,60 +50,31 @@ import {
   ankoleWebScheduleControllerUpdateCronMutation,
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import type { CronScheduleItem, ScheduledEventItem, ScheduleRecurrence } from '../api/generated/types.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
-import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import {
+  ConfirmDeleteButton,
+  EditorNotFound,
+  LabeledField,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  StatusIndicator
+} from '../console-form'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions, SubNav } from '../console-list-page'
 import {
   deliveryTargetDrafts,
   isMutableCronStatus,
   scheduleOccurrenceBound,
   ScheduleEditorModel,
-  type CronDeliveryProjection,
-  type CronStatus,
-  type ScheduleEditorDraft,
-  type ScheduleKind
+  type ScheduleEditorDraft
 } from '../state/schedule-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
-
-// Cron projections arrive as JSONValue (unknown); this is the runtime shape the
-// control plane's Schedule.Projections emits. Keep it loose — the source of
-// truth is the Elixir projection, not this type.
-type CronScheduleRow = {
-  id: string
-  status: string
-  agent_uid: string
-  owner_session_id: string
-  execution_session_id: string
-  binding_name: string
-  name?: string | null
-  schedule: Record<string, unknown> | null
-  timezone?: string | null
-  payload?: Record<string, unknown> | null
-  delivery?: CronDeliveryProjection | null
-  automation_job_id?: number | null
-  idempotency_key?: string
-  next_fire_at?: string | null
-  last_fire_at?: string | null
-}
-
-type ScheduledEventRow = {
-  id: number
-  kind: string
-  status: string
-  agent_uid: string
-  session_id: string
-  binding_name?: string | null
-  due_at?: string | null
-  fired_at?: string | null
-  cancelled_at?: string | null
-  last_fire_error?: Record<string, unknown> | null
-  wake_payload?: Record<string, unknown> | null
-}
+import { useEditorDraft } from '../use-editor-draft'
 
 /** A pending checkback still has a wake edge ahead of it; the rest are history. */
-function pending(row: ScheduledEventRow): boolean {
+function pending(row: ScheduledEventItem): boolean {
   return row.status === 'scheduled' || row.status === 'firing'
 }
 
@@ -119,7 +90,7 @@ export function SchedulesListPage() {
     refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = ((crons.data?.cron_schedules ?? []) as CronScheduleRow[]).filter(row =>
+  const rows = (crons.data?.cron_schedules ?? []).filter(row =>
     matchesResourceSearch(
       query,
       row.name,
@@ -300,7 +271,6 @@ export function ScheduleCheckbacksPage() {
   })
 
   const rows = (checkbacks.data?.schedule_events ?? [])
-    .map(row => row as ScheduledEventRow)
     .filter(row => includeFinished || pending(row))
     .filter(row =>
       matchesResourceSearch(
@@ -465,7 +435,7 @@ export function ScheduleCronEditorPage() {
     }),
     enabled: editing && Boolean(agentUID && cronID)
   })
-  const existingRow = (existing.data?.cron_schedule ?? null) as CronScheduleRow | null
+  const existingRow = existing.data?.cron_schedule
 
   const runs = useQuery({
     ...ankoleWebScheduleControllerCronRunsOptions({
@@ -473,18 +443,17 @@ export function ScheduleCronEditorPage() {
     }),
     enabled: editing && Boolean(agentUID && cronID)
   })
-  const runRows = ((runs.data?.schedule_runs ?? []) as ScheduledEventRow[]).slice(0, 25)
+  const runRows = (runs.data?.schedule_runs ?? []).slice(0, 25)
 
-  useEffect(() => {
-    if (editing) {
-      if (!existingRow) return
-      const schedule = (existingRow.schedule ?? {}) as Record<string, unknown>
-      model.initialize(`cron:${existingRow.id}`, draftFromCron(existingRow, schedule))
-    } else {
-      model.initialize('cron:new', emptyDraft())
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, existingRow, model])
+  const scheduleDraft = useMemo(
+    () => (editing ? (existingRow ? draftFromCron(existingRow) : undefined) : emptyDraft()),
+    [editing, existingRow]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'schedule', id: cronID },
+    source: scheduleDraft,
+    absent: () => editing && requestErrorCode(existing.error) === 'not_found'
+  })
 
   // Save errors render once in the page ErrorBlock; a toast on top of the
   // same message would say it twice.
@@ -576,6 +545,11 @@ export function ScheduleCronEditorPage() {
   }
 
   const backTo = agentUID ? `/schedules?agent=${encodeURIComponent(agentUID)}` : '/schedules'
+
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo={backTo} message={t('console.not_found.description')} />
+  }
+
   const updateBody = editing ? model.toUpdateBody() : undefined
   const unchanged = Boolean(editing && updateBody && Object.keys(updateBody).length === 0)
   const existingRunnable = Boolean(existingRow && isMutableCronStatus(existingRow.status))
@@ -600,7 +574,7 @@ export function ScheduleCronEditorPage() {
             submitting: saveCron.isPending || updateCron.isPending,
             submitDisabled: unchanged,
             submitDisabledReason: t('common.save_disabled'),
-            submitUnavailable: Boolean(editing && !existingRow)
+            submitUnavailable: draftStatus !== 'ready'
           })}
       secondary={
         editing && existingRow ? (
@@ -791,7 +765,7 @@ export function ScheduleCronEditorPage() {
       <LabeledField label={t('console.schedules.schedule_kind')}>
         <Select
           value={model.scheduleKind.value || 'cron'}
-          onValueChange={value => (model.scheduleKind.value = String(value) as ScheduleKind)}>
+          onValueChange={value => (model.scheduleKind.value = value === 'every' ? 'every' : 'cron')}>
           <SelectTrigger className="w-full md:max-w-sm">
             <SelectValue />
           </SelectTrigger>
@@ -925,7 +899,7 @@ export function ScheduleCronEditorPage() {
         <LabeledField label={t('console.schedules.status_field')}>
           <Select
             value={model.status.value || 'active'}
-            onValueChange={value => (model.status.value = String(value) as CronStatus)}>
+            onValueChange={value => (model.status.value = value === 'paused' ? 'paused' : 'active')}>
             <SelectTrigger className="w-full md:max-w-sm">
               <SelectValue />
             </SelectTrigger>
@@ -951,30 +925,24 @@ function eventStatusLabel(t: TFunction, status: string): string {
   return t(`console.schedules.event_status_${status}`, { defaultValue: status })
 }
 
-function describeSchedule(t: TFunction, schedule: Record<string, unknown> | null | undefined): string {
-  if (!schedule || typeof schedule !== 'object') return '—'
-  const kind = String((schedule as { kind?: unknown }).kind ?? '')
-  if (kind === 'cron') return String((schedule as { expression?: unknown }).expression ?? '—')
-  if (kind === 'every') {
-    const ms = Number((schedule as { every_ms?: unknown }).every_ms)
-    const interval =
-      !Number.isFinite(ms) || ms <= 0
-        ? '?'
-        : ms >= 86_400_000 && ms % 86_400_000 === 0
-          ? `${ms / 86_400_000}d`
-          : ms >= 3_600_000 && ms % 3_600_000 === 0
-            ? `${ms / 3_600_000}h`
-            : ms >= 60_000 && ms % 60_000 === 0
-              ? `${ms / 60_000}m`
-              : `${ms}ms`
-    return t('console.schedules.every_interval', { interval })
-  }
-  return kind || '—'
+function describeSchedule(t: TFunction, schedule: ScheduleRecurrence): string {
+  if (schedule.kind === 'cron') return schedule.expression ?? '—'
+  const ms = schedule.every_ms ?? 0
+  const interval =
+    ms <= 0
+      ? '?'
+      : ms >= 86_400_000 && ms % 86_400_000 === 0
+        ? `${ms / 86_400_000}d`
+        : ms >= 3_600_000 && ms % 3_600_000 === 0
+          ? `${ms / 3_600_000}h`
+          : ms >= 60_000 && ms % 60_000 === 0
+            ? `${ms / 60_000}m`
+            : `${ms}ms`
+  return t('console.schedules.every_interval', { interval })
 }
 
-function checkbackReason(payload: Record<string, unknown> | null | undefined): string {
-  if (!payload) return '—'
-  const reason = (payload as { reason?: unknown }).reason
+function checkbackReason(payload: ScheduledEventItem['wake_payload']): string {
+  const reason = payload.reason
   return typeof reason === 'string' ? reason : '—'
 }
 
@@ -1011,33 +979,24 @@ function eventTone(status: string): 'positive' | 'warning' | 'neutral' | 'danger
   }
 }
 
-function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>): ScheduleEditorDraft {
-  const kind = (String(schedule.kind ?? 'cron') || 'cron') as ScheduleKind
-  const payload = row.payload ?? {}
+function draftFromCron(row: CronScheduleItem): ScheduleEditorDraft {
+  const { schedule, payload } = row
   return {
     ownerSessionId: row.owner_session_id,
     bindingName: row.binding_name,
-    name: row.name ?? '',
+    name: row.name,
     status: isMutableCronStatus(row.status) ? row.status : '',
-    scheduleKind: kind,
-    cronExpression: String(schedule.expression ?? ''),
+    scheduleKind: schedule.kind,
+    cronExpression: schedule.expression ?? '',
     everyMs: String(schedule.every_ms ?? ''),
-    anchorAt: String(schedule.anchor_at ?? ''),
-    timezone: row.timezone ?? '',
+    anchorAt: schedule.anchor_at ?? '',
+    timezone: row.timezone,
     occurrences: scheduleOccurrenceBound(schedule),
     deliveryTargets: deliveryTargetDrafts(row.delivery),
     task: typeof payload.task === 'string' ? payload.task : '',
-    payload: safeStringify(payload),
+    payload: JSON.stringify(payload, null, 2),
     hasAutomationJob: row.automation_job_id != null,
-    idempotencyKey: row.idempotency_key ?? ''
-  }
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return '{}'
+    idempotencyKey: row.idempotency_key
   }
 }
 

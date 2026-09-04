@@ -322,8 +322,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       when state in ["blocked", "permanent"] ->
         {:error, :reply_preview_not_recoverable}
 
-      %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true} = checkpoint} = event ->
-        if match?(%DateTime{}, event.completed_at) and provider_checkpoint_open?(checkpoint) do
+      %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true}} = event ->
+        if match?(%DateTime{}, event.completed_at) and surface_open?(event) do
           recover_completed_preview(event)
         else
           with :ok <- refresh_checkpoint(event) do
@@ -333,7 +333,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
       %ActorEvent{completed_at: %DateTime{}, reply_preview_checkpoint: checkpoint} = event
       when is_map(checkpoint) ->
-        if refreshable_provider_checkpoint?(event) and provider_checkpoint_open?(checkpoint) do
+        if refreshable_provider_checkpoint?(event) and surface_open?(event) do
           recover_completed_preview(event)
         else
           {:error, :reply_preview_not_recoverable}
@@ -405,52 +405,20 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp refreshable_provider_checkpoint?(%ActorEvent{reply_preview_checkpoint: checkpoint} = event)
        when is_map(checkpoint) do
-    provider_preview_checkpoint?(checkpoint) and
-      match?(
-        %ReplyPreviewAdapter{refresh_fun: fun} when is_function(fun, 1),
-        rich_adapter_for_event(event)
-      )
+    case ReplyPreviewAdapter.for_event(event) do
+      %ReplyPreviewAdapter{refresh_fun: fun} = adapter when is_function(fun, 1) ->
+        ReplyPreviewAdapter.surface?(adapter, checkpoint)
+
+      _plain_or_unavailable ->
+        false
+    end
   end
 
-  defp provider_preview_checkpoint?(%{"card_id" => card_id})
-       when is_binary(card_id) and card_id != "",
-       do: true
-
-  defp provider_preview_checkpoint?(%{"cards" => cards}) when is_list(cards) do
-    Enum.any?(cards, fn
-      %{"card_id" => card_id} when is_binary(card_id) and card_id != "" -> true
-      _card -> false
-    end)
-  end
-
-  defp provider_preview_checkpoint?(%{"pages" => pages}) when is_list(pages) do
-    Enum.any?(pages, fn
-      %{"out_track_id" => id} when is_binary(id) and id != "" -> true
-      %{"stream_id" => id} when is_binary(id) and id != "" -> true
-      %{"card_id" => id} when is_binary(id) and id != "" -> true
-      _page -> false
-    end)
-  end
-
-  defp provider_preview_checkpoint?(%{"message_id" => message_id})
-       when is_binary(message_id) and message_id != "",
-       do: true
-
-  defp provider_preview_checkpoint?(%{"messages" => messages}) when is_list(messages) do
-    Enum.any?(messages, fn
-      %{"message_id" => message_id} when is_binary(message_id) and message_id != "" -> true
-      _message -> false
-    end)
-  end
-
-  defp provider_preview_checkpoint?(_checkpoint), do: false
-
-  defp provider_checkpoint_open?(checkpoint) do
-    checkpoint["streaming_state"] != "closed" or
-      Enum.any?(Map.get(checkpoint, "cards", []), fn
-        %{"streaming_state" => state} when state != "closed" -> true
-        _card -> false
-      end)
+  defp surface_open?(%ActorEvent{reply_preview_checkpoint: checkpoint} = event)
+       when is_map(checkpoint) do
+    event
+    |> ReplyPreviewAdapter.for_event()
+    |> ReplyPreviewAdapter.surface_open?(checkpoint)
   end
 
   defp recover_completed_preview(event) do
@@ -526,7 +494,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
         %ActorEvent{completed_at: %DateTime{}, reply_preview_checkpoint: checkpoint} = event
         when is_map(checkpoint) ->
-          if provider_checkpoint_open?(checkpoint) do
+          if surface_open?(event) do
             checkpoint =
               checkpoint
               |> Map.put("refresh_pending", true)
@@ -623,15 +591,13 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         subject_uid: checkpoint["subject_uid"],
         conversation_id: checkpoint["conversation_id"],
         presentation: presentation,
-        previous_presentation: checkpoint["previous_presentation"],
-        checkpoint: checkpoint,
         mode: if(ReplyPresentation.terminal_state?(presentation), do: :terminal, else: :working)
       })
       |> case do
         {:ok, _result} ->
           :ok
 
-        {:error, {:cardkit_plain_text_fallback, detail}} ->
+        {:error, {:degraded, :plain_text, detail}} ->
           delegate_delivery_to_outbox(event, detail)
 
         {:error, reason} = error ->
@@ -766,7 +732,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       {:error, reason} -> raise "cannot subscribe AI reply preview: #{inspect(reason)}"
     end
 
-    rich_adapter = rich_adapter_for_event(event)
+    rich_adapter = ReplyPreviewAdapter.for_event(event)
     rich? = match?(%ReplyPreviewAdapter{}, rich_adapter)
     checkpoint = event.reply_preview_checkpoint || %{}
 
@@ -864,7 +830,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
-    presentation = Map.delete(state.presentation, "thought")
+    presentation = ReplyPresentation.checkpoint(state.presentation)
     {:noreply, %{state | presentation: presentation, dirty: true}}
   end
 
@@ -1092,7 +1058,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       presentation =
         state.presentation
         |> ReplyPresentation.replace_answer("")
-        |> Map.delete("thought")
+        |> ReplyPresentation.checkpoint()
 
       mark_rich_dirty(state, presentation)
     else
@@ -1108,7 +1074,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         presentation =
           state.presentation
           |> ReplyPresentation.replace_answer(text)
-          |> Map.delete("thought")
+          |> ReplyPresentation.checkpoint()
 
         state
         |> Map.put(:input_superseded, true)
@@ -1164,8 +1130,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
           subject_uid: state.subject_uid,
           conversation_id: state.conversation_id,
           presentation: continued,
-          previous_presentation: state.last_synced_presentation,
-          checkpoint: state.actor_event.reply_preview_checkpoint,
           mode: :terminal
         }
 
@@ -1364,7 +1328,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp old_preview_visible?(state) do
     state.preview_established or
-      provider_preview_checkpoint?(state.actor_event.reply_preview_checkpoint)
+      ReplyPreviewAdapter.surface?(
+        state.reply_preview_adapter,
+        state.actor_event.reply_preview_checkpoint
+      )
   end
 
   defp freeze_plain_preview(state) do
@@ -1410,8 +1377,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         subject_uid: state.subject_uid,
         conversation_id: state.conversation_id,
         presentation: presentation,
-        previous_presentation: state.last_synced_presentation,
-        checkpoint: state.actor_event.reply_preview_checkpoint,
         mode: :working
       }
 
@@ -1512,6 +1477,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp finish_rich_sync(state, result),
     do: finish_rich_sync(state, {:error, {:invalid_reply_preview_sync_result, result}})
 
+  # A handoff finalize can leave the old provider surface in an unknown state.
+  # The preview cannot repeat it safely, so the old owner takes the refresh
+  # path like any other non-retryable failure.
+  defp finish_rich_task(state, :unknown),
+    do: finish_rich_task(state, {:error, :reply_preview_delivery_unknown})
+
   defp finish_rich_task(state, result) do
     task_kind = state.rich_task_kind
     task_generation = state.rich_task_generation
@@ -1554,7 +1525,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp rich_retryable?({:reply_delivery, :operator_action_required, _error}), do: false
   defp rich_retryable?({:reply_delivery, :permanent, _error}), do: false
-  defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
+  defp rich_retryable?({:degraded, :plain_text, _error}), do: false
+  defp rich_retryable?(:reply_preview_delivery_unknown), do: false
   defp rich_retryable?(_reason), do: true
 
   defp rich_retry_after_ms({:reply_delivery, :retryable, detail}) when is_map(detail) do
@@ -1876,15 +1848,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp adapter_for_event(%ActorEvent{} = event) do
     with {:ok, binding} <- binding_for_event(event) do
       Adapters.fetch_outbox(binding.adapter)
-    end
-  end
-
-  defp rich_adapter_for_event(%ActorEvent{} = event) do
-    with {:ok, binding} <- binding_for_event(event),
-         {:ok, adapter} <- Adapters.fetch_reply_preview(binding.adapter) do
-      adapter
-    else
-      _unavailable -> nil
     end
   end
 

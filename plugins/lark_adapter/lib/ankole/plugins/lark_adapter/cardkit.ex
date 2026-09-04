@@ -18,12 +18,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias FeishuOpenAPI.Error
 
@@ -35,9 +35,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   def open(%Request{} = request),
     do: request |> open_result() |> normalize_lifecycle_result()
 
-  defp open_result(%Request{} = request) do
-    with {:ok, event} <- fresh_event(request.actor_event),
-         {:ok, config} <- config_for_event(event),
+  defp open_result(%Request{actor_event: event} = request) do
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, render_request, image_state} <-
@@ -87,15 +86,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def update(%Request{} = request) do
-    with {:ok, event} <- fresh_event(request.actor_event),
-         checkpoint when is_map(checkpoint) <- event.reply_preview_checkpoint,
+  def update(%Request{actor_event: event, checkpoint: checkpoint} = request) do
+    with checkpoint when is_map(checkpoint) <- checkpoint,
          card_id when is_binary(card_id) <- checkpoint["card_id"] do
       do_update(event, checkpoint, card_id, request)
     else
-      nil -> open_result(request)
-      {:error, _reason} = error -> error
-      _missing_card_id -> open_result(request)
+      _missing_card -> open_result(request)
     end
     |> normalize_lifecycle_result()
   end
@@ -118,10 +114,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def refresh(%Request{} = request) do
-    with {:ok, event} <- fresh_event(request.actor_event),
-         %{"card_id" => card_id, "refresh_pending" => true} = checkpoint
-         when is_binary(card_id) <- event.reply_preview_checkpoint,
+  def refresh(%Request{actor_event: event, checkpoint: checkpoint} = request) do
+    with %{"card_id" => card_id, "refresh_pending" => true} = checkpoint
+         when is_binary(card_id) <- checkpoint,
          request <- refresh_request(request, event, checkpoint),
          active <- CardChain.active_card(checkpoint) do
       case active do
@@ -132,42 +127,52 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
           resume_unsent_refresh(event, checkpoint, card_id, request)
       end
     else
-      %{} -> {:error, :reply_preview_refresh_not_pending}
-      nil -> {:error, :reply_preview_refresh_not_pending}
-      {:error, _reason} = error -> error
+      _not_pending -> {:error, :reply_preview_refresh_not_pending}
     end
     |> normalize_lifecycle_result()
   end
 
-  defp finalize_result(%Request{} = request) do
+  @impl true
+  def surface_ids(checkpoint) when is_map(checkpoint) do
+    checkpoint
+    |> CardChain.cards()
+    |> Enum.flat_map(&[{:handle, &1["card_id"]}, {:entry, &1["message_id"]}])
+    |> Enum.filter(fn {_kind, id} -> is_binary(id) and id != "" end)
+  end
+
+  @impl true
+  def surface_open?(checkpoint) when is_map(checkpoint) do
+    checkpoint["streaming_state"] != "closed" or
+      Enum.any?(CardChain.cards(checkpoint), &(&1["streaming_state"] != "closed"))
+  end
+
+  defp finalize_result(%Request{actor_event: event, checkpoint: checkpoint} = request) do
     request = %{request | mode: :terminal}
 
-    with {:ok, event} <- fresh_event(request.actor_event) do
-      case event.reply_preview_checkpoint do
-        %{
-          "streaming_state" => "closed",
-          "message_id" => message_id,
-          "card_id" => card_id
-        } = checkpoint
-        when is_binary(message_id) and is_binary(card_id) ->
-          if terminal_checkpoint_matches?(checkpoint, request.presentation) do
-            {:ok, delivery_result(message_id, checkpoint)}
-          else
-            do_finalize(event, checkpoint, card_id, request)
-          end
-
-        %{"card_id" => card_id} = checkpoint when is_binary(card_id) ->
+    case checkpoint do
+      %{
+        "streaming_state" => "closed",
+        "message_id" => message_id,
+        "card_id" => card_id
+      } = checkpoint
+      when is_binary(message_id) and is_binary(card_id) ->
+        if terminal_checkpoint_matches?(checkpoint, request.presentation) do
+          {:ok, delivery_result(message_id, checkpoint)}
+        else
           do_finalize(event, checkpoint, card_id, request)
+        end
 
-        _checkpoint ->
-          case open_result(request) do
-            {:error, :cardkit_soft_budget_exceeded} ->
-              plain_text_fallback(event, request)
+      %{"card_id" => card_id} = checkpoint when is_binary(card_id) ->
+        do_finalize(event, checkpoint, card_id, request)
 
-            result ->
-              result
-          end
-      end
+      _checkpoint ->
+        case open_result(request) do
+          {:error, :cardkit_soft_budget_exceeded} ->
+            plain_text_fallback(event, request)
+
+          result ->
+            result
+        end
     end
   end
 
@@ -180,7 +185,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp do_update_cardkit(event, checkpoint, _card_id, request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, checkpoint, send_result} <-
@@ -271,7 +276,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp do_finalize_cardkit(event, checkpoint, _card_id, request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, checkpoint, send_result} <-
@@ -318,7 +323,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp do_update_inline(event, checkpoint, request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, render_request, image_state} <-
@@ -381,7 +386,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp do_finalize_inline(event, checkpoint, request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, render_request, image_state} <-
@@ -692,7 +697,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         rebuild_latest_active_message(event, request)
 
       :plain_text_fallback ->
-        {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
+        {:error, {:degraded, :plain_text, ErrorPolicy.provider_error(error)}}
 
       :operator_action_required ->
         {:error, {:reply_delivery, :operator_action_required, ErrorPolicy.provider_error(error)}}
@@ -713,7 +718,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         if match?(%OutboxEntry{}, request.outbox) do
           plain_text_fallback(event, request)
         else
-          {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
+          {:error, {:degraded, :plain_text, ErrorPolicy.provider_error(error)}}
         end
 
       :operator_action_required ->
@@ -739,9 +744,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     )
   end
 
-  defp rebuild_latest_active_message(event, request) do
-    with {:ok, event} <- fresh_event(event),
-         checkpoint when is_map(checkpoint) <- event.reply_preview_checkpoint do
+  # Reloads the row: provider mutations earlier in this call already moved the
+  # checkpoint past the request's copy.
+  defp rebuild_latest_active_message(%ActorEvent{id: actor_event_id}, request) do
+    with %ActorEvent{} = event <-
+           Repo.get(ActorEvent, actor_event_id) || {:error, :actor_event_not_found},
+         checkpoint when is_map(checkpoint) <-
+           ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint) do
       rebuild_active_message(event, checkpoint, %{
         request
         | actor_event: event,
@@ -764,7 +773,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          render_opts
        ) do
     now = DateTime.utc_now(:microsecond)
-    previous = event.reply_preview_checkpoint || request.checkpoint || %{}
+
+    previous =
+      request.checkpoint || ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint)
 
     element_ids =
       Renderer.element_ids(
@@ -1421,7 +1432,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp rebuild_active_message(event, checkpoint, request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, render_request, image_state} <-
@@ -1976,7 +1987,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp plain_text_fallback(event, %Request{outbox: %OutboxEntry{} = outbox} = request) do
-    with {:ok, config} <- config_for_event(event),
+    with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
          {:ok, operation} <- Outbox.outbox_operation_for_actor_event(event),
@@ -1996,14 +2007,17 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp plain_text_fallback(_event, _request) do
-    {:error, {:cardkit_plain_text_fallback, %{"reason" => "outbox_required"}}}
+    {:error, {:degraded, :plain_text, %{"reason" => "outbox_required"}}}
   end
 
   defp undelivered_plain_text(%ActorEvent{id: actor_event_id}, operation, text) do
     checkpoint =
       case Repo.get(ActorEvent, actor_event_id) do
-        %ActorEvent{reply_preview_checkpoint: checkpoint} when is_map(checkpoint) -> checkpoint
-        _missing -> %{}
+        %ActorEvent{reply_preview_checkpoint: checkpoint} when is_map(checkpoint) ->
+          ReplyPreviewAdapter.adapter_checkpoint(checkpoint)
+
+        _missing ->
+          %{}
       end
 
     active = CardChain.active_card(checkpoint)
@@ -2114,23 +2128,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     }
   end
 
-  defp config_for_event(%ActorEvent{} = event) do
-    with {:ok, binding} <- SignalsGateway.get_binding(event.agent_uid, event.binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp fresh_event(%ActorEvent{id: id}) do
-    case Repo.get(ActorEvent, id) do
-      %ActorEvent{} = event -> {:ok, event}
-      nil -> {:error, :actor_event_not_found}
-    end
-  end
-
   defp invalid_card_id_visibility_error?(%Error{code: 230_099, msg: message})
        when is_binary(message) do
     message
@@ -2166,7 +2163,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   defp normalize_lifecycle_result({:error, %Error{} = error}) do
     case ErrorPolicy.action(error) do
       :plain_text_fallback ->
-        {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
+        {:error, {:degraded, :plain_text, ErrorPolicy.provider_error(error)}}
 
       :operator_action_required ->
         {:error, {:reply_delivery, :operator_action_required, ErrorPolicy.provider_error(error)}}

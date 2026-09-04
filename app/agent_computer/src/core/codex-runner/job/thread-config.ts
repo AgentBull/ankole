@@ -44,6 +44,9 @@ export function codexJobThreadConfig(input: {
       plugins: true,
       remote_plugin: false
     },
+    tools: {
+      update_plan: { enabled: true }
+    },
     skills: {
       config: [
         { name: 'skill-creator', enabled: false },

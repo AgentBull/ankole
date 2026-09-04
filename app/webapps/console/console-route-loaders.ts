@@ -14,6 +14,7 @@ import {
   ankoleWebControlPlanePluginControllerIndexOptions,
   ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
+  ankoleWebOidcClientControllerIndexOptions,
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebScheduleControllerIndexCheckbacksOptions,
   ankoleWebScheduleControllerIndexCronOptions,
@@ -68,6 +69,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
+    oidcClients: () =>
+      all(ensure(ankoleWebOidcClientControllerIndexOptions()), ensure(ankoleWebAuthZGroupControllerIndexOptions())),
     identityMappings: () =>
       all(
         ensure(ankoleWebIdentityMappingRequestControllerIndexOptions()),
@@ -115,7 +118,15 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       )
 
       return selectedID
-        ? all(list, ensure(ankoleWebBackgroundAgentJobControllerShowOptions({ path: { job_id: selectedID } })))
+        ? all(
+            list,
+            ensure(
+              ankoleWebBackgroundAgentJobControllerShowOptions({
+                path: { job_id: selectedID },
+                query: { cursor: searchParams.get('cursor') ?? undefined }
+              })
+            )
+          )
         : list.then(() => null)
     },
     conversations: ({ request }: LoaderFunctionArgs) => {

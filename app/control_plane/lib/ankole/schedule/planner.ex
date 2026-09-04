@@ -89,33 +89,44 @@ defmodule Ankole.Schedule.Planner do
   # Normalizes the optional occurrence bound of a recurring schedule: exactly one
   # of "count" (a positive integer of due slots) or "until" (an instant, resolved
   # in the schedule timezone when given as a local time, stored as UTC ISO 8601).
+  # Console request validation supplies the bound with atom keys.
   defp normalize_occurrences(schedule, timezone) do
     case Attrs.map_value(schedule, "occurrences") do
       nil ->
         {:ok, nil}
 
-      %{"count" => _count, "until" => _until} ->
-        {:error, :occurrences_count_or_until}
-
-      %{"count" => count} = bound when map_size(bound) == 1 ->
-        case count do
-          value when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991 ->
-            {:ok, %{"count" => value}}
-
-          _invalid ->
-            {:error, :invalid_occurrences_count}
-        end
-
-      %{"until" => until} = bound when map_size(bound) == 1 and is_binary(until) ->
-        case parse_at(until, timezone) do
-          {:ok, %DateTime{} = datetime} -> {:ok, %{"until" => DateTime.to_iso8601(datetime)}}
-          {:error, _reason} -> {:error, :invalid_occurrences_until}
-        end
+      bound when is_map(bound) ->
+        normalize_occurrence_bound(Ankole.Attrs.normalize_external_attrs(bound), timezone)
 
       _invalid ->
         {:error, :occurrences_count_or_until}
     end
   end
+
+  defp normalize_occurrence_bound(%{"count" => _count, "until" => _until}, _timezone),
+    do: {:error, :occurrences_count_or_until}
+
+  defp normalize_occurrence_bound(%{"count" => count} = bound, _timezone)
+       when map_size(bound) == 1 do
+    case count do
+      value when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991 ->
+        {:ok, %{"count" => value}}
+
+      _invalid ->
+        {:error, :invalid_occurrences_count}
+    end
+  end
+
+  defp normalize_occurrence_bound(%{"until" => until} = bound, timezone)
+       when map_size(bound) == 1 and is_binary(until) do
+    case parse_at(until, timezone) do
+      {:ok, %DateTime{} = datetime} -> {:ok, %{"until" => DateTime.to_iso8601(datetime)}}
+      {:error, _reason} -> {:error, :invalid_occurrences_until}
+    end
+  end
+
+  defp normalize_occurrence_bound(_invalid, _timezone),
+    do: {:error, :occurrences_count_or_until}
 
   @spec parse_checkback_due(map(), String.t(), DateTime.t(), keyword()) ::
           {:ok, DateTime.t()} | {:error, term()}

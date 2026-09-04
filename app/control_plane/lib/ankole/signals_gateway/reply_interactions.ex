@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Logging
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorEventTypes
@@ -16,8 +17,8 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.ReplyInteractionState
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
-  @action_protocol "ankole.interactive_output.action.v1"
   @max_free_text_chars 1_000
 
   @type accepted_resolution :: %{String.t() => term()}
@@ -128,11 +129,27 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
   def accept_in_tx(repo, %Binding{} = binding, %IngressFact{} = fact, %DateTime{} = now) do
     action = fact.action || %{}
     value = map_value(action, "value")
+    protocol = ReplyPresentation.action_protocol()
 
-    if map_value(value, "version") == @action_protocol do
-      accept_managed_in_tx(repo, binding, fact, action, value, now)
-    else
-      {:ok, :unmanaged}
+    case map_value(value, "version") do
+      ^protocol ->
+        accept_managed_in_tx(repo, binding, fact, action, value, now)
+
+      nil ->
+        {:ok, :unmanaged}
+
+      version ->
+        Logging.warning(
+          "signals_gateway.reply_interactions.protocol_unmanaged",
+          "reply action protocol is not managed",
+          %{
+            binding_name: binding.name,
+            source_event_id: fact.source_event_id,
+            version: inspect(version, limit: 20)
+          }
+        )
+
+        {:ok, :unmanaged}
     end
   end
 
@@ -223,14 +240,14 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
   defp find_source_event(repo, binding, fact, callback) do
     source_event_query(binding, fact, callback)
     |> repo.one()
-    |> accepted_reply_surface(fact.source_entry_id)
+    |> accepted_reply_surface(fact.source_entry_id, binding)
   end
 
   defp lock_source_event(repo, binding, fact, callback) do
     source_event_query(binding, fact, callback)
     |> lock("FOR UPDATE")
     |> repo.one()
-    |> accepted_reply_surface(fact.source_entry_id)
+    |> accepted_reply_surface(fact.source_entry_id, binding)
   end
 
   defp source_event_query(binding, fact, callback) do
@@ -241,26 +258,24 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     |> where([event], event.session_id == ^fact.session_id)
   end
 
-  defp accepted_reply_surface(%ActorEvent{} = event, source_entry_id) do
-    if reply_surface_entry?(event, source_entry_id), do: event
+  defp accepted_reply_surface(%ActorEvent{} = event, source_entry_id, binding) do
+    if reply_surface_entry?(event, source_entry_id, binding), do: event
   end
 
-  defp accepted_reply_surface(nil, _source_entry_id), do: nil
+  defp accepted_reply_surface(nil, _source_entry_id, _binding), do: nil
 
-  defp reply_surface_entry?(%ActorEvent{} = event, source_entry_id)
+  # The callback names the provider entry it came from; the adapter that owns
+  # the checkpoint says which provider entries the reply surface holds.
+  defp reply_surface_entry?(%ActorEvent{} = event, source_entry_id, binding)
        when is_binary(source_entry_id) do
     event.reply_preview_source_entry_id == source_entry_id or
-      Enum.any?(get_in(event.reply_preview_checkpoint || %{}, ["cards"]) || [], fn
-        %{"message_id" => ^source_entry_id} -> true
-        _card -> false
-      end) or
-      Enum.any?(get_in(event.reply_preview_checkpoint || %{}, ["messages"]) || [], fn
-        %{"message_id" => ^source_entry_id} -> true
-        _message -> false
-      end)
+      source_entry_id in ReplyPreviewAdapter.surface_entry_ids(
+        ReplyPreviewAdapter.for_binding(binding),
+        event.reply_preview_checkpoint || %{}
+      )
   end
 
-  defp reply_surface_entry?(_event, _source_entry_id), do: false
+  defp reply_surface_entry?(_event, _source_entry_id, _binding), do: false
 
   defp accept_locked_event(repo, event, fact, callback, now) do
     checkpoint = event.reply_preview_checkpoint || %{}
@@ -296,7 +311,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
   defp accept_current_answer(repo, event, checkpoint, fact, callback, now) do
     presentation = ReplyPresentation.normalize(checkpoint["presentation"])
 
-    if valid_callback?(presentation, callback) do
+    if ReplyPresentation.matches?(presentation, callback) do
       resolution = %{
         "state" => "answered",
         "answer" => callback.answer,
@@ -319,33 +334,6 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     else
       {:ok, :stale}
     end
-  end
-
-  defp valid_callback?(presentation, %{kind: "choice"} = callback) do
-    Enum.any?(presentation["actions"], fn action ->
-      action["type"] == "button" and
-        matching_locator?(action, callback) and
-        action["selected_option_id"] == callback.selected_option_id and
-        action["option_value"] == callback.option_value
-    end)
-  end
-
-  defp valid_callback?(presentation, %{kind: "free_text"} = callback) do
-    Enum.any?(presentation["actions"], fn action ->
-      action["type"] == "form" and
-        matching_locator?(action, callback) and
-        Enum.any?(action["fields"] || [], fn field ->
-          field["type"] == "input" and field["id"] == callback.input_name
-        end)
-    end)
-  end
-
-  defp matching_locator?(action, callback) do
-    action["interaction_id"] == callback.interaction_id and
-      action["revision"] == callback.interaction_version and
-      action["control_id"] == callback.control_id and
-      action["source_actor_event_id"] == callback.source_actor_event_id and
-      action["disabled"] != true
   end
 
   defp accepted_resolution(callback) do

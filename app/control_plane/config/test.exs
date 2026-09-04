@@ -19,6 +19,8 @@ config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   server: false
 
+config :boruta, Boruta.Oauth, issuer: "http://localhost:4002"
+
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 
 config :ankole, Ankole.AIAgent.Library, source_cache_ttl_ms: 0

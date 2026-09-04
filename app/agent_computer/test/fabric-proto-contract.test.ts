@@ -1,10 +1,8 @@
 import { fromBinary } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { decodeEnvelope, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { decodeEnvelope } from '../src/fabric/envelope_proto'
 import {
-  BrainRequestSchema,
-  JSONPassthroughResponseSchema,
   SkillOverlayResolveRequestSchema,
   SkillOverlayResolveResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -52,35 +50,6 @@ describe('RuntimeFabric generated codec contract', () => {
     expect(envelope.body.value.incarnationId).toBe('incarnation-golden')
     expect(envelope.body.value.maxTurns).toBe(1)
     expect(envelope.body.value.availableTurnSlots).toBe(1)
-  })
-
-  it('decodes the golden Brain recall RPC request and passthrough response', () => {
-    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_brain_recall_request.v5.bin'))
-
-    expect(requestEnvelope.protocolVersion).toBe(5)
-    expect(requestEnvelope.correlationId).toBe('golden-rpc-brain-recall-1')
-    if (requestEnvelope.body.case !== 'rpcRequest') throw new Error('expected rpcRequest body')
-    expect(requestEnvelope.body.value).toMatchObject({
-      requestId: 'golden-rpc-brain-recall-1',
-      method: 'brain.recall'
-    })
-    expect(requestEnvelope.body.value.turn?.actor?.agentUid).toBe('agent-1')
-    const request = fromBinary(BrainRequestSchema, requestEnvelope.body.value.payload)
-    expect(jsonObjectFromBytes(request.paramsJson, 'brain_request.params_json')).toEqual({
-      budget_tokens: 512,
-      query: 'golden memory'
-    })
-
-    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_brain_recall_response.v5.bin'))
-
-    expect(responseEnvelope.protocolVersion).toBe(5)
-    expect(responseEnvelope.correlationId).toBe('golden-rpc-brain-recall-1')
-    if (responseEnvelope.body.case !== 'rpcResponse') throw new Error('expected rpcResponse body')
-    expect(responseEnvelope.body.value.requestId).toBe('golden-rpc-brain-recall-1')
-    const response = fromBinary(JSONPassthroughResponseSchema, responseEnvelope.body.value.payload)
-    expect(jsonObjectFromBytes(response.bodyJson, 'json_passthrough_response.body_json')).toEqual({
-      chunks: [{ object_slug: 'concepts/golden', text: 'Golden memory.' }]
-    })
   })
 
   it('decodes the golden Skill overlay typed RPC request and response', () => {

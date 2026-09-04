@@ -2,6 +2,7 @@ import { positiveInteger } from '../../common/numbers'
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
+import { BRAIN_JOB_OPERATIONS, type BrainOperation } from '../llm'
 import { type JsonObject as JSONObject } from '@agentbull/active-support'
 
 /** Reasoning effort values accepted from the frozen model projection. */
@@ -38,6 +39,8 @@ export type CodexAIGatewayModelTarget = {
 export type CodexRuntimeConfig = {
   aiGatewayKey: AIGatewayAPIKeyResponse
   modelProfile: CodexAIGatewayModelProfile
+  /** The hosted Brain declaration AIGateway adds to the Job's requests, when memory is on. */
+  brain?: { operations: BrainOperation[]; actorEventID: string }
 }
 
 export async function resolveCodexRuntimeConfig(input: {
@@ -45,13 +48,20 @@ export async function resolveCodexRuntimeConfig(input: {
   agentUID: string
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
 }): Promise<CodexRuntimeConfig> {
+  const brainDeclared = (input.turnStart.hosted_tools ?? []).some(tool => tool.type === 'brain')
   return {
     aiGatewayKey: await input.requestAIGatewayAPIKey(input.agentUID),
-    modelProfile: modelProfile(input.turnStart)
+    modelProfile: codexJobModelProfile(input.turnStart),
+    // codex composes its own Responses requests, so the frozen binding carries
+    // the read-only subset and the actor event that scopes its memory.
+    ...(brainDeclared
+      ? { brain: { operations: BRAIN_JOB_OPERATIONS, actorEventID: input.turnStart.turn.actor_event_id } }
+      : {})
   }
 }
 
-function modelProfile(turnStart: TurnStart): CodexAIGatewayModelProfile {
+/** The real Codex model and effort that the frozen `model_ref` binds for this Job turn. */
+export function codexJobModelProfile(turnStart: TurnStart): CodexAIGatewayModelProfile {
   const modelRef = turnStart.model_ref
   if (!modelRef) throw new Error('Background Agent Job turn is missing its model_ref')
 

@@ -4,10 +4,9 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   """
 
   alias Ankole.Plugins.MapHelpers
+  alias Ankole.SignalsGateway.ReplyPresentation
 
   import MapHelpers, only: [fetch_value: 2, maybe_put_nonempty_map: 3]
-
-  @action_value_version "ankole.interactive_output.action.v1"
 
   @doc """
   Selects the best card payload shape and renders portable interaction output.
@@ -260,7 +259,7 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
         "text" => %{"tag" => "plain_text", "content" => visible_label},
         "disabled" => locked?,
         "value" => %{
-          "version" => @action_value_version,
+          "version" => ReplyPresentation.action_protocol(),
           "interactionVersion" => version,
           "interactionId" => interaction_id,
           "controlId" => control_id,

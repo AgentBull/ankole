@@ -42,7 +42,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Channel
@@ -81,12 +80,27 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     request |> reconcile(final?, true) |> normalize_result()
   end
 
+  # Each page is one card instance; DingTalk sends its `outTrackId` back as the
+  # `source_entry_id` of a card action, and the terminal reply reports it as the
+  # created entry.
+  @impl true
+  def surface_ids(checkpoint) when is_map(checkpoint) do
+    checkpoint
+    |> Map.get("pages", [])
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(& &1["out_track_id"])
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.map(&{:entry, &1})
+  end
+
+  @impl true
+  def surface_open?(checkpoint) when is_map(checkpoint),
+    do: checkpoint["streaming_state"] != "closed"
+
   # core reconcile
 
-  defp reconcile(%Request{} = request, final?, repaint?) do
-    with {:ok, event} <- fresh_event(request.actor_event),
-         {:ok, config} <- config_for_event(event) do
-      checkpoint = current_checkpoint(event, request)
+  defp reconcile(%Request{actor_event: event, checkpoint: checkpoint} = request, final?, repaint?) do
+    with {:ok, config} <- Config.validate_chat_config(request.config) do
       presentation = ReplyPresentation.normalize(request.presentation)
       template_id = card_template_id(config)
 
@@ -132,14 +146,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   end
 
   # Degrade once, and only on the durable terminal path. A transient working
-  # sync must never post provider messages — returning the non-retryable
-  # cardkit_plain_text_fallback error makes the gateway disable the preview for
-  # the rest of the turn while the outbox still delivers the final reply.
+  # sync must never post provider messages — the degraded result makes the
+  # gateway disable the preview for the rest of the turn while the outbox still
+  # delivers the final reply.
   defp degrade(event, config, presentation, checkpoint, request, final?, reason) do
     if final? do
       plain_text_delivery(event, config, presentation, checkpoint, request)
     else
-      {:error, {:cardkit_plain_text_fallback, reason}}
+      {:error, {:degraded, :plain_text, reason}}
     end
   end
 
@@ -655,15 +669,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   # checkpoint
 
-  defp current_checkpoint(%ActorEvent{reply_preview_checkpoint: checkpoint}, _request)
-       when is_map(checkpoint),
-       do: checkpoint
-
-  defp current_checkpoint(_event, %Request{checkpoint: checkpoint}) when is_map(checkpoint),
-    do: checkpoint
-
-  defp current_checkpoint(_event, _request), do: %{}
-
   defp sealed_records(checkpoint) do
     checkpoint
     |> Map.get("pages", [])
@@ -915,26 +920,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     |> String.slice(0, 32)
   end
 
-  defp config_for_event(%ActorEvent{} = event) do
-    with {:ok, binding} <- SignalsGateway.get_binding(event.agent_uid, event.binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp fresh_event(%ActorEvent{id: id}) do
-    case Repo.get(ActorEvent, id) do
-      %ActorEvent{} = event -> {:ok, event}
-      nil -> {:error, :actor_event_not_found}
-    end
-  end
-
   # Provider errors surface classified (retryable / operator_action_required /
   # permanent) so the gateway can retry, block, or stop; deterministic degrades
-  # already returned the non-retryable cardkit_plain_text_fallback shape from
+  # already returned the non-retryable degraded result from
   # inside reconcile.
   defp normalize_result({:error, %Error{} = error}),
     do: Outbox.normalize_delivery_result({:error, error})

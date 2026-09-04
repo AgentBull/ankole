@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias FeishuOpenAPI.Error
 
@@ -23,6 +24,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     @moduledoc false
 
     alias Ankole.Plugins.LarkAdapter.CardKit
+    alias Ankole.SignalsGateway.ReplyPreviewAdapter
     alias FeishuOpenAPI.Error
 
     for operation <- [:open, :update, :finalize, :refresh] do
@@ -40,7 +42,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         plug: fn conn -> dispatch(conn, request_fun) end
       )
 
-      apply(CardKit, operation, [request])
+      {:ok, adapter} = ReplyPreviewAdapter.from_module(CardKit)
+      apply(ReplyPreviewAdapter, operation, [adapter, request])
     end
 
     defp dispatch(%{request_path: "/open-apis/auth/v3/tenant_access_token/internal"} = conn, _fun) do
@@ -327,7 +330,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     assert {:error,
-            {:cardkit_plain_text_fallback,
+            {:degraded, :plain_text,
              %{
                "code" => 230_099,
                "message" => message
@@ -415,7 +418,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:card_created, _create_opts}
     assert_receive {:tail_sent, _send_opts}
 
-    refreshed = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+    refreshed =
+      event.id
+      |> then(&Repo.get!(ActorEvent, &1).reply_preview_checkpoint)
+      |> ReplyPreviewAdapter.adapter_checkpoint()
+
     cards = CardChain.cards(refreshed)
     assert length(cards) == 2
     assert Enum.map_join(cards, & &1["answer_source"]) == answer
@@ -744,8 +751,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              )
 
     persisted = Repo.get!(ActorEvent, event.id)
-    assert "thought" in persisted.reply_preview_checkpoint["element_ids"]
-    assert is_binary(persisted.reply_preview_checkpoint["cleanup_at"])
+    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(persisted.reply_preview_checkpoint)
+    assert "thought" in checkpoint["element_ids"]
+    assert is_binary(checkpoint["cleanup_at"])
     assert %DateTime{} = persisted.reply_preview_cleanup_at
   end
 
@@ -1472,7 +1480,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    interrupted = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+    interrupted =
+      event.id
+      |> then(&Repo.get!(ActorEvent, &1).reply_preview_checkpoint)
+      |> ReplyPreviewAdapter.adapter_checkpoint()
+
     assert interrupted["pending_rollover"]["phase"] == "send"
     assert interrupted["active_card_index"] == 1
     assert interrupted["message_id"] == nil

@@ -111,5 +111,11 @@ describe('Background Agent Job scope changes', () => {
 
     const allAgents = backgroundAgentJobScopeParams(new URLSearchParams('agent=agent-a&job=1000'), '')
     expect(allAgents.toString()).toBe('')
+
+    const paged = backgroundAgentJobScopeParams(
+      new URLSearchParams('agent=agent-a&job=1000&cursor=abc&cursor_history=~'),
+      'agent-b'
+    )
+    expect(paged.toString()).toBe('agent=agent-b')
   })
 })

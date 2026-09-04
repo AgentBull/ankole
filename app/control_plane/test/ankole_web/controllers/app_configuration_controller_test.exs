@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.AppConfigurationControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
@@ -35,11 +34,14 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn = get(conn, ~p"/api/v1/openapi.json")
     paths = json_response(conn, 200)["paths"]
 
-    assert Map.has_key?(paths, "/.internal-apis/oauth/token")
+    refute Map.has_key?(paths, "/.internal-apis/oauth/token")
     assert Map.has_key?(paths, "/.internal-apis/session")
     assert Map.has_key?(paths, "/api/v1/app-configurations")
     assert Map.has_key?(paths, "/api/v1/app-configurations/{key}")
     assert Map.has_key?(paths, "/api/v1/app-configurations/{key}/decryptions")
+    assert Map.has_key?(paths, "/api/v1/oidc-clients")
+    assert Map.has_key?(paths, "/api/v1/oidc-clients/{id}")
+    assert Map.has_key?(paths, "/api/v1/oidc-clients/{id}/secret-rotations")
     assert Map.has_key?(paths, "/api/v1/ai-gateway/models")
   end
 

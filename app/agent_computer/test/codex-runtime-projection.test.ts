@@ -3,8 +3,7 @@ import { create } from '@bufbuild/protobuf'
 import {
   decodeCodexJobRuntimeProjection,
   projectWorkerEnv,
-  selectProjectedAgentPlugins,
-  selectProjectedStandaloneSkills
+  selectJobSkills
 } from '../src/core/codex-runner/job/runtime-projection'
 import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
@@ -14,19 +13,23 @@ import {
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('BackgroundAgentJob runtime projection', () => {
-  it('decodes version 1 and intersects persisted capability choices with current material', () => {
+  it('decodes version 1 and derives the loadable Job Skills from persisted choices and current material', () => {
     const projection = decodeCodexJobRuntimeProjection(
       job({
         version: 1,
         model_ref: { provider_id: 'openrouter-main', model: 'openai/gpt-5.6-sol' },
         runtime_policy: {},
         skills: [
+          { id: 'zeta', name: 'zeta' },
           { id: 'pdf', name: 'pdf' },
+          { id: 'main-only', name: 'main-only' },
+          { id: 'alpha:member-b', name: 'member-b', agent_plugin_id: 'alpha' },
           { id: 'alpha:member-a', name: 'member-a', agent_plugin_id: 'alpha' },
+          { id: 'alpha:member-main', name: 'member-main', agent_plugin_id: 'alpha' },
           { id: 'removed-skill', name: 'removed-skill' }
         ],
         agent_plugins: [
-          { id: 'alpha', skills: ['member-a'] },
+          { id: 'alpha', skills: ['member-b', 'member-a', 'member-main'] },
           { id: 'removed-plugin', skills: ['gone'] }
         ],
         native_mcp_servers: [],
@@ -35,20 +38,36 @@ describe('BackgroundAgentJob runtime projection', () => {
       })
     )
 
-    const pdf = skill('pdf')
+    const zeta = skill('zeta')
+    const pdf = skill('pdf', '', 'background_job')
+    const mainOnly = skill('main-only', '', 'main')
     const newStandalone = skill('new-standalone')
+    const memberB = skill('member-b', 'alpha')
     const memberA = skill('member-a', 'alpha')
+    const memberMain = skill('member-main', 'alpha', 'main')
     const newMember = skill('member-new', 'alpha')
     const currentPlugin = create(AgentPluginCatalogEntrySchema, {
       id: 'alpha',
       description: 'Alpha Plugin',
-      skills: [{ catalogName: 'member-a' }, { catalogName: 'member-new' }]
+      skills: [
+        { catalogName: 'member-new' },
+        { catalogName: 'member-main' },
+        { catalogName: 'member-b' },
+        { catalogName: 'member-a' }
+      ]
     })
+    const catalog = {
+      skills: [zeta, memberB, mainOnly, pdf, newStandalone, memberMain, memberA, newMember],
+      agentPlugins: [currentPlugin]
+    }
 
-    expect(selectProjectedStandaloneSkills(projection, [pdf, newStandalone, memberA])).toEqual([pdf])
-    const selectedPluginMaterial = selectProjectedAgentPlugins(projection, [currentPlugin], [memberA, newMember])
-    expect(selectedPluginMaterial.skills).toEqual([memberA])
-    expect(selectedPluginMaterial.agentPlugins).toEqual([{ ...currentPlugin, skills: [currentPlugin.skills[0]!] }])
+    // Selected and current, permitted in a Background Job, standalone Skills by
+    // name before Plugin members by catalog name.
+    expect(selectJobSkills(projection, catalog)).toEqual([pdf, zeta, memberA, memberB])
+
+    expect(() =>
+      selectJobSkills(projection, { ...catalog, skills: catalog.skills.filter(entry => entry !== memberA) })
+    ).toThrow('Current Agent Plugin Skill is unavailable: alpha/member-a')
   })
 
   it('keeps projected plain values, resolves selected secrets again, and overlays current bindings', () => {
@@ -114,11 +133,12 @@ function job(projection: Record<string, unknown> | undefined) {
   })
 }
 
-function skill(skillName: string, agentPluginId = '') {
+function skill(skillName: string, agentPluginId = '', ankoleRuntime?: 'main' | 'background_job') {
   return create(RuntimeSkillSummarySchema, {
     skillName,
     sourceKind: agentPluginId ? 'agent_plugin' : 'builtin',
     agentPluginId,
-    relativePath: skillName
+    relativePath: skillName,
+    ...(ankoleRuntime ? { metadataJson: jsonBytes({ 'ankole-runtime': ankoleRuntime }) } : {})
   })
 }

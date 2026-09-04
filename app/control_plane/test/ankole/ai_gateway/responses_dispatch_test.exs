@@ -2169,8 +2169,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert {:ok, previous} = StatefulResponses.commit_complete(previous, [])
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "continue")],
                "store" => true,
@@ -2181,17 +2181,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.response_context.provider_options["session_id"] == conversation.id
     assert request.response_context.provider_options["prompt_cache_key"] == "shared-prefix"
     refute conversation.id == "shared-prefix"
-
-    assert {:ok, started_request, stateful_context} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [text_message("user", "continue through the production path")],
-               "store" => true,
-               "previous_response_id" => "resp_#{previous.id}",
-               "prompt_cache_key" => "shared-prefix"
-             })
-
-    assert started_request.response_context.provider_options["session_id"] == conversation.id
     assert stateful_context.message.conversation_id == conversation.id
   end
 
@@ -2525,8 +2514,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
                "store" => true,
@@ -2572,6 +2561,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "request_tag" => "kept",
              "extra" => %{"visibility" => "public"}
            }
+
+    assert stateful_context.message.conversation_id == conversation.id
+    assert stateful_context.message.status == "generating"
   end
 
   test "websocket stateful requests reject wires that cannot replay Responses history" do
@@ -2593,15 +2585,15 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert {:error, {:stateful_wire_unsupported, "claude", :anthropic_messages}} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
                "store" => true
              })
 
     # The same selector stays usable for stateless requests.
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, _request, nil} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "hello"
              })
@@ -2674,15 +2666,15 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     ]
 
     assert {:error, :invalid_anchor} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
                "previous_response_id" => first.id
              })
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -2719,8 +2711,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "kept" => "public"
            }
 
-    assert {:ok, no_event_request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, no_event_request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -2730,8 +2722,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert no_event_request.response_context.request["input"] == history_input ++ current_input
     refute Map.has_key?(no_event_request.response_context.request, "metadata")
 
-    assert {:ok, string_request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, string_request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "next user as a string",
                "store" => true,
@@ -2970,8 +2962,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, first} = StatefulResponses.commit_complete(first, history_items)
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "Continue.")],
                "store" => true,
@@ -3397,8 +3389,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       {:ok, call_response} = StatefulResponses.commit_complete(call_response, [tool_call])
       retry_input = [text_message("user", "run the interrupted #{label} tool")]
 
-      assert {:ok, prepared, run_attrs} =
-               StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+      assert {:ok, prepared, %{message: run}} =
+               StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                  "model" => "primary",
                  "input" => retry_input,
                  "store" => true,
@@ -3406,14 +3398,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "metadata" => %{"actor_event_id" => "interrupted-tool-retry-#{label}"}
                })
 
-      [recovered_output | persisted_retry_input] = run_attrs.request_items
+      [recovered_output | persisted_retry_input] = run.content
 
       assert recovered_output["type"] == expected_output_type
       assert recovered_output["call_id"] == tool_call["call_id"]
       assert recovered_output["output"] =~ "tool_execution_interrupted"
       assert persisted_retry_input == retry_input
 
-      assert run_attrs.metadata["recovered_interrupted_tool_call_ids"] == [
+      assert run.metadata["recovered_interrupted_tool_call_ids"] == [
                tool_call["call_id"]
              ]
 
@@ -3444,8 +3436,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, call_response} = StatefulResponses.commit_complete(call_response, [nested_call])
     retry_input = [text_message("user", "continue")]
 
-    assert {:ok, prepared, run_attrs} =
-             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+    assert {:ok, prepared, %{message: run}} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => retry_input,
                "store" => true,
@@ -3453,13 +3445,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "metadata" => %{"actor_event_id" => "interrupted-nested-tool-retry"}
              })
 
-    assert run_attrs.request_items == retry_input
-    refute Map.has_key?(run_attrs.metadata, "recovered_interrupted_tool_call_ids")
+    assert run.content == retry_input
+    refute Map.has_key?(run.metadata, "recovered_interrupted_tool_call_ids")
 
     assert prepared.response_context.request["input"] ==
              [call_response.content |> hd() |> Map.delete("id")] ++ retry_input
 
-    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+    assert run.metadata["provider_projection_tool_result_quarantine"] == %{
              "non_executable_call_ids" => ["call_interrupted_nested"]
            }
   end
@@ -3515,8 +3507,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, legacy_orphan_row} = StatefulResponses.commit_complete(legacy_orphan_row, [])
     current_input = [text_message("user", "continue safely")]
 
-    assert {:ok, prepared, run_attrs} =
-             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+    assert {:ok, prepared, %{message: run}} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -3531,12 +3523,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                item["call_id"] == "call_legacy_orphan"
            end)
 
-    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+    assert run.metadata["provider_projection_tool_result_quarantine"] == %{
              "orphan_call_ids" => ["call_legacy_orphan"]
            }
 
     assert Repo.get!(Message, legacy_orphan_row.id).content == [orphan_output]
-    assert run_attrs.request_items == current_input
+    assert run.content == current_input
   end
 
   test "provider projection drops structurally malformed calls and their outputs while preserving raw rows" do
@@ -3606,8 +3598,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         partial_program_output
       ])
 
-    assert {:ok, prepared, run_attrs} =
-             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+    assert {:ok, prepared, %{message: run}} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "continue safely")],
                "store" => true,
@@ -3622,7 +3614,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              &(&1["call_id"] in ["call_legacy_partial", "program_legacy_partial"])
            )
 
-    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+    assert run.metadata["provider_projection_tool_result_quarantine"] == %{
              "non_executable_call_ids" => [
                "call_legacy_partial",
                "program_legacy_partial"
@@ -3667,7 +3659,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       actor_event_fixture(agent.uid, conversation.conversation_key, "instructions-a")
 
     {:ok, first} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: [text_message("user", "first user")],
@@ -3682,8 +3674,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "next user")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -3705,7 +3697,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     for invalid_value <- [-1, 1.5, "1"] do
       assert {:error, :invalid_max_tool_calls} =
-               AIGateway.prepare_websocket_request(agent.uid, %{
+               StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                  "model" => "primary",
                  "input" => [text_message("user", "hello")],
                  "store" => true,
@@ -4556,8 +4548,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new current request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -4696,8 +4688,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "continue with the result")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "tools" => programmatic_tools(),
@@ -4781,8 +4773,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, _m2} = StatefulResponses.commit_complete(m2, [], camel_usage(260_004))
 
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, _request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "new current request")],
                "store" => true,
@@ -4832,8 +4824,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         String.duplicate("wide context ", 70_000)
       )
 
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, _request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "new current request")],
                "store" => true,
@@ -4869,8 +4861,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {conversation, _tail} = compactable_conversation!(agent, "dispatch-high-reasoning")
 
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, _request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "reasoning" => %{"effort" => "high"},
                "input" => [text_message("user", "new current request")],
@@ -4926,7 +4918,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                truncation: "disabled",
                reason: "no_compaction_candidate"
              }}} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "new request")],
                "store" => true,
@@ -5056,8 +5048,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -5237,8 +5229,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       }
     ]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -5366,8 +5358,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "use that result")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "tools" => programmatic_tools(),
@@ -5460,8 +5452,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "next question")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, %{message: run}} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -5490,21 +5482,19 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       |> Enum.find(&(&1.type == "checkpoint" and &1.previous_message_id == tail.id))
 
     assert %Message{} = first_truncation
+    assert run.previous_message_id == first_truncation.id
 
     {:ok, next_tail} =
-      start_linked_stateful_message(
-        agent.uid,
-        conversation,
-        first_truncation,
-        "truncation-checkpoint-next-tail",
-        [text_message("assistant", "next response")]
+      StatefulResponses.commit_complete(
+        run,
+        [text_message("assistant", "next response")],
+        usage(190)
       )
 
-    {:ok, next_tail} = StatefulResponses.commit_complete(next_tail, [], usage(190))
     next_input = [text_message("user", "one more question")]
 
-    assert {:ok, next_request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, next_request, _next_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => next_input,
                "store" => true,
@@ -5526,7 +5516,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              &(local_checkpoint_summary(&1) == "earlier work compressed")
            ) == 1
 
-    assert Enum.take(next_provider_input, -2) == next_tail.content ++ next_input
+    next_stable_tail = next_tail.content ++ next_input
+    assert Enum.take(next_provider_input, -length(next_stable_tail)) == next_stable_tail
     assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 3
   end
 
@@ -5706,8 +5697,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -5788,8 +5779,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -5887,8 +5878,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
 
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, _request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "new request")],
                "store" => true,
@@ -7043,15 +7034,17 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "model" => "primary"
              })
 
+    runtime =
+      Map.put(runtime, "request_context", %{
+        "downstream_transport" => "websocket",
+        "headers" => %{"session-id" => "cron:upstream-websocket-session"}
+      })
+
     assert {:ok, request} =
              Providers.build_response_request(
                runtime,
                %{"model" => "primary", "input" => "hello"},
-               stream?: true,
-               request_context: %{
-                 "downstream_transport" => "websocket",
-                 "headers" => %{"session-id" => "cron:upstream-websocket-session"}
-               }
+               stream?: true
              )
 
     assert request.upstream.method == "GET"
@@ -8274,7 +8267,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   defp start_stateful_message(agent_uid, conversation, source_event_id, request_items) do
     actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
-    StatefulResponses.start_response_run(%{
+    start_response_run(%{
       subject_uid: agent_uid,
       conversation_id: conversation.id,
       request_items: request_items,
@@ -8291,7 +8284,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
        ) do
     actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
-    StatefulResponses.start_response_run(%{
+    start_response_run(%{
       subject_uid: agent_uid,
       previous_response_id: "resp_#{previous.id}",
       request_items: request_items,

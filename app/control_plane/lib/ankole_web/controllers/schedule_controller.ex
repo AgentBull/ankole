@@ -258,7 +258,7 @@ defmodule AnkoleWeb.ScheduleController do
       events =
         params
         |> ConsoleParams.agent_filter_param()
-        |> Schedule.list_checkbacks(nil, limit: integer_param(params, "limit"))
+        |> Schedule.list_checkbacks(nil, limit: ConsoleParams.integer(params, :limit, nil))
         |> Enum.map(&Schedule.event_projection/1)
 
       json(conn, %{schedule_events: events})
@@ -267,10 +267,9 @@ defmodule AnkoleWeb.ScheduleController do
     end
   end
 
-  def cancel_checkback(conn, params) do
+  def cancel_checkback(conn, %{scheduled_event_id: scheduled_event_id} = params) do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(agent_uid), "delete"),
-         {:ok, scheduled_event_id} <- positive_integer_param(params, "scheduled_event_id"),
          {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
          :ok <- event_belongs_to_agent(event, agent_uid),
          {:ok, cancelled} <- Schedule.cancel_checkback(scheduled_event_id) do
@@ -305,7 +304,7 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   defp cron_for_agent(params, agent_uid) do
-    with {:ok, cron_schedule_id} <- text_param(params, "cron_schedule_id"),
+    with {:ok, cron_schedule_id} <- ConsoleParams.text(params, :cron_schedule_id),
          {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
          :ok <- belongs_to_agent(schedule.agent_uid, agent_uid) do
       {:ok, schedule}
@@ -323,66 +322,17 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   defp agent_uid_param(params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid") do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid) do
       {:ok, String.downcase(agent_uid)}
     end
   end
 
-  defp text_param(params, key) do
-    atom_key = param_atom(key)
-
-    value =
-      cond do
-        Map.has_key?(params, key) -> Map.fetch!(params, key)
-        Map.has_key?(params, atom_key) -> Map.fetch!(params, atom_key)
-        true -> nil
-      end
-
-    case value do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          trimmed -> {:ok, trimmed}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
-    end
-  end
-
-  defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("cron_schedule_id"), do: :cron_schedule_id
-  defp param_atom("scheduled_event_id"), do: :scheduled_event_id
-  defp param_atom("limit"), do: :limit
-
   defp schedule_resource(agent_uid), do: "agent:#{agent_uid}:schedules"
 
   defp list_limit(params) do
-    case integer_param(params, "limit") do
+    case ConsoleParams.integer(params, :limit, nil) do
       value when is_integer(value) and value > 0 -> min(value, 100)
       _value -> 25
-    end
-  end
-
-  defp integer_param(params, key) do
-    case Map.get(params, key) || Map.get(params, param_atom(key)) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
-  end
-
-  defp positive_integer_param(params, key) do
-    case integer_param(params, key) do
-      value when is_integer(value) and value >= 1000 -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
-
-  defp parse_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> nil
     end
   end
 

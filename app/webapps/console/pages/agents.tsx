@@ -15,7 +15,7 @@ import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/re
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -32,7 +32,7 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
@@ -44,6 +44,7 @@ import {
   type AgentMemoryDisclosureMode
 } from '../state/agent-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 import { AgentLibraryEditor } from './agent-library-editor'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
@@ -213,13 +214,17 @@ export function AgentEditorPage() {
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
   })
+  const agentDraft = useMemo(
+    () => (mode === 'new' ? emptyAgentForm() : selectedAgent ? formFromAgent(selectedAgent) : undefined),
+    [mode, selectedAgent]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'agent', uid },
+    source: agentDraft,
+    absent: () => mode === 'edit' && requestErrorCode(agentDetail.error) === 'not_found'
+  })
 
   const refresh = () => void queryClient.invalidateQueries()
-
-  useEffect(() => {
-    if (mode === 'new') model.initialize('new', emptyAgentForm())
-    else if (selectedAgent) model.initialize(`agent:${selectedAgent.uid}`, formFromAgent(selectedAgent))
-  }, [mode, model, selectedAgent])
 
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
@@ -289,8 +294,7 @@ export function AgentEditorPage() {
 
   // The detail endpoint owns absence; disabled agents stay editable so an
   // operator can inspect them before re-enabling or deleting.
-  const agentUnavailable = agentDetail.error?.error?.code === 'not_found'
-  if (mode === 'edit' && agentUnavailable) {
+  if (draftStatus === 'absent') {
     return <EditorNotFound backTo="/agents" message={t('console.agents.not_found', { uid: uid ?? '' })} />
   }
 
@@ -310,7 +314,7 @@ export function AgentEditorPage() {
       }
       submitting={createAgent.isPending || updateAgent.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
-      submitUnavailable={mode === 'edit' && !selectedAgent}
+      submitUnavailable={draftStatus !== 'ready'}
       submitDisabledReason={submitDisabledReason}
       submitLabel={mode === 'edit' ? t('console.agents.save_identity') : t('common.save')}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}

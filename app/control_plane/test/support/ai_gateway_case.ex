@@ -5,6 +5,7 @@ defmodule Ankole.AIGatewayCase do
 
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -133,6 +134,34 @@ defmodule Ankole.AIGatewayCase do
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     "http://127.0.0.1:#{port}"
+  end
+
+  @doc """
+  Starts one stateful response run through the production admission path.
+
+  The run is admitted by `StatefulResponses.start_planned_response_run/1`
+  without a compaction plan. A `conversation_id` run expects the
+  conversation's current visible leaf, so it takes the conversation lock, is
+  rejected while another run is `generating`, and links after that leaf in
+  the same way as a WebSocket `response.create`. A `previous_response_id`
+  run continues that explicit anchor.
+  """
+  def start_response_run(%{conversation_id: conversation_id} = attrs)
+      when not is_map_key(attrs, :previous_response_id) do
+    attrs
+    |> Map.put(:expected_previous_response_id, visible_leaf_response_id(conversation_id))
+    |> StatefulResponses.start_planned_response_run()
+  end
+
+  def start_response_run(attrs) when is_map(attrs) do
+    StatefulResponses.start_planned_response_run(attrs)
+  end
+
+  defp visible_leaf_response_id(conversation_id) do
+    case StatefulResponses.latest_visible_leaf(conversation_id) do
+      nil -> nil
+      message_id -> "resp_#{message_id}"
+    end
   end
 
   @doc false

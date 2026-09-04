@@ -7,15 +7,12 @@ defmodule Ankole.AIGateway.Tokens do
   """
 
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.SecretKeyBase
+  alias Ankole.TokenSigning
 
-  @issuer "ankole.control_plane"
   @audience "ankole.ai_gateway"
   @scope "ai_gateway"
-  @token_use "api_key"
-  @sub_key_id "ai_gateway.jwt.api_key"
+  @token_use "access"
   @ttl_seconds 30 * 24 * 60 * 60
-  @clock_leeway_seconds 60
 
   @type token_set :: %{
           api_key: String.t(),
@@ -38,7 +35,7 @@ defmodule Ankole.AIGateway.Tokens do
       aud: @audience,
       exp: expires_at,
       iat: now,
-      iss: @issuer,
+      iss: TokenSigning.issuer(),
       jti: NativeKernel.gen_uuid_v7(),
       nbf: now,
       scope: @scope,
@@ -47,8 +44,7 @@ defmodule Ankole.AIGateway.Tokens do
       token_use: @token_use
     }
 
-    with {:ok, key} <- signing_key(),
-         token when is_binary(token) <- NativeKernel.jwt_sign(claims, key, %{algorithm: "HS256"}) do
+    with {:ok, token} <- TokenSigning.sign(claims, "at+jwt") do
       {:ok,
        %{
          api_key: token,
@@ -60,7 +56,6 @@ defmodule Ankole.AIGateway.Tokens do
        }}
     else
       {:error, reason} -> {:error, reason}
-      other -> {:error, {:jwt_sign_failed, other}}
     end
   end
 
@@ -71,9 +66,21 @@ defmodule Ankole.AIGateway.Tokens do
   """
   @spec verify_api_key(String.t()) :: {:ok, map()} | {:error, term()}
   def verify_api_key(token) when is_binary(token) do
-    with {:ok, key} <- signing_key(),
-         claims when is_map(claims) <- NativeKernel.jwt_verify(token, key, validation()),
-         :ok <- require_claim(claims, "token_use", @token_use),
+    with {:ok, claims} <- TokenSigning.verify(token, @audience, "at+jwt") do
+      validate_api_key_claims(claims)
+    end
+  end
+
+  def verify_api_key(_token), do: {:error, :invalid_token}
+
+  @doc """
+  Validates Agent API key claims after `TokenSigning` verifies the token.
+
+  This function does not verify a token signature or registered JWT claims.
+  """
+  @spec validate_api_key_claims(map()) :: {:ok, map()} | {:error, term()}
+  def validate_api_key_claims(%{} = claims) do
+    with :ok <- require_claim(claims, "token_use", @token_use),
          :ok <- require_claim(claims, "scope", @scope),
          :ok <- require_claim(claims, "subject_type", "agent"),
          %{"sub" => sub} <- claims,
@@ -83,33 +90,10 @@ defmodule Ankole.AIGateway.Tokens do
       false -> {:error, :invalid_subject}
       %{} -> {:error, :invalid_subject}
       {:error, reason} -> {:error, reason}
-      other -> {:error, {:jwt_verify_failed, other}}
     end
   end
 
-  def verify_api_key(_token), do: {:error, :invalid_token}
-
-  defp signing_key do
-    with {:ok, secret} <- SecretKeyBase.fetch(),
-         key when is_binary(key) <- NativeKernel.derive_key(secret, @sub_key_id, nil) do
-      {:ok, key}
-    else
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:derive_key_failed, other}}
-    end
-  end
-
-  defp validation do
-    %{
-      algorithms: ["HS256"],
-      aud: [@audience],
-      iss: [@issuer],
-      leeway: @clock_leeway_seconds,
-      required_spec_claims: ["exp", "nbf", "aud", "iss", "sub"],
-      validate_exp: true,
-      validate_nbf: true
-    }
-  end
+  def validate_api_key_claims(_claims), do: {:error, :invalid_token}
 
   defp require_claim(claims, key, expected) do
     case Map.fetch(claims, key) do

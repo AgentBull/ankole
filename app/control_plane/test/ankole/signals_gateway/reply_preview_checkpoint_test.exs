@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.RuntimeEvents
 
   test "persists a bounded card checkpoint and reuses one pending mutation identity" do
@@ -40,7 +41,15 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
     }
 
     assert {:ok, updated} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
-    assert updated.reply_preview_checkpoint["card_id"] == "card-1"
+    stored_checkpoint = updated.reply_preview_checkpoint
+    assert stored_checkpoint["schema_version"] == 2
+    assert stored_checkpoint["streaming_state"] == "open"
+    assert stored_checkpoint["adapter_state"]["card_id"] == "card-1"
+    assert stored_checkpoint["adapter_state"]["message_id"] == "message-1"
+    refute Map.has_key?(stored_checkpoint, "card_id")
+    refute Map.has_key?(stored_checkpoint, "message_id")
+
+    assert ReplyPreviewAdapter.adapter_checkpoint(stored_checkpoint)["card_id"] == "card-1"
     assert updated.reply_preview_cleanup_at == ~U[2026-07-14 02:40:00.000000Z]
 
     first_uuid = Ecto.UUID.generate()
@@ -178,5 +187,54 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
     assert checkpoint["owner_generation"] == 3
     assert checkpoint["stream_actor_event_id"] == event.id
     assert checkpoint["presentation"]["state"] == "working"
+  end
+
+  test "reads a flat legacy checkpoint and rewrites it with one replaceable adapter state" do
+    %{principal: subject} = agent_fixture()
+    binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: event} =
+      emit_addressed_actor_event(
+        subject.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "legacy-checkpoint-event",
+          signal_channel_id: "mock:legacy-checkpoint",
+          source_entry_id: "source",
+          explicit: true,
+          text: "ping"
+        })
+      )
+
+    legacy = %{
+      "schema_version" => 1,
+      "adapter" => "slack",
+      "message_id" => "message-old",
+      "messages" => [%{"index" => 0, "message_id" => "message-old"}],
+      "presentation" => ReplyPresentation.new(state: "working"),
+      "streaming_state" => "open"
+    }
+
+    event =
+      event
+      |> ActorEvent.changeset(%{reply_preview_checkpoint: legacy})
+      |> Repo.update!()
+
+    assert ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint)["message_id"] ==
+             "message-old"
+
+    replacement =
+      legacy
+      |> Map.delete("message_id")
+      |> Map.put("messages", [%{"index" => 0, "message_id" => "message-new"}])
+
+    assert {:ok, updated} = Actors.put_reply_preview_checkpoint(event.id, replacement)
+    assert updated.reply_preview_checkpoint["schema_version"] == 2
+    refute Map.has_key?(updated.reply_preview_checkpoint, "message_id")
+    refute Map.has_key?(updated.reply_preview_checkpoint["adapter_state"], "message_id")
+
+    assert updated.reply_preview_checkpoint["adapter_state"]["messages"] == [
+             %{"index" => 0, "message_id" => "message-new"}
+           ]
   end
 end

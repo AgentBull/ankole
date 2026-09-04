@@ -15,6 +15,7 @@ defmodule AnkoleWeb.WorkerFileController do
 
   alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.WorkerFileDeleteResponse
@@ -157,10 +158,8 @@ defmodule AnkoleWeb.WorkerFileController do
     ]
   )
 
-  def index(conn, params) do
-    worker_id = params[:worker_id] || params["worker_id"]
-    root = params[:root] || params["root"]
-    path = Map.get(params, :path) || Map.get(params, "path") || ""
+  def index(conn, %{worker_id: worker_id, root: root} = params) do
+    path = Map.get(params, :path, "")
 
     with :ok <- authorize(conn, worker_id, "read"),
          {:ok, result} <-
@@ -178,11 +177,7 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  def download(conn, params) do
-    worker_id = params[:worker_id] || params["worker_id"]
-    root = params[:root] || params["root"]
-    path = params[:path] || params["path"]
-
+  def download(conn, %{worker_id: worker_id, root: root, path: path}) do
     with :ok <- authorize(conn, worker_id, "read"),
          {:ok, %{"content" => content}} <- WorkerFiles.get(root, path, worker_id: worker_id) do
       filename = Path.basename(path)
@@ -199,12 +194,8 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  def upload(conn, params) do
-    worker_id = params[:worker_id] || params["worker_id"]
-    body = conn.body_params || params
-
-    root = key(body, :root)
-    path = key(body, :path)
+  def upload(conn, %{worker_id: worker_id}) do
+    %{root: root, path: path} = body = conn.body_params
 
     with :ok <- authorize(conn, worker_id, "update"),
          {:ok, upload} <- upload_param(body),
@@ -224,15 +215,9 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  def move(conn, params) do
-    worker_id = params[:worker_id] || params["worker_id"]
-
-    body = conn.body_params || params
-
-    root = key(body, :root)
-    from_path = key(body, :from_path)
-    to_path = key(body, :to_path)
-    overwrite = key(body, :overwrite, false)
+  def move(conn, %{worker_id: worker_id}) do
+    %{root: root, from_path: from_path, to_path: to_path} = body = conn.body_params
+    overwrite = ConsoleParams.boolean(body, :overwrite, false)
 
     with :ok <- authorize(conn, worker_id, "update"),
          {:ok, result} <-
@@ -253,11 +238,8 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  def delete(conn, params) do
-    worker_id = params[:worker_id] || params["worker_id"]
-    root = params[:root] || params["root"]
-    path = params[:path] || params["path"]
-    recursive = Map.get(params, :recursive) || Map.get(params, "recursive") || false
+  def delete(conn, %{worker_id: worker_id, root: root, path: path} = params) do
+    recursive = ConsoleParams.boolean(params, :recursive, false)
 
     with :ok <- authorize(conn, worker_id, "delete"),
          {:ok, result} <-
@@ -281,12 +263,8 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  defp key(map, name, default \\ nil) when is_map(map) do
-    Map.get(map, name) || Map.get(map, Atom.to_string(name)) || default
-  end
-
   defp upload_param(body) do
-    case Map.get(body, :file) || Map.get(body, "file") do
+    case Map.get(body, :file) do
       %Plug.Upload{} = upload -> {:ok, upload}
       _value -> {:error, :missing_file}
     end

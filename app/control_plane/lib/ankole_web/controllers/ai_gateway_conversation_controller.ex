@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   alias Ankole.AIGateway.ConsoleQueries
   alias Ankole.AIGateway.Schemas.Conversation
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayConversationListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayConversationResponse
@@ -87,13 +88,13 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_conversations", "read"),
          {:ok, page} <-
            ConsoleQueries.list_conversations(
-             subject_uid: param(params, "subject"),
-             conversation_key: param(params, "key"),
-             search: param(params, "q"),
-             active: boolean_param(params, "active"),
-             min_messages: integer_param(params, "min_messages", nil),
-             cursor: param(params, "cursor"),
-             limit: integer_param(params, "limit", 50)
+             subject_uid: params[:subject],
+             conversation_key: params[:key],
+             search: params[:q],
+             active: ConsoleParams.boolean(params, :active, nil),
+             min_messages: ConsoleParams.integer(params, :min_messages, nil),
+             cursor: params[:cursor],
+             limit: ConsoleParams.integer(params, :limit, 50)
            ) do
       json(conn, %{
         conversations: ConsoleQueries.console_projections(page.conversations),
@@ -104,9 +105,9 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     end
   end
 
-  def show(conn, params) do
+  def show(conn, %{conversation_id: conversation_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_conversations", "read"),
-         %Conversation{} = conversation <- conversation(params) do
+         %Conversation{} = conversation <- ConsoleQueries.get_conversation(conversation_id) do
       json(conn, %{conversation: ConsoleQueries.console_projection(conversation)})
     else
       nil -> error(conn, :not_found)
@@ -114,13 +115,13 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     end
   end
 
-  def messages(conn, params) do
+  def messages(conn, %{conversation_id: conversation_id} = params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_conversations", "read") do
       # A missing or unknown conversation yields an empty page rather than 404,
       # so the read-only browser keeps rendering when navigating stale links.
-      case ConsoleQueries.list_messages(param(params, "conversation_id"),
-             cursor: param(params, "cursor"),
-             limit: integer_param(params, "limit", 200)
+      case ConsoleQueries.list_messages(conversation_id,
+             cursor: params[:cursor],
+             limit: ConsoleParams.integer(params, :limit, 200)
            ) do
         {:ok, page} ->
           json(conn, %{
@@ -133,46 +134,6 @@ defmodule AnkoleWeb.AIGatewayConversationController do
       end
     else
       {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  defp conversation(params) do
-    case param(params, "conversation_id") do
-      id when is_binary(id) -> ConsoleQueries.get_conversation(id)
-      _value -> nil
-    end
-  end
-
-  defp param(params, key), do: Map.get(params, key) || Map.get(params, param_atom(key))
-
-  defp param_atom("subject"), do: :subject
-  defp param_atom("key"), do: :key
-  defp param_atom("q"), do: :q
-  defp param_atom("active"), do: :active
-  defp param_atom("min_messages"), do: :min_messages
-  defp param_atom("cursor"), do: :cursor
-  defp param_atom("limit"), do: :limit
-  defp param_atom("conversation_id"), do: :conversation_id
-
-  defp boolean_param(params, key) do
-    case param(params, key) do
-      value when is_boolean(value) -> value
-      _value -> nil
-    end
-  end
-
-  defp integer_param(params, key, default) do
-    case param(params, key) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value, default)
-      _value -> default
-    end
-  end
-
-  defp parse_integer(value, default) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> default
     end
   end
 

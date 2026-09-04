@@ -66,11 +66,13 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     checkpoint =
       ReplyInteractionState.initialize(%{"message_id" => "1700000000.000001"}, presentation, @now)
 
-    assert {:ok, resolved} =
+    assert {:ok, transition} =
              ReplyInteractionState.resolve(checkpoint, "slack-interaction", %{
                "state" => "answered",
                "answer" => %{"kind" => "choice", "option_id" => "approve", "value" => "yes"}
              })
+
+    resolved = ReplyInteractionState.merge_checkpoint(checkpoint, transition, fn _ -> true end)
 
     assert resolved["refresh_pending"] == true
     assert resolved["refresh_reason"] == "interaction"
@@ -442,7 +444,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
   defp setup_interaction do
     %{principal: agent} = agent_fixture()
     %{principal: human} = human_fixture()
-    binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
+    binding_fixture(agent.uid, "mock", :ignore, adapter: "lark")
 
     %{actor_event: event} =
       emit_addressed_actor_event(

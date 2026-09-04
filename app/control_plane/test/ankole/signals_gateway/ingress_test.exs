@@ -25,6 +25,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
   import Ecto.Query
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -2152,7 +2153,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       attachment_at = DateTime.add(@base_time, 500, :millisecond)
-      observed_at = DateTime.to_iso8601(attachment_at)
 
       pending =
         group_entry(%{
@@ -2166,12 +2166,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
               resource_type: "image"
             }
           ],
-          metadata: %{
-            "attachment_materialization" => %{
-              "state" => "pending",
-              "observed_at" => observed_at
-            }
-          }
+          metadata: Ingress.put_attachment_materialization(%{}, "pending", attachment_at)
         })
 
       assert {:ok, %{inbound_batch: pending_batch}} =
@@ -2188,7 +2183,11 @@ defmodule Ankole.SignalsGatewayIngressTest do
       materialized_path = "/agents/#{agent.uid}/user-files/inbox/chart.png"
 
       materialized =
-        put_in(pending, [:metadata, "attachment_materialization", "state"], "complete")
+        pending
+        |> Map.put(
+          :metadata,
+          Ingress.put_attachment_materialization(pending.metadata, "complete", attachment_at)
+        )
         |> put_in(
           [
             :attachments,
@@ -2323,6 +2322,60 @@ defmodule Ankole.SignalsGatewayIngressTest do
     end
   end
 
+  describe "attachment observation surface" do
+    test "attachments need bytes until the ID and the path both point into this agent's inbox" do
+      materialized = %{
+        "attachment_id" => 10_042,
+        "agent_computer_path" => "/agents/agent-a/user-files/inbox/10042/report.pdf"
+      }
+
+      refute Ingress.attachments_need_bytes?("agent-a", [])
+      refute Ingress.attachments_need_bytes?("agent-a", [materialized])
+
+      assert Ingress.attachments_need_bytes?("agent-a", [
+               materialized,
+               %{"provider_ref" => "lark:file:fresh"}
+             ])
+
+      assert Ingress.attachments_need_bytes?("agent-a", [%{"attachment_id" => 10_042}])
+      assert Ingress.attachments_need_bytes?("agent-b", [materialized])
+
+      assert Ingress.attachments_need_bytes?("agent-a", [
+               %{
+                 materialized
+                 | "agent_computer_path" => "/agents/agent-a/user-files/inbox/10043/report.pdf"
+               }
+             ])
+
+      assert Ingress.attachments_need_bytes?("agent-a", [
+               %{
+                 "attachment_id" => 42,
+                 "agent_computer_path" => "/agents/agent-a/user-files/inbox/42/report.pdf"
+               }
+             ])
+    end
+
+    test "the observation metadata always carries the state and the observed time" do
+      observed_at = DateTime.add(@base_time, 250, :millisecond)
+
+      assert Ingress.put_attachment_materialization(
+               %{"provider" => "discord"},
+               "pending",
+               observed_at
+             ) == %{
+               "provider" => "discord",
+               "attachment_materialization" => %{
+                 "state" => "pending",
+                 "observed_at" => "2026-07-02T01:34:05.250000Z"
+               }
+             }
+
+      assert_raise FunctionClauseError, fn ->
+        Ingress.put_attachment_materialization(%{}, "downloading", observed_at)
+      end
+    end
+  end
+
   defp insert_signal_entry!(
          source_entry_id,
          text,
@@ -2413,7 +2466,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
   defp complete_actor_response!(agent_uid, conversation_id, actor_event_id) do
     assert {:ok, response} =
-             StatefulResponses.start_response_run(%{
+             start_response_run(%{
                subject_uid: agent_uid,
                conversation_id: conversation_id,
                metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}},

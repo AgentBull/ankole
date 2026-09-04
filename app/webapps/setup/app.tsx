@@ -422,6 +422,8 @@ function IdentityMethodStep({
   model: InstanceType<typeof IdentitySetupModel>
   publicBaseURL: string
 }) {
+  'use no memo'
+
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const firstAdapter = adapters[0]

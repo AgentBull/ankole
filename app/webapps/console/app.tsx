@@ -32,6 +32,7 @@ import { PrincipalCreatePage } from './pages/principal-create'
 import { PrincipalEditPage } from './pages/principal-edit'
 import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
 import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
+import { OIDCClientEditorPage, OIDCClientsListPage } from './pages/oidc-clients'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 
 // Configure the bearer-token API client at module load, before any route
@@ -102,6 +103,9 @@ export function createConsoleRouter(queryClient: QueryClient) {
               },
               { path: 'identity/mappings/new', element: <IdentityMappingCreatePage /> },
               { path: 'identity/:providerID', element: <IdentityProviderEditorPage /> },
+              { path: 'oidc-clients', element: <OIDCClientsListPage />, ...preloadRoute(loaders.oidcClients) },
+              { path: 'oidc-clients/new', element: <OIDCClientEditorPage /> },
+              { path: 'oidc-clients/:clientID', element: <OIDCClientEditorPage /> },
               { path: 'access', element: <Navigate to="/access/groups" replace /> },
               {
                 path: 'access/groups',

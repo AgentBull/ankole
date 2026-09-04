@@ -16,7 +16,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -40,6 +40,7 @@ import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, Status
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 import { IdentitySubNav } from './identity-mappings'
 
 export function IdentityProvidersListPage() {
@@ -147,16 +148,24 @@ export function IdentityProviderEditorPage() {
     (mode === 'new' ? identityAdapters[0] : undefined)
   const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
 
-  const ready =
+  const sourceReady =
     mode === 'new' ? adapters.isSuccess && identityAdapters.length > 0 : providers.isSuccess && Boolean(selected)
-  useEffect(() => {
-    if (!ready) return
-    if (mode === 'edit' && selected) {
-      model.initialize(`provider:${selected.provider_id}`, formFromProvider(selected))
-    } else if (mode === 'new') {
-      model.initialize('new', emptyForm(identityAdapters[0]))
-    }
-  }, [identityAdapters, mode, model, providerID, ready, selected])
+  const identityDraft = useMemo(
+    () =>
+      !sourceReady
+        ? undefined
+        : mode === 'edit' && selected
+          ? formFromProvider(selected)
+          : mode === 'new'
+            ? emptyForm(identityAdapters[0])
+            : undefined,
+    [identityAdapters, mode, selected, sourceReady]
+  )
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'identity-provider', providerID },
+    source: identityDraft,
+    absent: () => mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected
+  })
 
   const refresh = () => void queryClient.invalidateQueries()
   const saveProvider = useMutation({
@@ -213,7 +222,7 @@ export function IdentityProviderEditorPage() {
   // The operator must restore its plugin before the provider can be edited.
   const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
 
-  if (mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected) {
+  if (draftStatus === 'absent') {
     return <EditorNotFound backTo="/identity" message={t('console.not_found.description')} />
   }
 
@@ -232,7 +241,7 @@ export function IdentityProviderEditorPage() {
       }
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready || !activeAdapter}
+      submitUnavailable={draftStatus !== 'ready' || !activeAdapter}
       contentWidth="wide"
       onSubmit={submit}
       secondary={

@@ -376,4 +376,82 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
     refute Map.has_key?(manual, "trigger_context")
   end
+
+  test "owns clarification controls, callback values, and callback matching" do
+    event_id = Ecto.UUID.generate()
+
+    presentation =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.interaction_request(event_id, %{
+        "body" => "请选择范围",
+        "interaction_id" => "clarify-1",
+        "control_id" => "scope",
+        "version" => 3,
+        "choices" => [
+          %{"id" => "all", "label" => "全部", "value" => "all-records"}
+        ],
+        "free_input" => true,
+        "free_input_hint" => "输入范围"
+      })
+
+    assert presentation["state"] == "awaiting_input"
+    assert presentation["prompt"] == "请选择范围"
+    assert Enum.map(presentation["actions"], & &1["type"]) == ["button", "form"]
+
+    [choice, form] = presentation["actions"]
+
+    assert {:ok, value} = ReplyPresentation.callback_value(event_id, choice)
+
+    assert value == %{
+             "version" => ReplyPresentation.action_protocol(),
+             "answerKind" => "choice",
+             "interactionId" => "clarify-1",
+             "interactionVersion" => 3,
+             "controlId" => "scope",
+             "selectedOptionId" => "all",
+             "optionValue" => "all-records",
+             "sourceActorEventId" => event_id
+           }
+
+    callback = %{
+      kind: "choice",
+      interaction_id: "clarify-1",
+      interaction_version: 3,
+      control_id: "scope",
+      selected_option_id: "all",
+      option_value: "all-records",
+      source_actor_event_id: event_id
+    }
+
+    assert ReplyPresentation.matches?(presentation, callback)
+    refute ReplyPresentation.matches?(presentation, %{callback | interaction_version: 4})
+
+    assert {:ok, form_value} = ReplyPresentation.callback_value(event_id, form)
+    assert form_value["answerKind"] == "free_text"
+    assert form_value["inputName"] == "clarify-answer"
+  end
+
+  test "terminal clarification can preserve the committed interaction fields" do
+    original =
+      ReplyPresentation.new()
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "需要选择",
+        "interaction_id" => "clarify-1",
+        "control_id" => "scope",
+        "version" => 1,
+        "choices" => [%{"id" => "all", "label" => "全部", "value" => "all"}]
+      })
+
+    latest = ReplyPresentation.new(state: "working")
+
+    terminal =
+      ReplyPresentation.terminal(latest, "awaiting_input", "需要选择",
+        preserve_interaction_from: original
+      )
+
+    assert terminal["prompt"] == original["prompt"]
+    assert terminal["actions"] == original["actions"]
+    assert terminal["interaction_status"] == "pending"
+    assert ReplyPresentation.checkpoint(terminal)["prompt"] == "需要选择"
+  end
 end

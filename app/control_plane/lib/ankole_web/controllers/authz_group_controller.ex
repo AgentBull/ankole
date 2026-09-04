@@ -12,6 +12,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   alias Ankole.AuthZ
   alias AnkoleWeb.AuthZJSON
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ComputedMemberPreviewRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -178,7 +179,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def show(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}", "read"),
          {:ok, group} <- AuthZ.get_principal_group(name) do
       json(conn, %{
@@ -190,7 +191,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def update(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}", "update"),
          {:ok, group} <- AuthZ.get_principal_group(name),
          {:ok, updated} <- AuthZ.update_principal_group(group, update_attrs(conn.body_params)) do
@@ -203,7 +204,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def delete(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}", "delete"),
          {:ok, group} <- AuthZ.delete_principal_group(name) do
       json(conn, %{principal_group: AuthZJSON.group_json(group)})
@@ -213,7 +214,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def members(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:members", "read"),
          {:ok, members} <- group_members(name) do
       json(conn, %{principal_group_members: Enum.map(members, &AuthZJSON.member_json/1)})
@@ -223,7 +224,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def add_member(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          {:ok, principal_uid} <- principal_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:members", "update"),
          {:ok, _membership} <- AuthZ.add_principal_to_group(principal_uid, name),
@@ -235,7 +236,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def remove_member(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          {:ok, principal_uid} <- principal_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:members", "update"),
          {:ok, :deleted} <- AuthZ.remove_principal_from_group(principal_uid, name),
@@ -247,7 +248,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   def grants(conn, params) do
-    with {:ok, name} <- name_param(params),
+    with {:ok, name} <- ConsoleParams.text(params, :name),
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:grants", "read"),
          {:ok, grants} <- AuthZ.list_group_grants(name) do
       json(conn, %{permission_grants: Enum.map(grants, &AuthZJSON.grant_json/1)})
@@ -297,21 +298,8 @@ defmodule AnkoleWeb.AuthZGroupController do
 
   defp update_attrs(_attrs), do: %{}
 
-  defp name_param(params) do
-    case Map.get(params, :name, Map.get(params, "name")) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, "name"}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing, "name"}}
-    end
-  end
-
   defp principal_uid_param(params) do
-    case Map.get(params, :principal_uid, Map.get(params, "principal_uid")) do
+    case Map.get(params, :principal_uid) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, "principal_uid"}}
     end

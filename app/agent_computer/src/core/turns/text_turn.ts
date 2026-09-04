@@ -2,11 +2,9 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import type { SkillFileRoots } from '../../tools/library/skill-tools'
-import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
-import { assistantText, userMessage, type UserMessage } from '../llm'
+import { loadEnabledSkillMCPServers } from '../../tools/mcp'
+import { assistantText, BRAIN_OPERATIONS, userMessage, type HostedTool, type UserMessage } from '../llm'
 import { actorEventUserContent } from './actor_event_content'
-import { actorEventText } from './actor_event_text'
-import { brainTurnInjections, resolveBrainEnabled, type BrainTurnInjections } from './brain_context'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { workerTurnTrace } from '../../observability/turn-tracing'
@@ -23,10 +21,8 @@ import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_conf
 import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
 import { createTurnWebTools } from './turn_web_tools'
 import { createTextTurnTools } from './text_turn_tools'
-import { materializeLarkCredential, type MaterializedLarkCredential } from '../execution/lark-credential'
-import { resolveAgentWorkerEnvParts } from '../execution/worker_env'
+import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../execution/execution-materials'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 // The Worker converts this exact reply to a scheduled no-op only when the
 // request permits silent success.
@@ -47,8 +43,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     sourceSignal: opts.abortSignal,
     inactivityTimeoutMs: runtimePolicy.inactivityTimeoutMs
   })
-  let mcporterConfig: MaterializedMCPorterConfig | undefined
-  let larkCredential: MaterializedLarkCredential | undefined
+  let executionMaterials: PreparedExecutionMaterials | undefined
   try {
     if (!modelRef) {
       throw new Error('worker run is missing a real model_ref')
@@ -82,25 +77,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
       'rendered fetch runtime config'
     )
-    // Resolved once and reused for tool registration and both memory
-    // injections; a failed read leaves Brain off for this turn.
-    const confirmationOnly = opts.ambientRoute?.action === 'NEW_WORK' && opts.ambientRoute.authority === 'NONE'
-    const brainEnabled = confirmationOnly
-      ? false
-      : await turnActivity.runStep(resolveBrainEnabled(turnStart, opts.rpc, opts.logger), 'brain runtime config')
-    const currentWorkerEnv = await turnActivity.runStep(
-      resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
-      'worker env'
-    )
-    larkCredential = materializeLarkCredential({
-      agentUID: turnStart.turn.actor.agent_uid,
-      agentHome: opts.agentHome,
-      rpc: opts.rpc,
-      workerEnv: currentWorkerEnv,
-      bindingName: turnStart.actor_event.binding_name
-    })
-    const workerEnv = larkCredential.workerEnv.vars
-    const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }
     const skillRoots = skillRootsFromOptions(opts)
     const mcpServers = await turnActivity.runStep(
       loadEnabledSkillMCPServers({
@@ -110,19 +86,31 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }),
       'Skill MCP dependencies'
     )
-    mcporterConfig = materializeMCPorterConfig(mcpServers)
-    const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
-    const webTools = await turnActivity.runStep(
-      createTurnWebTools({
-        aiGateway,
-        renderedFetchRuntimeConfig,
-        workerEnv,
-        workspaceRoot: opts.workspaceRoot,
-        repeatFetchSessionKey: aiGatewayConversationID,
-        browserRuntime: opts.browserRuntime
+    let webTools: Awaited<ReturnType<typeof createTurnWebTools>> | undefined
+    executionMaterials = await turnActivity.runStep(
+      prepareExecutionMaterials({
+        agentUID: turnStart.turn.actor.agent_uid,
+        agentHome: opts.agentHome,
+        rpc: opts.rpc,
+        bindingName: turnStart.actor_event.binding_name,
+        runtimeEnv: opts.runtimeEnv,
+        mcpServers,
+        abortSignal: turnActivity.signal,
+        consumeMaterialSourceEnv: async workerEnv => {
+          webTools = await createTurnWebTools({
+            turnStart,
+            aiGateway,
+            renderedFetchRuntimeConfig,
+            workerEnv,
+            workspaceRoot: opts.workspaceRoot,
+            repeatFetchSessionKey: aiGatewayConversationID,
+            browserRuntime: opts.browserRuntime
+          })
+        }
       }),
-      'web tools'
+      'execution materials'
     )
+    if (!webTools) throw new Error('worker execution materials did not prepare web tools')
     const resolvedTools = createTextTurnTools({
       turnStart,
       agentsRoot: opts.agentsRoot,
@@ -132,16 +120,19 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       enabledSkills: agentConversationContext.skills ?? [],
       agentPluginCatalog: agentConversationContext.agentPlugins ?? [],
       skillRoots,
-      brainEnabled,
       rpc: opts.rpc,
       waitForSteering: opts.waitForSteering,
-      workerEnv: toolWorkerEnv,
-      runtimeEnv,
+      workerEnv: executionMaterials.workerEnv,
+      runtimeEnv: executionMaterials.runtimeEnv,
       webTools
     })
     const tools = toolsForAmbientRoute(resolvedTools, opts.ambientRoute)
 
-    const hostedTools = hostedToolsForAmbientRoute(turnStart.hosted_tools ?? [], opts.ambientRoute)
+    // A main Turn takes the whole Brain catalog and the memory injection; the
+    // control plane declares `brain` only while `brain.enabled` is true.
+    const hostedTools = hostedToolsForAmbientRoute(turnStart.hosted_tools ?? [], opts.ambientRoute).map(
+      (tool): HostedTool => (tool.type === 'brain' ? { type: 'brain', inject: true } : tool)
+    )
 
     opts.logger?.info('worker.turn_tools_resolved', 'worker turn tools resolved', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -156,31 +147,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       workspaceRoot: opts.workspaceRoot,
       turnStart: { ...turnStart, hosted_tools: hostedTools },
       agentConversationContext,
-      availableToolNames: tools.map(tool => tool.name),
+      availableToolNames: [...tools.map(tool => tool.name), ...hostedBrainOperationNames(hostedTools)],
       ambientRoute: opts.ambientRoute
     }
     const systemPrompt = buildAgentSystemPrompt(promptOptions)
-    // Both memory injections run in parallel, stay zero-model, and degrade
-    // silently to nothing. The control plane owns the context-pack slot
-    // (conversation start and after each compaction); every other turn
-    // returns an empty pack.
-    const memoryInjections: BrainTurnInjections = brainEnabled
-      ? await turnActivity.runStep(
-          brainTurnInjections(
-            opts.rpc,
-            turnStart,
-            actorEventText(actorEvent.payload_json, actorEvent.type),
-            opts.logger
-          ),
-          'brain memory injections'
-        )
-      : { pointerLines: [], packMessages: [] }
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
         timezone: conversationTimezone
       }),
-      ...turnRequestEnvironmentInfoLines(turnStart),
-      ...memoryInjections.pointerLines
+      ...turnRequestEnvironmentInfoLines(turnStart)
     ])
 
     const latest = await runAgentLoop({
@@ -189,7 +164,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       systemPrompt,
       messages: [
         ...channelContextModelMessages(actorEvent.payload_json, { timezone: conversationTimezone }),
-        ...memoryInjections.packMessages,
         prompt,
         ...(opts.extraMessages ?? [])
       ],
@@ -212,9 +186,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       getSteeringMessages: async () =>
         steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied),
       repairFinalResponse: message =>
-        lacksVisibleReply(assistantText(message), turnStart)
-          ? emptyReplyObligationReminder(turnStart)
-          : undefined
+        lacksVisibleReply(assistantText(message), turnStart) ? emptyReplyObligationReminder(turnStart) : undefined
     })
     if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(
@@ -226,13 +198,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
     try {
-      mcporterConfig?.cleanup()
+      await executionMaterials?.cleanup()
     } finally {
-      try {
-        larkCredential?.cleanup()
-      } finally {
-        turnActivity.cleanup()
-      }
+      turnActivity.cleanup()
     }
   }
 }
@@ -256,7 +224,19 @@ export function hostedToolsForAmbientRoute<T extends { type: string }>(
   if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
   if (route.action !== 'FOREGROUND_REPLY') return tools
 
-  return tools.filter(tool => tool.type === 'web_search')
+  // A foreground reply keeps read-and-write memory: it speaks for the Agent in
+  // the room, and a confirmation-only turn above has already dropped it.
+  return tools.filter(tool => tool.type === 'web_search' || tool.type === 'brain')
+}
+
+/**
+ * The model-facing names of the hosted Brain operations, so prompt guidance
+ * about memory follows what AIGateway actually declares this turn.
+ */
+export function hostedBrainOperationNames(hostedTools: HostedTool[]): string[] {
+  const brain = hostedTools.find(tool => tool.type === 'brain')
+  if (!brain || brain.type !== 'brain') return []
+  return [...(brain.operations ?? BRAIN_OPERATIONS)]
 }
 
 function logAIGatewayRoute(
@@ -300,7 +280,7 @@ export function textTurnResultFromAssistantReply(
   outcome: 'loop_finished' | 'iteration_exhausted'
 ): TurnHandlerResult {
   if (outcome === 'loop_finished' && silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
-    return { kind: 'noop_completed', reason: 'schedule_silent_success' }
+    return { kind: 'noop_completed', reason: 'schedule_silent_success', finalResponseID }
   }
 
   return { kind: 'turn_completed', finalResponseID, outcome }

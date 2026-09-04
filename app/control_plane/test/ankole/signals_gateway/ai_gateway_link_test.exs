@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   import Ecto.Query
   import Ankole.PrincipalsFixtures
+  import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Conversations
 
@@ -70,14 +71,25 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     %{principal: subject} = agent_fixture()
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-cancel")
 
+    {:ok, root} =
+      start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-root"})
+
+    {:ok, root} = StatefulResponses.commit_complete(root, [])
+
     {:ok, selected} =
       start_response(subject.uid, conversation.id, %{
         "actor_event_id" => "event-selected",
         "request_refs" => [%{"actor_event_id" => "event-steer"}]
       })
 
+    # Implicit admission allows one generating run per conversation; a second
+    # in-flight run exists only through an explicit anchor.
     {:ok, untouched} =
-      start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-other"})
+      start_response_run(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{root.id}",
+        metadata: %{"request_metadata" => %{"actor_event_id" => "event-other"}}
+      })
 
     actor_key = %{agent_uid: subject.uid, session_id: conversation.conversation_key}
     now = DateTime.utc_now(:microsecond)
@@ -112,7 +124,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry")
 
     {:ok, response} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         conversation_id: conversation.id,
         request_items: [
@@ -185,7 +197,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
 
     {:ok, first} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{predecessor.id}",
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
@@ -194,7 +206,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, first} = StatefulResponses.commit_complete(first, [])
 
     {:ok, second} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{first.id}",
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
@@ -229,7 +241,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, first} = StatefulResponses.commit_complete(first, [])
 
     {:ok, second} =
-      StatefulResponses.start_response_run(%{
+      start_response_run(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{first.id}",
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-tail"}}
@@ -375,7 +387,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   end
 
   defp start_response(subject_uid, conversation_id, request_metadata) do
-    StatefulResponses.start_response_run(%{
+    start_response_run(%{
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       metadata: %{"request_metadata" => request_metadata}

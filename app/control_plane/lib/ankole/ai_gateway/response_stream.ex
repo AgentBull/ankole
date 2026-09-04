@@ -128,18 +128,58 @@ defmodule Ankole.AIGateway.ResponseStream do
           {:ok, State.outcome(), map()} | {:error, term()}
   def await_terminal(%__MODULE__{} = stream, meta, timeout)
       when is_map(meta) and is_integer(timeout) and timeout > 0 do
-    monitor = Process.monitor(stream.pid)
-    deadline = System.monotonic_time(:millisecond) + timeout
+    await_next(stream, meta, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  def await_terminal(%__MODULE__{}, _meta, _timeout),
+    do: {:error, :invalid_response_stream_collect_timeout}
+
+  defp await_next(stream, meta, deadline) do
+    case next(stream, max(deadline - System.monotonic_time(:millisecond), 0)) do
+      {:ok, _events, :continue} -> await_next(stream, meta, deadline)
+      {:ok, _events, {:terminal, %{} = outcome}} -> {:ok, outcome, meta}
+      {:ok, _events, {:terminal, nil}} -> {:error, :response_stream_closed}
+      {:error, :response_stream_collect_timeout} -> collect_timeout(stream)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Spends one read credit and waits for the next public batch.
+
+  The wait ends with the batch, with the owner's exit, or with `timeout`, so a
+  consumer never blocks on an owner that is gone. The consumer decides what a
+  timeout or a closed stream means for its transport.
+  """
+  @spec next(t(), timeout()) ::
+          {:ok, [map()], :continue | terminal_status()} | {:error, term()}
+  def next(%__MODULE__{pid: pid, ref: ref}, timeout) do
+    deadline = next_deadline(timeout)
+    monitor = Process.monitor(pid)
 
     try do
-      collect_next(stream, monitor, deadline, meta)
+      case next_read(pid, timeout, monitor) do
+        :ok ->
+          receive do
+            {:ai_gateway_response_stream, ^ref, :events, events, status} ->
+              {:ok, events, status}
+
+            {:DOWN, ^monitor, :process, _pid, reason} ->
+              {:error, {:response_stream_closed, reason}}
+          after
+            remaining_timeout(deadline) -> {:error, :response_stream_collect_timeout}
+          end
+
+        {:error, _reason} = error ->
+          error
+      end
     after
       Process.demonitor(monitor, [:flush])
     end
   end
 
-  def await_terminal(%__MODULE__{}, _meta, _timeout),
-    do: {:error, :invalid_response_stream_collect_timeout}
+  @spec monitor(t()) :: reference()
+  def monitor(%__MODULE__{pid: pid}), do: Process.monitor(pid)
 
   @doc false
   @spec project_non_streaming_response(map(), map()) :: map()
@@ -1372,13 +1412,14 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp stop_after_retry_failure(state, reason) do
     failure_opts =
       case reason do
-        {:credential_pool_exhausted, details} ->
-          retry_at = Map.get(details, "retry_at")
+        {:credential_pool_exhausted, _details} ->
+          classification = FailureDiagnostics.classify(reason)
+          retry_at = Map.get(classification, :retry_at)
 
           [
             code: "credential_pool_exhausted",
             retryable: true,
-            message: credential_pool_exhausted_message(retry_at),
+            message: FailureDiagnostics.public_message(classification),
             details: if(is_binary(retry_at), do: %{"retry_at" => retry_at}, else: nil)
           ]
 
@@ -1450,12 +1491,6 @@ defmodule Ankole.AIGateway.ResponseStream do
         Map.put(details, Atom.to_string(key), value)
     end)
   end
-
-  defp credential_pool_exhausted_message(retry_at) when is_binary(retry_at),
-    do: "AIGateway credential pool exhausted. retry_at=#{retry_at}"
-
-  defp credential_pool_exhausted_message(_retry_at),
-    do: "AIGateway credential pool exhausted. Try again later."
 
   defp hosted_credential_failure?(
          %{hosted_credential_attempt: %{}},
@@ -1864,46 +1899,27 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
-  defp collect_next(stream, monitor, deadline, meta) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-    ref = stream.ref
+  defp next_read(_pid, 0, _monitor), do: {:error, :response_stream_collect_timeout}
 
-    case collect_read(stream, remaining) do
-      :ok ->
-        wait_remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-
-        receive do
-          {:ai_gateway_response_stream, ^ref, :events, _events, :continue} ->
-            collect_next(stream, monitor, deadline, meta)
-
-          {:ai_gateway_response_stream, ^ref, :events, _events, {:terminal, %{} = outcome}} ->
-            {:ok, outcome, meta}
-
-          {:ai_gateway_response_stream, ^ref, :events, _events, {:terminal, nil}} ->
-            {:error, :response_stream_closed}
-
-          {:DOWN, ^monitor, :process, _pid, reason} ->
-            {:error, {:response_stream_closed, reason}}
-        after
-          wait_remaining -> collect_timeout(stream)
-        end
-
-      {:error, :response_stream_collect_timeout} ->
-        collect_timeout(stream)
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp collect_read(_stream, 0), do: {:error, :response_stream_collect_timeout}
-
-  defp collect_read(%__MODULE__{pid: pid}, timeout) do
+  defp next_read(pid, timeout, monitor) do
     GenServer.call(pid, {:read, 1}, timeout)
   catch
-    :exit, {:timeout, _call} -> {:error, :response_stream_collect_timeout}
-    :exit, _reason -> {:error, :response_stream_closed}
+    :exit, {:timeout, _call} ->
+      {:error, :response_stream_collect_timeout}
+
+    :exit, _reason ->
+      receive do
+        {:DOWN, ^monitor, :process, _pid, reason} -> {:error, {:response_stream_closed, reason}}
+      after
+        0 -> {:error, :response_stream_closed}
+      end
   end
+
+  defp next_deadline(:infinity), do: :infinity
+  defp next_deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
+
+  defp remaining_timeout(:infinity), do: :infinity
+  defp remaining_timeout(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   defp collect_timeout(%__MODULE__{pid: pid}) do
     GenServer.cast(pid, {:cancel, "synchronous_collector_timeout"})

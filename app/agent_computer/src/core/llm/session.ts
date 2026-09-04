@@ -5,6 +5,7 @@ import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type { ResponseCreateParams, ResponseOutputItem } from 'openai/resources/responses/responses'
 import type {
+  HostedBrainItemEvent,
   Message,
   ModelCallResult,
   ModelConfig,
@@ -71,6 +72,22 @@ const responseAdmissionFrameTypes = new Set(['response.created', 'response.queue
 
 export function createModelTurn(model: ModelConfig, options: ModelTurnOptions): ModelTurn {
   return new AIGatewayResponsesTurn(model, options)
+}
+
+/**
+ * AIGateway publishes a `brain_call` when it starts a hosted Brain operation
+ * and a `brain_output` with the same call id when the operation ends, so the
+ * Worker can show one activity per operation exactly as a local tool did.
+ */
+function hostedBrainItemEvent(item: JSONObject): HostedBrainItemEvent | undefined {
+  const callID = typeof item.call_id === 'string' ? item.call_id : undefined
+  const operation = typeof item.operation === 'string' ? item.operation : undefined
+  if (!callID || !operation) return undefined
+  if (item.type === 'brain_call') return { callID, operation, phase: 'running' }
+  if (item.type === 'brain_output') {
+    return { callID, operation, phase: item.status === 'failed' ? 'failed' : 'completed' }
+  }
+  return undefined
 }
 
 class AIGatewayResponsesTurn implements ModelTurn {
@@ -247,6 +264,8 @@ class AIGatewayResponsesTurn implements ModelTurn {
               if (item) {
                 stableItems.push(item as unknown as ResponseOutputItem)
                 rememberToolCall(toolCallsByID, item)
+                const hostedBrain = hostedBrainItemEvent(item)
+                if (hostedBrain) this.options.onHostedBrainItem?.(hostedBrain)
               }
               continue
             }

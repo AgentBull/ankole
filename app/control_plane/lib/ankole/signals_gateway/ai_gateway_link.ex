@@ -2,9 +2,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   @moduledoc """
   One-way adapter from SignalsGateway Actor semantics to generic AIGateway data.
 
-  `actor_event_id` is opaque client metadata to AIGateway. This module is the
-  only place that interprets it when correlating a completed worker turn with
-  its immutable Response chain.
+  `actor_event_id` is opaque client metadata to AIGateway. This module
+  interprets it when correlating a completed worker turn with its immutable
+  Response chain; `Ankole.SignalsGateway.BrainContext` interprets it for the
+  hosted Brain tool. No other module reads it.
   """
 
   import Ecto.Query, warn: false
@@ -39,6 +40,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     background_agent_job.completed
     background_agent_job.failed
   )
+
+  @type turn_chain :: %{
+          conversation: Conversation.t(),
+          final_response: Message.t(),
+          response_chain: [Message.t()]
+        }
 
   @type completion :: %{
           conversation: Conversation.t(),
@@ -868,7 +875,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc """
-  Loads and validates the immutable Responses facts named by turn completion.
+  Loads and validates the immutable Responses facts named by turn completion,
+  then projects the provider-visible reply from them.
 
   The database read happens before the Actor transaction. Terminal AIGateway
   rows are immutable, while the later Actor transaction owns all fence checks
@@ -876,7 +884,28 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   """
   @spec load_turn_completion(TurnRef.t(), String.t()) ::
           {:ok, completion()} | {:error, term()}
-  def load_turn_completion(%TurnRef{} = turn_ref, final_response_id)
+  def load_turn_completion(%TurnRef{} = turn_ref, final_response_id) do
+    with {:ok, turn_chain} <- load_turn_chain(turn_ref, final_response_id),
+         {:ok, projection} <-
+           project_completion(
+             turn_ref.agent_uid,
+             turn_chain.response_chain,
+             turn_chain.final_response
+           ) do
+      {:ok, Map.merge(turn_chain, projection)}
+    end
+  end
+
+  @doc """
+  Loads the Response chain that ends at `final_response_id` and validates that
+  it belongs to the turn: the same Agent and conversation, one actor event, and
+  a terminal successful final Response.
+
+  A silent completion that adopted a Response validates these facts without a
+  reply projection.
+  """
+  @spec load_turn_chain(TurnRef.t(), String.t()) :: {:ok, turn_chain()} | {:error, term()}
+  def load_turn_chain(%TurnRef{} = turn_ref, final_response_id)
       when is_binary(final_response_id) do
     with :ok <- validate_response_id(final_response_id),
          {:ok, chain} <-
@@ -892,19 +921,17 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
              final_response.conversation_id
            ),
          :ok <- validate_conversation(conversation, turn_ref),
-         {:ok, turn_chain} <- turn_response_chain(chain, turn_ref),
-         {:ok, projection} <-
-           project_completion(turn_ref.agent_uid, turn_chain, final_response) do
+         {:ok, turn_chain} <- turn_response_chain(chain, turn_ref) do
       {:ok,
-       Map.merge(projection, %{
+       %{
          conversation: conversation,
          final_response: final_response,
          response_chain: turn_chain
-       })}
+       }}
     end
   end
 
-  def load_turn_completion(%TurnRef{}, _final_response_id),
+  def load_turn_chain(%TurnRef{}, _final_response_id),
     do: {:error, :invalid_final_response_id}
 
   defp generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id) do

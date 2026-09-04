@@ -2,11 +2,13 @@ defmodule AnkoleWeb.Session do
   @moduledoc """
   Cookie-session helpers for setup, OIDC state, and admin login.
 
-  Five independent namespaces share the one sealed session cookie, kept apart on
+  Independent namespaces share the one sealed session cookie, kept apart on
   purpose:
 
     * `setup_session` / `setup_oidc_state` — the one-time bootstrap flow.
     * `admin_session` / `admin_oidc_state` — normal admin login.
+    * `oauth_session` / `oauth_authorization` / `oauth_oidc_state` — login and
+      continuation for this installation's authorization endpoint.
     * `local_password_change` — the forced password change between a local
       password verify and the admin session it earns.
 
@@ -26,14 +28,85 @@ defmodule AnkoleWeb.Session do
   @setup_brain_packs_key :setup_brain_packs
   @admin_session_key :admin_session
   @admin_oidc_state_key :admin_oidc_state
+  @oauth_session_key :oauth_session
+  @oauth_authorization_key :oauth_authorization
+  @oauth_oidc_state_key :oauth_oidc_state
   @local_password_change_key :local_password_change
 
   @setup_ttl_seconds 24 * 60 * 60
   @admin_ttl_seconds 24 * 60 * 60
+  @oauth_session_ttl_seconds 24 * 60 * 60
   # OIDC state lives only long enough to complete one provider round-trip; the
   # local password-change ticket gets the same short life.
   @oidc_state_ttl_seconds 10 * 60
   @local_password_change_ttl_seconds 10 * 60
+
+  @doc """
+  Stores the Human session used only by the OAuth authorization endpoint.
+  """
+  @spec put_oauth_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def put_oauth_session(conn, attrs) do
+    Plug.CSRFProtection.delete_csrf_token()
+
+    conn
+    |> configure_session(renew: true)
+    |> put_expiring_session(@oauth_session_key, attrs, @oauth_session_ttl_seconds)
+  end
+
+  @doc """
+  Reads the OAuth Human session if it is active.
+  """
+  @spec oauth_session(Plug.Conn.t()) :: map() | nil
+  def oauth_session(conn), do: active_payload(get_session(conn, @oauth_session_key))
+
+  @doc """
+  Stores one validated authorization request while the Human signs in.
+  """
+  @spec put_oauth_authorization(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def put_oauth_authorization(conn, params),
+    do:
+      put_expiring_session(
+        conn,
+        @oauth_authorization_key,
+        %{params: params},
+        @oidc_state_ttl_seconds
+      )
+
+  @doc """
+  Reads the pending authorization request.
+  """
+  @spec oauth_authorization(Plug.Conn.t()) :: map() | nil
+  def oauth_authorization(conn) do
+    case active_payload(get_session(conn, @oauth_authorization_key)) do
+      %{"params" => params} when is_map(params) -> params
+      _missing -> nil
+    end
+  end
+
+  @doc """
+  Clears the pending authorization request after a terminal result.
+  """
+  @spec clear_oauth_authorization(Plug.Conn.t()) :: Plug.Conn.t()
+  def clear_oauth_authorization(conn), do: delete_session(conn, @oauth_authorization_key)
+
+  @doc """
+  Stores upstream identity-provider state for an OAuth Human login.
+  """
+  @spec put_oauth_oidc_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def put_oauth_oidc_state(conn, attrs),
+    do: put_expiring_session(conn, @oauth_oidc_state_key, attrs, @oidc_state_ttl_seconds)
+
+  @doc """
+  Reads upstream identity-provider state for an OAuth Human login.
+  """
+  @spec oauth_oidc_state(Plug.Conn.t()) :: map() | nil
+  def oauth_oidc_state(conn), do: active_payload(get_session(conn, @oauth_oidc_state_key))
+
+  @doc """
+  Clears upstream identity-provider state for an OAuth Human login.
+  """
+  @spec clear_oauth_oidc_state(Plug.Conn.t()) :: Plug.Conn.t()
+  def clear_oauth_oidc_state(conn), do: delete_session(conn, @oauth_oidc_state_key)
 
   @doc """
   Stores a setup session that expires after 24 hours.

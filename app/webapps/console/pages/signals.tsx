@@ -26,7 +26,7 @@ import { RiBroadcastLine, RiPauseCircleLine, RiPlayCircleLine } from '@remixicon
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
@@ -37,7 +37,7 @@ import {
   localizedText
 } from '../../common/config-fields'
 import i18n from '../../common/i18n'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
 import {
   ankoleWebAgentControllerIndexOptions,
@@ -51,7 +51,14 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
-import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import {
+  EditorNotFound,
+  FormSection,
+  LabeledField,
+  ReadOnlyValue,
+  ResourceEditorPage,
+  StatusIndicator
+} from '../console-form'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   groupMessageModeFromPolicy,
@@ -62,6 +69,7 @@ import {
   type UnmatchedSenderPolicy
 } from '../state/signal-binding-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useEditorDraft } from '../use-editor-draft'
 
 export function SignalsListPage() {
   const { t } = useTranslation()
@@ -361,31 +369,31 @@ export function SignalBindingEditorPage() {
     signalAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ??
     (editing ? undefined : signalAdapters[0])
 
-  const ready = agents.data !== undefined && signalAdapters.length > 0 && (!editing || bindingDetail.data !== undefined)
-  useEffect(() => {
-    if (!ready) return
+  const sourceReady =
+    agents.data !== undefined && signalAdapters.length > 0 && (!editing || bindingDetail.data !== undefined)
+  const bindingDraft = useMemo(() => {
+    if (!sourceReady) return undefined
     const adapterID = currentBinding?.adapter ?? lockedAdapter
     const adapter = signalAdapters.find(item => item.adapter_id === adapterID) ?? signalAdapters[0]
     const draft =
       editing && currentBinding ? formFromBinding(currentBinding, bindingDetail.data?.config) : formFromAdapter(adapter)
-    model.initialize(`binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`, {
+    return {
       // An existing binding stays pinned to its stored agent; a fallback here
       // would silently move the binding on save.
       agentUID: editing ? (currentBinding?.agent_uid ?? '') : defaultAgentUID,
       ...draft
-    })
-  }, [
-    bindingDetail.data?.config,
-    currentBinding,
-    defaultAgentUID,
-    editing,
-    lockedAdapter,
-    lockedName,
-    model,
-    ready,
-    signalAdapters,
-    sourceAgentUID
-  ])
+    }
+  }, [bindingDetail.data?.config, currentBinding, defaultAgentUID, editing, lockedAdapter, signalAdapters, sourceReady])
+  const draftStatus = useEditorDraft(model, {
+    identity: {
+      resource: 'signal-binding',
+      agentUID: sourceAgentUID,
+      adapterID: lockedAdapter,
+      name: lockedName
+    },
+    source: bindingDraft,
+    absent: () => editing && requestErrorCode(bindingDetail.error) === 'not_found'
+  })
 
   const createBinding = useMutation({
     ...ankoleWebSignalBindingControllerPutBindingMutation(),
@@ -459,6 +467,10 @@ export function SignalBindingEditorPage() {
   const writeError = createBinding.error ?? updateBinding.error
   const writeFieldError = configFieldServerError(writeError, activeFields, locale)
 
+  if (draftStatus === 'absent') {
+    return <EditorNotFound backTo={returnPath} message={t('console.not_found.description')} />
+  }
+
   return (
     <ResourceEditorPage
       title={editing ? t('common.edit') : t('console.signals.new')}
@@ -469,7 +481,7 @@ export function SignalBindingEditorPage() {
       error={agents.error ?? adapters.error ?? bindingDetail.error ?? (writeFieldError ? undefined : writeError)}
       submitting={createBinding.isPending || updateBinding.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready}
+      submitUnavailable={draftStatus !== 'ready'}
       contentWidth="wide"
       onSubmit={submit}>
       {/* Saving upserts the binding as enabled (server contract), so an operator

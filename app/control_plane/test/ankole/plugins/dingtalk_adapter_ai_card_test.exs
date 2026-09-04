@@ -13,6 +13,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
   setup do
@@ -99,6 +100,13 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
   defp fresh(event), do: Repo.get!(ActorEvent, event.id)
 
+  for operation <- [:open, :update, :finalize] do
+    defp unquote(operation)(request) do
+      {:ok, adapter} = ReplyPreviewAdapter.from_module(AICard)
+      apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
+    end
+  end
+
   test "open creates+delivers, streams the answer open, and checkpoints the presentation" do
     event =
       setup_binding(%{
@@ -111,7 +119,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     presentation = working("hello from the agent")
 
     assert {:ok, open_result} =
-             AICard.open(%Request{
+             open(%Request{
                actor_event: event,
                presentation: presentation,
                mode: :working
@@ -151,7 +159,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     record_requests(self())
 
     assert {:ok, _open} =
-             AICard.open(%Request{
+             open(%Request{
                actor_event: event,
                presentation: working("short"),
                mode: :working
@@ -161,7 +169,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", _open_stream}
 
     assert {:ok, final_result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: fresh(event),
                presentation: completed("short"),
                mode: :terminal
@@ -197,7 +205,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     page_one = String.duplicate("A", 2_000)
 
     assert {:ok, _open} =
-             AICard.open(%Request{
+             open(%Request{
                actor_event: event,
                presentation: working(page_one),
                mode: :working
@@ -213,7 +221,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     grown = page_one <> "\n" <> String.duplicate("B", 2_000)
 
     assert {:ok, _update} =
-             AICard.update(%Request{
+             update(%Request{
                actor_event: fresh(event),
                presentation: working(grown),
                mode: :working
@@ -246,7 +254,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     grown_more = grown <> " and more"
 
     assert {:ok, update_result} =
-             AICard.update(%Request{
+             update(%Request{
                actor_event: fresh(event),
                presentation: working(grown_more),
                mode: :working
@@ -277,7 +285,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       ReplyPresentation.new() |> ReplyPresentation.terminal("failed", "it broke")
 
     assert {:ok, _result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: event,
                presentation: failed,
                mode: :terminal
@@ -313,7 +321,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       |> ReplyPresentation.continued()
 
     assert {:ok, _result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: event,
                presentation: continued,
                mode: :terminal
@@ -361,7 +369,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       })
 
     assert {:ok, _result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: event,
                presentation: presentation,
                mode: :terminal
@@ -432,7 +440,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       put_in(presentation["meta"], %{"attachment_count" => 2, "elapsed_ms" => 12_500})
 
     assert {:ok, _result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: event,
                presentation: presentation,
                mode: :terminal
@@ -454,8 +462,8 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     event = setup_binding(%{"clientId" => "cli_aicard", "clientSecret" => "secret"})
     record_requests(self())
 
-    assert {:error, {:cardkit_plain_text_fallback, :card_template_missing}} =
-             AICard.update(%Request{
+    assert {:error, {:degraded, :plain_text, :card_template_missing}} =
+             update(%Request{
                actor_event: event,
                presentation: working("partial"),
                mode: :working
@@ -476,7 +484,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert byte_size(long_answer) > 10_000
 
     assert {:ok, result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: event,
                presentation: completed(long_answer),
                mode: :terminal
@@ -495,7 +503,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     # An outbox retry re-runs finalize; the chunk ledger absorbs it without a
     # single provider re-send.
     assert {:ok, _retry} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: fresh(event),
                presentation: completed(long_answer),
                mode: :terminal
@@ -516,14 +524,18 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       "/v1.0/card/streaming" => {400, %{"code" => "param.contentUnsafe", "message" => "no"}}
     })
 
-    assert {:error, {:cardkit_plain_text_fallback, :content_rejected}} =
-             AICard.update(%Request{
+    assert {:error, {:degraded, :plain_text, :content_rejected}} =
+             update(%Request{
                actor_event: event,
                presentation: working("bad text"),
                mode: :working
              })
 
-    assert fresh(event).reply_preview_checkpoint["degraded"] == true
+    assert event
+           |> fresh()
+           |> Map.fetch!(:reply_preview_checkpoint)
+           |> ReplyPreviewAdapter.adapter_checkpoint()
+           |> Map.fetch!("degraded")
 
     # The rejected attempt itself created the card and hit the streaming wall.
     assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _create}
@@ -534,7 +546,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     record_requests(self())
 
     assert {:ok, result} =
-             AICard.finalize(%Request{
+             finalize(%Request{
                actor_event: fresh(event),
                presentation: completed("bad text"),
                mode: :terminal

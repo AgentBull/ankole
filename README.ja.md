@@ -1,4 +1,4 @@
-# Ankole — オープンソースの AI Workforce OS
+# Ankole、Company Brain を備えた企業向け Agent Harness
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -7,79 +7,67 @@
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [한국어](./README.ko.md)
 
-[違い](#agent-の能力から自律的な労働力へ) · [業務機能](#ankole-に任せられる業務機能) · [Actor Runtime](#actor-runtime) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
+[Ankole を選ぶ理由](#ankole-を選ぶ理由) · [Company Brain](#company-brain) · [意思決定の仕事](#意思決定の仕事) · [企業向けランタイム](#企業向けランタイム) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
 
-**AI Agent を、業務機能を自律的に遂行し、成果で評価される労働力に変えます。**
+**Company Brain が、すべての Agent に社内知識を届け、判断を改善します。**
 
-多くの AI 製品は、model、assistant、または copilot を人に渡します。次の手順の判断、context の受け渡し、tool の実行、失敗への対応、納品は、依然として人の仕事です。
+Ankole は、Company Brain を備えたオープンソースの Claude Code 代替製品です。企業向け Agent Harness が、社内知識、リアルタイムのシグナル、権限、ツール、実際の結果を、Agent の判断に必要なコンテキストとして構成します。
 
-Ankole は実行 loop を Agent に渡します。業務機能、成果指標、権限、tools、context を定義すると、Agent が計画して実行し、承認や例外の境界で確認し、検査と採点ができる成果を納品します。
+Company Brain は継続して動く Agent に共有知識を提供します。Harness は企業の権限規則を適用し、モデルの呼び出しを越えて仕事を継続します。
 
-Ankole はオープンソースで、セルフホストできます。Identity、context、credential、artifact、監査記録、実行は、すべて自分が管理する infrastructure に残ります。
+モデルが推論できる範囲は、与えられたコンテキストで決まります。Ankole は関連する事実と機能を選び、権限を適用し、障害後も仕事を継続し、結果を次の意思決定に引き継ぎます。
 
-これは **Service as Software** です。Software は人が service を提供するための道具にとどまらず、service を直接実行します。Ankole は、高付加価値の knowledge work に必要な runtime を提供します。
+Ankole は、企業が管理する基盤で実行できます。ID、コンテキスト、認証情報、成果物、監査記録、実行内容は、その基盤内に残ります。
 
-## Agent の能力から自律的な労働力へ
+Harness は、モデルの各呼び出しに継続性、権限、永続状態、結果からのフィードバックを提供します。
 
-Copilot は、人が仕事を終えるまでの効率を上げますが、実行 loop は人が持ち続けます。Ankole は既定の担当を変えます。Agent が、定義された業務機能の中で観察し、判断し、実行し、追跡し、納品します。
+## Ankole を選ぶ理由
 
-- **Chat persona ではなく、業務機能。** 各 Agent は、継続的な責任、納品物、業務 context、成果指標を持ちます。Identity は人を模倣するためではなく、権限と履歴を保持するためにあります。
-- **活動量ではなく、成果。** 収益、risk、順位、承認率、単位 cost、または事前に定義した別の成果指標で仕事を評価します。
-- **次の手順の提案ではなく、実行 loop。** Agent が計画、tool の使用、follow-up、recovery、納品を担います。人が各手順を操作する必要はありません。
-- **境界のある権限。** Identity、AuthZ、監査記録、承認点、escalation path が、Agent にできることと、人の判断が必要な時点を定めます。
-- **一回の request ではなく、長時間の仕事。** Session は数時間または数日動き、新しい情報を受け取り、失敗から復旧し、次の行動に必要な context を保持します。
+多くの Agent stack は、モデル、Prompt、ツールを接続します。各呼び出しは、その時点で組み立てたコンテキストから始まります。Ankole は、呼び出し後も続く仕事に必要な会社の状態とランタイムを維持します。
 
-自律的な仕事には、正しい現在の context が必要です。Ankole は、すべての古い message を同じ事実として扱わず、規則、判断、修正、成果を時刻と出所と共に記録します。
+- Harness は現在のコンテキストを構成し、機能を選び、権限を適用し、モデルの呼び出しを越えて状態を保持します。
+- メッセージ、スケジュール、Webhook、市場の変化、社内イベントが、担当する Agent を起動します。
+- 安定した ID、AuthZ、承認点、監査記録、配信状態が、各 Agent の権限を定めます。
+- 修正、新しい証拠、期限切れの事実、実際の結果が、次の意思決定で使うコンテキストを更新します。
 
-Brain は古い事実を退役させ、同種の修正を統合し、矛盾を提示し、過去の予測を後の実績と比較します。各実行は、より正確な業務認識から始まります。
+## Company Brain
 
-## 自律的な労働力を支えるもの
+Company Brain は、権限を持つすべての Agent に、同じ最新の社内知識を提供します。
 
-- **長い Job は background で動く。** 数時間動き、元の channel に戻り、失敗した手順を報告して再試行できます。Main Agent を待たせません。
-- **共有 context が working memory になる。** 誰も Agent に直接話していなくても、規則、選好、却下された案を memory に取り込めます。
-- **Memory は変化する世界を扱う。** Brain は Principal ごとの境界の内側で instance 共有の知識を整理し、古い項目を退役させ、証拠から推論し、登録した Source から直接学びます。
-- **Deep Research が playbook になる。** Fan-out retrieval、段階的な検証、競合仮説の分析で、出典付き report を作ります。成功した方法は次回を導きます。
-- **実際の browser で実際の仕事をする。** Agent は page を読み、click、type、capture、Playwright script の実行、login session の維持ができます。
-- **Skill は人の管理下で改善する。** Agent が更新を提案し、人が承認した後に、次の session から適用します。
-- **1 つでも複数でも実行できる。** 各 Agent は独自の業務機能、権限、tools、memory、対外 identity を持てます。Multi-agent execution は任意です。
-- **企業 identity と業務 channel を直接つなぐ。** Lark、Slack、DingTalk、Teams、Google Workspace、webhook、schedule、社内 system が同じ signal boundary から入ります。
+Company Brain は、会話、登録したファイルと URL、Agent が明示的に記録した内容から学習します。各 Claim は、出所、時点、保有者、確信度、閲覧範囲を保持します。
 
-## Ankole に任せられる業務機能
+- 判断は保有者に結び付き、出所はその出所が支える Claim に結び付きます。
+- 新しい証拠は現在の見解を更新し、過去の判断に至った履歴も保持します。
+- 矛盾する内容は、人が確認できる状態で残ります。
+- Recall は、保護された知識がモデルに届く前に、Principal とグループの閲覧範囲を適用します。
+- Dreaming は証拠を整理し、パターンを検出し、期限を迎えた予測を評価し、変更案を人の承認に送ります。
 
-Ankole は、digital に完結し、検査できる成果物を出し、明確な成果指標を持つ仕事に適します。指標には ROI、risk-adjusted return、順位の変化、承認率、または別の business outcome を使えます。
+## 意思決定の仕事
 
-| 業務機能 | 納品物 | 成果指標 |
-|---|---|---|
-| Performance marketing | Campaign 計画、入札、creative、予算調整 | Incremental ROAS と顧客獲得 cost |
-| 業界調査と trading | 調査、仮説、portfolio action、review | 超過収益、Sharpe ratio、最大 drawdown |
-| SEO | Keyword 計画、content brief、on-page 変更 | 検索順位の変化と有効な organic traffic |
-| 薬事申請 | 申請資料一式と照会事項への回答 | 一発承認率と照会回数 |
-| 特許申請 | 先行技術調査、請求項 draft、拒絶理由への応答 | 登録率と office-action 回数 |
-| Smart contract audit | 再現可能な PoC 付き監査 report | 重大な見逃しと false-positive 率 |
+Ankole は、仮説と結果を検証する意思決定に対応します。現在の例には、業界調査、商品選定、詳細なデータ分析、予測があります。
 
-単位は Agent 数ではなく、業務機能です。1 つの Agent が狭い機能を担うことも、複数の Agent が実行を分担することもできます。Multi-agent coordination は実装方法であり、製品価値ではありません。
+- Agent は、現在の規則、過去の判断、関連する証拠、利用できる権限、最近の変化を確認して仕事を始めます。
+- Deep Research は証拠収集を独立した実行者に分け、競合する仮説を検証し、証拠の不足を記録し、出典付きのレポートを返します。
+- ブラウザー、ターミナル、ファイル、モデル、外部システムにより、Agent は権限の範囲で調査と実行を行います。
+- 予測、修正、実際の結果が、次の意思決定に使う証拠になります。
 
-共通する contract は、**業務機能を定義し、境界のある権限を与え、Agent に仕事を任せ、成果を評価すること**です。
+## 企業向けランタイム
 
-## Actor Runtime
+Ankole は、各アクティブ Session をアドレス指定できる Virtual Actor として実行します。Actor は起動、メッセージ受信、チェックポイント、進捗配信、休止、復旧、処理の継続に対応します。
 
-Ankole は、長時間の AI work のための actor-oriented runtime です。各 active session は addressable virtual actor です。Wake、message receive、checkpoint、stream progress、hibernate、recover、continue ができ、agent を単なる HTTP request や queue job として扱いません。
+5 つの仕組みが、仕事の継続と監査を支えます。
 
-Runtime は 5 つの technical bets に基づきます。
+- Virtual Actor は、各 Session にアドレス、メールボックス、ライフサイクル、復旧位置を与えます。
+- OTP の監督ツリーは、停止、タイムアウト、クラッシュが発生した Session の分岐を隔離します。
+- ZeroMQ は、起動、誘導、チェックポイント、ストリーム、バックプレッシャーを低遅延で伝えます。
+- Agent Computer は、ワークスペースの近くでモデルループ、ツール、MCP サービス、ファイル、ターミナル、ストリーミング出力を実行します。
+- PostgreSQL は、Mailbox、Turn、リマインダー、意思決定、確定した操作を保存し、復旧と監査に使います。
 
-- **Virtual Actors for AI work.** Session は address、state、mailbox、lifecycle、recovery path を持つ work identity であり、散らばった background work ではありません。
-- **OTP Supervision Trees as failure domains.** 1 つの agent が hang、timeout、crash しても、Ankole はその branch を isolate または restart し、環境全体の failure に広げません。
-- **ZeroMQ Activation Fabric for live control.** Wakeup、steering、checkpoint、streaming、backpressure は low-latency routing layer を通り、agent が作業中でも誘導や介入ができます。
-- **Agent Computer as execution substrate.** LLM loop、tools、MCP servers、files、terminal state、streaming output は、workspace に近い Bun + TypeScript computer 内で動きます。
-- **Durable Ledger for recovery and audit.** Mailbox、turn、reminder、decision、committed side effects は process より長く残ります。Streaming は progress であり、commit された work が truth です。
-
-ユーザーと運用者にとっての約束は単純です。Agent は数時間から数日働き続け、実行中に新しい input を受け取り、独立して fail し、context を保ったまま recover し、side effect を説明可能にします。Runtime の詳しい考え方は [なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) にまとめています。
-
-これが Ankole の技術的な賭けです。Actor model は long-lived work identity と lifecycle を支え、OTP は failure semantics を支え、ZeroMQ は live activation を支え、Agent Computer は local execution を支えます。これにより、Ankole は chatbot backend ではなく AI Workforce OS として動作します。
+Agent は数時間から数日働き、実行中に入力を受け取り、障害を個別に処理し、コンテキストを保って復旧し、確定した操作を記録します。詳しい設計は[なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)で説明します。
 
 ## アーキテクチャ
 
-この図は ownership と durability boundary を示します。すべての内部 call を並べたものではありません。
+この図は、所有権と永続性の境界を示します。内部呼び出しは省略しています。
 
 ```mermaid
 flowchart TB
@@ -96,11 +84,11 @@ flowchart TB
     AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
-  Fabric["RuntimeFabric<br/>live actor traffic · bounded RPC · worker file<br/>durable state は保存しない"]
+  Fabric["RuntimeFabric<br/>一時的な Actor 通信 · 上限付き RPC · Worker ファイル"]
   Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turn · Background Job / Codex · Automation script<br/>tools · Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  PG[("PostgreSQL · durability boundary<br/>durable semantic truth")]
+  PG[("PostgreSQL · 永続性の境界<br/>確定した領域の事実")]
   Home[("Shared Agent Home · durability boundary<br/>workspace · artifact · resumable file")]
 
   External -->|"input と administration"| Control
@@ -117,38 +105,38 @@ flowchart TB
   Workers -.-> Home
 ```
 
-全体像：
+Elixir/OTP の Control Plane は、Principal/AuthZ、SignalsGateway、Schedule、Actor Runtime、Job のライフサイクル、Brain、AIGateway の永続的な判断を担当します。PostgreSQL は各領域で確定した事実を保存します。
 
-- **1 つの Control Plane が state と coordination を所有します。** Principal/AuthZ、SignalsGateway、Schedule、Actor Runtime、Job lifecycle、Brain、AIGateway は Elixir/OTP で durable decision を行い、semantic fact を PostgreSQL に保存します。
-- **Trigger owner は分かれています。** SignalsGateway は channel と webhook admission を所有し、Schedule は Checkback と Cron を所有します。Trigger は標準で Actor session を wake し、Automation Job と bind した場合は durable な Automation Job run を作成します。
-- **Worker は replaceable な execution resource を提供します。** 1 台以上の Agent Computer Worker が Main Agent turn、Background Job/Codex turn、Automation script を実行します。RuntimeFabric は live actor traffic、bounded RPC、worker-file operation を運びますが、durable queue ではありません。
-- **AIGateway は統一された AI boundary。** OpenResponses-compatible な HTTP、SSE、WebSocket API が stateless request と Principal-scoped stateful conversation の両方を支えます。LLM、embedding、rerank、web search、web fetch は同じ provider routing surface で解決され、upstream credential は control plane の外に出ません。
-- **Brain は instance 共有の知識空間。** Agent、人、background learning が同じ page と claim に書き込み、すべての読み取りは querier の知識境界で絞られます。PostgreSQL row が truth であり、page rendering と injected context は projection です。
-- **2 種類の Job は異なる保証を持ちます。** Background Agent Job は resume と user input 待ちができる interactive な model work です。Automation Job は Agent が所有する deterministic script です。Trigger を消費するたびに durable run を作り、owner session に event を送信できます。
-- **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared Agent Home が workspace、artifact、resumable file を保持します。RuntimeFabric と Worker process state は再構築できます。
+- SignalsGateway はチャネルと Webhook の受け付けを担当します。Schedule は Checkback と Cron を担当します。
+- Agent Computer Worker は、Main Agent Turn、Background Job、Codex Turn、Automation スクリプトを実行します。
+- RuntimeFabric は、一時的な Actor 通信、上限付き RPC、Worker のファイル操作を伝えます。
+- AIGateway は、LLM、Embedding、Rerank、Web Search、Web Fetch の要求を Control Plane の共通境界から処理します。
+- Brain は共有の Page と Claim を保存します。読み取り時には、要求元 Principal の知識境界を適用します。
+- Background Agent Job は対話型のモデル処理を実行します。Automation Job は Agent が所有する決定的なスクリプトを実行します。
+- 共有 Agent Home は、ワークスペース、成果物、再開用ファイルを保存します。Worker のプロセス状態は再構築できます。
 
 ## 現状
 
-Ankole は、完全にセルフホストできる AI Workforce OS であり、production で稼働しています。Control plane、Agent Computer、kernel、運用 console が end to end で動きます。
+Ankole は、企業が管理する基盤で運用できる完全な Agent Harness として本番稼働しています。Control Plane、Agent Computer、Kernel、運用コンソールを一つの環境に配置できます。
 
-- **多数の model provider。** OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI-compatible endpoint が第一級で、compaction、stateful conversation、reasoning-effort 制御、provider ごとの usage 取り扱いを伴います。
-- **本物の IM 連携。** Lark/Feishu と Slack は第一級 provider として統合され、lifecycle、transport、main flow、real-LLM の end-to-end までカバーします。
-- **Brain。** scope 付き開示を伴う instance 共有知識、会話と Source からの学習、dreaming（オフライン統合）、operator review が 1 つの subsystem にまとまり、PostgreSQL の全文検索と vector 検索で支えられます。
-- **長時間 actor runtime。** Session は wake、checkpoint、stream progress、hibernate、context を保った recover が可能。steering と cancel は request/response ではなく live-control 操作です。
-- **運用 console。** Agents、Agent Library の global defaults と Agent overrides、Control Plane Plugins、providers、model profiles、identity、signals、workers、worker 環境、Brain の知識、Background Agent Jobs は組み込み web console から管理できます。
-- **実条件向けテスト。** Unit suite に加え、Lark と Slack の main flow、transport、lifecycle、real-LLM、scheduling、worker computer、chaos recovery、concurrency/performance の専用 end-to-end suite。
+- OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI 互換エンドポイントは、コンテキスト圧縮、状態を持つ会話、推論強度の制御、利用量の記録に対応します。
+- Lark、Feishu、Slack の連携には、ライフサイクル、通信、主要フロー、実際の LLM 呼び出しを対象とする専用テストがあります。
+- Brain は、範囲付きの開示、会話と Source からの学習、オフライン整理、運用者による確認、全文検索、ベクトル検索を提供します。
+- Session は起動、チェックポイント、進捗配信、休止、コンテキストを保った復旧、実行中の誘導とキャンセルに対応します。
+- 組み込みの運用コンソールは、Agent、Library 設定、Plugin、モデルプロバイダー、モデル、Identity、シグナル、Worker、Brain、Background Agent Job を管理します。
+- 単体テストと専用のシステムテストは、スケジュール、Worker Computer、障害復旧、並行処理、性能を検証します。
 
-Ankole の public API には現時点で互換性契約がなく、リリース間で breaking change が発生します。
+パブリック API の互換性契約は現在策定中です。リリース間で互換性のない変更が発生する場合があります。
 
 | 領域 | 状態 |
 | --- | --- |
 | Control plane | `app/control_plane` の Phoenix/OTP application。durable state、configuration、actor orchestration、Principal/AuthZ、AIGateway、Brain、SignalsGateway、運用 API を担います。 |
-| Agent Computer | `app/agent_computer` の Bun/TypeScript worker runtime。隔離された Linux worker image 内で agent loop と local tools を実行します。standalone CLI ではありません。 |
+| Agent Computer | `app/agent_computer` の Bun/TypeScript Worker ランタイムです。隔離された Linux Worker イメージ内で Agent ループとローカルツールを実行します。Worker 実行環境として使用します。 |
 | Kernel | `app/kernel` の Rust crate。Elixir (Rustler) と Bun (N-API) が読み込み、crypto、identifier、AuthZ evaluation、ZeroMQ transport を担います。 |
 | Frontend | `app/webapps` の Vite + React console、auth、setup surfaces。Phoenix static shell に build されます。 |
 | ローカルサービス | PostgreSQL は devkit Docker Compose で提供されます。 |
 | 設計ドキュメント | アーキテクチャと runtime 設計ドキュメントは `docs/design-docs` にあります。 |
-| Production readiness | production で稼働中。durable パス、live control、運用 surface は完成しており、public API には現時点で互換性契約はありません。 |
+| 本番対応 | 本番環境で稼働しています。状態の永続化、リアルタイム制御、運用画面は完成しています。パブリック API の互換性契約は現在策定中です。 |
 
 ## 現在のリポジトリ
 
@@ -210,7 +198,7 @@ unavailable, the worker may downgrade to weak bubblewrap by bind-mounting the
 container `/proc` into bwrap and emits a startup warning. It does not run
 model-facing commands without sandboxing.
 
-Workspace が速く動いている間は、package-local validation を優先します。
+変更したパッケージごとに検証します。
 
 ```shell
 bun run --filter @ankole/control-plane test
@@ -227,4 +215,4 @@ cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
-Production bootstrap configuration は `DATABASE_URL`、`SECRET_KEY_BASE` のような標準 infrastructure 名を使います。Runtime application configuration は process-local environment variables ではなく、Ankole の PostgreSQL-backed AppConfigure surface に属します。
+本番環境の初期設定では、`DATABASE_URL`、`SECRET_KEY_BASE` などの標準的なインフラ名を使います。実行時のアプリケーション設定は、Ankole の PostgreSQL にある AppConfigure レコードへ保存します。

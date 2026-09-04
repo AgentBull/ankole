@@ -132,7 +132,7 @@ defmodule AnkoleWeb.PermissionGrantController do
   defp update_attrs(_attrs), do: %{}
 
   defp id_param(params) do
-    case Map.get(params, :id, Map.get(params, "id")) do
+    case Map.get(params, :id) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, "id"}}
     end

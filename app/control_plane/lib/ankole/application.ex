@@ -43,6 +43,7 @@ defmodule Ankole.Application do
       [
         AnkoleWeb.Telemetry,
         Ankole.Repo,
+        Ankole.OIDC.SigningKey,
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
         Ankole.Observability,
@@ -54,6 +55,7 @@ defmodule Ankole.Application do
         Ankole.IdentityProviders.LocalPassword.RetryGuard,
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
+        {Task.Supervisor, name: Ankole.AIGateway.BrainTaskSupervisor, max_children: 64},
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,

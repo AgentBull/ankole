@@ -61,17 +61,7 @@ defmodule AnkoleWeb.ControlPlanePluginController do
     end
   end
 
-  defp body(params) when is_map(params) do
-    id = Map.get(params, :id, Map.get(params, "id"))
-    enabled = Map.get(params, :enabled, Map.get(params, "enabled", :missing))
-
-    if is_binary(id) and id != "" and is_boolean(enabled) do
-      {:ok, id, enabled}
-    else
-      {:error, :invalid_control_plane_plugin_configuration}
-    end
-  end
-
+  defp body(%{id: id, enabled: enabled}) when id != "", do: {:ok, id, enabled}
   defp body(_params), do: {:error, :invalid_control_plane_plugin_configuration}
 
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")

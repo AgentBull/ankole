@@ -25,7 +25,8 @@ defmodule Ankole.AIGateway.CodexModelBinding do
          true <- is_map(provider_options),
          true <- is_boolean(supports_parallel_tool_calls),
          {:ok, input_modalities} <- decode_modalities(input_modalities),
-         {:ok, vision_fallback} <- decode_vision_fallback(Map.get(binding, "vision_fallback")) do
+         {:ok, vision_fallback} <- decode_vision_fallback(Map.get(binding, "vision_fallback")),
+         {:ok, brain} <- decode_brain(Map.get(binding, "brain")) do
       decoded = %{
         "selector" => selector,
         "provider_options" => provider_options,
@@ -33,7 +34,10 @@ defmodule Ankole.AIGateway.CodexModelBinding do
         "input_modalities" => input_modalities
       }
 
-      {:ok, Ankole.Attrs.maybe_put(decoded, "vision_fallback", vision_fallback)}
+      {:ok,
+       decoded
+       |> Ankole.Attrs.maybe_put("vision_fallback", vision_fallback)
+       |> Ankole.Attrs.maybe_put("brain", brain)}
     else
       _value -> {:error, :invalid_codex_model_binding}
     end
@@ -57,6 +61,7 @@ defmodule Ankole.AIGateway.CodexModelBinding do
     |> Map.put("model", Map.fetch!(binding, "selector"))
     |> put_provider_options(defaults)
     |> put_reasoning_effort(defaults)
+    |> put_brain(Map.get(binding, "brain"))
     |> Map.put("__ankole_codex_vision", %{
       "input_modalities" => Map.fetch!(binding, "input_modalities"),
       "vision_fallback" => Map.get(binding, "vision_fallback")
@@ -89,6 +94,44 @@ defmodule Ankole.AIGateway.CodexModelBinding do
   end
 
   defp decode_vision_fallback(_value), do: {:error, :invalid_codex_model_binding}
+
+  # A codex Job composes its own Responses requests, so the Worker's frozen
+  # binding carries the hosted Brain declaration the Job may use and the actor
+  # event that scopes it. Jobs declare the read-only subset.
+  defp decode_brain(nil), do: {:ok, nil}
+
+  defp decode_brain(%{"operations" => operations, "actor_event_id" => actor_event_id})
+       when is_list(operations) and operations != [] and is_binary(actor_event_id) and
+              actor_event_id != "" do
+    if Enum.all?(operations, &Ankole.Brain.Tools.operation?/1) and
+         operations == Enum.uniq(operations) do
+      {:ok, %{"operations" => operations, "actor_event_id" => actor_event_id}}
+    else
+      {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  defp decode_brain(_value), do: {:error, :invalid_codex_model_binding}
+
+  defp put_brain(request, nil), do: request
+
+  defp put_brain(request, %{"operations" => operations, "actor_event_id" => actor_event_id}) do
+    tools =
+      case Map.get(request, "tools") do
+        tools when is_list(tools) -> tools
+        _missing -> []
+      end
+
+    metadata =
+      case Map.get(request, "metadata") do
+        %{} = metadata -> metadata
+        _missing -> %{}
+      end
+
+    request
+    |> Map.put("tools", tools ++ [%{"type" => "brain", "operations" => operations}])
+    |> Map.put("metadata", Map.put(metadata, "actor_event_id", actor_event_id))
+  end
 
   defp strip_codex_private_input_fields(%{"input" => input} = request) when is_list(input) do
     input =

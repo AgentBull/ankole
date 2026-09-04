@@ -2,15 +2,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
   @moduledoc false
 
   alias Ankole.Plugins.MapHelpers
+  alias Ankole.SignalsGateway.ReplyPresentation
 
   @content_type "application/vnd.microsoft.card.adaptive"
-  @action_envelope_version "ankole.interactive_output.action.v1"
 
   @spec content_type() :: String.t()
   def content_type, do: @content_type
 
   @spec action_envelope_version() :: String.t()
-  def action_envelope_version, do: @action_envelope_version
+  def action_envelope_version, do: ReplyPresentation.action_protocol()
 
   @spec render(map()) :: {:ok, map()} | {:error, :missing_card_payload}
   def render(payload) when is_map(payload) do
@@ -113,7 +113,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
       %{
         "type" => "Action.Submit",
         "title" => truncate(to_string(Map.get(choice, "label", value)), 75),
-        "data" => %{"v" => @action_envelope_version, "value" => value}
+        "data" => %{"v" => ReplyPresentation.action_protocol(), "value" => value}
       }
     end)
   end

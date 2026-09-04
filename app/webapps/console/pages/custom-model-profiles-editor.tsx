@@ -3,7 +3,7 @@ import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
@@ -25,6 +25,7 @@ import {
   type ProfileDraft
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
+import { useEditorDraft } from '../use-editor-draft'
 
 const CUSTOM_PROFILE_NAME = /^[a-z][a-z0-9_-]{0,63}$/
 const FIXED_PROFILE_NAMES = new Set<string>(PROFILE_NAMES)
@@ -218,10 +219,11 @@ function StoredCustomModelProfileEditor({
   const { t } = useTranslation()
   const model = useModel(CustomModelProfileModel)
   const pendingSubmission = useRef<ModelProfileSubmission>(undefined)
-
-  useEffect(() => {
-    model.initialize(`agent:${agentUID}:${name}`, draftFromProfile(profile))
-  }, [agentUID, model, name, profile])
+  const profileDraft = useMemo(() => draftFromProfile(profile), [profile])
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'custom-model-profile', agentUID, name },
+    source: profileDraft
+  })
 
   const save = useMutation({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
@@ -269,6 +271,8 @@ function StoredCustomModelProfileEditor({
     save.mutate({ body: built.body, path: { agent_uid: agentUID, profile: name } })
   }
 
+  if (draftStatus !== 'ready') return <Skeleton className="h-48 w-full" aria-busy="true" />
+
   const signals = model.profile
   const draft: ProfileDraft = {
     description: signals.description.value,
@@ -308,7 +312,11 @@ export function isCustomProfileName(name: string): boolean {
   return CUSTOM_PROFILE_NAME.test(name) && !FIXED_PROFILE_NAMES.has(name)
 }
 
-function customProfileNameError(name: string, existingNames: Set<string>, t: ReturnType<typeof useTranslation>['t']) {
+export function customProfileNameError(
+  name: string,
+  existingNames: Set<string>,
+  t: ReturnType<typeof useTranslation>['t']
+) {
   if (!CUSTOM_PROFILE_NAME.test(name)) return t('console.models.custom_name_invalid')
   if (FIXED_PROFILE_NAMES.has(name)) return t('console.models.custom_name_reserved')
   if (existingNames.has(name)) return t('console.models.custom_name_exists')

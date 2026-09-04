@@ -1,17 +1,17 @@
 ---
 title: 아키텍처
-description: 컨트롤 플레인, Agent Computer Worker, Actor Runtime, Brain, Background Agent Jobs가 어떻게 Ankole을 이루는지 알아보세요.
+description: Control Plane, Agent Computer Worker, Actor Runtime, Brain, Background Agent Jobs가 Ankole Agent Harness를 구성하는 방식을 설명합니다.
 section: Developer guide
 order: 100
 ---
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole은 자체 호스팅 AI Workforce OS입니다. AI Agent를 업무 기능을 수행하고 결과로 평가받는 자율 노동력으로 바꿉니다.
+Ankole은 Company Brain을 갖춘 기업용 Agent Harness이며 오픈 소스로 배포됩니다. 회사가 관리하는 인프라에서 모델, 영속 상태, 권한, 실행 환경을 결합합니다.
 
-Agent 하나가 한 기능을 몇 시간 동안 실행하고, 공유 운영 컨텍스트를 사용하며, 사람들이 검사하고 채점할 수 있는 결과를 전달할 수 있습니다.
+Agent는 몇 시간 동안 작업하고, 공유 Company Brain을 사용하고, 브라우저, 터미널, 파일, 외부 시스템으로 업무를 실행하며, 사람이 검사하고 이후 결과로 검증할 수 있는 판단을 전달합니다.
 
-이것은 채팅 엔드포인트 뒤에 있는 모델 하나 이상을 요구합니다. 시스템은 누가 행동하는지, 누가 접근 권한이 있는지, 긴 작업이 어떻게 복구되는지, 컨텍스트가 어떻게 최신을 유지하는지, 한 번의 수정이 이후 작업을 어떻게 바꾸는지 알아야 합니다.
+모델은 추론을 담당합니다. Harness는 행동 주체, 접근 권한, 긴 작업의 복구, 컨텍스트 갱신, 수정과 결과의 반영을 관리합니다.
 
 ## 시스템 지도
 

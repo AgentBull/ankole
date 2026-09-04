@@ -56,7 +56,8 @@ defmodule Ankole.AIAgent.AgentDocumentsTest do
              )
 
     assert empty_soul["content"] == ""
-    assert {:ok, ""} = Library.get_soul(agent.uid)
+    assert {:ok, documents} = Library.list_agent_documents(agent.uid)
+    assert documents["soul"]["content"] == ""
   end
 
   test "materializes bundled fallback documents for an agent missing seeded rows" do

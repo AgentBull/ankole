@@ -15,6 +15,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
   defmodule FakeBotClient do
@@ -111,11 +112,18 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     %Request{actor_event: event, presentation: presentation, mode: mode}
   end
 
+  for operation <- [:open, :update, :finalize] do
+    defp unquote(operation)(request) do
+      {:ok, adapter} = ReplyPreviewAdapter.from_module(AIStream)
+      apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
+    end
+  end
+
   test "open streams the first page bound to the channel's respond anchor and checkpoints it" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
     assert {:ok, result} =
-             AIStream.open(request(event, working("hello from the agent"), :working))
+             open(request(event, working("hello from the agent"), :working))
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-stream-1", body}
     assert body["msgtype"] == "stream"
@@ -133,11 +141,11 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "finalize refreshes the full snapshot and seals the stream without the status line" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = AIStream.open(request(event, working("partial"), :working))
+    assert {:ok, _open} = open(request(event, working("partial"), :working))
     assert_receive {:bot_frame, "aibot_respond_msg", _req, _open_body}
 
     assert {:ok, result} =
-             AIStream.finalize(request(fresh(event), completed("final answer"), :terminal))
+             finalize(request(fresh(event), completed("final answer"), :terminal))
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-stream-1", body}
     assert body["stream"]["finish"] == true
@@ -154,7 +162,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     continued = working("旧卡片答案") |> ReplyPresentation.continued()
 
-    assert {:ok, result} = AIStream.finalize(request(event, continued, :terminal))
+    assert {:ok, result} = finalize(request(event, continued, :terminal))
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-stream-1", body}
     assert body["stream"]["finish"] == true
@@ -169,7 +177,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     long_answer = String.duplicate("内容行内容行内容行\n", 1_500)
     assert byte_size(long_answer) > 14_000
 
-    assert {:ok, result} = AIStream.finalize(request(event, completed(long_answer), :terminal))
+    assert {:ok, result} = finalize(request(event, completed(long_answer), :terminal))
 
     frames = collect_frames([])
     assert length(frames) >= 2
@@ -187,13 +195,13 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "an over-age open page is frozen at its written source and the chain continues" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = AIStream.open(request(event, working("first page text"), :working))
+    assert {:ok, _open} = open(request(event, working("first page text"), :working))
     assert_receive {:bot_frame, "aibot_respond_msg", _req, _body}
 
     # Age the open page past the 9-minute axis and clear the write throttle.
     stale = DateTime.utc_now() |> DateTime.add(-10 * 60) |> DateTime.to_iso8601()
     stored = fresh(event)
-    checkpoint = stored.reply_preview_checkpoint
+    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(stored.reply_preview_checkpoint)
     [page] = checkpoint["pages"]
 
     aged =
@@ -204,9 +212,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     {:ok, _event} = Ankole.SignalsGateway.Actors.put_reply_preview_checkpoint(event.id, aged)
 
     assert {:ok, result} =
-             AIStream.update(
-               request(fresh(event), working("first page text plus growth"), :working)
-             )
+             update(request(fresh(event), working("first page text plus growth"), :working))
 
     frames = collect_frames([])
 
@@ -237,14 +243,14 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "a rapid second update is throttled and a later finalize still flushes" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = AIStream.open(request(event, working("one"), :working))
+    assert {:ok, _open} = open(request(event, working("one"), :working))
     assert_receive {:bot_frame, _cmd, _req, _body}
 
-    assert {:ok, _update} = AIStream.update(request(fresh(event), working("one two"), :working))
+    assert {:ok, _update} = update(request(fresh(event), working("one two"), :working))
     refute_receive {:bot_frame, _cmd2, _req2, _body2}, 100
 
     assert {:ok, _final} =
-             AIStream.finalize(request(fresh(event), completed("one two three"), :terminal))
+             finalize(request(fresh(event), completed("one two three"), :terminal))
 
     assert_receive {:bot_frame, "aibot_respond_msg", _req3, body}
     assert body["stream"]["finish"] == true
@@ -254,13 +260,13 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "without a respond anchor working syncs degrade and the terminal falls back to proactive markdown" do
     event = setup_stream_binding(%{})
 
-    assert {:error, {:cardkit_plain_text_fallback, :no_reply_anchor}} =
-             AIStream.open(request(event, working("hello"), :working))
+    assert {:error, {:degraded, :plain_text, :no_reply_anchor}} =
+             open(request(event, working("hello"), :working))
 
     refute_receive {:bot_frame, _cmd, _req, _body}, 50
 
     assert {:ok, result} =
-             AIStream.finalize(request(fresh(event), completed("final via send"), :terminal))
+             finalize(request(fresh(event), completed("final via send"), :terminal))
 
     assert_receive {:bot_frame, "aibot_send_msg", _req, body}
     assert body["msgtype"] == "markdown"
@@ -273,7 +279,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     # A retry of the terminal outbox delivery re-sends nothing.
     assert {:ok, _retry} =
-             AIStream.finalize(request(fresh(event), completed("final via send"), :terminal))
+             finalize(request(fresh(event), completed("final via send"), :terminal))
 
     refute_receive {:bot_frame, "aibot_send_msg", _req2, _body2}, 50
   end

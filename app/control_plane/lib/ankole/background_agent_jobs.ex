@@ -16,6 +16,7 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
+  alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.TurnWatchdog
 
@@ -477,8 +478,8 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection
 
-  @doc "Projects complete runtime turns for Console."
-  defdelegate console_turn_projections(turns), to: Turns, as: :console_projections
+  @doc "Projects one bounded page of a job's runtime turns for Console."
+  defdelegate console_turn_page(job, cursor), to: Turns, as: :console_page
 
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
@@ -514,6 +515,12 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Lists normalized runtime turns for one job."
   defdelegate list_turns(job_id, opts \\ []), to: Turns, as: :list_for_job
+
+  @doc "Returns recent finished Jobs that carry skill-lesson evidence."
+  defdelegate evidence_signals(agent_uid, since_job_id, completed_after), to: TurnEvidence
+
+  @doc "Renders bounded skill-lesson evidence sections for the given Jobs."
+  defdelegate evidence_sections(job_ids), to: TurnEvidence
 
   @doc "Pages the lead-thread turn items of one job's workspace lineage for thread replay."
   defdelegate replay_items_page(job, cursor), to: Turns

@@ -11,6 +11,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.ChatGPTProtocol
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CredentialAttempts
+  alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.Attrs
   alias Ankole.AIGateway.OpenAIError
@@ -85,7 +86,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
            Resolver.resolve_request_model(
              subject_uid,
              "llm",
-             Map.put(request, "__ankole_request_context", request_context)
+             Map.put(request, "__ankole_request_context", request_context),
+             model_binding: Keyword.get(opts, :model_binding)
            ),
          {:ok, request} <-
            CodexVision.adapt(
@@ -102,7 +104,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     stream? = Keyword.get(opts, :stream?, false)
 
     with {:ok, provider_request} <- provider_request(subject_uid, runtime, request),
-         {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
+         {:ok, provider_request, tool_plan} <- plan_tools(subject_uid, runtime, provider_request),
          response_stream_driver? = response_stream_driver?(runtime, tool_plan),
          provider_request =
            StreamLoop.apply_tool_budget(
@@ -154,16 +156,26 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   # Tool ownership follows the stable provider/client protocol. A tool list
   # change must not switch one conversation between native and local handling.
-  defp plan_tools(runtime, provider_request) do
-    with :ok <- validate_tool_identifiers(provider_request) do
-      if native_openai_tools?(runtime) do
-        {:ok, provider_request, nil}
-      else
-        case ToolSearch.plan(provider_request) do
-          {:ok, _provider_request, _plan} = planned -> planned
-          {:error, reason} -> {:error, invalid_tool_plan(reason)}
-        end
+  # The hosted Brain tool is an AIGateway effect on every provider, so its
+  # declaration leaves the tool array before the provider-owned identifiers
+  # are validated and before the native-versus-local planning decision.
+  defp plan_tools(subject_uid, runtime, provider_request) do
+    with {:ok, brain, provider_request} <- split_brain(subject_uid, provider_request),
+         :ok <- validate_tool_identifiers(provider_request) do
+      case ToolSearch.plan(provider_request,
+             brain: brain,
+             native_tools?: native_openai_tools?(runtime)
+           ) do
+        {:ok, _provider_request, _plan} = planned -> planned
+        {:error, reason} -> {:error, invalid_tool_plan(reason)}
       end
+    end
+  end
+
+  defp split_brain(subject_uid, provider_request) do
+    case Brain.split(subject_uid, provider_request) do
+      {:ok, brain, request} -> {:ok, brain, request}
+      {:error, reason} -> {:error, invalid_tool_plan(reason)}
     end
   end
 
