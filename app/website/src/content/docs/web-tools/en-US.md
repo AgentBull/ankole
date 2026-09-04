@@ -5,9 +5,7 @@ section: User guide
 order: 33
 ---
 
-An Agent can use `web_search` to find public pages and `web_fetch` to read selected pages. `web_search` requires a Provider.
-
-`web_fetch` prefers a configured Provider, but it can use the Worker's built-in rendered fallback when the Provider is unavailable.
+An Agent uses `web_search` to find public pages and `web_fetch` to read selected pages. While `web_search` requires a configured Provider, `web_fetch` can use the Worker's built-in rendered fallback when no Provider is configured.
 
 ## Select the correct tool
 

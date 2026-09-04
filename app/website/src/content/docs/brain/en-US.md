@@ -5,7 +5,7 @@ section: User guide
 order: 18
 ---
 
-Brain is a long-term memory system inspired by GBrain. It turns durable information from conversations, files, and web pages into traceable organizational knowledge. Agents can recall, revise, and forget that knowledge within explicit disclosure boundaries.
+Brain is a long-term memory system inspired by GBrain that maintains an up-to-date enterprise world model built on an ontology similar to Palantir. It turns durable information from conversations, files, and web pages into traceable organizational knowledge. Agents can recall, revise, and forget that knowledge within explicit disclosure boundaries.
 
 Brain does not keep a growing transcript and call it memory. It maintains a current view of people, organizations, events, judgments, and their relationships. New evidence can support an earlier claim, replace it, or expose a contradiction. The evidence and earlier state remain available for review.
 

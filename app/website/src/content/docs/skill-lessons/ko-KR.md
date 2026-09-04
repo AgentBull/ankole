@@ -7,7 +7,7 @@ order: 34
 
 Skill 교훈은 Agent가 Skill을 읽을 때 함께 받는 날짜가 있는 짧은 주의 사항입니다. 반복되는 tool 실패, 환경 문제, 작업 방식의 오류를 피하도록 돕습니다. 공유 `SKILL.md`는 바뀌지 않습니다.
 
-Skill 교훈은 GBrain의 Skill 최적화 실험에서 영감을 받았습니다. Ankole은 기계가 작성하는 내용을 리스가 있는 Agent별 작업 메모로 제한합니다. Agent가 Skill 본문을 다시 쓰도록 허용하지 않습니다.
+Skill 교훈은 GBrain의 Skill 최적화 실험에서 영감을 얻은 것으로, Agent가 Skill을 사용하는 과정에서 축적하는 날짜가 포함된 노트입니다. Ankole은 기계가 작성하는 내용을 리스가 있는 Agent 전용 프로세스 노트로 제한하며, Skill 본문은 절대 수정하지 않습니다.
 
 교훈 하나는 Agent 하나와 Skill 하나에 속합니다. 모든 Agent에 적용해야 하는 규칙은 Skill 소스에 작성합니다.
 

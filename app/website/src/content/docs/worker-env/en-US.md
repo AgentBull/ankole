@@ -5,7 +5,7 @@ section: User guide
 order: 10
 ---
 
-An Agent can need environment variables when it runs commands, calls MCP servers, or starts Background Agent Jobs on an Agent Computer Worker. Use **Environment variables** in the Console for API keys, tokens, service URLs, and similar values.
+Agents require environment variables when running commands, calling MCP servers, or executing Background Agent Jobs on an Agent Computer Worker. Use **Environment variables** in the Console to manage API keys, tokens, service URLs, and related settings.
 
 Do not put credentials in Skills, Agent documents, or chat messages.
 
@@ -58,7 +58,7 @@ Select **Reveal** only when you must check the current value. If you turn off **
 
 ## When changes take effect
 
-A change does not alter an execution that has already started. The new value is available to the Agent's next turn, later Background Agent Job executions, and later Automation Job attempts.
+Changes do not alter running executions. The new value takes effect on the Agent's next turn, subsequent Background Agent Job executions, and subsequent Automation Job attempts.
 
 If the Agent does not receive the expected value, check these items in order:
 

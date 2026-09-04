@@ -5,7 +5,7 @@ section: User guide
 order: 13
 ---
 
-Agent는 시간을 두고 작업하는 디지털 동료입니다. 각 Agent는 고유한 identity, 소유자, 작업 지침, 모델, 기능, file space를 가집니다. signal routing 규칙이 Agent를 chat channel의 메시지에 연결합니다.
+Agent는 시간을 두고 비즈니스 기능을 수행하는 AI 동료입니다. 각 Agent는 고유한 identity, 소유자, 작업 지침, 모델, 기능, file space를 가집니다. signal routing 규칙이 Agent를 chat channel의 메시지에 연결합니다.
 
 ## Agent 생성
 

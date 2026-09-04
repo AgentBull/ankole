@@ -36,7 +36,7 @@ Read `AGENTS.md` before the first edit. The rules that come up most often:
 - **Scope and authorization.** A request to answer or plan authorizes read-only inspection; a request to implement authorizes the edits. Do not expand scope without approval.
 - **The changelog is the version unit.** Every commit adds exactly one `CHANGELOG.md` version, and that version describes every retained change in the commit. One version does not span commits; one commit does not contain multiple versions. See the section below.
 - **Smallest correct change.** Prefer the smallest change that follows the chosen direction, preserves contracts the system can keep, and stays understandable. A little duplication is better than an abstraction that compounds complexity.
-- **Worse is better.** Simlicity beats interface uniformity or theoretical completeness. When simplicity wins, narrow the contract or reject the unsupported case explicitly, rather than silently producing a wrong result.
+- **Worse is better.** Simplicity beats interface uniformity or theoretical completeness. When simplicity wins, narrow the contract or reject the unsupported case explicitly, rather than silently producing a wrong result.
 - **Objective fidelity.** Do the requested task, not a cheaper proxy. A green test is not the goal; the real path through the owning abstraction is.
 - **Subsystem boundaries.** PostgreSQL owns durable facts; the Elixir control plane owns durable state and supervision; the Rust kernel owns shared native primitives; Bun Agent Computer Worker owns execution. A change that crosses a boundary should respect it, not paper over it.
 

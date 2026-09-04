@@ -1908,9 +1908,9 @@ export const signalAdvanced = {
 
 ## How Ankole is deployed
 
-A private Ankole deployment instance has one control plane and one or more Agent Computer Workers. The control plane is the management platform. A Worker runs Agent tasks and acts as the Agent's work computer.
+A private Ankole deployment instance has one control plane and one or more Agent Computer Workers. The control plane owns durable domain state and supervision as the management platform; a Worker provides the execution environment and acts as the Agent's work computer.
 
-One Worker can serve several Agents. In finance or another environment that needs strict isolation, give each Agent a dedicated Worker. A work computer can be shared by several interns or assigned to one colleague.
+One Worker can serve several Agents. In finance or another environment that needs strict isolation, give each Agent a dedicated Worker, just as a work computer can be shared by several interns or assigned to one colleague.
 
 <DocsKnowledgeNote
   label="💡 Did you know?"

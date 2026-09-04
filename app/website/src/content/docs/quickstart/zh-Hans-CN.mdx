@@ -1885,7 +1885,7 @@ export const signalAdvanced = {
 
 ## Ankole 的部署结构
 
-一套 Ankole 私有化部署实例由一个控制面和一个或多个 Agent Computer Worker 组成。控制面是管理平台；Worker 负责实际运行 Agent，相当于给 Agent 配的工作电脑。
+一套 Ankole 私有化部署实例由一个控制面和一个或多个 Agent Computer Worker 组成。控制面拥有持久领域状态与监督，负责管理和调度；Worker 负责实际运行 Agent，相当于给 Agent 配的工作电脑。
 
 一台 Worker 可以供多个 Agent 使用。金融等需要严格隔离的场景，建议每个 Agent 独享一台 Worker，就像工作电脑既可以给几个实习生共用，也可以一人一台。
 
@@ -1943,7 +1943,7 @@ export const signalAdvanced = {
 
 Ankole 的核心设计目标是服务企业内部的私有化部署。每家企业拥有一套实例。在同一个实例内，Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）统一管控权限。
 
-因此，除了像 Hermes Agent、OpenClaw 那样配置聊天渠道，Ankole 还要连接企业的外部身份源，用来同步通讯录和组织架构。首次设置时，先配置 IdP，使用企业账号登录 Console，再添加聊天渠道。
+因此，除了像 Hermes Agent、OpenClaw 那样配置聊天渠道，Ankole 还要连接企业的外部身份源，用来同步员工、通讯录和组织架构。首次设置时，先配置 IdP，使用企业账号登录 Console，再添加聊天渠道。
 
 | 设置项 | 负责什么 | 在哪里设置 |
 |---|---|---|

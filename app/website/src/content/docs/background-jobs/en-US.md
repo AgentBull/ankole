@@ -9,7 +9,7 @@ A Background Agent Job is for research, large file sets, document production, da
 
 If you use <a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a> or <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>, the nearest comparison is a subagent: the main Agent delegates independent work to another execution context.
 
-Ankole calls it a Background Agent Job because the system stores work with a complete lifecycle, not a temporary call. A Job can recover after a Worker interruption.
+Ankole treats each task as a recoverable, persistent computation with a complete lifecycle, not an ephemeral call. A Job resumes from its interruption point across Worker interruptions, crashes, or server restarts.
 
 The main Agent can send more information. Most Jobs return questions, failure states, and final results to the original conversation. A Job can also stay silent when you do not ask for an update, so you can inspect it later.
 

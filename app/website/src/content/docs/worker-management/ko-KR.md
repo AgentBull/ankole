@@ -5,7 +5,7 @@ section: User guide
 order: 52
 ---
 
-Agent Computer Worker는 Agent가 작업을 수행하는 컴퓨터입니다. control plane이 작업을 관리하고 배정합니다. Worker는 Agent, 도구, 파일 작업을 실행합니다. 하나의 배포 인스턴스가 하나 이상의 Worker에 연결될 수 있습니다.
+Agent Computer Worker는 Agent가 실제로 작업을 수행하는 컴퓨터입니다. control plane은 지속적인 도메인 상태와 감독을 소유하며 작업을 관리하고 배정합니다. Worker는 worker 로컬 상태에서 Agent, 도구, 파일 작업을 실행합니다. 하나의 배포 인스턴스가 하나 이상의 Worker에 연결될 수 있습니다.
 
 ## Worker 보기
 

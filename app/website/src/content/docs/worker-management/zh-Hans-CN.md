@@ -5,7 +5,7 @@ section: User guide
 order: 52
 ---
 
-Agent Computer Worker 是 Agent 实际工作的电脑。控制面负责管理和分配工作，Worker 负责运行 Agent、工具和文件操作。一个实例可以连接一个或多个 Worker。
+Agent Computer Worker 是 Agent 实际工作的执行电脑。控制面拥有持久领域状态与监督，负责管理和分配工作；Worker 负责在 worker 本地状态中运行 Agent、工具和文件操作。一个部署实例可以连接一个或多个 Worker。
 
 ## 查看工作节点
 

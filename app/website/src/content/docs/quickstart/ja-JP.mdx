@@ -1907,7 +1907,7 @@ export const signalAdvanced = {
 
 ## Ankole のデプロイ方法
 
-プライベートな Ankole デプロイメントインスタンスには、1 つの control plane と 1 つ以上の Agent Computer Worker があります。control plane は管理プラットフォームです。Worker は Agent のタスクを実行し、Agent の仕事用コンピュータとして機能します。
+プライベートな Ankole デプロイメントインスタンスには、1 つの control plane と 1 つ以上の Agent Computer Worker があります。control plane は永続的なドメイン状態と監視を所有する管理プラットフォームです。Worker は Agent の実行環境を提供し、Agent の仕事用コンピュータとして機能します。
 
 1 つの Worker が複数の Agent にサービスを提供できます。金融など厳格な分離が必要な環境では、各 Agent に専用の Worker を割り当ててください。仕事用コンピュータは複数のインターンで共有したり、1 人の同僚に割り当てたりできます。
 
@@ -1965,7 +1965,7 @@ export const signalAdvanced = {
 
 Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。各エンタープライズは 1 つのインスタンスを運用します。そのインスタンス内では、Agent、社員、システムサービスが Principal として表現され、認可モジュールがそれらの権限を管理します。
 
-Hermes Agent や OpenClaw と同様に、Ankole はチャットチャンネルに接続します。また、エンタープライズの identity ソースにも接続し、社員、ディレクトリの連絡先、組織構造を同期できます。チャットチャンネルを設定する前に、Identity Provider（IdP）を設定してください。
+Hermes Agent や OpenClaw と同様に、Ankole はチャットチャンネルに接続します。また、エンタープライズの identity ソースにも接続し、社員、ディレクトリの連絡先、組織構造を同期します。チャットチャンネルを設定する前に、Identity Provider（IdP）を設定してください。
 
 | 設定 | 制御するもの | 設定場所 |
 |---|---|---|

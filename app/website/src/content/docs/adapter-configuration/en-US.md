@@ -5,7 +5,7 @@ section: Getting started
 order: 3
 ---
 
-This page lists the enterprise identity and chat adapters that Ankole includes. First decide whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then open the applicable detailed guide.
+This page lists the enterprise identity and chat adapters included with Ankole. First determine whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then consult the applicable configuration guide.
 
 During first-run setup, `/setup` shows the login callback URL and a guide link for the selected IdP. After setup, manage identity settings under **Console → Identity Providers**. Bind chat applications to Agents under **Console → Signal Routing**.
 
@@ -40,7 +40,7 @@ After you prepare the external application, open **Console → Signal Routing �
 
 ## Update a stored credential
 
-When you edit an Identity Provider or signal routing rule, the Console only states that an encrypted credential is stored. It does not return the token or secret to the browser or put it in the page. Leave the credential field empty to keep the stored value. Enter and save a new value only when you want to replace it. Use the external provider to rotate or revoke the old credential. You cannot view its current value in the Console.
+When you edit an Identity Provider or signal routing rule, the Console only indicates that an encrypted credential is stored. It never returns tokens or secrets to the browser. Leave the credential field blank to keep the stored value. Enter and save a new value only when replacing it. Rotate or revoke old credentials in the external provider, as stored values cannot be retrieved from the Console.
 
 ## Verification order
 

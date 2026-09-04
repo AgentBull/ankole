@@ -5,7 +5,7 @@ section: User guide
 order: 52
 ---
 
-An Agent Computer Worker is the computer where Agents do their work. The control plane manages and assigns work. A Worker runs Agents, tools, and file operations. One deployment instance can connect to one or more Workers.
+An Agent Computer Worker is the computer where Agents do their work. The control plane owns durable domain state and supervision, managing and assigning work; the Worker runs Agents, tools, and file operations in worker-local state. One deployment instance can connect to one or more Workers.
 
 ## View Workers
 

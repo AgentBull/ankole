@@ -9,7 +9,7 @@ order: 20
 
 如果你用过 <a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a> 或 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>，可以把它理解为一种类似 subagent（子 Agent）的委派机制：主 Agent 把一项独立工作交给另一个运行上下文。
 
-Ankole 把它称为“后台 Agent 任务”，因为系统保存的是一项有完整生命周期的工作，而不是一次临时调用。任务可以在 Worker 中断后恢复。
+Ankole 把每个任务都视为具备完整生命周期的可恢复持久化计算，而不是临时调用。即使经历 Worker 中断、程序崩溃或服务器重启，任务也能从中断处继续。
 
 主 Agent 可以继续向任务补充信息。大多数任务会把需要确认的问题、失败状态和最终结果送回原会话；若你没有要求回传，也可以让任务静默运行，之后再主动查看。
 

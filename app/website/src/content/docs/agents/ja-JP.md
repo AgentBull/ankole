@@ -5,7 +5,7 @@ section: User guide
 order: 13
 ---
 
-Agent は、時間をかけて働くデジタル同僚です。各 Agent は独自の identity、所有者、作業指示、モデル、機能、ファイルスペースを持ちます。signal routing ルールが Agent を chat channel からのメッセージに接続します。
+Agent は、時間をかけて業務機能を遂行する AI 同僚です。各 Agent は独自の identity、所有者、作業指示、モデル、機能、ファイルスペースを持ちます。signal routing ルールが Agent を chat channel からのメッセージに接続します。
 
 ## Agent を作成する
 

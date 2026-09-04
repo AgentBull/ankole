@@ -78,11 +78,11 @@ Checkback은 Agent가 작업 중에 만드는 일회성 후속 작업입니다. 
 
 그 목적은 <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw의 heartbeat</a>와 비슷합니다. 둘 다 새로운 인간 메시지 없이 Agent가 돌아올 수 있게 합니다.
 
-heartbeat는 고정 주기로 Agent를 깨워서 모델이 주의가 필요한 것이 있는지 반복해서 결정할 수 있게 합니다. 이것은 pull에 더 가깝습니다.
+heartbeat는 고정 주기로 Agent를 깨워서 모델이 주의가 필요한 것이 있는지 반복해서 결정하게 합니다.
 
-Checkback은 push에 더 가깝습니다. Agent는 필요할 때만 후속 작업 하나를 등록하고, 기한이 되면 Ankole이 wake-up 이벤트를 푸시합니다.
+Checkback은 푸시 모델을 사용합니다. Agent는 필요할 때만 후속 작업 하나를 등록하고 기한이 되면 Ankole이 wake-up 이벤트를 전달합니다.
 
-모델은 확인 사이에 폴링 턴을 실행하지 않습니다. 다음 확인 시간이 알려져 있을 때, 이것은 유휴 작업을 피하고 더 효율적으로 실행되며 더 적은 token을 사용합니다.
+모델이 확인 사이에 폴링 턴을 실행하지 않으므로 Checkback은 유휴 실행을 방지하고 더 적은 token을 사용합니다.
 
 채팅에서 Agent가 언제 돌아와야 하는지, 무엇을 확인해야 하는지, 언제 알림을 받아야 하는지를 명시하세요. 예를 들어:
 

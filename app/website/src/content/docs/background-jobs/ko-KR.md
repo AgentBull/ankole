@@ -9,7 +9,7 @@ Background Agent Job은 조사, 대용량 파일 집합, 문서 작성, 데이�
 
 <a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a>나 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>를 사용한다면 가장 가까운 비교 대상은 서브에이전트입니다. 다만 Ankole은 위임의 수명과 상호작용 방식에 따라 [Workflow](../workflows/)와 Background Agent Job을 구분합니다.
 
-Ankole은 시스템이 임시 호출이 아니라 완전한 수명 주기로 작업을 저장하기 때문에 이를 Background Agent Job이라고 부릅니다. Job은 Worker 중단 후에도 복구할 수 있다.
+Ankole은 각 작업을 일시적인 호출이 아니라, 완전한 수명 주기를 갖는 복구 가능한 영속적 계산으로 취급합니다. Worker 중단, 충돌, 서버 재시작이 발생해도 Job은 중단된 지점부터 재개할 수 있습니다.
 
 Main Agent는 추가 정보를 보낼 수 있다. 대부분의 Job은 질문, 실패 상태, 최종 결과를 원래 대화로 돌려보냅니다. 업데이트를 요청하지 않으면 Job이 조용히 있을 수도 있으므로 나중에 검사할 수 있다.
 

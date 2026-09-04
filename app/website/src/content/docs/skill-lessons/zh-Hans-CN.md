@@ -7,7 +7,7 @@ order: 34
 
 技能教训是 Agent 读取 Skill 时一并获得的简短注意事项，每条都带有日期。它们帮助 Agent 避免反复出现的工具错误、环境陷阱和工作方式偏差。共享的 `SKILL.md` 保持不变。
 
-技能教训受 GBrain 的 Skill 优化实验启发。Ankole 将机器写入限制为带租约、Agent 专属的过程提示，不允许 Agent 改写 Skill 正文。
+技能教训受 GBrain 的 Skill 优化实验启发，是 Agent 在使用某个 Skill 过程中积累的带日期的笔记。Ankole 将机器写入限制为带租约、Agent 专属的过程提示，不允许改写 Skill 正文。
 
 一条教训只属于一个 Agent 和一个 Skill。若规则需要适用于所有 Agent，应把它写入 Skill 来源。
 

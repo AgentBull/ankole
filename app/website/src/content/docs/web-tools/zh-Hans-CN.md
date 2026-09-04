@@ -5,9 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取选中的页面。`web_search` 必须配置 Provider。
-
-`web_fetch` 会优先使用已配置的 Provider，也可以在 Provider 不可用时使用 Worker 内置的渲染回退。
+Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取选中的页面。`web_search` 必须配置 Provider；`web_fetch` 会优先使用已配置的 Provider，也可以在未配置 Provider 时使用 Worker 内置的渲染回退。
 
 ## 先选择正确的工具
 

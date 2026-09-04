@@ -7,7 +7,7 @@ order: 17
 
 When a [signal binding](../signal-bindings/) sets the group message mode to **May intervene**, the Agent sees group messages that do not address it and routes each batch of new messages. Silence is the default. A useful batch can instead start a bounded reply, identify new work, or update one active background job.
 
-This page explains how that judgment behaves and the two controls you have over it: channel standing orders and the binding itself.
+Group behavior in this mode depends on two controls: channel standing orders and the signal binding configuration.
 
 ## Each message is judged once
 

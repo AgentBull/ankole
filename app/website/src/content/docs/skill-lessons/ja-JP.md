@@ -7,7 +7,7 @@ order: 34
 
 Skill 教訓は、Agent が Skill を読み込むときに受け取る、日付付きの短い注意事項です。繰り返す tool の失敗、環境固有の問題、作業方法の誤りを避けるために使います。共有の `SKILL.md` は変わりません。
 
-Skill 教訓は、GBrain の Skill 最適化実験から着想を得ています。Ankole は機械が書く内容を、リース付きの Agent 固有の作業メモに限定します。Agent に Skill 本文を書き換えさせません。
+Skill 教訓は GBrain の Skill 最適化実験から着想を得たもので、Agent が Skill を使用する過程で蓄積する日付付きのメモです。Ankole は機械が書き込む内容をリース付きの Agent 固有のプロセスノートに限定し、Skill 本文を変更することはありません。
 
 1 つの教訓は、1 つの Agent と 1 つの Skill に属します。すべての Agent に適用する規則は、Skill の source に記述します。
 

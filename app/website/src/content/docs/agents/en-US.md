@@ -5,7 +5,7 @@ section: User guide
 order: 13
 ---
 
-An Agent is a digital colleague that works over time. Each Agent has its own identity, owner, work instructions, models, capabilities, and file space. A signal routing rule connects the Agent to messages from a chat channel.
+An Agent is an AI colleague that performs business functions over time. Each Agent has its own identity, owner, work instructions, models, capabilities, and file space. A signal routing rule connects the Agent to messages from a chat channel.
 
 ## Create an Agent
 

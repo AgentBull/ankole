@@ -78,11 +78,11 @@ Checkback は、Agent が作業中に作成する一度だけのフォローア�
 
 その目的は <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw の heartbeat</a> に似ています。どちらも、新しい人のメッセージなしで Agent が戻れるようにします。
 
-heartbeat は固定の頻度で Agent を起こし、モデルが何か注意が必要かを繰り返し判断できるようにします。これは pull に近いです。
+heartbeat は固定の頻度で Agent を起こし、モデルが何か注意が必要かを繰り返し判断できるようにします。
 
-Checkback は push に近いです。Agent が必要なときだけ 1 つのフォローアップを登録し、期限が来ると Ankole が wakeup イベントをプッシュします。
+Checkback はプッシュモデルを採用しており、Agent は必要なときだけ 1 つのフォローアップを登録し、期限が来ると Ankole が wakeup イベントをディスパッチします。
 
-モデルはチェックの合間にポーリングの turn を実行しません。次のチェック時刻がわかっているとき、これはアイドル作業を避け、より効率的に動き、より少ない token を使います。
+モデルはチェックの合間にポーリングの turn を実行しないため、Checkback はアイドル実行を回避し、消費 token を抑えます。
 
 チャットでは、Agent がいつ戻る必要があるか、何をチェックすべきか、いつ通知すべきかを示してください。たとえば:
 

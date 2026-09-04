@@ -5,7 +5,7 @@ section: User guide
 order: 52
 ---
 
-Agent Computer Worker は、Agent が作業をするコンピューターです。control plane が作業を管理し、割り当てます。Worker は Agent、tool、ファイル操作を実行します。1 つのデプロイインスタンスは 1 つ以上の Worker に接続できます。
+Agent Computer Worker は、Agent が実際に作業を行うコンピュータです。control plane は永続的なドメイン状態と監視を所有し、作業を管理・割り当てます。Worker は、worker ローカルな状態で Agent、tool、ファイル操作を実行します。1 つのデプロイインスタンスは 1 つ以上の Worker に接続できます。
 
 ## Worker を表示する
 

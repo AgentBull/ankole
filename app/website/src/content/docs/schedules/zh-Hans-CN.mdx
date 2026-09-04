@@ -78,11 +78,11 @@ Checkback 是 Agent 在工作过程中为自己设置的一次性回访，例如
 
 它和 <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw 的 heartbeat</a> 用途相近：都能让 Agent 在没有新消息时主动回来检查。
 
-Heartbeat 会按固定周期唤醒 Agent，由模型反复判断是否有事要处理，更接近 pull（拉取）。
+Heartbeat 会按固定周期唤醒 Agent，由模型反复判断是否有事要处理。
 
-Checkback 更接近 push（推送）：Agent 只在确实需要回访时登记一次，系统到点后再推送唤醒事件。
+Checkback 则采用推送模式：Agent 只在确实需要回访时登记一次，系统到点后再推送唤醒事件。
 
-两次检查之间不会为了轮询而调用模型。对于已经知道下次检查时间的任务，这种方式减少了空转，执行效率更高，也更省 token。
+两次检查之间不会为了轮询而调用模型，这种方式避免了空转执行，也更省 token。
 
 直接在对话中说明多久后回来、要检查什么，以及什么情况下需要通知。例如：
 

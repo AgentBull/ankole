@@ -78,11 +78,11 @@ A Checkback is a one-time follow-up that an Agent creates while it works, such a
 
 Its purpose is similar to <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw's heartbeat</a>: both let an Agent return without a new human message.
 
-A heartbeat wakes the Agent on a fixed cadence so that the model can repeatedly decide whether anything needs attention. This is closer to pull.
+A heartbeat wakes the Agent on a fixed cadence so that the model repeatedly decides whether anything needs attention.
 
-A Checkback is closer to push. The Agent registers one follow-up only when it needs one, and Ankole pushes a wake-up event when it becomes due.
+A Checkback uses a push model: the Agent registers one follow-up only when needed, and Ankole dispatches a wake-up event when it becomes due.
 
-The model does not run polling turns between checks. When the next check time is known, this avoids idle work, runs more efficiently, and uses fewer tokens.
+Because the model does not run polling turns between checks, Checkback avoids idle executions and uses fewer tokens.
 
 In chat, state when the Agent must return, what it must check, and when it must notify you. For example:
 

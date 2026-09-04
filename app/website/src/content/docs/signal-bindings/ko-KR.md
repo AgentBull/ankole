@@ -36,7 +36,7 @@ Console에는 선택한 Channel Provider가 지원하는 mode만 표시됩니다
 
 Slack, Microsoft Teams, Lark, Feishu는 세 가지 mode를 모두 지원합니다. DingTalk와 WeCom은 bot을 명시적으로 지칭하는 그룹 메시지만 받을 수 있으므로, Console은 이들에 대해 첫 번째 mode만 제공합니다. WeCom에는 이 외에도 훨씬 더 많은 제한이 있습니다(메시지 회수 불가, 그룹 내 파일 불가, Agent가 대화를 시작할 수 없음). 따라서 첫 번째 channel로는 권장하지 않습니다. [Quick start](../quickstart/#chat-channels)의 WeCom 탭을 참조하십시오.
 
-**May intervene**는 Agent가 모든 메시지에 응답하게 만들지 않습니다. Agent가 언제 말할지 스스로 결정하게 하며, 각 메시지는 한 번만 판정됩니다. 특정 그룹에서 Agent가 언제 말할지 알려 주려면, 그 그룹에서 바로 channel standing order를 부여하십시오(예: “CI가 빨간불일 때만 말해”). 그래도 너무 자주 말한다면, 먼저 standing order나 역할 지침을 강화하십시오. 판정 동작과 standing order에 대해서는 [Ambient intervention](../ambient-intervention/)을 참조하십시오.
+**May intervene**는 Agent가 모든 메시지에 응답하게 만들지 않습니다. Agent가 언제 말할지 스스로 결정하게 하며, 새 메시지 배치마다 한 번만 판정됩니다. 특정 그룹에서 Agent가 언제 말할지 알려 주려면, 그 그룹에서 바로 channel standing order를 부여하십시오(예: “CI가 빨간불일 때만 말해”). 그래도 너무 자주 말한다면, 먼저 standing order나 역할 지침을 강화하십시오. 판정 동작과 standing order에 대해서는 [Ambient intervention](../ambient-intervention/)을 참조하십시오.
 
 질문과 답변 동작만 필요한 그룹에는 **Addressed messages only**를 사용하십시오.
 

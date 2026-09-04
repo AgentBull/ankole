@@ -5,9 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent は `web_search` を使って公開ページを探し、`web_fetch` を使って選んだページを読み取れます。`web_search` には Provider が必要です。
-
-`web_fetch` は設定済みの Provider を優先しますが、Provider が使えない場合は Worker 組み込みのレンダリングフォールバックを利用できます。
+Agent は `web_search` を使って公開ページを探し、`web_fetch` を使って選んだページを読み取ります。`web_search` には設定済みの Provider が必要ですが、`web_fetch` は Provider が設定されていない場合でも Worker 組み込みのレンダリングフォールバックを利用できます。
 
 ## 正しいツールを選ぶ
 

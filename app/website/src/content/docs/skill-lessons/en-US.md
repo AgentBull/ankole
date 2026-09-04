@@ -7,7 +7,7 @@ order: 34
 
 Skill lessons give an Agent short, dated cautions when it loads a Skill. They help the Agent avoid recurring tool failures, environment traps, and working-method mistakes. The shared `SKILL.md` stays unchanged.
 
-Skill lessons are inspired by GBrain's experiments with Skill optimization. Ankole limits machine-written content to leased, Agent-specific process notes. It does not let an Agent rewrite the Skill body.
+Skill lessons are inspired by GBrain's experiments with Skill optimization; they are dated notes accumulated by an Agent while using a Skill. Ankole limits machine-written content to leased, Agent-specific process notes and never modifies the Skill body.
 
 One lesson belongs to one Agent and one Skill. Put a rule in the Skill source when it must apply to every Agent.
 

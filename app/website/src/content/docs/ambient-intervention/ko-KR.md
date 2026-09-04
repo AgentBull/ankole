@@ -7,7 +7,7 @@ order: 17
 
 [signal binding](../signal-bindings/)이 그룹 메시지 mode를 **May intervene**으로 설정하면, Agent는 자신을 지칭하지 않는 그룹 메시지도 보고 새 메시지 배치마다 처리 경로를 선택합니다. 기본값은 침묵입니다. 필요한 경우 짧은 응답을 시작하거나, 새 작업을 식별하거나, 실행 중인 background job 하나에 새 정보를 전달할 수 있습니다.
 
-이 페이지는 그 판정이 어떻게 동작하는지와, 이를 제어하는 두 가지 수단(channel standing order와 binding 자체)을 설명합니다.
+이 모드에서 그룹 동작은 channel standing order와 signal routing 구성이라는 두 가지 제어에 따릅니다.
 
 ## 각 메시지는 한 번만 판정됩니다
 

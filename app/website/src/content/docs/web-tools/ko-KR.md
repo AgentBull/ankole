@@ -5,9 +5,7 @@ section: User guide
 order: 33
 ---
 
-Agent는 `web_search`로 공개 페이지를 찾고 `web_fetch`로 선택한 페이지를 읽을 수 있다. `web_search`에는 Provider가 필요합니다.
-
-`web_fetch`는 구성된 Provider를 우선하지만, Provider를 사용할 수 없을 때는 Worker의 내장 렌더링 폴백을 사용할 수 있다.
+Agent는 `web_search`로 공개 페이지를 찾고 `web_fetch`로 선택한 페이지를 읽습니다. `web_search`에는 구성된 Provider가 필요하지만, `web_fetch`는 Provider가 구성되지 않았을 때도 Worker의 내장 렌더링 폴백을 사용할 수 있습니다.
 
 ## 올바른 tool 선택
 

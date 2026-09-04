@@ -5,7 +5,7 @@ section: User guide
 order: 31
 ---
 
-**Most of the time, you do not need the file browser described on this page. Send a file to the Agent, or ask it in chat to create, read, change, organize, or send files. Use the Console when you must recover an artifact that was not delivered, inspect intermediate files, or organize files manually.**
+**You typically do not need the file browser described on this page. Send files directly to the Agent in chat to create, read, modify, organize, or transfer files. Use the Console file browser only to recover undelivered artifacts, inspect intermediate outputs, or organize directories manually.**
 
 Agents read source material and save work and artifacts in durable Worker storage. The Console lets you upload references, download reports, images, or data files, and rename or remove material that is no longer needed.
 
