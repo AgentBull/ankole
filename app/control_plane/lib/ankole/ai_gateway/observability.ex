@@ -27,6 +27,7 @@ defmodule Ankole.AIGateway.Observability do
 
   defstruct response_span: nil,
             round_span: nil,
+            parent_context: nil,
             provider: nil,
             round_index: 0,
             round_first_output?: false,
@@ -36,6 +37,7 @@ defmodule Ankole.AIGateway.Observability do
   @type t :: %__MODULE__{
           response_span: OpenTelemetry.span_ctx() | nil,
           round_span: OpenTelemetry.span_ctx() | nil,
+          parent_context: term(),
           provider: Provider.implementation() | nil,
           round_index: non_neg_integer(),
           round_first_output?: boolean(),
@@ -176,22 +178,29 @@ defmodule Ankole.AIGateway.Observability do
       attributes =
         trace_attributes
         |> Map.merge(provider.response_start_attributes(input))
-        |> Map.put("ankole.ai_gateway.input", input)
         |> put_present("user_agent.original", text(Map.get(headers, "user-agent")))
         |> put_present("ankole.ai_gateway.client_version", text(Map.get(headers, "version")))
         |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
       tracer = tracer()
 
-      response_span =
-        :otel_tracer.start_span(parent_context, tracer, @response_span_name, %{
-          attributes: attributes,
-          kind: :internal
-        })
+      collapse_response? =
+        context.principal_type == "agent" and valid_parent_context?(parent_context)
 
-      if recording?(response_span) do
+      response_span =
+        if collapse_response? do
+          nil
+        else
+          :otel_tracer.start_span(parent_context, tracer, @response_span_name, %{
+            attributes: attributes,
+            kind: :internal
+          })
+        end
+
+      if collapse_response? or recording?(response_span) do
         %__MODULE__{
           response_span: response_span,
+          parent_context: parent_context,
           provider: provider,
           trace_attributes: trace_attributes
         }
@@ -214,7 +223,6 @@ defmodule Ankole.AIGateway.Observability do
       observation.trace_attributes
       |> Map.merge(%{
         "gen_ai.operation.name" => "chat",
-        "ankole.ai_gateway.input" => input,
         "ankole.ai_gateway.round" => round_index
       })
       |> Map.merge(
@@ -240,7 +248,12 @@ defmodule Ankole.AIGateway.Observability do
       )
       |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
-    parent_ctx = :otel_tracer.set_current_span(Ctx.new(), observation.response_span)
+    parent_ctx =
+      if recording?(observation.response_span) do
+        :otel_tracer.set_current_span(Ctx.new(), observation.response_span)
+      else
+        observation.parent_context
+      end
 
     round_span =
       :otel_tracer.start_span(
@@ -288,10 +301,7 @@ defmodule Ankole.AIGateway.Observability do
       {output, truncated?} = encode_content(body)
 
       attributes =
-        %{
-          "ankole.ai_gateway.output" => output
-        }
-        |> Map.merge(observation.provider.output_attributes(output))
+        observation.provider.output_attributes(output, :generation)
         |> Map.merge(usage_attributes(map_value(body, "usage")))
         |> put_present("gen_ai.response.id", map_value(body, "id"))
         |> put_present("gen_ai.response.model", map_value(body, "model"))
@@ -311,10 +321,7 @@ defmodule Ankole.AIGateway.Observability do
       {output, truncated?} = encode_content(body)
 
       attributes =
-        %{
-          "ankole.ai_gateway.output" => output
-        }
-        |> Map.merge(observation.provider.output_attributes(output))
+        observation.provider.output_attributes(output, :response)
         |> Map.merge(usage_attributes(map_value(body, "usage")))
         |> put_present("ankole.ai_gateway.response_id", map_value(body, "id"))
         |> maybe_put_true("ankole.observability.output_truncated", truncated?)
@@ -363,7 +370,6 @@ defmodule Ankole.AIGateway.Observability do
         |> Map.merge(
           provider.generation_start_attributes(input, model, nil, provider_name(runtime))
         )
-        |> Map.put("ankole.ai_gateway.input", input)
         |> put_present("gen_ai.provider.name", provider_name(runtime))
         |> put_present("gen_ai.request.model", model)
         |> put_present("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
@@ -389,8 +395,7 @@ defmodule Ankole.AIGateway.Observability do
       {output, truncated?} = encode_content(body)
 
       attributes =
-        %{"ankole.ai_gateway.output" => output}
-        |> Map.merge(provider.output_attributes(output))
+        provider.output_attributes(output, :generation)
         |> Map.merge(usage_attributes(map_value(body, "usage")))
         |> put_present("gen_ai.response.id", map_value(body, "id"))
         |> put_present("gen_ai.response.model", map_value(body, "model"))

@@ -88,10 +88,12 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     |> Enum.reduce_while([], fn {chunk, index}, results ->
       case send_markdown(client, delivery, chunk) do
         {:ok, ack} -> {:cont, [send_record(ack, outbox, index) | results]}
+        {:error, _reason} when results != [] -> {:halt, :unknown}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
+      :unknown -> :unknown
       {:error, _reason} = error -> error
       results -> {:ok, combined_result(Enum.reverse(results))}
     end

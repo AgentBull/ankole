@@ -29,6 +29,61 @@ defmodule Ankole.Brain.ObjectsTest do
   end
 
   describe "create_object/3" do
+    test "reserves the Agent type and namespace even for system writers", %{human: human} do
+      for writer <- [:system, human.uid] do
+        assert {:error, {:reserved_object_type, "agent"}} =
+                 Objects.create_object(%{slug: "notes/tool", type: "agent"}, writer)
+
+        assert {:error, {:reserved_object_slug, "agents/tool"}} =
+                 Objects.create_object(%{slug: "agents/tool", type: "note"}, writer)
+      end
+
+      refute "agent" in Objects.installed_type_names()
+      refute "agent-skills" in Objects.installed_type_names()
+
+      assert {:error, :invalid_canonical_principal} =
+               Objects.ensure_canonical_object_in_tx(Repo, human.uid, :agent, "Forged")
+
+      assert {:error, :invalid_canonical_principal} =
+               Objects.ensure_canonical_object_in_tx(
+                 Repo,
+                 UUIDv7.autogenerate(),
+                 :agent,
+                 "Forged"
+               )
+
+      %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+      assert {:ok, object} = Objects.get_by_slug("agents/" <> agent.uid)
+      assert object.type == "agent"
+      assert object.subtype == "internal"
+
+      assert {:error, {:reserved_object_type, "agent"}} =
+               Objects.update_object(
+                 object.slug,
+                 %{subtype: "external", expected_content_hash: object.content_hash},
+                 :system
+               )
+
+      assert {:ok, updated} =
+               Objects.update_object(
+                 object.slug,
+                 %{
+                   body: "This Agent handles research.",
+                   expected_content_hash: object.content_hash
+                 },
+                 agent.uid
+               )
+
+      assert updated.body == "This Agent handles research."
+    end
+
+    test "Source projections cannot take the Agent namespace" do
+      source = %Ankole.Brain.Schemas.Source{id: UUIDv7.autogenerate(), kind: "url"}
+
+      assert {:error, {:reserved_object_slug, "agents/forged"}} =
+               Objects.upsert_source_projection(source, %{slug: "agents/forged", type: "media"})
+    end
+
     test "creates an object with chunks per audience scope", %{human: human, group: group} do
       body = """
       Public knowledge about the company.
@@ -320,11 +375,30 @@ defmodule Ankole.Brain.ObjectsTest do
       assert resolved.slug == object.slug
     end
 
-    test "falls back to title similarity and reports not found", %{object: object} do
-      assert {:ok, resolved} = Objects.resolve_reference("Minghu AI company")
+    test "falls back to exact titles without guessing from similar text", %{object: object} do
+      assert {:ok, resolved} = Objects.resolve_reference("Minghu AI")
       assert resolved.slug == object.slug
-
+      assert {:error, :not_found} = Objects.resolve_reference("Minghu AI company")
       assert {:error, :not_found} = Objects.resolve_reference("zzz completely unrelated qqq")
+    end
+
+    test "Chinese titles stay distinct and duplicate exact titles are ambiguous" do
+      for {slug, title} <- [{"notes/research", "研究 Skill"}, {"notes/drawing", "绘图 Skill"}] do
+        assert {:ok, _object} =
+                 Objects.create_object(%{slug: slug, type: "note", title: title}, :system)
+      end
+
+      assert {:ok, %{slug: "notes/research"}} = Objects.resolve_reference("研究 Skill")
+      assert {:error, :not_found} = Objects.resolve_reference("炒股 Skill")
+
+      assert {:ok, _object} =
+               Objects.create_object(
+                 %{slug: "notes/other-research", type: "note", title: "研究 Skill"},
+                 :system
+               )
+
+      assert {:ambiguous, candidates} = Objects.resolve_reference("研究 Skill")
+      assert length(candidates) == 2
     end
   end
 end

@@ -87,6 +87,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   end
 
   defp commit_in_tx(repo, turn_ref, completion, outcome, now) do
+    rows = TurnRef.lookup(repo, turn_ref)
+
     case lock_actor_event(repo, turn_ref) do
       %ActorEvent{completed_at: %DateTime{}} = event ->
         with :ok <- validate_completion_anchor(event, completion.final_response_id, outcome) do
@@ -94,7 +96,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         end
 
       %ActorEvent{} = event ->
-        rows = TurnRef.lookup(repo, turn_ref, deliveries: :live)
+        rows = %{rows | deliveries: TurnRef.lock_live_deliveries(repo, turn_ref)}
 
         with :ok <- TurnRef.match(rows, turn_ref, :complete, now: now) do
           case Actors.ensure_event_source_live_in_tx(repo, event, now) do
@@ -509,7 +511,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp after_commit({:ok, result}, turn_ref, final_response_id, outcome, final_text) do
     AIReplyPreview.stop(turn_ref.actor_event_id)
-    Observability.finish_turn(turn_ref.actor_event_id, output: final_text)
+    Observability.finish_turn(turn_ref.actor_event_id, output: final_text, outcome: outcome)
 
     Logging.info(
       "signals_gateway.actor_turn_completed",

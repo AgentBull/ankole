@@ -11,8 +11,7 @@ import {
   fileAnnotation,
   normalizeConstraint,
   normalizeExcludes,
-  resolveSearchTarget,
-  rootCovers
+  resolveSearchTarget
 } from '../src/tools/computer/fff-search'
 import { createFindTool } from '../src/tools/computer/find-tool'
 import { clipLinesToBudget } from '../src/tools/computer/format'
@@ -77,12 +76,6 @@ describe('search query building', () => {
     expect(fileAnnotation({ gitStatus: 'clean', totalFrecencyScore: 26 })).toBe('  [VERY often touched file]')
     expect(fileAnnotation({ gitStatus: '', totalFrecencyScore: 21 })).toBe('  [often touched file]')
     expect(fileAnnotation({ gitStatus: 'unknown', totalFrecencyScore: 3 })).toBe('')
-  })
-
-  it('covers roots by path prefix only', () => {
-    expect(rootCovers('/a/b', '/a/b')).toBe(true)
-    expect(rootCovers('/a/b', '/a/b/c')).toBe(true)
-    expect(rootCovers('/a/b', '/a/bc')).toBe(false)
   })
 
   it('clips to a budget on line boundaries and keeps at least one line', () => {
@@ -153,6 +146,22 @@ describe('find/grep/ls over a real index', () => {
   const find = createFindTool(context, runtime)
   const grep = createGrepTool(context, runtime)
   const ls = createLsTool(context)
+
+  it('keeps a search outside the workspace inside its requested directory after a parent search', async () => {
+    const parent = join(agentHome, 'user-files')
+    const child = join(parent, 'selected')
+    mkdirSync(child, { recursive: true })
+    writeFileSync(join(parent, 'outside.txt'), 'scope marker\n')
+    writeFileSync(join(child, 'inside.txt'), 'scope marker\n')
+    await find.execute('parent', { path: parent })
+
+    const files = textOf(await find.execute('child-find', { path: child }))
+    expect(files).toContain('inside.txt')
+    expect(files).not.toContain('outside.txt')
+    const matches = textOf(await grep.execute('child-grep', { path: child, pattern: 'scope marker' }))
+    expect(matches).toContain('inside.txt')
+    expect(matches).not.toContain('outside.txt')
+  })
 
   it('finds files by fuzzy whole-path pattern', async () => {
     const result = await find.execute('t1', { pattern: 'finder pool' })

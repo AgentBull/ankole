@@ -3,10 +3,10 @@ defmodule Ankole.Brain.Dreaming do
   Instance-level maintenance of the knowledge space.
 
   Phases run in order; one failing phase is recorded and the round
-  continues. Every product goes through the shared write contracts, so a
-  rerun is idempotent: consolidation marks its inputs, analysis pages use
-  deterministic slugs, contradiction pairs and pending suggestions have
-  unique keys, and grading updates in place. Model phases use the maintainer
+  continues. Products use the shared write contracts: consolidation marks
+  its inputs, patterns update semantic topics, contradiction pairs and
+  pending suggestions have unique keys, and grading updates in place.
+  Model phases use the maintainer
   Agent's `heavy` profile and skip with a report when it is absent.
   """
 
@@ -18,7 +18,6 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Links
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.ModelCalls
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.Object
@@ -27,15 +26,12 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Schemas.Tag
   alias Ankole.Brain.Timelines
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
   @consolidate_similarity 0.85
   @consolidate_min_bucket 3
   @consolidate_min_oldest_hours 24
   @consolidate_bucket_limit 200
-  @patterns_window_days 30
-  @patterns_min_items 5
   @contradiction_batch_limit 50
   @contradiction_min_confidence 0.7
   @contradiction_verdicts ~w(
@@ -288,88 +284,7 @@ defmodule Ankole.Brain.Dreaming do
   # Phase 2: patterns
 
   @doc false
-  def phase_patterns do
-    case Config.dreaming_model() do
-      nil ->
-        %{status: :skipped, reason: :dreaming_model_not_configured}
-
-      model ->
-        window_start = DateTime.add(DateTime.utc_now(), -@patterns_window_days * 86_400, :second)
-
-        buckets =
-          Claim
-          |> Claims.current_external_facts()
-          |> where([claim], claim.created_at >= ^window_start)
-          |> where([claim], claim.notability == "high")
-          |> where([claim], not is_nil(claim.object_slug))
-          |> Repo.all()
-          |> Enum.group_by(& &1.audience_scope)
-          |> Enum.filter(fn {_scope, claims} -> length(claims) >= @patterns_min_items end)
-
-        pages =
-          Enum.count(buckets, fn {scope, claims} ->
-            synthesize_pattern_page(model, scope, claims) == :ok
-          end)
-
-        %{status: :ok, pages: pages, buckets: length(buckets)}
-    end
-  end
-
-  defp synthesize_pattern_page(model, scope, claims) do
-    date = Date.to_iso8601(Date.utc_today())
-    scope_hash = NativeKernel.xxh3_128_hex(scope) |> String.slice(0, 8)
-    slug = "analysis/dreaming-#{date}-#{scope_hash}"
-
-    if Repo.exists?(Object |> where([object], object.slug == ^slug)) do
-      :skip
-    else
-      evidence =
-        claims
-        |> Enum.take(40)
-        |> Enum.map_join("\n", fn claim -> "- [#{claim.holder}] #{claim.claim}" end)
-
-      prompt = """
-      You are the Dreaming maintenance of an organizational memory. Below are
-      recent notable facts sharing one audience. Write one short synthesis in
-      Markdown that connects them into higher-level observations useful for
-      current work (for example how an external event chain affects an
-      ongoing task). Do not invent facts. Return one JSON object:
-      {"title": "...", "body": "..."}
-
-      Facts:
-      #{evidence}
-      """
-
-      with {:ok, output} <- ModelCalls.complete_json(model, prompt),
-           title when is_binary(title) <- output["title"],
-           body when is_binary(body) <- output["body"] do
-        case Objects.create_object(
-               %{slug: slug, type: "analysis", title: title, body: Markdoc.wrap(body, scope)},
-               :system
-             ) do
-          {:ok, _object} ->
-            claims
-            |> Enum.map(& &1.object_slug)
-            |> Enum.uniq()
-            |> Enum.each(fn evidence_slug ->
-              Links.upsert_link(%{
-                from_object_slug: slug,
-                to_object_slug: evidence_slug,
-                link_type: "derived_from",
-                link_source: "dreaming"
-              })
-            end)
-
-            :ok
-
-          {:error, _reason} ->
-            :skip
-        end
-      else
-        _invalid -> :skip
-      end
-    end
-  end
+  def phase_patterns, do: Ankole.Brain.Patterns.run()
 
   # Phase 3: link and timeline extraction
 
@@ -639,18 +554,24 @@ defmodule Ankole.Brain.Dreaming do
 
   @doc false
   def contradiction_candidates do
+    claims =
+      Claim
+      |> Claims.current_external_facts()
+      |> where([claim], not is_nil(claim.object_slug))
+      |> order_by([claim], desc: claim.created_at)
+      |> limit(400)
+      |> Repo.all()
+
+    ids = Enum.map(claims, & &1.id)
+
     existing =
       Contradiction
+      |> where([c], c.a_claim_id in ^ids and c.b_claim_id in ^ids)
       |> select([c], {c.a_claim_id, c.b_claim_id})
       |> Repo.all()
       |> MapSet.new()
 
-    Claim
-    |> Claims.current_external_facts()
-    |> where([claim], not is_nil(claim.object_slug))
-    |> order_by([claim], desc: claim.created_at)
-    |> limit(400)
-    |> Repo.all()
+    claims
     |> Enum.group_by(& &1.object_slug)
     |> Enum.flat_map(fn {_slug, claims} ->
       for a <- claims, b <- claims, a.id < b.id, a.holder == b.holder, do: {a, b}

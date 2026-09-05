@@ -13,6 +13,7 @@ defmodule Ankole.Observability.Provider do
 
   @type name :: String.t()
   @type implementation :: module()
+  @type observation :: :turn | :response | :generation
 
   @type trace_context :: %{
           principal_uid: String.t() | nil,
@@ -36,8 +37,10 @@ defmodule Ankole.Observability.Provider do
               String.t() | nil,
               String.t() | nil
             ) :: map()
-  @callback output_attributes(String.t()) :: map()
+  @callback output_attributes(String.t(), observation()) :: map()
   @callback first_output_attributes() :: map()
+  @callback map_worker_spans(binary()) ::
+              {:ok, binary()} | {:error, :invalid_otlp_payload}
 
   @spec values() :: [name()]
   def values, do: Enum.map(@providers, &elem(&1, 0))

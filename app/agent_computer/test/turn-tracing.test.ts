@@ -7,11 +7,77 @@ import {
   startWorkerSpan,
   traceparentFromTurnStart,
   turnTracePropagationFromTurnStart,
+  workerObservationInputAttributes,
+  workerObservationOutputAttributes,
   workerTurnTrace
 } from '../src/observability/turn-tracing'
 
 describe('worker turn tracing', () => {
-  it('creates explicit remote children and exports agent-separated OTLP batches', async () => {
+  it('redacts credentials and excludes private protocol fields without mutating model content', () => {
+    const secret = 'sk-private-key-1234567890'
+    const value = {
+      query: 'visible query',
+      accessToken: secret,
+      secretKey: 'PRIVATE_SECRET_KEY',
+      commandOutput: JSON.stringify({ password: 'PRIVATE_"JSON_PASSWORD', count: 3 }),
+      headers: { custom: 'PRIVATE_HEADER' },
+      metadata: { note: 'PRIVATE_METADATA' },
+      messages: [{ text: `Bearer ${secret}`, encrypted_content: 'PRIVATE_REASONING' }],
+      encrypted_function_args: 'PRIVATE_ARGUMENTS',
+      __ankole_private: 'PRIVATE_CONTROL',
+      media: 'data:image/png;base64,PRIVATE_IMAGE'
+    }
+    const original = JSON.stringify(value)
+    for (const type of ['agent', 'tool'] as const) {
+      const attributes = {
+        ...workerObservationInputAttributes(type, value),
+        ...workerObservationOutputAttributes(type, value)
+      }
+      const encoded = JSON.stringify(attributes)
+      for (const excluded of [
+        secret,
+        'PRIVATE_SECRET_KEY',
+        'JSON_PASSWORD',
+        'PRIVATE_HEADER',
+        'PRIVATE_METADATA',
+        'PRIVATE_REASONING',
+        'PRIVATE_ARGUMENTS',
+        'PRIVATE_CONTROL',
+        'PRIVATE_IMAGE'
+      ]) {
+        expect(encoded).not.toContain(excluded)
+      }
+      const contentKey = type === 'agent' ? 'ankole.agent.input' : 'gen_ai.tool.call.arguments'
+      expect(JSON.parse(String(attributes[contentKey]))).toEqual({
+        query: 'visible query',
+        commandOutput: '{"password":"[REDACTED]","count":3}',
+        messages: [{ text: 'Bearer [REDACTED]' }],
+        media: '[inline media omitted]'
+      })
+    }
+    expect(JSON.stringify(value)).toBe(original)
+  })
+
+  it('omits content that cannot be encoded instead of exporting a fallback string', () => {
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+    for (const value of [cyclic, { value: 1n }]) {
+      const attributes = workerObservationOutputAttributes('tool', value)
+      expect(attributes['gen_ai.tool.call.result']).toBe('{"omitted":"encoding_failed"}')
+      expect(attributes['ankole.observability.output_truncated']).toBe(true)
+    }
+  })
+
+  it('marks oversized observation content instead of exporting the payload', () => {
+    const attributes = workerObservationInputAttributes('tool', 'x'.repeat(1_024 * 1_024))
+
+    expect(attributes['gen_ai.operation.name']).toBe('execute_tool')
+    expect(attributes['ankole.observability.input_truncated']).toBe(true)
+    expect(attributes['gen_ai.tool.call.arguments']).toContain('"omitted":"content_too_large"')
+    expect(attributes['gen_ai.tool.call.arguments']).not.toContain('xxxxxxxx')
+  })
+
+  it('creates explicit remote children and exports provider-neutral agent and tool facts', async () => {
     const exports: Array<{ agentUID: string; payload: Uint8Array }> = []
     const sharedChannelUserID = 'channel:lark:oc_shared'
     configureWorkerTracing(async (payload, agentUID) => {
@@ -25,7 +91,7 @@ describe('worker turn tracing', () => {
       turnStart('agent-2', 'session-2', '00-22222222222222222222222222222222-2222222222222222-01', sharedChannelUserID)
     )
     const unattributedTrace = workerTurnTrace(
-      turnStart('agent-3', 'session-3', '00-44444444444444444444444444444444-4444444444444444-01')
+      turnStart('agent-3', 'session-3', '00-44444444444444444444444444444444-4444444444444444-01', undefined)
     )
 
     expect(firstTrace?.attributes).toEqual({
@@ -41,29 +107,49 @@ describe('worker turn tracing', () => {
     })
 
     const codexTurn = startWorkerSpan(firstTrace, 'codex.turn', {
+      ...workerObservationInputAttributes('agent', 'inspect the PDF skill'),
       'ankole.principal.uid': 'spoofed-agent',
-      'user.id': 'principal:spoofed-user'
+      'user.id': 'principal:spoofed-user',
+      'gen_ai.agent.name': 'codex'
     })
     const tool = startWorkerSpan(
       firstTrace,
-      'tool shell',
+      'execute_tool skill_view',
       {
-        'gen_ai.tool.name': 'shell',
+        ...workerObservationInputAttributes('tool', { name: 'pdf' }),
+        'gen_ai.tool.name': 'skill_view',
         'gen_ai.tool.call.id': 'call-1'
       },
       codexTurn ? { parent: codexTurn } : {}
     )
-    finishWorkerSpan(tool, { attributes: { 'ankole.codex.duration_ms': 12 } })
+    finishWorkerSpan(tool, {
+      attributes: {
+        ...workerObservationOutputAttributes('tool', 'loaded PDF skill'),
+        'ankole.codex.duration_ms': 12
+      }
+    })
     finishWorkerSpan(codexTurn, {
       attributes: {
+        ...workerObservationOutputAttributes('agent', 'skill loaded'),
         'ankole.principal.uid': 'finish-spoofed-agent',
         'ankole.principal.type': 'human',
         'user.id': 'principal:finish-spoofed-user',
         'session.id': 'finish-spoofed-session'
       }
     })
-    finishWorkerSpan(startWorkerSpan(secondTrace, 'tool web_search'))
-    finishWorkerSpan(startWorkerSpan(unattributedTrace, 'tool internal'))
+    finishWorkerSpan(
+      startWorkerSpan(secondTrace, 'execute_tool web_search', {
+        ...workerObservationInputAttributes('tool', { query: 'observability' }),
+        'gen_ai.tool.name': 'web_search'
+      }),
+      { attributes: workerObservationOutputAttributes('tool', ['result']) }
+    )
+    finishWorkerSpan(
+      startWorkerSpan(unattributedTrace, 'execute_tool internal', {
+        ...workerObservationInputAttributes('tool', {}),
+        'gen_ai.tool.name': 'internal'
+      })
+    )
 
     await forceFlushWorkerTracing()
 
@@ -92,6 +178,26 @@ describe('worker turn tracing', () => {
       expect(wireText).not.toContain('spoofed-agent')
       expect(wireText).not.toContain('spoofed-user')
       expect(wireText).not.toContain('spoofed-session')
+      expect(wireText).not.toContain('ankole.worker.input')
+      expect(wireText).not.toContain('ankole.worker.output')
+      expect(wireText).not.toContain('langfuse.')
+      expect(wireText).not.toContain('langsmith.')
+
+      if (entry.agentUID === 'agent-1') {
+        expect(wireText).toContain('ankole.agent.input')
+        expect(wireText).toContain('ankole.agent.output')
+        expect(wireText).toContain('gen_ai.tool.call.arguments')
+        expect(wireText).toContain('gen_ai.tool.call.result')
+        expect(wireText).toContain('skill_view')
+        expect(wireText).toContain('"name":"pdf"')
+        expect(wireText).toContain('loaded PDF skill')
+      } else if (entry.agentUID === 'agent-2') {
+        expect(wireText).toContain('gen_ai.operation.name')
+        expect(wireText).toContain('gen_ai.tool.call.arguments')
+        expect(wireText).toContain('gen_ai.tool.call.result')
+      } else {
+        expect(wireText).toContain('gen_ai.tool.call.arguments')
+      }
     }
   })
 

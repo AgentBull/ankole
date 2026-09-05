@@ -70,6 +70,33 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     %{agent: agent, alice: alice, channel: channel}
   end
 
+  test "idle slice discovery excludes completed channels and keeps the first new arrival",
+       %{channel: channel, alice: alice} do
+    alias Ankole.SignalsGateway.{Channel, Entry}
+    old = DateTime.add(DateTime.utc_now(:microsecond), -3600, :second)
+    Repo.update_all(from(c in Channel, where: c.id == ^channel.id), set: [last_seen_at: old])
+    initial = Repo.get_by!(Entry, signal_channel_id: channel.id, source_entry_id: "m1")
+    assert [%{channel_id: id, first_seen_at: first}] = SignalsLearning.idle_pending_slices()
+    assert id == channel.id
+    assert first == initial.first_seen_at
+    assert {:ok, %{status: :complete}} = SignalsLearning.process_channel(channel.id)
+    assert SignalsLearning.idle_pending_slices() == []
+
+    next = insert_entry!(channel.id, "m2", "One more message.", alice.uid)
+
+    Repo.update_all(from(e in Entry, where: e.document_id == ^next.document_id),
+      set: [first_seen_at: initial.first_seen_at]
+    )
+
+    assert [%{channel_id: ^id, first_seen_at: ^first}] = SignalsLearning.idle_pending_slices()
+
+    Repo.update_all(from(c in Channel, where: c.id == ^channel.id),
+      set: [last_seen_at: DateTime.utc_now(:microsecond)]
+    )
+
+    assert SignalsLearning.idle_pending_slices() == []
+  end
+
   test "a private chat leaves the preference behind with its holder and audience",
        %{alice: alice, channel: channel} do
     assert {:ok, %{status: :complete, written: %{claims: 1}}} =
@@ -78,6 +105,9 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     assert_receive {:extraction_prompt, prompt}
     assert prompt =~ "send me something written first"
     assert prompt =~ "source audience is an upper bound"
+    assert prompt =~ "never create an agent object or invent an agents/ slug"
+    refute prompt =~ "agent (slug prefix agents/)"
+    refute prompt =~ "agent-skills (slug prefix"
     assert prompt =~ ~s("world" for content learned from this conversation)
     # No stored page matches this transcript, so the dedup block stays out.
     refute prompt =~ "Known pages already in memory"

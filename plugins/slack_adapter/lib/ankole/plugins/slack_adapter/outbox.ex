@@ -211,10 +211,14 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
       |> Enum.reduce_while([], fn request, results ->
         case perform(request, client) |> maybe_reply_fallback(request, outbox, client) do
           {:ok, result} -> {:cont, [result | results]}
+          {:error, _reason} when results != [] -> {:halt, :unknown}
           {:error, _reason} = error -> {:halt, error}
         end
       end)
       |> case do
+        :unknown ->
+          :unknown
+
         {:error, _reason} = error ->
           error
 

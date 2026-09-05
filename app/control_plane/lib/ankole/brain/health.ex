@@ -204,28 +204,10 @@ defmodule Ankole.Brain.Health do
   # Queue depth: idle channels whose slices are pending, plus the oldest
   # pending entry age in seconds.
   defp signals_status do
-    channel_ids = SignalsLearning.idle_channels_with_pending_slices()
-
-    oldest_age_seconds =
-      case channel_ids do
-        [] ->
-          nil
-
-        ids ->
-          ids
-          |> Enum.flat_map(fn channel_id ->
-            case SignalsLearning.pending_slice(channel_id, 1) do
-              [] -> []
-              [first] -> [first.first_seen_at]
-            end
-          end)
-          |> case do
-            [] -> nil
-            timestamps -> DateTime.diff(DateTime.utc_now(), Enum.min(timestamps, DateTime))
-          end
-      end
-
-    %{pending_channels: length(channel_ids), oldest_pending_age_seconds: oldest_age_seconds}
+    slices = SignalsLearning.idle_pending_slices()
+    oldest = slices |> Enum.map(& &1.first_seen_at) |> Enum.min(DateTime, fn -> nil end)
+    age = oldest && DateTime.diff(DateTime.utc_now(), oldest)
+    %{pending_channels: length(slices), oldest_pending_age_seconds: age}
   end
 
   defp embedding_status do

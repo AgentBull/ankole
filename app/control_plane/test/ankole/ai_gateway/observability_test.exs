@@ -162,8 +162,9 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     refute input =~ "must-not-leave"
     refute input =~ "base64,secret"
     assert input =~ "inline_data"
-    assert generation.attributes["ankole.ai_gateway.input"] == input
-    assert generation.attributes["ankole.ai_gateway.output"] =~ "world"
+    assert generation.attributes["langfuse.observation.output"] =~ "world"
+    refute Map.has_key?(generation.attributes, "ankole.ai_gateway.input")
+    refute Map.has_key?(generation.attributes, "ankole.ai_gateway.output")
     refute Map.has_key?(generation.attributes, "gen_ai.prompt")
     refute Map.has_key?(generation.attributes, "gen_ai.completion")
   end
@@ -219,16 +220,15 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     spans = exported_spans()
     root = span!(spans, "turn background_agent_job.dispatch")
-    response = span!(spans, "ai_gateway.response")
     generation = span!(spans, "chat gpt-no-user")
 
-    assert response.trace_id == root.trace_id
     assert generation.trace_id == root.trace_id
-    assert response.parent_span_id == root.span_id
-    assert generation.parent_span_id == response.span_id
+    assert generation.parent_span_id == root.span_id
+    refute Enum.any?(spans, &(&1.name == "ai_gateway.response"))
     assert root.attributes["langfuse.observation.type"] == "agent"
+    assert root.attributes["gen_ai.operation.name"] == "invoke_agent"
 
-    Enum.each([root, response, generation], fn span ->
+    Enum.each([root, generation], fn span ->
       refute Map.has_key?(span.attributes, "user.id")
       assert span.attributes["session.id"] == actor_event.session_id
       assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid
@@ -282,13 +282,21 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         subject_type: "agent"
       )
 
-    _observation =
-      AIGatewayObservability.finish_response(observation, %{"status" => "completed"})
+    observation =
+      AIGatewayObservability.start_round(
+        observation,
+        %{runtime: %{"provider_kind" => "openai"}},
+        %{response_context: %{model: "gpt-malformed", request: %{"input" => "hello"}}}
+      )
 
-    response = exported_spans() |> span!("ai_gateway.response")
-    refute response.parent_span_id == <<>>
-    assert response.attributes["user.id"] == "principal:agent-malformed-carrier"
-    assert response.attributes["ankole.principal.uid"] == "agent-malformed-carrier"
+    response = %{body: %{"status" => "completed", "output" => []}}
+    observation = AIGatewayObservability.finish_round(observation, response)
+    _observation = AIGatewayObservability.finish_response(observation, response)
+
+    generation = exported_spans() |> span!("chat gpt-malformed")
+    refute generation.parent_span_id == <<>>
+    assert generation.attributes["user.id"] == "principal:agent-malformed-carrier"
+    assert generation.attributes["ankole.principal.uid"] == "agent-malformed-carrier"
   end
 
   test "a non-Agent subject cannot replace its authenticated user with a carried identity" do
@@ -399,6 +407,28 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     end)
   end
 
+  test "a silent turn records its terminal outcome as observable output" do
+    enable_export(self(), "langfuse")
+
+    actor_event = %ActorEvent{
+      id: "01915f9d-5f00-7000-8000-000000000017",
+      agent_uid: "agent-silent",
+      session_id: "cron:silent",
+      type: "cron.fire",
+      payload: %{"data" => %{"task" => "check quietly"}}
+    }
+
+    assert %{traceparent: traceparent, user_id: nil} =
+             Observability.start_turn(actor_event, %{request_context: %{}})
+
+    assert is_binary(traceparent)
+
+    assert :ok = Observability.finish_turn(actor_event.id, outcome: "silent")
+
+    root = exported_spans() |> span!("turn cron.fire")
+    assert root.attributes["langfuse.observation.output"] == ~s({"outcome":"silent"})
+  end
+
   test "LangSmith provider owns its compatibility attributes" do
     enable_export(self(), "langsmith")
 
@@ -437,6 +467,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert generation.attributes["gen_ai.system"] == "openai"
     assert generation.attributes["gen_ai.prompt"] =~ "hello"
     assert generation.attributes["gen_ai.completion"] =~ "world"
+    refute Map.has_key?(generation.attributes, "ankole.ai_gateway.input")
+    refute Map.has_key?(generation.attributes, "ankole.ai_gateway.output")
     refute Enum.any?(Map.keys(generation.attributes), &String.starts_with?(&1, "langfuse."))
   end
 
@@ -649,7 +681,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert compact.attributes["ankole.ai_gateway.caller"] == "compaction.upstream"
     assert compact.attributes["gen_ai.usage.input_tokens"] == 9
     assert compact.status == :ok
-    refute compact.attributes["ankole.ai_gateway.output"] =~ "opaque-secret"
+    refute compact.attributes["langfuse.observation.output"] =~ "opaque-secret"
+    refute Map.has_key?(compact.attributes, "ankole.ai_gateway.output")
   end
 
   test "a credential-pool retry appears as an event on the open round" do
@@ -903,15 +936,13 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     spans = exported_spans()
     root = span!(spans, "turn #{actor_event.type}")
-    response = span!(spans, "ai_gateway.response")
     generation = span!(spans, "chat gpt-trigger-identity")
 
-    assert response.trace_id == root.trace_id
     assert generation.trace_id == root.trace_id
-    assert response.parent_span_id == root.span_id
-    assert generation.parent_span_id == response.span_id
+    assert generation.parent_span_id == root.span_id
+    refute Enum.any?(spans, &(&1.name == "ai_gateway.response"))
 
-    Enum.each([root, response, generation], fn span ->
+    Enum.each([root, generation], fn span ->
       assert span.attributes["user.id"] == expected_user_id
       assert span.attributes["session.id"] == actor_event.session_id
       assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid

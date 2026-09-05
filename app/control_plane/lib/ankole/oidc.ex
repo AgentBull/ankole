@@ -83,18 +83,19 @@ defmodule Ankole.OIDC do
   @doc "Updates a client without changing its public or confidential type."
   @spec update_client(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def update_client(id, attrs) when is_map(attrs) do
-    with {:ok, client} <- get_client(id),
-         :ok <- ensure_unchanged_type(client, attrs),
-         normalized <- normalize_write_attrs(attrs, client.secret_ciphertext),
-         normalized <- preserve_missing_write_fields(client, normalized),
-         {:ok, normalized} <- normalize_model_aliases(normalized),
-         {:ok, group_ids} <- group_ids(normalized),
+    with {:ok, id} <- cast_uuid(id),
          {:ok, updated} <-
            Repo.transact(fn repo ->
-             with %Client{} = locked <- lock_client(repo, client.id),
+             with %Client{} = client <- lock_client(repo, id),
+                  :ok <- ensure_unchanged_type(client, attrs),
+                  normalized <-
+                    normalize_write_attrs(attrs, nil) |> Map.delete(:secret_ciphertext),
+                  normalized <- preserve_missing_write_fields(client, normalized),
+                  {:ok, normalized} <- normalize_model_aliases(normalized),
+                  {:ok, group_ids} <- group_ids(normalized),
                   :ok <- validate_group_ids(repo, group_ids, normalized),
                   {:ok, updated} <-
-                    locked
+                    client
                     |> Client.changeset(Map.drop(normalized, [:allowed_group_ids]))
                     |> repo.update(),
                   :ok <- replace_group_links(repo, updated.id, group_ids) do
@@ -274,7 +275,6 @@ defmodule Ankole.OIDC do
       name: client.name,
       enabled: client.enabled,
       client_type: client.client_type,
-      secret_ciphertext: client.secret_ciphertext,
       redirect_uris: client.redirect_uris,
       scopes: client.scopes,
       model_aliases: client.model_aliases,

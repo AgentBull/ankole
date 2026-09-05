@@ -76,6 +76,10 @@ names `Upgrade`, `Connection`, `Sec-WebSocket-Version`, and
 `Sec-WebSocket-Key`. It returns HTTP 404 when a client sends these names in
 lowercase, so the client preserves their canonical case in the HTTP/1 request.
 
+An acknowledgement timeout closes the connection and fails its queued sends.
+A later acknowledgement cannot confirm the next frame with the same `req_id`.
+The existing reconnect and outbox recovery rules then apply.
+
 WeCom permits one live connection for each bot. When a second consumer
 connects, the platform disconnects the first one and announces it with a
 `disconnected_event`. The client then stops instead of reconnecting, because a
@@ -136,6 +140,11 @@ the portable interaction protocol packs into the key and the source actor
 event rides `task_id`. After a click, the card can change only inside a
 5-second event window; the adapter settles the interaction and writes a
 receipt card in that window.
+
+New button keys use an `ank2:` prefix and a JSON array of interaction fields.
+This preserves separators inside IDs and values. If a key exceeds 1,024 UTF-8
+bytes, the whole card uses its Markdown fallback. The decoder still accepts
+`ank1|` keys from previously sent cards.
 
 Neither send path has an idempotency parameter. The adapter cannot reconcile an
 uncertain send. SignalsGateway can resend an uncertain visible final reply only

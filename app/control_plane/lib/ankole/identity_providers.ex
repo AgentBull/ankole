@@ -117,18 +117,19 @@ defmodule Ankole.IdentityProviders do
       when is_binary(adapter_id) and is_map(config) and is_boolean(enabled) and is_list(opts) do
     with {:ok, provider_id} <- Config.normalize_provider_id(provider_id),
          {:ok, adapter} <- fetch_catalog_adapter(adapter_id),
-         :ok <- ensure_single_local_provider(adapter, provider_id),
          {:ok, config_key} <- provider_config_key(adapter, provider_id),
          {:ok, config} <- provider_config_for_write(adapter, config_key, config),
-         {:ok, persisted_config} <- AppConfigure.put_global_by_key(config_key, config),
-         {:ok, _providers} <-
-           Config.upsert_active_provider(%{
-             "provider_id" => provider_id,
-             "adapter_id" => adapter.adapter_id,
-             "plugin_id" => adapter.plugin_id,
-             "config_key" => config_key,
-             "enabled" => enabled
-           }),
+         {:ok, persisted_config} <-
+           Config.save_provider(
+             %{
+               "provider_id" => provider_id,
+               "adapter_id" => adapter.adapter_id,
+               "plugin_id" => adapter.plugin_id,
+               "config_key" => config_key,
+               "enabled" => enabled
+             },
+             config
+           ),
          {:ok, _job} <-
            DirectorySync.enqueue_initial_sync(
              provider_id,
@@ -246,23 +247,6 @@ defmodule Ankole.IdentityProviders do
     case Plugins.enabled_ids() do
       {:ok, ids} -> MapSet.new(ids)
       {:error, _reason} -> MapSet.new()
-    end
-  end
-
-  # One credential table serves the whole installation, so a second local
-  # provider instance would only make the retry-protection config ambiguous.
-  # Saving the same instance again stays allowed.
-  defp ensure_single_local_provider(%{adapter_id: adapter_id}, provider_id) do
-    with true <- adapter_id == LocalPassword.adapter_id(),
-         {:ok, providers} <- Config.active_providers(),
-         %{"provider_id" => existing_id} <-
-           Enum.find(
-             providers,
-             &(&1["adapter_id"] == adapter_id and &1["provider_id"] != provider_id)
-           ) do
-      {:error, {:local_provider_exists, existing_id}}
-    else
-      _no_conflict -> :ok
     end
   end
 

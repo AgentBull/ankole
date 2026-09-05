@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
 
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Security.SSRFFilter
+  alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
 
   @image_pattern ~r/!\[([^\]]*)\]\((https?:\/\/[^\s\)]+)(?:\s+(?:"[^"]*"|'[^']*'))?\)/u
   @max_redirects 5
@@ -48,27 +49,43 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     answer = presentation["answer"] || ""
 
     rendered =
-      Regex.replace(@image_pattern, answer, fn full, alt, url ->
-        case state[url] do
-          %{"status" => "ready", "image_key" => image_key}
-          when is_binary(image_key) and image_key != "" ->
-            "![#{alt}](#{image_key})"
+      answer
+      |> MarkdownSegmenter.code_segments()
+      |> Enum.map_join(fn
+        {:code, source} ->
+          source
 
-          %{"status" => "failed"} ->
-            "[#{image_link_label(alt)}](#{url})"
+        {:prose, prose} ->
+          Regex.replace(@image_pattern, prose, fn full, alt, url ->
+            case state[url] do
+              %{"status" => "ready", "image_key" => image_key}
+              when is_binary(image_key) and image_key != "" ->
+                "![#{alt}](#{image_key})"
 
-          _unresolved ->
-            full
-        end
+              %{"status" => "failed"} ->
+                "[#{image_link_label(alt)}](#{url})"
+
+              _unresolved ->
+                full
+            end
+          end)
       end)
 
     Map.put(presentation, "answer", rendered)
   end
 
   defp image_urls(answer) do
-    @image_pattern
-    |> Regex.scan(answer, capture: :all_but_first)
-    |> Enum.map(fn [_alt, url] -> url end)
+    answer
+    |> MarkdownSegmenter.code_segments()
+    |> Enum.flat_map(fn
+      {:code, _source} ->
+        []
+
+      {:prose, prose} ->
+        @image_pattern
+        |> Regex.scan(prose, capture: :all_but_first)
+        |> Enum.map(fn [_alt, url] -> url end)
+    end)
     |> Enum.uniq()
   end
 

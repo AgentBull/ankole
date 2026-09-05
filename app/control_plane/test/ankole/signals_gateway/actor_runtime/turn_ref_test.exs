@@ -23,7 +23,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRefTest do
 
     test "abort and complete need the deliveries to be loaded" do
       for mode <- [:abort, :complete] do
-        assert_raise ArgumentError, ~r/deliveries: :live/, fn ->
+        assert_raise ArgumentError, ~r/needs rows\.deliveries/, fn ->
           TurnRef.match(rows(%{deliveries: nil}), fence(), mode, now: @now)
         end
       end

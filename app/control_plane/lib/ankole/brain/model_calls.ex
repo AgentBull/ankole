@@ -26,7 +26,7 @@ defmodule Ankole.Brain.ModelCalls do
       |> Map.merge(Keyword.get(opts, :request_overrides, %{}))
 
     with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
-      case AIGateway.create_response(subject_uid, request) do
+      case AIGateway.create_response(subject_uid, request, Keyword.take(opts, [:caller])) do
         {:ok, %{body: body}} -> extract_output_text(body)
         {:error, _reason} = error -> error
       end

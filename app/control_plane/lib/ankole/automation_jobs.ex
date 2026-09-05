@@ -194,13 +194,12 @@ defmodule Ankole.AutomationJobs do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      case lock_run(repo, run_id) do
-        %Run{status: status} when status in ~w(succeeded failed cancelled) ->
+      case lock_job_run(repo, run_id) do
+        {%Job{}, %Run{status: status}} when status in ~w(succeeded failed cancelled) ->
           {:ok, :noop}
 
-        %Run{} = run ->
-          with %Job{} = job <- lock_job(repo, run.automation_job_id),
-               {:ok, job} <- effective_status(repo, job, now) do
+        {%Job{} = job, %Run{} = run} ->
+          with {:ok, job} <- effective_status(repo, job, now) do
             start_for_status(repo, job, run, now)
           else
             nil -> {:error, :automation_job_not_found}
@@ -221,9 +220,8 @@ defmodule Ankole.AutomationJobs do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %Run{} = run <- lock_run(repo, run_id),
+      with {%Job{} = job, %Run{} = run} <- lock_job_run(repo, run_id),
            true <- active_attempt?(run, attempt_id),
-           %Job{} = job <- lock_job(repo, run.automation_job_id),
            {:ok, attrs} <- completion_attrs(result, now),
            {:ok, run} <- run |> Run.changeset(attrs) |> repo.update(),
            :ok <- maybe_append_failure_event(repo, job, run, now) do
@@ -251,9 +249,8 @@ defmodule Ankole.AutomationJobs do
     error = bounded_text("infrastructure dispatch failed: #{inspect(reason)}", @log_max_bytes)
 
     Repo.transact(fn repo ->
-      with %Run{} = run <- lock_run(repo, run_id),
+      with {%Job{} = job, %Run{} = run} <- lock_job_run(repo, run_id),
            true <- active_attempt?(run, attempt_id),
-           %Job{} = job <- lock_job(repo, run.automation_job_id),
            {:ok, run} <-
              run
              |> Run.changeset(infrastructure_failure_attrs(disposition, error, now))
@@ -286,9 +283,8 @@ defmodule Ankole.AutomationJobs do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %Run{} = run <- lock_run(repo, run_id),
+      with {%Job{} = job, %Run{} = run} <- lock_job_run(repo, run_id),
            true <- active_attempt?(run, attempt_id),
-           %Job{} = job <- lock_job(repo, run.automation_job_id),
            true <- job.agent_uid == String.downcase(agent_uid),
            {:ok, payload} <- normalize_emitted_payload(payload),
            {:ok, actor_event} <-
@@ -588,6 +584,15 @@ defmodule Ankole.AutomationJobs do
     |> where([job], job.id == ^job_id)
     |> lock("FOR UPDATE")
     |> repo.one()
+  end
+
+  # A Run keeps its parent for its entire lifetime. All paths lock Job before Run.
+  defp lock_job_run(repo, run_id) do
+    with %Run{automation_job_id: job_id} <- repo.get(Run, run_id),
+         %Job{} = job <- lock_job(repo, job_id),
+         %Run{} = run <- lock_run(repo, run_id) do
+      {job, run}
+    end
   end
 
   defp lock_run(repo, run_id) do

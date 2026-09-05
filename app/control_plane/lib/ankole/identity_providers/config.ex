@@ -6,6 +6,8 @@ defmodule Ankole.IdentityProviders.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.Repo
 
   @active_key "principals.identity_providers.active"
   @directory_full_sync_interval_hours_key "principals.identity_providers.directory_full_sync_interval_hours"
@@ -26,7 +28,7 @@ defmodule Ankole.IdentityProviders.Config do
       encrypted: false,
       schema: Schema.new(&validate_activations/1),
       default_value: [],
-      # The identity provider pages own this list and write it through `put_active_providers/1`.
+      # The identity provider pages own this list and write it through `save_provider/2`.
       # Hand-editing the raw activation list in the Console can strand an admin outside every
       # working login path.
       console_writable: false,
@@ -73,24 +75,26 @@ defmodule Ankole.IdentityProviders.Config do
   end
 
   @doc """
-  Inserts or replaces one active-provider entry.
+  Stores a provider configuration and its activation in one transaction.
   """
-  @spec upsert_active_provider(map()) :: {:ok, [activation()]} | {:error, term()}
-  def upsert_active_provider(attrs) when is_map(attrs) do
+  @spec save_provider(map(), map()) :: {:ok, map()} | {:error, term()}
+  def save_provider(attrs, config) when is_map(attrs) and is_map(config) do
     with {:ok, next} <- validate_activation(attrs),
-         {:ok, providers} <- active_providers() do
-      providers
-      |> upsert(next)
-      |> put_active_providers()
+         {:ok, {activation_write, config_write}} <-
+           Repo.transact(fn repo ->
+             with {:ok, activation_write} <-
+                    AppConfigure.update_global_in_tx(repo, active_definition(), fn providers ->
+                      providers |> upsert(next) |> validate_activations()
+                    end),
+                  {:ok, config_write} <-
+                    AppConfigure.put_global_by_key_in_tx(repo, next["config_key"], config) do
+               {:ok, {activation_write, config_write}}
+             end
+           end) do
+      {:ok, persisted_config} = AppConfigure.cache_committed_write(config_write)
+      {:ok, _providers} = AppConfigure.cache_committed_write(activation_write)
+      {:ok, persisted_config}
     end
-  end
-
-  @doc """
-  Persists the whole active-provider list.
-  """
-  @spec put_active_providers([map()]) :: {:ok, [activation()]} | {:error, term()}
-  def put_active_providers(providers) when is_list(providers) do
-    AppConfigure.put_global(active_definition(), providers)
   end
 
   @doc """
@@ -103,7 +107,8 @@ defmodule Ankole.IdentityProviders.Config do
     values
     |> Enum.reduce_while({:ok, MapSet.new(), []}, fn value, {:ok, seen, acc} ->
       with {:ok, activation} <- validate_activation(value),
-           :ok <- unique_provider_id(activation, seen) do
+           :ok <- unique_provider_id(activation, seen),
+           :ok <- unique_local_provider(activation, acc) do
         {:cont, {:ok, MapSet.put(seen, activation["provider_id"]), [activation | acc]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -151,6 +156,18 @@ defmodule Ankole.IdentityProviders.Config do
 
   defp upsert(providers, %{"provider_id" => provider_id} = next) do
     Enum.reject(providers, &match?(%{"provider_id" => ^provider_id}, &1)) ++ [next]
+  end
+
+  # Local providers share one credential table and one retry policy.
+  defp unique_local_provider(%{"adapter_id" => adapter_id}, providers) do
+    if adapter_id == LocalPassword.adapter_id() do
+      case Enum.find(providers, &(&1["adapter_id"] == adapter_id)) do
+        nil -> :ok
+        %{"provider_id" => existing_id} -> {:error, {:local_provider_exists, existing_id}}
+      end
+    else
+      :ok
+    end
   end
 
   defp fetch_id(attrs, key) do

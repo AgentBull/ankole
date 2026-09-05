@@ -29,42 +29,41 @@ defmodule Ankole.Brain.Timelines do
          :ok <- validate_text(attrs[:provenance], :provenance),
          :ok <- validate_date(attrs[:date]) do
       repo.transact(fn repo ->
-        row = %Timeline{
-          id: UUIDv7.autogenerate(),
-          object_slug: object.slug,
-          author_uid: author_uid(writer, opts),
-          date: attrs[:date],
-          provenance: attrs[:provenance],
-          summary: attrs[:summary],
-          detail: attrs[:detail] || "",
-          event_object_slug: attrs[:event_object_slug],
-          audience_scope: attrs[:audience_scope],
-          created_at: DateTime.utc_now(:microsecond)
-        }
+        with {:ok, object} <- Objects.lock_object_in_tx(repo, object.slug) do
+          row = %Timeline{
+            id: UUIDv7.autogenerate(),
+            object_slug: object.slug,
+            author_uid: author_uid(writer, opts),
+            date: attrs[:date],
+            provenance: attrs[:provenance],
+            summary: attrs[:summary],
+            detail: attrs[:detail] || "",
+            event_object_slug: attrs[:event_object_slug],
+            audience_scope: attrs[:audience_scope],
+            created_at: DateTime.utc_now(:microsecond)
+          }
 
-        case repo.insert(row,
-               on_conflict: :nothing,
-               conflict_target: [:object_slug, :date, :summary, :provenance],
-               returning: true
-             ) do
-          {:ok, %Timeline{id: nil}} ->
-            existing =
-              repo.get_by!(Timeline,
-                object_slug: object.slug,
-                date: attrs[:date],
-                summary: attrs[:summary],
-                provenance: attrs[:provenance]
-              )
+          case repo.insert_all(Timeline, [Map.take(row, Timeline.__schema__(:fields))],
+                 on_conflict: :nothing,
+                 conflict_target: [:object_slug, :date, :summary, :provenance],
+                 returning: true
+               ) do
+            {0, []} ->
+              existing =
+                repo.get_by!(Timeline,
+                  object_slug: object.slug,
+                  date: attrs[:date],
+                  summary: attrs[:summary],
+                  provenance: attrs[:provenance]
+                )
 
-            {:ok, existing}
+              {:ok, existing}
 
-          {:ok, timeline} ->
-            with {:ok, _object} <- Objects.reconcile_chunks(object, repo: repo) do
-              {:ok, timeline}
-            end
-
-          {:error, _reason} = error ->
-            error
+            {1, [timeline]} ->
+              with {:ok, _object} <- Objects.reconcile_chunks(object, repo: repo) do
+                {:ok, timeline}
+              end
+          end
         end
       end)
     end

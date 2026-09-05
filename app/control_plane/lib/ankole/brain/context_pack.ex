@@ -190,14 +190,17 @@ defmodule Ankole.Brain.ContextPack do
          true <- is_binary(message_text) and String.trim(message_text) != "",
          {:ok, access} <- Access.for_readers(agent_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
-      message_text
-      |> Links.match_aliases_in_text()
-      |> Enum.map(&Repo.get_by(Object, slug: &1))
-      |> Enum.filter(&live_object?/1)
-      |> Enum.filter(&LazySkillVisibility.visible?(visibility, &1.slug))
-      |> Enum.filter(fn object ->
-        visible_to_querier?(object, access, disclosure)
-      end)
+      slugs = Links.match_aliases_in_text(message_text)
+
+      objects =
+        Object
+        |> where([object], object.slug in ^slugs and is_nil(object.deleted_at))
+        |> LazySkillVisibility.filter_objects(visibility)
+        |> order_by([object], asc: object.slug)
+        |> Repo.all()
+
+      objects
+      |> visible_pointer_objects(access, disclosure)
       |> Enum.take(@pointer_limit)
       |> Enum.map(fn object ->
         %{slug: object.slug, title: object.title, type: object.type}
@@ -209,37 +212,38 @@ defmodule Ankole.Brain.ContextPack do
     _error -> []
   end
 
-  # An alias survives the soft delete of its page so a restore keeps it, so
-  # the pointer path drops the pages a card would also refuse.
-  defp live_object?(%Object{deleted_at: nil}), do: true
-  defp live_object?(_missing_or_deleted), do: false
+  # A pointer requires reachable content, not just instance-visible metadata.
+  defp visible_pointer_objects([], _access, _disclosure), do: []
 
-  # A pointer names a page (metadata is instance-visible), but pointing at a
-  # page with no reachable content for the present recipients would leak the
-  # association; require at least one reachable, disclosable chunk or fact.
-  # Only the distinct scope values leave the database: the rows themselves
-  # (chunk text, embeddings, claim bodies) never load on this per-turn path.
-  defp visible_to_querier?(object, access, disclosure) do
+  defp visible_pointer_objects(objects, access, disclosure) do
+    ids = Enum.map(objects, & &1.id)
+    slugs = Enum.map(objects, & &1.slug)
+    by_id = Map.new(objects, &{&1.id, &1.slug})
+
     chunk_scopes =
       Ankole.Brain.Schemas.Chunk
-      |> where([chunk], chunk.object_id == ^object.id)
+      |> where([chunk], chunk.object_id in ^ids)
       |> Access.filter_chunks(access)
-      |> select([chunk], chunk.audience_scope)
+      |> select([chunk], {chunk.object_id, chunk.audience_scope})
+      |> distinct(true)
+      |> Repo.all()
+      |> Enum.map(fn {id, scope} -> {Map.fetch!(by_id, id), scope} end)
+
+    claim_scopes =
+      Claim
+      |> where([claim], claim.object_slug in ^slugs)
+      |> Access.filter_current_claims()
+      |> Access.filter_claims(access)
+      |> select([claim], {claim.object_slug, claim.audience_scope})
       |> distinct(true)
       |> Repo.all()
 
-    Enum.any?(chunk_scopes, &Access.disclosable?(&1, disclosure)) or
-      Enum.any?(reachable_claim_scopes(object, access), &Access.disclosable?(&1, disclosure))
-  end
+    visible =
+      (chunk_scopes ++ claim_scopes)
+      |> Enum.filter(fn {_slug, scope} -> Access.disclosable?(scope, disclosure) end)
+      |> MapSet.new(fn {slug, _scope} -> slug end)
 
-  defp reachable_claim_scopes(object, access) do
-    Claim
-    |> where([claim], claim.object_slug == ^object.slug)
-    |> Access.filter_current_claims()
-    |> Access.filter_claims(access)
-    |> select([claim], claim.audience_scope)
-    |> distinct(true)
-    |> Repo.all()
+    Enum.filter(objects, &MapSet.member?(visible, &1.slug))
   end
 
   # A claim whose named entity does not resolve is filed on the Turn's

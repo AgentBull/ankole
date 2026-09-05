@@ -137,7 +137,6 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
     while (transfer.credit > 0 && transfer.readOffset < transfer.fileSize && !transfer.finished) {
       const bytesToRead = Math.min(chunkSize, transfer.credit, transfer.fileSize - transfer.readOffset)
       const block = readTransferBlock(transfer, bytesToRead)
-      if (!block) break
 
       let compressed: Buffer
       try {
@@ -170,7 +169,12 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
 
     await maybeFinishReadTransfer(context, transfer)
   } catch (error) {
-    await finishReadTransferWithError(context, transfer, errorMessage(error))
+    await finishReadTransferWithError(
+      context,
+      transfer,
+      errorMessage(error),
+      error instanceof FileTransferError ? error.code : 'operation_failed'
+    )
   } finally {
     transfer.draining = false
     // Credit may have arrived while this drain was in flight (sendReadData would
@@ -181,22 +185,19 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
   }
 }
 
-function readTransferBlock(transfer: GetTransfer, size: number): Buffer | null {
+function readTransferBlock(transfer: GetTransfer, size: number): Buffer {
   const buffer = Buffer.alloc(size)
   let totalRead = 0
   while (totalRead < size) {
-    let bytesRead: number
-    try {
-      bytesRead = readSync(transfer.fd, buffer, totalRead, size - totalRead, transfer.readOffset)
-    } catch {
-      return null
+    const bytesRead = readSync(transfer.fd, buffer, totalRead, size - totalRead, transfer.readOffset)
+    if (bytesRead === 0) {
+      throw new FileTransferError('file_changed', `file changed during read: ${transfer.address.virtualPath}`)
     }
-    if (bytesRead === 0) break
     totalRead += bytesRead
     transfer.readOffset += bytesRead
   }
 
-  return totalRead === 0 ? null : buffer.subarray(0, totalRead)
+  return buffer
 }
 
 async function maybeFinishReadTransfer(context: FileTransferContext, transfer: GetTransfer): Promise<void> {

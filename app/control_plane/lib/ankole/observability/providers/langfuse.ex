@@ -5,6 +5,8 @@ defmodule Ankole.Observability.Providers.Langfuse do
 
   import Ankole.Observability.Trace, only: [put_present: 3]
 
+  alias Ankole.Observability.WorkerOTLP
+
   @impl true
   def trace_attributes(context) do
     %{"langfuse.trace.tags" => ["ankole", "ai_gateway"]}
@@ -45,7 +47,7 @@ defmodule Ankole.Observability.Providers.Langfuse do
   end
 
   @impl true
-  def output_attributes(output), do: %{"langfuse.observation.output" => output}
+  def output_attributes(output, _observation), do: %{"langfuse.observation.output" => output}
 
   @impl true
   def first_output_attributes do
@@ -53,4 +55,47 @@ defmodule Ankole.Observability.Providers.Langfuse do
       "langfuse.observation.completion_start_time" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end
+
+  @impl true
+  def map_worker_spans(payload) do
+    WorkerOTLP.map_span_attributes(payload, &worker_span_attribute_patch/1)
+  end
+
+  defp worker_span_attribute_patch(attributes) do
+    case Map.get(attributes, "gen_ai.operation.name") do
+      "invoke_agent" ->
+        observation_patch(attributes, "agent", "ankole.agent.input", "ankole.agent.output")
+
+      "execute_tool" ->
+        observation_patch(
+          attributes,
+          "tool",
+          "gen_ai.tool.call.arguments",
+          "gen_ai.tool.call.result"
+        )
+
+      _operation ->
+        %{put: %{}, drop: []}
+    end
+  end
+
+  defp observation_patch(attributes, type, input_key, output_key) do
+    put =
+      %{"langfuse.observation.type" => type}
+      |> put_attribute(
+        "langfuse.observation.input",
+        Map.get(attributes, input_key)
+      )
+      |> put_attribute(
+        "langfuse.observation.output",
+        Map.get(attributes, output_key)
+      )
+
+    %{put: put, drop: [input_key, output_key]}
+  end
+
+  defp put_attribute(attributes, key, value) when is_binary(value),
+    do: Map.put(attributes, key, value)
+
+  defp put_attribute(attributes, _key, _value), do: attributes
 end

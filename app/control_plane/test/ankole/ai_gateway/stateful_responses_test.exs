@@ -1141,18 +1141,9 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           artifact: artifact
         })
 
-      tool_result = [
-        %{
-          "type" => "function_call_output",
-          "call_id" => "call_current_input",
-          "output" => "lookup result"
-        }
-      ]
-
       history =
         StatefulResponses.expand_history(conversation.id,
-          previous_response_id: "resp_#{checkpoint.id}",
-          protected_tail_items: tool_result
+          previous_response_id: "resp_#{checkpoint.id}"
         )
 
       assert Enum.map(history, & &1.id) == [checkpoint.id]

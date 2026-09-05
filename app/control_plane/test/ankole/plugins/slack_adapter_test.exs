@@ -163,7 +163,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         end
       )
 
-      resolved = Config.resolve_runtime_bot_identity(config)
+      assert {:ok, resolved} = Config.resolve_runtime_bot_identity(config)
 
       assert resolved["runtimeBotUserID"] == "UBOT"
       assert resolved["runtimeBotID"] == "B1"
@@ -461,6 +461,54 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert Enum.all?(requests, &(&1.reply? == true))
     end
 
+    test "a later chunk failure reports uncertain delivery after the first chunk was sent" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_name = "slack-partial-send"
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), chat_config())
+
+      assert {:ok, _} =
+               SignalsGateway.upsert_binding(%{
+                 agent_uid: agent.uid,
+                 name: binding_name,
+                 adapter: "slack",
+                 config_ref: "app-config://" <> Config.chat_config_key(binding_name),
+                 unaddressed_group_message_policy: :ignore,
+                 unmatched_sender_policy: :create_standalone
+               })
+
+      Req.default_options(
+        plug: fn conn ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          text = Torque.decode!(body)["text"]
+          send(parent, {:sent_chunk, text})
+
+          if String.starts_with?(text, "a") do
+            Req.Test.json(conn, %{"ok" => true, "ts" => "1.1", "channel" => "C1"})
+          else
+            Req.Test.json(conn, %{"ok" => false, "error" => "channel_not_found"})
+          end
+        end
+      )
+
+      assert :unknown =
+               Outbox.send(%OutboxEntry{
+                 agent_uid: agent.uid,
+                 binding_name: binding_name,
+                 operation: :post,
+                 signal_channel_id: "slack:C1",
+                 payload: %{},
+                 fallback_visible_text: String.duplicate("a", 12_000) <> "b"
+               })
+
+      assert_receive {:sent_chunk, first}
+      assert String.length(first) == 12_000
+      assert_receive {:sent_chunk, "b"}
+      refute_received {:sent_chunk, _}
+    end
+
     test "records an attachment before its Slack download starts" do
       parent = self()
       %{principal: agent} = agent_fixture()
@@ -710,8 +758,46 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert eventually(fn -> key in ConnectionSupervisor.registered_keys() end)
     end
 
+    test "a connection resolves shared bot identity once and keeps it across reconciliation" do
+      parent = self()
+      Req.Test.set_req_test_to_shared()
+
+      Req.default_options(
+        plug: fn conn ->
+          if conn.request_path == "/api/auth.test" do
+            send(parent, :bot_identity_requested)
+            Req.Test.json(conn, %{"ok" => true, "user_id" => "UBOT", "bot_id" => "B1"})
+          else
+            Req.Test.json(conn, %{"ok" => false, "error" => "service_unavailable"})
+          end
+        end
+      )
+
+      config = chat_config(%{"appToken" => "xapp-identity-once"})
+
+      consumers =
+        Enum.map(["one", "two"], fn name ->
+          context =
+            AdapterContext.new(
+              agent_uid: "slack-identity-agent",
+              binding_name: name,
+              adapter: "slack",
+              user_name: "Slack"
+            )
+
+          Inbound.chat_consumer(context, config)
+        end)
+
+      key = Config.connection_key(config)
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      assert {:ok, pid} = ConnectionSupervisor.ensure_started(config, consumers)
+      assert_receive :bot_identity_requested
+      assert {:ok, ^pid} = ConnectionSupervisor.ensure_started(config, consumers)
+      refute_receive :bot_identity_requested, 100
+    end
+
     test "a rotated bot token restarts the owner under the same app token" do
-      config = chat_config(%{"appToken" => "xapp-reconcile-rotate"})
+      config = chat_config(%{"appToken" => "xapp-reconcile-rotate", "botUserID" => "UBOT"})
       key = Config.connection_key(config)
 
       context =

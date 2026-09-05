@@ -10,18 +10,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   corrupt an actor's state.
   """
 
-  use GenServer
+  use GenServer, restart: :transient
 
+  alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.ActorLane
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ActorDirectory
   alias Ankole.SignalsGateway.ActorRuntime.SessionSupervisor
+  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
 
   # Processing one ready batch can drive a worker run end to end, so the
   # caller-side call timeout is generous (30s) to avoid spurious exits while the
   # actor does real work. The DB fences still bound correctness if it does run long.
   @call_timeout 30_000
+  @idle_timeout :timer.minutes(5)
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
   @doc """
@@ -43,9 +46,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   @spec process_ready(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready(actor_key, opts \\ []) do
     actor_key = Common.normalize_actor_key(actor_key)
+    call_ready(actor_key, opts, 1)
+  end
 
-    with {:ok, _pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
-      GenServer.call(ActorDirectory.via(actor_key), {:process_ready, opts}, @call_timeout)
+  defp call_ready(actor_key, opts, retries) do
+    with {:ok, pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
+      try do
+        GenServer.call(pid, {:process_ready, opts}, @call_timeout)
+      catch
+        :exit, {reason, {GenServer, :call, _args}}
+        when reason in [:normal, :noproc] and retries > 0 ->
+          call_ready(actor_key, opts, retries - 1)
+      end
     end
   end
 
@@ -67,16 +79,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   end
 
   @impl true
-  def init(actor_key), do: {:ok, %{actor_key: actor_key}}
+  def init(actor_key), do: {:ok, %{actor_key: actor_key}, @idle_timeout}
 
   @impl true
   def handle_call({:process_ready, opts}, _from, state) do
-    {:reply, ActorRuntime.process_ready_event_for_actor(state.actor_key, opts), state}
+    {:reply, ActorRuntime.process_ready_event_for_actor(state.actor_key, opts), state,
+     @idle_timeout}
   end
 
   @impl true
   def handle_cast({:dispatch_inbound, route, envelope}, state) do
     ActorLane.handle(envelope, route)
-    {:noreply, state}
+    {:noreply, state, @idle_timeout}
+  end
+
+  @impl true
+  def handle_info(:timeout, state) do
+    # All production Turn starts run on this controller. A live delivery keeps
+    # it alive while accepted/progress casts can matter; terminal writes use
+    # the independent RPC lane. A queued ready call can retry a normal exit.
+    if TurnLifecycle.live_delivery_for_session?(Repo, state.actor_key) do
+      {:noreply, state, @idle_timeout}
+    else
+      {:stop, :normal, state}
+    end
   end
 end

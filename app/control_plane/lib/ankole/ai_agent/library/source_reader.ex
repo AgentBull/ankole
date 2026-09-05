@@ -22,8 +22,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @fallback_mission ""
   @fallback_design ""
   @fallback_confidentiality_policy ""
-  @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
-  @yaml_block_end_regex ~r/^\S/
   @ankole_runtimes ~w(any main background_job)
 
   @doc """
@@ -409,14 +407,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   defp parse_skill_metadata(raw_skill, directory_name) do
-    frontmatter = skill_frontmatter(raw_skill)
-
-    name =
-      frontmatter
-      |> yaml_scalar("name")
-      |> Kernel.||(directory_name)
-
-    with {:ok, name} <- normalize_skill_name(name),
+    with {:ok, frontmatter} <- skill_frontmatter(raw_skill),
+         {:ok, name} <- normalize_skill_name(Map.get(frontmatter, "name", directory_name)),
          true <-
            name == directory_name ||
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
@@ -425,13 +417,13 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          {:ok, brain_recall_only} <-
            yaml_boolean(frontmatter, "brain-recall-only", false),
          {:ok, ankole_runtime} <-
-           normalize_ankole_runtime(yaml_scalar(frontmatter, "ankole-runtime")) do
+           normalize_ankole_runtime(Map.get(frontmatter, "ankole-runtime")) do
       {:ok,
        %{
          name: name,
          description: description,
          default_enabled: default_enabled,
-         tags: yaml_tags(frontmatter),
+         tags: frontmatter |> Map.get("tags", []) |> List.wrap() |> Enum.filter(&is_binary/1),
          category: yaml_scalar(frontmatter, "category"),
          brain_recall_only: brain_recall_only,
          ankole_runtime: ankole_runtime
@@ -443,8 +435,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
   defp skill_frontmatter(raw_skill) do
     case Regex.run(~r/\A---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)\z/, raw_skill) do
-      [_, frontmatter, _body] -> frontmatter
-      _no_frontmatter -> ""
+      [_, frontmatter, _body] ->
+        case YamlElixir.read_from_string(frontmatter) do
+          {:ok, metadata} when is_map(metadata) -> {:ok, metadata}
+          _invalid -> {:error, :invalid_skill_frontmatter}
+        end
+
+      _no_frontmatter ->
+        {:ok, %{}}
     end
   end
 
@@ -456,95 +454,25 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   defp yaml_scalar(frontmatter, key) do
-    pattern = Regex.compile!("^#{Regex.escape(key)}:\\s*(.*?)\\s*$", "m")
-
-    case Regex.run(pattern, frontmatter) do
-      [_, value] ->
-        value
-        |> String.trim()
-        |> strip_quotes()
-        |> case do
+    case Map.get(frontmatter, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
           "" -> nil
-          value -> value
+          text -> text
         end
 
-      _no_match ->
+      _value ->
         nil
     end
   end
 
   defp yaml_boolean(frontmatter, key, default) do
-    case yaml_scalar(frontmatter, key) do
+    case Map.get(frontmatter, key) do
       nil -> {:ok, default}
-      "true" -> {:ok, true}
-      "false" -> {:ok, false}
-      "TRUE" -> {:ok, true}
-      "FALSE" -> {:ok, false}
+      value when is_boolean(value) -> {:ok, value}
+      value when value in ["true", "TRUE"] -> {:ok, true}
+      value when value in ["false", "FALSE"] -> {:ok, false}
       _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp yaml_tags(frontmatter) do
-    case yaml_scalar(frontmatter, "tags") do
-      "[" <> _rest = inline ->
-        inline
-        |> String.trim_leading("[")
-        |> String.trim_trailing("]")
-        |> String.split(",", trim: true)
-        |> Enum.map(&strip_quotes(String.trim(&1)))
-
-      _value ->
-        frontmatter
-        |> String.split(~r/\r?\n/)
-        |> collect_yaml_block_list("tags")
-    end
-  end
-
-  defp collect_yaml_block_list(lines, key) do
-    key_regex = Regex.compile!("^#{Regex.escape(key)}:\\s*$")
-
-    {_state, values} =
-      Enum.reduce(lines, {:before, []}, fn line, {state, acc} ->
-        cond do
-          state == :before and Regex.match?(key_regex, line) ->
-            {:inside, acc}
-
-          state == :inside ->
-            collect_yaml_block_line(line, acc)
-
-          true ->
-            {state, acc}
-        end
-      end)
-
-    Enum.reverse(values)
-  end
-
-  defp collect_yaml_block_line(line, acc) do
-    case Regex.run(@yaml_block_item_regex, line) do
-      [_, value] ->
-        {:inside, [strip_quotes(String.trim(value)) | acc]}
-
-      nil ->
-        case Regex.match?(@yaml_block_end_regex, line) do
-          true -> {:after, acc}
-          false -> {:inside, acc}
-        end
-    end
-  end
-
-  defp strip_quotes(value) do
-    value = String.trim(value)
-
-    cond do
-      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") ->
-        value |> String.trim_leading("\"") |> String.trim_trailing("\"")
-
-      String.starts_with?(value, "'") and String.ends_with?(value, "'") ->
-        value |> String.trim_leading("'") |> String.trim_trailing("'")
-
-      true ->
-        value
     end
   end
 

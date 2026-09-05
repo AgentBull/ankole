@@ -98,7 +98,8 @@ defmodule Ankole.Brain.SchemaPacksTest do
                pack_name: "general"
              } = types["agent-skills"]
 
-      assert Repo.get_by!(SchemaPack, name: "general").version == "1.1.0"
+      assert Repo.get_by!(SchemaPack, name: "general").version == "1.1.1"
+      assert types["agent"].subtypes == ["internal"]
       assert "fund" in types["company"].subtypes
 
       links = Repo.all(SchemaLinkType) |> Map.new(&{&1.name, &1})
@@ -120,6 +121,20 @@ defmodule Ankole.Brain.SchemaPacksTest do
     test "repeated installation of the same selection converges" do
       assert {:ok, _result} = SchemaPacks.install_packs([])
       assert {:ok, %{status: :already_installed}} = SchemaPacks.install_packs([])
+    end
+
+    test "an installed pack cannot widen the reserved Agent type" do
+      assert {:ok, _result} = SchemaPacks.install_packs([])
+      pack = Repo.get_by!(SchemaPack, name: "general")
+
+      manifest =
+        Map.put(pack.manifest, "subtype_extensions", [
+          %{"type" => "agent", "add" => ["external"]}
+        ])
+
+      Repo.update!(Ecto.Changeset.change(pack, manifest: manifest))
+      assert {:error, {:reserved_object_type, "agent"}} = SchemaPacks.install_packs(["software"])
+      refute Repo.get_by(SchemaPack, name: "software")
     end
   end
 end

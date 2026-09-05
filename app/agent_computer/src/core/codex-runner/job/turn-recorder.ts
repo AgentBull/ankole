@@ -1,7 +1,6 @@
-import { compareCodePointStrings } from '../../../common/ordering'
 import { stringValue } from '../../llm/parse'
 import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
+import { sanitizeTurnContent } from './turn-content'
 import type { ActorTurnRef } from '../../../lanes/actor_lane'
 import { jsonBytes } from '../../../fabric/envelope_proto'
 import {
@@ -20,27 +19,24 @@ import type {
   BackgroundAgentJobTurnUsage
 } from '../../background-agent-job-documents'
 import type { JSONRPCMessage } from '../runtime/app-server-client'
-import {
-  boundedFilesChangedFromCodexDiff,
-  normalizedCollaborationToolName,
-  normalizeCodexThreadUsage
-} from '../protocol'
+import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../protocol'
 import { boundedBackgroundAgentJobPaths } from '../../background-agent-job-handoff'
-import type { Span } from '@opentelemetry/api'
-import { finishWorkerSpan, startWorkerSpan, type WorkerTurnTrace } from '../../../observability/turn-tracing'
+import type { WorkerTurnTrace } from '../../../observability/turn-tracing'
+import { CodexTurnTrace } from './turn-tracing'
+import {
+  projectCodexToolItem,
+  compareToolIdentity,
+  sameToolIdentity,
+  toolIdentityKey,
+  type CodexToolItem,
+  type ToolIdentity,
+  type ToolExecutionMechanism
+} from './tool-item'
 import { errorMessage } from '../../../common/errors'
 
 // Coalesce event bursts before a progress checkpoint. flush() still bypasses
 // this delay at every durability boundary.
 const checkpointDelayMs = ms('5s')
-// Bound and redact runtime payloads before they become durable Job history.
-const maxStringBytes = 16 * 1_024
-const maxCollectionItems = 64
-const maxMapKeyBytes = 256
-const maxValueDepth = 8
-const truncationMarker = '...[truncated]'
-const redactionMarker = '[REDACTED]'
-
 type RuntimeTurn = {
   runtimeThreadID: string
   runtimeTurnID: string
@@ -52,7 +48,6 @@ type RuntimeTurn = {
   itemPositions: Map<string, number>
   nextTrajectoryPosition: number
   enqueuedItemKeys: Set<string>
-  anchoredItemKeys: Set<string>
   completedItemIDs: Set<string>
   modelToolIdentities: Map<string, ToolIdentity>
   toolItemIdentities: Map<string, ToolIdentity>
@@ -66,30 +61,15 @@ type RuntimeTurn = {
   error: JSONObject
   startedAt: string
   completedAt?: string
-  traceSpan: Span | undefined
-  toolSpans: Map<string, Span>
+  trace: CodexTurnTrace | undefined
   dirty: boolean
   redacted: boolean
   contentTruncated: boolean
 }
 
-type SanitizeState = {
-  redacted: boolean
-  truncated: boolean
-}
-
 type ItemEntry = {
   key: string
   item: JSONObject
-}
-
-type ToolIdentity = {
-  namespace?: string
-  name: string
-}
-
-type ToolExecutionMechanism = ToolIdentity & {
-  execution_mechanism: 'provider_hosted' | 'local_dynamic'
 }
 
 type CollaborationActivity = {
@@ -165,7 +145,6 @@ export class BackgroundAgentJobTurnRecorder {
         itemPositions: new Map(),
         nextTrajectoryPosition: 0,
         enqueuedItemKeys: new Set(),
-        anchoredItemKeys: new Set(),
         completedItemIDs: new Set(),
         modelToolIdentities: new Map(),
         toolItemIdentities: new Map(),
@@ -174,16 +153,13 @@ export class BackgroundAgentJobTurnRecorder {
         filesChanged: new Set(),
         error: {},
         startedAt,
-        traceSpan: startWorkerSpan(
+        trace: CodexTurnTrace.start(
           this.input.turnTrace,
-          'codex.turn',
-          {
-            'ankole.codex.thread.id': runtimeThreadID,
-            'ankole.codex.turn.id': runtimeTurnID
-          },
-          { startTime: timestampDate(payload.startedAt) }
+          runtimeThreadID,
+          runtimeTurnID,
+          timestampDate(payload.startedAt),
+          input
         ),
-        toolSpans: new Map(),
         dirty: true,
         redacted: false,
         contentTruncated: false
@@ -192,6 +168,7 @@ export class BackgroundAgentJobTurnRecorder {
     }
 
     this.ensureInitialInput(turn, input, clientUserMessageID)
+    if (input) turn.trace?.setInput(input)
     this.applyCanonicalItems(turn, payload)
     const reportedStatus = turnStatus(payload.status)
     const acceptsReportedTerminal = !terminal(turn.status) || reportedStatus === turn.status
@@ -203,7 +180,7 @@ export class BackgroundAgentJobTurnRecorder {
     if (terminal(turn.status)) {
       turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
       turn.activeItem = undefined
-      this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
+      turn.trace?.finish(traceTurnError(turn), timestampDate(payload.completedAt), traceTurnOutput(payload))
       this.markDirty(turn, true)
     } else {
       this.markDirty(turn, true)
@@ -291,7 +268,7 @@ export class BackgroundAgentJobTurnRecorder {
     turn.error = this.sanitizeObject({ ...turn.error, ...error }, turn)
     turn.completedAt ??= now()
     turn.activeItem = undefined
-    this.finishTraceTurn(turn, errorType(turn.error) ?? 'codex_turn_interrupted')
+    turn.trace?.finish(errorType(turn.error) ?? 'codex_turn_interrupted')
     this.markDirty(turn, true)
   }
 
@@ -302,7 +279,7 @@ export class BackgroundAgentJobTurnRecorder {
     turn.error = this.sanitizeObject(error, turn)
     turn.completedAt = now()
     turn.activeItem = undefined
-    this.finishTraceTurn(turn, errorType(turn.error) ?? `codex_turn_${turn.status}`)
+    turn.trace?.finish(errorType(turn.error) ?? `codex_turn_${turn.status}`)
     this.markDirty(turn, true)
   }
 
@@ -340,7 +317,7 @@ export class BackgroundAgentJobTurnRecorder {
     }
     turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
     turn.activeItem = undefined
-    this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
+    turn.trace?.finish(traceTurnError(turn), timestampDate(payload.completedAt), traceTurnOutput(payload))
     this.markDirty(turn, true)
   }
 
@@ -348,24 +325,17 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     const item = jsonObject(params.item)
     const id = stringValue(item.id)
-    if (!turn || !id || !shouldRecordItem(item)) return
-    if (item.type === 'collabAgentToolCall' && this.pendingCollaborationCalls.has(id)) return
-    const identity = toolIdentityOf(item)
-    if (!identity) return
+    if (!turn || !id || !shouldRecordItem(item) || terminal(turn.status) || turn.completedItemIDs.has(id)) return
+    const tool = projectCodexToolItem(item, turn.modelToolIdentities.get(id))
+    if (!tool) return
+    const { identity } = tool
+    if (item.type !== 'collabAgentToolCall') turn.trace?.startTool(tool)
     if (turn.activeItem?.id === id && sameToolIdentity(turn.activeItem, identity)) return
-    const displayName = toolDisplayName(identity)
-    if (!turn.toolSpans.has(id)) {
-      const span = startWorkerSpan(
-        this.input.turnTrace,
-        `tool ${displayName}`,
-        {
-          'gen_ai.tool.name': identity.name,
-          ...(identity.namespace ? { 'gen_ai.tool.namespace': identity.namespace } : {}),
-          'gen_ai.tool.call.id': id
-        },
-        turn.traceSpan ? { parent: turn.traceSpan } : {}
-      )
-      if (span) turn.toolSpans.set(id, span)
+    if (item.type === 'collabAgentToolCall') {
+      if (this.pendingCollaborationCalls.has(id)) return
+      turn.activeItem = { id, ...identity }
+      this.markDirty(turn, true)
+      return
     }
     turn.activeItem = { id, ...identity }
     this.markDirty(turn, true)
@@ -376,13 +346,18 @@ export class BackgroundAgentJobTurnRecorder {
     const rawItem = jsonObject(params.item)
     const id = stringValue(rawItem.id)
     if (!turn || !id) return
-    this.finishTraceItem(turn, id, rawItem)
     if (rawItem.type === 'subAgentActivity') {
       this.completeSubAgentActivity(turn, rawItem)
       return
     }
     if (!shouldRecordItem(rawItem)) return
-    if (rawItem.type === 'collabAgentToolCall' && this.pendingCollaborationCalls.has(id)) return
+    if (rawItem.type === 'collabAgentToolCall') {
+      if (turn.activeItem?.id === id) {
+        turn.activeItem = undefined
+        this.markDirty(turn, true)
+      }
+      return
+    }
     this.recordCompletedItem(turn, rawItem)
   }
 
@@ -391,7 +366,8 @@ export class BackgroundAgentJobTurnRecorder {
     if (!id) return
     const redacted = turn.redacted
     const truncated = turn.contentTruncated
-    const item = this.canonicalItem(turn, rawItem)
+    const tool = projectCodexToolItem(rawItem, turn.modelToolIdentities.get(id))
+    const item = this.canonicalItem(turn, rawItem, tool)
     const key = itemKey(item)
     if (!key) return
     const alreadyEnqueued = turn.enqueuedItemKeys.has(key)
@@ -402,36 +378,13 @@ export class BackgroundAgentJobTurnRecorder {
     if (alreadyEnqueued) return
     const changed = JSON.stringify(turn.items.get(key)) !== JSON.stringify(item)
     if (changed) this.putCanonicalEntry(turn, { key, item })
-    const tracked = this.trackCompletedItem(turn, item)
+    const tracked = this.trackCompletedItem(turn, item, tool)
+    if (tracked && tool) turn.trace?.finishTool(tool)
     const cleared = turn.activeItem?.id === id
     if (cleared) turn.activeItem = undefined
     if (changed || tracked || cleared || redacted !== turn.redacted || truncated !== turn.contentTruncated) {
       this.markDirty(turn, true)
     }
-  }
-
-  private finishTraceItem(turn: RuntimeTurn, id: string, item: JSONObject): void {
-    const span = turn.toolSpans.get(id)
-    if (!span) return
-    turn.toolSpans.delete(id)
-    const durationMs = positiveNumber(item.durationMs)
-    finishWorkerSpan(span, {
-      errorType: traceItemError(item),
-      ...(durationMs === undefined ? {} : { attributes: { 'ankole.codex.duration_ms': durationMs } })
-    })
-  }
-
-  private finishTraceTurn(turn: RuntimeTurn, errorTypeValue?: string, endTime?: Date): void {
-    for (const span of turn.toolSpans.values()) {
-      finishWorkerSpan(span, { errorType: errorTypeValue ?? 'codex_turn_ended' })
-    }
-    turn.toolSpans.clear()
-    if (!turn.traceSpan) return
-    finishWorkerSpan(turn.traceSpan, {
-      errorType: errorTypeValue,
-      ...(endTime ? { endTime } : {})
-    })
-    turn.traceSpan = undefined
   }
 
   private completeRawResponseItem(params: JSONObject): void {
@@ -446,14 +399,26 @@ export class BackgroundAgentJobTurnRecorder {
       if (turn && name) turn.modelToolIdentities.set(callID, { ...(namespace ? { namespace } : {}), name })
 
       const tool = collaborationToolName(item)
-      if (!tool || !turn) return
+      if (
+        !tool ||
+        !turn ||
+        terminal(turn.status) ||
+        turn.completedItemIDs.has(callID) ||
+        this.pendingCollaborationCalls.has(callID)
+      )
+        return
+      const argumentsValue = parseJSONValue(item.arguments, {})
       this.pendingCollaborationCalls.set(callID, {
         runtimeTurnID: turn.runtimeTurnID,
         tool,
-        arguments: parseJSONValue(item.arguments, {})
+        arguments: argumentsValue
       })
-      turn.activeItem = { id: callID, namespace: 'collaboration', name: tool }
-      this.markDirty(turn, false)
+      this.startItem(
+        jsonObject({
+          turnId: turn.runtimeTurnID,
+          item: { type: 'dynamicToolCall', id: callID, namespace: 'collaboration', tool, arguments: argumentsValue }
+        })
+      )
       return
     }
 
@@ -463,6 +428,7 @@ export class BackgroundAgentJobTurnRecorder {
     this.pendingCollaborationCalls.delete(callID)
     const turn = this.turns.get(pending.runtimeTurnID)
     if (!turn) return
+    const output = collaborationToolOutcome(item.output, pending.activity)
     this.recordCompletedItem(
       turn,
       jsonObject({
@@ -472,7 +438,7 @@ export class BackgroundAgentJobTurnRecorder {
         tool: pending.tool,
         arguments: pending.arguments,
         status: 'completed',
-        contentItems: collaborationToolOutcome(item.output, pending.activity),
+        contentItems: output,
         success: null,
         durationMs: null
       })
@@ -560,7 +526,6 @@ export class BackgroundAgentJobTurnRecorder {
     const id = clientUserMessageID ?? `${turn.runtimeTurnID}:input`
     const key = `client:${id}`
     turn.initialItemKey = key
-    turn.anchoredItemKeys.add(key)
     if (turn.items.has(key)) return
     this.putAnchoredItem(
       turn,
@@ -587,10 +552,12 @@ export class BackgroundAgentJobTurnRecorder {
     for (const raw of arrayValue(value)) {
       const rawItem = jsonObject(raw)
       if (!shouldRecordItem(rawItem)) continue
-      const item = this.canonicalItem(turn, rawItem)
+      const id = stringValue(rawItem.id)
+      const tool = projectCodexToolItem(rawItem, id ? turn.modelToolIdentities.get(id) : undefined)
+      const item = this.canonicalItem(turn, rawItem, tool)
       const key = itemKey(item)
       if (!key) continue
-      if (completed) this.trackCompletedItem(turn, item)
+      if (completed) this.trackCompletedItem(turn, item, tool)
       const existingIndex = entries.findIndex(entry => entry.key === key)
       if (existingIndex >= 0) entries[existingIndex] = { key, item }
       else entries.push({ key, item })
@@ -598,10 +565,8 @@ export class BackgroundAgentJobTurnRecorder {
     return entries
   }
 
-  private canonicalItem(turn: RuntimeTurn, value: JSONObject): JSONObject {
-    const id = stringValue(value.id)
-    const modelIdentity = id && value.type === 'mcpToolCall' ? turn.modelToolIdentities.get(id) : undefined
-    const identifiedValue = modelIdentity ? jsonObject({ ...value, ...modelIdentity }) : value
+  private canonicalItem(turn: RuntimeTurn, value: JSONObject, tool: CodexToolItem | undefined): JSONObject {
+    const identifiedValue = value.type === 'mcpToolCall' && tool ? jsonObject({ ...value, ...tool.identity }) : value
     const semanticValue =
       identifiedValue.type === 'reasoning'
         ? jsonObject({
@@ -628,15 +593,13 @@ export class BackgroundAgentJobTurnRecorder {
     turn.items.set(entry.key, entry.item)
   }
 
-  private trackCompletedItem(turn: RuntimeTurn, item: JSONObject): boolean {
+  private trackCompletedItem(turn: RuntimeTurn, item: JSONObject, tool: CodexToolItem | undefined): boolean {
     const id = stringValue(item.id)
     if (!id || turn.completedItemIDs.has(id)) return false
     turn.completedItemIDs.add(id)
-    const identity = toolIdentityOf(item)
-    if (identity) turn.toolItemIdentities.set(id, identity)
-    const mechanism = toolExecutionMechanism(item)
-    if (identity && mechanism) {
-      turn.toolItemExecutionMechanisms.set(id, { ...identity, execution_mechanism: mechanism })
+    if (tool) turn.toolItemIdentities.set(id, tool.identity)
+    if (tool?.executionMechanism) {
+      turn.toolItemExecutionMechanisms.set(id, { ...tool.identity, execution_mechanism: tool.executionMechanism })
     }
     if (item.type === 'fileChange') {
       const handoff = boundedBackgroundAgentJobPaths([...turn.filesChanged, ...fileChangePaths(item.changes)])
@@ -650,7 +613,6 @@ export class BackgroundAgentJobTurnRecorder {
     const item = this.sanitizeObject(value, turn)
     const key = itemKey(item)
     if (!key) return false
-    turn.anchoredItemKeys.add(key)
     if (turn.items.has(key)) return false
     turn.items.set(key, item)
     this.assignTrajectoryPosition(turn, key)
@@ -666,11 +628,10 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private sanitizeObject(value: JSONObject, turn: RuntimeTurn): JSONObject {
-    const state: SanitizeState = { redacted: false, truncated: false }
-    const sanitized = jsonObject(sanitizeValue(value, state))
-    turn.redacted ||= state.redacted
-    turn.contentTruncated ||= state.truncated
-    return sanitized
+    const sanitized = sanitizeTurnContent(value)
+    turn.redacted ||= sanitized.redacted
+    turn.contentTruncated ||= sanitized.truncated
+    return sanitized.value
   }
 
   private markDirty(turn: RuntimeTurn, immediate: boolean): void {
@@ -790,12 +751,6 @@ function progress(turn: RuntimeTurn): BackgroundAgentJobTurnProgress {
   }
 }
 
-function toolExecutionMechanism(item: JSONObject): ToolExecutionMechanism['execution_mechanism'] | undefined {
-  if (item.type === 'webSearch') return 'provider_hosted'
-  if (item.type === 'dynamicToolCall' || item.type === 'collabAgentToolCall') return 'local_dynamic'
-  return undefined
-}
-
 function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]['status'] | undefined {
   switch (value) {
     case 'pending':
@@ -807,67 +762,6 @@ function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]
     default:
       return undefined
   }
-}
-
-function toolIdentityOf(value: JSONObject): ToolIdentity | undefined {
-  switch (value.type) {
-    case 'commandExecution':
-      return { name: 'shell' }
-    case 'fileChange':
-      return { name: 'apply_patch' }
-    case 'mcpToolCall': {
-      const server = stringValue(value.server)
-      const namespace = stringValue(value.namespace) ?? (server ? mcpNamespace(server) : undefined)
-      const tool = stringValue(value.tool)
-      const name = stringValue(value.name) ?? (tool ? responsesIdentifier(tool) : undefined)
-      return name ? { ...(namespace ? { namespace } : {}), name } : undefined
-    }
-    case 'dynamicToolCall': {
-      const name = stringValue(value.tool)
-      const namespace = stringValue(value.namespace)
-      return name ? { ...(namespace ? { namespace } : {}), name } : undefined
-    }
-    case 'collabAgentToolCall':
-      return stringValue(value.tool)
-        ? { namespace: 'collaboration', name: normalizedCollaborationToolName(stringValue(value.tool)!) }
-        : undefined
-    case 'webSearch':
-      return { name: 'web_search' }
-    case 'imageView':
-      return { name: 'view_image' }
-    case 'sleep':
-      return { name: 'sleep' }
-    case 'imageGeneration':
-      return { name: 'image_generation' }
-    case 'contextCompaction':
-      return { name: 'context_compaction' }
-    default:
-      return undefined
-  }
-}
-
-function mcpNamespace(server: string): string {
-  return server.startsWith('mcp__') ? server : `mcp__${responsesIdentifier(server)}`
-}
-
-function responsesIdentifier(value: string): string {
-  return value.replace(/[^A-Za-z0-9_]/gu, '_')
-}
-
-function toolIdentityKey(identity: ToolIdentity): string {
-  return `${identity.namespace ?? ''}\u0000${identity.name}`
-}
-
-function sameToolIdentity(left: ToolIdentity, right: ToolIdentity): boolean {
-  return left.namespace === right.namespace && left.name === right.name
-}
-
-function compareToolIdentity(left: ToolIdentity, right: ToolIdentity): number {
-  return compareCodePointStrings(toolIdentityKey(left), toolIdentityKey(right))
-}
-
-function toolDisplayName(identity: ToolIdentity): string {
-  return identity.namespace ? `${identity.namespace}.${identity.name}` : identity.name
 }
 
 function fileChangePaths(value: unknown): string[] {
@@ -999,128 +893,24 @@ function terminal(status: BackgroundAgentJobTurnStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'interrupted'
 }
 
+function traceTurnOutput(payload: JSONObject): unknown {
+  for (const value of arrayValue(payload.items).reverse()) {
+    const item = jsonObject(value)
+    const text = item.type === 'agentMessage' ? stringValue(item.text) : undefined
+    if (text) return text
+  }
+
+  return undefined
+}
+
 function traceTurnError(turn: RuntimeTurn): string | undefined {
   if (turn.status === 'completed') return undefined
   return errorType(turn.error) ?? `codex_turn_${turn.status}`
 }
 
-function traceItemError(item: JSONObject): string | undefined {
-  const itemError = errorType(jsonObject(item.error))
-  if (itemError) return itemError
-  if (item.success === false || item.status === 'failed') return 'codex_tool_failed'
-  return undefined
-}
-
 function errorType(error: JSONObject): string | undefined {
   const code = stringValue(error.code)
   return code && code.trim() ? code : undefined
-}
-
-function positiveNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
-}
-
-function sanitizeValue(value: unknown, state: SanitizeState, depth = 0, key?: string): unknown {
-  if (key && sensitiveKey(key)) {
-    state.redacted = true
-    return redactionMarker
-  }
-  if (depth > maxValueDepth) {
-    state.truncated = true
-    return truncationMarker
-  }
-  if (typeof value === 'string') return sanitizeString(value, state)
-  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value
-  if (Array.isArray(value)) {
-    if (value.length > maxCollectionItems) state.truncated = true
-    return value.slice(0, maxCollectionItems).map(item => sanitizeValue(item, state, depth + 1))
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-    if (entries.length > maxCollectionItems) state.truncated = true
-    return Object.fromEntries(
-      entries
-        .slice(0, maxCollectionItems)
-        .map(([nestedKey, nested]) => [
-          sanitizeMapKey(nestedKey, state),
-          sanitizeValue(nested, state, depth + 1, nestedKey)
-        ])
-    )
-  }
-  return null
-}
-
-function sanitizeMapKey(value: string, state: SanitizeState): string {
-  const key = sanitizeBinaryOutput(value)
-  if (key !== value) state.truncated = true
-  if (utf8ByteLength(key) <= maxMapKeyBytes) return key
-  state.truncated = true
-  return `${truncateUTF8Safe(key, maxMapKeyBytes - utf8ByteLength(truncationMarker))}${truncationMarker}`
-}
-
-function sanitizeString(value: string, state: SanitizeState): string {
-  let text = sanitizeBinaryOutput(value)
-  if (text !== value) state.truncated = true
-  const redacted = redactText(text)
-  if (redacted !== text) state.redacted = true
-  text = redacted
-  if (utf8ByteLength(text) <= maxStringBytes) return text
-  state.truncated = true
-  return truncateUTF8Window(text, maxStringBytes)
-}
-
-function redactText(value: string): string {
-  return value
-    .replace(/-----BEGIN [^-\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\n]*PRIVATE KEY-----/gi, redactionMarker)
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, `Bearer ${redactionMarker}`)
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, redactionMarker)
-    .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, redactionMarker)
-    .replace(
-      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|password|passphrase|secret|credential|authorization|cookie|private[_-]?key|signature)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      (_match, label: string, separator: string) => `${label}${separator}${redactionMarker}`
-    )
-}
-
-function sensitiveKey(value: string): boolean {
-  const key = value
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/-/g, '_')
-    .toLowerCase()
-  return /(?:^|_)(?:authorization|proxy_authorization|apikey|api_key|token|access_token|refresh_token|id_token|auth_token|bearer_token|session_token|secret|client_secret|password|password_hash|passphrase|cookie|set_cookie|signature|credential|credentials|private_key|private_key_pem|secret_access_key|access_key_id)$/.test(
-    key
-  )
-}
-
-function truncateUTF8Window(value: string, maxBytes: number): string {
-  if (utf8ByteLength(value) <= maxBytes) return value
-  const available = Math.max(0, maxBytes - utf8ByteLength(truncationMarker))
-  const headBytes = Math.ceil(available / 2)
-  const tailBytes = available - headBytes
-  return `${truncateUTF8Safe(value, headBytes)}${truncationMarker}${truncateUTF8SuffixSafe(value, tailBytes)}`
-}
-
-function truncateUTF8SuffixSafe(value: string, maxBytes: number): string {
-  if (maxBytes <= 0) return ''
-  if (utf8ByteLength(value) <= maxBytes) return value
-
-  let low = 0
-  let high = value.length
-  let best = ''
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2)
-    let start = middle
-    const current = value.charCodeAt(start)
-    const previous = value.charCodeAt(start - 1)
-    if (current >= 0xdc00 && current <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff) start += 1
-    const candidate = value.slice(start)
-    if (utf8ByteLength(candidate) <= maxBytes) {
-      best = candidate
-      high = middle - 1
-    } else {
-      low = middle + 1
-    }
-  }
-  return best
 }
 
 function timestampSeconds(value: unknown): string | undefined {

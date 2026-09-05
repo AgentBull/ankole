@@ -156,6 +156,28 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     assert {:ok, _ack} = Task.await(task_two, 2_000)
   end
 
+  test "an ACK timeout fails queued replies before the req_id can be reused" do
+    {pid, server} = start_connected(Dispatcher.new())
+    Process.unlink(pid)
+    monitor = Process.monitor(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Client.stop(pid)
+      send(server, :close)
+    end)
+
+    first = Task.async(fn -> Bot.reply_markdown(pid, "same-request", "first") end)
+    assert_receive {:client_frame, %{"cmd" => "aibot_respond_msg"}}, 2_000
+    second = Task.async(fn -> Bot.reply_markdown(pid, "same-request", "second") end)
+    wait_until(fn -> Map.has_key?(:sys.get_state(pid).reply_queues, "same-request") end)
+    {seq, _from, _timer} = :sys.get_state(pid).pending["same-request"]
+    send(pid, {:ack_timeout, "same-request", seq})
+    assert {:error, %Error{reason: :ack_timeout}} = Task.await(first, 2_000)
+    assert {:error, %Error{reason: :not_connected}} = Task.await(second, 2_000)
+    refute_receive {:client_frame, %{"cmd" => "aibot_respond_msg"}}, 100
+    assert_receive {:DOWN, ^monitor, :process, ^pid, {:shutdown, :ack_timeout}}, 2_000
+  end
+
   test "proactive send uses a fresh req_id and surfaces non-zero ack errcodes" do
     {pid, server} = start_connected(Dispatcher.new())
 

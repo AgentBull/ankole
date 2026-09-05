@@ -81,6 +81,11 @@ defmodule Ankole.IdentityProvidersTest do
 
     assert {:error, {:local_provider_exists, "local-main"}} =
              IdentityProviders.save_provider("local-2", "local", %{}, true)
+
+    refute Repo.get_by(AppConfig,
+             scope: "global",
+             key: "principals.identity_providers.local.local-2"
+           )
   end
 
   test "saving a websocket-enabled provider reconciles realtime directory listeners immediately" do

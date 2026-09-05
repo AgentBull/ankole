@@ -286,6 +286,31 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     assert send_body["chat_type"] == 2
   end
 
+  test "a later chunk failure preserves uncertainty about earlier delivery" do
+    {binding, config} = setup_chat_binding()
+    counter = :counters.new(1, [])
+
+    start_fake_client(config, %{
+      "aibot_send_msg" => fn req_id, _body ->
+        :counters.add(counter, 1, 1)
+
+        if :counters.get(counter, 1) == 1 do
+          {:ok, %{"headers" => %{"req_id" => req_id}, "errcode" => 0, "body" => %{}}}
+        else
+          {:error,
+           WeComOpenAPI.Error.from_ack(%{"errcode" => 45_009, "errmsg" => "rate limited"})}
+        end
+      end
+    })
+
+    assert :unknown =
+             Outbox.send(
+               outbox_entry(binding, fallback_visible_text: String.duplicate("a", 30_000))
+             )
+
+    assert :counters.get(counter, 1) == 2
+  end
+
   test "provider ack errors classify for the outbox retry policy" do
     {binding, config} = setup_chat_binding()
 
@@ -367,8 +392,42 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     assert card["card_type"] == "button_interaction"
     assert card["task_id"] == "ankole:evt-77"
 
-    assert [%{"text" => "方案 A", "key" => "ank1|int-1|3|choice|opt-a|a"}, _b] =
-             card["button_list"]
+    assert [%{"text" => "方案 A", "key" => key}, _b] = card["button_list"]
+
+    assert {:ok, %{"interactionId" => "int-1", "interactionVersion" => 3, "optionValue" => "a"}} =
+             Inbound.parse_managed_key(key)
+  end
+
+  test "card keys preserve delimiters and fall back before the provider byte limit" do
+    output = %{
+      "interaction_id" => "int|1",
+      "control_id" => "choice|one",
+      "source_actor_event_id" => "evt-77",
+      "version" => 3,
+      "choices" => [%{"id" => "opt|a", "label" => "A", "value" => "a|b\"中文"}]
+    }
+
+    outbox = %OutboxEntry{fallback_visible_text: "choose"}
+    assert {:card, _, card} = TemplateCard.render(output, outbox)
+
+    assert {:ok,
+            %{
+              "interactionId" => "int|1",
+              "controlId" => "choice|one",
+              "selectedOptionId" => "opt|a",
+              "optionValue" => "a|b\"中文"
+            }} =
+             Inbound.parse_managed_key(hd(card["button_list"])["key"])
+
+    assert {:ok, %{"optionValue" => "a"}} =
+             Inbound.parse_managed_key("ank1|int-1|3|choice|opt-a|a")
+
+    oversized =
+      put_in(output, ["choices"], [
+        %{"id" => "a", "label" => "A", "value" => String.duplicate("文", 1024)}
+      ])
+
+    assert :fallback = TemplateCard.render(oversized, outbox)
   end
 
   test "a settled interaction card degrades to the fallback text" do

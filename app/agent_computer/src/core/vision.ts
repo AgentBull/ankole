@@ -1,3 +1,4 @@
+import { imageBytes } from '../common/image-bytes'
 import { Buffer } from 'node:buffer'
 import type { ContentPart, ImageContent, ModelConfig } from './llm'
 import { assistantText, callModel } from './llm'
@@ -203,13 +204,6 @@ function decodeBase64ImageDataURL(value: string): Uint8Array | undefined {
   const match = /^data:image\/[a-z0-9.+-]+;base64,([a-z0-9+/=\r\n]+)$/i.exec(value)
   if (!match) return undefined
   return Buffer.from(match[1]!, 'base64')
-}
-
-function imageBytes(value: Uint8Array | BufferSource): Uint8Array {
-  if (value instanceof Uint8Array) return value
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-  return new Uint8Array(value as ArrayBuffer)
 }
 
 async function withNormalizationPermit<T>(signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {

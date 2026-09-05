@@ -60,7 +60,7 @@ defmodule DingTalkOpenAPI.TokenManager do
 
     case lookup(key) do
       {:ok, token} -> {:ok, token}
-      :miss -> call_manager(client, {:fetch, key})
+      :miss -> call_manager(client, :fetch)
     end
   end
 
@@ -75,68 +75,47 @@ defmodule DingTalkOpenAPI.TokenManager do
 
   @impl true
   def init(%Client{} = client) do
-    {:ok, %{client: client, fetches: %{}, fetch_tasks: %{}, refresh_timers: %{}}}
+    {:ok, %{client: client, key: app_token_key(client), fetch: nil, refresh_timer: nil}}
   end
 
   @impl true
-  def handle_call({:fetch, key}, from, state) do
-    case lookup(key) do
+  def handle_call(:fetch, from, state) do
+    case lookup(state.key) do
       {:ok, token} ->
         {:reply, {:ok, token}, state}
 
       :miss ->
-        # Calls for the same cold key are coalesced onto one task.
-        {:noreply, enqueue_waiter(state, key, from)}
+        case state.fetch do
+          nil -> {:noreply, start_fetch(state, [from])}
+          fetch -> {:noreply, %{state | fetch: %{fetch | waiters: [from | fetch.waiters]}}}
+        end
     end
   end
 
   @impl true
-  def handle_info({:refresh, key}, state) do
-    state = update_in(state.refresh_timers, &Map.delete(&1, key))
-
-    if Map.has_key?(state.fetches, key) do
-      {:noreply, state}
-    else
-      {:noreply, start_fetch(state, key, [])}
-    end
+  def handle_info(:refresh, state) do
+    state = %{state | refresh_timer: nil}
+    {:noreply, if(is_nil(state.fetch), do: start_fetch(state, []), else: state)}
   end
 
-  def handle_info({:fetch_done, key, result}, state) do
-    state = drop_fetch_task_monitor(state, key)
-    {:noreply, finish_fetch(state, key, result)}
-  end
+  def handle_info({:fetch_done, result}, state), do: {:noreply, finish_fetch(state, result)}
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.fetch_tasks, ref) do
-      {nil, _fetch_tasks} ->
-        {:noreply, state}
-
-      {key, fetch_tasks} ->
-        result = {:error, Error.transport({:token_fetch_crashed, {:exit, reason}})}
-        {:noreply, finish_fetch(%{state | fetch_tasks: fetch_tasks}, key, result)}
-    end
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{fetch: %{ref: ref}} = state) do
+    result = {:error, Error.transport({:token_fetch_crashed, {:exit, reason}})}
+    {:noreply, finish_fetch(state, result)}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  # Internal
+  defp finish_fetch(state, result) do
+    if state.fetch.ref, do: Process.demonitor(state.fetch.ref, [:flush])
+    Enum.each(state.fetch.waiters, &GenServer.reply(&1, client_result(result)))
+    state = %{state | fetch: nil}
 
-  defp finish_fetch(state, key, result) do
-    {waiters, fetches} = Map.pop(state.fetches, key, [])
-    state = %{state | fetches: fetches}
-
-    Enum.each(waiters, fn {:waiter, from} -> GenServer.reply(from, client_result(result)) end)
-
-    state =
-      case result do
-        {:ok, _token, expires_at_ms} when is_integer(expires_at_ms) ->
-          schedule_refresh(state, key, expires_at_ms)
-
-        _other ->
-          state
-      end
-
-    state
+    case result do
+      {:ok, _token, expires_at_ms} -> schedule_refresh(state, expires_at_ms)
+      _other -> state
+    end
   end
 
   defp client_result({:ok, token, _expires_at}), do: {:ok, token}
@@ -183,34 +162,20 @@ defmodule DingTalkOpenAPI.TokenManager do
     end
   end
 
-  defp enqueue_waiter(state, key, from) do
-    case Map.fetch(state.fetches, key) do
-      {:ok, waiters} ->
-        %{state | fetches: Map.put(state.fetches, key, [{:waiter, from} | waiters])}
-
-      :error ->
-        start_fetch(state, key, [{:waiter, from}])
-    end
-  end
-
-  defp start_fetch(state, key, initial_waiters) do
-    state = cancel_refresh_timer(state, key)
-    fetches = Map.put(state.fetches, key, initial_waiters)
-
+  defp start_fetch(state, waiters) do
+    state = cancel_refresh_timer(state)
     parent = self()
     client = state.client
+    key = state.key
 
-    case start_fetch_task(fn ->
-           result = safe_fetch(client, key)
-           send(parent, {:fetch_done, key, result})
-         end) do
+    case start_fetch_task(fn -> send(parent, {:fetch_done, safe_fetch(client, key)}) end) do
       {:ok, pid} ->
-        ref = Process.monitor(pid)
-        %{state | fetches: fetches, fetch_tasks: Map.put(state.fetch_tasks, ref, key)}
+        %{state | fetch: %{ref: Process.monitor(pid), waiters: waiters}}
 
       {:error, reason} ->
-        send(parent, {:fetch_done, key, {:error, Error.transport({:fetch_start_failed, reason})}})
-        %{state | fetches: fetches}
+        result = {:error, Error.transport({:fetch_start_failed, reason})}
+        Enum.each(waiters, &GenServer.reply(&1, result))
+        state
     end
   end
 
@@ -219,17 +184,6 @@ defmodule DingTalkOpenAPI.TokenManager do
       Task.Supervisor.start_child(DingTalkOpenAPI.EventTaskSupervisor, fun)
     catch
       :exit, reason -> {:error, reason}
-    end
-  end
-
-  defp drop_fetch_task_monitor(state, key) do
-    case Enum.find(state.fetch_tasks, fn {_ref, task_key} -> task_key == key end) do
-      nil ->
-        state
-
-      {ref, ^key} ->
-        Process.demonitor(ref, [:flush])
-        %{state | fetch_tasks: Map.delete(state.fetch_tasks, ref)}
     end
   end
 
@@ -267,27 +221,18 @@ defmodule DingTalkOpenAPI.TokenManager do
     {:ok, token, expires_at}
   end
 
-  defp schedule_refresh(state, key, expires_at_ms) do
-    state = cancel_refresh_timer(state, key)
+  defp schedule_refresh(state, expires_at_ms) do
+    state = cancel_refresh_timer(state)
     delay = expires_at_ms - System.monotonic_time(:millisecond) - @refresh_lead_ms
 
-    if delay > 0 do
-      timer = Process.send_after(self(), {:refresh, key}, delay)
-      %{state | refresh_timers: Map.put(state.refresh_timers, key, timer)}
-    else
-      state
-    end
+    if delay > 0,
+      do: %{state | refresh_timer: Process.send_after(self(), :refresh, delay)},
+      else: state
   end
 
-  defp cancel_refresh_timer(state, key) do
-    case Map.pop(state.refresh_timers, key) do
-      {nil, _rest} ->
-        state
-
-      {timer, rest} ->
-        _ = Process.cancel_timer(timer)
-        %{state | refresh_timers: rest}
-    end
+  defp cancel_refresh_timer(state) do
+    if state.refresh_timer, do: Process.cancel_timer(state.refresh_timer)
+    %{state | refresh_timer: nil}
   end
 
   defp app_token_key(%Client{} = client), do: {:app, Client.cache_namespace(client)}

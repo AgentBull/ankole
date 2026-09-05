@@ -116,10 +116,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
       case send_message(client, robot_code, target, msg_key, msg_param) do
         {:ok, result} -> {:cont, [result | results]}
+        {:error, _reason} when results != [] -> {:halt, :unknown}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
+      :unknown -> :unknown
       {:error, _reason} = error -> error
       results -> {:ok, combined_result(Enum.reverse(results), outbox.payload)}
     end

@@ -46,12 +46,14 @@ export interface RenderedPage {
   details: JSONObject
 }
 
-interface FetchedPage {
+export interface FetchedPage {
   url: string
   title?: string
   error?: string
   source?: string
   text: string
+  textChars: number
+  storedPath?: string
 }
 
 /**
@@ -74,14 +76,35 @@ type RenderWarning = 'script_shell' | 'empty_text'
  * only complete copy.
  */
 export function renderFetchedPages(body: unknown, options: RenderFetchedPagesOptions): RenderedFetchedPages {
-  const record = isRecord(body) ? body : {}
-  const bodySource = stringField(record, 'source')
-  const results = Array.isArray(record.results) ? record.results : []
-  if (results.length === 0) return { text: 'No web fetch results.', details: pageDetails(record, []), pages: [] }
+  return renderPreparedPages(prepareFetchedPages(body, options), options, body)
+}
 
-  const pages = results.map(result => readFetchedPage(result, bodySource))
+/** Keeps bounded text in memory and the complete stored copy for later renders. */
+export function prepareFetchedPages(body: unknown, options: RenderFetchedPagesOptions): FetchedPage[] {
+  const record = isRecord(body) ? body : {}
+  const results = Array.isArray(record.results) ? record.results : []
+  const maxChars = Math.max(options.budgetChars ?? WEB_FETCH_BUDGET_CHARS, WEB_FETCH_BUDGET_CHARS)
+  return results.map(result => {
+    const page = readFetchedPage(result, stringField(record, 'source'))
+    if (page.textChars > maxChars) {
+      page.storedPath = storeFullPage(options.workspaceRoot, page.url, page.text)
+      const headChars = Math.floor(maxChars * HeadRatio)
+      // Keep the next character too, for the read_file line offset at the cut.
+      page.text = truncateUtf16Safe(page.text, headChars + 1) + truncateUtf16SafeTail(page.text, maxChars - headChars)
+    }
+    return page
+  })
+}
+
+export function renderPreparedPages(
+  pages: FetchedPage[],
+  options: RenderFetchedPagesOptions,
+  body: unknown = {}
+): RenderedFetchedPages {
+  const record = isRecord(body) ? body : {}
+  if (pages.length === 0) return { text: 'No web fetch results.', details: pageDetails(record, []), pages: [] }
   const budgets = allocateBudgets(
-    pages.map(page => page.text.length),
+    pages.map(page => page.textChars),
     options.budgetChars ?? WEB_FETCH_BUDGET_CHARS
   )
   const rendered = pages.map((page, index) => renderPage(page, budgets[index] ?? 0, options.workspaceRoot))
@@ -151,25 +174,35 @@ function renderPage(page: FetchedPage, budget: number, workspaceRoot: string): R
   const warningNote = warning ? renderWarningNote(warning) : undefined
   const warningDetails: JSONObject = warning ? { render_warning: warning } : {}
   const title = page.title ? `Title: ${page.title}` : undefined
-  if (page.text.length <= budget) {
+  if (page.textChars <= budget) {
     return {
       url: page.url,
       text: [...heading, title, warningNote, page.text].filter(Boolean).join('\n'),
-      details: { ...identity, text_chars: page.text.length, truncated: false, ...warningDetails }
+      details: { ...identity, text_chars: page.textChars, truncated: false, ...warningDetails }
     }
   }
 
   const { head, tail } = headTailWindow(page.text, budget)
-  const storedPath = storeFullPage(workspaceRoot, page.url, page.text)
+  const storedPath =
+    page.storedPath ??
+    (page.textChars === page.text.length ? storeFullPage(workspaceRoot, page.url, page.text) : undefined)
+  page.storedPath = storedPath
 
   return {
     url: page.url,
-    text: [...heading, title, ...truncationNote(head, tail, page.text, storedPath), head, MiddleOmittedMarker, tail]
+    text: [
+      ...heading,
+      title,
+      ...truncationNote(head, tail, page.text, page.textChars, storedPath),
+      head,
+      MiddleOmittedMarker,
+      tail
+    ]
       .filter(Boolean)
       .join('\n'),
     details: {
       ...identity,
-      text_chars: page.text.length,
+      text_chars: page.textChars,
       shown_chars: head.length + tail.length,
       truncated: true,
       ...(storedPath ? { stored_path: storedPath } : { stored: false })
@@ -238,8 +271,8 @@ function headTailWindow(text: string, budget: number): { head: string; tail: str
  * keeps the head of a tool result and cuts its tail, so a note under the page
  * text can disappear on that path.
  */
-function truncationNote(head: string, tail: string, text: string, storedPath?: string): string[] {
-  const shown = `Truncated: this result shows the first ${head.length} and the last ${tail.length} characters of ${text.length}.`
+function truncationNote(head: string, tail: string, text: string, textChars: number, storedPath?: string): string[] {
+  const shown = `Truncated: this result shows the first ${head.length} and the last ${tail.length} characters of ${textChars}.`
   if (!storedPath) {
     return [shown, 'The full text could not be saved. Fetch a more specific URL to read the omitted middle.']
   }
@@ -302,7 +335,8 @@ function readFetchedPage(value: unknown, bodySource?: string): FetchedPage {
     title: stringField(item, 'title'),
     error: stringField(item, 'error'),
     source: stringField(metadata, 'source') ?? bodySource,
-    text: stringField(item, 'text') ?? ''
+    text: stringField(item, 'text') ?? '',
+    textChars: (stringField(item, 'text') ?? '').length
   }
 }
 

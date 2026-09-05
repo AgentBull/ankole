@@ -229,9 +229,13 @@ The four strategies are:
 - `least_used` selects the entry with the smallest process-local request count.
 - `random` selects one usable entry at random.
 
-A stateful request uses its thread or cache key as an affinity key. Affinity
-wins over the configured strategy while that entry is usable. This keeps
-account-scoped provider caches stable.
+A stateful request uses its thread or cache key as an affinity key. Each
+provider keeps at most 10,000 process-local affinity mappings. A successful
+selection makes its key the most recently used; a new key at capacity removes
+the least recently used mapping. Retained affinity wins over the configured
+strategy while its credential is usable. After eviction, the next selection
+uses the configured strategy and can choose a different credential. Eviction
+does not change credentials already selected for requests in progress.
 
 Runtime health is process-local and has three states. It uses the provider row,
 credential ID, and health revision as its key. `ok` entries can be selected.
@@ -1205,8 +1209,9 @@ failures use `ERROR`.
 Optional trace export uses the official OpenTelemetry API in the control plane
 and sends OTLP over HTTP/protobuf. OpenTelemetry is the process-wide
 instrumentation and export implementation, and OTLP is the receiver contract.
-An observability Provider adds vendor attributes only to Turn roots and
-AIGateway LLM spans.
+An observability Provider adds vendor attributes to Turn roots and AIGateway
+LLM spans. It also maps provider-neutral Worker content when the control plane
+forwards a Worker OTLP batch.
 It is not an AIGateway Provider, does not own transport, and does not filter
 other OpenTelemetry spans.
 
@@ -1228,7 +1233,8 @@ The three Providers use the process-wide OpenTelemetry SDK and OTLP exporter.
 `langfuse` adds the Langfuse v4 observation projection. `langsmith` adds the
 LangSmith run-type and legacy GenAI content projection that its current OTLP
 mapping accepts. `opentelemetry` adds no vendor attributes and is appropriate
-for generic stores such as VictoriaTraces, Honeycomb, and Grafana Cloud.
+for generic stores such as VictoriaTraces, Honeycomb, and Grafana Cloud. A
+Worker does not read this selection or persist it in a TurnStart.
 
 The control plane reads these values once during startup. A configuration
 change requires a restart. AppConfigure owns whether the process-wide exporter
@@ -1263,34 +1269,37 @@ routing, or session identity.
 
 The control plane writes the root's W3C `traceparent` and derived user
 attribution into the existing `request_context_json`. Agent Computer uses the
-traceparent as the explicit remote parent for Main Agent tools, `codex.turn`,
-and Codex tool spans. It applies the same `user.id`, or the same omission, to
-each Worker span. It sends the traceparent and an unpadded base64url carrier for
-the user value on each AIGateway HTTP or WebSocket request. This encoding only
-keeps the internal header ASCII-safe. The control plane decodes the original
-`user.id`, and the carrier does not reach a model Provider. Worker spans use a
-lazy OpenTelemetry tracer provider and return protobuf OTLP batches through the
-authenticated Runtime Fabric RPC lane.
+traceparent as the explicit remote parent for Main Agent tools, the
+`invoke_agent codex` span, and `execute_tool` Codex spans. It applies the same
+`user.id`, or the same omission, to each Worker span. It sends the traceparent
+and an unpadded base64url carrier for the user value on each AIGateway HTTP or
+WebSocket request. This encoding only keeps the internal header ASCII-safe. The
+control plane decodes the original `user.id`, and the carrier does not reach a
+model Provider. Worker spans use a lazy OpenTelemetry tracer provider and
+return provider-neutral protobuf OTLP batches through the authenticated Runtime
+Fabric RPC lane.
 The Worker RPC route continues to use the Agent Principal, not `user.id`. The
-control plane forwards those bytes to its configured receiver, so receiver
-credentials never leave the control plane. Export and forwarding are best
+control plane applies the selected Provider mapping at this export boundary and
+forwards the result to its configured receiver, so receiver credentials and
+vendor semantics never leave the control plane. The generic `opentelemetry`
+Provider forwards the original bytes unchanged. Export and forwarding are best
 effort and cannot change a Turn result.
 
-Within a traced Turn, one `ai_gateway.response` child span covers each public
-AIGateway Response. AIGateway accepts the carried Turn user only from an
-authenticated Agent request with a valid `traceparent`. A direct request, or
-another request that cannot use the carried value, uses
-`principal:<authenticated_subject_uid>`. A request with no valid `traceparent`
-keeps `ai_gateway.response` as its root. Each provider round is one
-`chat {model}` child span. A provider retry before any output stays inside the
-same generation, and each credential-pool retry adds one
+Within a traced Agent Turn, each `chat {model}` provider round is a direct child
+of the Turn root. The redundant `ai_gateway.response` wrapper is absent. A
+standalone or non-Agent AIGateway request keeps one `ai_gateway.response` root,
+with each provider round as its child. AIGateway accepts the carried Turn user
+only from an authenticated Agent request with a valid `traceparent`. A direct
+request, or another request that cannot use the carried value, uses
+`principal:<authenticated_subject_uid>`. A provider retry before any output
+stays inside the same generation, and each credential-pool retry adds one
 `ankole.ai_gateway.credential_retry` event with the classified `error.type` and
 the planned delay. Tool Search or a program continuation starts another
-generation under the same Response span. A provider-native compact call is one
-`compact {model}` root generation of its own. A provider terminal ends the
-generation before image persistence, stateful commit, or public projection
-settles the Response span, so provider completion is not confused with durable
-Response completion or ActorEvent delivery.
+generation under the same Turn or Response parent. A provider-native compact
+call is one `compact {model}` root generation of its own. A provider terminal
+ends the generation before image persistence, stateful commit, or public
+projection settles the request, so provider completion is not confused with
+durable Response completion or ActorEvent delivery.
 
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token
@@ -1307,14 +1316,19 @@ for internal callers such as compaction. The exported
 resource names `service.name`, and adds `service.version` from
 `ANKOLE_VERSION` and `deployment.environment.name` from `ANKOLE_ENV` when
 those variables are set — the same sources that label logs. The common layer
-includes standard `gen_ai.*` attributes and bounded `ankole.ai_gateway.input`
-and `ankole.ai_gateway.output` values. A Provider can add only its receiver's
-compatibility projection. The common layer removes credentials, headers,
-generic caller metadata, encrypted reasoning and tool fields, and `__ankole_*`
-control fields. It replaces inline `data:` media with its byte count and omits
-an input or output payload that exceeds 1 MiB. Enabling the feature still
-sends model content outside Ankole, so the operator must treat the receiver as
-a trusted system.
+includes standard `gen_ai.*` operation, model, usage, and tool attributes. Each
+span has one content projection: generic OTLP uses bounded `ankole.*` content,
+Langfuse uses `langfuse.observation.*`, and LangSmith uses its accepted
+`gen_ai.prompt` and `gen_ai.completion` fields. Worker agent spans first carry
+bounded `ankole.agent.input` and `ankole.agent.output`; Worker tool spans carry
+the standard `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`. A
+vendor Provider replaces these content fields at the control-plane export
+boundary instead of retaining duplicate payloads. The common layer removes
+credentials, headers, generic caller metadata, encrypted reasoning and tool
+fields, and `__ankole_*` control fields. It replaces inline `data:` media with
+its byte count and omits an input or output payload that exceeds 1 MiB. Enabling
+the feature still sends model content outside Ankole, so the operator must
+treat the receiver as a trusted system.
 
 For Langfuse v4, use a base endpoint such as
 `https://cloud.langfuse.com/api/public/otel`. Put a Basic `Authorization` value
@@ -1323,15 +1337,17 @@ and `x-langfuse-ingestion-version: 4` in the encrypted header map. The
 the existing session key as the Langfuse session. It writes
 `ANKOLE_VERSION` as `langfuse.release`, and writes the Agent Principal, caller,
 and originator facts as filterable trace metadata. Langfuse reads the
-environment from the exported resource. This mapping applies only to spans
-that the updated processes create. It does not update historical Langfuse
-records.
+environment from the exported resource. It marks Worker Agent and tool spans
+as `agent` and `tool` observations and maps their concrete input and available
+output to the observation fields. This mapping applies only to spans that the
+updated processes create. It does not update historical Langfuse records.
 
 For LangSmith, use the regional base endpoint ending in `/otel`, an `x-api-key`
 header, and an optional `Langsmith-Project` header. When a Response belongs to
 a conversation, the `langsmith` Provider copies the conversation identifier to
 the documented `langsmith.trace.session_id` and also keeps the vendor-neutral
-`gen_ai.conversation.id` and `session.id` attributes.
+`gen_ai.conversation.id` and `session.id` attributes. It maps Worker Agent and
+tool content to one LangSmith-compatible input and output pair at export.
 
 Unlike optional traces, these structured logs do not contain prompts, tool
 arguments, tool results, provider messages, provider response bodies, image

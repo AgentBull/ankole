@@ -159,17 +159,18 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  @spec resolve_runtime_bot_identity(chat_config()) :: chat_config()
+  @spec resolve_runtime_bot_identity(chat_config()) :: {:ok, chat_config()} | {:error, term()}
   def resolve_runtime_bot_identity(config) do
     if MapHelpers.presence(Map.get(config, "botUserID")) do
-      config
+      {:ok, config}
     else
       case fetch_runtime_bot_identity(config) do
         {:ok, identity} ->
-          config
-          |> maybe_map_put("runtimeBotUserID", Map.get(identity, "user_id"))
-          |> maybe_map_put("runtimeBotID", Map.get(identity, "bot_id"))
-          |> maybe_map_put("runtimeTeamID", Map.get(identity, "team_id"))
+          {:ok,
+           config
+           |> maybe_map_put("runtimeBotUserID", Map.get(identity, "user_id"))
+           |> maybe_map_put("runtimeBotID", Map.get(identity, "bot_id"))
+           |> maybe_map_put("runtimeTeamID", Map.get(identity, "team_id"))}
 
         {:error, reason} ->
           Logging.warning(
@@ -178,7 +179,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
             %{connection_key: inspect(connection_key(config)), reason: inspect(reason)}
           )
 
-          config
+          {:error, reason}
       end
     end
   end

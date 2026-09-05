@@ -7,10 +7,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
   runtime-owned activation state and must be interpreted through the Principal
   UID normalization path before it is used for authorization or durable writes.
 
-  `lookup/3` reads the fence rows in the shared lock order (worker, activation,
-  assignment, deliveries) and never decides. `match/4` decides and never reads,
-  so every rejection atom is a pure function of the rows, the fence, and the
-  mode.
+  `lookup/3` reads Worker, activation, and assignment in that lock order.
+  Completion and abort callers then lock the current ActorEvent and call
+  `lock_live_deliveries/2`. `match/4` decides and never reads, so each rejection
+  atom is a pure function of the rows, the fence, and the mode.
 
   Modes and what they compare:
 
@@ -165,8 +165,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
     * `:route` — resolve the worker by its transport route instead of the
       activation's assigned worker, and also read the live assignment. This is
       the route-authorization shape.
-    * `:deliveries` — `:live` also reads the live deliveries under the event
-      fence.
 
   A row that does not exist is `nil`; a row set that was not requested is
   `nil` too. `match/4` turns those into the mode's rejection atom.
@@ -186,9 +184,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
       worker: worker,
       activation: worker && activation_for_worker(repo, turn_ref, worker.worker_id, lock?),
       assignment: worker && route && live_assignment(repo, turn_ref, worker.worker_id, lock?),
-      deliveries:
-        if(Keyword.get(opts, :deliveries) == :live, do: live_deliveries(repo, turn_ref, lock?))
+      deliveries: nil
     }
+  end
+
+  @doc """
+  Locks the live deliveries after the caller locks the current ActorEvent.
+
+  Completion and abort first use lookup/3 to lock Worker and activation,
+  then lock the ActorEvent, then load these deliveries. Source retraction
+  also locks the ActorEvent before its deliveries.
+  """
+  @spec lock_live_deliveries(module(), t()) :: [ActorEventDelivery.t()]
+  def lock_live_deliveries(repo, %__MODULE__{} = turn_ref) do
+    ActorEventDelivery
+    |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+    |> lock("FOR UPDATE")
+    |> repo.all()
   end
 
   @doc """
@@ -341,7 +354,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
   defp deliveries!(_rows, mode) do
     raise ArgumentError,
           "TurnRef.match/4 in #{inspect(mode)} mode needs rows.deliveries; " <>
-            "call lookup/3 with deliveries: :live"
+            "load them with lock_live_deliveries/2 after locking the ActorEvent"
   end
 
   defp match_completion_deliveries(deliveries, turn_ref) do
@@ -439,14 +452,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
     |> where([assignment], assignment.status in ["assigned", "draining"])
     |> maybe_lock(lock?)
     |> repo.one()
-  end
-
-  defp live_deliveries(repo, turn_ref, lock?) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> maybe_lock(lock?)
-    |> repo.all()
   end
 
   defp maybe_lock(query, true), do: lock(query, "FOR UPDATE")

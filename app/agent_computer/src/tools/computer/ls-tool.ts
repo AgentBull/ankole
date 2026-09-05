@@ -1,4 +1,5 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
@@ -81,13 +82,13 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
         return miss(`Not a directory: ${requested}`)
       }
 
-      let entries: string[]
+      let entries: Dirent[]
       try {
-        entries = await readdir(target)
+        entries = await readdir(target, { withFileTypes: true })
       } catch (error) {
         return miss(`Cannot read directory: ${error instanceof Error ? error.message : String(error)}`)
       }
-      entries.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+      entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
 
       const limit = params.limit ?? DEFAULT_LIMIT
       const rendered: string[] = []
@@ -98,8 +99,8 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
           break
         }
         try {
-          const entryStat = await stat(join(target, entry))
-          rendered.push(entryStat.isDirectory() ? `${entry}/` : entry)
+          const entryStat = entry.isSymbolicLink() ? await stat(join(target, entry.name)) : entry
+          rendered.push(entryStat.isDirectory() ? `${entry.name}/` : entry.name)
         } catch {
           // A dangling symlink or a file deleted mid-listing is not worth failing the call.
           continue

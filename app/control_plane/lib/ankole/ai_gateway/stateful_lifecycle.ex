@@ -170,8 +170,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          checkpoint_response_id = response_id(checkpoint.id),
          history =
            StatefulResponses.expand_history(conversation_id,
-             previous_response_id: checkpoint_response_id,
-             protected_tail_items: message.content
+             previous_response_id: checkpoint_response_id
            ),
          context = %{
            subject_uid: subject_uid,
@@ -295,8 +294,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          current_input <- Brain.inject_stateful(subject_uid, request, conversation, current_input),
          history <-
            StatefulResponses.expand_history(conversation.id,
-             previous_response_id: effective_previous_response_id,
-             protected_tail_items: current_input
+             previous_response_id: effective_previous_response_id
            ),
          {current_input, recovered_call_ids} <-
            recover_interrupted_tool_calls(history, current_input, previous_response_id),
@@ -452,8 +450,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         |> Map.put(
           :history,
           StatefulResponses.expand_history(context.conversation.id,
-            previous_response_id: previous_response_id,
-            protected_tail_items: context.current_input
+            previous_response_id: previous_response_id
           )
         )
         |> Map.put(:previous_response_id, previous_response_id)

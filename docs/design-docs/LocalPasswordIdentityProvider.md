@@ -24,6 +24,12 @@ all instances would read and write the same credential table, so
 `save_provider` rejects a second instance instead of leaving the
 retry-protection configuration ambiguous.
 
+IdentityProviders.Config commits each provider configuration and its activation
+list entry in one AppConfigure transaction. It merges against the current
+PostgreSQL list under its key lock and checks the local-provider limit there,
+including disabled instances. A rejected save leaves no new configuration.
+Directory sync and realtime reconciliation run after the commit.
+
 LocalPassword can provide the administrator sign-in method in a consumer IM
 setup. It has no dependency on Telegram or any other Signal adapter, and it
 does not control external identity mapping. An administrator can map a

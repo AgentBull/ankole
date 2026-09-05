@@ -777,7 +777,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       dirty: rich? and map_size(checkpoint) > 0,
       reply_preview_adapter: rich_adapter,
       presentation: presentation,
-      last_synced_presentation: checkpoint["presentation"],
       rich_task: nil,
       rich_task_kind: nil,
       rich_task_generation: nil,
@@ -1249,7 +1248,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
              edit_sequence: 0,
              dirty: false,
              presentation: presentation,
-             last_synced_presentation: checkpoint["presentation"],
              rich_task: nil,
              rich_task_kind: nil,
              rich_task_generation: nil,
@@ -1422,7 +1420,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     %{
       state
       | actor_event: actor_event,
-        last_synced_presentation: state.rich_task_presentation,
         rich_task: nil,
         rich_task_kind: nil,
         rich_task_generation: nil,

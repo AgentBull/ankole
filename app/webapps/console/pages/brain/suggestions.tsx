@@ -133,7 +133,16 @@ export function BrainSuggestionsPage() {
             <TableCell className="text-right">
               {status === 'pending' ? (
                 <div className="flex justify-end gap-1">
-                  <Button size="xs" type="button" variant="ghost" onClick={() => setApproveTarget(suggestion)}>
+                  <Button
+                    size="xs"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setPrimitive('')
+                      setSlugPrefix('')
+                      setTargetType('')
+                      setApproveTarget(suggestion)
+                    }}>
                     {t('console.brain.approve')}
                   </Button>
                   <Button size="xs" type="button" variant="ghost" onClick={() => setRejectTarget(suggestion)}>

@@ -1,4 +1,4 @@
-import { create, toJson as toJSON } from '@bufbuild/protobuf'
+import { create, toBinary, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
@@ -31,6 +31,7 @@ import {
   Lane,
   MailboxUpdatedSchema,
   RPCRequestSchema,
+  RPCResponseSchema,
   TurnStartSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
@@ -42,10 +43,13 @@ import type { WorkerConfig } from '../src/worker/config'
 import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import { ActiveTurn, startTurnProgress } from '../src/worker/active_turns'
+import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active_turns'
+import { WorkerDrainState } from '../src/worker/drain'
+import type { BrowserRuntime } from '../src/browser-runtime'
+import { ActorTurnAbortResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { turnFailureDetails } from '../src/worker/turn_failure'
 import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
-import { RPCRejectedError } from '../src/lanes/rpc_lane'
+import { RPCRejectedError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
 // Runs the same seal the dealer send path applies, so assertions read the
@@ -55,6 +59,54 @@ function sealed(envelope: Envelope): Envelope {
 }
 
 describe('@ankole/agent-computer runtime', () => {
+  for (const reason of ['draining', 'capacity'] as const) {
+    it(`returns from ${reason} rejection before the receive loop supplies its ACK`, async () => {
+      const sent: Envelope[] = []
+      const send = async (envelope: Envelope) => {
+        sent.push(envelope)
+      }
+      const rpc = new RuntimeRPCClient(send)
+      const drain = new WorkerDrainState()
+      if (reason === 'draining') drain.begin('sigterm')
+      const active = new ActiveTurns(
+        { ...workerConfig(), maxConcurrentTurns: 0 },
+        {} as BrowserRuntime,
+        send,
+        rpc,
+        drain
+      )
+      const envelope = createEnvelope({
+        ...envelopeHeader('turn-start-rejected'),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            workspaceId: 10_000n,
+            turn: actorTurnRefToProto(actorTurnRef()),
+            actorEvent: create(ActorEventEnvelopeSchema, {
+              actorEventId: actorTurnRef().actor_event_id,
+              queueSequence: 1n,
+              type: 'im.message.addressed',
+              sourceEventId: 'source-1'
+            })
+          })
+        }
+      })
+      await active.start(envelope)
+      expect(active.size).toBe(0)
+      expect(drain.activeTaskCount).toBe(1)
+      const request = sent[0]!.body
+      if (request.case !== 'rpcRequest') throw new Error('expected abort RPC')
+      rpc.resolve(
+        create(RPCResponseSchema, {
+          requestId: request.value.requestId,
+          payload: toBinary(ActorTurnAbortResponseSchema, create(ActorTurnAbortResponseSchema))
+        })
+      )
+      await Bun.sleep(0)
+      expect(drain.activeTaskCount).toBe(0)
+    })
+  }
+
   it('parses a credential-free RuntimeFabric endpoint', () => {
     expect(parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toBe('tcp://127.0.0.1:6010')
     expect(() => parseRuntimeFabricEndpoint('tcp://:secret@127.0.0.1:6010')).toThrow(/credentials/)
@@ -624,6 +676,41 @@ describe('@ankole/agent-computer runtime', () => {
       ).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('ends a read when the source is truncated after READ_READY', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-truncated-'))
+    const config = workerConfigForRoot(root)
+    const sent: Buffer[][] = []
+    const lane = createFileTransferLane(config, async frames => {
+      sent.push(frames)
+    })
+    try {
+      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
+      mkdirSync(paths.userFiles, { recursive: true })
+      const path = join(paths.userFiles, 'truncated.txt')
+      writeFileSync(path, 'original bytes')
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from('truncated'),
+        Buffer.from('/user_files/agent-1/user-files/truncated.txt'),
+        Buffer.from('none')
+      ])
+      writeFileSync(path, 'short')
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('CREDIT'),
+        Buffer.from('truncated'),
+        u64Frame(creditWindow)
+      ])
+      const error = await waitForFrame(sent, 'truncated', 'ERROR')
+      expect(error[3]?.toString()).toBe('file_changed')
+      expect(sent.filter(frames => frames[1]?.toString() === 'ERROR')).toHaveLength(1)
+      expect(sent.some(frames => frames[1]?.toString() === 'READ_DONE')).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

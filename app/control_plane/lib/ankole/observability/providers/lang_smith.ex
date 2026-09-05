@@ -5,6 +5,8 @@ defmodule Ankole.Observability.Providers.LangSmith do
 
   import Ankole.Observability.Trace, only: [put_present: 3]
 
+  alias Ankole.Observability.WorkerOTLP
+
   @impl true
   def trace_attributes(context) do
     %{}
@@ -38,8 +40,45 @@ defmodule Ankole.Observability.Providers.LangSmith do
   end
 
   @impl true
-  def output_attributes(output), do: %{"gen_ai.completion" => output}
+  def output_attributes(output, _observation), do: %{"gen_ai.completion" => output}
 
   @impl true
   def first_output_attributes, do: %{}
+
+  @impl true
+  def map_worker_spans(payload) do
+    WorkerOTLP.map_span_attributes(payload, &worker_span_attribute_patch/1)
+  end
+
+  defp worker_span_attribute_patch(attributes) do
+    case Map.get(attributes, "gen_ai.operation.name") do
+      "invoke_agent" ->
+        observation_patch(attributes, "chain", "ankole.agent.input", "ankole.agent.output")
+
+      "execute_tool" ->
+        observation_patch(
+          attributes,
+          "tool",
+          "gen_ai.tool.call.arguments",
+          "gen_ai.tool.call.result"
+        )
+
+      _operation ->
+        %{put: %{}, drop: []}
+    end
+  end
+
+  defp observation_patch(attributes, kind, input_key, output_key) do
+    put =
+      %{"langsmith.span.kind" => kind}
+      |> put_attribute("gen_ai.prompt", Map.get(attributes, input_key))
+      |> put_attribute("gen_ai.completion", Map.get(attributes, output_key))
+
+    %{put: put, drop: [input_key, output_key]}
+  end
+
+  defp put_attribute(attributes, key, value) when is_binary(value),
+    do: Map.put(attributes, key, value)
+
+  defp put_attribute(attributes, _key, _value), do: attributes
 end

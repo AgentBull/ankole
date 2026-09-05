@@ -70,6 +70,9 @@ defmodule Ankole.Brain.ToolsTest do
     assert Tools.function_specs(["get_page", "recall"]) |> Enum.map(& &1["name"]) ==
              ["recall", "get_page"]
 
+    [remember] = Tools.function_specs(["remember"])
+    assert remember["description"] =~ "agents/<uid> identifies a system Agent Principal"
+
     assert Tools.read_only?("recall")
     refute Tools.read_only?("remember")
     refute Tools.operation?("delete_everything")

@@ -487,6 +487,60 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:error, :outbound_attachments_not_supported} = Outbox.send(with_attachment)
     end
 
+    test "a later chunk failure preserves uncertainty about earlier delivery" do
+      %{principal: agent} = agent_fixture()
+      binding = teams_binding_fixture(agent.uid, "teams-send-partial")
+
+      {:ok, _} =
+        TeamsChannels.upsert_channel_projection(
+          %{
+            conversation_id: "partial-send",
+            conversation_type: "personal",
+            service_url: @service_url
+          },
+          nil
+        )
+
+      counter = :counters.new(1, [])
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          String.ends_with?(conn.request_path, "/token") ->
+            Req.Test.json(conn, %{
+              "access_token" => "bot-token",
+              "expires_in" => 3600,
+              "token_type" => "Bearer"
+            })
+
+          String.contains?(conn.request_path, "/activities") ->
+            :counters.add(counter, 1, 1)
+
+            if :counters.get(counter, 1) == 1 do
+              Req.Test.json(conn, %{"id" => "activity-1"})
+            else
+              conn
+              |> Plug.Conn.put_status(400)
+              |> Req.Test.json(%{"error" => %{"code" => "BadArgument", "message" => "rejected"}})
+            end
+
+          true ->
+            default_microsoft_request(conn)
+        end
+      end)
+
+      assert :unknown =
+               Outbox.send(%OutboxEntry{
+                 agent_uid: agent.uid,
+                 binding_name: binding.name,
+                 operation: :post,
+                 signal_channel_id: Conversations.signal_channel_id("partial-send"),
+                 payload: %{},
+                 fallback_visible_text: String.duplicate("a", 24_001)
+               })
+
+      assert :counters.get(counter, 1) == 2
+    end
+
     test "delivery failures classify for the gateway retry policy" do
       rate_limited = %MicrosoftOpenAPI.Error{reason: :rate_limited, status: 429, retry_after: 7}
 

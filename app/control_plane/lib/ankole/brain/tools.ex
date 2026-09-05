@@ -353,21 +353,16 @@ defmodule Ankole.Brain.Tools do
 
   defp claim_kind(kind), do: {:error, {:invalid_kind, kind}}
 
-  # Confidence and weight live on a 0.05 grid. Rejecting an off-grid value here
-  # gives the model an immediate, self-explaining error instead of a write
-  # failure deep in the claim path.
   defp validate_grid(params, key) do
     case Map.get(params, key) do
       nil ->
         :ok
 
-      value when is_number(value) and value >= 0 and value <= 1 ->
-        if abs(value * 20 - Float.round(value * 20)) < 1.0e-6,
-          do: :ok,
-          else: {:error, {:off_grid, key}}
-
-      _value ->
-        {:error, {:off_grid, key}}
+      value ->
+        case Claims.validate_grid_value(value, key) do
+          :ok -> :ok
+          {:error, _reason} -> {:error, {:off_grid, key}}
+        end
     end
   end
 
@@ -568,6 +563,7 @@ defmodule Ankole.Brain.Tools do
         "Use it for information with long-term value: facts, preferences, commitments, beliefs, events, and your own takes, bets, or hunches. Do not store small talk or transient task detail.",
         "Consult ConfidentialityPolicy.md when you choose scope. Omit scope to use the conversation audience; set it explicitly when the fact should reach a different audience. When one input contains parts with different disclosure ranges, split it and call remember once for each part with its own scope.",
         "holder names who HOLDS the judgment, not who the claim is about: when a person states an opinion about someone else, the holder is that person. Relaying someone's judgment keeps their holder; your own endorsement of it is a separate take.",
+        "agents/<uid> identifies a system Agent Principal, not a Skill, model, tool, automation, or assistant persona. Reuse an existing canonical Agent slug only for that Agent. Attach a claim to the entity it describes, not to the Agent working on it.",
         "Use multiples of 0.05 for confidence and weight.",
         "The write persists immediately; a later failure or retry of this turn does not revert it."
       ],

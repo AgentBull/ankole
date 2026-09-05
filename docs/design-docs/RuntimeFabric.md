@@ -149,6 +149,20 @@ after PostgreSQL clears the UNLOGGED registry.
 
 Durable domain tables can still use PostgreSQL enums.
 
+Transactions that need both routing and event locks take the Worker and
+activation before the current ActorEvent, and the ActorEvent before its
+deliveries. Placement and operator Job changes take the existing Session
+assignment advisory lock before the Worker. Steer handling uses this same
+assignment lock without changing placement or capacity, then checks that the
+command is still open after it acquires the routing locks. This order lets a
+Job terminal commit consume an unaccepted steer into one successor without
+deadlocking against that steer's delivery.
+
+WorkerPool owns assignment locks and placement. TurnRef owns Worker identity
+and turn-fence checks. Domain owners retain their terminal transactions.
+Draining Workers can still commit terminal results, and completed ActorEvents
+remain the authority for completion retries after routing state is gone.
+
 ## Authenticate a Worker
 
 RuntimeFabric uses ZeroMQ ZAP with PLAIN authentication.

@@ -3,8 +3,8 @@ defmodule Ankole.Observability do
   Optional OpenTelemetry trace export configured through AppConfigure.
 
   OpenTelemetry records and exports process-wide traces. The selected Provider
-  adds the vendor semantics needed for AIGateway LLM spans; it does not own
-  transport or filter other spans.
+  adds the vendor semantics needed for AIGateway and Worker spans; it does not
+  own transport or filter other spans.
   """
 
   use GenServer
@@ -248,7 +248,6 @@ defmodule Ankole.Observability do
       |> turn_trace_attributes()
       |> Map.merge(provider.trace_attributes(context))
       |> Map.merge(provider.turn_start_attributes(input))
-      |> Map.put("ankole.turn.input", input)
       |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
     span =
@@ -290,19 +289,21 @@ defmodule Ankole.Observability do
 
   defp finish_turn_span(%{span: span, provider: provider}, opts) do
     if Span.is_recording(span) do
-      case Keyword.get(opts, :output) do
-        output when is_binary(output) ->
+      outcome = text(Keyword.get(opts, :outcome))
+      output = Keyword.get(opts, :output) || if(outcome, do: %{"outcome" => outcome})
+
+      case output do
+        nil ->
+          :ok
+
+        output ->
           {encoded, truncated?} = encode_content(output)
 
           attributes =
-            %{"ankole.turn.output" => encoded}
-            |> Map.merge(provider.output_attributes(encoded))
+            provider.output_attributes(encoded, :turn)
             |> maybe_put_true("ankole.observability.output_truncated", truncated?)
 
           Span.set_attributes(span, attributes)
-
-        _output ->
-          :ok
       end
 
       case text(Keyword.get(opts, :error_type)) do
@@ -388,6 +389,7 @@ defmodule Ankole.Observability do
   defp turn_trace_attributes(context) do
     context
     |> trace_attributes()
+    |> Map.put("gen_ai.operation.name", "invoke_agent")
     |> put_present("ankole.background_agent_job.id", context.job_id)
     |> put_present("ankole.background_agent_job.attempts", context.attempts)
   end
@@ -420,24 +422,26 @@ defmodule Ankole.Observability do
 
   defp do_export_worker_spans(payload) do
     case :persistent_term.get(@runtime_config_key, nil) do
-      %{endpoint: endpoint, headers: headers} ->
+      %{provider: provider, endpoint: endpoint, headers: headers} ->
         headers =
           headers
           |> Enum.reject(fn {name, _value} -> String.downcase(name) == "content-type" end)
           |> List.insert_at(0, {"content-type", "application/x-protobuf"})
 
-        case Req.request(
-               method: :post,
-               url: endpoint <> "/v1/traces",
-               headers: headers,
-               body: payload,
-               retry: false,
-               redirect: false,
-               receive_timeout: @worker_export_timeout_ms
-             ) do
-          {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
-          {:ok, %Req.Response{}} -> {:error, :otlp_export_failed}
-          {:error, _reason} -> {:error, :otlp_export_failed}
+        with {:ok, payload} <- provider.map_worker_spans(payload) do
+          case Req.request(
+                 method: :post,
+                 url: endpoint <> "/v1/traces",
+                 headers: headers,
+                 body: payload,
+                 retry: false,
+                 redirect: false,
+                 receive_timeout: @worker_export_timeout_ms
+               ) do
+            {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
+            {:ok, %Req.Response{}} -> {:error, :otlp_export_failed}
+            {:error, _reason} -> {:error, :otlp_export_failed}
+          end
         end
 
       _disabled ->

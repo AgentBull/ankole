@@ -548,6 +548,37 @@ describe('web tools', () => {
     expect(second.details).toMatchObject({ results: [{ url: 'https://example.com', repeat_fetch: true }] })
   })
 
+  for (const warmCount of [1, 2]) {
+    it(`shares one page-text budget with ${warmCount} cached large pages`, async () => {
+      const urls = ['https://budget-a.example/', 'https://budget-b.example/']
+      const fullText = 'a'.repeat(WEB_FETCH_BUDGET_CHARS * 2) + '\nfinal paragraph'
+      const requests: string[][] = []
+      const tools = await createWebTools({
+        workspaceRoot,
+        aiGateway: {
+          baseURL: 'https://control.test/api/v1/ai-gateway',
+          fetch: async (_input, init) => {
+            const body = JSON.parse(String(init?.body)) as { urls: string[] }
+            requests.push(body.urls)
+            return jsonResponse({ results: body.urls.map(url => ({ url, text: fullText })) })
+          }
+        }
+      })
+      const fetch = tools.find(tool => tool.name === 'web_fetch')!
+      for (const url of urls.slice(0, warmCount)) await fetch.execute('warm', { urls: [url] })
+      const result = await fetch.execute('batch', { urls })
+      const pages = result.details.results as JSONObject[]
+      expect(pages.reduce((sum, page) => sum + Number(page.shown_chars), 0)).toBeLessThanOrEqual(WEB_FETCH_BUDGET_CHARS)
+      expect(pages).toHaveLength(2)
+      expect(requests).toHaveLength(2)
+      for (const page of pages) {
+        expect(page.text_chars).toBe(fullText.length)
+        expect(readFileSync(String(page.stored_path), 'utf8')).toBe(fullText)
+      }
+      expect(textOf(result).match(/final paragraph/g)).toHaveLength(2)
+    })
+  }
+
   it('keeps repeat-fetch results across tool catalogs for the same session only', async () => {
     const requests: unknown[] = []
     const client: AIGatewayHTTPClient = {

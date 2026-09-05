@@ -78,8 +78,8 @@ defmodule Ankole.Brain.Promotion do
     primitive = attrs[:primitive] || "concept"
     prefix = attrs[:slug_prefix] || pluralized_prefix(term)
 
-    with :ok <- reject_library_projection_type(term),
-         :ok <- reject_lazy_skill_prefix(prefix),
+    with :ok <- reject_reserved_type(term),
+         :ok <- reject_reserved_prefix(prefix),
          type = %SchemaType{
            id: UUIDv7.autogenerate(),
            name: term,
@@ -100,7 +100,7 @@ defmodule Ankole.Brain.Promotion do
   defp materialize_subtype(repo, suggestion, attrs) do
     target = attrs[:target_type] || suggestion.target_type || "note"
 
-    with :ok <- reject_library_projection_type(target) do
+    with :ok <- reject_reserved_type(target) do
       case repo.get_by(SchemaType, name: target) do
         nil ->
           {:error, {:unknown_target_type, target}}
@@ -115,15 +115,18 @@ defmodule Ankole.Brain.Promotion do
     end
   end
 
-  defp reject_library_projection_type(@library_projection_type),
-    do: {:error, {:reserved_object_type, @library_projection_type}}
+  defp reject_reserved_type(type) when type in [@library_projection_type, "agent"],
+    do: {:error, {:reserved_object_type, type}}
 
-  defp reject_library_projection_type(_type), do: :ok
+  defp reject_reserved_type(_type), do: :ok
 
-  defp reject_lazy_skill_prefix(@lazy_skill_prefix <> _rest = prefix),
+  defp reject_reserved_prefix(@lazy_skill_prefix <> _rest = prefix),
     do: {:error, {:reserved_object_slug_prefix, prefix}}
 
-  defp reject_lazy_skill_prefix(_prefix), do: :ok
+  defp reject_reserved_prefix("agents/" <> _rest = prefix),
+    do: {:error, {:reserved_object_slug_prefix, prefix}}
+
+  defp reject_reserved_prefix(_prefix), do: :ok
 
   defp retype_tagged_objects(repo, term, prefix) do
     objects =
@@ -132,6 +135,7 @@ defmodule Ankole.Brain.Promotion do
       |> where([_object, tag], tag.tag == ^term)
       |> where([object, _tag], is_nil(object.deleted_at))
       |> where([object, _tag], is_nil(object.managed_by_source_id))
+      |> where([object, _tag], object.type != "agent")
       |> select([object, _tag], object)
       |> distinct(true)
       |> repo.all()

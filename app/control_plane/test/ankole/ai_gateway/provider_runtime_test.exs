@@ -1203,6 +1203,33 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert references == Enum.sort(["#{agent.uid}:primary", "#{agent.uid}:light"])
   end
 
+  test "stored Brain model settings prevent disabling their Provider" do
+    AppConfigure.Cache.clear_for_test()
+    on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "brain-reference",
+               provider_kind: "openrouter",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    for {key, extra} <- [
+          {"brain.embedding_model", %{"dimensions" => 4096}},
+          {"brain.rerank_model", %{}}
+        ] do
+      model = Map.merge(%{"provider_id" => "brain-reference", "model" => "model"}, extra)
+      assert {:ok, _} = AppConfigure.put_global_by_key(key, model)
+
+      assert {:error, {:provider_in_use, [^key]}} =
+               ProviderConfigs.delete_provider("brain-reference")
+
+      assert :ok = AppConfigure.delete_global_by_key(key)
+    end
+
+    assert {:ok, %{disabled_at: %DateTime{}}} = ProviderConfigs.delete_provider("brain-reference")
+  end
+
   test "disable then enable restores a provider without losing its pool" do
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{

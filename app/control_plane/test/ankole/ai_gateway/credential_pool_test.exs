@@ -43,7 +43,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
              CredentialPool.select("random-single", entries, "random")
   end
 
-  test "thread affinity wins over strategy until its credential becomes unavailable" do
+  test "retained thread affinity wins over strategy until its credential becomes unavailable" do
     entries = entries()
     [first | _rest] = entries
 
@@ -66,6 +66,52 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
     assert {:ok, %{credential_id: "second"}} =
              CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
+  end
+
+  test "each provider retains only its 10,000 most recently used affinity keys" do
+    [first, second | _rest] = entries()
+    entries = [first, second]
+    prefer_second = [first, Map.put(second, "priority", -1)]
+
+    assert {:ok, %{credential_id: "first"}} =
+             CredentialPool.select("other-provider", entries, "fill_first",
+               affinity_key: "thread-2"
+             )
+
+    for index <- 1..10_000 do
+      assert {:ok, %{credential_id: "first"}} =
+               CredentialPool.select("lru", entries, "fill_first",
+                 affinity_key: "thread-#{index}"
+               )
+    end
+
+    assert_affinity_count("lru", 10_000)
+
+    for _ <- 1..10_001 do
+      assert {:ok, %{credential_id: "first"}} =
+               CredentialPool.select("lru", prefer_second, "fill_first", affinity_key: "thread-1")
+    end
+
+    assert_affinity_count("lru", 10_000)
+
+    assert {:ok, %{credential_id: "first"}} =
+             CredentialPool.select("lru", entries, "fill_first", affinity_key: "thread-10001")
+
+    assert_affinity_count("lru", 10_000)
+
+    assert {:ok, %{credential_id: "first"}} =
+             CredentialPool.select("lru", prefer_second, "fill_first", affinity_key: "thread-1")
+
+    assert {:ok, %{credential_id: "first"}} =
+             CredentialPool.select("other-provider", prefer_second, "fill_first",
+               affinity_key: "thread-2"
+             )
+
+    assert {:ok, %{credential_id: "second"}} =
+             CredentialPool.select("lru", prefer_second, "fill_first", affinity_key: "thread-2")
+
+    assert_affinity_count("lru", 10_000)
+    assert_affinity_count("other-provider", 1)
   end
 
   test "upstream reset time controls cooldown and expired entries return automatically" do
@@ -189,6 +235,19 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
              CredentialPool.select("revision-affinity", [new_first, second], "round_robin",
                affinity_key: "thread-1"
              )
+
+    assert_affinity_count("revision-affinity", 1)
+
+    :ok = CredentialPool.mark_exhausted("revision-affinity", new_first, 429)
+    assert_affinity_count("revision-affinity", 0)
+
+    assert {:ok, %{entry: ^second}} =
+             CredentialPool.select("revision-affinity", [new_first, second], "round_robin",
+               affinity_key: "thread-1"
+             )
+
+    :ok = CredentialPool.mark_dead("revision-affinity", second)
+    assert_affinity_count("revision-affinity", 0)
   end
 
   test "persisted reauthentication requirements survive runtime health reset" do
@@ -369,6 +428,12 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
                "rate_limits" => %{"x-codex-primary-used-percent" => "80"}
              }
            } = CredentialPool.statuses("concurrent-health", entries)
+  end
+
+  defp assert_affinity_count(provider, count) do
+    state = :sys.get_state(CredentialPool)[provider]
+    assert map_size(state.affinity) == count
+    assert :gb_trees.size(state.affinity_lru) == count
   end
 
   defp entries do

@@ -22,6 +22,7 @@ mod rerank;
 mod standard;
 #[cfg(test)]
 mod tests;
+mod tool_identity;
 mod web;
 
 use self::anthropic::*;
@@ -38,43 +39,5 @@ use self::openai_responses::*;
 use self::openrouter_images::*;
 use self::rerank::*;
 pub(crate) use self::standard::*;
+use self::tool_identity::*;
 use self::web::*;
-
-fn flattened_namespace_tool_name(namespace: &str, name: &str) -> String {
-    let joined = if namespace.is_empty() || namespace == "functions" {
-        name.to_string()
-    } else if namespace.ends_with('_') || name.starts_with('_') {
-        format!("{namespace}{name}")
-    } else {
-        format!("{namespace}__{name}")
-    };
-
-    const MAX_LENGTH: usize = 64;
-    const DIGEST_LENGTH: usize = 12;
-    const PREFIX_LENGTH: usize = MAX_LENGTH - DIGEST_LENGTH - 1;
-
-    if !joined.is_empty()
-        && joined.len() <= MAX_LENGTH
-        && joined.bytes().all(provider_tool_name_byte)
-    {
-        return joined;
-    }
-
-    let prefix: String = joined
-        .bytes()
-        .take(PREFIX_LENGTH)
-        .map(|byte| {
-            if provider_tool_name_byte(byte) {
-                char::from(byte)
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let digest = blake3::hash(joined.as_bytes()).to_hex().to_string();
-    format!("{prefix}_{}", &digest[..DIGEST_LENGTH])
-}
-
-fn provider_tool_name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
-}

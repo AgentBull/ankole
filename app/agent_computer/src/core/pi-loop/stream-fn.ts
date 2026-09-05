@@ -445,12 +445,19 @@ function requiredResponseID(responseID: string | undefined): string {
  * `classifyLLMError`/`isLocallyRetryableLLMError` read to decide whether to
  * retry it — same effect as an actual transport-level throw.
  */
-function terminalModelError(result: { message: OurAssistantMessage; errorRetryable?: boolean }): Error | undefined {
+function terminalModelError(result: {
+  message: OurAssistantMessage
+  errorRetryable?: boolean
+  errorCode?: string
+  errorStatus?: number
+}): Error | undefined {
   const { message } = result
   if (message.stopReason !== 'error' && message.stopReason !== 'aborted') return undefined
   const error = new Error(message.errorMessage || 'LLM provider returned an error')
   error.name = 'LLMProviderTerminalError'
   if (result.errorRetryable !== undefined) Object.assign(error, { retryable: result.errorRetryable })
+  if (result.errorCode !== undefined) Object.assign(error, { code: result.errorCode })
+  if (result.errorStatus !== undefined) Object.assign(error, { status: result.errorStatus })
   return error
 }
 
@@ -462,12 +469,8 @@ function modelErrorFields(error: unknown): JSONObject {
   }
 
   const record = error as { code?: unknown; status?: unknown }
-  const message = error instanceof Error ? error.message : ''
-  const messageStatus = message.match(/\bstatus=(\d{3})\b/)?.[1]
-  const messageCode = message.match(/\bcode=([A-Za-z0-9_.:-]+)\b/)?.[1]
-  const status =
-    typeof record.status === 'number' ? record.status : messageStatus ? Number.parseInt(messageStatus, 10) : undefined
-  const code = typeof record.code === 'string' ? record.code : messageCode
+  const status = typeof record.status === 'number' ? record.status : undefined
+  const code = typeof record.code === 'string' ? record.code : undefined
 
   return {
     error_kind: classification.kind,

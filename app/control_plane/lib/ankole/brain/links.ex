@@ -41,11 +41,7 @@ defmodule Ankole.Brain.Links do
         created_at: DateTime.utc_now(:microsecond)
       }
 
-      case repo.insert(row, on_conflict: :nothing, returning: true) do
-        {:ok, %Link{id: nil}} -> {:ok, :duplicate}
-        {:ok, link} -> {:ok, link}
-        {:error, _reason} = error -> error
-      end
+      insert_distinct(repo, row)
     end
   end
 
@@ -67,15 +63,7 @@ defmodule Ankole.Brain.Links do
         created_at: DateTime.utc_now(:microsecond)
       }
 
-      case repo.insert(row,
-             on_conflict: :nothing,
-             conflict_target: [:object_slug, :tag],
-             returning: true
-           ) do
-        {:ok, %Tag{id: nil}} -> {:ok, :duplicate}
-        {:ok, inserted} -> {:ok, inserted}
-        {:error, _reason} = error -> error
-      end
+      insert_distinct(repo, row)
     end
   end
 
@@ -97,15 +85,16 @@ defmodule Ankole.Brain.Links do
         created_at: DateTime.utc_now(:microsecond)
       }
 
-      case repo.insert(row,
-             on_conflict: :nothing,
-             conflict_target: [:alias_norm, :object_slug],
-             returning: true
-           ) do
-        {:ok, %ObjectAlias{id: nil}} -> {:ok, :duplicate}
-        {:ok, inserted} -> {:ok, inserted}
-        {:error, _reason} = error -> error
-      end
+      insert_distinct(repo, row)
+    end
+  end
+
+  defp insert_distinct(repo, %schema{} = row) do
+    attrs = Map.take(row, schema.__schema__(:fields))
+
+    case repo.insert_all(schema, [attrs], on_conflict: :nothing, returning: true) do
+      {0, []} -> {:ok, :duplicate}
+      {1, [inserted]} -> {:ok, inserted}
     end
   end
 

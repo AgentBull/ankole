@@ -45,12 +45,9 @@ defmodule Ankole.SignalsGateway.Projection do
       nil ->
         %Channel{}
         |> Channel.changeset(attrs)
-        |> repo.insert(on_conflict: :nothing, conflict_target: :id, returning: true)
+        |> repo.insert(on_conflict: :nothing, conflict_target: :id)
         |> case do
-          {:ok, %Channel{id: id} = channel} when is_binary(id) ->
-            {:ok, channel}
-
-          {:ok, %Channel{id: nil}} ->
+          {:ok, _attempted_channel} ->
             update_existing_channel(repo, fact.signal_channel_id, attrs)
 
           {:error, _reason} = error ->

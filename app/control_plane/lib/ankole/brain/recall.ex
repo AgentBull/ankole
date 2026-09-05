@@ -237,63 +237,35 @@ defmodule Ankole.Brain.Recall do
     # order comes from the full 4096 vector over that candidate set.
     ann_limit = candidate_limit * 3
 
-    ann_query =
+    # The parameter needs ::vector to select the correct subvector overload.
+    # The column expression must match the HNSW index.
+    candidate_ids =
+      base
+      |> where([row], not is_nil(row.embedding) and row.embedding_signature == ^signature)
+      |> order_by(
+        [row],
+        fragment(
+          "subvector(?, 1, 4000)::halfvec(4000) <=> subvector(?::vector, 1, 4000)::halfvec(4000)",
+          row.embedding,
+          ^vector
+        )
+      )
+      |> limit(^ann_limit)
+      |> select([row], row.id)
+      |> Repo.all()
+
+    schema =
       case kind do
-        # The query-side parameter arrives untyped, and `subvector(unknown, ...)`
-        # is ambiguous between vector and halfvec (42725), so it needs an
-        # explicit `::vector` cast. The column side must stay uncast to match
-        # the HNSW index expression.
-        :claim ->
-          base
-          |> where([claim], not is_nil(claim.embedding))
-          |> where([claim], claim.embedding_signature == ^signature)
-          |> order_by(
-            [claim],
-            fragment(
-              "subvector(?, 1, 4000)::halfvec(4000) <=> subvector(?::vector, 1, 4000)::halfvec(4000)",
-              claim.embedding,
-              ^vector
-            )
-          )
-          |> limit(^ann_limit)
-          |> select([claim], claim.id)
-
-        :chunk ->
-          base
-          |> where([chunk, _object], not is_nil(chunk.embedding))
-          |> where([chunk, _object], chunk.embedding_signature == ^signature)
-          |> order_by(
-            [chunk, _object],
-            fragment(
-              "subvector(?, 1, 4000)::halfvec(4000) <=> subvector(?::vector, 1, 4000)::halfvec(4000)",
-              chunk.embedding,
-              ^vector
-            )
-          )
-          |> limit(^ann_limit)
-          |> select([chunk, _object], chunk.id)
+        :claim -> Claim
+        :chunk -> Chunk
       end
-
-    candidate_ids = Repo.all(ann_query)
 
     exact_query =
-      case kind do
-        :claim ->
-          Claim
-          |> where([claim], claim.id in ^candidate_ids)
-          |> where([claim], claim.embedding_signature == ^signature)
-          |> order_by([claim], fragment("? <=> ?", claim.embedding, ^vector))
-          |> limit(^candidate_limit)
-          |> select([claim], claim.id)
-
-        :chunk ->
-          Chunk
-          |> where([chunk], chunk.id in ^candidate_ids)
-          |> where([chunk], chunk.embedding_signature == ^signature)
-          |> order_by([chunk], fragment("? <=> ?", chunk.embedding, ^vector))
-          |> limit(^candidate_limit)
-          |> select([chunk], chunk.id)
-      end
+      schema
+      |> where([row], row.id in ^candidate_ids and row.embedding_signature == ^signature)
+      |> order_by([row], fragment("? <=> ?", row.embedding, ^vector))
+      |> limit(^candidate_limit)
+      |> select([row], row.id)
 
     Repo.all(exact_query)
   end
@@ -412,7 +384,8 @@ defmodule Ankole.Brain.Recall do
                   "model" => model["provider_id"] <> "/" <> model["model"],
                   "query" => query,
                   "documents" => documents,
-                  "top_n" => length(documents)
+                  "top_n" => length(documents),
+                  "provider_options" => model["provider_options"] || %{}
                 })
               end
             rescue

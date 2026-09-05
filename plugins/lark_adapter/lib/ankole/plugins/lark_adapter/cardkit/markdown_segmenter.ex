@@ -83,6 +83,49 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
     |> elem(0)
   end
 
+  @doc "Splits code and prose without changing their source text."
+  @spec code_segments(String.t()) :: [{:code | :prose, String.t()}]
+  def code_segments(text) do
+    text
+    |> lines_with_endings()
+    |> Enum.reduce({[], nil}, fn line, {groups, fence} ->
+      next_fence = fence_transition(line, fence)
+      kind = if fence || next_fence, do: :code, else: :prose
+
+      groups =
+        case groups do
+          [{^kind, lines} | rest] -> [{kind, [line | lines]} | rest]
+          _other -> [{kind, [line]} | groups]
+        end
+
+      {groups, next_fence}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+    |> Enum.flat_map(fn {kind, lines} ->
+      source = lines |> Enum.reverse() |> IO.iodata_to_binary()
+      if kind == :code, do: [{:code, source}], else: inline_segments(source)
+    end)
+  end
+
+  defp inline_segments(source) do
+    spans =
+      Regex.scan(~r/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/u, source,
+        capture: :first,
+        return: :index
+      )
+
+    {parts, offset} =
+      Enum.reduce(spans, {[], 0}, fn [{start, length}], {parts, offset} ->
+        prose = binary_part(source, offset, start - offset)
+        code = binary_part(source, start, length)
+        {[{:code, code}, {:prose, prose} | parts], start + length}
+      end)
+
+    tail = binary_part(source, offset, byte_size(source) - offset)
+    Enum.reverse([{:prose, tail} | parts])
+  end
+
   defp delimiter_row?(line) do
     trimmed = String.trim(line)
 

@@ -47,6 +47,25 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
     assert get_in(state, ["http://10.0.0.8/chart.png", "status"]) == "ready"
   end
 
+  test "code examples neither fetch nor rewrite images", %{agent: agent} do
+    code =
+      "```markdown\n![code](https://example.com/code.png)\n```\n" <>
+        "~~~\n![tilde](https://example.com/tilde.png)\n~~~\n" <>
+        "`![inline](https://example.com/inline.png)` and ``![ticks](https://example.com/ticks.png)``"
+
+    Req.default_options(plug: fn _conn -> flunk("code must not fetch an image") end)
+
+    assert {:ok, %{"answer" => ^code}, %{}} =
+             ImageResolver.resolve(%{"answer" => code}, agent.uid, %{}, :unused_client)
+
+    url = "https://example.com/inline.png"
+    state = %{url => %{"status" => "ready", "image_key" => "img_ready"}}
+    mixed = code <> "\n![actual](#{url})"
+
+    assert ImageResolver.apply_resolved(%{"answer" => mixed}, state)["answer"] ==
+             code <> "\n![actual](img_ready)"
+  end
+
   test "security.ssrf_filter blocks private images but metadata is always blocked", %{
     agent: agent
   } do

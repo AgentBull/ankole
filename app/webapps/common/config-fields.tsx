@@ -146,6 +146,7 @@ export function ConfigField({
   const inputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [showValidationError, setShowValidationError] = useState(false)
+  const [arrayText, setArrayText] = useState<string>()
   const secret = field.encrypted === true || field.type === 'secret'
   const requiredError =
     required && configFieldValueEmpty(value) ? i18n.t('common.field_required', { field: label }) : undefined
@@ -233,8 +234,9 @@ export function ConfigField({
           aria-describedby={describedBy || undefined}
           aria-invalid={showValidationError && validationError ? true : undefined}
           required={required}
-          value={Array.isArray(value) ? value.join('\n') : ''}
-          onChange={event =>
+          value={arrayText ?? (Array.isArray(value) ? value.join('\n') : '')}
+          onChange={event => {
+            setArrayText(event.target.value)
             // Accept both newline and comma input because setup fields often copy
             // from provider consoles or docs with different list formats.
             onChange(
@@ -243,8 +245,11 @@ export function ConfigField({
                 .map(item => item.trim())
                 .filter(Boolean)
             )
-          }
-          onBlur={() => setShowValidationError(Boolean(validationError))}
+          }}
+          onBlur={() => {
+            setArrayText(undefined)
+            setShowValidationError(Boolean(validationError))
+          }}
           onInvalid={() => setShowValidationError(Boolean(validationError))}
         />
         {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}

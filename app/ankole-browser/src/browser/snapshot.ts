@@ -10,7 +10,6 @@ export type RefTarget = {
   backendDOMNodeId?: number
   role: string
   name: string
-  box?: { x: number; y: number; width: number; height: number }
 }
 
 type SnapshotNode = {
@@ -24,18 +23,15 @@ type SnapshotNode = {
   value?: string
   url?: string
   depth: number
-  box?: { x: number; y: number; width: number; height: number }
 }
 
 export type SnapshotOptions = BrowserCommandArgs<'snapshot'>
 
 export class SnapshotStore {
   private readonly refs = new Map<string, RefTarget>()
-  private generation = 0
 
   clear(): void {
     this.refs.clear()
-    this.generation += 1
   }
 
   entries(): RefTarget[] {
@@ -44,7 +40,6 @@ export class SnapshotStore {
 
   async capture(page: Page, options: SnapshotOptions = {}): Promise<string> {
     this.refs.clear()
-    this.generation += 1
     const budget = 16 * 1024
     const lines: string[] = []
     // Length of `lines.join('\n')`, kept incrementally so traversal can stop as
@@ -73,8 +68,7 @@ export class SnapshotStore {
             selector: node.selector,
             ...(node.backendDOMNodeId === undefined ? {} : { backendDOMNodeId: node.backendDOMNodeId }),
             role: node.role,
-            name: node.name,
-            box: node.box
+            name: node.name
           })
           refText = ` [ref=${ref}]`
         }
@@ -239,10 +233,8 @@ async function collectAXNodes(
       if (depth > (options.depth ?? 32)) continue
 
       let selector: string | undefined
-      let box: SnapshotNode['box']
       if (interactive && node.backendDOMNodeId !== undefined) {
         selector = await selectorForBackendNode(session, node.backendDOMNodeId).catch(() => undefined)
-        box = await boxForBackendNode(session, node.backendDOMNodeId).catch(() => undefined)
       }
       if (selector) selectors.add(selector)
       const checked = axProperty(node, 'checked')
@@ -258,8 +250,7 @@ async function collectAXNodes(
         ...(typeof checked === 'boolean' || typeof checked === 'string' ? { checked } : {}),
         ...(value ? { value } : {}),
         ...(url ? { url } : {}),
-        depth,
-        ...(box ? { box } : {})
+        depth
       })
       if (!more) return
     }
@@ -370,16 +361,6 @@ async function selectorForBackendNode(session: CDPSession, backendNodeId: number
   }
 }
 
-async function boxForBackendNode(session: CDPSession, backendNodeId: number): Promise<SnapshotNode['box']> {
-  const result = await session.send('DOM.getBoxModel', { backendNodeId })
-  const quad = result.model.border
-  const xs = [quad[0], quad[2], quad[4], quad[6]]
-  const ys = [quad[1], quad[3], quad[5], quad[7]]
-  const x = Math.min(...xs)
-  const y = Math.min(...ys)
-  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }
-}
-
 function stringValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -416,8 +397,7 @@ async function collectFrameNodes(frame: Frame, options: SnapshotOptions): Promis
             ? { checked: candidate.getAttribute('aria-checked') === 'true' }
             : {}),
         ...(candidate instanceof HTMLAnchorElement && candidate.href ? { url: candidate.href } : {}),
-        depth,
-        box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        depth
       })
     }
     return output

@@ -197,7 +197,7 @@ export function createGrepTool(
         query = buildSearchQuery({ constraint: target.constraint, excludes, pattern })
       }
 
-      const acquired = await runtime.acquire(root, { covering: root !== workspaceReal })
+      const acquired = await runtime.acquire(root)
       const grepOptions = {
         mode,
         smartCase,

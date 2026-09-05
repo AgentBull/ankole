@@ -9,7 +9,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
@@ -526,43 +525,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   defp lock_runtime_prefix_in_tx(repo, job_id, agent_uid, _turn_ref, _route) do
     actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
 
-    with :ok <- WorkerPool.lock_actor_assignment_in_tx(repo, actor_key) do
-      case live_assignment_snapshot(repo, actor_key) do
-        %ActorSessionWorkerAssignment{} = assignment ->
-          _worker = lock_assignment_worker(repo, assignment.worker_id)
-          _assignment = lock_live_assignment(repo, assignment, actor_key)
-          :ok
-
-        nil ->
-          :ok
-      end
+    with {:ok, _assignment} <- WorkerPool.lock_existing_assignment_in_tx(repo, actor_key) do
+      :ok
     end
-  end
-
-  defp live_assignment_snapshot(repo, actor_key) do
-    ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
-    |> where([assignment], assignment.session_id == ^actor_key.session_id)
-    |> where([assignment], assignment.status in ["assigned", "draining"])
-    |> repo.one()
-  end
-
-  defp lock_assignment_worker(repo, worker_id) do
-    AgentComputerWorker
-    |> where([worker], worker.worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp lock_live_assignment(repo, assignment, actor_key) do
-    ActorSessionWorkerAssignment
-    |> where([stored], stored.id == ^assignment.id)
-    |> where([stored], stored.agent_uid == ^actor_key.agent_uid)
-    |> where([stored], stored.session_id == ^actor_key.session_id)
-    |> where([stored], stored.worker_id == ^assignment.worker_id)
-    |> where([stored], stored.status in ["assigned", "draining"])
-    |> lock("FOR UPDATE")
-    |> repo.one()
   end
 
   @doc false

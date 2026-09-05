@@ -116,17 +116,40 @@ defmodule Ankole.Brain.SignalsLearning do
   Returns the channels whose pending slices exceed the idle threshold, for
   the Self-healing sweep.
   """
-  @spec idle_channels_with_pending_slices() :: [String.t()]
-  def idle_channels_with_pending_slices do
+  @spec idle_pending_slices() :: [%{channel_id: String.t(), first_seen_at: DateTime.t()}]
+  def idle_pending_slices do
     idle_seconds = Config.signal_channel_batch_idle_time()
     threshold = DateTime.add(DateTime.utc_now(), -idle_seconds, :second)
 
+    terminal =
+      terminal_watermark_query()
+      |> where([claim], claim.signal_gateway_channel_id == parent_as(:channel).id)
+
+    first_entry =
+      Entry
+      |> where([entry], entry.signal_channel_id == parent_as(:channel).id)
+      |> where(
+        [entry],
+        is_nil(parent_as(:terminal).valid_from) or
+          entry.first_seen_at > parent_as(:terminal).valid_from or
+          (entry.first_seen_at == parent_as(:terminal).valid_from and
+             entry.source_entry_id > parent_as(:terminal).context)
+      )
+      |> order_by([entry], asc: entry.first_seen_at, asc: entry.source_entry_id)
+      |> limit(1)
+      |> select([entry], %{first_seen_at: entry.first_seen_at})
+
     Channel
+    |> from(as: :channel)
     |> where([channel], channel.kind in [:im_dm, :im_group])
     |> where([channel], channel.last_seen_at < ^threshold)
-    |> select([channel], channel.id)
+    |> join(:left_lateral, [], terminal in subquery(terminal), as: :terminal, on: true)
+    |> join(:inner_lateral, [], entry in subquery(first_entry), on: true)
+    |> select([channel, _terminal, entry], %{
+      channel_id: channel.id,
+      first_seen_at: entry.first_seen_at
+    })
     |> Repo.all()
-    |> Enum.filter(&has_pending_slice?/1)
   end
 
   # Slice processing
@@ -140,7 +163,7 @@ defmodule Ankole.Brain.SignalsLearning do
     else
       prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
 
-      case ModelCalls.complete_json(model, prompt) do
+      case ModelCalls.complete_json(model, prompt, caller: "brain.signals_learning") do
         {:ok, %{"items" => items}} when is_list(items) ->
           # The input version is recomputed over the same entries after the
           # model call: an in-slice edit or delete during the run writes no
@@ -616,12 +639,8 @@ defmodule Ankole.Brain.SignalsLearning do
       |> Enum.join("\n")
 
     installed_types =
-      Ankole.Brain.Schemas.SchemaType
-      |> where([type], type.name != "agent-skills")
-      |> select([type], {type.name, type.slug_prefix})
-      |> order_by([type], asc: type.name)
-      |> Repo.all()
-      |> Enum.map_join(", ", fn {name, prefix} -> "#{name} (slug prefix #{prefix})" end)
+      Objects.writable_types()
+      |> Enum.map_join(", ", fn type -> "#{type.name} (slug prefix #{type.slug_prefix})" end)
 
     """
     You extract long-term memory from a chat transcript. Return one JSON
@@ -645,6 +664,13 @@ defmodule Ankole.Brain.SignalsLearning do
     5. weight and confidence are multiples of 0.05.
     6. Skip greetings, transient operational detail, and anything without
        long-term value. Prefer writing nothing over writing noise.
+    7. The agent type and agents/ prefix identify this instance's system
+       Agent Principals. Their pages are created by the Principal lifecycle.
+       Reuse the supplied canonical Agent slugs for references and holders;
+       never create an agent object or invent an agents/ slug. Skills, model
+       names, tools, automations, and assistant personas are not Principals.
+       Use an appropriate writable type, or note when none fits. Attach
+       information to the page it describes, not to an Agent acting on it.
 
     Scope: the source audience is an upper bound. The default scope is
     #{learning_context.default_scope}. Keep that scope unless the content has
@@ -713,20 +739,24 @@ defmodule Ankole.Brain.SignalsLearning do
   end
 
   defp latest_terminal_watermark(channel_id) do
+    terminal_watermark_query()
+    |> where([claim], claim.signal_gateway_channel_id == ^channel_id)
+    |> Repo.one()
+  end
+
+  defp terminal_watermark_query do
     prefix = Claims.internal_provenance_prefix() <> "%"
 
     Ankole.Brain.Schemas.Claim
-    |> where([claim], claim.signal_gateway_channel_id == ^channel_id)
     |> where([claim], like(claim.provenance, ^prefix))
     |> order_by([claim], desc: claim.valid_from, desc: claim.created_at)
     |> limit(1)
-    |> select([claim], {claim.valid_from, claim.context})
-    |> Repo.one()
+    |> select([claim], %{valid_from: claim.valid_from, context: claim.context})
   end
 
   defp maybe_after_watermark(query, nil), do: query
 
-  defp maybe_after_watermark(query, {boundary_at, boundary_entry_id}) do
+  defp maybe_after_watermark(query, %{valid_from: boundary_at, context: boundary_entry_id}) do
     where(
       query,
       [entry],

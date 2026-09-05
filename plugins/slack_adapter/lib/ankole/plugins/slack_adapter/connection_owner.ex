@@ -66,17 +66,42 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
     consumers = Keyword.get(opts, :consumers, [])
     client = Config.client(config)
 
-    state = %__MODULE__{
-      key: Config.connection_key(config),
-      secret_fingerprint: Config.secret_fingerprint(config),
-      consumer_fingerprint: fingerprint(consumers),
-      consumer_count: length(consumers),
-      consumer_kinds: consumers |> Enum.map(&Map.get(&1, :kind)) |> Enum.sort(),
-      client: client,
-      dispatcher: Dispatcher.build(consumers, client: client)
-    }
+    with {:ok, runtime_consumers} <- resolve_consumers(config, consumers) do
+      state = %__MODULE__{
+        key: Config.connection_key(config),
+        secret_fingerprint: Config.secret_fingerprint(config),
+        consumer_fingerprint: fingerprint(consumers),
+        consumer_count: length(consumers),
+        consumer_kinds: consumers |> Enum.map(&Map.get(&1, :kind)) |> Enum.sort(),
+        client: client,
+        dispatcher: Dispatcher.build(runtime_consumers, client: client)
+      }
 
-    maybe_start_ws(state)
+      maybe_start_ws(state)
+    else
+      {:error, reason} -> {:stop, {:runtime_bot_identity, reason}}
+    end
+  end
+
+  defp resolve_consumers(config, consumers) do
+    needs_identity? = fn consumer ->
+      consumer.kind == :chat and not is_binary(consumer.config["botUserID"])
+    end
+
+    if Enum.any?(consumers, needs_identity?) do
+      with {:ok, resolved} <- Config.resolve_runtime_bot_identity(Map.delete(config, "botUserID")) do
+        identity = Map.take(resolved, ["runtimeBotUserID", "runtimeBotID", "runtimeTeamID"])
+
+        {:ok,
+         Enum.map(consumers, fn consumer ->
+           if needs_identity?.(consumer),
+             do: %{consumer | config: Map.merge(consumer.config, identity)},
+             else: consumer
+         end)}
+      end
+    else
+      {:ok, consumers}
+    end
   end
 
   @impl true

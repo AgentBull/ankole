@@ -17,6 +17,7 @@ import {
 } from '@opentelemetry/sdk-trace-base'
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer'
 import { resourceFromAttributes } from '@opentelemetry/resources'
+import { redactText, sensitiveKey } from '../common/content-redaction'
 import type { TurnStart } from '../lanes/actor_lane'
 import { toError } from '../common/errors'
 
@@ -24,7 +25,10 @@ const tracerName = 'ankole-worker'
 const traceparentPattern = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
 const observabilityUserIDPrefixes = ['principal:', 'channel:'] as const
 const observabilityUserIDMaxCodepoints = 200
+const observationContentLimitBytes = 1_024 * 1_024
 const turnIdentityAttributeNames = new Set(['ankole.principal.uid', 'ankole.principal.type', 'user.id', 'session.id'])
+
+export type WorkerObservationType = 'agent' | 'tool'
 
 export type TurnTracePropagation = {
   traceparent: string
@@ -131,6 +135,27 @@ export function startWorkerSpan(
   )
 }
 
+export function workerObservationInputAttributes(type: WorkerObservationType, input: unknown): Attributes {
+  const content = input === undefined ? undefined : encodeObservationContent(input)
+
+  return {
+    'gen_ai.operation.name': type === 'tool' ? 'execute_tool' : 'invoke_agent',
+    ...(type === 'tool' && content ? { 'gen_ai.tool.call.arguments': content.value } : {}),
+    ...(type === 'agent' && content ? { 'ankole.agent.input': content.value } : {}),
+    ...(content?.omitted ? { 'ankole.observability.input_truncated': true } : {})
+  }
+}
+
+export function workerObservationOutputAttributes(type: WorkerObservationType, output: unknown): Attributes {
+  const content = output === undefined ? undefined : encodeObservationContent(output)
+
+  return {
+    ...(type === 'tool' && content ? { 'gen_ai.tool.call.result': content.value } : {}),
+    ...(type === 'agent' && content ? { 'ankole.agent.output': content.value } : {}),
+    ...(content?.omitted ? { 'ankole.observability.output_truncated': true } : {})
+  }
+}
+
 export function finishWorkerSpan(
   span: Span | undefined,
   options: { errorType?: string; attributes?: Attributes; endTime?: TimeInput } = {}
@@ -175,6 +200,34 @@ function ensureProvider(): void {
       })
     ]
   })
+}
+
+function encodeObservationContent(value: unknown): { value: string; omitted: boolean } {
+  let encoded: string | undefined
+  try {
+    encoded = JSON.stringify(value, (key, nested: unknown) => {
+      if (
+        sensitiveKey(key) ||
+        key.startsWith('__ankole_') ||
+        ['headers', 'metadata', 'encrypted_content', 'encrypted_function_args'].includes(key.toLowerCase())
+      )
+        return undefined
+      return typeof nested === 'string'
+        ? redactText(nested).replace(/\bdata:[^\s"'<>]+/giu, '[inline media omitted]')
+        : nested
+    })
+  } catch {
+    return { value: '{"omitted":"encoding_failed"}', omitted: true }
+  }
+  if (typeof encoded !== 'string') return { value: '{"omitted":"encoding_failed"}', omitted: true }
+
+  const bytes = new TextEncoder().encode(encoded).byteLength
+  if (bytes <= observationContentLimitBytes) return { value: encoded, omitted: false }
+
+  return {
+    value: JSON.stringify({ omitted: 'content_too_large', original_bytes: bytes }),
+    omitted: true
+  }
 }
 
 class RuntimeFabricSpanExporter implements SpanExporter {

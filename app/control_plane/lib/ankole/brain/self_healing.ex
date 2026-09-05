@@ -145,35 +145,32 @@ defmodule Ankole.Brain.SelfHealing do
       {:ok, {vectors, signature}} ->
         rows
         |> Enum.zip(vectors)
-        |> Enum.each(fn
+        |> Enum.count(fn
           {%Claim{} = claim, vector} ->
-            {:ok, _status} = Claims.attach_embedding(claim, vector, signature, now: now)
+            {:ok, status} = Claims.attach_embedding(claim, vector, signature, now: now)
+            status != :stale
 
-          {row, vector} ->
-            row
-            |> Ecto.Changeset.change(
-              embedding: vector,
-              embedding_signature: signature,
-              embedding_error: nil,
-              embedded_at: now
-            )
-            |> Repo.update!()
+          {%Chunk{} = chunk, vector} ->
+            Objects.record_chunk_embedding(chunk, {:ok, vector, signature}, now: now) ==
+              {:ok, :updated}
         end)
-
-        length(rows)
 
       {:error, reason} ->
         error = reason |> inspect() |> String.slice(0, 500)
 
-        Enum.each(rows, fn row ->
-          row
-          |> Ecto.Changeset.change(
-            embedding: nil,
-            embedding_signature: target_signature,
-            embedding_error: error,
-            embedded_at: nil
-          )
-          |> Repo.update!()
+        Enum.each(rows, fn
+          %Chunk{} = chunk ->
+            Objects.record_chunk_embedding(chunk, {:error, error, target_signature}, now: now)
+
+          %Claim{} = row ->
+            row
+            |> Ecto.Changeset.change(
+              embedding: nil,
+              embedding_signature: target_signature,
+              embedding_error: error,
+              embedded_at: nil
+            )
+            |> Repo.update!()
         end)
 
         0
@@ -204,9 +201,8 @@ defmodule Ankole.Brain.SelfHealing do
   end
 
   defp sweep_idle_channels do
-    channel_ids = SignalsLearning.idle_channels_with_pending_slices()
-
-    Enum.each(channel_ids, &ProcessChannelSlice.enqueue/1)
-    length(channel_ids)
+    slices = SignalsLearning.idle_pending_slices()
+    Enum.each(slices, &ProcessChannelSlice.enqueue(&1.channel_id))
+    length(slices)
   end
 end

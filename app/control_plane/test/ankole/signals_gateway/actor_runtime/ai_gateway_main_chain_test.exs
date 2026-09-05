@@ -64,6 +64,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     request_context = decoded_request_context(turn_start)
     assert request_context["observability_user_id"] == "channel:mock:chat:main-chain"
+    refute Map.has_key?(request_context, "observability_provider")
     assert is_binary(request_context["traceparent"])
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =

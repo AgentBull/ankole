@@ -143,10 +143,14 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
       |> Enum.reduce_while([], fn request, results ->
         case perform(request, client, target.service_url) do
           {:ok, result} -> {:cont, [result | results]}
+          {:error, _reason} when results != [] -> {:halt, :unknown}
           {:error, _reason} = error -> {:halt, error}
         end
       end)
       |> case do
+        :unknown ->
+          :unknown
+
         {:error, _reason} = error ->
           error
 

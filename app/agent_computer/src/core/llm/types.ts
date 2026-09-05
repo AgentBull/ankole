@@ -187,6 +187,8 @@ export interface ModelCallResult {
   toolCalls: ResponseToolCall[]
   responseID?: string
   errorRetryable?: boolean
+  errorCode?: string
+  errorStatus?: number
 }
 
 export interface ToolResultsRecordResult {

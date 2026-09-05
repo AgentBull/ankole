@@ -12,6 +12,46 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.Repo
 
+  test "Skill frontmatter supports YAML block scalars, quotes, and lists" do
+    root = Path.join(System.tmp_dir!(), "ankole-skill-yaml-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(root, "yaml-example"))
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(Path.join([root, "yaml-example", "SKILL.md"]), """
+    ---
+    name: yaml-example
+    description: >-
+      Read a report:
+      preserve its meaning.
+    tags: ["one,two", 'three']
+    default_enabled: false
+    brain-recall-only: true
+    ---
+    # Example
+    """)
+
+    assert {:ok, source} = SourceReader.read_skill_source(root, "library", "yaml-example")
+    assert source.description == "Read a report: preserve its meaning."
+    assert source.metadata["tags"] == ["one,two", "three"]
+    refute source.default_enabled
+    assert source.metadata["brain_recall_only"]
+
+    path = Path.join([root, "yaml-example", "SKILL.md"])
+    valid = File.read!(path)
+    File.write!(path, String.replace(valid, "name: yaml-example", "name: false"))
+
+    assert {:error, :invalid_skill_name} =
+             SourceReader.read_skill_source(root, "library", "yaml-example")
+
+    File.write!(
+      path,
+      String.replace(valid, "name: yaml-example", "name: yaml-example\nankole-runtime: true")
+    )
+
+    assert {:error, {:invalid_ankole_runtime, true}} =
+             SourceReader.read_skill_source(root, "library", "yaml-example")
+  end
+
   test "syncs the first-party builtin skills into the catalog" do
     %{principal: agent} = agent_fixture()
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)

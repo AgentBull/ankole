@@ -1,74 +1,21 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { ActorTurnRef } from '../src/lanes/actor_lane'
-import type { RPCRequestInit } from '../src/lanes/rpc_lane'
-import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
 import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import {
-  configureWorkerTracing,
-  forceFlushWorkerTracing,
-  workerTurnTrace,
-  type WorkerTurnTrace
-} from '../src/observability/turn-tracing'
-
-/**
- * Decoded snake_case view of one recorded upsert so assertions read the JSON
- * documents directly.
- */
-type DecodedUpsert = {
-  job_id?: string
-  attempt?: number
-  runtime_thread_id?: string
-  runtime_turn_id?: string
-  kind?: string
-  status?: string
-  revision?: number
-  trajectory: JSONObject
-  turn_items: Array<JSONObject & { position: number; item_key: string; item: JSONObject }>
-  progress: JSONObject
-  usage?: JSONObject
-  error: JSONObject
-  started_at?: string
-  completed_at?: string
-}
-
-type CollabAgentToolItem = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
-
-function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn.upsert'>): DecodedUpsert {
-  const doc = (bytes: Uint8Array | undefined) => (bytes?.length ? (jsonFromBytes(bytes) as JSONObject) : undefined)
-  const usage = doc(request.usageJson)
-  return {
-    job_id: request.jobId,
-    attempt: request.attempt,
-    runtime_thread_id: request.runtimeThreadId,
-    runtime_turn_id: request.runtimeTurnId,
-    kind: request.kind,
-    status: request.status,
-    revision: request.revision,
-    trajectory: doc(request.trajectoryJson) ?? {},
-    turn_items: (doc(request.turnItemsJson) ?? []) as unknown as Array<
-      JSONObject & { position: number; item_key: string; item: JSONObject }
-    >,
-    progress: doc(request.progressJson) ?? {},
-    ...(usage ? { usage } : {}),
-    error: doc(request.errorJson) ?? {},
-    started_at: request.startedAt,
-    ...(request.completedAt ? { completed_at: request.completedAt } : {})
-  }
-}
-
-const actorTurn: ActorTurnRef = {
-  actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
-  activation_uid: 'activation-1',
-  actor_epoch: 1,
-  actor_event_id: 'event-1',
-  revision: 0
-}
+  actorTurn,
+  decodedUpsert,
+  fixture,
+  turnItems,
+  startedTurn,
+  notification,
+  commandItem,
+  collabItem,
+  type DecodedUpsert
+} from './support/codex-turn-recorder'
 
 describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () => {
   it('retries an explicitly retryable control-plane checkpoint failure and preserves its failure id', async () => {
@@ -248,57 +195,6 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts).toHaveLength(checkpointCount)
   })
 
-  it('records Codex turns and tool items under the explicit worker turn parent', async () => {
-    const exports: Uint8Array[] = []
-    configureWorkerTracing(async payload => {
-      exports.push(payload)
-    })
-    const turnTrace = workerTurnTrace({
-      workspace_id: 10_000,
-      turn: actorTurn,
-      actor_event: {
-        actor_event_id: actorTurn.actor_event_id,
-        queue_sequence: 1,
-        type: 'background_agent_job.dispatch',
-        source_event_id: 'job-1000'
-      },
-      request_context: {
-        traceparent: '00-11111111111111111111111111111111-1111111111111111-01'
-      }
-    })
-    const { recorder } = fixture(0, turnTrace)
-
-    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '执行命令', 'event-1')
-    recorder.handleNotification(
-      notification('item/started', {
-        item: commandItem('command-1', 'printf hello', '', 'inProgress')
-      })
-    )
-    recorder.handleNotification(
-      notification('item/completed', {
-        item: commandItem('command-1', 'printf hello', 'hello', 'completed')
-      })
-    )
-    recorder.handleNotification(
-      notification('turn/completed', {
-        turn: {
-          ...startedTurn(),
-          status: 'completed',
-          completedAt: Date.now() / 1_000
-        }
-      })
-    )
-
-    await recorder.flush()
-    await forceFlushWorkerTracing()
-
-    expect(exports).toHaveLength(1)
-    const wireText = new TextDecoder().decode(exports[0])
-    expect(wireText).toContain('codex.turn')
-    expect(wireText).toContain('tool shell')
-    expect(wireText).toContain('ankole.codex.duration_ms')
-  })
-
   it('distinguishes provider-hosted search from a same-name local dynamic tool', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '搜索并核对', 'event-1')
@@ -474,7 +370,10 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       if (call.tool === 'wait_agent') {
         recorder.handleNotification(
           notification('item/completed', {
-            item: collabItem(call.id, 'wait', { receiverThreadIds: [], agentsStates: {} })
+            item: collabItem(call.id, 'wait', {
+              receiverThreadIds: [],
+              agentsStates: { lossy: { status: 'completed', message: 'SUMMARY_ONLY' } }
+            })
           })
         )
       }
@@ -488,6 +387,16 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
         })
       )
     }
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: {
+          ...startedTurn(),
+          status: 'completed',
+          items: [{ type: 'agentMessage', id: 'answer-collaboration', text: '委派完成。' }],
+          completedAt: Date.now() / 1_000
+        }
+      })
+    )
     await recorder.flush()
 
     const entries = turnItems(upserts).filter(entry => String(entry.item_key).startsWith('collab-'))
@@ -854,39 +763,6 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
   })
 })
 
-function fixture(delayMs = 5, turnTrace?: WorkerTurnTrace) {
-  const upserts: DecodedUpsert[] = []
-  const recorder = new BackgroundAgentJobTurnRecorder({
-    jobID: '1000',
-    attempt: 1,
-    actorTurn,
-    turnTrace,
-    checkpointDelayMs: delayMs,
-    upsert: async request => {
-      upserts.push(decodedUpsert(request))
-      return create(BackgroundAgentJobTurnUpsertResponseSchema, {
-        jobId: request.jobId,
-        turn: {
-          id: `stored:${request.runtimeTurnId}`,
-          attempt: request.attempt,
-          runtimeThreadId: request.runtimeThreadId,
-          runtimeTurnId: request.runtimeTurnId,
-          kind: request.kind,
-          status: request.status,
-          revision: request.revision,
-          trajectoryJson: request.trajectoryJson,
-          progressJson: request.progressJson,
-          usageJson: request.usageJson,
-          errorJson: request.errorJson,
-          startedAt: request.startedAt,
-          completedAt: request.completedAt ?? ''
-        }
-      })
-    }
-  })
-  return { recorder, upserts }
-}
-
 function rejectingFixture(rejection: { code: string; message?: string; details?: JSONObject }): {
   recorder: BackgroundAgentJobTurnRecorder
   attempts: () => number
@@ -903,34 +779,6 @@ function rejectingFixture(rejection: { code: string; message?: string; details?:
     }
   })
   return { recorder, attempts: () => attemptCount }
-}
-
-function turnItems(upserts: DecodedUpsert[]) {
-  return upserts.flatMap(request => request.turn_items)
-}
-
-function startedTurn() {
-  return jsonObject({
-    id: 'turn-1',
-    status: 'inProgress',
-    itemsView: 'full',
-    items: [],
-    error: null,
-    startedAt: Date.now() / 1_000,
-    completedAt: null,
-    durationMs: null
-  })
-}
-
-function notification(method: string, params: Record<string, unknown>) {
-  return {
-    method,
-    params: {
-      threadId: 'thread-1',
-      turnId: 'turn-1',
-      ...params
-    }
-  }
 }
 
 function tokenUsage() {
@@ -950,41 +798,5 @@ function tokenUsage() {
       reasoningOutputTokens: 3
     },
     modelContextWindow: 200_000
-  }
-}
-
-function commandItem(id: string, command: string, aggregatedOutput: string, status: string) {
-  return {
-    type: 'commandExecution',
-    id,
-    command,
-    cwd: '/agents/agent-1/jobs/job-1',
-    processId: null,
-    source: 'unifiedExec',
-    status,
-    commandActions: [],
-    aggregatedOutput,
-    exitCode: status === 'completed' ? 0 : null,
-    durationMs: status === 'completed' ? 1 : null
-  }
-}
-
-function collabItem(
-  id: string,
-  tool: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent',
-  overrides: Partial<CollabAgentToolItem>
-): CollabAgentToolItem {
-  return {
-    type: 'collabAgentToolCall',
-    id,
-    tool,
-    status: 'completed',
-    senderThreadId: 'thread-1',
-    receiverThreadIds: [],
-    prompt: null,
-    model: null,
-    reasoningEffort: null,
-    agentsStates: {},
-    ...overrides
   }
 }

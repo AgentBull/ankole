@@ -42,7 +42,7 @@ defmodule Ankole.SystemConfig do
   """
   @spec timezone() :: {:ok, String.t()} | {:error, term()}
   def timezone do
-    AppConfigure.get(timezone_definition())
+    AppConfigure.get_by_key(@timezone_key)
   end
 
   @doc """
@@ -50,7 +50,7 @@ defmodule Ankole.SystemConfig do
   """
   @spec put_timezone(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_timezone(timezone) when is_binary(timezone) do
-    AppConfigure.put_global(timezone_definition(), timezone)
+    AppConfigure.put_global_by_key(@timezone_key, timezone)
   end
 
   defp timezone_schema do

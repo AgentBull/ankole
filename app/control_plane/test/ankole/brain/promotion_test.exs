@@ -42,6 +42,27 @@ defmodule Ankole.Brain.PromotionTest do
   end
 
   describe "approve/3 new_type" do
+    test "cannot promote an Agent type or take the Agent namespace", %{human: human} do
+      suggestion = pending_suggestion("new_type", "agent")
+
+      assert {:error, {:reserved_object_type, "agent"}} =
+               Promotion.approve(suggestion.id, human.uid)
+
+      suggestion = pending_suggestion("new_type", "persona")
+
+      assert {:error, {:reserved_object_slug_prefix, "agents/"}} =
+               Promotion.approve(suggestion.id, human.uid, %{slug_prefix: "agents/"})
+    end
+
+    test "tag promotion does not retype canonical Agents", %{human: human} do
+      %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+      slug = "agents/" <> agent.uid
+      {:ok, _tag} = Links.add_tag(slug, "research")
+      suggestion = pending_suggestion("new_type", "research")
+      assert {:ok, %{migrated: 0}} = Promotion.approve(suggestion.id, human.uid)
+      assert {:ok, %{type: "agent"}} = Objects.get_by_slug(slug)
+    end
+
     test "retypes tagged objects with referencing rows and keeps old slugs resolvable", %{
       human: human
     } do
@@ -123,6 +144,13 @@ defmodule Ankole.Brain.PromotionTest do
   end
 
   describe "approve/3 new_subtype and reject/2" do
+    test "Agent subtypes cannot be extended", %{human: human} do
+      suggestion = pending_suggestion("new_subtype", "external", %{target_type: "agent"})
+
+      assert {:error, {:reserved_object_type, "agent"}} =
+               Promotion.approve(suggestion.id, human.uid)
+    end
+
     test "adds the term to the target type's subtype suggestions", %{human: human} do
       suggestion = pending_suggestion("new_subtype", "retainer", %{target_type: "document"})
 

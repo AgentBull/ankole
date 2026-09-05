@@ -279,11 +279,29 @@ defmodule Ankole.Brain.SchemaPacks do
   defp merge_manifests(manifests) do
     with {:ok, types} <- merge_types(manifests),
          {:ok, types} <- apply_subtype_extensions(types, manifests),
+         :ok <- validate_agent_type(types),
          :ok <- validate_unique_prefixes(types),
          {:ok, links} <- merge_named(manifests, "link_types", &link_signature/1),
          {:ok, domains} <- merge_named(manifests, "calibration_domains", &domain_signature/1) do
       {:ok, %{types: types, link_types: links, calibration_domains: domains}}
     end
+  end
+
+  defp validate_agent_type(types) do
+    Enum.reduce_while(types, :ok, fn {name, type}, :ok ->
+      cond do
+        name == "agent" and
+            (type["slug_prefix"] != "agents/" or type["primitive"] != "entity" or
+               type["subtypes"] != ["internal"] or type["extractable"] != false) ->
+          {:halt, {:error, {:reserved_object_type, name}}}
+
+        name != "agent" and String.starts_with?(type["slug_prefix"], "agents/") ->
+          {:halt, {:error, {:reserved_object_slug_prefix, type["slug_prefix"]}}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
   end
 
   defp merge_types(manifests) do

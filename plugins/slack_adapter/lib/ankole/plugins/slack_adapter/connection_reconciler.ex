@@ -105,8 +105,6 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
 
   defp binding_spec(%Binding{} = binding) do
     with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      config = Config.resolve_runtime_bot_identity(config)
-
       context =
         AdapterContext.new(
           agent_uid: binding.agent_uid,

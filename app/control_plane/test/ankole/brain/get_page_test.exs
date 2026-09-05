@@ -66,7 +66,7 @@ defmodule Ankole.Brain.GetPageTest do
     assert outsider_page.type == "company"
   end
 
-  test "resolution ladder covers alias, natural name, and fuzzy title", context do
+  test "resolution ladder covers alias, natural name, and exact title", context do
     Repo.insert!(%Ankole.Brain.Schemas.SlugAlias{
       id: Ankole.Ecto.UUIDv7.autogenerate(),
       alias_slug: "companies/minghu",
@@ -80,8 +80,9 @@ defmodule Ankole.Brain.GetPageTest do
     assert {:ok, by_name} = GetPage.get_page(context.member.uid, "明湖 AI")
     assert by_name.slug == "companies/minghu-ai"
 
-    assert {:ok, by_title} = GetPage.get_page(context.member.uid, "Minghu")
+    assert {:ok, by_title} = GetPage.get_page(context.member.uid, "Minghu AI")
     assert by_title.slug == "companies/minghu-ai"
+    assert {:error, :not_found} = GetPage.get_page(context.member.uid, "Minghu")
 
     assert {:error, :not_found} =
              GetPage.get_page(context.member.uid, "totally unrelated xyz")

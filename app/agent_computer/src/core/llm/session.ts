@@ -26,7 +26,7 @@ import {
   shouldRefreshAuthorizationAfterWebSocketOpenFailure,
   stringValue,
   terminalErrorMessage,
-  terminalErrorRetryable,
+  terminalErrorFields,
   usageFromResponse,
   webSocketTransportError
 } from './parse'
@@ -291,6 +291,8 @@ class AIGatewayResponsesTurn implements ModelTurn {
               )
               result.responseID = responseID
               if (terminal.errorRetryable !== undefined) result.errorRetryable = terminal.errorRetryable
+              if (terminal.errorCode !== undefined) result.errorCode = terminal.errorCode
+              if (terminal.errorStatus !== undefined) result.errorStatus = terminal.errorStatus
               await stream.return?.()
               return result
             }
@@ -457,7 +459,7 @@ function terminalProjection(
   responseStatus: string | undefined,
   response: JSONObject | undefined,
   frame: JSONObject
-): { status?: StopReason; errorMessage?: string; errorRetryable?: boolean } {
+): { status?: StopReason; errorMessage?: string; errorRetryable?: boolean; errorCode?: string; errorStatus?: number } {
   if (frameType === 'response.completed' && responseStatus !== 'failed') return {}
 
   if (frameType === 'response.incomplete') {
@@ -473,7 +475,7 @@ function terminalProjection(
   return {
     status: 'error',
     errorMessage: terminalErrorMessage(response, frame),
-    errorRetryable: terminalErrorRetryable(response, frame)
+    ...terminalErrorFields(response, frame)
   }
 }
 

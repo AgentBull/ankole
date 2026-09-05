@@ -124,12 +124,63 @@ defmodule Ankole.ObservabilityTest do
                headers: [{"authorization", "Bearer worker-secret"}]
              })
 
-    payload = <<10, 3, 1, 2, 3>>
+    payload = worker_payload()
     assert :ok = Observability.export_worker_spans(payload)
 
     assert_receive {:worker_otlp_request, "/otel/v1/traces", headers, ^payload}
     assert headers["authorization"] == "Bearer worker-secret"
     assert headers["content-type"] == "application/x-protobuf"
+  end
+
+  test "Langfuse maps worker facts once at the OTLP export boundary" do
+    body = export_worker_payload(Ankole.Observability.Providers.Langfuse)
+    agent = worker_span_attributes(body, "invoke_agent codex")
+    tool = worker_span_attributes(body, "execute_tool skill_view")
+
+    assert agent["langfuse.observation.type"] == "agent"
+    assert agent["langfuse.observation.input"] == ~s("inspect the PDF skill")
+    assert agent["langfuse.observation.output"] == ~s("skill loaded")
+    assert agent["session.id"] == "session-1"
+    refute Map.has_key?(agent, "ankole.agent.input")
+    refute Map.has_key?(agent, "ankole.agent.output")
+
+    assert tool["langfuse.observation.type"] == "tool"
+    assert tool["langfuse.observation.input"] == ~s({"name":"pdf"})
+    assert tool["langfuse.observation.output"] == ~s("loaded PDF skill")
+    assert tool["gen_ai.tool.name"] == "skill_view"
+    refute Map.has_key?(tool, "gen_ai.tool.call.arguments")
+    refute Map.has_key?(tool, "gen_ai.tool.call.result")
+    refute Enum.any?(Map.keys(tool), &String.starts_with?(&1, "langsmith."))
+  end
+
+  test "LangSmith maps the same worker facts without Langfuse attributes" do
+    body = export_worker_payload(Ankole.Observability.Providers.LangSmith)
+    agent = worker_span_attributes(body, "invoke_agent codex")
+    tool = worker_span_attributes(body, "execute_tool skill_view")
+
+    assert agent["langsmith.span.kind"] == "chain"
+    assert agent["gen_ai.prompt"] == ~s("inspect the PDF skill")
+    assert agent["gen_ai.completion"] == ~s("skill loaded")
+    refute Map.has_key?(agent, "ankole.agent.input")
+    refute Map.has_key?(agent, "ankole.agent.output")
+
+    assert tool["langsmith.span.kind"] == "tool"
+    assert tool["gen_ai.prompt"] == ~s({"name":"pdf"})
+    assert tool["gen_ai.completion"] == ~s("loaded PDF skill")
+    refute Map.has_key?(tool, "gen_ai.tool.call.arguments")
+    refute Map.has_key?(tool, "gen_ai.tool.call.result")
+    refute Enum.any?(Map.keys(tool), &String.starts_with?(&1, "langfuse."))
+  end
+
+  test "a vendor adapter rejects malformed worker OTLP before export" do
+    assert :ok =
+             Observability.put_runtime_config_for_test(%{
+               provider: Ankole.Observability.Providers.Langfuse,
+               endpoint: "http://127.0.0.1:1/otel",
+               headers: []
+             })
+
+    assert {:error, :invalid_otlp_payload} = Observability.export_worker_spans(<<1, 2, 3>>)
   end
 
   test "worker span batches are silently dropped when trace export is disabled" do
@@ -140,5 +191,97 @@ defmodule Ankole.ObservabilityTest do
   defp clear_app_configure do
     Registry.clear_for_test()
     Cache.clear_for_test()
+  end
+
+  defp export_worker_payload(provider) do
+    server =
+      start_supervised!(
+        {Bandit, plug: {OTLPReceiver, self()}, scheme: :http, ip: {127, 0, 0, 1}, port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert :ok =
+             Observability.put_runtime_config_for_test(%{
+               provider: provider,
+               endpoint: "http://127.0.0.1:#{port}/otel",
+               headers: []
+             })
+
+    assert :ok = Observability.export_worker_spans(worker_payload())
+    assert_receive {:worker_otlp_request, "/otel/v1/traces", _headers, body}
+    body
+  end
+
+  defp worker_payload do
+    request = %{
+      resource_spans: [
+        %{
+          resource: %{attributes: []},
+          scope_spans: [
+            %{
+              scope: %{name: "ankole-worker"},
+              spans: [
+                worker_span("invoke_agent codex", <<1::128>>, <<1::64>>, [
+                  string_attribute("gen_ai.operation.name", "invoke_agent"),
+                  string_attribute("ankole.agent.input", ~s("inspect the PDF skill")),
+                  string_attribute("ankole.agent.output", ~s("skill loaded")),
+                  string_attribute("session.id", "session-1")
+                ]),
+                worker_span("execute_tool skill_view", <<1::128>>, <<2::64>>, [
+                  string_attribute("gen_ai.operation.name", "execute_tool"),
+                  string_attribute("gen_ai.tool.name", "skill_view"),
+                  string_attribute("gen_ai.tool.call.arguments", ~s({"name":"pdf"})),
+                  string_attribute("gen_ai.tool.call.result", ~s("loaded PDF skill")),
+                  string_attribute("session.id", "session-1")
+                ])
+              ]
+            }
+          ]
+        }
+      ]
+    }
+
+    :opentelemetry_exporter_trace_service_pb.encode_msg(
+      request,
+      :export_trace_service_request
+    )
+  end
+
+  defp worker_span(name, trace_id, span_id, attributes) do
+    %{
+      trace_id: trace_id,
+      span_id: span_id,
+      name: name,
+      kind: :SPAN_KIND_INTERNAL,
+      start_time_unix_nano: 1,
+      end_time_unix_nano: 2,
+      attributes: attributes
+    }
+  end
+
+  defp string_attribute(key, value) do
+    %{key: key, value: %{value: {:string_value, value}}}
+  end
+
+  defp worker_span_attributes(body, name) do
+    decoded =
+      :opentelemetry_exporter_trace_service_pb.decode_msg(
+        body,
+        :export_trace_service_request
+      )
+
+    spans =
+      for resource <- decoded.resource_spans,
+          scope <- resource.scope_spans,
+          span <- scope.spans,
+          span.name == name,
+          do: span
+
+    assert [span] = spans
+
+    Map.new(span.attributes, fn attribute ->
+      {attribute.key, elem(attribute.value.value, 1)}
+    end)
   end
 end

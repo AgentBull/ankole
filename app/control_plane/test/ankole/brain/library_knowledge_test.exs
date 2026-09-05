@@ -315,6 +315,30 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     refute Repo.get_by(Object, slug: "lazyload-agent-skills/forged")
   end
 
+  test "library pages cannot create Agent identities or take their namespace", %{
+    dir: dir,
+    set: set
+  } do
+    for {name, slug, type} <- [
+          {"forged-agent", "concepts/forged-agent", "agent"},
+          {"forged-prefix", "agents/forged", "concept"}
+        ] do
+      File.write!(Path.join(dir, "concepts/#{name}.md"), """
+      ---
+      slug: #{slug}
+      type: #{type}
+      title: Forged
+      ---
+
+      Body.
+      """)
+    end
+
+    assert [%{rejected: 2, projected: 0}] = sync!(set).reports
+    refute Repo.get_by(Object, slug: "concepts/forged-agent")
+    refute Repo.get_by(Object, slug: "agents/forged")
+  end
+
   test "an unchanged set is a no-op and a changed file re-projects", %{dir: dir, set: set} do
     write_page!(dir, "beta-method")
     assert [%{projected: 1}] = sync!(set).reports
@@ -454,12 +478,11 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
 
     source = Repo.get_by!(Source, kind: "library", upstream_id: set.set_id)
 
-    {:ok, _archived} =
-      source
-      |> Source.changeset(%{archived_at: DateTime.utc_now(:microsecond)})
-      |> Repo.update()
+    assert {:ok, _archived} = Ankole.Brain.Sources.archive(source.id)
+    assert Repo.get_by!(Object, slug: "concepts/eta-method").deleted_at != nil
 
-    assert [%{status: :archived, withdrawn: 1}] = sync!(set).reports
+    write_page!(dir, "eta-method", "A later shipped revision.")
+    assert [%{status: :archived, withdrawn: 0}] = sync!(set).reports
     assert Repo.get_by!(Object, slug: "concepts/eta-method").deleted_at != nil
   end
 

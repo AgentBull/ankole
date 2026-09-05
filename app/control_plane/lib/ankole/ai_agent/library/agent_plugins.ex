@@ -23,9 +23,15 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
 
   @spec sources(keyword()) :: {:ok, [map()]} | {:error, term()}
   def sources(opts \\ []) do
-    roots = Keyword.get(opts, :library_roots)
-    source_opts = if is_list(roots), do: [roots: roots], else: []
-    SourceReader.read_trusted_agent_plugins(source_opts)
+    case Keyword.fetch(opts, :agent_plugin_sources) do
+      {:ok, sources} ->
+        {:ok, sources}
+
+      :error ->
+        roots = Keyword.get(opts, :library_roots)
+        source_opts = if is_list(roots), do: [roots: roots], else: []
+        SourceReader.read_trusted_agent_plugins(source_opts)
+    end
   end
 
   @doc "Returns every Agent Plugin Skill source regardless of parent enablement."
@@ -57,9 +63,23 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          :ok <- ensure_agent(repo, agent_uid),
-         {:ok, _sync} <- Ankole.AIAgent.Library.sync_agent_skills(agent_uid, opts),
          {:ok, agent_plugins} <- sources(opts),
-         {:ok, defaults} <- defaults(opts) do
+         {:ok, defaults} <- defaults(opts),
+         opts =
+           Keyword.merge(opts,
+             agent_plugin_sources: agent_plugins,
+             agent_library_defaults: defaults
+           ),
+         {:ok, _sync} <- Ankole.AIAgent.Library.sync_agent_skills(agent_uid, opts) do
+      capabilities_from_sources(agent_uid, agent_plugins, opts)
+    end
+  end
+
+  @doc false
+  def capabilities_from_sources(agent_uid, agent_plugins, opts) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, defaults} <- defaults(opts) do
       plugin_overrides = plugin_overrides(repo, agent_uid)
       skill_overrides = agent_plugin_skill_overrides(repo, agent_uid)
 

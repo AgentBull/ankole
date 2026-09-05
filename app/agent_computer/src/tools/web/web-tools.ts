@@ -14,9 +14,10 @@ import { errorMessage } from '../../common/errors'
 import {
   WEB_FETCH_BUDGET_CHARS,
   fetchedPageHost,
-  renderFetchedPages,
+  prepareFetchedPages,
+  renderPreparedPages,
   stringField,
-  type RenderedPage
+  type FetchedPage
 } from './fetched-page-text'
 
 type WebToolDetails = JSONObject
@@ -125,7 +126,7 @@ const RepeatFetchTTLMs = ms('15m')
 const RepeatFetchMaxEntries = 100
 
 interface CachedFetchedPage {
-  page: RenderedPage
+  page: FetchedPage
   at: number
 }
 
@@ -141,13 +142,13 @@ function createWebFetchTool(
 ): WorkerAgentTool<typeof WebFetchParams, WebToolDetails> {
   // Owner-scoped repeat-fetch cache. Research runs re-pull the same URL for
   // facts they already hold; serving the earlier result saves the round trip
-  // and keeps the two copies identical. Only clean results enter: an error must
+  // and renders it within the current batch budget. Only clean results enter: an error must
   // stay retryable, and a shell or near-empty page must not become the answer
   // this conversation or Job keeps returning.
   const cacheKey = (url: string) => JSON.stringify([config.repeatFetchSessionKey, url])
 
-  function cacheRenderedPage(url: string, page: RenderedPage, at: number): void {
-    if (page.details.error || page.details.render_warning) return
+  function cacheFetchedPage(url: string, page: FetchedPage, details: JSONObject, at: number): void {
+    if (details.error || details.render_warning) return
     const key = cacheKey(url)
     recentPages.delete(key)
     recentPages.set(key, { page, at })
@@ -182,65 +183,59 @@ function createWebFetchTool(
         }
       }
 
-      let bodyFacts: JSONObject = {}
-      const fetchedByURL = new Map<string, RenderedPage>()
-      let unpaired: { text: string; results: JSONObject[] } | undefined
+      let bodyFacts: unknown = {}
+      const fetchedByURL = new Map<string, FetchedPage>()
+      let unpaired: FetchedPage[] = []
       if (missing.length > 0) {
-        let body: unknown
-
         try {
-          body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: WebFetchSelector, urls: missing }, signal)
+          bodyFacts = await postAIGatewayJSON(
+            aiGateway,
+            '/web_fetch',
+            { model: WebFetchSelector, urls: missing },
+            signal
+          )
         } catch (error) {
           if (signal?.aborted || !config.renderedFallback) throw error
-          body = await renderedFallbackFetch(missing, config.renderedFallback, signal, errorMessage(error))
+          bodyFacts = await renderedFallbackFetch(missing, config.renderedFallback, signal, errorMessage(error))
         }
-
-        const rendered = renderFetchedPages(body, { workspaceRoot: config.workspaceRoot })
-        bodyFacts = rendered.details
-        if (rendered.pages.length === missing.length) {
-          for (const [index, url] of missing.entries()) {
-            const page = rendered.pages[index]!
-            cacheRenderedPage(url, page, now)
-            if (!fetchedByURL.has(url)) fetchedByURL.set(url, page)
-          }
+        const pages = prepareFetchedPages(bodyFacts, { workspaceRoot: config.workspaceRoot })
+        if (pages.length === missing.length) {
+          for (const [index, url] of missing.entries()) fetchedByURL.set(url, pages[index]!)
         } else {
-          // A provider that drops or merges pages breaks the position ↔ URL
-          // pairing this cache keys on: pass its result through whole and
-          // uncached instead of guessing which page belongs to which URL.
-          if (cachedByURL.size === 0) {
-            return { content: [{ type: 'text', text: rendered.text }], details: rendered.details }
-          }
-          unpaired = {
-            text: rendered.text,
-            results: rendered.pages.map(page => page.details)
-          }
+          // Without positional pairing, render the provider batch once and do not cache it.
+          unpaired = pages
         }
       }
 
-      const blocks: string[] = []
-      const results: JSONObject[] = []
+      const ordered: Array<{ page: FetchedPage; url?: string; cached?: CachedFetchedPage }> = []
       for (const url of params.urls) {
         const cached = cachedByURL.get(url)
-        if (cached) {
-          blocks.push(`${repeatFetchNote(now - cached.at)}\n${cached.page.text}`)
-          results.push({ ...cached.page.details, repeat_fetch: true })
-          continue
-        }
-        const page = fetchedByURL.get(url)
-        if (page) {
-          blocks.push(page.text)
-          results.push(page.details)
+        const page = cached?.page ?? fetchedByURL.get(url)
+        if (page) ordered.push({ page, url, cached })
+      }
+      ordered.push(...unpaired.map(page => ({ page })))
+      const rendered = renderPreparedPages(
+        ordered.map(item => item.page),
+        { workspaceRoot: config.workspaceRoot },
+        bodyFacts
+      )
+      for (const [index, item] of ordered.entries()) {
+        const page = rendered.pages[index]!
+        if (item.cached) {
+          page.text = `${repeatFetchNote(now - item.cached.at)}\n${page.text}`
+          page.details.repeat_fetch = true
+        } else if (item.url) {
+          cacheFetchedPage(item.url, item.page, page.details, now)
         }
       }
-      if (unpaired) {
-        blocks.push(unpaired.text)
-        results.push(...unpaired.results)
-      }
-
-      const facts = Object.fromEntries(Object.entries(bodyFacts).filter(([key]) => key !== 'results'))
       return {
-        content: [{ type: 'text', text: blocks.join('\n\n---\n\n') }],
-        details: { ...facts, results }
+        content: [
+          {
+            type: 'text',
+            text: rendered.pages.length ? rendered.pages.map(page => page.text).join('\n\n---\n\n') : rendered.text
+          }
+        ],
+        details: rendered.details
       }
     }
   })

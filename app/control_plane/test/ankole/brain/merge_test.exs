@@ -77,25 +77,29 @@ defmodule Ankole.Brain.MergeTest do
       assert Repo.aggregate(MergeSuggestion, :count) == 1
     end
 
-    test "near-identical titles of one type yield a pair; other types do not pair" do
+    test "similar or identical titles do not establish object identity" do
       create_page!("companies/hongshan", "company", "Hongshan Cement Group")
       create_page!("companies/hongshan-group", "company", "Hongshan Cement Group Ltd")
       create_page!("projects/hongshan", "project", "Hongshan Cement Group")
+      create_page!("notes/research", "note", "研究 Skill")
+      create_page!("notes/drawing", "note", "绘图 Skill")
+      create_page!("notes/another-research", "note", "研究 Skill")
 
       assert %{status: :ok} = Merge.run_phase()
 
-      assert pending_pairs() == MapSet.new([{"companies/hongshan", "companies/hongshan-group"}])
-
-      assert [suggestion] = Repo.all(MergeSuggestion)
-      assert suggestion.reason =~ "title similarity"
+      assert pending_pairs() == MapSet.new()
     end
 
     test "media pages, deleted pages, and canonical principal pairs stay out" do
       create_page!("media/report-a", "media", "Quarterly Report")
       create_page!("media/report-b", "media", "Quarterly Report")
+      {:ok, _alias} = Links.add_alias("media/report-a", "report")
+      {:ok, _alias} = Links.add_alias("media/report-b", "report")
 
       create_page!("companies/gone", "company", "Gone Industries")
       create_page!("companies/gone-inc", "company", "Gone Industries Inc")
+      {:ok, _alias} = Links.add_alias("companies/gone", "gone")
+      {:ok, _alias} = Links.add_alias("companies/gone-inc", "gone")
       {:ok, _object} = Objects.soft_delete("companies/gone-inc")
 
       %{principal: first} = human_fixture()
@@ -129,7 +133,7 @@ defmodule Ankole.Brain.MergeTest do
       assert Repo.aggregate(MergeSuggestion, :count) == 210
     end
 
-    test "library-managed pages stay out of alias and title candidates" do
+    test "library-managed pages stay out of alias candidates" do
       managed = create_page!("companies/managed-acme", "company", "Managed Acme")
       create_page!("companies/ordinary-acme", "company", "Managed Acme Ltd")
       mark_managed!(managed)

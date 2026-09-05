@@ -35,8 +35,11 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_schema_suggestions` | Model-proposed vocabulary and type changes waiting for an operator |
 
 Vector search uses `pgvector` `halfvec` HNSW indexes; text search uses
-`pg_search` BM25 indexes with a configurable tokenizer; entity matching uses
-`pg_trgm`. The BrainV3 migration installs all three extensions.
+`pg_search` BM25 indexes with a configurable tokenizer. Entity identity uses
+exact slugs, redirects, normalized aliases, then exact titles. Ambiguous
+matches return candidates; fuzzy titles do not establish identity. The
+historical BrainV3 migration also installs `pg_trgm`, but identity resolution
+and merge detection do not use it.
 
 ## Scope and Disclosure
 
@@ -84,6 +87,15 @@ type-owned prefix (`people/`, `companies/`, `concepts/`, ...), a Markdown
 body, and append-only versions. Concurrent edits use an expected content
 hash; a mismatch rejects the write.
 
+The `agent` type and `agents/<uid>` namespace are reserved for the canonical
+pages of this instance's Agent Principals. Only the Principal lifecycle can
+create them, with subtype `internal`. Generic writes, Source projections,
+library imports, and schema promotions cannot create these identities.
+Knowledge and calibration updates to an existing Agent page remain valid.
+Model-facing instructions explain this boundary before a write, and the
+extraction type list excludes `agent`: Skills, models, tools, automations,
+and assistant personas use ordinary knowledge types, not Principal pages.
+
 Shipped knowledge files project through `library` Sources. The file remains
 authoritative while `managed_by_source_id` is set, so an operator can attach
 claims and links but cannot edit the projected page body. An instance-owned
@@ -91,6 +103,12 @@ page at the same slug shadows the file. Forking an ordinary managed knowledge
 page makes it an instance page. Removing a shipped set soft-deletes its managed
 pages and keeps their instance-owned periphery so the same set can restore in
 place.
+
+Library writes lock the Source before the Object and check both current
+archive state and body ownership in the page transaction. Forked pages stay
+with the instance. Source archive and withdrawal commit together, so a sync
+already in progress cannot restore an archived set. File parsing stays
+outside these transactions; a page failure does not roll back other pages.
 
 A shipped Skill can declare `brain-recall-only: true`. It remains one standard
 Skill with its global Skill name, but it is absent from the model-visible Skill
@@ -232,7 +250,15 @@ Dreaming is the instance maintenance round, scheduled by
 recorded without blocking the rest:
 
 1. `consolidate` — promotes dense fact buckets into curated page text.
-2. `patterns` — writes cross-page pattern notes.
+2. `patterns` — finds recurring themes across at least three distinct pages
+   using up to 40 recent high-notability facts per audience from the last
+   30 days. Existing patterns from that audience are supplied to the model
+   to update the same semantic topic. Pages use
+   `analysis/patterns/<scope-hash>/<topic>`, never a date-based daily digest.
+   Each audience batch commits pages and replacement `derived_from` links
+   together; citations must name supplied evidence and each body keeps the
+   evidence audience. No useful pattern is a successful no-op. Generated
+   pattern pages and legacy daily digests are excluded as new evidence.
 3. `extract_links` — materializes typed links from page text.
 4. `emotional_weight` — recomputes page salience inputs.
 5. `grade_takes` — grades expired or stale Takes against page evidence
@@ -246,8 +272,8 @@ recorded without blocking the rest:
    under a row lock.
 8. `schema_suggest` — proposes vocabulary and type promotions.
 9. `merge_suggest` — the mechanical backstop behind write-time entity
-   dedup: pairs live pages of one type that share a normalized alias or
-   carry near-identical titles into `brain_merge_suggestions`, one row per
+   dedup: pairs live pages of one type that share a normalized alias
+   into `brain_merge_suggestions`, one row per
    pair forever. Nothing merges automatically; a Console approval merges
    the pair in one transaction (claims, holders, timelines, tags, aliases,
    and links repoint, the duplicate becomes a slug redirect), and canonical

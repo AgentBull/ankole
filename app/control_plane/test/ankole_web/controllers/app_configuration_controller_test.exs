@@ -5,7 +5,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
-  alias Ankole.IdentityProviders.Config, as: IdentityProvidersConfig
+  alias Ankole.IdentityProviders
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
@@ -355,7 +355,8 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
 
     # Closing the Console path must not close the path the owning API uses.
-    assert {:ok, []} = IdentityProvidersConfig.put_active_providers([])
+    assert {:ok, %{"provider_id" => "local-console"}} =
+             IdentityProviders.save_provider("local-console", "local", %{})
   end
 
   defp key(prefix, name), do: prefix <> "." <> name

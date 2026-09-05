@@ -406,6 +406,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         error: {
           code: 'rate_limit_exceeded',
           message: 'rate limited',
+          provider_status: 429,
           retryable: false
         },
         output: []
@@ -415,6 +416,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.errorRetryable).toBe(false)
+    expect(result.errorCode).toBe('rate_limit_exceeded')
+    expect(result.errorStatus).toBe(429)
   })
 
   it('uses changed terminal arguments instead of the same caller-scoped streamed fallback', () => {

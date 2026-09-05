@@ -29,6 +29,8 @@ export function parseResponse(response: OpenAIResponse, modelName: string): Mode
   const result = parseOutputItems(output, modelName, usage, terminal.status, '', terminal.errorMessage)
   result.responseID = response.id
   if (terminal.errorRetryable !== undefined) result.errorRetryable = terminal.errorRetryable
+  if (terminal.errorCode !== undefined) result.errorCode = terminal.errorCode
+  if (terminal.errorStatus !== undefined) result.errorStatus = terminal.errorStatus
   return result
 }
 
@@ -116,12 +118,14 @@ function responseTerminalProjection(response: OpenAIResponse): {
   status?: StopReason
   errorMessage?: string
   errorRetryable?: boolean
+  errorCode?: string
+  errorStatus?: number
 } {
   if (response.status === 'failed') {
     return {
       status: 'error',
       errorMessage: terminalErrorMessage(response as unknown as JSONObject, {}),
-      errorRetryable: terminalErrorRetryable(response as unknown as JSONObject, {})
+      ...terminalErrorFields(response as unknown as JSONObject, {})
     }
   }
 
@@ -228,13 +232,7 @@ export function usageFromResponse(usage: unknown): ModelUsage | undefined {
 
 export function terminalErrorMessage(response: JSONObject | undefined, frame: JSONObject): string | undefined {
   const error = recordValue(response?.error) ?? recordValue(frame.error)
-  const status =
-    numberValue(error?.provider_status) ??
-    numberValue(error?.status) ??
-    numberValue(error?.status_code) ??
-    numberValue(error?.http_status) ??
-    numberValue(frame.status)
-  const code = stringValue(error?.code) ?? stringValue(frame.code)
+  const { errorStatus: status, errorCode: code } = terminalErrorFields(response, frame)
   const message = stringValue(error?.message)
 
   if (status !== undefined || code || message) {
@@ -253,12 +251,23 @@ export function terminalErrorMessage(response: JSONObject | undefined, frame: JS
   return undefined
 }
 
-export function terminalErrorRetryable(response: JSONObject | undefined, frame: JSONObject): boolean | undefined {
-  const responseValue = recordValue(response?.error)?.retryable
-  if (typeof responseValue === 'boolean') return responseValue
-
-  const frameValue = recordValue(frame.error)?.retryable
-  return typeof frameValue === 'boolean' ? frameValue : undefined
+export function terminalErrorFields(
+  response: JSONObject | undefined,
+  frame: JSONObject
+): Pick<ModelCallResult, 'errorRetryable' | 'errorCode' | 'errorStatus'> {
+  const error = recordValue(response?.error) ?? recordValue(frame.error)
+  const responseRetryable = recordValue(response?.error)?.retryable
+  const retryable = typeof responseRetryable === 'boolean' ? responseRetryable : recordValue(frame.error)?.retryable
+  return {
+    errorCode: stringValue(error?.code) ?? stringValue(frame.code),
+    errorStatus:
+      numberValue(error?.provider_status) ??
+      numberValue(error?.status) ??
+      numberValue(error?.status_code) ??
+      numberValue(error?.http_status) ??
+      numberValue(frame.status),
+    errorRetryable: typeof retryable === 'boolean' ? retryable : undefined
+  }
 }
 
 export function aigatewayErrorFromFrame(frame: JSONObject): AIGatewayWebSocketError {

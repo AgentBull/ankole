@@ -25,6 +25,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -42,6 +43,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       _args ->
         with {:ok, rollover} <-
                Repo.transact(fn repo ->
+                 _current_turn = lock_command_turn(repo, actor_key)
+
                  with {:ok, cancellation} <- end_active_conversation(repo, actor_key, now) do
                    {:ok, Map.put(cancellation, :status, :conversation_rolled_over)}
                  end
@@ -103,6 +106,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
     Repo.transact(fn repo ->
       with :ok <- lock_session_before_retry_append(repo, input),
+           _current_turn = lock_command_turn(repo, actor_key),
            %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            {:ok, result} <- apply_runtime_command(repo, actor_key, input, now) do
         {:ok, result}
@@ -137,7 +141,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
+      with _current_turn = lock_command_turn(repo, actor_key),
+           %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            {:ok, cancellation} <- cancel_live_turn(repo, actor_key, now, "command.stop"),
            {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
         {:ok,
@@ -317,16 +322,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
       _args ->
         Repo.transact(fn repo ->
-          with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id) do
+          with {:ok, assignment} <- WorkerPool.lock_existing_assignment_in_tx(repo, actor_key),
+               current_turn = lock_command_turn(repo, actor_key),
+               %ActorEvent{input_state: "open", completed_at: nil} = input <-
+                 Actors.lock_actor_event_in_tx(repo, input.id) do
             case TurnLifecycle.live_delivery_for_session?(repo, actor_key) do
               true ->
-                prepare_active_steer(repo, actor_key, input, now)
+                prepare_active_steer(repo, actor_key, input, assignment, current_turn, now)
 
               false ->
                 {:ok, %{status: :steer_as_generation}}
             end
           else
             nil -> {:ok, %{status: :idle}}
+            %ActorEvent{} -> {:ok, %{status: :idle}}
             {:error, _reason} = error -> error
           end
         end)
@@ -378,22 +387,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp prepare_active_steer(repo, actor_key, %ActorEvent{} = input, now) do
+  defp prepare_active_steer(
+         repo,
+         actor_key,
+         %ActorEvent{} = input,
+         {worker, assignment},
+         {activation, event_state},
+         now
+       ) do
     case live_delivery_for_event?(repo, input.id) do
       true ->
         {:ok, %{status: :waiting_for_generation, command: input.type}}
 
       false ->
-        with %ActorSessionWorkerAssignment{} = assignment_snapshot <-
-               live_assignment_snapshot(repo, actor_key),
-             %AgentComputerWorker{} <-
-               lock_assignment_worker(repo, assignment_snapshot.worker_id),
-             %ActorSessionActivation{} = activation <-
-               TurnLifecycle.lock_live_activation(repo, actor_key),
-             %ActorSessionWorkerAssignment{} = assignment <-
-               lock_live_assignment(repo, assignment_snapshot, actor_key),
+        with %ActorSessionWorkerAssignment{} <- assignment,
+             %AgentComputerWorker{} <- worker,
+             %ActorSessionActivation{} <- activation,
              true <- ActorSessionActivation.lease_alive?(activation, now),
-             :open <- current_activation_event_state(repo, activation),
+             :open <- event_state,
              {:ok, activation} <- bump_activation_revision(repo, activation, now),
              {:ok, delivery} <-
                TurnLifecycle.create_event_delivery_in_tx(
@@ -431,32 +442,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     |> repo.exists?()
   end
 
-  defp live_assignment_snapshot(repo, actor_key) do
-    ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
-    |> where([assignment], assignment.session_id == ^actor_key.session_id)
-    |> where([assignment], assignment.status in ["assigned", "draining"])
-    |> repo.one()
-  end
-
-  defp lock_assignment_worker(repo, worker_id) do
-    AgentComputerWorker
-    |> where([worker], worker.worker_id == ^worker_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp lock_live_assignment(repo, assignment, actor_key) do
-    ActorSessionWorkerAssignment
-    |> where([stored], stored.id == ^assignment.id)
-    |> where([stored], stored.agent_uid == ^actor_key.agent_uid)
-    |> where([stored], stored.session_id == ^actor_key.session_id)
-    |> where([stored], stored.worker_id == ^assignment.worker_id)
-    |> where([stored], stored.status in ["assigned", "draining"])
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
   defp bump_activation_revision(repo, %ActorSessionActivation{} = activation, now) do
     activation
     |> ActorSessionActivation.changeset(%{
@@ -488,7 +473,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp current_activation_event_state(_repo, %ActorSessionActivation{}), do: :missing
+  defp current_activation_event_state(_repo, _activation), do: :missing
+
+  # Commands lock the current turn before their own event or any delivery.
+  # Completion, abort, and Worker recovery take activation before event locks.
+  defp lock_command_turn(repo, actor_key) do
+    activation = TurnLifecycle.lock_live_activation(repo, actor_key)
+    {activation, current_activation_event_state(repo, activation)}
+  end
 
   defp send_mailbox_updated(
          %{

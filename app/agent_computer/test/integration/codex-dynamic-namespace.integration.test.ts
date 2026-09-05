@@ -3,128 +3,18 @@ import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { z } from 'zod'
-import { buildCodexJobProjection, type CodexJobProjection } from '../../src/core/codex-runner/job/projection'
-import { defineWorkerTool, type WorkerAgentTool } from '../../src/core'
 import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/runtime/app-server-client'
-import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
 import type { ThreadStartParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartParams'
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
 import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
 import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
 import { errorMessage } from '../../src/common/errors'
 
-const searchCallID = 'analysis-search'
-const analysisCallID = 'analysis-inspect-call'
 const nativeMCPSearchCallID = 'native-mcp-search'
 const nativeMCPSecondSearchCallID = 'native-mcp-search-again'
 const nativeMCPToolCallID = 'native-mcp-stdio-echo'
 const nativeMCPSecondToolCallID = 'native-mcp-stdio-echo-again'
-const AnalysisArguments = z.object({ metric: z.string(), confidence: z.number().min(0).max(1) })
-const analysisInputSchema = {
-  type: 'object',
-  properties: {
-    metric: { type: 'string' },
-    confidence: { type: 'number', minimum: 0, maximum: 1 }
-  },
-  required: ['metric', 'confidence'],
-  additionalProperties: false
-}
-
-describe('Codex dynamic namespace integration', () => {
-  it('runs an allowed non-MCP namespace through real Codex Tool Search without rewriting its input schema', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-dynamic-namespace-'))
-    const workspace = join(root, 'workspace')
-    const codexHome = join(root, 'codex-home')
-    const requests: JSONObject[] = []
-    const manifestRequests: string[] = []
-    const notifications: JSONRPCMessage[] = []
-    const provider = createResponsesCapture(requests, manifestRequests)
-    if (typeof provider.port !== 'number') throw new Error('Responses capture server did not bind a TCP port')
-    let client: CodexAppServerClient | undefined
-
-    try {
-      mkdirSync(workspace, { recursive: true })
-      mkdirSync(codexHome, { recursive: true })
-      writeCodexConfig(codexHome, workspace, provider.port)
-      const projection = buildCodexJobProjection({
-        tools: [analysisTool()],
-        allowedToolPaths: new Set(['analysis_tools.inspect_data'])
-      })
-      expect(projection.dynamicTools).toEqual([
-        {
-          type: 'namespace',
-          name: 'analysis_tools',
-          description: 'Data analysis tools.',
-          tools: [
-            {
-              type: 'function',
-              name: 'inspect_data',
-              description: 'Inspect one named metric.',
-              inputSchema: analysisInputSchema,
-              deferLoading: true
-            }
-          ]
-        }
-      ])
-      client = codexClient({ workspace, codexHome, notifications, projection })
-
-      const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.153.2 ')
-      const models = (await client.request('model/list', { includeHidden: true })) as {
-        data: Array<{ model: string }>
-      }
-      expect(manifestRequests.length).toBeGreaterThan(0)
-      expect(manifestRequests.every(url => url.includes('client_version=0.153.2'))).toBe(true)
-      expect(models.data.some(model => model.model === 'gpt-5.4')).toBe(true)
-      const started = (await client.request('thread/start', {
-        cwd: workspace,
-        approvalPolicy: 'never',
-        sandbox: 'danger-full-access',
-        threadSource: 'ankole',
-        dynamicTools: projection.dynamicTools
-      } satisfies ThreadStartParams)) as ThreadStartResponse
-      expect(started.model).toBe('gpt-5.4')
-      const turn = (await client.request('turn/start', {
-        threadId: started.thread.id,
-        input: [{ type: 'text', text: 'Inspect the revenue metric.', text_elements: [] }],
-        cwd: workspace,
-        approvalPolicy: 'never',
-        sandboxPolicy: { type: 'dangerFullAccess' }
-      } satisfies TurnStartParams)) as TurnStartResponse
-      await waitFor(() => turnCompleted(notifications, turn.turn.id, 'completed'))
-
-      expect(requests).toHaveLength(3)
-      expect(toolTypes(requests[0]!)).toContain('tool_search')
-      expect(namespaceSurfaceFromSearch(requests[1]!, searchCallID)).toMatchObject([
-        {
-          name: 'analysis_tools',
-          description: 'Data analysis tools.',
-          tools: [
-            {
-              name: 'inspect_data',
-              description: 'Inspect one named metric.',
-              strict: false,
-              defer_loading: true
-            }
-          ]
-        }
-      ])
-      expect(functionCallOutputText(requests[2]!, analysisCallID)).toContain('inspected revenue at 0.9 confidence')
-    } catch (error) {
-      const stderr = notifications
-        .filter(notification => notification.method === '$stderr')
-        .flatMap(notification => (isRecord(notification.params) ? [notification.params.text] : []))
-        .filter((value): value is string => typeof value === 'string')
-        .join('')
-      throw new Error(`${errorMessage(error)}\n${stderr}`)
-    } finally {
-      await client?.close()
-      provider.stop(true)
-      rmSync(root, { recursive: true, force: true })
-    }
-  }, 90_000)
-
+describe('Codex native MCP integration', () => {
   it('discovers and calls a native MCP tool through the model-visible mcp namespace', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-native-mcp-'))
     const workspace = join(root, 'workspace')
@@ -232,85 +122,6 @@ describe('Codex dynamic namespace integration', () => {
     }
   }, 90_000)
 })
-
-function analysisTool(): WorkerAgentTool<typeof AnalysisArguments> {
-  return defineWorkerTool({
-    executionMode: 'sequential',
-    name: 'inspect_data',
-    description: 'Inspect one named metric.',
-    schema: AnalysisArguments,
-    jsonSchema: analysisInputSchema,
-    namespace: 'analysis_tools',
-    namespaceDescription: 'Data analysis tools.',
-    deferLoading: true,
-    isReadOnly: true,
-    isDestructive: false,
-    describeActivity: () => 'Inspect data',
-    async execute(_callID, params) {
-      return {
-        content: [{ type: 'text', text: `inspected ${params.metric} at ${params.confidence} confidence` }],
-        details: params
-      }
-    }
-  })
-}
-
-function createResponsesCapture(requests: JSONObject[], manifestRequests: string[]) {
-  return Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url)
-      if (request.method === 'GET' && url.pathname === '/v1/models') {
-        manifestRequests.push(url.toString())
-        return Response.json(codexModelsManifest())
-      }
-      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
-        return Response.json({ error: { message: 'not found' } }, { status: 404 })
-      }
-
-      const body = (await request.json()) as JSONObject
-      requests.push(body)
-      const model = typeof body.model === 'string' ? body.model : 'gpt-5.4'
-      if (requests.length === 1) {
-        return sseResponse(
-          responseEvents('resp-analysis-search', model, [
-            {
-              type: 'tool_search_call',
-              call_id: searchCallID,
-              execution: 'client',
-              arguments: { query: 'inspect metric', limit: 8 }
-            }
-          ])
-        )
-      }
-      if (requests.length === 2) {
-        return sseResponse(
-          responseEvents('resp-analysis-call', model, [
-            {
-              type: 'function_call',
-              call_id: analysisCallID,
-              namespace: 'analysis_tools',
-              name: 'inspect_data',
-              arguments: JSON.stringify({ metric: 'revenue', confidence: 0.9 })
-            }
-          ])
-        )
-      }
-      return sseResponse(
-        responseEvents('resp-analysis-done', model, [
-          {
-            id: 'msg-analysis-done',
-            type: 'message',
-            status: 'completed',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: 'Revenue inspected.', annotations: [] }]
-          }
-        ])
-      )
-    }
-  })
-}
 
 function createNativeMCPResponsesCapture(requests: JSONObject[], manifestRequests: string[]) {
   return Bun.serve({
@@ -427,32 +238,6 @@ function codexModelsManifest(): JSONObject {
   }
 }
 
-function codexClient(input: {
-  workspace: string
-  codexHome: string
-  notifications: JSONRPCMessage[]
-  projection: CodexJobProjection
-}): CodexAppServerClient {
-  return new CodexAppServerClient({
-    cwd: input.workspace,
-    env: codexEnvironment(input.workspace, input.codexHome),
-    onNotification: notification => input.notifications.push(notification),
-    onServerRequest: async (message, appServer) => {
-      if (message.id === undefined || message.method !== 'item/tool/call') {
-        if (message.id !== undefined) {
-          await appServer.respondError(message.id, -32601, 'Unsupported test server request')
-        }
-        return
-      }
-      const response = await input.projection.handleToolCall(
-        message.params as DynamicToolCallParams,
-        new AbortController().signal
-      )
-      await appServer.respond(message.id, response)
-    }
-  })
-}
-
 function codexEnvironment(workspace: string, codexHome: string): Record<string, string> {
   return {
     PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -489,7 +274,7 @@ enabled_tools = ["stdio_echo"]
 model_provider = "contract"
 
 [model_providers.contract]
-name = "Ankole dynamic namespace contract"
+name = "Ankole native MCP contract"
 base_url = "http://127.0.0.1:${port}/v1"
 wire_api = "responses"
 supports_websockets = false
@@ -606,7 +391,7 @@ function turnCompleted(notifications: JSONRPCMessage[], turnID: string, status: 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 60_000
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('timed out waiting for Codex dynamic namespace turn')
+    if (Date.now() >= deadline) throw new Error('timed out waiting for Codex native MCP turn')
     await Bun.sleep(10)
   }
 }

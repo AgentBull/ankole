@@ -219,7 +219,10 @@ defmodule WeComOpenAPI.Bot.Client do
       {^seq, from, _timer} ->
         state = %{state | pending: Map.delete(state.pending, req_id)}
         GenServer.reply(from, {:error, %Error{reason: :ack_timeout}})
-        {:noreply, advance_reply_queue(state, req_id)}
+        # An ACK has no sequence number. Close the connection before this
+        # req_id can identify another frame.
+        state = drop_conn(state, :ack_timeout)
+        maybe_schedule_reconnect(state, :ack_timeout)
 
       _other ->
         {:noreply, state}

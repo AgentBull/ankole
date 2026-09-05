@@ -3,15 +3,15 @@ import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useMemo, useRef } from 'react'
+import { useMemo, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { ankoleWebAgentControllerPutProviderHostedMutation } from '../api/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebAgentControllerDeleteModelProfileMutation,
-  ankoleWebAgentControllerPutModelProfileMutation,
-  ankoleWebAgentControllerPutProviderHostedMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  ankoleWebAgentControllerDeleteModelProfile,
+  ankoleWebAgentControllerPutModelProfile
+} from '../api/generated/sdk.gen'
 import type {
   AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
@@ -42,17 +42,7 @@ function profileDescription(t: TFunction, profile: ProfileName) {
   return t(`console.models.${profile}_description`)
 }
 
-export function ModelProfilesEditor({
-  agent,
-  error,
-  loading,
-  onChanged,
-  profiles,
-  providerHosted,
-  providers,
-  providerKinds,
-  modelCatalog
-}: {
+type ModelProfilesEditorProps = {
   agent: AgentItem
   error: unknown
   loading: boolean
@@ -62,14 +52,31 @@ export function ModelProfilesEditor({
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: unknown
-}) {
+}
+
+type ProfilePersistence = { submission: ModelProfileSubmission } & (
+  | { action: 'saved'; body: ModelProfileWriteRequest }
+  | { action: 'cleared' }
+)
+
+export function ModelProfilesEditor(props: ModelProfilesEditorProps) {
+  return <AgentModelProfilesEditor key={props.agent.uid} {...props} />
+}
+
+function AgentModelProfilesEditor({
+  agent,
+  error,
+  loading,
+  onChanged,
+  profiles,
+  providerHosted,
+  providers,
+  providerKinds,
+  modelCatalog
+}: ModelProfilesEditorProps) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(ModelProfilesModel)
-  const currentAgentUID = useRef(agent.uid)
-  currentAgentUID.current = agent.uid
-  const pendingSaveSubmissions = useRef(new Map<string, ModelProfileSubmission>())
-  const pendingClearSubmissions = useRef(new Map<string, ModelProfileSubmission>())
   const modelProfileDrafts = useMemo(
     () =>
       loading
@@ -83,96 +90,6 @@ export function ModelProfilesEditor({
     identity: { resource: 'model-profiles', agentUID: agent.uid },
     source: modelProfileDrafts
   })
-
-  const finishPersistence = (
-    savedAgentUID: string,
-    profile: ProfileName,
-    submission: ModelProfileSubmission,
-    persistedProfile: unknown,
-    action: 'saved' | 'cleared'
-  ) => {
-    if (currentAgentUID.current === savedAgentUID) {
-      const result = model.markSaved(profile, draftFromProfile(recordValue(persistedProfile) ?? {}), submission)
-      const messageKey = result.hasUnsavedChanges ? `${action}_with_unsaved_changes` : action
-      const label = modelProfileLabel(t, profile)
-
-      if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile: label }))
-      else toast.success(t(`console.models.${messageKey}`, { profile: label }))
-    }
-    onChanged()
-  }
-
-  const saveProfile = useMutation({
-    ...ankoleWebAgentControllerPutModelProfileMutation(),
-    onSuccess: (response, variables) => {
-      const profile = variables.path.profile as ProfileName
-      const key = profileSubmissionKey(variables.path.agent_uid, profile)
-      const submission = pendingSaveSubmissions.current.get(key)
-      pendingSaveSubmissions.current.delete(key)
-      if (submission) {
-        finishPersistence(variables.path.agent_uid, profile, submission, response.model_profile, 'saved')
-      } else onChanged()
-    },
-    onError: (_error, variables) => {
-      pendingSaveSubmissions.current.delete(
-        profileSubmissionKey(variables.path.agent_uid, variables.path.profile as ProfileName)
-      )
-    }
-  })
-  const clearProfile = useMutation({
-    ...ankoleWebAgentControllerDeleteModelProfileMutation(),
-    onSuccess: (response, variables) => {
-      const profile = variables.path.profile as ProfileName
-      const key = profileSubmissionKey(variables.path.agent_uid, profile)
-      const submission = pendingClearSubmissions.current.get(key)
-      pendingClearSubmissions.current.delete(key)
-      if (submission) {
-        finishPersistence(variables.path.agent_uid, profile, submission, response.model_profile, 'cleared')
-      } else onChanged()
-    },
-    onError: (_error, variables) => {
-      pendingClearSubmissions.current.delete(
-        profileSubmissionKey(variables.path.agent_uid, variables.path.profile as ProfileName)
-      )
-    }
-  })
-
-  const updateDraft = (profile: ProfileName, patch: Partial<ProfileDraft>) => model.update(profile, patch)
-
-  // One in-flight save or clear per profile: a repeat submit while the first
-  // request runs would double-write and strand the submission bookkeeping.
-  const persistProfile = (profile: ProfileName, submission: ModelProfileSubmission, body: ModelProfileWriteRequest) => {
-    const key = profileSubmissionKey(agent.uid, profile)
-    if (pendingSaveSubmissions.current.has(key) || pendingClearSubmissions.current.has(key)) return
-    pendingSaveSubmissions.current.set(key, submission)
-    saveProfile.mutate({ body, path: { agent_uid: agent.uid, profile } })
-  }
-
-  const clear = (profile: ProfileName) => {
-    const key = profileSubmissionKey(agent.uid, profile)
-    if (pendingSaveSubmissions.current.has(key) || pendingClearSubmissions.current.has(key)) return
-    const submission = model.submission(profile)
-    pendingClearSubmissions.current.set(key, submission)
-    clearProfile.mutate({ path: { agent_uid: agent.uid, profile } })
-  }
-
-  const submit = (profile: ProfileName) => {
-    const draft = model.snapshot(profile)
-    const built = buildModelProfileWriteRequest({
-      profile,
-      draft,
-      providers,
-      providerKinds,
-      t
-    })
-    if (!built.ok) {
-      updateDraft(profile, { error: built.error })
-      return
-    }
-
-    updateDraft(profile, { error: undefined })
-    persistProfile(profile, model.submission(profile), built.body)
-  }
 
   const saveProviderHosted = useMutation({
     ...ankoleWebAgentControllerPutProviderHostedMutation(),
@@ -203,18 +120,6 @@ export function ModelProfilesEditor({
     }
   }
 
-  // `mutation.variables` names only the latest call, so overlapping saves to
-  // two profiles would drop the first card's pending state. The submission
-  // maps track every in-flight profile; `isPending` keeps the render
-  // subscription that the ref reads alone would not provide.
-  const profilePersistencePending = (profile: ProfileName) => {
-    const key = profileSubmissionKey(agent.uid, profile)
-    return (
-      (saveProfile.isPending && pendingSaveSubmissions.current.has(key)) ||
-      (clearProfile.isPending && pendingClearSubmissions.current.has(key))
-    )
-  }
-
   return (
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
       <div className="grid gap-1">
@@ -229,7 +134,7 @@ export function ModelProfilesEditor({
           </p>
         ) : null}
       </div>
-      <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error ?? saveProviderHosted.error} />
+      <ErrorBlock error={error ?? saveProviderHosted.error} />
       {draftStatus === 'loading' ? (
         <div className="grid gap-4" aria-busy="true">
           <Skeleton className="h-48 w-full" />
@@ -238,57 +143,128 @@ export function ModelProfilesEditor({
         </div>
       ) : (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
-          {PROFILE_NAMES.map(profile => {
-            const signals = model.profiles[profile]
-            const draft: ProfileDraft = {
-              description: signals.description.value,
-              providerID: signals.providerID.value,
-              model: signals.model.value,
-              contextLength: signals.contextLength.value,
-              providerOptions: signals.providerOptions.value,
-              error: signals.error.value
-            }
-            const configurableModel = profileUsesConfigurableModel(profile)
-            const configured = Boolean(draft.providerID && (!configurableModel || draft.model))
-            const required = REQUIRED_PROFILES.has(profile)
-
-            return (
-              <ModelProfileEditorCard
-                key={profile}
-                profile={profile}
-                label={modelProfileLabel(t, profile)}
-                draft={draft}
-                dirty={signals.dirty.value}
-                required={required}
-                hint={profileDescription(t, profile)}
-                persistencePending={profilePersistencePending(profile)}
-                providerHosted={providerHostedFor(profile)}
-                deleteConfirm={
-                  required
-                    ? undefined
-                    : {
-                        title: t('console.models.clear_title'),
-                        description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
-                        confirmLabel: t('console.models.clear')
-                      }
-                }
-                deleteDisabled={!configured}
-                deleteLabel={t('console.models.clear')}
-                providers={providers}
-                providerKinds={providerKinds}
-                modelCatalog={modelCatalog}
-                onUpdate={patch => updateDraft(profile, patch)}
-                onSave={() => submit(profile)}
-                onDelete={() => (required ? model.clear(profile) : clear(profile))}
-              />
-            )
-          })}
+          {PROFILE_NAMES.map(profile => (
+            <ProfileEditor
+              key={profile}
+              agentUID={agent.uid}
+              profile={profile}
+              model={model}
+              providers={providers}
+              providerKinds={providerKinds}
+              modelCatalog={modelCatalog}
+              providerHosted={providerHostedFor(profile)}
+              onChanged={onChanged}
+            />
+          ))}
         </div>
       )}
     </section>
   )
 }
 
-function profileSubmissionKey(agentUID: string, profile: ProfileName): string {
-  return `${agentUID}:${profile}`
+function ProfileEditor({
+  agentUID,
+  profile,
+  model,
+  providers,
+  providerKinds,
+  modelCatalog,
+  providerHosted,
+  onChanged
+}: {
+  agentUID: string
+  profile: ProfileName
+  model: InstanceType<typeof ModelProfilesModel>
+  providers: AIGatewayProviderItem[]
+  providerKinds: AIGatewayProviderKindItem[]
+  modelCatalog: unknown
+  providerHosted: ComponentProps<typeof ModelProfileEditorCard>['providerHosted']
+  onChanged: () => void
+}) {
+  useSignals()
+  const { t } = useTranslation()
+  const signals = model.profiles[profile]
+  const draft = model.snapshot(profile)
+  const required = REQUIRED_PROFILES.has(profile)
+  const configured = Boolean(draft.providerID && (!profileUsesConfigurableModel(profile) || draft.model))
+  const persist = useMutation({
+    mutationFn: async (input: ProfilePersistence) => {
+      const path = { agent_uid: agentUID, profile }
+      const response =
+        input.action === 'saved'
+          ? await ankoleWebAgentControllerPutModelProfile({ path, body: input.body, throwOnError: true })
+          : await ankoleWebAgentControllerDeleteModelProfile({ path, throwOnError: true })
+      return response.data
+    },
+    onSuccess: () => onChanged()
+  })
+  const finishPersistence = (response: { model_profile?: unknown }, input: ProfilePersistence) => {
+    const result = model.markSaved(
+      profile,
+      draftFromProfile(recordValue(response.model_profile) ?? {}),
+      input.submission
+    )
+    const messageKey = result.hasUnsavedChanges ? `${input.action}_with_unsaved_changes` : input.action
+    const message = t(`console.models.${messageKey}`, { profile: modelProfileLabel(t, profile) })
+    if (result.hasUnsavedChanges) toast.info(message)
+    else toast.success(message)
+  }
+  const submit = () => {
+    if (persist.isPending) return
+    const built = buildModelProfileWriteRequest({
+      profile,
+      draft: model.snapshot(profile),
+      providers,
+      providerKinds,
+      t
+    })
+    if (!built.ok) {
+      model.update(profile, { error: built.error })
+      return
+    }
+    model.update(profile, { error: undefined })
+    persist.mutate(
+      { action: 'saved', submission: model.submission(profile), body: built.body },
+      { onSuccess: finishPersistence }
+    )
+  }
+  return (
+    <div className="grid min-w-0 gap-2">
+      <ErrorBlock error={persist.error} />
+      <ModelProfileEditorCard
+        profile={profile}
+        label={modelProfileLabel(t, profile)}
+        draft={draft}
+        dirty={signals.dirty.value}
+        required={required}
+        hint={profileDescription(t, profile)}
+        persistencePending={persist.isPending}
+        providerHosted={providerHosted}
+        deleteConfirm={
+          required
+            ? undefined
+            : {
+                title: t('console.models.clear_title'),
+                description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
+                confirmLabel: t('console.models.clear')
+              }
+        }
+        deleteDisabled={!configured}
+        deleteLabel={t('console.models.clear')}
+        providers={providers}
+        providerKinds={providerKinds}
+        modelCatalog={modelCatalog}
+        onUpdate={patch => model.update(profile, patch)}
+        onSave={submit}
+        onDelete={() =>
+          required
+            ? model.clear(profile)
+            : persist.mutate(
+                { action: 'cleared', submission: model.submission(profile) },
+                { onSuccess: finishPersistence }
+              )
+        }
+      />
+    </div>
+  )
 }

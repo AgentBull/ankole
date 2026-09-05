@@ -79,20 +79,11 @@ export class FffSearchRuntime {
   private findCursors = new Map<string, FindCursorState>()
   private cursorCounter = 0
 
-  /**
-   * Resolve a warm finder for `root` (a realpath). With `covering` an existing
-   * finder indexing an ancestor of `root` is reused; results are then relative
-   * to the returned `root`, not the requested one.
-   */
-  async acquire(root: string, opts?: { covering?: boolean }): Promise<AcquiredFinder> {
+  /** Resolves a warm finder for the exact realpath used to build the query. */
+  async acquire(root: string): Promise<AcquiredFinder> {
     this.sweepIdle()
 
-    let best: FinderEntry | undefined
-    for (const entry of this.entries) {
-      if (entry.finder.isDestroyed) continue
-      if (opts?.covering ? !rootCovers(entry.root, root) : entry.root !== root) continue
-      if (!best || entry.root.length > best.root.length) best = entry
-    }
+    const best = this.entries.find(entry => entry.root === root && !entry.finder.isDestroyed)
     if (best) {
       best.lastUsed = Date.now()
       return { finder: best.finder, root: best.root }
@@ -214,12 +205,6 @@ function trimOldest(map: Map<string, unknown>): void {
     if (first === undefined) return
     map.delete(first)
   }
-}
-
-export function rootCovers(root: string, target: string): boolean {
-  if (root === target) return true
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  return target.startsWith(prefix)
 }
 
 export type SearchTarget =

@@ -331,6 +331,33 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   # App tokens are cached per credential set, so a check test needs its own id.
   defp unique_suffix, do: System.unique_integer([:positive])
 
+  test "a later chunk failure preserves uncertainty about earlier delivery" do
+    binding = setup_chat_binding()
+    counter = :counters.new(1, [])
+
+    stub_outbox_requests(self(), fn conn ->
+      :counters.add(counter, 1, 1)
+
+      if :counters.get(counter, 1) == 1 do
+        ok_send_responder(conn)
+      else
+        conn
+        |> Plug.Conn.put_status(400)
+        |> Req.Test.json(%{"code" => "InvalidParameter", "message" => "rejected"})
+      end
+    end)
+
+    assert :unknown =
+             Outbox.send(
+               outbox_entry(binding, %{
+                 operation: :post,
+                 fallback_visible_text: String.duplicate("a", 30_000)
+               })
+             )
+
+    assert :counters.get(counter, 1) == 2
+  end
+
   test "post maps markdown to sampleMarkdown chunks and records the processQueryKey" do
     binding = setup_chat_binding()
 

@@ -1335,7 +1335,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
         walk_message_chain(
           conversation_id,
           anchor_id,
-          Keyword.get(opts, :protected_tail_items, []),
           Keyword.get(opts, :stop_at_checkpoint, true)
         )
       else
@@ -1977,62 +1976,23 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  # Walks the previous_message_id chain backward from the anchor, collecting
-  # provider-visible rows. A checkpoint row is a hard provider-visible boundary:
-  # its artifact output replaces the older prefix, while the raw chain remains
-  # available to audit and function-call counting through `chain_messages/4`.
-  defp walk_message_chain(conversation_id, anchor_id, protected_tail_items, stop_at_checkpoint?) do
-    walk_message_chain(
-      Repo,
-      conversation_id,
-      anchor_id,
-      protected_tail_items,
-      stop_at_checkpoint?
-    )
-  end
+  defp walk_message_chain(conversation_id, anchor_id, stop_at_checkpoint?) do
+    Repo
+    |> chain_messages(conversation_id, anchor_id)
+    |> Enum.reduce_while([], fn message, acc ->
+      if project_message?(message) do
+        acc = [message | acc]
 
-  defp walk_message_chain(
-         repo,
-         conversation_id,
-         anchor_id,
-         protected_tail_items,
-         stop_at_checkpoint?
-       ) do
-    messages = chain_messages(repo, conversation_id, anchor_id)
-    messages_by_id = Map.new(messages, &{&1.id, &1})
-
-    walk_chain(
-      messages_by_id,
-      anchor_id,
-      [],
-      MapSet.new(),
-      protected_tail_items,
-      stop_at_checkpoint?
-    )
+        if message.type == "checkpoint" and stop_at_checkpoint?,
+          do: {:halt, acc},
+          else: {:cont, acc}
+      else
+        {:cont, acc}
+      end
+    end)
   end
 
   defp chain_messages(repo, conversation_id, anchor_id, max_depth \\ @history_chain_max_depth) do
-    ids = chain_message_ids(repo, conversation_id, anchor_id, max_depth)
-
-    if ids == [] do
-      []
-    else
-      messages_by_id =
-        Message
-        |> where([message], message.id in ^ids)
-        |> repo.all()
-        |> Map.new(&{&1.id, &1})
-
-      Enum.flat_map(ids, fn id ->
-        case messages_by_id do
-          %{^id => %Message{} = message} -> [message]
-          _missing -> []
-        end
-      end)
-    end
-  end
-
-  defp chain_message_ids(repo, conversation_id, anchor_id, max_depth) do
     result =
       SQL.query!(
         repo,
@@ -2055,63 +2015,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
             AND NOT parent.id = ANY(chain.path)
             AND chain.depth < $3
         )
-        SELECT id::text
+        SELECT message.*
         FROM chain
-        ORDER BY depth ASC
+        JOIN ai_gateway_messages AS message ON message.id = chain.id
+        ORDER BY chain.depth ASC
         """,
         [anchor_id, conversation_id, max_depth]
       )
 
-    Enum.map(result.rows, fn [id] -> id end)
-  end
-
-  defp walk_chain(
-         _messages_by_id,
-         nil,
-         acc,
-         _seen,
-         _protected_tail_items,
-         _stop_at_checkpoint?
-       ),
-       do: acc
-
-  defp walk_chain(
-         messages_by_id,
-         message_id,
-         acc,
-         seen,
-         protected_tail_items,
-         stop_at_checkpoint?
-       ) do
-    cond do
-      MapSet.member?(seen, message_id) ->
-        acc
-
-      true ->
-        case Map.fetch(messages_by_id, message_id) do
-          {:ok, %Message{} = message} ->
-            include? = project_message?(message)
-            seen = MapSet.put(seen, message_id)
-
-            new_acc = if include?, do: [message | acc], else: acc
-
-            if include? and message.type == "checkpoint" and stop_at_checkpoint? do
-              new_acc
-            else
-              walk_chain(
-                messages_by_id,
-                message.previous_message_id,
-                new_acc,
-                seen,
-                protected_tail_items,
-                stop_at_checkpoint?
-              )
-            end
-
-          :error ->
-            acc
-        end
-    end
+    Enum.map(result.rows, &repo.load(Message, {result.columns, &1}))
   end
 
   defp project_message?(%Message{status: "complete"}), do: true

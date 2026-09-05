@@ -183,19 +183,22 @@ defmodule Ankole.AppConfigure do
   @spec update_global(Definition.t(), (term() -> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
   def update_global(%Definition{} = definition, updater) when is_function(updater, 1) do
-    with {:ok, registered} <- Registry.require_definition(definition) do
-      case Repo.transact(fn repo ->
-             with :ok <- lock_global_key(repo, registered.key),
-                  {:ok, current} <- current_global_value_in_tx(repo, registered),
-                  {:ok, next_value} <- run_global_updater(updater, current),
-                  {:ok, committed_write} <-
-                    put_row(repo, @global_scope, registered.key, registered, next_value) do
-               {:ok, committed_write}
-             end
-           end) do
-        {:ok, committed_write} -> cache_committed_write(committed_write)
-        {:error, _reason} = error -> error
-      end
+    case Repo.transact(fn repo -> update_global_in_tx(repo, definition, updater) end) do
+      {:ok, committed_write} -> cache_committed_write(committed_write)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec update_global_in_tx(module(), Definition.t(), (term() -> {:ok, term()} | {:error, term()})) ::
+          {:ok, committed_write()} | {:error, term()}
+  def update_global_in_tx(repo, %Definition{} = definition, updater)
+      when is_atom(repo) and is_function(updater, 1) do
+    with {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- lock_global_key(repo, registered.key),
+         {:ok, current} <- current_global_value_in_tx(repo, registered),
+         {:ok, next_value} <- run_global_updater(updater, current) do
+      put_row(repo, @global_scope, registered.key, registered, next_value)
     end
   end
 

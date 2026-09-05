@@ -207,6 +207,19 @@ defmodule Ankole.Brain.Config do
   @spec rerank_model() :: map() | nil
   def rerank_model, do: get_or_default(@rerank_model_key, nil)
 
+  @doc "Lists stored Brain model settings that reference a Provider."
+  @spec model_provider_references(module(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def model_provider_references(repo, provider_id) do
+    Enum.reduce_while([@embedding_model_key, @rerank_model_key], {:ok, []}, fn key, {:ok, refs} ->
+      case AppConfigure.get_global_by_key_in_tx(repo, key) do
+        {:ok, %{"provider_id" => ^provider_id}} -> {:cont, {:ok, refs ++ [key]}}
+        {:ok, _other} -> {:cont, {:ok, refs}}
+        :error -> {:cont, {:ok, refs}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
   @doc "Returns the maintainer Agent's configured web-fetch profile or nil."
   @spec web_fetch_model() :: map() | nil
   def web_fetch_model, do: maintainer_profile_or_nil("web_fetch")

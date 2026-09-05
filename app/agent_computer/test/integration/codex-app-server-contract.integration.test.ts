@@ -1040,7 +1040,7 @@ function createInvalidPromptResponsesProvider(requests: JSONObject[]) {
 async function waitForContextCompaction(notifications: JSONRPCMessage[], threadID: string): Promise<void> {
   const deadline = Date.now() + 20_000
   while (true) {
-    const completed = notifications.some(notification => {
+    const completed = notifications.find(notification => {
       if (notification.method !== 'item/completed' || !isObject(notification.params)) return false
       return (
         notification.params.threadId === threadID &&
@@ -1048,7 +1048,10 @@ async function waitForContextCompaction(notifications: JSONRPCMessage[], threadI
         notification.params.item.type === 'contextCompaction'
       )
     })
-    if (completed) return
+    if (completed && isObject(completed.params) && typeof completed.params.turnId === 'string') {
+      await waitForPluginTurn(notifications, completed.params.turnId)
+      return
+    }
     if (Date.now() >= deadline) throw new Error('timed out waiting for remote context compaction')
     await Bun.sleep(10)
   }

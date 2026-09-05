@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
   WeCom template cards are plain JSON payloads (no console-hosted template),
   but their buttons round-trip only a `key` string — no structured value — so
   the portable `ankole.interactive_output.action.v1` protocol is packed into
-  the key (`ank1|interaction|version|control|option|value`) and the source
+  a JSON list in the key (`ank2:` prefix) and the source
   actor event rides `task_id` (`ankole:<event id>`). `Inbound` unpacks both on
   the `template_card_event`.
 
@@ -25,6 +25,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
 
   # The platform documents at most six buttons on a button_interaction card.
   @max_buttons 6
+  @max_key_bytes 1024
   @title_budget 40
 
   @type delivery :: %{
@@ -66,7 +67,8 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
       |> Enum.take(@max_buttons)
 
     cond do
-      locked? or buttons == [] or is_nil(source_actor_event_id) ->
+      locked? or buttons == [] or is_nil(source_actor_event_id) or
+          Enum.any?(buttons, &(byte_size(&1["key"]) > @max_key_bytes)) ->
         :fallback
 
       true ->
@@ -95,22 +97,58 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
           "text" => label,
           "style" => 1,
           "key" =>
-            Enum.join(
-              [
-                "ank1",
-                interaction_id,
-                Integer.to_string(version),
-                control_id,
-                option_id,
-                option_value
-              ],
-              "|"
-            )
+            "ank2:" <>
+              Torque.encode!([interaction_id, version, control_id, option_id, option_value])
         }
       ]
     else
       []
     end
+  end
+
+  @doc false
+  def parse_managed_key("ank2:" <> json) when byte_size(json) <= @max_key_bytes - 5 do
+    case Torque.decode(json) do
+      {:ok, [interaction, version, control, option, value]}
+      when is_binary(interaction) and is_integer(version) and is_binary(control) and
+             is_binary(option) and is_binary(value) ->
+        {:ok, action_value(interaction, version, control, option, value)}
+
+      _invalid ->
+        :unmanaged
+    end
+  end
+
+  # Already sent cards can still deliver their original callback key.
+  def parse_managed_key("ank1|" <> rest) do
+    case String.split(rest, "|") do
+      [interaction, version, control, option, value] ->
+        {:ok, action_value(interaction, parse_integer(version), control, option, value)}
+
+      _invalid ->
+        :unmanaged
+    end
+  end
+
+  def parse_managed_key(_key), do: :unmanaged
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> integer
+      _other -> 0
+    end
+  end
+
+  defp action_value(interaction, version, control, option, value) do
+    %{
+      "version" => Ankole.SignalsGateway.ReplyPresentation.action_protocol(),
+      "answerKind" => "choice",
+      "interactionId" => interaction,
+      "interactionVersion" => version,
+      "controlId" => control,
+      "selectedOptionId" => option,
+      "optionValue" => value
+    }
   end
 
   defp card_title(output, outbox) do

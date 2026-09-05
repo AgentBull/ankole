@@ -4,7 +4,7 @@ defmodule Ankole.Brain.Merge do
 
   The Dreaming phase is the mechanical backstop behind the write-time
   known-page injection: it pairs live objects of one type that share a
-  normalized alias or carry near-identical titles, and records each pair
+  normalized alias, and records each pair
   once in `brain_merge_suggestions`. Nothing merges automatically.
 
   Approval runs one transaction that keeps every attached memory: claims,
@@ -28,7 +28,6 @@ defmodule Ankole.Brain.Merge do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
-  @title_similarity_floor 0.55
   @candidate_scan_limit 200
   @suggestion_batch_limit 50
 
@@ -50,7 +49,7 @@ defmodule Ankole.Brain.Merge do
   """
   @spec run_phase() :: map()
   def run_phase do
-    candidates = alias_candidates() ++ title_candidates()
+    candidates = alias_candidates()
 
     fresh =
       candidates
@@ -162,33 +161,6 @@ defmodule Ankole.Brain.Merge do
     |> select([x, y], {x.object_slug, y.object_slug, min(x.alias_norm)})
     |> Repo.all()
     |> Enum.map(fn {a, b, alias_norm} -> {a, b, ~s(shared alias "#{alias_norm}")} end)
-  end
-
-  defp title_candidates do
-    from(a in Object, as: :merge_candidate_a)
-    |> join(:inner, [a], b in Object,
-      as: :merge_candidate_b,
-      on: a.type == b.type and a.slug < b.slug
-    )
-    |> join(:inner, [a, b], type in SchemaType, on: type.name == a.type)
-    |> where(
-      [a, b, type],
-      is_nil(a.deleted_at) and is_nil(b.deleted_at) and is_nil(a.managed_by_source_id) and
-        is_nil(b.managed_by_source_id)
-    )
-    |> where(
-      [a, b, type],
-      fragment("similarity(?, ?) >= ?", a.title, b.title, ^@title_similarity_floor)
-    )
-    |> merge_scan_scope()
-    |> exclude_recorded_and_principal_pairs()
-    |> order_by([a, b], asc: a.slug, asc: b.slug)
-    |> limit(@candidate_scan_limit)
-    |> select([a, b], {a.slug, b.slug, fragment("similarity(?, ?)", a.title, b.title)})
-    |> Repo.all()
-    |> Enum.map(fn {a, b, score} ->
-      {a, b, "title similarity #{Float.round(score * 1.0, 2)}"}
-    end)
   end
 
   # Media-primitive pages (media, document, analysis) stay out: each has an

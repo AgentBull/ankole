@@ -75,8 +75,35 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   def assign_worker_in_tx(repo, actor_key, %DateTime{} = now, job_limit) do
     actor_key = Common.normalize_actor_key(actor_key)
 
+    with {:ok, {worker, assignment}} <- lock_existing_assignment_in_tx(repo, actor_key) do
+      reuse_or_replace_assignment(repo, actor_key, worker, assignment, now, job_limit)
+    end
+  end
+
+  @doc """
+  Locks an existing Session assignment without placement or capacity changes.
+
+  The Session advisory lock prevents a new assignment while this transaction
+  reads the Worker and checks the assignment again. Lock the Worker before
+  the assignment to match Worker recovery. Callers take these locks before
+  activation, Job, or ActorEvent locks.
+  """
+  @spec lock_existing_assignment_in_tx(module(), actor_key()) ::
+          {:ok, {AgentComputerWorker.t() | nil, ActorSessionWorkerAssignment.t() | nil}}
+          | {:error, term()}
+  def lock_existing_assignment_in_tx(repo, actor_key) do
+    actor_key = Common.normalize_actor_key(actor_key)
+
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      do_assign_worker_in_tx(repo, actor_key, now, job_limit)
+      case live_assignment_snapshot(repo, actor_key) do
+        %ActorSessionWorkerAssignment{} = snapshot ->
+          worker = lock_assignment_worker(repo, snapshot.worker_id)
+          assignment = lock_live_assignment(repo, snapshot, actor_key)
+          {:ok, {worker, assignment}}
+
+        nil ->
+          {:ok, {nil, nil}}
+      end
     end
   end
 
@@ -209,23 +236,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  # Keeps actor-to-worker affinity while the assigned worker is still usable.
-  # This lowers churn without making the worker part of the durable user story:
-  # stale workers release the assignment and the actor event can be retried.
-  defp do_assign_worker_in_tx(repo, actor_key, now, job_limit) do
-    case live_assignment_snapshot(repo, actor_key) do
-      %ActorSessionWorkerAssignment{} = assignment ->
-        reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit)
-
-      nil ->
-        assign_new_worker(repo, actor_key, now, job_limit)
-    end
-  end
-
-  # The advisory lock is per actor key, so it serializes placement of one Session
-  # or Job without blocking the Agent's others. Reading the assignment first
-  # without a row lock lets revalidation acquire the worker before the
-  # assignment, matching worker-stale recovery's global lock order.
   defp live_assignment_snapshot(repo, actor_key) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
@@ -247,10 +257,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  defp reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit) do
-    worker = lock_assignment_worker(repo, assignment.worker_id)
-    assignment = lock_live_assignment(repo, assignment, actor_key)
-
+  defp reuse_or_replace_assignment(repo, actor_key, worker, assignment, now, job_limit) do
     cond do
       match?(%AgentComputerWorker{status: @ready_worker_status}, worker) and
         match?(%ActorSessionWorkerAssignment{}, assignment) and
@@ -311,22 +318,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   # of stacking on the oldest worker.
   defp choose_worker(repo, job_limit) do
     AgentComputerWorker
+    |> from(as: :worker)
     |> where([worker], worker.status == ^@ready_worker_status)
-    |> order_by([worker], asc: worker.inserted_at)
+    |> where(
+      [worker],
+      fragment("jsonb_typeof(?->'available_turn_slots') = 'number'", worker.capacity)
+    )
+    |> where(
+      [worker],
+      fragment("(?->>'available_turn_slots') ~ '^[1-9][0-9]*$'", worker.capacity)
+    )
+    |> with_job_capacity(job_limit)
+    |> order_by([worker],
+      desc: fragment("(?->>'available_turn_slots')::numeric", worker.capacity),
+      asc: worker.inserted_at
+    )
+    |> limit(1)
     |> lock("FOR UPDATE SKIP LOCKED")
-    |> repo.all()
-    |> Enum.sort_by(&available_turn_slots/1, :desc)
-    |> Enum.find(fn worker ->
-      worker_has_capacity?(worker) and
-        worker_has_job_capacity?(repo, worker, job_limit)
-    end)
+    |> repo.one()
   end
 
-  defp available_turn_slots(%AgentComputerWorker{capacity: %{"available_turn_slots" => slots}})
-       when is_integer(slots),
-       do: slots
+  defp with_job_capacity(query, nil), do: query
 
-  defp available_turn_slots(%AgentComputerWorker{}), do: 0
+  defp with_job_capacity(query, limit) do
+    count =
+      job_assignments()
+      |> where([assignment], assignment.worker_id == parent_as(:worker).worker_id)
+      |> select([assignment], count(assignment.id))
+
+    where(query, [worker], subquery(count) < ^limit)
+  end
 
   defp reserve_worker_slot(repo, %AgentComputerWorker{} = worker) do
     case worker_has_capacity?(worker) do
@@ -377,16 +398,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
 
   defp worker_has_job_capacity?(repo, worker, limit) when is_integer(limit) do
     count =
-      repo.aggregate(
-        from(assignment in ActorSessionWorkerAssignment,
-          where: assignment.worker_id == ^worker.worker_id,
-          where: assignment.status in ["assigned", "draining"],
-          where: like(assignment.session_id, ^(BackgroundAgentJobs.job_session_prefix() <> "%"))
-        ),
-        :count
-      )
+      job_assignments()
+      |> where([assignment], assignment.worker_id == ^worker.worker_id)
+      |> repo.aggregate(:count)
 
     count < limit
+  end
+
+  defp job_assignments do
+    from assignment in ActorSessionWorkerAssignment,
+      where: assignment.status in ["assigned", "draining"],
+      where: like(assignment.session_id, ^(BackgroundAgentJobs.job_session_prefix() <> "%"))
   end
 
   # Captures the route chosen for this actor session. Delivery and turn replies

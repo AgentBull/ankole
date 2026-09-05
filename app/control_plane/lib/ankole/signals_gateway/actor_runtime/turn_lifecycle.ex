@@ -358,8 +358,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       Keyword.get(opts, :compensate_turn_error_in_tx, async_work_unit)
 
     Repo.transact(fn repo ->
+      rows = TurnRef.lookup(repo, turn_ref)
+
       with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
-           rows = TurnRef.lookup(repo, turn_ref, deliveries: :live),
+           rows = %{rows | deliveries: TurnRef.lock_live_deliveries(repo, turn_ref)},
            %ActorSessionActivation{} = activation <- rows.activation do
         case prior_abort_result(repo, event, activation, turn_ref, reason) do
           {:ok, result} ->
@@ -513,7 +515,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     request_context =
       turn_start_spec
       |> Map.get(:request_context, %{})
-      |> Map.drop(["traceparent", "observability_user_id"])
+      |> Map.drop(["traceparent", "observability_user_id", "observability_provider"])
 
     turn_start_spec =
       case Observability.start_turn(actor_event, turn_start_spec) do

@@ -36,13 +36,10 @@ defmodule Ankole.Brain.LibraryKnowledge do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.SourceReader, as: LibrarySourceReader
   alias Ankole.Brain.Config
-  alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Sources
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Repo
@@ -82,17 +79,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
     else
       {:ok, %{status: :brain_disabled}}
     end
-  end
-
-  @doc "Withdraws every live page owned by one archived Library Source."
-  @spec withdraw_archived_source(Source.t()) :: :ok
-  def withdraw_archived_source(%Source{
-        kind: @source_kind,
-        archived_at: %DateTime{},
-        id: source_id
-      }) do
-    _withdrawn = withdraw_pages(source_id, [])
-    :ok
   end
 
   # ── Discovery ──
@@ -161,10 +147,7 @@ defmodule Ankole.Brain.LibraryKnowledge do
   defp sync_set(set) do
     case ensure_source(set) do
       {:ok, %Source{archived_at: %DateTime{}} = source} ->
-        # An archived library Source is the operator's withdrawal of the
-        # whole set: unlike evidence Sources, its rows are projections of
-        # product files, so keeping them live would freeze an unchosen fork.
-        %{set: set.set_id, status: :archived, withdrawn: withdraw_pages(source.id, [])}
+        archived_report(source)
 
       {:ok, source} ->
         project_set(set, source)
@@ -199,14 +182,35 @@ defmodule Ankole.Brain.LibraryKnowledge do
 
   defp project_pages(set, source, pages, rejected, fingerprint) do
     counts =
-      Enum.reduce(
+      Enum.reduce_while(
         pages,
         %{projected: 0, unchanged: 0, shadowed: 0, conflicted: 0, errored: 0},
-        fn page, counts -> Map.update!(counts, project_page(source, page), &(&1 + 1)) end
+        fn page, counts ->
+          case project_page(source, page) do
+            {:error, :source_archived} -> {:halt, :archived}
+            outcome -> {:cont, Map.update!(counts, outcome, &(&1 + 1))}
+          end
+        end
       )
 
-    withdrawn = withdraw_pages(source.id, Enum.map(pages, & &1.slug))
-    {:ok, _source} = Sources.record_revision(Repo, source, fingerprint)
+    finish_projection(set, source, pages, rejected, fingerprint, counts)
+  end
+
+  defp finish_projection(_set, source, _pages, _rejected, _fingerprint, :archived),
+    do: archived_report(source)
+
+  defp finish_projection(set, source, pages, rejected, fingerprint, counts) do
+    result =
+      Repo.transact(fn repo ->
+        with {:ok, current} <- Sources.lock_active(repo, source) do
+          withdrawn =
+            Objects.withdraw_library_projection(current, Enum.map(pages, & &1.slug), repo: repo)
+
+          with {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
+            {:ok, withdrawn}
+          end
+        end
+      end)
 
     if rejected != [] do
       Logging.warning("brain.library_knowledge.pages_rejected", %{
@@ -215,13 +219,22 @@ defmodule Ankole.Brain.LibraryKnowledge do
       })
     end
 
-    Map.merge(counts, %{
-      set: set.set_id,
-      status: :ok,
-      pages: length(pages),
-      rejected: length(rejected),
-      withdrawn: withdrawn
-    })
+    case result do
+      {:ok, withdrawn} ->
+        Map.merge(counts, %{
+          set: set.set_id,
+          status: :ok,
+          pages: length(pages),
+          rejected: length(rejected),
+          withdrawn: withdrawn
+        })
+
+      {:error, :source_archived} ->
+        archived_report(source)
+
+      {:error, reason} ->
+        %{set: set.set_id, status: :error, reason: inspect(reason)}
+    end
   end
 
   defp skill_page(source) do
@@ -338,10 +351,10 @@ defmodule Ankole.Brain.LibraryKnowledge do
       title == nil ->
         {:error, :missing_title}
 
-      String.starts_with?(slug, @lazy_skill_prefix) ->
+      String.starts_with?(slug, [@lazy_skill_prefix, "agents/"]) ->
         {:error, {:reserved_object_slug, slug}}
 
-      type == @lazy_skill_type ->
+      type in [@lazy_skill_type, "agent"] ->
         {:error, {:reserved_object_type, type}}
 
       not installed_type?(type) ->
@@ -383,116 +396,38 @@ defmodule Ankole.Brain.LibraryKnowledge do
   # One page failing must not take the sweep down with it: the page reports
   # as errored and the rest of the set still lands.
   defp project_page(source, page) do
-    {:ok, outcome} =
-      Repo.transact(fn repo ->
-        case repo.get_by(Object, slug: page.slug) do
-          nil ->
-            insert_page(repo, source, page)
-            {:ok, :projected}
-
-          %Object{managed_by_source_id: nil} ->
-            {:ok, :shadowed}
-
-          %Object{managed_by_source_id: owner} = existing when owner == source.id ->
-            reconcile_page(repo, source, existing, page)
-
-          %Object{} ->
-            {:ok, :conflicted}
-        end
-      end)
-
-    outcome
-  rescue
-    error ->
-      Logging.warning("brain.library_knowledge.page_failed", %{
-        slug: page.slug,
-        error: Exception.message(error)
-      })
-
-      :errored
-  end
-
-  defp insert_page(repo, source, page) do
-    object = %Object{
-      id: UUIDv7.autogenerate(),
-      slug: page.slug,
-      type: page.type,
-      subtype: page.subtype,
-      title: page.title,
-      body: page.body,
-      meta: %{},
-      content_hash: Objects.content_hash(page.title, page.body, %{}),
-      managed_by_source_id: source.id,
-      updated_at: DateTime.utc_now(:microsecond)
-    }
-
-    {:ok, object} = repo.insert(Object.changeset(object, %{}))
-    {:ok, _object} = Objects.reconcile_chunks(object, repo: repo)
-    add_aliases(repo, page)
-    object
-  end
-
-  defp reconcile_page(repo, _source, existing, page) do
-    desired_hash = Objects.content_hash(page.title, page.body, %{})
-
-    unchanged? =
-      existing.content_hash == desired_hash and existing.deleted_at == nil and
-        existing.type == page.type and existing.subtype == page.subtype
-
-    if unchanged? do
-      add_aliases(repo, page)
-      {:ok, :unchanged}
-    else
-      # No version snapshot and no CAS: the file history lives in the product
-      # repository, and the projection is the cache being rebuilt.
-      {:ok, object} =
-        existing
-        |> Ecto.Changeset.change(
-          type: page.type,
-          subtype: page.subtype,
-          title: page.title,
-          body: page.body,
-          meta: %{},
-          content_hash: desired_hash,
-          deleted_at: nil,
-          updated_at: DateTime.utc_now(:microsecond)
-        )
-        |> repo.update()
-
-      {:ok, _object} = Objects.reconcile_chunks(object, repo: repo)
-      add_aliases(repo, page)
-      {:ok, :projected}
+    case Objects.upsert_library_projection(source, page) do
+      {:ok, outcome} -> outcome
+      {:error, :source_archived} = error -> error
+      {:error, reason} -> page_failed(page, inspect(reason))
     end
+  rescue
+    error -> page_failed(page, Exception.message(error))
   end
 
-  # Aliases only accrete: the file declares candidates, and instance writers
-  # may add their own to the same slug, so the sync never deletes one.
-  defp add_aliases(repo, page) do
-    Enum.each(page.aliases, fn alias_text ->
-      Links.add_alias(page.slug, alias_text, repo: repo)
-    end)
+  defp page_failed(page, error) do
+    Logging.warning("brain.library_knowledge.page_failed", %{slug: page.slug, error: error})
+    :errored
   end
 
   # ── Withdrawal ──
 
-  defp withdraw_pages(source_id, live_slugs) do
-    {withdrawn, _rows} =
-      Object
-      |> where([object], object.managed_by_source_id == ^source_id)
-      |> where([object], is_nil(object.deleted_at))
-      |> where([object], object.slug not in ^live_slugs)
-      |> Repo.update_all(set: [deleted_at: DateTime.utc_now(:microsecond)])
-
-    withdrawn
+  defp archived_report(source) do
+    %{
+      set: source.upstream_id,
+      status: :archived,
+      withdrawn: 0
+    }
   end
 
   defp withdraw_missing_sets(active_set_ids) do
     Source
     |> where([source], source.kind == @source_kind)
+    |> where([source], is_nil(source.archived_at))
     |> where([source], source.upstream_id not in ^active_set_ids)
     |> Repo.all()
     |> Enum.map(fn source ->
-      %{set: source.upstream_id, withdrawn: withdraw_pages(source.id, [])}
+      %{set: source.upstream_id, withdrawn: Objects.withdraw_library_projection(source, [])}
     end)
   end
 

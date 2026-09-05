@@ -3,7 +3,7 @@
 # Rationale and admission tests live in docs/design-docs/BrainV3.md.
 api_version: ankole-brain-schema-pack-v1
 name: general
-version: 1.1.0
+version: 1.1.1
 description: Minimal instance ontology for any digital employee.
 extends: null
 
@@ -25,9 +25,8 @@ page_types:
     slug_prefix: agents/
     subtypes:
       # internal: canonical Object of this instance's digital employee
-      # (agents/<agent_uid>), system-written. external: third-party agents.
+      # (agents/<agent_uid>), created only by the Principal lifecycle.
       - internal
-      - external
     extractable: false
     expert_routing: true
 

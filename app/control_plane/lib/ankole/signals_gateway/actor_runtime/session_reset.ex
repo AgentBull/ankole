@@ -198,6 +198,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
     Repo.transact(fn repo ->
       with :ok <- Actors.lock_actor_session_in_tx(repo, input.agent_uid, input.session_id),
+           _activation = TurnLifecycle.lock_live_activation(repo, actor_key),
            %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            false <- TurnLifecycle.live_delivery_for_session?(repo, actor_key),
            {:ok, closed_conversation} <- close_current_session_for_reset(repo, actor_key, now),

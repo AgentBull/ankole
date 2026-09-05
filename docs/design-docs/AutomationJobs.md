@@ -149,6 +149,8 @@ result, exit code, error, and bounded logs.
   from a job. The Console can inspect job detail with the owning Agent read
   permission.
 - Only the current attempt UUID can emit or finish.
+- Run changes lock the parent Job before the Run, including start, cancellation,
+  completion, and infrastructure recovery.
 - Script failures do not retry.
 - Infrastructure failures can use at most five attempts.
 - A successful `emitEvent` call means the ActorEvent is durable.

@@ -609,6 +609,61 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                       }}
     end
 
+    test "a missing reply target falls back with each current chunk and its UUID" do
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_chunk_request, request})
+
+        if String.ends_with?(request.request_path, "/reply") do
+          {:json, 400, %{"code" => 23_000, "msg" => "message recalled"}}
+        else
+          {:json, 200, %{"code" => 0, "data" => %{"message_id" => request.body["uuid"]}}}
+        end
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-chunk-fallback"
+      config = chat_config(%{"appID" => "cli_chunk_fallback"})
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+      text = String.duplicate("a", 4_000) <> String.duplicate("b", 4_000) <> "last"
+
+      outbox = %{
+        final_edit_outbox(agent.uid, binding_name)
+        | operation: :reply,
+          target_source_entry_id: nil,
+          reply_to_source_entry_id: "om_missing",
+          fallback_visible_text: text
+      }
+
+      assert {:ok, _} = Outbox.send(outbox)
+      assert_receive {:lark_chunk_request, reply}
+      assert String.ends_with?(reply.request_path, "/reply")
+
+      chunks =
+        for index <- 1..3 do
+          assert_receive {:lark_chunk_request, fallback}
+          assert fallback.request_path == "/open-apis/im/v1/messages"
+
+          if index == 1 do
+            assert fallback.body["content"] == reply.body["content"]
+            assert fallback.body["uuid"] == reply.body["uuid"]
+          end
+
+          {fallback.body["uuid"], Torque.decode!(fallback.body["content"])["text"]}
+        end
+
+      assert Enum.map_join(chunks, &elem(&1, 1)) == text
+      assert length(Enum.uniq_by(chunks, &elem(&1, 0))) == 3
+      refute_received {:lark_chunk_request, _}
+    end
+
     test "durable final edit falls back to a new message after Feishu edit budget exhaustion" do
       parent = self()
 

@@ -17,7 +17,12 @@ import type { WorkerConfig } from './config'
 import type { WorkerDrainState } from './drain'
 import { workerCapacityEnvelope } from './lifecycle_messages'
 import { turnFailureLogError, workerLogger } from './logging'
-import { abortTurnWithAck, TurnCompletionRejectedError, TurnTerminalRejectedError } from './turn_completion'
+import {
+  abortTurnWithAck,
+  TurnCompletionRejectedError,
+  TurnTerminalRejectedError,
+  type TurnAbortFailure
+} from './turn_completion'
 import { executeActiveTurn } from './turn_execution'
 import { turnFailureDetails, turnFailureLogFields } from './turn_failure'
 
@@ -165,7 +170,7 @@ export class ActiveTurns {
     const activeKey = turnKey(turnStart.turn)
 
     if (!this.drain.acceptsTurns) {
-      await abortTurnWithAck(this.rpcClient, turnStart.turn, {
+      this.reject(turnStart.turn, {
         code: 'worker_draining',
         message: 'worker is draining',
         details: { runtime: 'bun', retryable: true }
@@ -174,7 +179,7 @@ export class ActiveTurns {
     }
 
     if (this.turns.has(activeKey)) {
-      await abortTurnWithAck(this.rpcClient, turnStart.turn, {
+      this.reject(turnStart.turn, {
         code: 'worker_busy',
         message: 'conversation already has an active turn',
         details: { runtime: 'bun', retryable: true }
@@ -183,7 +188,7 @@ export class ActiveTurns {
     }
 
     if (this.turns.size >= this.config.maxConcurrentTurns) {
-      await abortTurnWithAck(this.rpcClient, turnStart.turn, {
+      this.reject(turnStart.turn, {
         code: 'worker_busy',
         message: 'worker has no available turn slots',
         details: {
@@ -208,6 +213,18 @@ export class ActiveTurns {
           actor_event_id: turnStart.turn.actor_event_id,
           error: toError(error),
           operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+        })
+      })
+    )
+  }
+
+  private reject(turn: ActorTurnRef, failure: TurnAbortFailure): void {
+    // The receive loop must remain available for the terminal RPC reply.
+    this.drain.track(
+      abortTurnWithAck(this.rpcClient, turn, failure).catch(error => {
+        workerLogger.error('worker.turn_rejection_error', 'worker turn rejection failed', {
+          actor_event_id: turn.actor_event_id,
+          error: toError(error)
         })
       })
     )

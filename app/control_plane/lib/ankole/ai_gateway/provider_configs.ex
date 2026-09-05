@@ -159,7 +159,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @doc """
   Disables an active provider or deletes a provider that is already disabled.
 
-  Both operations require the provider to have no active model-profile references.
+  Both operations require the provider to have no Agent profile or Brain model references.
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id) do
@@ -1014,7 +1014,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         [provider_id]
       )
 
-    Enum.map(rows, fn [reference] -> reference end)
+    with {:ok, brain_references} <-
+           Ankole.Brain.Config.model_provider_references(repo, provider_id) do
+      Enum.map(rows, fn [reference] -> reference end) ++ brain_references
+    end
   end
 
   defp provider_kind(%Provider{provider_kind: provider_kind}), do: provider_kind

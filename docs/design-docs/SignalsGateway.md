@@ -463,6 +463,13 @@ per-kind lifecycles.
 ActorRuntime orders open events with `queue_sequence` for each Session. Each
 delivery row records one worker attempt and its turn fence.
 
+The Session controller serializes Turn starts and asynchronous Worker updates.
+It exits normally after five idle minutes only when no live delivery remains.
+Live deliveries keep it available for acceptance and progress messages;
+terminal commits use the independent RPC lane. A ready call that races with
+normal retirement starts a new controller and retries once. PostgreSQL keeps
+the Session facts throughout retirement.
+
 An `actor_session_workspaces` row identifies a real Actor session. Some Actor
 sessions, such as Background Agent Jobs, do not have an AIGateway conversation.
 The daily reset selects an active conversation only when its subject and key

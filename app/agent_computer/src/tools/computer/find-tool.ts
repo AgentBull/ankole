@@ -117,7 +117,7 @@ export function createFindTool(
         query = buildSearchQuery({ constraint: target.constraint, excludes, pattern })
       }
 
-      const acquired = await runtime.acquire(root, { covering: root !== workspaceReal })
+      const acquired = await runtime.acquire(root)
       // fff's `pageIndex` counts items, not pages (verified against 0.10.5).
       const searched = acquired.finder.fileSearch(query, { pageIndex: offset, pageSize })
       if (!searched.ok) throw new Error(`find failed: ${searched.error}`)

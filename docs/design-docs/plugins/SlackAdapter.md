@@ -61,6 +61,12 @@ not, the reconciler reports a credential conflict. `ConnectionReconciler`
 selects the required connections, and `ConnectionSupervisor` runs them. A
 restart rebuilds the connection list.
 
+The connection owner resolves the bot identity once when a chat consumer has
+no configured `botUserID`. Consumers with the same credentials share that
+result. A failed lookup prevents startup and can retry on the next
+reconciliation. Healthy connections compare configured values only, so a
+temporary identity lookup failure cannot replace their resolved identity.
+
 The Socket Mode client processes an event before it acknowledges it. Slack can
 send the event again after a crash. Database keys prevent duplicate Ankole
 records.

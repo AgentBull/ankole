@@ -271,27 +271,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   end
 
   @doc false
-  @spec parse_managed_key(String.t() | nil) :: {:ok, map()} | :unmanaged
-  def parse_managed_key("ank1|" <> rest) do
-    case String.split(rest, "|") do
-      [interaction_id, version, control_id, option_id, option_value] ->
-        {:ok,
-         %{
-           "version" => @managed_action_protocol,
-           "answerKind" => "choice",
-           "interactionId" => interaction_id,
-           "interactionVersion" => parse_integer(version),
-           "controlId" => control_id,
-           "selectedOptionId" => option_id,
-           "optionValue" => option_value
-         }}
-
-      _other ->
-        :unmanaged
-    end
-  end
-
-  def parse_managed_key(_key), do: :unmanaged
+  defdelegate parse_managed_key(key), to: Ankole.Plugins.WeComAdapter.TemplateCard
 
   defp task_source_actor_event_id("ankole:" <> event_id), do: event_id
   defp task_source_actor_event_id(_task_id), do: nil
@@ -639,13 +619,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
       "sys" -> {:error, :missing_operator_id}
       userid when is_binary(userid) -> {:ok, userid}
       nil -> {:error, :missing_operator_id}
-    end
-  end
-
-  defp parse_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _other -> 0
     end
   end
 

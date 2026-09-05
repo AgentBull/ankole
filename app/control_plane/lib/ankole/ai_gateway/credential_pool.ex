@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway.CredentialPool do
   use GenServer
 
   @strategies ~w(fill_first round_robin least_used random)
+  @affinity_limit 10_000
   @unauthorized_cooldown_ms 5 * 60 * 1_000
   @default_cooldown_ms 60 * 60 * 1_000
 
@@ -28,6 +29,7 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   @doc """
   Selects one usable entry. Affinity is checked before the configured strategy.
+  Each provider keeps its 10,000 most recently used affinity keys.
   """
   @spec select(String.t(), [entry()], String.t(), keyword()) ::
           {:ok, selection()} | {:error, {:credential_pool_exhausted, map()}}
@@ -314,7 +316,7 @@ defmodule Ankole.AIGateway.CredentialPool do
       nil ->
         nil
 
-      expected_key ->
+      {expected_key, _recency} ->
         Enum.find_value(available, fn {entry, _index} ->
           if credential_key(entry) == expected_key, do: entry
         end)
@@ -345,7 +347,21 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp remember_affinity(provider_state, affinity_key, credential_key)
        when is_binary(affinity_key) and affinity_key != "" do
-    put_in(provider_state, [:affinity, affinity_key], credential_key)
+    provider_state = drop_affinity(provider_state, affinity_key)
+    recency = System.unique_integer([:monotonic])
+
+    provider_state = %{
+      provider_state
+      | affinity: Map.put(provider_state.affinity, affinity_key, {credential_key, recency}),
+        affinity_lru: :gb_trees.insert(recency, affinity_key, provider_state.affinity_lru)
+    }
+
+    if map_size(provider_state.affinity) > @affinity_limit do
+      {_recency, oldest_key} = :gb_trees.smallest(provider_state.affinity_lru)
+      drop_affinity(provider_state, oldest_key)
+    else
+      provider_state
+    end
   end
 
   defp remember_affinity(provider_state, _affinity_key, _credential_key), do: provider_state
@@ -355,9 +371,24 @@ defmodule Ankole.AIGateway.CredentialPool do
   end
 
   defp drop_affinity_for(provider_state, credential_key) do
-    update_in(provider_state, [:affinity], fn affinity ->
-      Map.reject(affinity, fn {_key, value} -> value == credential_key end)
+    Enum.reduce(provider_state.affinity, provider_state, fn
+      {key, {^credential_key, _recency}}, state -> drop_affinity(state, key)
+      _entry, state -> state
     end)
+  end
+
+  defp drop_affinity(provider_state, affinity_key) do
+    case Map.pop(provider_state.affinity, affinity_key) do
+      {nil, _affinity} ->
+        provider_state
+
+      {{_credential_key, recency}, affinity} ->
+        %{
+          provider_state
+          | affinity: affinity,
+            affinity_lru: :gb_trees.delete(recency, provider_state.affinity_lru)
+        }
+    end
   end
 
   defp expire(provider_state, now_ms) do
@@ -606,6 +637,7 @@ defmodule Ankole.AIGateway.CredentialPool do
     %{
       health: %{},
       affinity: %{},
+      affinity_lru: :gb_trees.empty(),
       counts: %{},
       last_selected_at: %{},
       rate_limits: %{},

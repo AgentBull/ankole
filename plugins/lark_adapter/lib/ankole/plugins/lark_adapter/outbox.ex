@@ -277,14 +277,17 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end)
   end
 
-  defp maybe_reply_fallback({:error, %Error{} = error}, client, outbox, %{reply_to: reply_to})
+  defp maybe_reply_fallback({:error, %Error{} = error}, client, outbox, %{
+         reply_to: reply_to,
+         body: body
+       })
        when is_binary(reply_to) do
     case target_gone_error?(error) do
       true ->
         # Lark rejects replies after the target disappears. Posting as a new
         # message preserves operator-visible output instead of losing the outbox.
         :post
-        |> message_request("im/v1/messages", outbox, text_body(outbox))
+        |> message_request("im/v1/messages", outbox, body)
         |> perform(client)
 
       false ->
@@ -494,7 +497,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
     idempotency_key = Keyword.get(opts, :idempotency_key, outbox.idempotency_key)
-    base_body = put_present(body, :uuid, provider_message_uuid(idempotency_key))
+    base_body = Map.put_new(body, :uuid, provider_message_uuid(idempotency_key))
 
     # Replies and new messages use different Lark API shapes. Keeping the branch
     # here makes every outbox operation share one idempotency/body path.

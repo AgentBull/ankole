@@ -5,7 +5,7 @@ import { runAgentLoop } from '../../src/core/agent-loop'
 import type { ReplyPresentationEvent } from '../../src/core/types'
 import { createModel } from '../../src/core/llm'
 import { defineWorkerTool } from '../../src/core'
-import { fakeResponseSocket, parallelReadTool, sleep, toolResultsRecordedFrame } from '../support/llm'
+import { fakeResponseSocket, parallelReadTool, sleep, toolResultsRecordedFrame, turnStartForTest } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
   it('keeps a hosted image tool beside local tools without an empty PTC declaration', async () => {

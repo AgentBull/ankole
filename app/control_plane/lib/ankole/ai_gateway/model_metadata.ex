@@ -13,6 +13,49 @@ defmodule Ankole.AIGateway.ModelMetadata do
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.UniversalAIRequest
 
+  @doc "Returns the positive context window from a runtime or its provider model metadata."
+  def runtime_context_length(runtime) when is_map(runtime) do
+    Enum.find_value(
+      [
+        Map.get(runtime, "context_length"),
+        get_in(runtime, ["model_metadata", "context_length"]),
+        get_in(runtime, ["model_metadata", "top_provider", "context_length"]),
+        provider_model_context_length(runtime)
+      ],
+      fn value ->
+        case integer(value) do
+          n when is_integer(n) and n > 0 -> n
+          _invalid -> nil
+        end
+      end
+    )
+  end
+
+  def runtime_context_length(_runtime), do: nil
+
+  defp provider_model_context_length(
+         %{"provider" => %Provider{} = provider, "model" => model} = runtime
+       )
+       when is_binary(model) do
+    capability = Map.get(runtime, "capability", "llm")
+    {:ok, metadata} = model_metadata(provider, model, capability: capability)
+
+    Enum.find_value(
+      [
+        Map.get(metadata, "context_length"),
+        get_in(metadata, ["top_provider", "context_length"])
+      ],
+      fn value ->
+        case integer(value) do
+          n when is_integer(n) and n > 0 -> n
+          _invalid -> nil
+        end
+      end
+    )
+  end
+
+  defp provider_model_context_length(_runtime), do: nil
+
   @default_cache_ttl_ms :timer.hours(1)
 
   @base_supported_parameters ~w(

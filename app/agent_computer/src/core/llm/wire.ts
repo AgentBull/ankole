@@ -1,3 +1,4 @@
+import { imageBytes } from '../../common/image-bytes'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { match, P, type JsonObject as JSONObject } from '@agentbull/active-support'
@@ -259,13 +260,4 @@ function imageContentURL(part: ImageContent): string {
   if (part.image instanceof URL) return part.image.toString()
 
   return `data:${part.mimeType ?? 'image/png'};base64,${Buffer.from(imageBytes(part.image)).toString('base64')}`
-}
-
-function imageBytes(value: Uint8Array | BufferSource): Uint8Array {
-  if (value instanceof Uint8Array) return value
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-  }
-  return new Uint8Array(value as ArrayBuffer)
 }

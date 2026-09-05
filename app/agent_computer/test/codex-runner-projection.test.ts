@@ -38,7 +38,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
-      ['web_search', 'web_fetch', 'recall', 'get_page', 'skill_view'].sort()
+      ['web_search', 'web_fetch', 'skill_view'].sort()
     )
     expect(projection.quarantinedTools).toEqual([])
 
@@ -137,66 +137,23 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
   })
 
-  it('projects an explicitly allowed Background namespace without bypassing its allowlist', async () => {
-    let called = false
-    const inputSchema = {
-      type: 'object',
-      properties: { metric: { type: 'string' } },
-      required: ['metric']
-    }
-    const namespacedTool: WorkerAgentTool = defineWorkerTool({
-      executionMode: 'sequential',
-      name: 'inspect_data',
-      description: 'Inspect one metric.',
-      schema: z.record(z.string(), z.unknown()),
-      jsonSchema: inputSchema,
-      namespace: 'analysis_tools',
-      deferLoading: true,
-      isReadOnly: true,
-      isDestructive: false,
-      describeActivity: () => 'Inspect data',
-      async execute() {
-        called = true
-        return { content: [{ type: 'text', text: 'inspected' }], details: {} }
-      }
-    })
-
-    expect(buildCodexJobProjection({ tools: [namespacedTool], allowedToolPaths: new Set() }).dynamicTools).toEqual([])
-
+  it('does not resolve a namespaced call to a local Job tool', async () => {
     const projection = buildCodexJobProjection({
-      tools: [namespacedTool],
-      allowedToolPaths: new Set(['analysis_tools.inspect_data'])
+      tools: [namespacedTool('analysis_tools', 'web_search'), tool('web_search', z.object({}), () => 'local')]
     })
-    expect(projection.dynamicTools).toEqual([
-      {
-        type: 'namespace',
-        name: 'analysis_tools',
-        description: 'Tools in the analysis_tools namespace.',
-        tools: [
-          {
-            type: 'function',
-            name: 'inspect_data',
-            description: 'Inspect one metric.',
-            inputSchema,
-            deferLoading: true
-          }
-        ]
-      }
-    ])
-
+    expect(projection.dynamicTools).toHaveLength(1)
     const result = await projection.handleToolCall(
       {
         threadId: 'thread-1',
         turnId: 'turn-1',
-        callId: 'call-background-namespace',
+        callId: 'call-1',
         namespace: 'analysis_tools',
-        tool: 'inspect_data',
-        arguments: { metric: 'revenue' }
+        tool: 'web_search',
+        arguments: {}
       },
       new AbortController().signal
     )
-    expect(result).toEqual({ contentItems: [{ type: 'inputText', text: 'inspected' }], success: true })
-    expect(called).toBe(true)
+    expect(result.success).toBe(false)
   })
 
   it('executes a Background web call through its AIGateway semantic selector', async () => {
@@ -244,41 +201,20 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     ])
   })
 
-  it('quarantines only identities that the pinned Codex dynamic-tool boundary rejects', () => {
-    const audit: Array<{ event: string; payload: Record<string, unknown> }> = []
-    const tools = [
-      namespacedTool('analysis_tools', 'inspect_data'),
-      namespacedTool('mcp__native_data', 'lookup_metric'),
-      namespacedTool('functions', 'lookup_record')
-    ]
+  it('quarantines duplicate tools and schemas that cannot cross the JSON boundary', () => {
     const projection = buildCodexJobProjection({
-      tools,
-      allowedToolPaths: new Set([
-        'analysis_tools.inspect_data',
-        'mcp__native_data.lookup_metric',
-        'functions.lookup_record'
-      ]),
-      onAudit: (event, payload) => audit.push({ event, payload })
+      tools: [
+        tool('web_search', z.object({}), () => 'first'),
+        tool('web_search', z.object({}), () => 'duplicate'),
+        tool(
+          'skill_view',
+          z.string().transform(value => value.trim()),
+          () => 'invalid schema'
+        )
+      ]
     })
-
-    expect(projection.dynamicTools).toEqual([
-      {
-        type: 'namespace',
-        name: 'analysis_tools',
-        description: 'analysis_tools tools',
-        tools: [
-          {
-            type: 'function',
-            name: 'inspect_data',
-            description: 'Inspect data.',
-            inputSchema: { type: 'object', properties: {} },
-            deferLoading: true
-          }
-        ]
-      }
-    ])
-    expect(projection.quarantinedTools).toEqual(['mcp__native_data.lookup_metric', 'functions.lookup_record'])
-    expect(audit.map(entry => entry.event)).toEqual(['dynamic_tool_quarantined', 'dynamic_tool_quarantined'])
+    expect(projection.dynamicTools.map(spec => spec.name)).toEqual(['web_search'])
+    expect(projection.quarantinedTools).toEqual(['web_search', 'skill_view'])
   })
 })
 

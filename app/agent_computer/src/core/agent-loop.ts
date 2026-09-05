@@ -1,3 +1,4 @@
+import { imageBytes } from '../common/image-bytes'
 /**
  * Agent loop — worker-driven Responses loop, orchestrated by pi-agent-core's
  * `Agent` class over the existing AIGateway stateful Responses transport.
@@ -44,7 +45,12 @@ import {
   type Message
 } from './llm'
 import { errorMessage } from '../common/errors'
-import { finishWorkerSpan, startWorkerSpan } from '../observability/turn-tracing'
+import {
+  finishWorkerSpan,
+  startWorkerSpan,
+  workerObservationInputAttributes,
+  workerObservationOutputAttributes
+} from '../observability/turn-tracing'
 import { contentText, modelImageAdaptation, imageSummaryBlock, responseImageUnavailableText } from './vision'
 import {
   bareToolName,
@@ -729,24 +735,38 @@ function wrapToolExecute(
     // The one point every executed call passes through, so the per-tool trace
     // span lives here; a blocked or thrown-in-preparation call never executes
     // and gets no span, same as the old loop.
-    const span = startWorkerSpan(config.turnTrace, `tool ${toolDisplayName(tool.namespace, tool.name)}`, {
+    const span = startWorkerSpan(config.turnTrace, `execute_tool ${toolDisplayName(tool.namespace, tool.name)}`, {
+      ...workerObservationInputAttributes('tool', parsedArgs),
       'gen_ai.tool.name': tool.name,
       ...(tool.namespace ? { 'gen_ai.tool.namespace': tool.namespace } : {}),
       'gen_ai.tool.call.id': toolCallID
     })
-    let spanError: string | undefined
     try {
       const run = (): ReturnType<WorkerAgentTool['execute']> =>
         tool.execute(toolCallID, parsedArgs as never, signal, onUpdate)
-      return config.withActivitySuspended ? await config.withActivitySuspended('tool_execution', run) : await run()
+      const result = config.withActivitySuspended
+        ? await config.withActivitySuspended('tool_execution', run)
+        : await run()
+      finishWorkerSpan(span, {
+        attributes: workerObservationOutputAttributes('tool', toolObservationOutput(result))
+      })
+      return result
     } catch (error) {
-      spanError = signal?.aborted ? 'tool_execution_aborted' : 'runtime_error'
+      finishWorkerSpan(span, {
+        errorType: signal?.aborted ? 'tool_execution_aborted' : 'runtime_error',
+        attributes: workerObservationOutputAttributes('tool', { error: errorMessage(error) })
+      })
       throw error
     } finally {
-      finishWorkerSpan(span, { errorType: spanError })
       release?.()
     }
   }
+}
+
+function toolObservationOutput(result: AgentToolResult<unknown>): unknown {
+  if (result.content.length === 1 && result.content[0]?.type === 'text') return result.content[0].text
+  if (result.content.length > 0) return result.content
+  return result.details
 }
 
 /** Builds the "running" tool.activity payload, or `null` when the tool explicitly suppresses one. */
@@ -844,13 +864,9 @@ function base64FromImage(part: ImageContent): { data: string; mimeType: string }
     if (match) return { data: match[1]!, mimeType }
     return { data: part.image, mimeType }
   }
-  const bytes =
-    part.image instanceof Uint8Array
-      ? part.image
-      : part.image instanceof ArrayBuffer
-        ? new Uint8Array(part.image)
-        : new Uint8Array((part.image as ArrayBufferView).buffer)
-  return { data: Buffer.from(bytes).toString('base64'), mimeType }
+  const bytes = imageBytes(part.image)
+  if (!bytes) throw new Error('Expected inline image bytes')
+  return { data: bytes.toString('base64'), mimeType }
 }
 
 function piAssistantText(message: PiAssistantMessage): string {
