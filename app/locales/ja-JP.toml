@@ -535,6 +535,7 @@ health_description = "このインスタンスのモデル設定、学習キュ�
 health_status = "状態"
 health_models = "モデル"
 maintainer_agent_not_configured = "未設定"
+configure = "Brain を設定"
 web_fetch_profile = "Web 取得プロファイル"
 extraction_profile = "抽出プロファイル（light）"
 dreaming_profile = "Dreaming プロファイル（heavy）"

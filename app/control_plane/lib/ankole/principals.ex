@@ -301,12 +301,14 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Lists active Principals with their account facts for the operator console.
+  Lists Principal accounts. Disabled Principals are excluded unless requested.
   """
-  @spec list_active_principal_accounts() :: [map()]
-  def list_active_principal_accounts do
+  @spec list_principal_accounts(keyword()) :: [map()]
+  def list_principal_accounts(opts \\ []) do
+    include_disabled = Keyword.get(opts, :include_disabled, false)
+
     principal_account_query()
-    |> where([principal: principal], principal.status == :active)
+    |> where([principal: principal], ^include_disabled or principal.status == :active)
     |> Repo.all()
     |> Enum.map(&finish_principal_account/1)
   end

@@ -17,7 +17,7 @@ import {
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
@@ -334,6 +334,8 @@ export function ConversationDetailPage() {
   const { conversationID = '' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const cursor = searchParams.get('cursor') ?? undefined
+  const messageHeading = useRef<HTMLHeadingElement>(null)
+  const displayedCursor = useRef(cursor)
 
   const conversation = useQuery({
     ...ankoleWebAIGatewayConversationControllerShowOptions({
@@ -358,6 +360,13 @@ export function ConversationDetailPage() {
   const detail = conversation.data?.conversation
   const thread = messages.data?.messages ?? []
   const nextCursor = messages.data?.next_cursor ?? undefined
+
+  useEffect(() => {
+    if (displayedCursor.current === cursor || messages.isPending || messages.isPlaceholderData) return
+    displayedCursor.current = cursor
+    messageHeading.current?.focus({ preventScroll: true })
+    messageHeading.current?.scrollIntoView({ block: 'start' })
+  }, [cursor, messages.isPending, messages.isPlaceholderData])
 
   // The detail URL does not carry the list's filter or cursor params, so the
   // back link targets the plain list; the browser's own back keeps list state.
@@ -408,7 +417,9 @@ export function ConversationDetailPage() {
 
       <section className="grid gap-4">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-base font-semibold">{t('console.conversations.messages')}</h3>
+          <h3 ref={messageHeading} tabIndex={-1} className="scroll-mt-20 text-base font-semibold">
+            {t('console.conversations.messages')}
+          </h3>
           {messages.isLoading ? (
             <span className="text-xs text-muted-foreground">{t('console.conversations.loading')}</span>
           ) : (

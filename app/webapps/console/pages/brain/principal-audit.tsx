@@ -20,7 +20,7 @@ export function BrainPrincipalAuditPage() {
   const { t } = useTranslation()
   const [principalUID, setPrincipalUID] = useState('')
 
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ query: { include_disabled: true } }))
   const knowledge = useQuery({
     ...ankoleWebBrainControllerPrincipalKnowledgeOptions({ path: { principal_uid: principalUID } }),
     enabled: Boolean(principalUID)
@@ -41,7 +41,10 @@ export function BrainPrincipalAuditPage() {
             ariaLabel={t('console.brain.audit_principal')}
             candidates={(principals.data?.principals ?? []).map(principal => ({
               id: principal.uid,
-              label: principal.display_name
+              label:
+                principal.status === 'disabled'
+                  ? `${principal.display_name} · ${t('console.status.disabled')}`
+                  : principal.display_name
             }))}
             error={principals.error}
             isLoading={principals.isLoading}
@@ -65,7 +68,9 @@ export function BrainPrincipalAuditPage() {
           {t('console.brain.principal_audit_no_claims', { uid: principalUID })}
         </p>
       ) : (
-        <Table containerClassName="border border-border bg-card">
+        <Table
+          containerClassName="border border-border bg-card"
+          containerLabel={t('console.brain.principal_audit_title')}>
           <TableHeader>
             <TableRow>
               <TableHead>{t('console.brain.claim')}</TableHead>
@@ -81,7 +86,9 @@ export function BrainPrincipalAuditPage() {
           <TableBody>
             {rows.map(claim => (
               <TableRow key={claim.id}>
-                <TableCell className="max-w-[380px] whitespace-normal text-xs">{claim.claim}</TableCell>
+                <TableCell className="min-w-72 max-w-[380px] whitespace-normal break-words text-sm leading-6">
+                  {claim.claim}
+                </TableCell>
                 <TableCell>
                   <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
                     {t(`console.brain.claim_type_${claim.claim_type}`)}

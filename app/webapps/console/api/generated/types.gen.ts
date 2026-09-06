@@ -6030,7 +6030,9 @@ export type AnkoleWebSignalBindingControllerAdaptersResponse =
 export type AnkoleWebPrincipalControllerIndexData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    include_disabled?: boolean
+  }
   url: '/api/v1/principals'
 }
 

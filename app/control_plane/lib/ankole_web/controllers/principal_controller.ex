@@ -2,7 +2,7 @@ defmodule AnkoleWeb.PrincipalController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  Console REST API for selecting active Principals across operator surfaces.
+  Console REST API for selecting Principal accounts.
   """
 
   use AnkoleWeb, :controller
@@ -33,7 +33,8 @@ defmodule AnkoleWeb.PrincipalController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List active principals",
+    summary: "List principals",
+    parameters: [include_disabled: [in: :query, type: :boolean, required: false]],
     responses: [
       ok: {"Principals", "application/json", PrincipalListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -115,10 +116,16 @@ defmodule AnkoleWeb.PrincipalController do
     ]
   )
 
-  def index(conn, _params) do
+  def index(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "principals", "read") do
       json(conn, %{
-        principals: Enum.map(Principals.list_active_principal_accounts(), &account_json/1)
+        principals:
+          Enum.map(
+            Principals.list_principal_accounts(
+              include_disabled: Map.get(params, :include_disabled, false)
+            ),
+            &account_json/1
+          )
       })
     else
       {:error, reason} -> error(conn, reason)

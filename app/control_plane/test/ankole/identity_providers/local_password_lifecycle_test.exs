@@ -159,7 +159,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
       assert {:ok, %{has_external_identity: true}} =
                Principals.get_principal_account(principal.uid)
 
-      accounts = Principals.list_active_principal_accounts()
+      accounts = Principals.list_principal_accounts()
       listed = Enum.find(accounts, &(&1.principal.uid == principal.uid))
       assert listed.local_credential_status == :active
       assert listed.has_external_identity
