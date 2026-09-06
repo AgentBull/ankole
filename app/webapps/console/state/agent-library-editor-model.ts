@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export const AGENT_LIBRARY_DOCUMENT_KINDS = ['mission', 'soul', 'design', 'confidentiality_policy'] as const
 
@@ -66,6 +66,9 @@ export const AgentLibraryEditorModel = createModel(() => {
   return {
     sourceKey,
     documents,
+    dirty: computed(() =>
+      AGENT_LIBRARY_DOCUMENT_KINDS.some(kind => documents[kind].draft.value !== documents[kind].sourceContent.value)
+    ),
     initialize(agentUID: string, nextDocuments: AgentLibraryDocumentsSnapshot) {
       const nextSourceKey = `agent:${agentUID}`
       batch(() => {

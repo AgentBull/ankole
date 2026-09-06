@@ -1,5 +1,4 @@
 import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
-import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -25,11 +24,15 @@ import {
 } from '../state/agent-library-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
-/** Mounted with `key={agentUID}`, so every per-agent state resets structurally. */
-export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
+export function AgentLibraryEditor({
+  agentUID,
+  model
+}: {
+  agentUID: string
+  model: InstanceType<typeof AgentLibraryEditorModel>
+}) {
   useSignals()
   const { t } = useTranslation()
-  const model = useModel(AgentLibraryEditorModel)
   const queryClient = useQueryClient()
   const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
@@ -94,9 +97,9 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   }
 
   return (
-    <section className="grid gap-4">
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       <div className="grid gap-1">
-        <h3 className="text-lg font-semibold tracking-normal">{t('console.agent_library.title')}</h3>
+        <h3 className="break-words text-lg font-semibold tracking-normal">{t('console.agent_library.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_library.description')}</p>
         <p className="text-xs leading-5 text-muted-foreground">{t('console.agent_library.effect_hint')}</p>
       </div>
@@ -109,12 +112,12 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
         </div>
       ) : draftStatus === 'ready' ? (
         <Tabs
-          className="grid gap-4 border border-border bg-card p-4 md:p-5"
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border border-border bg-card p-4 md:p-5"
           value={activeKind}
           onValueChange={value => {
             if (isDocumentKind(value)) setActiveKind(value)
           }}>
-          <TabsList className="w-full">
+          <TabsList className="w-full min-w-0 justify-start overflow-x-auto">
             {AGENT_LIBRARY_DOCUMENT_KINDS.map(kind => (
               <TabsTrigger key={kind} value={kind}>
                 {agentLibraryDocumentTitle(kind)}
@@ -125,7 +128,7 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
           {AGENT_LIBRARY_DOCUMENT_KINDS.map(kind => {
             const state = model.documents[kind]
             return (
-              <TabsContent key={kind} value={kind} className="grid gap-4 pt-1">
+              <TabsContent key={kind} value={kind} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 pt-1">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-mono text-xs text-muted-foreground">{AGENT_LIBRARY_DOCUMENT_FILES[kind]}</span>
                   {!state.editing.value ? (

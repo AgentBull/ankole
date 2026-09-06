@@ -49,7 +49,12 @@ export function BrainHealthPage() {
                   {snapshot.maintainer_agent_uid}
                 </Link>
               ) : (
-                <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
+                  <Link className="text-sm text-link hover:underline" to="/settings/group/brain">
+                    {t('console.brain.configure')}
+                  </Link>
+                </div>
               )}
             </HealthItem>
           </HealthSection>
