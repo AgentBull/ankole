@@ -21,8 +21,11 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     websocket_read_failed websocket_send_failed
   )
   @legacy_provider_status_codes ~w(invalid_upstream_response upstream_response_failed)
+  # `server_error` is the code a Codex gateway substitutes for `server_is_overloaded`
+  # on a mid-stream capacity shed, which carries no HTTP status.
   @retryable_provider_codes ~w(
-    rate_limit rate_limited rate_limit_exceeded server_is_overloaded slow_down too_many_requests
+    rate_limit rate_limited rate_limit_exceeded server_error server_is_overloaded slow_down
+    too_many_requests
   )
   # Codex reads only the error code on a terminal Responses failure and treats
   # every code outside this vocabulary as retryable, so a permanent rejection
