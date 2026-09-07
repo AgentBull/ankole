@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 1.0.2-rc.7 (2026-09-07)
+## Version 1.0.3-rc.1 (2026-09-07)
 
 - A turn that a provider ends with a `server_error` code, such as a Codex gateway relaying an OpenAI capacity overload, is now retried automatically instead of stopping with "自动重试已停止".
 
