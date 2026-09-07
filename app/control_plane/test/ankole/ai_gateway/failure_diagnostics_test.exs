@@ -340,7 +340,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
   end
 
   test "classifies Codex overload aliases as retryable provider failures" do
-    for code <- ["server_is_overloaded", "slow_down"] do
+    for code <- ["server_is_overloaded", "slow_down", "server_error"] do
       assert %{
                failure_kind: :provider_response,
                error_code: ^code,
