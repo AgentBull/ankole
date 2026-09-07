@@ -10,6 +10,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Input,
   Select,
   SelectContent,
@@ -21,7 +25,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiChatQuoteLine, RiLoaderLine } from '@remixicon/react'
+import { RiChatQuoteLine, RiLoaderLine, RiMore2Fill } from '@remixicon/react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -150,7 +154,9 @@ export function BrainClaimsPage() {
 
           return (
             <TableRow key={claim.id} className={resolved ? 'opacity-70' : undefined}>
-              <TableCell className="max-w-[380px] whitespace-normal text-xs">{claim.claim}</TableCell>
+              <TableCell className="min-w-72 max-w-[380px] whitespace-normal break-words text-sm leading-6">
+                {claim.claim}
+              </TableCell>
               <TableCell>
                 <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
                   {t(`console.brain.claim_type_${claim.claim_type}`)}
@@ -177,19 +183,27 @@ export function BrainClaimsPage() {
                 </TableCell>
               ) : (
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button size="xs" type="button" variant="ghost" onClick={() => setSupersedeClaim(claim)}>
-                      {t('console.brain.supersede')}
-                    </Button>
-                    <Button size="xs" type="button" variant="ghost" onClick={() => setForgetClaim(claim)}>
-                      {t('console.brain.forget')}
-                    </Button>
-                    {claim.claim_type === 'take' ? (
-                      <Button size="xs" type="button" variant="ghost" onClick={() => setResolveClaim(claim)}>
-                        {t('console.brain.resolve')}
-                      </Button>
-                    ) : null}
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button size="icon-sm" type="button" variant="ghost" aria-label={t('common.more_actions')} />
+                      }>
+                      <RiMore2Fill />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setSupersedeClaim(claim)}>
+                        {t('console.brain.supersede')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setForgetClaim(claim)}>
+                        {t('console.brain.forget')}
+                      </DropdownMenuItem>
+                      {claim.claim_type === 'take' ? (
+                        <DropdownMenuItem onClick={() => setResolveClaim(claim)}>
+                          {t('console.brain.resolve')}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               )}
             </TableRow>

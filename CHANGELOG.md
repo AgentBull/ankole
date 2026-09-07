@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.0.1-rc.7 (2026-09-06)
+
+- Text fields show the full lower strokes of letters such as g, j, p, q, and y with the bundled font.
+- The Console home page shows job counts for the full instance. Chinese list counts describe the displayed rows, and conversation pages move focus to the start of the new message page.
+- Agent document drafts require confirmation before leaving the page, including after a separate basic-information save. The document editor fits narrow screens.
+- Brain audits include disabled Principals. Claim text stays readable beside compact action menus, and missing Brain configuration links to its settings.
+
 ## Version 1.0.0-rc.7 (2026-09-05)
 
 - Workers can reject new turns without blocking terminal acknowledgements, and idle Sessions release their controller processes after live deliveries finish. File transfers stop when a read fails or the file shrinks, file searches keep the requested directory scope, directory listings avoid redundant reads, and cached web pages share the same output budget as newly fetched pages.

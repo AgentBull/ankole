@@ -535,6 +535,7 @@ health_description = "Model configuration, learning queue, and projection status
 health_status = "Status"
 health_models = "Models"
 maintainer_agent_not_configured = "Not configured"
+configure = "Configure Brain"
 web_fetch_profile = "Web fetch profile"
 extraction_profile = "Extraction profile (light)"
 dreaming_profile = "Dreaming profile (heavy)"

@@ -50,6 +50,24 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     assert Enum.map(principals, & &1["uid"]) == Enum.sort(Enum.map(principals, & &1["uid"]))
   end
 
+  test "admin can include disabled principals for audits", %{conn: conn} do
+    disabled = agent_fixture(%{uid: unique_uid("audit-disabled")})
+    assert {:ok, _} = Ankole.Principals.disable_principal(disabled.principal.uid)
+    conn = bearer_conn(conn)
+
+    for {include_disabled, expected} <- [{true, true}, {false, false}] do
+      response =
+        conn
+        |> recycle_api()
+        |> get(~p"/api/v1/principals?#{%{include_disabled: include_disabled}}")
+        |> json_response(200)
+
+      found = Enum.find(response["principals"], &(&1["uid"] == disabled.principal.uid))
+      assert found != nil == expected
+      if found, do: assert(found["status"] == "disabled")
+    end
+  end
+
   test "admin reads one principal with its groups and direct grants", %{conn: conn} do
     conn = bearer_conn(conn)
 

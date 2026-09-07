@@ -46,6 +46,7 @@ import {
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
 import { AgentLibraryEditor } from './agent-library-editor'
+import { AgentLibraryEditorModel } from '../state/agent-library-editor-model'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
@@ -186,16 +187,20 @@ export function agentEditorDetailOptions(uid: string) {
 }
 
 export function AgentEditorPage() {
+  const { uid } = useParams()
+  return <AgentEditor key={uid ?? 'new'} uid={uid} />
+}
+
+function AgentEditor({ uid }: { uid?: string }) {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const model = useModel(AgentEditorModel)
+  const libraryModel = useModel(AgentLibraryEditorModel)
   const displayNameInput = useRef<HTMLInputElement>(null)
   const uidInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
-  const params = useParams()
-  const uid = params.uid
   const mode = uid ? 'edit' : 'new'
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
@@ -304,6 +309,7 @@ export function AgentEditorPage() {
       description={t('console.agents.editor_description')}
       backTo="/agents"
       dirty={model.dirty.value}
+      supplementaryDirty={libraryModel.dirty.value}
       error={
         createAgent.error ??
         updateAgent.error ??
@@ -321,9 +327,7 @@ export function AgentEditorPage() {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
-            {/* The key remounts the editor per agent, so tab choice, draft
-                model, and in-flight submission bookkeeping reset structurally. */}
-            <AgentLibraryEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
+            <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
               agent={selectedAgent}
               error={modelProfiles.error}

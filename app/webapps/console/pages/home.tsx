@@ -22,6 +22,7 @@ import {
   ankoleWebAiGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
+  ankoleWebBackgroundAgentJobControllerHealthOptions,
   ankoleWebConsoleReadinessControllerShowOptions,
   ankoleWebIdentityProviderControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
@@ -41,15 +42,6 @@ const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: 
   signal: RiBroadcastLine
 }
 
-/**
- * Console start page.
- *
- * The console used to open on the agent list, which answers "which agents exist"
- * — a question an operator asks once. This page answers the one they ask every
- * time they open the console: can the deployment instance work right now, and is
- * anything waiting on me. Every number below is counted from a list the console
- * already reads; nothing here is a metric the control plane does not own.
- */
 export function HomePage() {
   const { t } = useTranslation()
 
@@ -72,6 +64,10 @@ export function HomePage() {
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } }),
     refetchInterval: LIST_REFRESH_MS
   })
+  const jobHealth = useQuery({
+    ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
+    refetchInterval: LIST_REFRESH_MS
+  })
   // Use the header readiness query key so both views share cached data.
   const readiness = useQuery({
     ...ankoleWebConsoleReadinessControllerShowOptions(),
@@ -87,7 +83,7 @@ export function HomePage() {
     refetchInterval: IDLE_REFRESH_MS
   })
 
-  const queries = [agents, workers, providers, identityProviders, jobs, conversations, readiness]
+  const queries = [agents, workers, providers, identityProviders, jobs, jobHealth, conversations, readiness]
   const error = queries.find(query => query.error)?.error
 
   const agentRows = agents.data?.agents ?? []
@@ -98,8 +94,6 @@ export function HomePage() {
   const activeAgents = agentRows.filter(agent => agent.status === 'active').length
   const readyWorkers = workerRows.filter(worker => worker.status === 'ready').length
   const enabledProviders = providerRows.filter(provider => !provider.disabled_at).length
-  const runningJobs = jobRows.filter(job => job.status === 'running' || job.status === 'waiting_on_user').length
-  const queuedJobs = jobRows.filter(job => job.status === 'queued').length
   const failedJobs = jobRows.filter(job => job.status === 'failed')
 
   // Use the same readiness report and step definitions as the header. Hide
@@ -191,10 +185,10 @@ export function HomePage() {
           icon={RiGitBranchLine}
           label={t('console.home.running_jobs')}
           to="/background-agent-jobs"
-          loading={jobs.isLoading}
-          unavailable={Boolean(jobs.error)}
-          value={runningJobs}
-          detail={t('console.home.queued_jobs', { count: queuedJobs })}
+          loading={jobHealth.isLoading}
+          unavailable={Boolean(jobHealth.error)}
+          value={jobHealth.data?.running_count ?? 0}
+          detail={t('console.home.queued_jobs', { count: jobHealth.data?.queued_count ?? 0 })}
         />
         <MetricTile
           icon={RiSparkling2Line}

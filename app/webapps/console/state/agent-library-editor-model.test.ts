@@ -15,6 +15,30 @@ function documents(mission: string, soul: string, design = 'Design A'): AgentLib
 }
 
 describe('AgentLibraryEditorModel', () => {
+  test('keeps the page dirty until every changed document is saved or discarded', () => {
+    const model = new AgentLibraryEditorModel()
+    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    expect(model.dirty.value).toBeFalse()
+    model.beginEdit('mission')
+    expect(model.dirty.value).toBeFalse()
+    model.setDraft('mission', 'Mission draft')
+    model.beginEdit('confidentiality_policy')
+    model.setDraft('confidentiality_policy', 'Policy draft')
+    expect(model.dirty.value).toBeTrue()
+
+    model.markSaved('mission', documents('Mission draft', 'Soul A').mission, model.snapshot('mission'))
+    expect(model.dirty.value).toBeTrue()
+    model.cancel('confidentiality_policy')
+    expect(model.dirty.value).toBeFalse()
+
+    model.beginEdit('design')
+    model.setDraft('design', 'Design draft')
+    expect(model.dirty.value).toBeTrue()
+    model.initialize('beta', documents('Mission B', 'Soul B'))
+    expect(model.dirty.value).toBeFalse()
+    model[Symbol.dispose]()
+  })
+
   test('preserves an edited document during same-agent refetch and refreshes the other document', () => {
     const model = new AgentLibraryEditorModel()
     model.initialize('alpha', documents('Mission A', 'Soul A'))
@@ -98,6 +122,7 @@ describe('AgentLibraryEditorModel', () => {
     expect(model.documents.mission.contentHash.value).toBe('mission:submitted')
     expect(model.documents.mission.draft.value).toBe('Newer unsaved mission')
     expect(model.documents.mission.editing.value).toBeTrue()
+    expect(model.dirty.value).toBeTrue()
     expect(model.snapshot('mission')).toMatchObject({
       content: 'Newer unsaved mission',
       expectedContentHash: 'mission:submitted'

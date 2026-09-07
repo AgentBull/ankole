@@ -86,6 +86,7 @@ export function ResourceEditorPage({
   readOnly = false,
   secondary,
   supplementary,
+  supplementaryDirty = false,
   submitDisabled,
   submitDisabledReason,
   submitUnavailable,
@@ -111,6 +112,8 @@ export function ResourceEditorPage({
   error?: unknown
   secondary?: ReactNode
   supplementary?: ReactNode
+  /** Drafts saved by separate controls must also block navigation during the main save. */
+  supplementaryDirty?: boolean
   title: string
   /** A page-level draft problem. It renders without the request-failure title. */
   validationError?: string
@@ -155,7 +158,9 @@ export function ResourceEditorPage({
         </div>
       </div>
 
-      {dirty === undefined || readOnly ? null : <EditorNavigationGuard blocked={dirty && !submitting} />}
+      {readOnly || (dirty === undefined && !supplementaryDirty) ? null : (
+        <EditorNavigationGuard blocked={Boolean((dirty && !submitting) || supplementaryDirty)} />
+      )}
       <form
         ref={formCompleteness.formRef}
         className="grid gap-6"

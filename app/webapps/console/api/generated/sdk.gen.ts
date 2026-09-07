@@ -2846,7 +2846,7 @@ export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends bo
   })
 
 /**
- * List active principals
+ * List principals
  */
 export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean = false>(
   options?: Options<AnkoleWebPrincipalControllerIndexData, ThrowOnError>

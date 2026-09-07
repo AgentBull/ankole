@@ -535,6 +535,7 @@ health_description = "이 인스턴스의 모델 설정, 학습 대기열, 투�
 health_status = "상태"
 health_models = "모델"
 maintainer_agent_not_configured = "미설정"
+configure = "Brain 설정"
 web_fetch_profile = "웹 가져오기 프로필"
 extraction_profile = "추출 프로필(light)"
 dreaming_profile = "Dreaming 프로필(heavy)"

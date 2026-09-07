@@ -8,6 +8,8 @@
 @font-face {
   font-family: 'IBMPlexSansCN';
   src: url('./assets/fonts/IBMPlexSansCN.variable.woff2') format('woff2');
+  /* Glyphs extend 223 of 1000 units below the baseline; the font declares only 120. */
+  descent-override: 22.3%;
   font-weight: 100 800;
   font-style: normal;
   font-display: swap;

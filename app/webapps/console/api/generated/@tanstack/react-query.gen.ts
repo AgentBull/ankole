@@ -3305,7 +3305,7 @@ export const ankoleWebPrincipalControllerIndexQueryKey = (options?: Options<Anko
   createQueryKey('ankoleWebPrincipalControllerIndex', options)
 
 /**
- * List active principals
+ * List principals
  */
 export const ankoleWebPrincipalControllerIndexOptions = (options?: Options<AnkoleWebPrincipalControllerIndexData>) =>
   queryOptions<
