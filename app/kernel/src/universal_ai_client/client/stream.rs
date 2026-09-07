@@ -86,7 +86,7 @@ async fn run_http_stream(
 
     sink(StreamEvent::Ready(json!({
         "status": http_stream.0.status,
-        "headers": transport::codex_response_headers(&http_stream.0.headers),
+        "headers": transport::safe_response_headers(&http_stream.0.headers),
         "upstream_kind": spec.upstream.kind.as_str(),
         "downstream_kind": spec.downstream.as_str(),
         "api_resolver": spec.api_resolver.as_str(),

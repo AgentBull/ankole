@@ -306,8 +306,21 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       request = injecting_request()
       input = [user_message("Tell me about the Wire Format")]
 
-      injected = Brain.inject_stateful(context.agent.uid, request, conversation, input)
+      {injected, provenance} =
+        Brain.inject_stateful(context.agent.uid, request, conversation, input)
+
+      assert %{
+               "items" => [0],
+               "environment" => %{
+                 "item_index" => 1,
+                 "part_index" => 0,
+                 "offset" => 0,
+                 "length" => injected_bytes
+               }
+             } = provenance
+
       assert [pack, prompt] = injected
+      assert injected_bytes == byte_size(environment_text(prompt))
       assert pack["role"] == "user"
       assert pack_text(pack) =~ "<recalled_memory>"
       assert pack_text(pack) =~ "entity: concepts/wire-format — Wire Format (concept)"
@@ -318,7 +331,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       conversation = Repo.reload!(conversation)
 
       assert [prompt_only] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
 
       assert environment_text(prompt_only) =~ "memory: concepts/wire-format"
 
@@ -326,12 +339,12 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       insert_checkpoint!(context.agent.uid, conversation.id)
 
       assert [_pack, _prompt] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
 
       conversation = Repo.reload!(conversation)
 
       assert [_prompt_only] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
     end
 
     test "reopens the slot for a retry of the same actor event", context do
@@ -341,17 +354,17 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       input = [user_message("Wire Format again")]
 
       assert [_pack, _prompt] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
 
       conversation = Repo.reload!(conversation)
 
       assert [_pack, _prompt] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
 
       successor = insert_actor_event!(context.agent.uid)
       later = injecting_request(%{"actor_event_id" => successor.id})
       conversation = Repo.reload!(conversation)
-      assert [_prompt_only] = Brain.inject_stateful(context.agent.uid, later, conversation, input)
+      assert [_prompt_only] = inject_stateful(context.agent.uid, later, conversation, input)
     end
 
     test "pointer lines join the existing environment block and name only what the message names",
@@ -376,7 +389,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       ]
 
       assert [_pack, prompt] =
-               Brain.inject_stateful(context.agent.uid, request, conversation, input)
+               inject_stateful(context.agent.uid, request, conversation, input)
 
       [environment_part, text_part] = prompt["content"]
 
@@ -389,7 +402,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       unrelated = [user_message("please book a room for Thursday")]
 
       assert ^unrelated =
-               Brain.inject_stateful(context.agent.uid, request, conversation, unrelated)
+               inject_stateful(context.agent.uid, request, conversation, unrelated)
     end
 
     test "requires the injection flag and leaves the input alone on failure", context do
@@ -397,20 +410,20 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       input = [user_message("Wire Format")]
 
       assert ^input =
-               Brain.inject_stateful(
+               inject_stateful(
                  context.agent.uid,
                  %{"tools" => [%{"type" => "brain"}]},
                  conversation,
                  input
                )
 
-      assert ^input = Brain.inject_stateful(context.agent.uid, %{}, conversation, input)
+      assert ^input = inject_stateful(context.agent.uid, %{}, conversation, input)
 
       %{principal: other} = agent_fixture()
       foreign = insert_actor_event!(other.uid)
 
       assert ^input =
-               Brain.inject_stateful(
+               inject_stateful(
                  context.agent.uid,
                  injecting_request(%{"actor_event_id" => foreign.id}),
                  conversation,
@@ -424,11 +437,16 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       input = [user_message("What do we know about the Wire Format?")]
 
       assert [pack, _prompt] =
-               Brain.inject_stateful(human.uid, injecting_request(), conversation, input)
+               inject_stateful(human.uid, injecting_request(), conversation, input)
 
       assert pack_text(pack) =~ "entity: concepts/wire-format"
       assert context.object.slug == "concepts/wire-format"
     end
+  end
+
+  defp inject_stateful(subject_uid, request, conversation, input) do
+    {items, _provenance} = Brain.inject_stateful(subject_uid, request, conversation, input)
+    items
   end
 
   defp loop!(subject_uid, declaration) do

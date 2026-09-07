@@ -478,6 +478,47 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert object_chunk_scopes(object) == ["principal:#{principal_uid}"]
   end
 
+  test "OIDC Source default audience can be configured and reset through the Console", %{
+    conn: conn
+  } do
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+
+    {:ok, source} =
+      Ankole.Brain.Sources.create(%{
+        kind: "oidc_client",
+        upstream_id: UUIDv7.autogenerate(),
+        name: "OIDC Client"
+      })
+
+    assert %{"source" => %{"id" => source_id}} =
+             conn
+             |> patch(~p"/api/v1/brain/sources/#{source.id}", %{
+               "default_audience_scope" => "principal:#{principal_uid}"
+             })
+             |> json_response(200)
+
+    assert source_id == source.id
+    assert Repo.get!(Source, source.id).default_audience_scope == "principal:#{principal_uid}"
+
+    conn
+    |> recycle()
+    |> patch(~p"/api/v1/brain/sources/#{source.id}", %{"default_audience_scope" => nil})
+    |> json_response(200)
+
+    assert Repo.get!(Source, source.id).default_audience_scope == nil
+
+    conn |> recycle() |> patch(~p"/api/v1/brain/sources/#{source.id}", %{}) |> json_response(422)
+
+    conn
+    |> recycle()
+    |> patch(~p"/api/v1/brain/sources/#{source.id}", %{
+      "default_audience_scope" => "group:missing"
+    })
+    |> json_response(422)
+
+    assert Repo.get!(Source, source.id).default_audience_scope == nil
+  end
+
   test "archiving a Library Source immediately withdraws its managed pages", %{conn: conn} do
     {conn, _principal_uid} = bearer_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
@@ -515,6 +556,68 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert source_id == source.id
     assert is_binary(archived_at)
     assert Repo.get!(Object, object.id).deleted_at != nil
+  end
+
+  test "manual Dreaming uses the scheduled worker and reuses pending rounds", %{conn: conn} do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    assert {:ok, true} = AppConfigure.put_global_by_key("brain.enabled", true)
+    cron = Ankole.Brain.Config.dreaming_task_cron()
+    worker = Ankole.Brain.Jobs.Dreaming
+    worker_name = Oban.Worker.to_string(worker)
+
+    assert %{"result" => %{"status" => "enqueued"}} =
+             conn |> post(~p"/api/v1/brain/dream") |> json_response(200)
+
+    job = Repo.one!(from job in Oban.Job, where: job.worker == ^worker_name)
+    assert job.state == "available"
+    assert job.args == %{}
+
+    assert %{"result" => %{"status" => "already_pending"}} =
+             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(200)
+
+    Repo.update!(Ecto.Changeset.change(job, state: "executing"))
+
+    assert %{"result" => %{"status" => "already_pending"}} =
+             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(200)
+
+    assert {:ok, %{id: id, conflict?: true}} = Oban.insert(worker.new(%{}))
+    assert id == job.id
+    assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker_name), :count) == 1
+    assert Ankole.Brain.Config.dreaming_task_cron() == cron
+  end
+
+  test "manual Dreaming requires Brain update permission", %{conn: conn} do
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+
+    assert {:ok, _grant} =
+             Ankole.AuthZ.create_permission_grant(%{
+               principal_uid: principal_uid,
+               resource_pattern: "brain",
+               action: "read",
+               condition: "true",
+               metadata: %{}
+             })
+
+    assert conn |> recycle_api() |> get(~p"/api/v1/brain/health") |> response(200)
+
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(403)
+
+    worker = Oban.Worker.to_string(Ankole.Brain.Jobs.Dreaming)
+    assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
+  end
+
+  test "manual Dreaming rejects a disabled Brain and unauthenticated callers", %{conn: conn} do
+    assert conn |> post(~p"/api/v1/brain/dream") |> response(401)
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    assert {:ok, false} = AppConfigure.put_global_by_key("brain.enabled", false)
+
+    assert %{"error" => %{"code" => "brain_disabled"}} =
+             conn |> post(~p"/api/v1/brain/dream") |> json_response(422)
+
+    worker = Oban.Worker.to_string(Ankole.Brain.Jobs.Dreaming)
+    assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
   end
 
   test "health reports maintainer Agent profiles and the local web-fetch fallback", %{conn: conn} do

@@ -108,7 +108,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           subject_uid,
           request,
           runtime,
-          request_context
+          request_context,
+          Keyword.get(opts, :oidc_client_id)
         )
       else
         with {:ok, request} <-
@@ -217,9 +218,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          subject_uid,
          request,
          runtime,
-         request_context
+         request_context,
+         oidc_client_id
        ) do
-    with {:ok, context} <- build_stateful_request_context(subject_uid, request, runtime),
+    with {:ok, context} <-
+           build_stateful_request_context(subject_uid, request, runtime, oidc_client_id),
          {:ok, message} <-
            StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
       stateful_context = response_stream_context(message)
@@ -269,7 +272,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> RequestContext.prepare(request)
   end
 
-  defp build_stateful_request_context(subject_uid, request, runtime) do
+  defp build_stateful_request_context(subject_uid, request, runtime, oidc_client_id) do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
@@ -291,13 +294,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          effective_previous_response_id <-
            effective_previous_response_id(conversation.id, previous_response_id),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
-         current_input <- Brain.inject_stateful(subject_uid, request, conversation, current_input),
          history <-
            StatefulResponses.expand_history(conversation.id,
              previous_response_id: effective_previous_response_id
            ),
          {current_input, recovered_call_ids} <-
            recover_interrupted_tool_calls(history, current_input, previous_response_id),
+         {current_input, injection} <-
+           Brain.inject_stateful(subject_uid, request, conversation, current_input),
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
@@ -316,6 +320,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          explicit_previous_response_id: previous_response_id,
          request: request,
          current_input: current_input,
+         source_metadata:
+           if(is_binary(oidc_client_id),
+             do: %{"oidc_client_id" => oidc_client_id, "brain_injection" => injection},
+             else: %{}
+           ),
          recovered_call_ids: recovered_call_ids,
          compaction: compaction
        }}
@@ -386,6 +395,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              context.request,
              context.compaction.run_metadata
            )
+           |> Map.merge(Map.get(context, :source_metadata, %{}))
            |> put_when(
              "recovered_interrupted_tool_call_ids",
              context.recovered_call_ids,
@@ -403,6 +413,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp planned_run_attrs(context) do
     metadata =
       stateful_run_metadata(context.request, context.compaction.run_metadata)
+      |> Map.merge(context.source_metadata)
       |> put_when(
         "recovered_interrupted_tool_call_ids",
         context.recovered_call_ids,

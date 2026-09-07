@@ -8,6 +8,60 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok
   end
 
+  test "rate limits use a short fallback unless the provider explicitly rejects quota" do
+    for error <- [%{}, %{"code" => "RequestBurstTooFast"}, %{"code" => "rate_limit_exceeded"}] do
+      assert CredentialPool.cooldown_ms(429, [], error) == 1_000
+    end
+
+    for error <- [%{"code" => "insufficient_quota"}, %{"type" => "usage_limit_reached"}] do
+      assert CredentialPool.cooldown_ms(429, [], error) == 3_600_000
+      assert CredentialPool.cooldown_ms(429, [{"Retry-After", "2"}], error) == 2_000
+    end
+
+    assert CredentialPool.cooldown_ms(401, [], %{}) == 300_000
+  end
+
+  test "Retry-After accepts delay seconds and HTTP dates across native header shapes" do
+    for headers <- [
+          %{"Retry-After" => "2"},
+          [{"retry-after", "2"}],
+          [["RETRY-AFTER", "2"]],
+          %{"retry-after" => ["2"]}
+        ] do
+      assert CredentialPool.cooldown_ms(429, headers, %{}) == 2_000
+    end
+
+    future = DateTime.utc_now(:second) |> DateTime.add(30)
+    headers = %{"retry-after" => Req.Utils.format_http_date(future)}
+    assert CredentialPool.cooldown_ms(429, headers, %{}) in 28_000..30_000
+
+    for value <- ["-2", "garbage", "1.5", "999999999999999999999999999"] do
+      assert CredentialPool.cooldown_ms(429, %{"retry-after" => value}, %{}) == 1_000
+    end
+
+    assert CredentialPool.cooldown_ms(429, %{"retry-after" => "0"}, %{}) == 0
+
+    assert CredentialPool.cooldown_ms(
+             429,
+             %{"retry-after" => "Sun, 06 Nov 1994 08:49:37 GMT"},
+             %{}
+           ) == 0
+
+    assert CredentialPool.cooldown_ms(
+             429,
+             %{"retry-after" => "60", "x-codex-primary-reset-at" => unix(future)},
+             %{}
+           ) == 60_000
+  end
+
+  test "a concurrent short failure cannot shorten an active cooldown" do
+    entry = hd(entries())
+    :ok = CredentialPool.mark_exhausted("concurrent", entry, 429, %{"retry-after" => "60"})
+    before = CredentialPool.statuses("concurrent", [entry])
+    :ok = CredentialPool.mark_exhausted("concurrent", entry, 429, %{"retry-after" => "0"})
+    assert CredentialPool.statuses("concurrent", [entry]) == before
+  end
+
   test "fill-first, round-robin, least-used, and random select only usable entries" do
     entries = entries()
     [first, second | _rest] = entries
@@ -148,14 +202,14 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
     :ok =
       CredentialPool.mark_exhausted(
-        "cooldown",
+        "expired-cooldown",
         first,
         429,
         %{"x-codex-primary-reset-at" => DateTime.utc_now() |> DateTime.add(-1) |> unix()}
       )
 
     assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("cooldown", entries, "fill_first")
+             CredentialPool.select("expired-cooldown", entries, "fill_first")
   end
 
   test "dead and disabled entries stay out until explicit reauthentication" do

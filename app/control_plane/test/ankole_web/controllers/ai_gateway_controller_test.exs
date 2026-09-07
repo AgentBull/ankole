@@ -1852,7 +1852,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert %{
              "error" => %{
-               "type" => "usage_limit_reached",
+               "type" => "rate_limit_error",
                "code" => "credential_pool_exhausted",
                "message" => message,
                "resets_at" => resets_at,
@@ -1864,7 +1864,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert resets_at == DateTime.to_unix(reset_at)
     assert {:ok, parsed_retry_at, _offset} = DateTime.from_iso8601(retry_at)
     assert DateTime.compare(parsed_retry_at, reset_at) == :eq
-    assert message == "AIGateway credential pool exhausted. retry_at=#{retry_at}"
+    assert message == "native upstream rate limit"
     assert get_resp_header(conn, "x-codex-primary-reset-at") == [Integer.to_string(resets_at)]
     assert [retry_after] = get_resp_header(conn, "retry-after")
     assert {seconds, ""} = Integer.parse(retry_after)

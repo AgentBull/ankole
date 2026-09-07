@@ -59,7 +59,7 @@ pub struct HTTPResponse {
     pub body: Vec<u8>,
 }
 
-pub fn codex_response_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
+pub fn safe_response_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
     headers
         .iter()
         .filter(|(name, _value)| safe_provider_header(name))
@@ -67,7 +67,7 @@ pub fn codex_response_headers(headers: &[(String, String)]) -> Vec<(String, Stri
         .collect()
 }
 
-fn codex_header_map(headers: &HeaderMap) -> Vec<(String, String)> {
+fn safe_header_map(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
         .filter(|(name, _value)| safe_provider_header(name.as_str()))
@@ -82,7 +82,7 @@ fn codex_header_map(headers: &HeaderMap) -> Vec<(String, String)> {
 
 fn safe_provider_header(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    name.starts_with("x-codex-") || name == "cf-mitigated"
+    name.starts_with("x-codex-") || name == "cf-mitigated" || name == "retry-after"
 }
 
 pub async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {
@@ -485,7 +485,7 @@ pub async fn open_websocket(
     Ok((
         websocket,
         response.status().as_u16(),
-        codex_header_map(response.headers()),
+        safe_header_map(response.headers()),
     ))
 }
 
@@ -743,7 +743,7 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
     match reason {
         WebSocketError::Http(response) => {
             let status = response.status().as_u16();
-            let headers = codex_header_map(response.headers());
+            let headers = safe_header_map(response.headers());
 
             StreamError::new(
                 "websocket_status_rejected",
@@ -1278,6 +1278,7 @@ mod tests {
     fn websocket_http_rejection_keeps_provider_status_without_body() {
         let response = tokio_tungstenite::tungstenite::http::Response::builder()
             .status(429)
+            .header("retry-after", "2")
             .header("x-codex-primary-reset-at", "1785319200")
             .header("authorization", "Bearer private")
             .body(Some(b"provider secret".to_vec()))
@@ -1291,29 +1292,34 @@ mod tests {
         assert_eq!(error.provider_body_excerpt, None);
         assert_eq!(
             error.provider_headers,
-            vec![(
-                "x-codex-primary-reset-at".to_string(),
-                "1785319200".to_string()
-            )]
+            vec![
+                ("retry-after".to_string(), "2".to_string()),
+                (
+                    "x-codex-primary-reset-at".to_string(),
+                    "1785319200".to_string()
+                )
+            ]
         );
         assert!(!error.message.contains("provider secret"));
     }
 
     #[test]
-    fn codex_response_headers_exclude_unrelated_and_secret_headers() {
+    fn safe_response_headers_exclude_unrelated_and_secret_headers() {
         let headers = vec![
             ("X-Codex-Primary-Used-Percent".to_string(), "42".to_string()),
             ("cf-mitigated".to_string(), "challenge".to_string()),
+            ("Retry-After".to_string(), "2".to_string()),
             ("content-type".to_string(), "application/json".to_string()),
             ("authorization".to_string(), "Bearer private".to_string()),
             ("set-cookie".to_string(), "private=value".to_string()),
         ];
 
         assert_eq!(
-            codex_response_headers(&headers),
+            safe_response_headers(&headers),
             vec![
                 ("X-Codex-Primary-Used-Percent".to_string(), "42".to_string()),
-                ("cf-mitigated".to_string(), "challenge".to_string())
+                ("cf-mitigated".to_string(), "challenge".to_string()),
+                ("Retry-After".to_string(), "2".to_string())
             ]
         );
     }

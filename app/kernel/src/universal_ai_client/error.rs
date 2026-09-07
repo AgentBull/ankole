@@ -90,7 +90,7 @@ impl StreamError {
     }
 
     pub fn provider_headers(mut self, headers: &[(String, String)]) -> Self {
-        self.provider_headers = super::transport::codex_response_headers(headers);
+        self.provider_headers = super::transport::safe_response_headers(headers);
         self
     }
 

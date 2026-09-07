@@ -201,7 +201,7 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
 
     Ok(json!({
         "status": response.status,
-        "headers": transport::codex_response_headers(&response.headers),
+        "headers": transport::safe_response_headers(&response.headers),
         "body": normalized_body,
         "raw_body_bytes": response.body.len(),
         "http_version": response.version,

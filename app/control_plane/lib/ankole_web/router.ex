@@ -188,6 +188,7 @@ defmodule AnkoleWeb.Router do
     delete "/permission-grants/:id", PermissionGrantController, :delete
 
     get "/brain/health", BrainController, :health
+    post "/brain/dream", BrainController, :dream
     get "/brain/objects", BrainController, :list_objects
     get "/brain/object-types", BrainController, :object_types
     post "/brain/objects", BrainController, :create_object
@@ -209,6 +210,7 @@ defmodule AnkoleWeb.Router do
 
     get "/brain/sources", BrainController, :list_sources
     post "/brain/sources", BrainController, :create_source
+    patch "/brain/sources/:source_id", BrainController, :update_source
     post "/brain/sources/:source_id/learn", BrainController, :learn_source
     post "/brain/sources/:source_id/archive", BrainController, :archive_source
     get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge

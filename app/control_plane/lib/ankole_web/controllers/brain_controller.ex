@@ -47,6 +47,11 @@ defmodule AnkoleWeb.BrainController do
     responses: [ok: {"Health", "application/json", BrainAPI.BrainHealthResponse}]
   )
 
+  operation(:dream,
+    summary: "Enqueue a Dreaming round without changing its schedule",
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainDreamResponse}]
+  )
+
   operation(:list_objects,
     summary: "List Brain objects by prefix or search",
     parameters: [
@@ -210,6 +215,14 @@ defmodule AnkoleWeb.BrainController do
     responses: [ok: {"Source", "application/json", BrainAPI.BrainSourceCreateResponse}]
   )
 
+  operation(:update_source,
+    summary: "Set the audience for new OIDC Client conversations",
+    parameters: [source_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Source defaults", "application/json", BrainAPI.BrainSourceUpdateRequest, required: true},
+    responses: [ok: {"Source", "application/json", BrainAPI.BrainSourceCreateResponse}]
+  )
+
   operation(:learn_source,
     summary: "Enqueue one learning run for a source",
     parameters: [source_id: [in: :path, type: :string, required: true]],
@@ -238,6 +251,15 @@ defmodule AnkoleWeb.BrainController do
   def health(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       json_plain(conn, %{health: Health.snapshot()})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def dream(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, result} <- Ankole.Brain.Jobs.Dreaming.enqueue() do
+      json_plain(conn, %{result: result})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -622,6 +644,17 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  def update_source(conn, %{"source_id" => source_id} = params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, scope} <- Map.fetch(params, "default_audience_scope"),
+         {:ok, source} <- Sources.update_default_scope(source_id, scope) do
+      json_plain(conn, %{source: %{id: source.id, kind: source.kind, name: source.name}})
+    else
+      :error -> error(conn, {:missing, "default_audience_scope"})
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def learn_source(conn, %{"source_id" => source_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, result} <- SourceLearning.enqueue_learn(source_id) do
@@ -944,6 +977,9 @@ defmodule AnkoleWeb.BrainController do
         "this object type is reserved for Library projections",
         [%{path: "type"}]
       )
+
+  defp error(conn, :brain_disabled),
+    do: render_error(conn, 422, "brain_disabled", "Brain is disabled")
 
   defp error(conn, reason) do
     render_error(conn, 422, "brain_request_invalid", "brain request failed", [

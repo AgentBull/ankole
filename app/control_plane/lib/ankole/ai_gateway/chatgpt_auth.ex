@@ -241,7 +241,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
          {:error, {:chatgpt_refresh_transient, 429, headers, reason}} = error
        ) do
     log_refresh_failure(provider, entry, "transient", 429, reason)
-    :ok = CredentialPool.mark_exhausted(provider.id, entry, 429, headers)
+    :ok = CredentialPool.mark_exhausted(provider.id, entry, 429, headers, %{"code" => reason})
     error
   end
 

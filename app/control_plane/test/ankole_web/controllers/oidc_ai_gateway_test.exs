@@ -467,6 +467,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
         "type" => "response.create",
         "model" => alias_name,
         "input" => "first turn",
+        "metadata" => %{"oidc_client_id" => second_client.id},
         "store" => true
       })
 
@@ -483,6 +484,8 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
 
     [first] = completed_subject_responses(fixture.human.principal.uid)
     assert first.subject_uid == fixture.human.principal.uid
+    assert first.metadata["oidc_client_id"] == fixture.client.id
+    assert first.metadata["request_metadata"]["oidc_client_id"] == second_client.id
 
     {:ok, second_grant} = Ankole.OIDC.Grant.authorize(second_token.token, nil)
 
@@ -514,6 +517,16 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
 
     assert [^first, second] = completed_subject_responses(fixture.human.principal.uid)
     assert second.previous_message_id == first.id
+    assert second.metadata["oidc_client_id"] == second_client.id
+
+    first_material =
+      Ankole.AIGateway.OIDCClientConversations.read(fixture.client.id, first.conversation_id)
+
+    second_material =
+      Ankole.AIGateway.OIDCClientConversations.read(second_client.id, first.conversation_id)
+
+    assert [%{input: [%{"role" => "user", "text" => "first turn"}]}] = first_material.requests
+    assert [%{input: [%{"role" => "user", "text" => "second turn"}]}] = second_material.requests
 
     retrieved =
       conn

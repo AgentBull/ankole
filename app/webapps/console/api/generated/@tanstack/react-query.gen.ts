@@ -91,6 +91,7 @@ import {
   ankoleWebBrainControllerDecideContradiction,
   ankoleWebBrainControllerDecideMergeSuggestion,
   ankoleWebBrainControllerDecideSuggestion,
+  ankoleWebBrainControllerDream,
   ankoleWebBrainControllerForgetClaim,
   ankoleWebBrainControllerForgetObject,
   ankoleWebBrainControllerForkObject,
@@ -112,6 +113,7 @@ import {
   ankoleWebBrainControllerShowObject,
   ankoleWebBrainControllerSupersedeClaim,
   ankoleWebBrainControllerUpdateObject,
+  ankoleWebBrainControllerUpdateSource,
   ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
@@ -415,6 +417,8 @@ import type {
   AnkoleWebBrainControllerDecideMergeSuggestionResponse,
   AnkoleWebBrainControllerDecideSuggestionData,
   AnkoleWebBrainControllerDecideSuggestionResponse,
+  AnkoleWebBrainControllerDreamData,
+  AnkoleWebBrainControllerDreamResponse,
   AnkoleWebBrainControllerForgetClaimData,
   AnkoleWebBrainControllerForgetClaimResponse,
   AnkoleWebBrainControllerForgetObjectData,
@@ -457,6 +461,8 @@ import type {
   AnkoleWebBrainControllerSupersedeClaimResponse,
   AnkoleWebBrainControllerUpdateObjectData,
   AnkoleWebBrainControllerUpdateObjectResponse,
+  AnkoleWebBrainControllerUpdateSourceData,
+  AnkoleWebBrainControllerUpdateSourceResponse,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowError,
   AnkoleWebConsoleReadinessControllerShowResponse,
@@ -2334,6 +2340,33 @@ export const ankoleWebAuthZGroupControllerUpdateMutation = (
 }
 
 /**
+ * Set the audience for new OIDC Client conversations
+ */
+export const ankoleWebBrainControllerUpdateSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerUpdateSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerUpdateSourceResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerUpdateSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerUpdateSourceResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerUpdateSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerUpdateSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Clear one optional model profile for an agent
  */
 export const ankoleWebAgentControllerDeleteModelProfileMutation = (
@@ -3509,6 +3542,33 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutat
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Enqueue a Dreaming round without changing its schedule
+ */
+export const ankoleWebBrainControllerDreamMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerDreamData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerDreamResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerDreamData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerDreamResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerDreamData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerDream({
         ...options,
         ...fnOptions,
         throwOnError: true

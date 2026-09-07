@@ -70,7 +70,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
        ) do
     request = prepare_request(event)
 
-    with {:ok, _model_binding} <- authorize_grant(state, request) do
+    with {:ok, _authorization} <- authorize_grant(state, request) do
       complete_socket_prewarm(request, state)
     end
   end
@@ -84,12 +84,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       |> prepare_request()
       |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
 
-    with {:ok, model_binding} <- authorize_grant(state, request),
+    with {:ok, authorization} <- authorize_grant(state, request),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
       if Compaction.compaction_trigger?(request) do
         serve_compaction_trigger(state, request)
       else
-        open_response_create_stream(state, request, socket_context, model_binding)
+        open_response_create_stream(state, request, socket_context, authorization)
       end
     end
   end
@@ -111,13 +111,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # access denied, not as a missing resource.
   defp authorize_grant(%{oidc_grant: %Grant{access_token: access_token}}, request) do
     case Grant.authorize(access_token, request["model"]) do
-      {:ok, grant} -> {:ok, grant.model_binding}
-      {:error, :invalid_oidc_access} = error -> error
-      {:error, reason} -> {:error, {:oidc_access_denied, reason}}
+      {:ok, grant} ->
+        {:ok, [model_binding: grant.model_binding, oidc_client_id: grant.client.id]}
+
+      {:error, :invalid_oidc_access} = error ->
+        error
+
+      {:error, reason} ->
+        {:error, {:oidc_access_denied, reason}}
     end
   end
 
-  defp authorize_grant(_state, _request), do: {:ok, nil}
+  defp authorize_grant(_state, _request), do: {:ok, []}
 
   # AIGateway response stream
 
@@ -199,8 +204,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   def terminate(_reason, _state), do: :ok
 
-  defp open_active_stream(state, request, model_binding) do
-    case safe_open_websocket_stream(state, request, model_binding) do
+  defp open_active_stream(state, request, authorization) do
+    case safe_open_websocket_stream(state, request, authorization) do
       {:ok, stream, _meta} ->
         case AIGateway.read_response_stream(stream, 1) do
           :ok ->
@@ -225,11 +230,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  defp safe_open_websocket_stream(state, request, model_binding) do
-    AIGateway.open_websocket_stream(state.subject_uid, request,
-      model_binding: model_binding,
-      request_context: Map.get(state, :request_context, %{}),
-      subject_type: Map.get(state, :subject_type)
+  defp safe_open_websocket_stream(state, request, authorization) do
+    AIGateway.open_websocket_stream(
+      state.subject_uid,
+      request,
+      authorization ++
+        [
+          request_context: Map.get(state, :request_context, %{}),
+          subject_type: Map.get(state, :subject_type)
+        ]
     )
   rescue
     error ->
@@ -374,8 +383,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     |> push_text_chunks(state)
   end
 
-  defp open_response_create_stream(state, request, socket_context, model_binding) do
-    with {:ok, active_stream} <- open_active_stream(state, request, model_binding) do
+  defp open_response_create_stream(state, request, socket_context, authorization) do
+    with {:ok, active_stream} <- open_active_stream(state, request, authorization) do
       active_stream = Map.merge(active_stream, socket_context)
       {:ok, Map.put(state, :active_stream, active_stream)}
     end

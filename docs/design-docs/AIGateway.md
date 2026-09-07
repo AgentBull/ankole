@@ -239,7 +239,8 @@ does not change credentials already selected for requests in progress.
 
 Runtime health is process-local and has three states. It uses the provider row,
 credential ID, and health revision as its key. `ok` entries can be selected.
-`exhausted` entries stay out of selection until their recovery time. `dead`
+`exhausted` means temporarily unavailable, not necessarily out of quota.
+These entries stay out of selection until their recovery time. `dead`
 entries stay out until an operator replaces or reauthenticates them, or
 re-enables their disabled provider. Each of these operations writes a new
 health revision. An automatic OAuth token refresh keeps the current revision.
@@ -249,20 +250,29 @@ change the revision or health. Disabled entries also stay out. PostgreSQL
 stores the credential revision, but it does not store these rebuildable health
 facts.
 
-An upstream reset header sets the recovery time when it is available. The
-fallback is five minutes for HTTP 401 and one hour for HTTP 429. A process
-restart can cause one additional probe.
+`Retry-After` accepts delay seconds or an HTTP date. The Codex reset header
+also sets a recovery time. When both are valid, the later deadline wins.
+Without a valid header, HTTP 401 waits five minutes. HTTP 429 waits one second
+unless its code or type explicitly reports `insufficient_quota`,
+`usage_limit_reached`, or `billing_hard_limit_reached`; these quota failures
+wait one hour. Unknown 429 codes use the short wait. A later failure cannot
+shorten an active cooldown. A process restart can cause one additional probe.
 
 The selected credential entry stays in the private request context until
 success or failure. This entry supplies both the credential ID and its health
 revision. A failure that has no credential attribution does not change any
-entry. Credential retries stop after one pool lap.
+entry. Credential rotation stops after one pool lap.
 
 HTTP 401 is a credential authentication failure. AIGateway can refresh, mark,
-or rotate only the attributed credential. HTTP 429 is a credential quota
-failure. AIGateway marks the attributed credential exhausted until the
-upstream reset time, or until the fallback time when no reset time is
-available, and then selects another credential.
+or rotate only the attributed credential. HTTP 429 can report a temporary
+rate limit or a quota failure. AIGateway marks only the attributed credential
+unavailable for its recovery interval and selects another usable credential.
+If none is available, a temporary rate limit allows one more attempt with the
+same credential before the first Provider event. This attempt waits at least
+until that credential's recovery time and uses the existing backoff. It runs
+only when the delay is at most four seconds. A longer wait or a quota failure
+returns immediately with the recovery time. This does not limit the number
+of requests that independent callers can submit to the provider.
 
 Connection, read, and timeout failures and HTTP 502, 503, and 504 responses
 belong to the route or Provider endpoint. Before the first Provider event,
@@ -283,7 +293,10 @@ current Response without repeating the main Provider call.
 
 When no entry is usable, AIGateway returns `credential_pool_exhausted`. It
 includes the earliest `retry_at` only when a current exhausted entry has a
-known future recovery time. Interactive requests receive HTTP 429. A
+known future recovery time. The public error retains the bounded upstream
+message, code, and type, without exposing credential IDs or response bodies.
+Pool unavailability alone never becomes `usage_limit_reached`; temporary rate
+limits use `rate_limit_error`. Interactive requests receive HTTP 429. A
 Background Agent Job with that recovery time returns to `queued` and releases
 its Worker assignment until then, but its acquired execution attempt stays
 consumed. A stale or missing `retry_at`, an empty pool, or a pool with only
@@ -384,7 +397,7 @@ The provider prepares the Codex protocol as follows:
   `response.create`. An oversized WebSocket message maps to HTTP 413.
 
 The kernel returns only safe provider response headers to the control plane.
-It keeps the `x-codex-*` rate-limit family and `cf-mitigated`, which lets the
+It keeps `Retry-After`, the `x-codex-*` rate-limit family, and `cf-mitigated`, which lets the
 pool use real recovery times and lets AIGateway diagnose a Cloudflare
 challenge. It does not return cookies, authorization, or other provider
 headers.
@@ -697,6 +710,23 @@ interpreting it.
 
 AIGateway also keeps request and provider details in the metadata object. That
 object must not contain a second Response item list.
+
+An OIDC request with `store=true` also retains the trusted `oidc_client_id`
+from the current grant. Brain injection metadata records injected item positions
+and byte ranges in environment text within that single item list.
+`OIDCClientConversations` uses these positions to remove injected memory while
+it keeps caller-supplied environment facts. It exposes terminal request revisions
+and structured evidence grouped by Client and conversation. It preserves request
+IDs, parent IDs, submission
+identity, speakers, and generated output. System and developer instructions,
+reasoning, tool records, and checkpoints do not supply conversation evidence.
+For a failed request, only submitted dialogue supplies evidence. Retractions
+change the material revision and remove that request from the evidence.
+
+Brain pulls this read contract through its OIDC Client Source. AIGateway does
+not enqueue Brain jobs in the response commit. Internal Agent requests have no
+OIDC origin and remain outside this Source path. Existing unmarked records are
+not attributed to a Client by inference.
 
 ## How a Stateful Response Runs
 

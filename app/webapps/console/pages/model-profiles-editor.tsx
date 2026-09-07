@@ -184,7 +184,14 @@ function ProfileEditor({
   useSignals()
   const { t } = useTranslation()
   const signals = model.profiles[profile]
-  const draft = model.snapshot(profile)
+  const draft: ProfileDraft = {
+    description: signals.description.value,
+    providerID: signals.providerID.value,
+    model: signals.model.value,
+    contextLength: signals.contextLength.value,
+    providerOptions: signals.providerOptions.value,
+    error: signals.error.value
+  }
   const required = REQUIRED_PROFILES.has(profile)
   const configured = Boolean(draft.providerID && (!profileUsesConfigurableModel(profile) || draft.model))
   const persist = useMutation({

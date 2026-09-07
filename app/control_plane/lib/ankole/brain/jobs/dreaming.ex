@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Jobs.Dreaming do
   @moduledoc """
-  Oban worker for the daily Dreaming round.
+  Oban worker for scheduled and manually requested Dreaming rounds.
   """
 
   use Oban.Worker,
@@ -8,7 +8,18 @@ defmodule Ankole.Brain.Jobs.Dreaming do
     max_attempts: 1,
     unique: [period: :infinity, states: Oban.Job.states() -- [:completed, :cancelled, :discarded]]
 
+  alias Ankole.Brain.Config
   alias Ankole.Logging
+
+  def enqueue do
+    if Config.enabled?() do
+      with {:ok, job} <- Oban.insert(new(%{})) do
+        {:ok, %{status: if(job.conflict?, do: "already_pending", else: "enqueued")}}
+      end
+    else
+      {:error, :brain_disabled}
+    end
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do

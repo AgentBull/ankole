@@ -10,6 +10,7 @@ defmodule Ankole.Brain.Sources do
 
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Source
+  alias Ankole.Brain.Scope
   alias Ankole.Repo
 
   @doc "Lists Sources for the Console read model."
@@ -67,6 +68,21 @@ defmodule Ankole.Brain.Sources do
         {:ok, source}
       end
     end)
+  end
+
+  @doc "Sets the audience for OIDC Client conversations that have not entered Brain yet."
+  def update_default_scope(source_id, scope) do
+    with :ok <- if(is_nil(scope), do: :ok, else: Scope.validate(scope)) do
+      Repo.transact(fn repo ->
+        with {:ok, source} <- lock_active(repo, %Source{id: source_id}),
+             true <- source.kind == "oidc_client" do
+          source |> Source.changeset(%{default_audience_scope: scope}) |> repo.update()
+        else
+          false -> {:error, {:invalid, "source_kind"}}
+          {:error, _reason} = error -> error
+        end
+      end)
+    end
   end
 
   defp mark_archived(repo, source_id) do

@@ -6374,6 +6374,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
+    assert_receive {:gateway_request, retry_request}
+    assert retry_request.body == request.body
     refute_receive {:gateway_request, _request}
     assert is_binary(retry_at)
     assert [%{"provider_status" => 429, "status" => "exhausted"}] = Map.values(statuses)

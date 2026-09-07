@@ -102,6 +102,21 @@ existing Responses WebSocket. Stored data uses the Human Principal uid as
 `subject_uid`, so another Human cannot read it. Client deletion does not delete
 this data.
 
+For each stored WebSocket request, AIGateway records `oidc_client_id` from
+the freshly validated grant in its own message metadata. Caller metadata
+cannot set this origin. The Human still owns the conversation; a continuation
+through another Client records that Client on the new request.
+
+Brain registers one `oidc_client` Source per Client with stored terminal
+requests. Its maintenance sweep enqueues learning through the existing Source
+job. Each Client/conversation pair becomes one Source-owned `media` page.
+The Brain maintainer Agent's `light` profile performs extraction; Client model
+aliases continue to control the external inference request only. Source defaults
+are configured in the Brain Sources Console. An unset default keeps each
+conversation private to the submitting Human. Defaults apply when a conversation
+first enters Brain; existing conversations keep their audience. Client edits
+and deletion do not change that audience or remove stored knowledge.
+
 A browser WebSocket sends `ankole.responses.v1` and
 `base64url.bearer.phx.<base64url(jwt)>` as subprotocol values. The server selects
 only `ankole.responses.v1`. The browser Origin must match an Origin derived from

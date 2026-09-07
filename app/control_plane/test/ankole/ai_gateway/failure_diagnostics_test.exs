@@ -577,7 +577,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "x-codex-primary-reset-at" => reset_header
                },
                error: %{
-                 "type" => "usage_limit_reached",
+                 "type" => "rate_limit_error",
                  "code" => "credential_pool_exhausted",
                  "message" => message,
                  "resets_at" => resets_at,
@@ -610,6 +610,36 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              |> FailureDiagnostics.classify_stored()
              |> FailureDiagnostics.public_message() ==
                "AIGateway credential pool exhausted. retry_at=#{iso}"
+    end
+
+    test "pool exhaustion preserves the upstream cause without exposing the pool" do
+      for {code, expected_type} <- [
+            {"RequestBurstTooFast", "rate_limit_error"},
+            {"insufficient_quota", "usage_limit_reached"}
+          ] do
+        reason =
+          {:credential_pool_exhausted,
+           %{
+             "upstream_error" => %{
+               "code" => code,
+               "type" => "provider_type",
+               "message" => "upstream explanation"
+             },
+             "statuses" => %{"private-key-id" => %{}},
+             "provider_row_id" => "private-provider-id"
+           }}
+
+        projection = FailureDiagnostics.project(reason)
+        assert projection.error["type"] == expected_type
+        assert projection.error["message"] == "upstream explanation"
+
+        assert projection.error["details_json"] == %{
+                 "provider_error_code" => code,
+                 "provider_error_type" => "provider_type"
+               }
+
+        refute inspect(projection) =~ "private-"
+      end
     end
 
     test "an OpenAI error projects its own envelope" do

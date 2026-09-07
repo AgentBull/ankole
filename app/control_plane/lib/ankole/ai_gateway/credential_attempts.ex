@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
   alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.UniversalAIRequest
@@ -38,6 +39,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
           optional(:attempt_number) => non_neg_integer(),
           optional(:attempted_ids) => MapSet.t(),
           optional(:route_retry_used?) => boolean(),
+          optional(:rate_limit_retry_used?) => boolean(),
           optional(:refresh_used?) => boolean()
         }
 
@@ -55,6 +57,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       attempt_number: 0,
       attempted_ids: MapSet.new(),
       route_retry_used?: false,
+      rate_limit_retry_used?: false,
       refresh_used?: false
     })
   end
@@ -203,7 +206,8 @@ defmodule Ankole.AIGateway.CredentialAttempts do
            attempted_ids: MapSet.new(),
            route_retry_used?: false,
            refresh_used?: false
-       }}
+       }
+       |> Map.put(:rate_limit_retry_used?, false)}
     end
   end
 
@@ -350,13 +354,49 @@ defmodule Ankole.AIGateway.CredentialAttempts do
         recover_unauthorized(context, spec, reason, failure, opts)
 
       failure.status == 429 ->
-        rotate(context, reason, failure, opts, mark: :exhausted)
+        recover_rate_limit(context, spec, reason, failure, opts)
 
       failure.route_retryable? ->
         recover_route_failure(context, spec, reason, opts)
 
       true ->
         {:stop, reason, context}
+    end
+  end
+
+  defp recover_rate_limit(context, spec, reason, failure, opts) do
+    case rotate(context, reason, failure, opts, mark: :exhausted) do
+      {:stop, {:credential_pool_exhausted, details} = exhausted, next_context} ->
+        delay_ms =
+          max(
+            credential_wait_ms(details, context, failure),
+            retry_delay_ms(context, opts)
+          )
+
+        if not Map.get(context, :rate_limit_retry_used?, false) and
+             not FailureDiagnostics.quota_exhausted?(reason) and delay_ms <= @maximum_delay_ms do
+          {:retry,
+           next_context
+           |> Map.put(:rate_limit_retry_used?, true)
+           |> increment_attempt(), spec, delay_ms}
+        else
+          {:stop, exhausted, next_context}
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp credential_wait_ms(details, context, failure) do
+    retry_at = get_in(details, ["statuses", credential_id(context), "retry_at"])
+
+    case retry_at && DateTime.from_iso8601(retry_at) do
+      {:ok, datetime, _offset} ->
+        max(DateTime.diff(datetime, DateTime.utc_now(), :millisecond), 0)
+
+      _missing ->
+        CredentialPool.cooldown_ms(failure.status, failure.headers, failure.error)
     end
   end
 
@@ -436,8 +476,15 @@ defmodule Ankole.AIGateway.CredentialAttempts do
             {:error, reason} -> {:stop, reason, context}
           end
 
-        {:error, {:credential_pool_exhausted, _details} = exhausted} ->
-          final_reason = if failure.status == 429, do: exhausted, else: original_reason
+        {:error, {:credential_pool_exhausted, details}} ->
+          final_reason =
+            if failure.status == 429 do
+              {:credential_pool_exhausted,
+               Map.put(details, "upstream_error", Map.take(failure.error, ~w(code type message)))}
+            else
+              original_reason
+            end
+
           {:stop, final_reason, %{context | attempted_ids: attempted_ids}}
 
         {:error, reason} ->
@@ -543,7 +590,17 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   defp classify(reason) do
-    error = structured_error(reason)
+    classification = FailureDiagnostics.classify(reason)
+
+    provider_error =
+      %{
+        "code" => Map.get(classification, :provider_error_code),
+        "type" => Map.get(classification, :provider_error_type),
+        "message" => Map.get(classification, :provider_message)
+      }
+      |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+    error = Map.merge(structured_error(reason), provider_error)
     status = error_status(reason, error)
     headers = error_headers(reason, error)
     code = map_text(error, "code")

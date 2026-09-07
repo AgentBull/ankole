@@ -213,7 +213,7 @@ describes the declaration, the public items, and the injection.
 
 ## Learning
 
-Two background paths write memory without a `remember` call:
+Background learning writes memory without a `remember` call:
 
 - **Signals learning** extracts durable claims from finished signal-channel
   conversation slices. A channel batch enters extraction after
@@ -239,6 +239,41 @@ Two background paths write memory without a `remember` call:
   fails, the Worker uses its supervised `ankole-browser` runtime. `file`
   Sources accept UTF-8 text only.
 
+- **OIDC Client Source learning** registers `kind=oidc_client` with
+  `upstream_id=client_id` from stored AIGateway requests. A Client has one
+  Source; each Client/conversation pair has one Source-owned `media` page.
+  The authenticated Human remains the submission identity, not the assumed
+  speaker of every line in a submitted transcript. Model output is attributed
+  as generated text, not as evidence that an external event occurred.
+  `OIDCClientConversations` owns the Gateway evidence projection and excludes
+  Brain injection, instructions, reasoning, tool records, and checkpoints.
+  This path adds no Signals, Channels, Bindings, Actors, or Agent execution.
+
+  Brain splits dialogue text before it encodes extraction excerpts. Every
+  excerpt keeps the request ID, parent ID, submission identity, speaker, and
+  submitted-input or generated-output field. Short excerpts share one model
+  call; the window builder never splits an encoded evidence record.
+
+  Self-healing scans terminal request revisions and enqueues `LearnSource` for
+  changed material. The default self-healing interval is 15 minutes. The
+  Sources Console also supports Learn now. Revisions include every terminal
+  request and its state, so a lower-ID request that finishes later is not lost.
+  Extraction runs outside the transaction. Each material commit locks the
+  Source, checks the previous projection, and writes the page, chunks, Claims,
+  and learned revision in `Object.meta` together. A changed conversation is
+  extracted again; the commit expires that page's previous Source facts.
+  A failed material remains pending while other conversations can proceed.
+  An extraction response with a non-object item fails before any commit.
+  An append during extraction remains discoverable on the next sweep.
+
+  An unset `default_audience_scope` uses `principal:<submitting Human uid>`.
+  The configured default is captured in the page metadata on first learning,
+  and both the original text and extracted Claims use it. Changing the Source
+  default applies to conversations not yet learned; it does not change existing
+  audiences. Archiving fences later commits and retains stored knowledge.
+  Client deletion retains the Source and its evidence. Historical requests
+  without trusted Client origin are not backfilled.
+
 Extraction quality is a prompt contract: one independently changeable
 assertion per item, confidence on the grid, first-person conviction caps.
 The server enforces only the mechanical gates.
@@ -246,8 +281,11 @@ The server enforces only the mechanical gates.
 ## Dreaming and Self-Healing
 
 Dreaming is the instance maintenance round, scheduled by
-`brain.dreaming_task_cron`. Phases run in order and one failing phase is
-recorded without blocking the rest:
+`brain.dreaming_task_cron`. The Brain health Console can also enqueue a round
+immediately. Both entrypoints use the same unique Oban job; a queued or
+running round is not duplicated, and a manual request does not change the
+schedule. A disabled Brain rejects manual requests. Phases run in order and
+one failing phase is recorded without blocking the rest:
 
 1. `consolidate` — promotes dense fact buckets into curated page text.
 2. `patterns` — finds recurring themes across at least three distinct pages

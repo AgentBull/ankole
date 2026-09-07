@@ -1044,6 +1044,30 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
     )
   end
 
+  defmodule BrainSourceUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSourceUpdateRequest",
+        type: :object,
+        properties: %{
+          default_audience_scope: %Schema{
+            type: :string,
+            nullable: true,
+            description:
+              "Applies when a conversation first enters Brain. Null keeps it private to the submitting Human. Existing conversations keep their audience."
+          }
+        },
+        required: [:default_audience_scope],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule BrainSourceCreateResponse do
     @moduledoc false
 
@@ -1066,6 +1090,32 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           }
         },
         required: [:source],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainDreamResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainDreamResponse",
+        type: :object,
+        properties: %{
+          result: %Schema{
+            type: :object,
+            properties: %{
+              status: %Schema{type: :string, enum: ["enqueued", "already_pending"]}
+            },
+            required: [:status],
+            additionalProperties: false
+          }
+        },
+        required: [:result],
         additionalProperties: false
       },
       struct?: false

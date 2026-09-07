@@ -5,7 +5,7 @@ defmodule Ankole.Brain.SelfHealing do
   One sweep rechunks objects whose chunking signature is stale, re-embeds
   chunks and claims whose embedding state is missing, failed, or built with
   another model signature, rebuilds the recoverable search indexes, and
-  enqueues extraction for idle channels with pending slices.
+  enqueues extraction for idle channels and stored OIDC Client conversations.
   """
 
   import Ecto.Query, warn: false
@@ -17,6 +17,7 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Jobs.ProcessChannelSlice
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
+  alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
@@ -42,6 +43,7 @@ defmodule Ankole.Brain.SelfHealing do
       embedded = embed_pending()
       indexes = ensure_indexes()
       slices = sweep_idle_channels()
+      oidc_sources = OIDCClientLearning.sweep()
 
       {:ok,
        %{
@@ -49,7 +51,8 @@ defmodule Ankole.Brain.SelfHealing do
          rechunked: rechunked,
          embedded: embedded,
          indexes: indexes,
-         slices: slices
+         slices: slices,
+         oidc_sources: oidc_sources
        }}
     else
       {:ok, %{status: :brain_disabled}}

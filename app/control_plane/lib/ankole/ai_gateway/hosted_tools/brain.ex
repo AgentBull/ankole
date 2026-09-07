@@ -290,10 +290,12 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
   @doc """
   Adds the memory injection to the current input of one stateful request when
-  the request declares `inject: true`. Every failure leaves the input as it
-  was: injection is an enhancement, never a requirement of the Response.
+  the request declares `inject: true`. Returns the input and the injected
+  positions and text byte ranges, so source readers can exclude memory from
+  new evidence. Every failure leaves the input as it was: injection is an
+  enhancement, never a requirement of the Response.
   """
-  @spec inject_stateful(String.t(), map(), Conversation.t(), [map()]) :: [map()]
+  @spec inject_stateful(String.t(), map(), Conversation.t(), [map()]) :: {[map()], map()}
   def inject_stateful(subject_uid, request, %Conversation{} = conversation, current_input)
       when is_list(current_input) do
     with {:ok, %{inject?: true}} <- declaration(request),
@@ -322,11 +324,23 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         |> Tools.volunteer_pointers(recent_text)
         |> pointer_lines()
 
-      current_input
-      |> insert_pack_messages(pack_messages)
-      |> prepend_pointer_lines(pointer_lines)
+      pack_index = last_user_message_index(current_input) || length(current_input)
+
+      {injected, environment} =
+        current_input
+        |> insert_pack_messages(pack_messages)
+        |> prepend_pointer_lines(pointer_lines)
+
+      provenance = %{
+        "items" => Enum.with_index(pack_messages, pack_index) |> Enum.map(&elem(&1, 1))
+      }
+
+      provenance =
+        if environment, do: Map.put(provenance, "environment", environment), else: provenance
+
+      {injected, provenance}
     else
-      _no_injection -> current_input
+      _no_injection -> {current_input, %{}}
     end
   rescue
     error ->
@@ -336,7 +350,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         %{subject_uid: subject_uid, error: Exception.message(error)}
       )
 
-      current_input
+      {current_input, %{}}
   end
 
   # Declaration
@@ -737,32 +751,36 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   # Pointer lines join the newest user message's environment block, after the
   # facts the caller already wrote there; a message without that block gets
   # one at the front of its content.
-  defp prepend_pointer_lines(current_input, []), do: current_input
+  defp prepend_pointer_lines(current_input, []), do: {current_input, nil}
 
   defp prepend_pointer_lines(current_input, lines) do
     case last_user_message_index(current_input) do
       nil ->
-        current_input
+        {current_input, nil}
 
       index ->
-        List.update_at(current_input, index, &put_environment_lines(&1, lines))
+        {message, position} = put_environment_lines(Enum.at(current_input, index), lines)
+
+        {List.replace_at(current_input, index, message), Map.put(position, "item_index", index)}
     end
   end
 
   defp put_environment_lines(message, lines) do
     content = message_content_parts(message)
 
-    case Enum.find_index(content, &environment_part?/1) do
-      nil ->
-        Map.put(message, "content", [environment_part(lines) | content])
+    {content, index, offset, length} =
+      case Enum.find_index(content, &environment_part?/1) do
+        nil ->
+          part = environment_part(lines)
+          {[part | content], 0, 0, byte_size(part["text"])}
 
-      index ->
-        Map.put(
-          message,
-          "content",
-          List.update_at(content, index, &merge_environment_part(&1, lines))
-        )
-    end
+        index ->
+          {part, offset, length} = merge_environment_part(Enum.at(content, index), lines)
+          {List.replace_at(content, index, part), index, offset, length}
+      end
+
+    {Map.put(message, "content", content),
+     %{"part_index" => index, "offset" => offset, "length" => length}}
   end
 
   defp environment_part(lines) do
@@ -782,11 +800,11 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
     existing = if body == "", do: [], else: String.split(body, "\n")
 
-    Map.put(
-      part,
-      "text",
-      Enum.join([@environment_open] ++ existing ++ lines ++ [@environment_close], "\n")
-    )
+    prefix = Enum.join([@environment_open] ++ existing, "\n") <> "\n"
+    injected = Enum.join(lines, "\n") <> "\n"
+
+    {Map.put(part, "text", prefix <> injected <> @environment_close), byte_size(prefix),
+     byte_size(injected)}
   end
 
   defp environment_part?(%{"type" => "input_text", "text" => text}) when is_binary(text) do

@@ -453,7 +453,7 @@ defmodule Ankole.AIGateway do
           subject_uid,
           Attrs.normalize_external_attrs(request),
           prepared_request,
-          Keyword.put(opts, :stateful, stateful_context)
+          opts |> Keyword.delete(:oidc_client_id) |> Keyword.put(:stateful, stateful_context)
         )
 
       case result do

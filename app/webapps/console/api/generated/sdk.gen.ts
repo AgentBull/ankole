@@ -246,6 +246,8 @@ import type {
   AnkoleWebBrainControllerDecideMergeSuggestionResponses,
   AnkoleWebBrainControllerDecideSuggestionData,
   AnkoleWebBrainControllerDecideSuggestionResponses,
+  AnkoleWebBrainControllerDreamData,
+  AnkoleWebBrainControllerDreamResponses,
   AnkoleWebBrainControllerForgetClaimData,
   AnkoleWebBrainControllerForgetClaimResponses,
   AnkoleWebBrainControllerForgetObjectData,
@@ -288,6 +290,8 @@ import type {
   AnkoleWebBrainControllerSupersedeClaimResponses,
   AnkoleWebBrainControllerUpdateObjectData,
   AnkoleWebBrainControllerUpdateObjectResponses,
+  AnkoleWebBrainControllerUpdateSourceData,
+  AnkoleWebBrainControllerUpdateSourceResponses,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowErrors,
   AnkoleWebConsoleReadinessControllerShowResponses,
@@ -2001,6 +2005,28 @@ export const ankoleWebAuthZGroupControllerUpdate = <ThrowOnError extends boolean
   })
 
 /**
+ * Set the audience for new OIDC Client conversations
+ */
+export const ankoleWebBrainControllerUpdateSource = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerUpdateSourceData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerUpdateSourceResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).patch<AnkoleWebBrainControllerUpdateSourceResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/sources/{source_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Clear one optional model profile for an agent
  */
 export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
@@ -3061,6 +3087,24 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <T
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Enqueue a Dreaming round without changing its schedule
+ */
+export const ankoleWebBrainControllerDream = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerDreamData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).post<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/dream',
+    ...options
   })
 
 /**

@@ -157,6 +157,32 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert {:error, :not_library_managed} = Objects.fork_library_page(slug)
   end
 
+  test "a non-object extraction item preserves the current page, facts, and revision", %{
+    source: source,
+    path: path,
+    items_holder: holder
+  } do
+    File.write!(path, "Cobalt shipment arrived on time.")
+    set_items(holder, [valid_item("Cobalt shipment arrived on time")])
+    assert {:ok, %{object_slug: slug}} = SourceLearning.learn(source.id)
+    original = Repo.get_by!(Object, slug: slug)
+    original_facts = source_claims(source)
+    revision = Repo.get!(Source, source.id).upstream_revision
+
+    File.write!(path, "Cobalt shipment was cancelled.")
+
+    for invalid <- [42, "bad item", [], false, nil] do
+      set_items(holder, [valid_item("Cobalt shipment was cancelled"), invalid])
+
+      assert {:error, {:extraction_failed, :invalid_extraction_response}} =
+               SourceLearning.learn(source.id)
+
+      assert Repo.get_by!(Object, slug: slug) == original
+      assert source_claims(source) == original_facts
+      assert Repo.get!(Source, source.id).upstream_revision == revision
+    end
+  end
+
   test "extraction reaches content beyond the former 96,000-character boundary",
        %{source: source, path: path, items_holder: holder} do
     tail_marker = "TAIL_WINDOW_MUST_BE_EXTRACTED"

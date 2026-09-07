@@ -285,7 +285,7 @@ defmodule Ankole.Brain.Objects do
   def upsert_source_projection(source, attrs, opts \\ [])
 
   def upsert_source_projection(%Source{kind: kind} = source, attrs, opts)
-      when kind in ["file", "url"] and is_map(attrs) do
+      when kind in ["file", "url", "oidc_client"] and is_map(attrs) do
     repo = Keyword.get(opts, :repo, Repo)
     slug = attrs[:slug]
     body = attrs[:body] || ""
@@ -878,8 +878,8 @@ defmodule Ankole.Brain.Objects do
       subtype: normalize_optional(attrs[:subtype]),
       title: attrs[:title],
       body: body,
-      meta: %{},
-      content_hash: content_hash(attrs[:title], body, %{}),
+      meta: attrs[:meta] || %{},
+      content_hash: content_hash(attrs[:title], body, attrs[:meta] || %{}),
       managed_by_source_id: source.id,
       updated_at: DateTime.utc_now(:microsecond)
     }
@@ -922,13 +922,16 @@ defmodule Ankole.Brain.Objects do
   end
 
   defp update_source_projection(repo, object, attrs, type, body) do
+    meta = Map.get(attrs, :meta, object.meta)
+
     changes = %{
       type: type,
       subtype: normalize_optional(attrs[:subtype]),
       title: attrs[:title],
       body: body,
+      meta: meta,
       deleted_at: nil,
-      content_hash: content_hash(attrs[:title], body, object.meta),
+      content_hash: content_hash(attrs[:title], body, meta),
       updated_at: DateTime.utc_now(:microsecond)
     }
 

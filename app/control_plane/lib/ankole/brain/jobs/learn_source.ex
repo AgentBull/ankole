@@ -3,8 +3,8 @@ defmodule Ankole.Brain.Jobs.LearnSource do
   Oban worker for one Source learning run.
 
   Uniqueness keeps one run per Source in flight, which serializes revision
-  commits; the run's own final transaction re-checks the Source row for
-  archive and revision races. Learning runs here instead of the Console
+  commits; each material commit checks the Source archive state and its
+  previous revision under lock. Learning runs here instead of the Console
   HTTP request because whole-content extraction of a large source takes
   many model calls.
   """

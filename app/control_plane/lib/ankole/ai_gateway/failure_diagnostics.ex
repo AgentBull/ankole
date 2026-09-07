@@ -50,6 +50,18 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
   end
 
+  @doc """
+  Identifies an explicit quota rejection. HTTP 429 alone is not quota evidence.
+  """
+  @spec quota_exhausted?(term()) :: boolean()
+  def quota_exhausted?(reason) do
+    classification = classify(reason)
+    quota_codes = ~w(insufficient_quota usage_limit_reached billing_hard_limit_reached)
+
+    Map.get(classification, :provider_error_code) in quota_codes or
+      Map.get(classification, :provider_error_type) in quota_codes
+  end
+
   @spec classify_stored(map()) :: map()
   def classify_stored(%{} = reason) do
     classification = classify(reason)
@@ -189,7 +201,10 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
         nil,
         pool_details(classification)
       )
-      |> Map.put("type", "usage_limit_reached")
+      |> Map.put(
+        "type",
+        if(quota_exhausted?(reason), do: "usage_limit_reached", else: "rate_limit_error")
+      )
       |> put_resets_at(retry_at)
 
     %{status: 429, headers: pool_retry_headers(retry_at), error: error}
@@ -533,13 +548,15 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp put_stage(details, stage) when is_binary(stage), do: Map.put(details, "stage", stage)
   defp put_stage(details, _stage), do: details
 
-  defp pool_details(%{retry_at: retry_at}) when is_binary(retry_at),
-    do: %{"retry_at" => retry_at}
-
-  defp pool_details(_classification), do: %{}
+  defp pool_details(classification) do
+    classification
+    |> Map.take([:retry_at, :provider_error_code, :provider_error_type])
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+  end
 
   defp pool_retry_headers(%DateTime{} = retry_at) do
-    retry_after = max(DateTime.diff(retry_at, DateTime.utc_now(), :second), 0)
+    remaining_ms = max(DateTime.diff(retry_at, DateTime.utc_now(), :millisecond), 0)
+    retry_after = div(remaining_ms + 999, 1_000)
 
     %{
       "retry-after" => Integer.to_string(retry_after),
@@ -636,6 +653,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       retryable: true,
       retry_at: if(is_map(details), do: retry_at_string(value(details, "retry_at")))
     }
+    |> Map.merge(provider_error_fields(value(details, "upstream_error")))
   end
 
   defp reason_fields({tag, details}) when is_atom(tag) do

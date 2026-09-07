@@ -3048,7 +3048,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                "x-codex-primary-reset-at" => reset_at_header
              },
              "error" => %{
-               "type" => "usage_limit_reached",
+               "type" => "rate_limit_error",
                "code" => "credential_pool_exhausted",
                "message" => message,
                "resets_at" => resets_at,

@@ -1,11 +1,15 @@
-import { Badge, Skeleton } from '@ankole/uikit'
-import { useQuery } from '@tanstack/react-query'
+import { Badge, Button, Skeleton, toast } from '@ankole/uikit'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ankoleWebBrainControllerHealthOptions } from '../../api/generated/@tanstack/react-query.gen'
+import {
+  ankoleWebBrainControllerDreamMutation,
+  ankoleWebBrainControllerHealthOptions
+} from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainHealth, BrainModelStatus } from '../../api/generated/types.gen'
 import { ErrorBlock } from '../../../common/error-block'
+import { requestErrorMessage } from '../../../common/request-errors'
 import { PageHeader, PageStack } from '../../console-page'
 import { formatDuration, formatJSON } from '../../console-primitives'
 import { IDLE_REFRESH_MS } from '../../refresh-intervals'
@@ -18,10 +22,26 @@ export function BrainHealthPage() {
     refetchInterval: IDLE_REFRESH_MS
   })
   const snapshot = health.data?.health
+  const dream = useMutation({
+    ...ankoleWebBrainControllerDreamMutation(),
+    onSuccess: ({ result }) => toast.success(t(`console.brain.dream_${result.status}`)),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
 
   return (
     <PageStack>
-      <PageHeader title={t('console.brain.health_title')} description={t('console.brain.health_description')} />
+      <PageHeader
+        title={t('console.brain.health_title')}
+        description={t('console.brain.health_description')}
+        actions={
+          <Button
+            disabled={!snapshot?.enabled || dream.isPending}
+            aria-busy={dream.isPending}
+            onClick={() => dream.mutate({})}>
+            {t('console.brain.dream_now')}
+          </Button>
+        }
+      />
       <BrainSubNav />
       <ErrorBlock error={health.error} />
 

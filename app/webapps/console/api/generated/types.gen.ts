@@ -848,6 +848,16 @@ export type ScheduleCronScheduleResponse = {
 }
 
 /**
+ * BrainSourceUpdateRequest
+ */
+export type BrainSourceUpdateRequest = {
+  /**
+   * Applies when a conversation first enters Brain. Null keeps it private to the submitting Human. Existing conversations keep their audience.
+   */
+  default_audience_scope: string | null
+}
+
+/**
  * AgentResponse
  */
 export type AgentResponse = {
@@ -911,6 +921,15 @@ export type PrincipalGroupResponse = {
 export type AiGatewayCredentialPool = {
   entries: Array<AiGatewayCredentialPoolEntry>
   strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
+}
+
+/**
+ * BrainDreamResponse
+ */
+export type BrainDreamResponse = {
+  result: {
+    status: 'enqueued' | 'already_pending'
+  }
 }
 
 /**
@@ -4845,6 +4864,28 @@ export type AnkoleWebAuthZGroupControllerUpdateResponses = {
 export type AnkoleWebAuthZGroupControllerUpdateResponse =
   AnkoleWebAuthZGroupControllerUpdateResponses[keyof AnkoleWebAuthZGroupControllerUpdateResponses]
 
+export type AnkoleWebBrainControllerUpdateSourceData = {
+  /**
+   * Source defaults
+   */
+  body: BrainSourceUpdateRequest
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v1/brain/sources/{source_id}'
+}
+
+export type AnkoleWebBrainControllerUpdateSourceResponses = {
+  /**
+   * Source
+   */
+  200: BrainSourceCreateResponse
+}
+
+export type AnkoleWebBrainControllerUpdateSourceResponse =
+  AnkoleWebBrainControllerUpdateSourceResponses[keyof AnkoleWebBrainControllerUpdateSourceResponses]
+
 export type AnkoleWebAgentControllerDeleteModelProfileData = {
   body?: never
   path: {
@@ -6358,6 +6399,23 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideRespon
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses]
+
+export type AnkoleWebBrainControllerDreamData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/brain/dream'
+}
+
+export type AnkoleWebBrainControllerDreamResponses = {
+  /**
+   * Result
+   */
+  200: BrainDreamResponse
+}
+
+export type AnkoleWebBrainControllerDreamResponse =
+  AnkoleWebBrainControllerDreamResponses[keyof AnkoleWebBrainControllerDreamResponses]
 
 export type AnkoleWebBrainControllerDecideSuggestionData = {
   /**

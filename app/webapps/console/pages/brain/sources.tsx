@@ -27,7 +27,8 @@ import {
   ankoleWebBrainControllerCreateSourceMutation,
   ankoleWebBrainControllerLearnSourceMutation,
   ankoleWebBrainControllerListSourcesOptions,
-  ankoleWebBrainControllerListSourcesQueryKey
+  ankoleWebBrainControllerListSourcesQueryKey,
+  ankoleWebBrainControllerUpdateSourceMutation
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainSource } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
@@ -47,6 +48,8 @@ export function BrainSourcesPage() {
   const [name, setName] = useState('')
   const [scope, setScope] = useState('')
   const [archiveTarget, setArchiveTarget] = useState<BrainSource>()
+  const [scopeTarget, setScopeTarget] = useState<BrainSource>()
+  const [sourceScope, setSourceScope] = useState('')
 
   const sources = useQuery(ankoleWebBrainControllerListSourcesOptions())
   const rows = sources.data?.sources ?? []
@@ -93,6 +96,20 @@ export function BrainSourcesPage() {
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const updateScope = useMutation({
+    ...ankoleWebBrainControllerUpdateSourceMutation(),
+    onSuccess: () => {
+      toast.success(t('console.brain.source_scope_saved'))
+      setScopeTarget(undefined)
+      invalidate()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const scopeGuard = useDialogDiscardGuard({
+    dirty: sourceScope !== (scopeTarget?.default_audience_scope ?? ''),
+    onOpenChange: open => !open && setScopeTarget(undefined),
+    pending: updateScope.isPending
+  })
 
   return (
     <>
@@ -125,11 +142,16 @@ export function BrainSourcesPage() {
             <TableCell className="text-sm">{source.name}</TableCell>
             <TableCell>
               <Badge variant="secondary">
-                {source.kind === 'library' ? t('console.brain.source_kind_library') : source.kind}
+                {source.kind === 'library' || source.kind === 'oidc_client'
+                  ? t(`console.brain.source_kind_${source.kind}`)
+                  : source.kind}
               </Badge>
             </TableCell>
             <TableCell className="max-w-[280px] truncate font-mono text-xs">{source.upstream_id}</TableCell>
-            <TableCell className="font-mono text-xs">{source.default_audience_scope ?? '—'}</TableCell>
+            <TableCell className="font-mono text-xs">
+              {source.default_audience_scope ??
+                (source.kind === 'oidc_client' ? t('console.brain.source_scope_private') : '—')}
+            </TableCell>
             <TableCell className="text-xs text-muted-foreground">
               {source.last_sync_at ? formatConsoleDate(source.last_sync_at) : t('console.brain.never_synced')}
             </TableCell>
@@ -145,9 +167,19 @@ export function BrainSourcesPage() {
                 <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
               ) : (
                 <div className="flex justify-end gap-1">
-                  {/* Only file and url Sources have a learning run; auto-registered
-                      signal_channel Sources learn through slice processing. */}
-                  {(SOURCE_KINDS as readonly string[]).includes(source.kind) ? (
+                  {source.kind === 'oidc_client' ? (
+                    <Button
+                      size="xs"
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setSourceScope(source.default_audience_scope ?? '')
+                        setScopeTarget(source)
+                      }}>
+                      {t('console.brain.default_scope')}
+                    </Button>
+                  ) : null}
+                  {source.kind === 'oidc_client' || (SOURCE_KINDS as readonly string[]).includes(source.kind) ? (
                     <Button
                       disabled={learn.isPending}
                       size="xs"
@@ -253,6 +285,48 @@ export function BrainSourcesPage() {
         open={registerGuard.confirming}
         onDiscard={registerGuard.confirmDiscard}
         onKeep={registerGuard.keepEditing}
+      />
+
+      <Dialog open={Boolean(scopeTarget)} onOpenChange={scopeGuard.requestOpenChange}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!updateScope.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.default_scope')}</DialogTitle>
+            <DialogDescription>{t('console.brain.source_scope_description')}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="grid gap-4"
+            onSubmit={event => {
+              event.preventDefault()
+              if (scopeTarget)
+                updateScope.mutate({
+                  path: { source_id: scopeTarget.id },
+                  body: { default_audience_scope: sourceScope.trim() || null }
+                })
+            }}>
+            <LabeledField label={t('console.brain.scope')}>
+              <Input
+                className="font-mono"
+                spellCheck={false}
+                placeholder={t('console.brain.source_scope_private')}
+                value={sourceScope}
+                onChange={event => setSourceScope(event.target.value)}
+              />
+            </LabeledField>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />} disabled={updateScope.isPending}>
+                {t('common.cancel')}
+              </DialogClose>
+              <Button type="submit" disabled={updateScope.isPending}>
+                {t('common.save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <DiscardConfirmDialog
+        open={scopeGuard.confirming}
+        onDiscard={scopeGuard.confirmDiscard}
+        onKeep={scopeGuard.keepEditing}
       />
 
       <Dialog

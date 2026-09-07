@@ -11,10 +11,13 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   use GenServer
 
+  alias Ankole.AIGateway.FailureDiagnostics
+
   @strategies ~w(fill_first round_robin least_used random)
   @affinity_limit 10_000
   @unauthorized_cooldown_ms 5 * 60 * 1_000
-  @default_cooldown_ms 60 * 60 * 1_000
+  @quota_cooldown_ms 60 * 60 * 1_000
+  @rate_limit_cooldown_ms 1_000
 
   @type entry :: map()
   @type selection :: %{
@@ -73,6 +76,21 @@ defmodule Ankole.AIGateway.CredentialPool do
       {:mark_exhausted, provider_row_id, credential_key(credential), provider_status, headers,
        error}
     )
+  end
+
+  @doc """
+  Returns the upstream wait or the fallback for the attributed failure.
+  """
+  @spec cooldown_ms(integer() | nil, map() | list(), map()) :: non_neg_integer()
+  def cooldown_ms(provider_status, headers, error) do
+    cooldown_ms(provider_status, headers, error, System.system_time(:millisecond))
+  end
+
+  defp cooldown_ms(provider_status, headers, error, now_ms) do
+    case reset_at_ms(headers, now_ms) do
+      nil -> fallback_cooldown_ms(provider_status, error)
+      until_ms -> max(until_ms - now_ms, 0)
+    end
   end
 
   @doc """
@@ -180,17 +198,28 @@ defmodule Ankole.AIGateway.CredentialPool do
       ) do
     now_ms = System.system_time(:millisecond)
     provider_state = Map.get(state, provider_row_id, new_provider_state())
-    until_ms = reset_at_ms(headers) || now_ms + fallback_cooldown_ms(provider_status)
+    until_ms = now_ms + cooldown_ms(provider_status, headers, error, now_ms)
+
+    health =
+      case Map.get(provider_state.health, credential_key) do
+        %{status: :exhausted, retry_at_ms: previous_until} = previous
+        when previous_until > until_ms ->
+          previous
+
+        _previous ->
+          %{
+            status: :exhausted,
+            retry_at_ms: until_ms,
+            error: error_projection(error, provider_status),
+            upstream_error: upstream_error(error, provider_status)
+          }
+      end
 
     provider_state =
       provider_state
       |> put_in(
         [:health, credential_key],
-        %{
-          status: :exhausted,
-          retry_at_ms: until_ms,
-          error: error_projection(error, provider_status)
-        }
+        health
       )
       |> put_rate_limits(credential_key, headers)
       |> drop_affinity_for(credential_key)
@@ -412,15 +441,21 @@ defmodule Ankole.AIGateway.CredentialPool do
         {credential_id, entry_status(entry, provider_state, now_ms)}
       end)
 
-    retry_at =
+    recovering =
       entries
+      |> Enum.filter(&(is_nil(&1["disabled_at"]) and &1["reauth_required"] != true))
       |> Enum.flat_map(fn entry ->
         case Map.get(provider_state.health, credential_key(entry)) do
-          %{status: :exhausted, retry_at_ms: until_ms} when until_ms > now_ms -> [until_ms]
+          %{status: :exhausted, retry_at_ms: until_ms} = health when until_ms > now_ms -> [health]
           _state -> []
         end
       end)
-      |> Enum.min(fn -> nil end)
+
+    next_recovery = Enum.min_by(recovering, & &1.retry_at_ms, fn -> %{} end)
+
+    retry_at =
+      next_recovery
+      |> Map.get(:retry_at_ms)
       |> case do
         nil -> nil
         milliseconds -> DateTime.from_unix!(milliseconds, :millisecond) |> DateTime.to_iso8601()
@@ -429,7 +464,8 @@ defmodule Ankole.AIGateway.CredentialPool do
     %{
       "provider_row_id" => provider_row_id,
       "retry_at" => retry_at,
-      "statuses" => statuses
+      "statuses" => statuses,
+      "upstream_error" => Map.get(next_recovery, :upstream_error)
     }
   end
 
@@ -512,14 +548,53 @@ defmodule Ankole.AIGateway.CredentialPool do
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp reset_at_ms(headers) do
+  defp upstream_error(error, provider_status) do
+    classification =
+      FailureDiagnostics.classify({:upstream_response_failed, provider_status, error})
+
+    %{
+      "code" => Map.get(classification, :provider_error_code),
+      "type" => Map.get(classification, :provider_error_type),
+      "message" => Map.get(classification, :provider_message)
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp reset_at_ms(headers, now_ms) do
     headers
     |> normalize_headers()
-    |> Enum.find_value(fn {name, value} ->
-      if is_binary(name) and String.downcase(name) == "x-codex-primary-reset-at",
-        do: parse_reset_at(value)
+    |> Enum.flat_map(fn {name, value} ->
+      deadline =
+        case String.downcase(to_string(name)) do
+          "x-codex-primary-reset-at" -> parse_reset_at(value)
+          "retry-after" -> parse_retry_after(header_text(value), now_ms)
+          _name -> nil
+        end
+
+      case DateTime.from_unix(deadline || 0, :millisecond) do
+        {:ok, _datetime} when is_integer(deadline) -> [deadline]
+        _invalid -> []
+      end
     end)
+    |> Enum.max(fn -> nil end)
   end
+
+  defp parse_retry_after(value, now_ms) when is_binary(value) do
+    value = String.trim(value)
+
+    case Integer.parse(value) do
+      {seconds, ""} when seconds >= 0 ->
+        now_ms + seconds * 1_000
+
+      _value ->
+        case Req.Utils.parse_http_date(value) do
+          {:ok, datetime} -> DateTime.to_unix(datetime, :millisecond)
+          _invalid -> nil
+        end
+    end
+  end
+
+  defp parse_retry_after(_value, _now_ms), do: nil
 
   defp normalize_headers(headers) when is_map(headers), do: Map.to_list(headers)
 
@@ -625,8 +700,13 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp parse_reset_at(_value), do: nil
 
-  defp fallback_cooldown_ms(401), do: @unauthorized_cooldown_ms
-  defp fallback_cooldown_ms(_provider_status), do: @default_cooldown_ms
+  defp fallback_cooldown_ms(401, _error), do: @unauthorized_cooldown_ms
+
+  defp fallback_cooldown_ms(provider_status, error) do
+    if FailureDiagnostics.quota_exhausted?({:upstream_response_failed, provider_status, error}),
+      do: @quota_cooldown_ms,
+      else: @rate_limit_cooldown_ms
+  end
 
   defp credential_key(%{"id" => credential_id, "health_revision" => revision})
        when is_binary(revision) and revision != "" do

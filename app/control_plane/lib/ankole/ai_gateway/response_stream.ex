@@ -1414,13 +1414,14 @@ defmodule Ankole.AIGateway.ResponseStream do
       case reason do
         {:credential_pool_exhausted, _details} ->
           classification = FailureDiagnostics.classify(reason)
-          retry_at = Map.get(classification, :retry_at)
+          projection = FailureDiagnostics.project(reason)
 
           [
             code: "credential_pool_exhausted",
             retryable: true,
             message: FailureDiagnostics.public_message(classification),
-            details: if(is_binary(retry_at), do: %{"retry_at" => retry_at}, else: nil)
+            provider_status: 429,
+            details: projection.error["details_json"]
           ]
 
         _reason ->
