@@ -361,6 +361,29 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     end
   end
 
+  test "classifies an overloaded server_error without an HTTP status as retryable" do
+    for {code, type} <- [
+          {"server_error", "service_unavailable_error"},
+          {"server_error", "server_error"},
+          {"server_error", nil},
+          {"overloaded_error", "overloaded_error"},
+          {"internal_error", "service_unavailable_error"}
+        ] do
+      error =
+        %{"code" => code, "message" => "Our servers are currently overloaded."}
+        |> Map.merge(if type, do: %{"type" => type}, else: %{})
+
+      assert %{
+               failure_kind: :provider_response,
+               error_code: ^code,
+               retryable: true
+             } = FailureDiagnostics.classify({:provider_event_failed, %{"error" => error}})
+    end
+
+    assert %{failure_kind: :provider_response, retryable: true} =
+             FailureDiagnostics.classify(%{"code" => "server_error"})
+  end
+
   test "classifies a canonical invalid prompt as a terminal provider failure" do
     assert %{
              error_code: "invalid_prompt",

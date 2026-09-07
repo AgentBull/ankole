@@ -167,6 +167,26 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
+  @doc """
+  Public output items of the provider round that a terminal `event` ends.
+
+  A streamed terminal envelope often carries an empty `output`, so the items
+  already admitted through `response.output_item.done` are the round's output.
+  In a tool loop only the current round's items count, because the public
+  terminal accumulates every round.
+  """
+  @spec round_output_items(t(), map()) :: [map()]
+  def round_output_items(%__MODULE__{tool_loop: %StreamLoop{} = loop}, event),
+    do: StreamLoop.round_output_items(loop, terminal_response(event))
+
+  def round_output_items(%__MODULE__{} = state, event) do
+    terminal_items = event |> terminal_response() |> Map.get("output") |> map_items()
+    terminal_items_or_accumulated(chronological(state.public_items), terminal_items)
+  end
+
+  defp terminal_response(%{"response" => %{} = response}), do: response
+  defp terminal_response(_event), do: %{}
+
   @spec outcome(t()) :: outcome()
   def outcome(%__MODULE__{} = state) do
     %{

@@ -6,6 +6,10 @@ import { jsonToolResult } from '../../core/tool-result'
 import { fitToolResultTextWindow } from '../../core/tool-result-window'
 import { nonNegativeSafeIntegerFromWire } from '../../core/wire-integer'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
+import {
+  backgroundAgentJobPathHandoff,
+  type BackgroundAgentJobPathHandoff
+} from '../../core/background-agent-job-handoff'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
 import { modelVisibleTrajectory } from './model-trajectory'
@@ -136,12 +140,18 @@ type ShowBackgroundJobResultChunk = {
   title: string
   status: 'succeeded'
   result_ref: ResultRef
+  workspace_owner_job_id: number
+  project_path: string | null
+  artifacts: BackgroundAgentJobPathHandoff | null
+  artifact_roots: BackgroundAgentJobPathHandoff | null
   result: {
     offset: number
     output_text: string
     next_offset: number | null
   }
 }
+
+type ResultPaths = Pick<ShowBackgroundJobResultChunk, 'project_path' | 'artifacts' | 'artifact_roots'>
 
 type ShowBackgroundJobDetailsResult = ShowBackgroundJobExecutionDetails | ShowBackgroundJobResultChunk
 
@@ -158,6 +168,7 @@ export function createShowBackgroundJobDetailsTool(
     description: [
       'Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page.',
       'For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.',
+      'Each result chunk also carries the real Job Workspace (project_path, owned by workspace_owner_job_id) and absolute artifact paths; use those paths to read or copy the files instead of guessing a directory from the job id or a relative path in the text.',
       'Result offsets are stable and can be resumed in a later turn.'
     ].join(' '),
     schema: ShowBackgroundJobDetailsParamsSchema,
@@ -191,7 +202,15 @@ export function createShowBackgroundJobDetailsTool(
           'background_agent_job.result_output_total_bytes'
         )
         return jsonToolResult(
-          resultChunk(response.title, response.resultOutputText, params.result_offset, totalBytes, resultRef)
+          resultChunk(
+            response.title,
+            response.resultOutputText,
+            params.result_offset,
+            totalBytes,
+            resultRef,
+            modelIntegerIDFromWire(response.workspaceOwnerJobId, 'background_agent_job.workspace_owner_job_id'),
+            resultPaths(jsonObjectFromBytes(response.resultPathsJson, 'background_agent_job.result_paths_json'))
+          )
         )
       }
 
@@ -251,7 +270,9 @@ function resultChunk(
   outputWindow: string,
   offset: number,
   totalBytes: number,
-  resultRef: ResultRef
+  resultRef: ResultRef,
+  workspaceOwnerJobID: number,
+  paths: ResultPaths
 ): ShowBackgroundJobResultChunk {
   if (offset > totalBytes) throw invalidResultOffset(offset)
   const windowBytes = utf8ByteLength(outputWindow)
@@ -259,31 +280,55 @@ function resultChunk(
     throw new Error('background agent job returned an invalid result output window')
   }
 
-  const result = fitToolResultTextWindow(outputWindow, (outputText, truncatedForLimit) =>
-    resultChunkDetails(
-      title,
-      resultRef,
+  const boundedPaths = fitResultPaths(paths)
+  const result = fitToolResultTextWindow(outputWindow, (outputText, truncatedForLimit) => ({
+    title,
+    status: 'succeeded' as const,
+    result_ref: resultRef,
+    workspace_owner_job_id: workspaceOwnerJobID,
+    ...boundedPaths,
+    result: {
       offset,
-      outputText,
-      truncatedForLimit || offset + windowBytes < totalBytes ? offset + utf8ByteLength(outputText) : null
-    )
-  )
+      output_text: outputText,
+      next_offset: truncatedForLimit || offset + windowBytes < totalBytes ? offset + utf8ByteLength(outputText) : null
+    }
+  }))
   if (!result) throw new Error('background agent job result metadata exceeds the tool output limit')
   return result
 }
 
-function resultChunkDetails(
-  title: string,
-  resultRef: ResultRef,
-  offset: number,
-  outputText: string,
-  nextOffset: number | null
-): ShowBackgroundJobResultChunk {
+/**
+ * Path lists can each hold 8 KiB, but the whole tool result is capped at
+ * 8,000 bytes, so the metadata takes a fixed share and the output window keeps
+ * the rest; otherwise a result with many long artifact paths could never be
+ * read. The Workspace path always survives; discovery roots go first, then
+ * artifacts from the end, and a shortened list keeps its total and the
+ * truncated marker.
+ */
+const RESULT_PATHS_MAX_BYTES = 2_000
+
+function fitResultPaths(paths: ResultPaths): ResultPaths {
+  let fitted = paths
+  while (utf8ByteLength(JSON.stringify(fitted)) > RESULT_PATHS_MAX_BYTES) {
+    const roots = fitted.artifact_roots
+    const artifacts = fitted.artifacts
+    if (roots && roots.paths.length > 0) {
+      fitted = { ...fitted, artifact_roots: { ...roots, paths: roots.paths.slice(0, -1), truncated: true } }
+    } else if (artifacts && artifacts.paths.length > 0) {
+      fitted = { ...fitted, artifacts: { ...artifacts, paths: artifacts.paths.slice(0, -1), truncated: true } }
+    } else {
+      return fitted
+    }
+  }
+  return fitted
+}
+
+function resultPaths(fields: Record<string, unknown> | null | undefined): ResultPaths {
+  const projectPath = fields?.project_path
   return {
-    title,
-    status: 'succeeded',
-    result_ref: resultRef,
-    result: { offset, output_text: outputText, next_offset: nextOffset }
+    project_path: typeof projectPath === 'string' && projectPath !== '' ? projectPath : null,
+    artifacts: backgroundAgentJobPathHandoff(fields?.artifacts) ?? null,
+    artifact_roots: backgroundAgentJobPathHandoff(fields?.artifact_roots) ?? null
   }
 }
 

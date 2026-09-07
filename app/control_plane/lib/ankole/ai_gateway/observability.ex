@@ -295,10 +295,14 @@ defmodule Ankole.AIGateway.Observability do
     %{observation | round_first_output?: true}
   end
 
+  # A provider terminal echoes the request (`instructions`, `input`, `tools`);
+  # the generation output keeps only what this round produced.
+  @generation_output_keys ~w(id model status output usage error incomplete_details)
+
   defp do_finish_round(%__MODULE__{round_span: round_span} = observation, response) do
     if recording?(round_span) do
       body = response_body(response)
-      {output, truncated?} = encode_content(body)
+      {output, truncated?} = body |> Map.take(@generation_output_keys) |> encode_content()
 
       attributes =
         observation.provider.output_attributes(output, :generation)

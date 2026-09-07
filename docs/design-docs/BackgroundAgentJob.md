@@ -70,8 +70,15 @@ content flag.
 
 With `result_offset`, the same tool accepts only a succeeded Job with a persisted
 `output_text`. Use `0` for the first read. It returns `title`, `status`, the terminal
-`result_ref`, and one exact UTF-8-safe `result`. This field contains `offset`,
-`output_text`, and `next_offset`. The serialized tool result is at most 8,000 UTF-8 bytes. This byte
+`result_ref`, `workspace_owner_job_id`, the result's `project_path`, `artifacts`,
+and `artifact_roots`, and one exact UTF-8-safe `result`. This field contains `offset`,
+`output_text`, and `next_offset`. The path fields repeat on every chunk so a reader
+in a later Turn or another session locates the Job's real files, including the
+Workspace that a continued Job inherits, without deriving a directory from the
+Job id. The path fields take at most 2,000 bytes of each chunk: the Workspace
+path always stays, discovery roots are dropped first and then artifacts from the
+end, and a shortened list keeps its `total_count` and sets `truncated`, so the
+output window always has room to advance. The serialized tool result is at most 8,000 UTF-8 bytes. This byte
 limit keeps the result below the 10,000-token model-visible tool-output limit,
 including JSON escaping. Concatenating the segments in order reconstructs the
 persisted final response exactly. A later Turn can resume from the same offset

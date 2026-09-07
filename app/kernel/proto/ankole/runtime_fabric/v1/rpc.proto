@@ -335,6 +335,10 @@ message BackgroundAgentJobResponse {
   string model_profile = 30;
   string result_output_text = 31;
   string result_output_total_bytes = 32;
+  // Result window only: {project_path, artifacts, artifact_roots} from the
+  // persisted result, so a reader locates the Job's real files without
+  // guessing a Workspace from the Job id.
+  bytes result_paths_json = 33;
 }
 
 message BackgroundAgentJobSummary {

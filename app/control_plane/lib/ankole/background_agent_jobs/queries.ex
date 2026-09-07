@@ -18,7 +18,16 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     "live" => ~w(queued running waiting_on_user),
     "stop" => ~w(succeeded failed stopped)
   }
-  @result_read_columns [:id, :agent_uid, :owner_session_id, :status, :title, :reply_route]
+  @result_read_columns [
+    :id,
+    :agent_uid,
+    :owner_session_id,
+    :status,
+    :title,
+    :reply_route,
+    :workspace_owner_job_id
+  ]
+  @result_path_keys ~w(project_path artifacts artifact_roots)
   @result_window_bytes 16_384
 
   @type list_item :: %{
@@ -192,8 +201,17 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> repo.one()
   end
 
+  @doc """
+  Reads one bounded window of the persisted result text together with the
+  result's path fields, without loading the full result document.
+  """
   @spec get_result_window_for_agent(pos_integer(), String.t(), non_neg_integer()) ::
-          %{job: Job.t(), output_window: binary() | nil, total_bytes: non_neg_integer() | nil}
+          %{
+            job: Job.t(),
+            output_window: binary() | nil,
+            total_bytes: non_neg_integer() | nil,
+            result_paths: map()
+          }
           | nil
   def get_result_window_for_agent(job_id, agent_uid, offset)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_integer(offset) and
@@ -209,12 +227,18 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
             ^(offset + 1),
             ^@result_window_bytes
           ),
-          fragment("octet_length(?->>'output_text')", job.result)
+          fragment("octet_length(?->>'output_text')", job.result),
+          fragment("coalesce(? - 'output_text', '{}'::jsonb)", job.result)
         }
 
     case Repo.one(query) do
-      {job, output_window, total_bytes} ->
-        %{job: struct(Job, job), output_window: output_window, total_bytes: total_bytes}
+      {job, output_window, total_bytes, result_fields} ->
+        %{
+          job: struct(Job, job),
+          output_window: output_window,
+          total_bytes: total_bytes,
+          result_paths: Map.take(result_fields, @result_path_keys)
+        }
 
       nil ->
         nil

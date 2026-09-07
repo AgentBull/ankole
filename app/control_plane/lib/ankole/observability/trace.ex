@@ -93,6 +93,7 @@ defmodule Ankole.Observability.Trace do
     end
   end
 
+  def sanitize(value) when is_boolean(value) or is_nil(value), do: value
   def sanitize(value) when is_atom(value), do: Atom.to_string(value)
   def sanitize(value), do: value
 

@@ -188,6 +188,48 @@ describe('@ankole/agent-computer show background job details tool', () => {
     })
   })
 
+  it('keeps paged reads possible when the result lists many long artifact paths', async () => {
+    const outputText = `BEGIN\n${'季😀"\\\n\t'.repeat(2_000)}\nEND`
+    const longPaths = Array.from(
+      { length: 32 },
+      (_, index) => `/agents/agentbull/jobs/1000/${'segment'.repeat(30)}/${index}.md`
+    )
+    const rpc = (async (_method: unknown, payload: unknown) => {
+      const request = payload as { resultOffset?: string }
+      const jobResponse = resultWindowResponse(outputText, Number(request.resultOffset))
+      jobResponse.resultPathsJson = jsonBytes({
+        project_path: '/agents/agentbull/jobs/1000',
+        artifacts: { paths: longPaths, total_count: 32, truncated: false },
+        artifact_roots: { paths: longPaths.slice(0, 16), total_count: 16, truncated: false }
+      })
+      return jobResponse
+    }) as RPCRequester
+    const segments: string[] = []
+    let offset: number | null = 0
+
+    while (offset !== null) {
+      const tool = createShowBackgroundJobDetailsTool({ turnStart: turnStartForTest(), rpc })
+      const result: Awaited<ReturnType<typeof tool.execute>> = await tool.execute(
+        `call-show-long-paths-${offset}`,
+        { job_id: jobID, result_offset: offset },
+        abortSignal()
+      )
+      if (!('result' in result.details)) throw new Error('expected result chunk')
+      expect(modelVisibleBytes(result)).toBeLessThanOrEqual(8_000)
+      expect(result.details.project_path).toBe('/agents/agentbull/jobs/1000')
+      expect(result.details.artifacts?.total_count).toBe(32)
+      expect(result.details.artifacts?.truncated).toBe(true)
+      expect(result.details.artifacts?.paths.length).toBeGreaterThan(0)
+      expect(result.details.artifacts?.paths.length).toBeLessThan(32)
+      expect(result.details.artifact_roots).toEqual({ paths: [], total_count: 16, truncated: true })
+      segments.push(result.details.result.output_text)
+      offset = result.details.result.next_offset
+    }
+
+    expect(segments.join('')).toBe(outputText)
+    expect(segments.length).toBeGreaterThan(2)
+  })
+
   it('reconstructs an escape-heavy multibyte result through bounded offset reads across turns', async () => {
     const outputText = `BEGIN\n${'季😀"\\\n\t'.repeat(2_000)}\nEND`
     const requests: Array<Record<string, unknown>> = []
@@ -209,6 +251,8 @@ describe('@ankole/agent-computer show background job details tool', () => {
       )
       if (!('result' in result.details)) throw new Error('expected result chunk')
       expect(result.details.result_ref).toEqual({ type: 'background_agent_job', job_id: jobID })
+      expect(result.details.workspace_owner_job_id).toBe(1000)
+      expect(result.details.project_path).toBe('/agents/agentbull/jobs/1000')
       expect(modelVisibleBytes(result)).toBeLessThanOrEqual(8_000)
       expect(result.details.result.offset).toBe(offset)
       segments.push(result.details.result.output_text)
@@ -234,7 +278,41 @@ describe('@ankole/agent-computer show background job details tool', () => {
       title: 'Research',
       status: 'succeeded',
       result_ref: { type: 'background_agent_job', job_id: jobID },
+      workspace_owner_job_id: 1000,
+      project_path: null,
+      artifacts: null,
+      artifact_roots: null,
       result: { offset: 0, output_text: '', next_offset: null }
+    })
+  })
+
+  it('returns the real Workspace and artifact paths with every result chunk', async () => {
+    const continued = response('complete')
+    continued.workspaceOwnerJobId = '1500'
+    continued.resultPathsJson = jsonBytes({
+      project_path: '/agents/agentbull/jobs/1500',
+      artifacts: { paths: ['/agents/agentbull/jobs/1500/report/report.md'], total_count: 1, truncated: false },
+      artifact_roots: ['/agents/agentbull/jobs/1500']
+    })
+
+    const result = await toolFor(continued).execute(
+      'call-show-result-paths',
+      { job_id: jobID, result_offset: 0 },
+      abortSignal()
+    )
+    if (!('result' in result.details)) throw new Error('expected result chunk')
+
+    expect(result.details.workspace_owner_job_id).toBe(1500)
+    expect(result.details.project_path).toBe('/agents/agentbull/jobs/1500')
+    expect(result.details.artifacts).toEqual({
+      paths: ['/agents/agentbull/jobs/1500/report/report.md'],
+      total_count: 1,
+      truncated: false
+    })
+    expect(result.details.artifact_roots).toEqual({
+      paths: ['/agents/agentbull/jobs/1500'],
+      total_count: 1,
+      truncated: false
     })
   })
 
@@ -424,6 +502,7 @@ function resultWindowResponse(outputText: string, offset: number) {
   const jobResponse = response()
   jobResponse.resultOutputText = window
   jobResponse.resultOutputTotalBytes = String(encoded.byteLength)
+  jobResponse.resultPathsJson = jsonBytes({ project_path: '/agents/agentbull/jobs/1000' })
   return jobResponse
 }
 
