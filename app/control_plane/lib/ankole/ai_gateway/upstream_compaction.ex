@@ -44,7 +44,13 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
         {:fallback, :upstream_compaction_unsupported_connection}
 
       true ->
-        compact_responses(runtime, input, request, Keyword.get(opts, :subject_uid))
+        compact_responses(
+          runtime,
+          input,
+          request,
+          Keyword.get(opts, :subject_uid),
+          Keyword.take(opts, [:subject_type, :request_context])
+        )
     end
   end
 
@@ -74,7 +80,7 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
 
   def binding_matches?(_stored_binding, _runtime), do: false
 
-  defp compact_responses(runtime, input, request, subject_uid) do
+  defp compact_responses(runtime, input, request, subject_uid, identity) do
     with {:ok, binding} <- runtime_binding(runtime) do
       cache_key = cache_key(binding)
 
@@ -85,7 +91,7 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
         _miss_or_stale ->
           request = compact_request(runtime, input, request)
 
-          case execute(runtime, request, subject_uid) do
+          case execute(runtime, request, subject_uid, identity) do
             {:ok, %{output: output, usage: usage}} ->
               {:ok, %{output: output, usage: usage, binding: binding}}
 
@@ -111,14 +117,22 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   # owner, because some upstreams (the ChatGPT backend) accept nothing else;
   # the stream is collected to its terminal Response and checked before any of
   # it can reach a caller.
-  defp execute(runtime, request, subject_uid) do
+  defp execute(runtime, request, subject_uid, identity) do
     with {:ok, %{request: request, spec: prepared_request}} <-
-           ResponsesPreparation.prepare_with_runtime(subject_uid, runtime, request, stream?: true),
+           ResponsesPreparation.prepare_with_runtime(
+             subject_uid,
+             runtime,
+             request,
+             Keyword.put(identity, :stream?, true)
+           ),
          {:ok, %{body: body}} <-
            Observability.record_compact(subject_uid, runtime, request, fn ->
              with {:ok, outcome, _meta} <-
-                    ResponseStream.collect(subject_uid, request, prepared_request,
-                      caller: "compaction.upstream"
+                    ResponseStream.collect(
+                      subject_uid,
+                      request,
+                      prepared_request,
+                      Keyword.put(identity, :caller, "compaction.upstream")
                     ),
                   {:ok, body} <- terminal_body(outcome) do
                {:ok, %{body: body}}

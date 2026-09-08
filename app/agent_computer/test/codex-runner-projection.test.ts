@@ -315,6 +315,23 @@ describe('@ankole/agent-computer Codex notification projection', () => {
       })
     ).toEqual({ type: 'ignored' })
   })
+
+  it('projects an Agent token quota rejection apart from the credential-pool terminal', () => {
+    expect(
+      projectCodexNotification({
+        method: 'error',
+        params: {
+          threadId: 'thread-1',
+          error: {
+            codexErrorInfo: 'usageLimitExceeded',
+            message:
+              "You've hit your usage limit. Ankole Agent token quota reached (agent_token_quota_exceeded), or try again at Sep 16th, 2026 8:00 AM.",
+            additionalDetails: null
+          }
+        }
+      })
+    ).toEqual({ type: 'agent_token_quota_exceeded', threadID: 'thread-1' })
+  })
 })
 
 function namespacedTool(namespace: string, name: string): WorkerAgentTool {

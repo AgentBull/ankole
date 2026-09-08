@@ -664,6 +664,11 @@ to `queued` and releases its Worker assignment until that time. The acquired
 execution attempt stays consumed. A stale or missing recovery time uses the
 fixed Job retry ladder instead of immediate dispatch.
 
+An Agent [token quota](AgentTokenQuota.md) rejection is terminal for the Job.
+Creation and admission do not check the quota; the first rejected request ends
+the Job turn with `agent_token_quota_exceeded`, and the Job fails with that
+code. It does not return to `queued` and does not wait for the next period.
+
 An internal RuntimeFabric handler failure is retryable only for a turn-scoped
 read. Its durable error keeps the control-plane `failure_id`. Domain rejections,
 turn writes, and turn completion stay terminal because their effect or commit

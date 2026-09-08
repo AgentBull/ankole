@@ -12,7 +12,15 @@ import { isRecord } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 /** Backend-independent failure class derived from a raw LLM error. */
-export type LLMErrorKind = 'auth' | 'content_filter' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'
+export type LLMErrorKind =
+  | 'auth'
+  | 'content_filter'
+  | 'overflow'
+  | 'quota'
+  | 'rate_limit'
+  | 'server'
+  | 'timeout'
+  | 'unknown'
 
 export interface LLMErrorClassification {
   kind: LLMErrorKind
@@ -49,6 +57,13 @@ function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
   // Not retryable: the same credentials will keep failing.
   if (status === 401 || status === 403 || includesAny(code, ['401', '403', 'auth', 'unauthorized', 'forbidden'])) {
     return classified('auth', false, false)
+  }
+
+  // The Agent reached its token quota. AIGateway rejects the request with HTTP 429 before it resolves
+  // a provider, so the generic 429 rule below would start a retry loop that cannot succeed: the quota
+  // clears only when the period ends or an operator resets it, and a smaller prompt does not help.
+  if (code === 'agent_token_quota_exceeded') {
+    return classified('quota', false, false)
   }
 
   // Throttling: OpenAI 429 / `rate_limit_exceeded`, Bedrock `ThrottlingException`, Vertex

@@ -399,7 +399,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # name that history. A caller that continues from the reply sends its whole
   # input instead.
   defp serve_compaction_trigger(state, request) do
-    case Compaction.compact_from_trigger(state.subject_uid, request) do
+    case Compaction.compact_from_trigger(state.subject_uid, request,
+           subject_type: Map.get(state, :subject_type),
+           request_context: Map.get(state, :request_context, %{})
+         ) do
       {:ok, response} ->
         response
         |> Compaction.trigger_events()

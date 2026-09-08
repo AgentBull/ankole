@@ -121,7 +121,8 @@ defmodule Ankole.AIGateway.Compaction do
       :runtime,
       :native_state,
       :visible_previous_response_id,
-      :upstream_compaction?
+      :upstream_compaction?,
+      :identity
     ]
     defstruct @enforce_keys
   end
@@ -333,8 +334,10 @@ defmodule Ankole.AIGateway.Compaction do
   a stateful response carries the checkpoint id so the caller's next turn
   continues from it.
   """
-  @spec compact_from_trigger(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def compact_from_trigger(subject_uid, request) when is_map(request) do
+  @spec compact_from_trigger(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def compact_from_trigger(subject_uid, request, identity \\ [])
+
+  def compact_from_trigger(subject_uid, request, identity) when is_map(request) do
     request = Attrs.normalize_external_attrs(request)
 
     # What the caller sent decides which history is compacted. A caller that
@@ -343,16 +346,21 @@ defmodule Ankole.AIGateway.Compaction do
     # conversation instead of what it was given.
     if trigger_only_input?(request) do
       case trigger_conversation_id(subject_uid, request) do
-        {:ok, nil} -> stateless_trigger_response(subject_uid, drop_compaction_trigger(request))
-        {:ok, conversation_id} -> stateful_trigger_response(subject_uid, conversation_id, request)
-        {:error, _reason} = error -> error
+        {:ok, nil} ->
+          stateless_trigger_response(subject_uid, drop_compaction_trigger(request), identity)
+
+        {:ok, conversation_id} ->
+          stateful_trigger_response(subject_uid, conversation_id, request, identity)
+
+        {:error, _reason} = error ->
+          error
       end
     else
-      stateless_trigger_response(subject_uid, drop_compaction_trigger(request))
+      stateless_trigger_response(subject_uid, drop_compaction_trigger(request), identity)
     end
   end
 
-  def compact_from_trigger(_subject_uid, _request), do: {:error, :invalid_request_body}
+  def compact_from_trigger(_subject_uid, _request, _identity), do: {:error, :invalid_request_body}
 
   @doc """
   Renders one compaction reply as the public event sequence.
@@ -427,8 +435,8 @@ defmodule Ankole.AIGateway.Compaction do
   defp compaction_output_item?(%{"type" => "compaction"}), do: true
   defp compaction_output_item?(_item), do: false
 
-  defp stateless_trigger_response(subject_uid, request) do
-    with {:ok, body} <- compact_response(subject_uid, request) do
+  defp stateless_trigger_response(subject_uid, request, identity) do
+    with {:ok, body} <- compact_response(subject_uid, request, identity) do
       # A stored compaction answers with its checkpoint id, so the caller's next
       # turn continues from it without a second lookup.
       id = get_in(body, ["ankole", "response_id"]) || Map.get(body, "id")
@@ -436,9 +444,9 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp stateful_trigger_response(subject_uid, conversation_id, request) do
+  defp stateful_trigger_response(subject_uid, conversation_id, request, identity) do
     with {:ok, %{compaction: checkpoint}} <-
-           compact_conversation(subject_uid, conversation_id, request),
+           compact_conversation(subject_uid, conversation_id, request, identity),
          {:ok, content} <- CompactionArtifacts.content_for_checkpoint(subject_uid, checkpoint) do
       {:ok, trigger_response(CompactionArtifacts.response_id(checkpoint.id), content)}
     end
@@ -472,18 +480,19 @@ defmodule Ankole.AIGateway.Compaction do
   summarizer logic as automatic compaction, but it does not depend on the
   recorded history usage crossing the automatic threshold.
   """
-  @spec compact_conversation(String.t(), binary(), map()) ::
+  @spec compact_conversation(String.t(), binary(), map(), keyword()) ::
           {:ok,
            %{compaction: Message.t(), previous_response_id: binary(), history: [Message.t()]}}
           | {:error, term()}
-  def compact_conversation(subject_uid, conversation_id, request \\ %{}) when is_map(request) do
+  def compact_conversation(subject_uid, conversation_id, request \\ %{}, identity \\ [])
+      when is_map(request) do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
     visible_previous_response_id = previous_response_id_for(history, request)
     upstream_compaction? = upstream_compaction?()
 
     with {:ok, runtime} <-
-           ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => "primary"}),
+           ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => "primary"}, identity),
          {:ok, native_state} <- native_checkpoint_state(subject_uid, history, runtime) do
       history =
         if force_local_checkpoint?(native_state, upstream_compaction?),
@@ -491,6 +500,7 @@ defmodule Ankole.AIGateway.Compaction do
           else: history
 
       compact_conversation_history(%ManualContext{
+        identity: identity,
         subject_uid: subject_uid,
         conversation_id: conversation_id,
         history: history,
@@ -511,7 +521,9 @@ defmodule Ankole.AIGateway.Compaction do
   checkpoint response row so clients may continue with `previous_response_id`.
   """
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def compact_response(subject_uid, request) when is_map(request) do
+  def compact_response(subject_uid, request, identity \\ [])
+
+  def compact_response(subject_uid, request, identity) when is_map(request) do
     request = Attrs.normalize_external_attrs(request)
     upstream_compaction? = upstream_compaction?()
 
@@ -525,12 +537,13 @@ defmodule Ankole.AIGateway.Compaction do
         input,
         resolved_input,
         store_context,
-        upstream_compaction?
+        upstream_compaction?,
+        identity
       )
     end
   end
 
-  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
+  def compact_response(_subject_uid, _request, _identity), do: {:error, :invalid_request_body}
 
   defp plan_compact_history(%PlanContext{} = context) do
     %PlanContext{
@@ -677,6 +690,7 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp compact_conversation_history(%ManualContext{} = context) do
     %ManualContext{
+      identity: identity,
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       history: history,
@@ -691,9 +705,11 @@ defmodule Ankole.AIGateway.Compaction do
     else
       with {:ok, input} <- history_items_for_artifact(subject_uid, history),
            {:ok, input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input) do
-        case UpstreamCompaction.compact(runtime, input, request,
-               enabled?: upstream_compaction?,
-               subject_uid: subject_uid
+        case UpstreamCompaction.compact(
+               runtime,
+               input,
+               request,
+               [enabled?: upstream_compaction?, subject_uid: subject_uid] ++ identity
              ) do
           {:ok, upstream} ->
             create_manual_upstream_checkpoint(context, upstream)
@@ -712,6 +728,7 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp compact_conversation_locally(%ManualContext{} = context) do
     %ManualContext{
+      identity: identity,
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       history: history,
@@ -730,7 +747,7 @@ defmodule Ankole.AIGateway.Compaction do
              [],
              retained_tail_budget_tokens(threshold)
            ),
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate, identity),
          :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
@@ -801,7 +818,8 @@ defmodule Ankole.AIGateway.Compaction do
          original_input,
          resolved_input,
          store_context,
-         false
+         false,
+         identity
        ) do
     compact_standalone_locally(
       subject_uid,
@@ -809,7 +827,8 @@ defmodule Ankole.AIGateway.Compaction do
       original_input,
       resolved_input,
       store_context,
-      nil
+      nil,
+      identity
     )
   end
 
@@ -819,12 +838,15 @@ defmodule Ankole.AIGateway.Compaction do
          original_input,
          resolved_input,
          store_context,
-         true
+         true,
+         identity
        ) do
-    with {:ok, runtime} <- ResponsesPreparation.resolve_runtime(subject_uid, request) do
-      case UpstreamCompaction.compact(runtime, resolved_input, request,
-             enabled?: true,
-             subject_uid: subject_uid
+    with {:ok, runtime} <- ResponsesPreparation.resolve_runtime(subject_uid, request, identity) do
+      case UpstreamCompaction.compact(
+             runtime,
+             resolved_input,
+             request,
+             [enabled?: true, subject_uid: subject_uid] ++ identity
            ) do
         {:ok, upstream} ->
           with {:ok, artifact} <-
@@ -849,7 +871,8 @@ defmodule Ankole.AIGateway.Compaction do
             original_input,
             resolved_input,
             store_context,
-            runtime
+            runtime,
+            identity
           )
       end
     end
@@ -861,14 +884,15 @@ defmodule Ankole.AIGateway.Compaction do
          original_input,
          resolved_input,
          store_context,
-         runtime
+         runtime,
+         identity
        ) do
     with {:ok, candidate} <-
            standalone_compaction_candidate(subject_uid, original_input, resolved_input),
          :ok <- warn_opaque_preserved(candidate),
-         {:ok, runtime} <- standalone_local_runtime(runtime, subject_uid, request),
+         {:ok, runtime} <- standalone_local_runtime(runtime, subject_uid, request, identity),
          threshold = threshold_spec(runtime, request),
-         {:ok, summary} <- summarize_standalone(subject_uid, candidate),
+         {:ok, summary} <- summarize_standalone(subject_uid, candidate, identity),
          :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            create_standalone_artifact(subject_uid, store_context, candidate, summary),
@@ -884,10 +908,11 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp standalone_local_runtime(%{} = runtime, _subject_uid, _request), do: {:ok, runtime}
+  defp standalone_local_runtime(%{} = runtime, _subject_uid, _request, _identity),
+    do: {:ok, runtime}
 
-  defp standalone_local_runtime(nil, subject_uid, request),
-    do: ResponsesPreparation.resolve_runtime(subject_uid, request)
+  defp standalone_local_runtime(nil, subject_uid, request, identity),
+    do: ResponsesPreparation.resolve_runtime(subject_uid, request, identity)
 
   # The local summary cannot read Provider ciphertext, so the checkpoint keeps
   # it verbatim instead of failing the compaction. The warning is the operator
@@ -1774,18 +1799,23 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
-  defp summarize_candidate(subject_uid, candidate) do
+  # `identity` names the Agent-token request that asked for this compaction.
+  # Automatic compaction passes none and runs on behalf of the control plane.
+  defp summarize_candidate(subject_uid, candidate, identity \\ []) do
     CompactionSummarizer.summarize(
       subject_uid,
       messages_to_items(candidate.prefix),
-      candidate.previous_chat_history, recent_items: Map.get(candidate, :recent_items, []))
+      candidate.previous_chat_history,
+      [recent_items: Map.get(candidate, :recent_items, [])] ++ identity
+    )
   end
 
-  defp summarize_standalone(subject_uid, candidate) do
+  defp summarize_standalone(subject_uid, candidate, identity) do
     CompactionSummarizer.summarize(
       subject_uid,
       candidate.prefix_items,
-      candidate.previous_chat_history
+      candidate.previous_chat_history,
+      identity
     )
   end
 

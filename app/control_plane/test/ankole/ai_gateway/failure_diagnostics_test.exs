@@ -635,6 +635,53 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                "AIGateway credential pool exhausted. retry_at=#{iso}"
     end
 
+    test "an exceeded Agent token quota projects a non-retryable 429" do
+      window_ends_at = DateTime.utc_now() |> DateTime.add(3_600, :second)
+
+      window = %{
+        window_started_at: DateTime.add(window_ends_at, -7 * 86_400, :second),
+        window_ends_at: window_ends_at,
+        used_tokens: 1_200_000,
+        limit_tokens: 1_000_000,
+        exceeded: true
+      }
+
+      assert %{
+               status: 429,
+               headers: %{
+                 "retry-after" => retry_after,
+                 "x-codex-primary-reset-at" => reset_header,
+                 "x-codex-promo-message" => promo_message
+               },
+               error: %{
+                 "type" => "usage_limit_reached",
+                 "code" => "agent_token_quota_exceeded",
+                 "message" => "The Agent has used its token quota for the current period.",
+                 "retryable" => false,
+                 "resets_at" => resets_at,
+                 "details_json" => %{
+                   "used_tokens" => 1_200_000,
+                   "limit_tokens" => 1_000_000,
+                   "window_ends_at" => window_ends_at_iso
+                 }
+               }
+             } = FailureDiagnostics.project({:agent_token_quota_exceeded, window})
+
+      assert window_ends_at_iso == DateTime.to_iso8601(window_ends_at)
+      assert promo_message =~ "agent_token_quota_exceeded"
+      assert resets_at == DateTime.to_unix(window_ends_at)
+      assert reset_header == Integer.to_string(resets_at)
+      assert {seconds, ""} = Integer.parse(retry_after)
+      assert seconds in 3_500..3_600
+
+      assert %{
+               error_code: "agent_token_quota_exceeded",
+               http_status: 429,
+               retryable: false,
+               failure_kind: :public_response
+             } = FailureDiagnostics.classify({:agent_token_quota_exceeded, window})
+    end
+
     test "pool exhaustion preserves the upstream cause without exposing the pool" do
       for {code, expected_type} <- [
             {"RequestBurstTooFast", "rate_limit_error"},

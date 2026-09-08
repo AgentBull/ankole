@@ -20,7 +20,7 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
   def max_output_tokens, do: @summarizer_retry_max_output_tokens
 
   def summarize(subject_uid, items, previous_chat_history, opts \\ []) do
-    with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid) do
+    with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, identity(opts)) do
       summarize_rendered(subject_uid, runtime, items, previous_chat_history, opts)
     end
   end
@@ -33,7 +33,7 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
     prompt =
       build_summarizer_prompt(items, previous_chat_history, recent_context_verbatim, budget, caps)
 
-    case call_summarizer(subject_uid, runtime, prompt) do
+    case call_summarizer(subject_uid, runtime, prompt, identity(opts)) do
       {:ok, summary} ->
         {:ok, summary}
 
@@ -51,7 +51,7 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
               tight_caps
             )
 
-          call_summarizer(subject_uid, runtime, tight_prompt)
+          call_summarizer(subject_uid, runtime, tight_prompt, identity(opts))
         else
           error
         end
@@ -96,37 +96,42 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
     max(budget, CompactionRender.min_render_budget_tokens())
   end
 
-  defp resolve_summarizer_runtime(subject_uid) do
-    ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => @summarizer_profile})
+  defp resolve_summarizer_runtime(subject_uid, identity) do
+    ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => @summarizer_profile}, identity)
   end
+
+  # The Agent-token request that asked for the compaction, when one did. The
+  # same identity that checks and counts an ordinary request applies here.
+  defp identity(opts), do: Keyword.take(opts, [:subject_type, :request_context])
 
   # A truncated summary and an unusable one have the same cause: the summarizer
   # ran out of output room, or returned nothing this round. Both retry once with
   # the larger output cap. Only the truncated case can fall back to its first
   # result, because an unusable result carries no summary to keep.
-  defp call_summarizer(subject_uid, runtime, prompt) do
+  defp call_summarizer(subject_uid, runtime, prompt, identity) do
     case request_summary(
            subject_uid,
            runtime,
            prompt,
-           summarizer_output_cap(runtime)
+           summarizer_output_cap(runtime),
+           identity
          ) do
       {:ok, %{truncated: true} = truncated_summary} ->
-        case retry_summary(subject_uid, runtime, prompt) do
+        case retry_summary(subject_uid, runtime, prompt, identity) do
           {:ok, retried_summary} -> {:ok, retried_summary}
           {:error, _retry_failed} -> {:ok, truncated_summary}
         end
 
       {:error, reason} when reason in @unusable_summary_reasons ->
-        retry_summary(subject_uid, runtime, prompt)
+        retry_summary(subject_uid, runtime, prompt, identity)
 
       other ->
         other
     end
   end
 
-  defp retry_summary(subject_uid, runtime, prompt) do
-    request_summary(subject_uid, runtime, prompt, summarizer_retry_output_cap(runtime))
+  defp retry_summary(subject_uid, runtime, prompt, identity) do
+    request_summary(subject_uid, runtime, prompt, summarizer_retry_output_cap(runtime), identity)
   end
 
   # Scale the output reservation with the summarizer's window so a small-context
@@ -139,7 +144,7 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
     min(@summarizer_retry_max_output_tokens, floor(summarizer_context_length(runtime) * 0.4))
   end
 
-  defp request_summary(subject_uid, runtime, prompt, max_output_tokens) do
+  defp request_summary(subject_uid, runtime, prompt, max_output_tokens, identity) do
     cache_key = get_in(runtime, ["request_context", "cache_key"])
 
     request =
@@ -153,10 +158,18 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
       |> maybe_put_prompt_cache_key(cache_key)
 
     with {:ok, %{request: request, spec: prepared_request}} <-
-           ResponsesPreparation.prepare_with_runtime(subject_uid, runtime, request, stream?: true),
+           ResponsesPreparation.prepare_with_runtime(
+             subject_uid,
+             runtime,
+             request,
+             Keyword.put(identity, :stream?, true)
+           ),
          {:ok, outcome, _meta} <-
-           ResponseStream.collect(subject_uid, request, prepared_request,
-             caller: "compaction.summary"
+           ResponseStream.collect(
+             subject_uid,
+             request,
+             prepared_request,
+             Keyword.put(identity, :caller, "compaction.summary")
            ),
          {:ok, body} <- compaction_summary_body(outcome),
          {:ok, text} <- extract_summary(body, max_output_tokens) do

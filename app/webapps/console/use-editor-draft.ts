@@ -17,6 +17,7 @@ export type EditorDraftIdentity =
   | { resource: 'agent-library'; agentUID: string }
   | { resource: 'model-profiles'; agentUID: string }
   | { resource: 'custom-model-profile'; agentUID: string; name: string }
+  | { resource: 'token-quota'; agentUID: string }
 
 export type EditorDraftModel<Source> = {
   sourceKey: { value: string | undefined }
@@ -57,6 +58,8 @@ export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): Resol
       return sameKey(`agent:${identity.agentUID}`)
     case 'custom-model-profile':
       return sameKey(`agent:${identity.agentUID}:${identity.name}`)
+    case 'token-quota':
+      return sameKey(`agent:${identity.agentUID}`)
   }
 }
 

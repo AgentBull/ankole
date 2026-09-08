@@ -5,7 +5,11 @@ import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../co
 import type { JSONRPCMessage } from './runtime/app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
-import { codexCredentialPoolExhaustion, type CodexCredentialPoolExhaustion } from './job/recovery-policy'
+import {
+  codexAgentTokenQuotaExceeded,
+  codexCredentialPoolExhaustion,
+  type CodexCredentialPoolExhaustion
+} from './job/recovery-policy'
 
 /** `threadID` is the notification's thread scope; the session resolves
  * lead-versus-child against its own runtime thread. */
@@ -17,6 +21,7 @@ export type CodexNotificationProjection = { threadID?: string } & (
   | { type: 'compaction_completed'; turnID?: string }
   | { type: 'mcp_server_startup_failed'; server: string; failureReason?: string; error: string }
   | { type: 'credential_pool_exhausted'; exhaustion: CodexCredentialPoolExhaustion }
+  | { type: 'agent_token_quota_exceeded' }
   | { type: 'token_usage'; usage: BackgroundAgentJobTurnUsage }
   | { type: 'turn_diff'; filesChanged: BackgroundAgentJobPathHandoff }
   | {
@@ -66,7 +71,9 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
   }
 
   if (method === 'error') {
-    const exhaustion = codexCredentialPoolExhaustion(jsonObject(params.error))
+    const error = jsonObject(params.error)
+    if (codexAgentTokenQuotaExceeded(error)) return { type: 'agent_token_quota_exceeded', threadID }
+    const exhaustion = codexCredentialPoolExhaustion(error)
     if (exhaustion) return { type: 'credential_pool_exhausted', threadID, exhaustion }
   }
 

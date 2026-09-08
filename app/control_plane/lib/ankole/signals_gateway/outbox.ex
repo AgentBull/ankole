@@ -315,6 +315,27 @@ defmodule Ankole.SignalsGateway.Outbox do
     )
   end
 
+  @doc """
+  Commits a durable user notice when a turn cannot start because the Agent has
+  used its token quota for the current period.
+  """
+  @spec commit_token_quota_exceeded_notice_outbox_in_tx(
+          module(),
+          ActorEvent.t(),
+          String.t()
+        ) :: {:ok, OutboxEntry.t()} | {:error, term()}
+  def commit_token_quota_exceeded_notice_outbox_in_tx(repo, %ActorEvent{} = actor_event, text) do
+    commit_actor_notice_outbox_in_tx(
+      repo,
+      actor_event,
+      text,
+      "ai-token-quota-exceeded",
+      :empty_token_quota_exceeded_notice_text,
+      %{"source" => "actor_token_quota_exceeded_notice"},
+      "failed"
+    )
+  end
+
   defp commit_actor_notice_outbox_in_tx(
          repo,
          %ActorEvent{} = actor_event,

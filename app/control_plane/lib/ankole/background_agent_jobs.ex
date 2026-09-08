@@ -304,6 +304,8 @@ defmodule Ankole.BackgroundAgentJobs do
         %DateTime{} = now
       )
       when is_binary(code) and is_binary(message) and is_map(details) do
+    code = terminal_failure_code(code, details)
+
     with {:ok, job_id} <- parse_job_session_id(session_id),
          {:ok, result} <-
            Lifecycle.commit_status_after_runtime_prefix_in_tx(
@@ -366,6 +368,15 @@ defmodule Ankole.BackgroundAgentJobs do
 
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
+
+  # A quota rejection is the Job's own verdict, not a generic Worker turn
+  # failure, so the stored code names it for every reader of the Job.
+  defp terminal_failure_code(code, details) do
+    if details["error_code"] == "agent_token_quota_exceeded" or
+         get_in(details, ["aigateway", "code"]) == "agent_token_quota_exceeded",
+       do: "agent_token_quota_exceeded",
+       else: code
+  end
 
   defp text_value(value) when is_binary(value) and value != "", do: value
   defp text_value(_value), do: nil

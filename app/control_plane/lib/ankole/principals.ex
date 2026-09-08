@@ -128,6 +128,7 @@ defmodule Ankole.Principals do
         agent_attrs = take_attrs(attrs, @agent_fields)
 
         with :ok <- validate_agent_owner(repo, agent_attrs),
+             :ok <- reject_token_quota_at_creation(agent_attrs),
              {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
              {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
              :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
@@ -556,12 +557,18 @@ defmodule Ankole.Principals do
     end
   end
 
+  # The Agent row is locked before the merge, so a token quota or model profile
+  # written while this update waits is merged in, not overwritten. The
+  # Principal row lock above comes first; the owned-option services take only
+  # the Agent row lock, so the two orders cannot deadlock.
   defp update_agent_row(repo, uid, attrs) do
-    case repo.get(Agent, uid) do
+    case repo.one(from(agent in Agent, where: agent.uid == ^uid, lock: "FOR UPDATE")) do
       %Agent{} = agent ->
-        agent
-        |> Agent.changeset(attrs)
-        |> repo.update()
+        with {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
+          agent
+          |> Agent.changeset(attrs)
+          |> repo.update()
+        end
 
       nil ->
         {:error, :not_agent}
@@ -1083,6 +1090,46 @@ defmodule Ankole.Principals do
       :error -> {:ok, %{}}
     end
   end
+
+  # These `options["ai_agent"]` keys belong to the model profile and token quota
+  # services and their own routes. A whole-options write keeps their stored
+  # values, so a client that never read them cannot remove a configured profile
+  # or quota.
+  @owned_ai_agent_keys ~w(models provider_hosted token_quota)
+
+  defp keep_owned_agent_options(%Agent{options: stored}, %{options: options} = attrs)
+       when is_map(options) do
+    incoming = ai_agent_options(options)
+    owned = stored |> ai_agent_options() |> Map.take(@owned_ai_agent_keys)
+
+    if Enum.any?(@owned_ai_agent_keys, &Map.has_key?(incoming, &1)) do
+      {:error, :ai_agent_options_not_writable}
+    else
+      ai_agent = Map.merge(incoming, owned)
+
+      options =
+        if map_size(ai_agent) == 0,
+          do: Map.delete(options, "ai_agent"),
+          else: Map.put(options, "ai_agent", ai_agent)
+
+      {:ok, %{attrs | options: options}}
+    end
+  end
+
+  defp keep_owned_agent_options(_agent, attrs), do: {:ok, attrs}
+
+  # A quota is set through its own route after creation, so its validation has
+  # one owner and a new Agent never starts with a shape the quota cannot read.
+  defp reject_token_quota_at_creation(%{options: options}) when is_map(options) do
+    if Map.has_key?(ai_agent_options(options), "token_quota"),
+      do: {:error, :token_quota_not_writable_at_creation},
+      else: :ok
+  end
+
+  defp reject_token_quota_at_creation(_attrs), do: :ok
+
+  defp ai_agent_options(%{"ai_agent" => ai_agent}) when is_map(ai_agent), do: ai_agent
+  defp ai_agent_options(_options), do: %{}
 
   defp take_attrs(attrs, keys) do
     Enum.reduce(keys, %{}, fn key, acc ->

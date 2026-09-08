@@ -41,6 +41,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   @provider_validation_types ~w(invalid_request invalid_request_error)
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
   @identifier_limit 256
+  # Codex renders this text inside its usage-limit message, so it must read as
+  # a sentence fragment and must contain the error code.
+  @agent_token_quota_promo_message "Ankole Agent token quota reached (agent_token_quota_exceeded)"
   @provider_message_limit 2_000
 
   @spec classify(term()) :: map()
@@ -116,6 +119,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   def public_message(%{error_code: "credential_pool_exhausted"}),
     do: "AIGateway credential pool exhausted. Try again later."
 
+  def public_message(%{error_code: "agent_token_quota_exceeded"}),
+    do: "The Agent has used its token quota for the current period."
+
   def public_message(%{error_code: code})
       when code in ["provider_stream_error", "response_stream_cleanup_error"],
       do: "AIGateway provider stream failed before a terminal response."
@@ -173,8 +179,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   `status` is the HTTP status of the failure, `headers` holds transport headers
   such as `retry-after`, and `error` is the public error object with string
   keys `type`, `code`, `message`, and `param`. Safe failure details go into
-  `details_json`; `stage` in `opts` names the transport phase inside them. An
-  exhausted credential pool also carries `resets_at`.
+  `details_json`; `stage` in `opts` names the transport phase inside them. A
+  rejection with a known recovery instant, an exhausted credential pool or an
+  Agent at its token quota, also carries `resets_at`.
 
   The status rule is the AIGateway design rule: an upstream 4xx passes through,
   a native upstream timeout is 504, and every other upstream, transport, or
@@ -210,7 +217,41 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       )
       |> put_resets_at(retry_at)
 
-    %{status: 429, headers: pool_retry_headers(retry_at), error: error}
+    %{status: 429, headers: recovery_headers(retry_at), error: error}
+  end
+
+  # The pinned Codex runtime keeps only one 429 shape terminal and readable: a
+  # body whose `type` is `usage_limit_reached` becomes its usage-limit error,
+  # which it never retries, and whose message repeats the
+  # `x-codex-promo-message` header verbatim. Every other 429 body becomes a
+  # retry-limit error whose message drops the body, so the code would be lost
+  # before Agent Computer sees it. The code therefore travels in that header
+  # as well as in the body.
+  def project({:agent_token_quota_exceeded, window}, _opts) when is_map(window) do
+    window_ends_at = Map.fetch!(window, :window_ends_at)
+
+    error =
+      429
+      |> error_object(
+        "agent_token_quota_exceeded",
+        public_message(%{error_code: "agent_token_quota_exceeded"}),
+        nil,
+        %{
+          "used_tokens" => Map.fetch!(window, :used_tokens),
+          "limit_tokens" => Map.fetch!(window, :limit_tokens),
+          "window_ends_at" => DateTime.to_iso8601(window_ends_at)
+        }
+      )
+      |> Map.put("type", "usage_limit_reached")
+      |> Map.put("retryable", false)
+      |> put_resets_at(window_ends_at)
+
+    headers =
+      window_ends_at
+      |> recovery_headers()
+      |> Map.put("x-codex-promo-message", @agent_token_quota_promo_message)
+
+    %{status: 429, headers: headers, error: error}
   end
 
   def project(reason, opts) do
@@ -557,17 +598,19 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
   end
 
-  defp pool_retry_headers(%DateTime{} = retry_at) do
-    remaining_ms = max(DateTime.diff(retry_at, DateTime.utc_now(), :millisecond), 0)
+  # The recovery instant of a rejection: an exhausted pool recovers at its retry
+  # time, an Agent at its token quota recovers at the window end.
+  defp recovery_headers(%DateTime{} = recovers_at) do
+    remaining_ms = max(DateTime.diff(recovers_at, DateTime.utc_now(), :millisecond), 0)
     retry_after = div(remaining_ms + 999, 1_000)
 
     %{
       "retry-after" => Integer.to_string(retry_after),
-      "x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(retry_at))
+      "x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(recovers_at))
     }
   end
 
-  defp pool_retry_headers(nil), do: %{}
+  defp recovery_headers(nil), do: %{}
 
   defp put_resets_at(error, %DateTime{} = retry_at),
     do: Map.put(error, "resets_at", DateTime.to_unix(retry_at))
@@ -657,6 +700,14 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       retry_at: if(is_map(details), do: retry_at_string(value(details, "retry_at")))
     }
     |> Map.merge(provider_error_fields(value(details, "upstream_error")))
+  end
+
+  defp reason_fields({:agent_token_quota_exceeded, _window}) do
+    %{
+      error_code: "agent_token_quota_exceeded",
+      http_status: 429,
+      retryable: false
+    }
   end
 
   defp reason_fields({tag, details}) when is_atom(tag) do

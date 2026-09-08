@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AgentController do
 
   alias Ankole.Principals
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIAgent.TokenQuota
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
   alias AnkoleWeb.ConsoleErrors
@@ -26,6 +27,8 @@ defmodule AnkoleWeb.AgentController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfilesResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ProviderHostedResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ProviderHostedWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.TokenQuotaResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.TokenQuotaWriteRequest
 
   tags(["Agents"])
   security([%{"consoleBearer" => []}])
@@ -142,6 +145,43 @@ defmodule AnkoleWeb.AgentController do
     responses: [
       ok: {"Model profile", "application/json", ModelProfileResponse},
       unprocessable_entity: {"Profile cannot be cleared", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:show_token_quota,
+    summary: "Read the token quota and the current window of one agent",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Token quota", "application/json", TokenQuotaResponse},
+      unprocessable_entity: {"Unknown agent", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_token_quota,
+    summary: "Set the token quota of one agent",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    request_body: {"Token quota", "application/json", TokenQuotaWriteRequest, required: true},
+    responses: [
+      ok: {"Token quota", "application/json", TokenQuotaResponse},
+      unprocessable_entity: {"Invalid token quota", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:delete_token_quota,
+    summary: "Remove the token quota of one agent, which leaves it without a limit",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Token quota", "application/json", TokenQuotaResponse},
+      unprocessable_entity: {"Unknown agent", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:reset_token_quota,
+    summary: "Start a new token quota period at this instant",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Token quota", "application/json", TokenQuotaResponse},
+      unprocessable_entity: {"No token quota to reset", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -272,6 +312,64 @@ defmodule AnkoleWeb.AgentController do
     end
   end
 
+  def show_token_quota(conn, params) do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:token_quota", "read"),
+         {:ok, status} <- TokenQuota.status(agent_uid) do
+      json(conn, token_quota_payload(status))
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def put_token_quota(conn, params) do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:token_quota", "update"),
+         {:ok, _quota} <- TokenQuota.put(agent_uid, conn.body_params),
+         {:ok, status} <- TokenQuota.status(agent_uid) do
+      json(conn, token_quota_payload(status))
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def delete_token_quota(conn, params) do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:token_quota", "delete"),
+         {:ok, nil} <- TokenQuota.delete(agent_uid),
+         {:ok, status} <- TokenQuota.status(agent_uid) do
+      json(conn, token_quota_payload(status))
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def reset_token_quota(conn, params) do
+    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:token_quota", "update"),
+         {:ok, _quota} <- TokenQuota.reset(agent_uid),
+         {:ok, status} <- TokenQuota.status(agent_uid) do
+      json(conn, token_quota_payload(status))
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp token_quota_payload(%{token_quota: token_quota, usage: usage}) do
+    %{token_quota: token_quota, usage: token_quota_usage_payload(usage)}
+  end
+
+  defp token_quota_usage_payload(nil), do: nil
+
+  defp token_quota_usage_payload(window) do
+    %{
+      window_started_at: DateTime.to_iso8601(window.window_started_at),
+      window_ends_at: DateTime.to_iso8601(window.window_ends_at),
+      used_tokens: window.used_tokens,
+      exceeded: window.exceeded
+    }
+  end
+
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
     attrs = Attrs.normalize_external_attrs(attrs)
 
@@ -373,6 +471,36 @@ defmodule AnkoleWeb.AgentController do
       "image model availability could not be verified; try again later"
     )
   end
+
+  defp error(conn, :ai_agent_options_not_writable) do
+    error(
+      conn,
+      422,
+      "validation_failed",
+      "options.ai_agent.models, provider_hosted, and token_quota belong to their own routes"
+    )
+  end
+
+  defp error(conn, :token_quota_not_writable_at_creation) do
+    error(
+      conn,
+      422,
+      "validation_failed",
+      "options.ai_agent.token_quota is set through the token quota route after creation"
+    )
+  end
+
+  defp error(conn, :invalid_period_days),
+    do: error(conn, 422, "validation_failed", "period_days must be an integer of at least 1")
+
+  defp error(conn, :invalid_period_start_at),
+    do: error(conn, 422, "validation_failed", "period_start_at must be an ISO 8601 instant")
+
+  defp error(conn, :invalid_limit_tokens),
+    do: error(conn, 422, "validation_failed", "limit_tokens must be an integer of at least 1")
+
+  defp error(conn, :token_quota_not_configured),
+    do: error(conn, 422, "token_quota_not_configured", "agent has no token quota to reset")
 
   defp error(conn, {:missing, key}) do
     error(conn, 422, "validation_failed", "#{key} is required")

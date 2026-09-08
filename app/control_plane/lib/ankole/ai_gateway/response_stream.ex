@@ -22,6 +22,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ToolSearch.StreamLoop, as: ToolSearchStreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel.UniversalAIClient
 
   require Ankole.Kernel.UniversalAIClient
@@ -280,6 +281,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       receiver: receiver,
       owner_monitor: owner_monitor,
       subject_uid: Keyword.fetch!(opts, :subject_uid),
+      subject_type: Keyword.get(opts, :subject_type),
       request: request,
       stateful: stateful,
       observability:
@@ -1640,6 +1642,14 @@ defmodule Ankole.AIGateway.ResponseStream do
         )
 
       :ok = ImageGeneration.record_credential_usage(state.hosted_credential_attempt, event)
+
+      :ok =
+        UsageLedger.record(
+          CredentialAttempts.runtime(state.attempt_context),
+          state.subject_type,
+          event,
+          aggregate_includes_tool_usage?: hosted?
+        )
     end
 
     state

@@ -203,6 +203,21 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
+  it('marks an Agent token quota rejection non-retryable in turn-error details', () => {
+    const details = turnFailureDetails({
+      code: 'agent_token_quota_exceeded',
+      retryable: false,
+      status: 429
+    })
+
+    expect(details).toMatchObject({
+      llm_error_kind: 'quota',
+      error_code: 'agent_token_quota_exceeded',
+      retryable: false,
+      aigateway: { code: 'agent_token_quota_exceeded', status: 429 }
+    })
+  })
+
   it('emits worker progress as an ephemeral progress-lane keepalive', () => {
     const turn = actorTurnRef()
     const envelope = workerProgressEnvelope(turn, 'checkpoint', 'turn in progress', 'turn-start-1', {

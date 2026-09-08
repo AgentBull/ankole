@@ -80,6 +80,11 @@ const identities: Array<{
     name: 'custom model profile',
     identity: { resource: 'custom-model-profile', agentUID: 'ada', name: 'research' },
     sourceKey: 'agent:ada:research'
+  },
+  {
+    name: 'token quota',
+    identity: { resource: 'token-quota', agentUID: 'ada' },
+    sourceKey: 'agent:ada'
   }
 ]
 

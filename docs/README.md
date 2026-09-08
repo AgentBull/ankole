@@ -230,6 +230,7 @@ credentials.
 | Document | Subject |
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
+| [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
 | [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |

@@ -66,6 +66,52 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert OIDC.client_secret(client) == {:ok, secret}
   end
 
+  test "a generic Agent update preserves a token quota written while the update waits" do
+    alias Ankole.AIAgent.TokenQuota
+    alias Ankole.Principals
+    alias Ankole.Principals.Principal
+
+    suffix = System.unique_integer([:positive])
+    owner_uid = "human-quota-owner-#{suffix}"
+    agent_uid = "agent-quota-race-#{suffix}"
+
+    Sandbox.unboxed_run(Repo, fn ->
+      {:ok, _owner} =
+        Principals.create_human(%{
+          uid: owner_uid,
+          display_name: "Quota Race Owner",
+          email: "#{owner_uid}@example.com"
+        })
+
+      {:ok, _agent} =
+        Principals.create_agent(%{
+          uid: agent_uid,
+          display_name: agent_uid,
+          role: "Quota Race Agent",
+          options: %{},
+          owner_principal_uid: owner_uid
+        })
+
+      {:ok, _quota} = TokenQuota.put(agent_uid, quota_attrs(100))
+    end)
+
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        # The Agent row references its owner with RESTRICT, so the Agent goes first.
+        Repo.delete_all(from(p in Principal, where: p.uid == ^agent_uid))
+        Repo.delete_all(from(p in Principal, where: p.uid == ^owner_uid))
+      end)
+    end)
+
+    quota_write = hold_transaction(fn -> TokenQuota.put(agent_uid, quota_attrs(200)) end)
+    edit = start_unboxed(fn -> Principals.update_agent(agent_uid, %{options: %{}}) end)
+    assert_blocked_by(edit, quota_write)
+    release(quota_write)
+    assert {:ok, %{"limit_tokens" => 200}} = finish(quota_write)
+    assert {:ok, %{agent: _agent}} = finish(edit)
+    assert {:ok, %{token_quota: %{"limit_tokens" => 200}}} = TokenQuota.status(agent_uid)
+  end
+
   test "channel creation merges the persisted winner after an insert conflict" do
     alias Ankole.SignalsGateway.{Channel, Projection}
     id = "test:concurrent-channel-#{System.unique_integer([:positive])}"
@@ -751,6 +797,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         select: chunk.chunk_text
       )
     )
+  end
+
+  defp quota_attrs(limit_tokens) do
+    %{
+      "period_days" => 7,
+      "period_start_at" => "2026-09-09T00:00:00Z",
+      "limit_tokens" => limit_tokens
+    }
   end
 
   defp start_unboxed(fun) do

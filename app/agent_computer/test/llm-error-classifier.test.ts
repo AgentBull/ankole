@@ -36,6 +36,47 @@ describe('LLM error classification', () => {
     })
   })
 
+  it('ends the turn on an Agent token quota rejection instead of retrying its 429', () => {
+    const frame = aigatewayErrorFromFrame({
+      type: 'error',
+      status: 429,
+      error: {
+        code: 'agent_token_quota_exceeded',
+        type: 'agent_token_quota_exceeded',
+        message: 'The Agent has used its token quota for the current period.',
+        retryable: false,
+        resets_at: 1757980800,
+        details: { used_tokens: 1200000, limit_tokens: 1000000, window_ends_at: '2026-09-16T00:00:00Z' }
+      }
+    })
+
+    expect(classifyLLMError(frame)).toEqual({ kind: 'quota', retryable: false, shouldCompress: false })
+    expect(isLocallyRetryableLLMError(frame)).toBe(false)
+    expect(turnFailureDetails(frame)).toMatchObject({
+      llm_error_kind: 'quota',
+      error_code: 'agent_token_quota_exceeded',
+      retryable: false,
+      aigateway: {
+        code: 'agent_token_quota_exceeded',
+        status: 429,
+        details_json: { used_tokens: 1200000, limit_tokens: 1000000, window_ends_at: '2026-09-16T00:00:00Z' }
+      }
+    })
+
+    const httpError = { status: 429, error: { code: 'agent_token_quota_exceeded', retryable: false } }
+    expect(classifyLLMError(httpError)).toEqual({ kind: 'quota', retryable: false, shouldCompress: false })
+
+    const rendered = new Error(
+      'AIGateway response failed status=429 code=agent_token_quota_exceeded The Agent has used its token quota for the current period.'
+    )
+    expect(classifyLLMError(rendered)).toEqual({ kind: 'quota', retryable: false, shouldCompress: false })
+
+    expect(classifyLLMError({ status: 429, code: 'rate_limit_exceeded' })).toMatchObject({
+      kind: 'rate_limit',
+      retryable: true
+    })
+  })
+
   it('follows wrapped provider cause chains and terminates cyclic graphs', () => {
     const cases: Array<{ error: unknown; kind: LLMErrorKind }> = [
       {

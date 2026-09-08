@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   import Ecto.Query, warn: false
   import Ankole.SignalsGateway.ActorRuntime.Common
 
+  alias Ankole.AIAgent.TokenQuota
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
@@ -151,8 +152,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         :none ->
           TurnPolicy.build_turn_start_spec(actor_key, opts)
 
+        # A conversation turn that cannot finish tells the user instead of
+        # starting a Worker. A Job turn passes `conversation: :none`: AIGateway
+        # rejects its first request and the Job fails with that code.
         :required ->
-          TurnPolicy.build_turn_start_spec(actor_key, opts)
+          with :ok <- TokenQuota.ensure_available(actor_key.agent_uid) do
+            TurnPolicy.build_turn_start_spec(actor_key, opts)
+          end
 
         mode ->
           {:error, {:invalid_turn_conversation_mode, mode}}
@@ -1052,7 +1058,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     do: I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
 
   defp dead_letter_notice_text(repo, %ActorEvent{} = event, reason) do
-    text = AsyncWorkUnit.dead_letter_notice_text(event) || dead_letter_notice_text(event)
+    text =
+      token_quota_notice_text(event, reason) ||
+        AsyncWorkUnit.dead_letter_notice_text(event) ||
+        dead_letter_notice_text(event)
 
     if DeadLetterNoticeConfig.enabled_in_tx?(repo) do
       detail = Sanitizer.preview(reason)
@@ -1064,6 +1073,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       text
     end
   end
+
+  # A turn that crossed the quota while it ran gets the quota text. The generic
+  # retry text would be wrong, because no retry can succeed before the period
+  # ends or an operator resets the quota.
+  defp token_quota_notice_text(%ActorEvent{} = event, reason) do
+    with true <- token_quota_turn_error?(reason),
+         {:ok, %{usage: %{} = window}} <- TokenQuota.status(event.agent_uid) do
+      TurnStartFailure.token_quota_notice_text(window, event.id)
+    else
+      _other_reason -> nil
+    end
+  end
+
+  defp token_quota_turn_error?(%{"details_json" => %{} = details}) do
+    details["error_code"] == "agent_token_quota_exceeded" or
+      get_in(details, ["aigateway", "code"]) == "agent_token_quota_exceeded"
+  end
+
+  defp token_quota_turn_error?(_reason), do: false
 
   # A deleted route, or a channel that never accepts replies, has nowhere to put
   # this notice. Failing here would roll back whichever transaction decided the

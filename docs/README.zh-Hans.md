@@ -220,6 +220,7 @@ tools/e2e/run --real-llm
 | 文档 | 主题 |
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | 模型提供商、Response 历史、上下文压缩和生成文件 |
+| [Agent Token Quota](design-docs/AgentTokenQuota.md) | 按 Agent 的 token 额度、周期、重置与拒绝契约 |
 | [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
 | [BrainV3](design-docs/BrainV3.md) | 实例共享知识、作用域披露、学习与 Dreaming |
 | [Skill Lessons](design-docs/SkillLessons.md) | 来自已完成工作的租约制逐 skill 现场笔记 |

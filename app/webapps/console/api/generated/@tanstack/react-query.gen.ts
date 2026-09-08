@@ -14,12 +14,16 @@ import {
   ankoleWebAgentControllerCreate,
   ankoleWebAgentControllerDelete,
   ankoleWebAgentControllerDeleteModelProfile,
+  ankoleWebAgentControllerDeleteTokenQuota,
   ankoleWebAgentControllerEnable,
   ankoleWebAgentControllerIndex,
   ankoleWebAgentControllerIndexModelProfiles,
   ankoleWebAgentControllerPutModelProfile,
   ankoleWebAgentControllerPutProviderHosted,
+  ankoleWebAgentControllerPutTokenQuota,
+  ankoleWebAgentControllerResetTokenQuota,
   ankoleWebAgentControllerShow,
+  ankoleWebAgentControllerShowTokenQuota,
   ankoleWebAgentControllerUpdate,
   ankoleWebAgentLibraryCapabilityControllerAgentIndex,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndex,
@@ -193,6 +197,9 @@ import type {
   AnkoleWebAgentControllerDeleteModelProfileError,
   AnkoleWebAgentControllerDeleteModelProfileResponse,
   AnkoleWebAgentControllerDeleteResponse,
+  AnkoleWebAgentControllerDeleteTokenQuotaData,
+  AnkoleWebAgentControllerDeleteTokenQuotaError,
+  AnkoleWebAgentControllerDeleteTokenQuotaResponse,
   AnkoleWebAgentControllerEnableData,
   AnkoleWebAgentControllerEnableError,
   AnkoleWebAgentControllerEnableResponse,
@@ -208,9 +215,18 @@ import type {
   AnkoleWebAgentControllerPutProviderHostedData,
   AnkoleWebAgentControllerPutProviderHostedError,
   AnkoleWebAgentControllerPutProviderHostedResponse,
+  AnkoleWebAgentControllerPutTokenQuotaData,
+  AnkoleWebAgentControllerPutTokenQuotaError,
+  AnkoleWebAgentControllerPutTokenQuotaResponse,
+  AnkoleWebAgentControllerResetTokenQuotaData,
+  AnkoleWebAgentControllerResetTokenQuotaError,
+  AnkoleWebAgentControllerResetTokenQuotaResponse,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowError,
   AnkoleWebAgentControllerShowResponse,
+  AnkoleWebAgentControllerShowTokenQuotaData,
+  AnkoleWebAgentControllerShowTokenQuotaError,
+  AnkoleWebAgentControllerShowTokenQuotaResponse,
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateError,
   AnkoleWebAgentControllerUpdateResponse,
@@ -1233,6 +1249,33 @@ export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
     },
     queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
   })
+
+/**
+ * Start a new token quota period at this instant
+ */
+export const ankoleWebAgentControllerResetTokenQuotaMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerResetTokenQuotaData>>
+): UseMutationOptions<
+  AnkoleWebAgentControllerResetTokenQuotaResponse,
+  AnkoleWebAgentControllerResetTokenQuotaError,
+  Options<AnkoleWebAgentControllerResetTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentControllerResetTokenQuotaResponse,
+    AnkoleWebAgentControllerResetTokenQuotaError,
+    Options<AnkoleWebAgentControllerResetTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentControllerResetTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebSignalBindingControllerShowChannelStandingOrdersQueryKey = (
   options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData>
@@ -4376,6 +4419,88 @@ export const ankoleWebAuthControllerDeleteSessionMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAuthControllerDeleteSession({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Remove the token quota of one agent, which leaves it without a limit
+ */
+export const ankoleWebAgentControllerDeleteTokenQuotaMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerDeleteTokenQuotaData>>
+): UseMutationOptions<
+  AnkoleWebAgentControllerDeleteTokenQuotaResponse,
+  AnkoleWebAgentControllerDeleteTokenQuotaError,
+  Options<AnkoleWebAgentControllerDeleteTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentControllerDeleteTokenQuotaResponse,
+    AnkoleWebAgentControllerDeleteTokenQuotaError,
+    Options<AnkoleWebAgentControllerDeleteTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentControllerDeleteTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAgentControllerShowTokenQuotaQueryKey = (
+  options: Options<AnkoleWebAgentControllerShowTokenQuotaData>
+) => createQueryKey('ankoleWebAgentControllerShowTokenQuota', options)
+
+/**
+ * Read the token quota and the current window of one agent
+ */
+export const ankoleWebAgentControllerShowTokenQuotaOptions = (
+  options: Options<AnkoleWebAgentControllerShowTokenQuotaData>
+) =>
+  queryOptions<
+    AnkoleWebAgentControllerShowTokenQuotaResponse,
+    AnkoleWebAgentControllerShowTokenQuotaError,
+    AnkoleWebAgentControllerShowTokenQuotaResponse,
+    ReturnType<typeof ankoleWebAgentControllerShowTokenQuotaQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentControllerShowTokenQuota({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentControllerShowTokenQuotaQueryKey(options)
+  })
+
+/**
+ * Set the token quota of one agent
+ */
+export const ankoleWebAgentControllerPutTokenQuotaMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerPutTokenQuotaData>>
+): UseMutationOptions<
+  AnkoleWebAgentControllerPutTokenQuotaResponse,
+  AnkoleWebAgentControllerPutTokenQuotaError,
+  Options<AnkoleWebAgentControllerPutTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentControllerPutTokenQuotaResponse,
+    AnkoleWebAgentControllerPutTokenQuotaError,
+    Options<AnkoleWebAgentControllerPutTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentControllerPutTokenQuota({
         ...options,
         ...fnOptions,
         throwOnError: true

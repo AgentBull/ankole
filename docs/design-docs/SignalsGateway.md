@@ -534,6 +534,14 @@ has no route. ActorRuntime then logs the skipped notice and keeps the
 `dead_letter` row as the record. It does not fail the transaction, because that
 transaction can also be a Worker takeover.
 
+A conversation turn can also stop before any Worker attempt. When the Agent's
+model profile is unavailable or the Agent is at its
+[token quota](AgentTokenQuota.md), ActorRuntime completes the ActorEvent in the
+same transaction that records one localized notice for a channel-reply-eligible
+event. An ambient `may_intervene` event completes without a notice. A turn that
+crosses the token quota while it runs reaches `dead_letter` through the normal
+abort path, and its notice uses the quota text instead of the retry text.
+
 SignalsGateway rejects a late result while the source message has an active
 tombstone. A removed message cannot produce a later reply.
 
@@ -746,3 +754,5 @@ RuntimeFabric carries worker messages and checks their protocol.
 - A queued `may_intervene` event cannot run after its scene or binding policy changes.
 - An uncertain visible final reply can retry only inside its attempt budget and
   tells the recipient that the recovered reply can be a duplicate.
+- A conversation turn for an Agent at its token quota completes with a notice
+  and starts no Worker turn.

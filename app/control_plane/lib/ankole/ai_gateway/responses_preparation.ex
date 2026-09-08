@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   declared. Hosted tools add a private composite spec consumed inside Kernel.
   """
 
+  alias Ankole.AIAgent.TokenQuota
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
@@ -81,7 +82,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
       |> Keyword.get(:request_context, %{})
       |> RequestContext.prepare(request)
 
-    with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
+    with :ok <- ensure_token_quota(subject_uid, opts),
+         {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
          {:ok, runtime} <-
            Resolver.resolve_request_model(
              subject_uid,
@@ -130,6 +132,25 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
          spec: spec,
          driver: if(response_stream_driver?, do: :response_stream, else: :single_request)
        }}
+    end
+  end
+
+  @doc """
+  Rejects a request of an Agent at its token quota.
+
+  Only a request that carries an Agent token spends that Agent's quota. An
+  in-process caller such as Brain or automatic compaction passes no
+  `subject_type` and runs on behalf of the control plane. The check runs before
+  the model and its credential are selected, so a rejection touches no
+  credential, and a terminal quota answer is never hidden behind a retryable
+  credential-pool answer.
+  """
+  @spec ensure_token_quota(String.t(), keyword()) ::
+          :ok | {:error, {:agent_token_quota_exceeded, map()}}
+  def ensure_token_quota(subject_uid, opts) do
+    case Keyword.get(opts, :subject_type) do
+      "agent" -> TokenQuota.ensure_available(subject_uid)
+      _in_process_or_human -> :ok
     end
   end
 

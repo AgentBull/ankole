@@ -22,6 +22,9 @@ import type {
   AnkoleWebAgentControllerDeleteModelProfileErrors,
   AnkoleWebAgentControllerDeleteModelProfileResponses,
   AnkoleWebAgentControllerDeleteResponses,
+  AnkoleWebAgentControllerDeleteTokenQuotaData,
+  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
+  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
   AnkoleWebAgentControllerEnableData,
   AnkoleWebAgentControllerEnableErrors,
   AnkoleWebAgentControllerEnableResponses,
@@ -37,9 +40,18 @@ import type {
   AnkoleWebAgentControllerPutProviderHostedData,
   AnkoleWebAgentControllerPutProviderHostedErrors,
   AnkoleWebAgentControllerPutProviderHostedResponses,
+  AnkoleWebAgentControllerPutTokenQuotaData,
+  AnkoleWebAgentControllerPutTokenQuotaErrors,
+  AnkoleWebAgentControllerPutTokenQuotaResponses,
+  AnkoleWebAgentControllerResetTokenQuotaData,
+  AnkoleWebAgentControllerResetTokenQuotaErrors,
+  AnkoleWebAgentControllerResetTokenQuotaResponses,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowErrors,
   AnkoleWebAgentControllerShowResponses,
+  AnkoleWebAgentControllerShowTokenQuotaData,
+  AnkoleWebAgentControllerShowTokenQuotaErrors,
+  AnkoleWebAgentControllerShowTokenQuotaResponses,
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateErrors,
   AnkoleWebAgentControllerUpdateResponses,
@@ -1022,6 +1034,32 @@ export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/checkbacks',
+    ...options
+  })
+
+/**
+ * Start a new token quota period at this instant
+ */
+export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerResetTokenQuotaData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentControllerResetTokenQuotaResponses,
+  AnkoleWebAgentControllerResetTokenQuotaErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAgentControllerResetTokenQuotaResponses,
+    AnkoleWebAgentControllerResetTokenQuotaErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/token-quota/reset',
     ...options
   })
 
@@ -3785,6 +3823,88 @@ export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolea
   (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
     url: '/.internal-apis/session',
     ...options
+  })
+
+/**
+ * Remove the token quota of one agent, which leaves it without a limit
+ */
+export const ankoleWebAgentControllerDeleteTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerDeleteTokenQuotaData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
+  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAgentControllerDeleteTokenQuotaResponses,
+    AnkoleWebAgentControllerDeleteTokenQuotaErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * Read the token quota and the current window of one agent
+ */
+export const ankoleWebAgentControllerShowTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerShowTokenQuotaData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentControllerShowTokenQuotaResponses,
+  AnkoleWebAgentControllerShowTokenQuotaErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentControllerShowTokenQuotaResponses,
+    AnkoleWebAgentControllerShowTokenQuotaErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * Set the token quota of one agent
+ */
+export const ankoleWebAgentControllerPutTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerPutTokenQuotaData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentControllerPutTokenQuotaResponses,
+  AnkoleWebAgentControllerPutTokenQuotaErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentControllerPutTokenQuotaResponses,
+    AnkoleWebAgentControllerPutTokenQuotaErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/token-quota',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

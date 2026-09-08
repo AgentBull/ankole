@@ -223,6 +223,13 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   def mark_ok(_context, _response_or_headers), do: :ok
 
   @doc """
+  Returns the resolved runtime of an attached context, or `nil`.
+  """
+  @spec runtime(context() | nil) :: map() | nil
+  def runtime(%{runtime: runtime}), do: runtime
+  def runtime(_context), do: nil
+
+  @doc """
   Attributes one terminal usage snapshot to the credential that produced it.
   """
   @spec record_usage(context() | nil, map(), keyword()) :: :ok
@@ -231,17 +238,8 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   def record_usage(%{runtime: runtime}, response_or_event, opts)
       when is_map(response_or_event) do
     response = response_body(response_or_event)
-    usage = map_value(response, "usage")
+    usage = model_usage(response_or_event, opts)
     tool_usage = map_value(response, "tool_usage")
-    image_usage = if is_map(tool_usage), do: map_value(tool_usage, "image_gen")
-
-    usage =
-      if is_map(usage) and is_map(image_usage) and
-           Keyword.get(opts, :aggregate_includes_tool_usage?, false) do
-        subtract_usage(usage, image_usage)
-      else
-        usage
-      end
 
     tool_usage =
       if is_map(tool_usage) and
@@ -266,6 +264,28 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   def record_usage(_context, _response_or_event, _opts), do: :ok
+
+  @doc """
+  Returns the model usage of one terminal round, or `nil`.
+
+  A hosted composite round reports one aggregate that includes the image
+  generation tool usage. With `aggregate_includes_tool_usage?: true` the image
+  tokens are removed, so the result is the language-model usage alone.
+  """
+  @spec model_usage(map(), keyword()) :: map() | nil
+  def model_usage(response_or_event, opts \\ []) when is_map(response_or_event) do
+    response = response_body(response_or_event)
+    usage = map_value(response, "usage")
+    tool_usage = map_value(response, "tool_usage")
+    image_usage = if is_map(tool_usage), do: map_value(tool_usage, "image_gen")
+
+    if is_map(usage) and is_map(image_usage) and
+         Keyword.get(opts, :aggregate_includes_tool_usage?, false) do
+      subtract_usage(usage, image_usage)
+    else
+      usage
+    end
+  end
 
   @doc """
   Records credential health after Provider output has closed the retry window.

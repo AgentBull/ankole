@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 1.1.0-rc.1 (2026-09-09)
+
+- An operator can now give each Agent a token quota in the Ankole Console: a period in days, a period start time, and a token limit. The Agent page shows the used tokens as a bar with the share of the limit, and the start and end time of the current period.
+- An Agent that reaches its limit receives a reply with the used tokens, the limit, and the time the period ends, instead of an answer. AIGateway rejects its model requests with `agent_token_quota_exceeded` until the period ends.
+- A Background Agent Job of an Agent at its limit fails with `agent_token_quota_exceeded`. It does not retry and does not wait for the next period.
+- `Reset` starts a new period at that instant, so the Agent can work again before the period would end. The usage records stay for audit.
+- The generic Agent update route no longer writes `options.ai_agent.models`, `provider_hosted`, or `token_quota` and answers 422 when a request contains them, and Agent creation rejects `options.ai_agent.token_quota`; use the model profile and token quota routes for those settings.
+
 ## Version 1.0.4-rc.1 (2026-09-09)
 
 - Scheduled tasks validate visible replies and quiet success before delivery, so malformed completion markers do not become chat messages. If result correction fails, the task stops with a failure notice instead of repeating completed actions. Update the control plane and Worker together.

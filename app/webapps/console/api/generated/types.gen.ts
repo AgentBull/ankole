@@ -1860,6 +1860,15 @@ export type ScheduleDelivery = {
 }
 
 /**
+ * TokenQuota
+ */
+export type TokenQuota = {
+  limit_tokens: number
+  period_days: number
+  period_start_at: string
+}
+
+/**
  * OIDCClientResponse
  */
 export type OidcClientResponse = {
@@ -1904,6 +1913,16 @@ export type BrainPageTimeline = {
   id: string
   provenance?: string | null
   summary: string
+}
+
+/**
+ * TokenQuotaUsage
+ */
+export type TokenQuotaUsage = {
+  exceeded: boolean
+  used_tokens: number
+  window_ends_at: string
+  window_started_at: string
 }
 
 /**
@@ -2337,6 +2356,14 @@ export type ConsoleApiErrorDetail = {
 }
 
 /**
+ * TokenQuotaResponse
+ */
+export type TokenQuotaResponse = {
+  token_quota: TokenQuota | null
+  usage: TokenQuotaUsage | null
+}
+
+/**
  * SignalChannelStandingOrdersItem
  */
 export type SignalChannelStandingOrdersItem = {
@@ -2431,6 +2458,15 @@ export type OidcClientCreateRequest = {
   redirect_uris: Array<string>
   scopes: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
   type: 'public' | 'confidential'
+}
+
+/**
+ * TokenQuotaWriteRequest
+ */
+export type TokenQuotaWriteRequest = {
+  limit_tokens: number
+  period_days: number
+  period_start_at: string
 }
 
 /**
@@ -3449,6 +3485,35 @@ export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
 
 export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
   AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
+
+export type AnkoleWebAgentControllerResetTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/token-quota/reset'
+}
+
+export type AnkoleWebAgentControllerResetTokenQuotaErrors = {
+  /**
+   * No token quota to reset
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerResetTokenQuotaError =
+  AnkoleWebAgentControllerResetTokenQuotaErrors[keyof AnkoleWebAgentControllerResetTokenQuotaErrors]
+
+export type AnkoleWebAgentControllerResetTokenQuotaResponses = {
+  /**
+   * Token quota
+   */
+  200: TokenQuotaResponse
+}
+
+export type AnkoleWebAgentControllerResetTokenQuotaResponse =
+  AnkoleWebAgentControllerResetTokenQuotaResponses[keyof AnkoleWebAgentControllerResetTokenQuotaResponses]
 
 export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersData = {
   body?: never
@@ -7365,6 +7430,96 @@ export type AnkoleWebAuthControllerDeleteSessionResponses = {
 
 export type AnkoleWebAuthControllerDeleteSessionResponse =
   AnkoleWebAuthControllerDeleteSessionResponses[keyof AnkoleWebAuthControllerDeleteSessionResponses]
+
+export type AnkoleWebAgentControllerDeleteTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/token-quota'
+}
+
+export type AnkoleWebAgentControllerDeleteTokenQuotaErrors = {
+  /**
+   * Unknown agent
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerDeleteTokenQuotaError =
+  AnkoleWebAgentControllerDeleteTokenQuotaErrors[keyof AnkoleWebAgentControllerDeleteTokenQuotaErrors]
+
+export type AnkoleWebAgentControllerDeleteTokenQuotaResponses = {
+  /**
+   * Token quota
+   */
+  200: TokenQuotaResponse
+}
+
+export type AnkoleWebAgentControllerDeleteTokenQuotaResponse =
+  AnkoleWebAgentControllerDeleteTokenQuotaResponses[keyof AnkoleWebAgentControllerDeleteTokenQuotaResponses]
+
+export type AnkoleWebAgentControllerShowTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/token-quota'
+}
+
+export type AnkoleWebAgentControllerShowTokenQuotaErrors = {
+  /**
+   * Unknown agent
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerShowTokenQuotaError =
+  AnkoleWebAgentControllerShowTokenQuotaErrors[keyof AnkoleWebAgentControllerShowTokenQuotaErrors]
+
+export type AnkoleWebAgentControllerShowTokenQuotaResponses = {
+  /**
+   * Token quota
+   */
+  200: TokenQuotaResponse
+}
+
+export type AnkoleWebAgentControllerShowTokenQuotaResponse =
+  AnkoleWebAgentControllerShowTokenQuotaResponses[keyof AnkoleWebAgentControllerShowTokenQuotaResponses]
+
+export type AnkoleWebAgentControllerPutTokenQuotaData = {
+  /**
+   * Token quota
+   */
+  body: TokenQuotaWriteRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/token-quota'
+}
+
+export type AnkoleWebAgentControllerPutTokenQuotaErrors = {
+  /**
+   * Invalid token quota
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerPutTokenQuotaError =
+  AnkoleWebAgentControllerPutTokenQuotaErrors[keyof AnkoleWebAgentControllerPutTokenQuotaErrors]
+
+export type AnkoleWebAgentControllerPutTokenQuotaResponses = {
+  /**
+   * Token quota
+   */
+  200: TokenQuotaResponse
+}
+
+export type AnkoleWebAgentControllerPutTokenQuotaResponse =
+  AnkoleWebAgentControllerPutTokenQuotaResponses[keyof AnkoleWebAgentControllerPutTokenQuotaResponses]
 
 export type AnkoleWebAiGatewayControllerRerankData = {
   /**

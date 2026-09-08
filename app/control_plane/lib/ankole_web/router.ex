@@ -372,6 +372,11 @@ defmodule AnkoleWeb.Router do
            AgentController,
            :delete_model_profile
 
+    get "/agents/:agent_uid/token-quota", AgentController, :show_token_quota
+    put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
+    delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
+    post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
+
     get "/signal-adapters", SignalBindingController, :adapters
 
     get "/signal-bindings", SignalBindingController, :index

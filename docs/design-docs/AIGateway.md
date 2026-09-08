@@ -76,7 +76,9 @@ or another Client.
 The Agent Console has sibling `Model profiles` and `Custom model profiles`
 sections. Both use the same provider, model, context-length, and request-option
 form. The custom section also requires the immutable name and description. The
-`coding` label identifies the Background Agent Job default model.
+`coding` label identifies the Background Agent Job default model. A sibling
+`Token quota` section sets the Agent's period and token limit; see
+[Agent Token Quota](AgentTokenQuota.md).
 
 For an Agent token, `GET /models` exposes each configured custom name as an
 alias and uses its description in the catalog. Another Agent and an admin
@@ -495,6 +497,20 @@ therefore remain private to that Human. The same Human can continue a stored
 Response through another Client that still grants access. Removing a Client
 does not remove the Human's stored data.
 
+## Limit an Agent's Token Usage
+
+An Agent can carry a token quota. AIGateway checks it when it resolves the
+model of every `llm` request with `subject_type` `agent`, before the model and
+its credential are selected. An Agent at its limit receives HTTP 429 with the
+code `agent_token_quota_exceeded` and `retryable: false`. A compaction trigger
+from such a request carries the same identity, so its compaction is checked
+and counted like the request. In-process callers such as Brain and automatic
+compaction pass no `subject_type` and are not checked. AIGateway appends one
+`ai_gateway_usage_records` row for each counted provider round at the same
+points where it records credential usage.
+[Agent Token Quota](AgentTokenQuota.md) owns the counting rules, the
+configuration, the notice, and the Console contract.
+
 ## Create a Response without Storing It
 
 HTTP Responses calls are stateless.
@@ -727,6 +743,12 @@ Brain pulls this read contract through its OIDC Client Source. AIGateway does
 not enqueue Brain jobs in the response commit. Internal Agent requests have no
 OIDC origin and remain outside this Source path. Existing unmarked records are
 not attributed to a Client by inference.
+
+`ai_gateway_usage_records` stores one append-only row for each provider round
+that counts toward an Agent token quota: the Agent, the origin, the resolved
+model selector, and the input and output tokens. Rows are never updated or
+deleted while the Agent exists; deleting the Agent Principal removes them with
+its other AIGateway records.
 
 ## How a Stateful Response Runs
 
@@ -1594,3 +1616,4 @@ and does not use this rule.
 - A compaction plan cannot change history before the run starts.
 - Unmatched tool results never enter provider history.
 - An orphaned generating row becomes a retryable error.
+- A quota rejection happens before provider resolution and consumes no credential.

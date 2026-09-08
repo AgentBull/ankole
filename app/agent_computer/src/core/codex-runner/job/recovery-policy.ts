@@ -81,6 +81,9 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   // app-server serves the next attempt, so this must stay retryable instead
   // of terminally failing the Job and its owner-session wakeup.
   if (error.code === -32603) return 'transient'
+  // The Agent token quota rejection also arrives as HTTP 429. It must reach
+  // this terminal instead of the retryable status rules below.
+  if (codexAgentTokenQuotaExceeded(error)) return 'terminal'
 
   const info = error.codexErrorInfo
   const infoName =
@@ -151,6 +154,8 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
  * lap, not that this worker should start another local retry loop.
  */
 export function codexCredentialPoolExhaustion(error: JSONObject): CodexCredentialPoolExhaustion | undefined {
+  if (codexAgentTokenQuotaExceeded(error)) return undefined
+
   const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`
   const normalizedMessage = message.toLowerCase()
   const info = error.codexErrorInfo
@@ -175,6 +180,21 @@ export function codexCredentialPoolExhaustion(error: JSONObject): CodexCredentia
 
   const retryAt = retryAtFromMessage(message)
   return retryAt ? { retryAt } : {}
+}
+
+/**
+ * Finds the Agent token quota rejection that Codex projects through its own
+ * error vocabulary.
+ *
+ * AIGateway rejects the request with HTTP 429 and the code
+ * `agent_token_quota_exceeded` before it resolves a provider. Codex keeps only
+ * the status in `codexErrorInfo` and puts the response body in the error text,
+ * so the code text is the one signal that separates this terminal from a
+ * credential-pool 429.
+ */
+export function codexAgentTokenQuotaExceeded(error: JSONObject): boolean {
+  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`
+  return message.toLowerCase().includes('agent_token_quota_exceeded')
 }
 
 function boundedTransition(

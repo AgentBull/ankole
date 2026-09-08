@@ -49,6 +49,7 @@ import { AgentLibraryEditor } from './agent-library-editor'
 import { AgentLibraryEditorModel } from '../state/agent-library-editor-model'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
+import { TokenQuotaEditor } from './token-quota-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 
 export function AgentsListPage() {
@@ -349,6 +350,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               modelCatalog={modelCatalog.data}
               onChanged={refresh}
             />
+            <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
             <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
           </div>
         ) : null

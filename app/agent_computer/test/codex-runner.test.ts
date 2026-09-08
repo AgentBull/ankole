@@ -604,6 +604,32 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('ends the Job turn on an Agent token quota rejection without a local Codex retry', async () => {
+    // The shape Codex produces for AIGateway's rejection: a terminal usage-limit
+    // error whose message repeats the `x-codex-promo-message` header.
+    const fixture = prepareFixture('must not run', {
+      turnError: {
+        codexErrorInfo: 'usageLimitExceeded',
+        message:
+          "You've hit your usage limit. Ankole Agent token quota reached (agent_token_quota_exceeded), or try again at Sep 16th, 2026 8:00 AM.",
+        additionalDetails: null
+      }
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      await expect(runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))).rejects.toMatchObject({
+        code: 'agent_token_quota_exceeded',
+        retryable: false,
+        status: 429
+      })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running'])
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('returns an unavailable dynamic tool result without stalling the Codex turn', async () => {
     const fixture = prepareFixture('done after unsupported tool', { dynamicToolCall: true })
     const statusUpdates: RecordedStatusUpdate[] = []

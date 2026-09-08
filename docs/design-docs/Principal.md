@@ -89,8 +89,8 @@ The table extends an agent Principal with these fields:
 - Optional `created_by_principal_uid`.
 - `inserted_at` and `updated_at`.
 
-Agent mission, soul, design, memory, and model profiles belong to their own
-subsystems. They do not belong in the Principal row.
+Agent mission, soul, design, memory, model profiles, and token quota belong to
+their own subsystems. They do not belong in the Principal row.
 
 ### System Principals
 

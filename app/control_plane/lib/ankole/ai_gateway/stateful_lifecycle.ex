@@ -92,6 +92,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     resolver_request = Map.put(request, "__ankole_request_context", request_context)
 
     with :ok <- validate_websocket_stateful_shape(request),
+         :ok <- ResponsesPreparation.ensure_token_quota(subject_uid, opts),
          {:ok, runtime} <-
            Resolver.resolve_request_model(subject_uid, "llm", resolver_request,
              model_binding: Keyword.get(opts, :model_binding)
@@ -109,7 +110,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           request,
           runtime,
           request_context,
-          Keyword.get(opts, :oidc_client_id)
+          Keyword.take(opts, [:oidc_client_id, :subject_type])
         )
       else
         with {:ok, request} <-
@@ -120,7 +121,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  runtime,
                  strip_stateful_provider_fields(request),
                  stream?: true,
-                 request_context: request_context
+                 request_context: request_context,
+                 subject_type: Keyword.get(opts, :subject_type)
                ) do
           {:ok, prepared_request, nil}
         end
@@ -219,10 +221,15 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          request,
          runtime,
          request_context,
-         oidc_client_id
+         opts
        ) do
     with {:ok, context} <-
-           build_stateful_request_context(subject_uid, request, runtime, oidc_client_id),
+           build_stateful_request_context(
+             subject_uid,
+             request,
+             runtime,
+             Keyword.get(opts, :oidc_client_id)
+           ),
          {:ok, message} <-
            StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
       stateful_context = response_stream_context(message)
@@ -243,7 +250,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  runtime,
                  request_for_provider,
                  stream?: true,
-                 request_context: request_context
+                 request_context: request_context,
+                 subject_type: Keyword.get(opts, :subject_type)
                ) do
           recovery = %{
             request: context.request,

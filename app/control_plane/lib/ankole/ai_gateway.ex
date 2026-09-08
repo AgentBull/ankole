@@ -24,6 +24,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Security.SSRFFilter
 
@@ -54,7 +55,12 @@ defmodule Ankole.AIGateway do
     # why it never reaches a Provider adapter by itself.
     if Compaction.compaction_trigger?(request) do
       with :ok <- ensure_stateless_request(request),
-           {:ok, body} <- Compaction.compact_from_trigger(subject_uid, request),
+           {:ok, body} <-
+             Compaction.compact_from_trigger(
+               subject_uid,
+               request,
+               Keyword.take(opts, [:subject_type, :request_context])
+             ),
            do: {:ok, %{body: body}}
     else
       create_model_response(subject_uid, request, opts)
@@ -145,6 +151,14 @@ defmodule Ankole.AIGateway do
     case execute_response_request(runtime, prepared_request, execute_opts) do
       {:ok, upstream_response} ->
         observation = Observability.finish_round(observation, upstream_response)
+
+        :ok =
+          UsageLedger.record(
+            runtime,
+            Keyword.get(opts, :subject_type),
+            Map.fetch!(upstream_response, :body),
+            aggregate_includes_tool_usage?: Map.has_key?(prepared_request, :hosted_tools)
+          )
 
         result =
           prepared_request

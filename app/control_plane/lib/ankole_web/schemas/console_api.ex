@@ -3585,6 +3585,90 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule TokenQuota do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "TokenQuota",
+        type: :object,
+        properties: %{
+          period_days: %Schema{type: :integer, minimum: 1},
+          period_start_at: %Schema{type: :string},
+          limit_tokens: %Schema{type: :integer, minimum: 1}
+        },
+        required: [:period_days, :period_start_at, :limit_tokens],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule TokenQuotaUsage do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "TokenQuotaUsage",
+        type: :object,
+        properties: %{
+          window_started_at: %Schema{type: :string},
+          window_ends_at: %Schema{type: :string},
+          used_tokens: %Schema{type: :integer},
+          exceeded: %Schema{type: :boolean}
+        },
+        required: [:window_started_at, :window_ends_at, :used_tokens, :exceeded],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule TokenQuotaResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "TokenQuotaResponse",
+        type: :object,
+        properties: %{
+          token_quota: %Schema{oneOf: [TokenQuota], nullable: true},
+          usage: %Schema{oneOf: [TokenQuotaUsage], nullable: true}
+        },
+        required: [:token_quota, :usage],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule TokenQuotaWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "TokenQuotaWriteRequest",
+        type: :object,
+        properties: %{
+          period_days: %Schema{type: :integer, minimum: 1},
+          period_start_at: %Schema{type: :string},
+          limit_tokens: %Schema{type: :integer, minimum: 1}
+        },
+        required: [:period_days, :period_start_at, :limit_tokens],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AgentComputerWorkerItem do
     @moduledoc false
 

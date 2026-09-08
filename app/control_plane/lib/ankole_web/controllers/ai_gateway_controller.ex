@@ -52,7 +52,8 @@ defmodule AnkoleWeb.AIGatewayController do
             conn,
             subject_uid,
             request,
-            AIGateway.stream_requested?(request)
+            AIGateway.stream_requested?(request),
+            response_opts
           )
 
         AIGateway.stream_requested?(request) ->
@@ -250,10 +251,15 @@ defmodule AnkoleWeb.AIGatewayController do
     json(conn, body)
   end
 
-  defp compaction_trigger_response(conn, subject_uid, request, streaming?) do
+  defp compaction_trigger_response(conn, subject_uid, request, streaming?, opts) do
     case with(
            :ok <- AIGateway.ensure_stateless_request(request),
-           do: Compaction.compact_from_trigger(subject_uid, request)
+           do:
+             Compaction.compact_from_trigger(
+               subject_uid,
+               request,
+               Keyword.take(opts, [:subject_type, :request_context])
+             )
          ) do
       {:ok, body} when not streaming? ->
         json(conn, body)

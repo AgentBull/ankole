@@ -36,6 +36,7 @@ import type { CodexJobOptions, TurnHandlerResult } from '../../turns/turn_option
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
   classifyCodexRecoveryFailure,
+  codexAgentTokenQuotaExceeded,
   codexCredentialPoolExhaustion,
   initialCodexRecoveryState,
   transitionCodexRecovery,
@@ -101,6 +102,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private completionPending = false
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
+  private pendingAgentTokenQuotaExceeded = false
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
   private replayedThreadOnResume = false
@@ -694,6 +696,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     this.recoveryInFlight = true
     try {
+      if (this.pendingAgentTokenQuotaExceeded || codexAgentTokenQuotaExceeded(error)) {
+        throw new AgentTokenQuotaExceededError(error)
+      }
+
       const poolExhaustion = codexCredentialPoolExhaustion(error) ?? this.pendingCredentialPoolExhaustion
       if (poolExhaustion) throw new CodexCredentialPoolExhaustedError(poolExhaustion, error)
 
@@ -790,8 +796,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     if (projection.type === 'credential_pool_exhausted') {
       this.pendingCredentialPoolExhaustion = projection.exhaustion
+    } else if (projection.type === 'agent_token_quota_exceeded') {
+      this.pendingAgentTokenQuotaExceeded = true
     } else if (projection.type === 'turn_started') {
       this.pendingCredentialPoolExhaustion = undefined
+      this.pendingAgentTokenQuotaExceeded = false
       this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
     } else if (projection.type === 'agent_completed') {
@@ -1250,6 +1259,19 @@ class CodexTurnNoProgressError extends Error {
   constructor(timeoutMs: number) {
     super(`Codex turn produced no runtime progress within ${timeoutMs}ms after turn/start`)
     this.name = 'CodexTurnNoProgressError'
+  }
+}
+
+class AgentTokenQuotaExceededError extends Error {
+  readonly code = 'agent_token_quota_exceeded'
+  readonly retryable = false
+  readonly status = 429
+
+  constructor(cause: JSONObject) {
+    super('The Agent has used its token quota for the current period.', {
+      cause: new Error(stringValue(cause.message) ?? 'AIGateway rejected the request at the Agent token quota')
+    })
+    this.name = 'AgentTokenQuotaExceededError'
   }
 }
 
