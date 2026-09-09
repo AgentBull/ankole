@@ -11,34 +11,29 @@ tags: [Research, Evidence, Forecast, ACH, Retrospect]
 
 ## Clarify the request
 
-Interview the human relentlessly about every unresolved aspect of the research
-request until you reach a shared understanding. You have reached that
-understanding only when the research goal and intent, any applicable success
-criteria, and all relevant constraints are clear.
+Establish the research goal and intent, the success criteria, and the
+constraints from the request, the conversation, relevant memory, and what the
+environment and tools can tell you. If a fact can be found with a tool, look it
+up rather than asking.
 
-Build this understanding from the request, conversation, relevant memory,
-first-principles reasoning, and the available environment and tools. If a fact
-can be found in the environment or with tools, look it up rather than asking.
-The decisions, though, are the human's: put each unresolved decision to them and
-wait for their answer.
+Ask the human only about a decision that changes the conclusion, the
+authorization, or the deliverable scope and that you cannot settle yourself.
+Ask one question at a time, give your recommended answer, and wait for the
+reply; start with the question whose wrong answer wastes the most work, usually
+what the research must establish, rarely the output format. A request that is
+already explicit and within an existing authorization, such as a monitoring or
+research task the human has already defined, needs no confirmation round: state
+the assumptions you make and create the Job.
 
-Walk down each branch of the decision tree, resolving dependencies between
-decisions one by one, starting with the question whose wrong answer wastes the
-most work — usually what the research must establish, rarely the output format.
-For each question, give your recommended answer. Ask one question at a time and
-wait for feedback before continuing.
+Before the first question, tell the human that they may ask you to create the
+Job without further clarification. Treat such a request as confirmation: stop
+asking, state your assumptions, what the Job will treat as given, and the
+choices left to the Job, then create the Job.
 
-Before the first question, tell the human that they may ask you to directly
-create the Job without further clarification and let it decide the unanswered
-research choices. Treat such a request as confirmation: stop asking questions
-and briefly state your assumptions, what the Job will treat as given, and the
-choices left to the Job.
-
-When no unresolved aspect remains, show the human the requirements you are
-about to send and what the Job will treat as given. Do not create the Job until
-the human confirms them.
-
-P.s. Remember to remind the human that deep research may take 30-90 minutes, because it may involve multiple rounds of research, analysis, and deduction to produce a high-quality report. If the human is not willing to wait, suggest that they ask for a quick answer instead. 
+Tell the human how long this Job is likely to take from what the task needs; a
+full research run with several collection and verification rounds commonly
+takes tens of minutes. If the human is not willing to wait, offer a quick answer
+instead.
 
 ## Start the Job
 
@@ -49,8 +44,9 @@ Call `create_background_job` once with these arguments:
 - `workspace_template_id`: must be 'deep-research' to ensure the Job has the right environment and tools.
 
 The Job automatically receives every current enabled Skill that permits
-Background Agent Jobs. Tell the human that the Job started and give them its
-`job_id`.
+Background Agent Jobs. Tell the human that the Job started, with its `job_id`,
+only after the tool confirms the creation; a failed creation is reported as a
+failure, not as a started Job.
 
 ## After the Job starts
 
@@ -59,7 +55,12 @@ make, ask the human.
 
 If needed, you could use the `send_message_to_background_job` tool to send a steering message to the Job.
 
-When the Job successfully completes, it will send a message to you. Read `report/report.md` in the Job workspace before you forward the result: the goal is a delivered report that serves the confirmed research purpose. If the report states a gap or limitation that defeats that purpose, tell the human, and steer the Job when you can supply what it lacked — new information you hold, or a decision from the human.
+When the Job completes, its result wakes you with the report's real paths. The
+Job has already verified the report against the task, so deliver from that
+result under the background job policy: attach the named files and report the
+outcome. If the result states a gap or limitation that defeats the confirmed
+research purpose, tell the human, and continue the Job when you can supply what
+it lacked — new information you hold, or a decision from the human.
 
 ## Register resolvable predictions
 

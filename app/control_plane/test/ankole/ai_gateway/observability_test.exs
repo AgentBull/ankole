@@ -108,7 +108,9 @@ defmodule Ankole.AIGateway.ObservabilityTest do
             request: %{
               "input" => [%{"role" => "user", "content" => "hello"}],
               "api_key" => "must-not-leave",
-              "image_url" => "data:image/png;base64,secret"
+              "image_url" => "data:image/png;base64,secret",
+              "parallel_tool_calls" => true,
+              "previous_response_id" => nil
             }
           }
         }
@@ -124,6 +126,9 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         "id" => "resp-provider",
         "model" => "gpt-test-2026",
         "status" => "completed",
+        "instructions" => "echoed-instructions-must-not-leave",
+        "input" => [%{"role" => "user", "content" => "echoed-input-must-not-leave"}],
+        "tools" => [%{"type" => "function", "name" => "echoed_tool_must_not_leave"}],
         "output" => [%{"type" => "message", "content" => "world"}],
         "usage" => %{"input_tokens" => 3, "output_tokens" => 2, "total_tokens" => 5}
       }
@@ -162,7 +167,13 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     refute input =~ "must-not-leave"
     refute input =~ "base64,secret"
     assert input =~ "inline_data"
-    assert generation.attributes["langfuse.observation.output"] =~ "world"
+    assert input =~ ~s("parallel_tool_calls":true)
+    assert input =~ ~s("previous_response_id":null)
+
+    output = generation.attributes["langfuse.observation.output"]
+    assert output =~ "world"
+    assert output =~ ~s("status":"completed")
+    refute output =~ "must-not-leave"
     refute Map.has_key?(generation.attributes, "ankole.ai_gateway.input")
     refute Map.has_key?(generation.attributes, "ankole.ai_gateway.output")
     refute Map.has_key?(generation.attributes, "gen_ai.prompt")

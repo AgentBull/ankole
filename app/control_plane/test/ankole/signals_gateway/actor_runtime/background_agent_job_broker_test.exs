@@ -343,7 +343,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     |> BackgroundAgentJobs.get_job_for_agent(agent.uid)
     |> Ecto.Changeset.change(%{
       status: "succeeded",
-      result: %{"output_text" => output_text},
+      result: %{
+        "output_text" => output_text,
+        "project_path" => "/agents/agent/jobs/1",
+        "artifacts" => %{
+          "paths" => ["/agents/agent/jobs/1/report/report.md"],
+          "total_count" => 1,
+          "truncated" => false
+        },
+        "artifact_roots" => %{
+          "paths" => ["/agents/agent/jobs/1"],
+          "total_count" => 1,
+          "truncated" => false
+        },
+        "usage" => %{"total_tokens" => 10}
+      },
       completed_at: DateTime.utc_now(:microsecond)
     })
     |> Repo.update!()
@@ -365,7 +379,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     first = job_payload(first_response)
     assert first.status == "succeeded"
     assert first.result_ref.job_id == job_id
+    assert first.workspace_owner_job_id == job_id
     assert first.execution_json == ""
+
+    assert Torque.decode!(first.result_paths_json) == %{
+             "project_path" => "/agents/agent/jobs/1",
+             "artifacts" => %{
+               "paths" => ["/agents/agent/jobs/1/report/report.md"],
+               "total_count" => 1,
+               "truncated" => false
+             },
+             "artifact_roots" => %{
+               "paths" => ["/agents/agent/jobs/1"],
+               "total_count" => 1,
+               "truncated" => false
+             }
+           }
+
     assert first.result_output_total_bytes == Integer.to_string(byte_size(output_text))
     assert byte_size(first.result_output_text) <= 16_384
     assert String.valid?(first.result_output_text)

@@ -21,12 +21,15 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     websocket_read_failed websocket_send_failed
   )
   @legacy_provider_status_codes ~w(invalid_upstream_response upstream_response_failed)
-  # `server_error` is the code a Codex gateway substitutes for `server_is_overloaded`
-  # on a mid-stream capacity shed, which carries no HTTP status.
+  # Providers report the same capacity failure under several codes and types.
+  # A Codex gateway substitutes `server_error` for `server_is_overloaded` on a
+  # mid-stream capacity shed, which carries no HTTP status. Every alias here
+  # keeps its provider failure identity and stays retryable.
   @retryable_provider_codes ~w(
-    rate_limit rate_limited rate_limit_exceeded server_error server_is_overloaded slow_down
-    too_many_requests
+    overloaded_error rate_limit rate_limited rate_limit_exceeded server_error
+    server_is_overloaded slow_down too_many_requests
   )
+  @retryable_provider_types ~w(overloaded_error server_error service_unavailable_error)
   # Codex reads only the error code on a terminal Responses failure and treats
   # every code outside this vocabulary as retryable, so a permanent rejection
   # must arrive as one of these codes.
@@ -726,24 +729,35 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       }
       |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
-    %{
-      error_code: error_code,
-      error_stage:
-        first_string([
-          value(details, "stage"),
-          value(error, "stage"),
-          value(reason, "stage")
-        ]),
-      provider_status: provider_status,
-      http_status: http_status,
-      retryable: retryable(explicit_retryable, provider_status || http_status, error_code),
-      retry_at:
-        retry_at_string(
-          value(reason, "retry_at") || value(error, "retry_at") || value(details, "retry_at")
-        )
-    }
-    |> Map.merge(provider_error_fields(excerpt))
-    |> Map.merge(explicit_provider_fields)
+    fields =
+      %{
+        error_code: error_code,
+        error_stage:
+          first_string([
+            value(details, "stage"),
+            value(error, "stage"),
+            value(reason, "stage")
+          ]),
+        provider_status: provider_status,
+        http_status: http_status,
+        retry_at:
+          retry_at_string(
+            value(reason, "retry_at") || value(error, "retry_at") || value(details, "retry_at")
+          )
+      }
+      |> Map.merge(provider_error_fields(excerpt))
+      |> Map.merge(explicit_provider_fields)
+
+    Map.put(
+      fields,
+      :retryable,
+      retryable(
+        explicit_retryable,
+        provider_status || http_status,
+        error_code,
+        Map.get(fields, :provider_error_type) || string(value(error, "type"))
+      )
+    )
   end
 
   defp reason_fields(reason) when is_atom(reason),
@@ -771,12 +785,20 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
 
   defp provider_error_fields(_body), do: %{}
 
-  defp retryable(value, _status, _code) when is_boolean(value), do: value
-  defp retryable(_value, _status, code) when code in @timeout_codes, do: true
-  defp retryable(_value, _status, code) when code in @transport_codes, do: true
-  defp retryable(_value, _status, "invalid_upstream_response"), do: true
-  defp retryable(_value, _status, code) when code in @retryable_provider_codes, do: true
-  defp retryable(_value, status, _code), do: retryable_status?(status)
+  defp retryable(value, status, code), do: retryable(value, status, code, nil)
+
+  defp retryable(value, _status, _code, _type) when is_boolean(value), do: value
+  defp retryable(_value, _status, code, _type) when code in @timeout_codes, do: true
+  defp retryable(_value, _status, code, _type) when code in @transport_codes, do: true
+  defp retryable(_value, _status, "invalid_upstream_response", _type), do: true
+
+  defp retryable(_value, _status, code, _type) when code in @retryable_provider_codes,
+    do: true
+
+  defp retryable(_value, _status, _code, type) when type in @retryable_provider_types,
+    do: true
+
+  defp retryable(_value, status, _code, _type), do: retryable_status?(status)
 
   defp retryable_status?(nil), do: nil
   defp retryable_status?(status) when status in [408, 409, 425, 429], do: true

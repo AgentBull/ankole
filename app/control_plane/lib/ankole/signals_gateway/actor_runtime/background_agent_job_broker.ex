@@ -96,10 +96,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
          %{
            job: %Job{} = job,
            output_window: output_window,
-           total_bytes: total_bytes
+           total_bytes: total_bytes,
+           result_paths: result_paths
          } <- BackgroundAgentJobs.get_result_window_for_agent(job_id, turn_ref.agent_uid, offset),
          :ok <- authorize_job_target(turn_ref, job),
-         {:ok, response} <- result_output_response(job, offset, output_window, total_bytes) do
+         {:ok, response} <-
+           result_output_response(job, offset, output_window, total_bytes, result_paths) do
       {:ok, response}
     else
       nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
@@ -498,7 +500,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   defp result_ref(%Job{}), do: nil
 
-  defp result_output_response(%Job{} = job, offset, output_window, total_bytes) do
+  defp result_output_response(%Job{} = job, offset, output_window, total_bytes, result_paths) do
     with {:ok, {output_text, total_bytes}} <-
            result_output_window(job, offset, output_window, total_bytes) do
       {:ok,
@@ -506,9 +508,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
          job_id: Integer.to_string(job.id),
          status: job.status,
          title: job.title,
+         workspace_owner_job_id: optional_job_id(job.workspace_owner_job_id),
          result_ref: result_ref(job),
          result_output_text: output_text,
-         result_output_total_bytes: Integer.to_string(total_bytes)
+         result_output_total_bytes: Integer.to_string(total_bytes),
+         result_paths_json: encode_optional_json(result_paths)
        }}
     end
   end

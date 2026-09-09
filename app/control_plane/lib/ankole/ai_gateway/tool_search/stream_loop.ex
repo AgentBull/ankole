@@ -726,6 +726,11 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   end
 
   @doc false
+  @spec round_output_items(t(), map()) :: [map()]
+  def round_output_items(%__MODULE__{} = loop, %{} = response),
+    do: rewrite_items(loop, terminal_output(loop, response))
+
+  @doc false
   @spec rewrite_public_items(t() | nil, [map()]) :: [map()]
   def rewrite_public_items(nil, items), do: items
   def rewrite_public_items(%__MODULE__{} = loop, items), do: rewrite_items(loop, items)

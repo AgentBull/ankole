@@ -1329,7 +1329,12 @@ generation under the same Turn or Response parent. A provider-native compact
 call is one `compact {model}` root generation of its own. A provider terminal
 ends the generation before image persistence, stateful commit, or public
 projection settles the request, so provider completion is not confused with
-durable Response completion or ActorEvent delivery.
+durable Response completion or ActorEvent delivery. The generation output is
+the round's own output items, identity, status, usage, and error; when a
+streamed terminal envelope carries an empty `output`, the items already admitted
+through `response.output_item.done` in that round are the output. The request
+that a provider terminal echoes (`instructions`, `input`, `tools`) is not part
+of the output. Exported content keeps JSON booleans and `null` as such.
 
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token
@@ -1434,7 +1439,9 @@ Request-validation errors and socket command errors stay outside this Provider
 stream rule. For retry decisions, a boolean
 `response.failed.error.retryable` value is authoritative. When this field is
 absent, a caller infers retryability from compatible status, code, and message
-signals.
+signals. A provider capacity failure stays retryable whichever alias the
+provider uses, including a `server_error` code or a `service_unavailable_error`,
+`server_error`, or `overloaded_error` type without an HTTP status.
 
 The public stream rejects a provider completion that contains an incomplete
 client tool call. If a terminal output omits its item identity, AIGateway

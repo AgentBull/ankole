@@ -1579,7 +1579,16 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   defp finish_observed_round(state, %{"type" => type} = event)
        when type in ["response.completed", "response.failed", "response.incomplete"] do
-    %{state | observability: Observability.finish_round(state.observability, event)}
+    response =
+      event
+      |> Map.get("response")
+      |> case do
+        %{} = response -> response
+        _missing -> %{}
+      end
+      |> Map.put("output", State.round_output_items(state.semantic, event))
+
+    %{state | observability: Observability.finish_round(state.observability, response)}
   end
 
   defp finish_observed_round(state, _event), do: state

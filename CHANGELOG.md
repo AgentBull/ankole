@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.0.3-rc.2 (2026-09-07)
+
+- A provider capacity failure that arrives only as a `service_unavailable_error`, `server_error`, or `overloaded_error` type without an HTTP status is now retried like the other overload aliases, so a user message, scheduled task, or research completion notice recovers instead of entering the dead-letter queue.
+- Reading a finished background job's result now returns the job's real Workspace and absolute artifact paths with every chunk, including the inherited Workspace of a continued job, so a report can be delivered from another session without guessing a directory or redoing the research. The delivery policy names the copy-to-user-files step and forbids invented download links.
+- Agent traces record each model generation's own output instead of an empty envelope that echoed the request, and keep JSON booleans and nulls in exported content.
+- Deep Research asks only the clarifying questions that change the outcome, states the expected wait per task, delivers from the job's verified result, checks event timing before reading a market reaction, and keeps the reader's chosen objective when it corrects a fact.
+
 ## Version 1.0.3-rc.1 (2026-09-07)
 
 - A turn that a provider ends with a `server_error` code, such as a Codex gateway relaying an OpenAI capacity overload, is now retried automatically instead of stopping with "自动重试已停止".
