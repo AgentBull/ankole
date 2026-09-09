@@ -218,23 +218,6 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              }
     end
 
-    test "ordinary turn strips the silent-success sentinel instead of leaking it" do
-      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
-
-      assert {:ok, _completed} =
-               StatefulResponses.commit_complete(
-                 message,
-                 assistant_content("<silent_success/>")
-               )
-
-      # The sentinel is not a user-visible projection. It is stripped, so the
-      # empty completion is rejected and no marker text reaches the outbox.
-      assert {:error, :turn_completion_has_no_user_visible_projection} =
-               commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
-
-      refute Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
-    end
-
     test "turn completion with preview writes a durable edit outbox and upserts final marker" do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 

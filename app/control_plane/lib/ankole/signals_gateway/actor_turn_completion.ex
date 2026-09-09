@@ -18,6 +18,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.ScheduledTurn
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Logging
@@ -30,17 +31,17 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.BackgroundAgentJobs
 
+  @scheduled_reply_errors [:invalid_scheduled_reply, :schedule_silent_success_not_allowed]
+
   @spec handle(TurnRef.t(), String.t() | nil, String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def handle(%TurnRef{} = turn_ref, final_response_id, outcome, opts) when is_list(opts) do
     with {:ok, outcome} <- completion_outcome(outcome),
          {:ok, final_response_id} <- completion_response_id(final_response_id, outcome) do
-      case completed_actor_event(turn_ref) do
+      case terminal_actor_event(turn_ref) do
         %ActorEvent{} = event ->
-          with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
-            {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
-            |> after_commit(turn_ref, final_response_id, outcome, nil)
-          end
+          terminal_completion_result(event, final_response_id, outcome)
+          |> after_commit(turn_ref, final_response_id, outcome, nil)
 
         nil ->
           with {:ok, completion} <- load_completion(turn_ref, final_response_id, outcome) do
@@ -58,8 +59,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   # A silent turn projects no reply. When the worker adopted a Response, that
   # chain still has to belong to this turn and end in success.
   defp load_completion(turn_ref, final_response_id, "silent") do
-    with :ok <- validate_silent_response(turn_ref, final_response_id) do
-      {:ok, %{final_response_id: final_response_id, final_text: nil}}
+    with {:ok, turn_chain} <- silent_response_chain(turn_ref, final_response_id) do
+      {:ok, Map.merge(turn_chain, %{final_response_id: final_response_id, final_text: nil})}
     end
   end
 
@@ -69,20 +70,17 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
-  defp validate_silent_response(_turn_ref, nil), do: :ok
+  defp silent_response_chain(_turn_ref, nil), do: {:ok, %{}}
 
-  defp validate_silent_response(turn_ref, final_response_id) do
-    with {:ok, _turn_chain} <- AIGatewayLink.load_turn_chain(turn_ref, final_response_id) do
-      :ok
-    end
-  end
+  defp silent_response_chain(turn_ref, final_response_id),
+    do: AIGatewayLink.load_turn_chain(turn_ref, final_response_id)
 
-  defp completed_actor_event(turn_ref) do
+  defp terminal_actor_event(turn_ref) do
     ActorEvent
     |> where([event], event.id == ^turn_ref.actor_event_id)
     |> where([event], event.agent_uid == ^turn_ref.agent_uid)
     |> where([event], event.session_id == ^turn_ref.session_id)
-    |> where([event], not is_nil(event.completed_at))
+    |> where([event], not is_nil(event.completed_at) or event.input_state == "dead_letter")
     |> Repo.one()
   end
 
@@ -90,10 +88,11 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     rows = TurnRef.lookup(repo, turn_ref)
 
     case lock_actor_event(repo, turn_ref) do
+      %ActorEvent{input_state: "dead_letter"} = event ->
+        terminal_completion_result(event, completion.final_response_id, outcome)
+
       %ActorEvent{completed_at: %DateTime{}} = event ->
-        with :ok <- validate_completion_anchor(event, completion.final_response_id, outcome) do
-          {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
-        end
+        terminal_completion_result(event, completion.final_response_id, outcome)
 
       %ActorEvent{} = event ->
         rows = %{rows | deliveries: TurnRef.lock_live_deliveries(repo, turn_ref)}
@@ -141,8 +140,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          outcome,
          now
        ) do
-    with %ActorEvent{} = reply_event <-
-           applied_reply_event(repo, event, deliveries, turn_ref),
+    reply_event = applied_reply_event(repo, event, deliveries, turn_ref)
+
+    with {:ok, completion} <- ScheduledTurn.project_completion(event, completion, outcome),
+         :ok <- require_user_visible_projection(completion, outcome),
          {:ok, outboxes} <- commit_outboxes(repo, reply_event, completion, outcome, now),
          {:ok, completed_events} <-
            complete_accepted_events(repo, event, deliveries, turn_ref, completion, outcome, now),
@@ -153,6 +154,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
        %{
          status: :turn_completed,
          outcome: outcome,
+         final_text: completion.final_text,
          actor_event: completed_main_event(completed_events, event),
          reply_actor_event: reply_event,
          activation: activation,
@@ -161,7 +163,78 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          deleted_deliveries: deleted_count,
          superseded_deliveries: superseded_count
        }}
+    else
+      {:error, reason} when reason in @scheduled_reply_errors ->
+        fail_scheduled_completion_in_tx(
+          repo,
+          event,
+          reply_event,
+          activation,
+          deliveries,
+          turn_ref,
+          completion,
+          outcome,
+          reason,
+          now
+        )
+
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  defp require_user_visible_projection(_completion, "silent"), do: :ok
+
+  defp require_user_visible_projection(completion, _outcome) do
+    if is_binary(completion.final_text) or is_map(completion.clarify_prompt) or
+         completion.attachments != [],
+       do: :ok,
+       else: {:error, :turn_completion_has_no_user_visible_projection}
+  end
+
+  defp fail_scheduled_completion_in_tx(
+         repo,
+         event,
+         reply_event,
+         activation,
+         deliveries,
+         turn_ref,
+         completion,
+         outcome,
+         error,
+         now
+       ) do
+    reason = %{
+      "code" => Atom.to_string(error),
+      "final_response_id" => completion.final_response_id,
+      "outcome" => outcome
+    }
+
+    with {:ok, failed_events} <-
+           dead_letter_applied_events(repo, event, deliveries, turn_ref, reason, now),
+         {:ok, _notice} <-
+           TurnLifecycle.commit_dead_letter_notice_in_tx(repo, reply_event, reason),
+         {:ok, _failure} <- TurnLifecycle.fail_turn_in_tx(repo, activation, turn_ref, reason, now) do
+      {:ok,
+       %{
+         status: :turn_dead_lettered,
+         actor_event: completed_main_event(failed_events, event),
+         error: error
+       }}
+    end
+  end
+
+  defp dead_letter_applied_events(repo, main_event, deliveries, turn_ref, reason, now) do
+    main_event
+    |> completion_event_ids(deliveries, turn_ref)
+    |> Enum.reduce_while({:ok, []}, fn id, {:ok, events} ->
+      event = Actors.lock_actor_event_in_tx(repo, id)
+
+      case Actors.mark_event_dead_letter_in_tx(repo, event, now, reason) do
+        {:ok, event} -> {:cont, {:ok, [event | events]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp applied_reply_event(repo, main_event, deliveries, turn_ref) do
@@ -509,9 +582,36 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     {deleted_count, superseded_count}
   end
 
+  defp after_commit(
+         {:ok, %{status: :turn_dead_lettered, error: error}},
+         turn_ref,
+         final_response_id,
+         _outcome,
+         _final_text
+       ) do
+    AIReplyPreview.stop(turn_ref.actor_event_id)
+    Observability.finish_turn(turn_ref.actor_event_id, outcome: "failed")
+
+    Logging.warning(
+      "signals_gateway.scheduled_reply_rejected",
+      "scheduled reply rejected and turn stopped",
+      %{
+        actor_event_id: turn_ref.actor_event_id,
+        final_response_id: final_response_id,
+        reason: error
+      }
+    )
+
+    {:error, error}
+  end
+
   defp after_commit({:ok, result}, turn_ref, final_response_id, outcome, final_text) do
     AIReplyPreview.stop(turn_ref.actor_event_id)
-    Observability.finish_turn(turn_ref.actor_event_id, output: final_text, outcome: outcome)
+
+    Observability.finish_turn(turn_ref.actor_event_id,
+      output: Map.get(result, :final_text, final_text),
+      outcome: outcome
+    )
 
     Logging.info(
       "signals_gateway.actor_turn_completed",
@@ -570,6 +670,25 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp completion_anchor(completion, outcome) do
     %{final_response_id: completion.final_response_id, turn_outcome: outcome}
+  end
+
+  defp terminal_completion_result(
+         %ActorEvent{input_state: "dead_letter", dead_letter_reason: reason} = event,
+         final_response_id,
+         outcome
+       )
+       when is_map(reason) do
+    error = Enum.find(@scheduled_reply_errors, &(Atom.to_string(&1) == reason["code"]))
+
+    if error && reason["final_response_id"] == final_response_id && reason["outcome"] == outcome,
+      do: {:ok, %{status: :turn_dead_lettered, actor_event: event, error: error}},
+      else: {:error, :actor_turn_completion_conflict}
+  end
+
+  defp terminal_completion_result(event, final_response_id, outcome) do
+    with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
+      {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
+    end
   end
 
   defp validate_completion_anchor(

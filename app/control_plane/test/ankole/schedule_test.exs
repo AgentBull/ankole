@@ -35,7 +35,8 @@ defmodule Ankole.ScheduleTest do
       turn_proto_ref: 1,
       turn_accepted_payload: 1,
       commit_turn_completion: 3,
-      complete_turn_silent: 1,
+      complete_turn_silent: 2,
+      complete_aigateway_turn!: 2,
       turn_start_payload!: 1,
       decoded_request_context: 1
     ]
@@ -2129,7 +2130,12 @@ defmodule Ankole.ScheduleTest do
       search: degraded since 2026-07-05 06:42 Asia/Shanghai
       """
 
-      committed = complete_turn_via_aigateway!(cron_turn_ref, dashboard_report)
+      committed =
+        complete_turn_via_aigateway!(
+          cron_turn_ref,
+          Ankole.JSON.encode!(%{outcome: "reply", reply: dashboard_report})
+        )
+
       dispatch_final_reply_outbox!(committed.id)
       mirror = wait_for_final_mirror(committed.id)
 
@@ -2188,8 +2194,14 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
+      final =
+        complete_aigateway_turn!(
+          turn_ref,
+          ~s({"outcome":"silent_success","reply":null})
+        )
+
       assert {:ok, %{status: :turn_completed}} =
-               complete_turn_silent(turn_ref)
+               complete_turn_silent(turn_ref, "resp_#{final.id}")
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -2253,7 +2265,11 @@ defmodule Ankole.ScheduleTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert %Message{} =
-               committed = complete_turn_via_aigateway!(turn_ref, "Daily digest is ready.")
+               committed =
+               complete_turn_via_aigateway!(
+                 turn_ref,
+                 ~s({"outcome":"reply","reply":"Daily digest is ready."})
+               )
 
       dispatch_final_reply_outbox!(committed.id)
       mirror = wait_for_final_mirror(committed.id)
@@ -2369,7 +2385,12 @@ defmodule Ankole.ScheduleTest do
                  now: DateTime.add(first_slot, 3, :second)
                )
 
-      committed = complete_turn_via_aigateway!(cron_turn_ref, "first fire done")
+      committed =
+        complete_turn_via_aigateway!(
+          cron_turn_ref,
+          ~s({"outcome":"reply","reply":"first fire done"})
+        )
+
       dispatch_final_reply_outbox!(committed.id)
       assert wait_for_final_mirror(committed.id).ai_message_id == committed.id
 
@@ -2508,8 +2529,14 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
+      final =
+        complete_aigateway_turn!(
+          turn_ref,
+          ~s({"outcome":"silent_success","reply":null})
+        )
+
       assert {:ok, %{status: :turn_completed}} =
-               complete_turn_silent(turn_ref)
+               complete_turn_silent(turn_ref, "resp_#{final.id}")
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)

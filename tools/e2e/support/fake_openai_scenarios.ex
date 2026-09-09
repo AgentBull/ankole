@@ -42,6 +42,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     "CHAOS_SLOW_STOP",
     "CHAOS_CHECKBACK_WAKE_OK",
     "CHAOS_CHECKBACK_TOOL",
+    "CHAOS_CRON_INVALID_RESULT",
     "CHAOS_CRON_WAKE_OK",
     "CHAOS_CRON_TOOL",
     "CHAOS_AMBIENT_IGNORE",
@@ -192,6 +193,10 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           String.contains?(latest_user_text || "", "CHAOS_CRON_TOOL") ->
         :cron_tool
 
+      String.contains?(prompt, "CHAOS_CRON_INVALID_RESULT") and
+          String.contains?(request_text, "Recurring schedule fire.") ->
+        :cron_invalid_result
+
       String.contains?(prompt, "CHAOS_CRON_WAKE_OK") and
           String.contains?(request_text, "Recurring schedule fire.") ->
         :cron_wakeup
@@ -255,6 +260,19 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       kind == :ambient_noop_decision ->
         {:completion, reply_for(kind), [split_text?: false]}
 
+      kind == :cron_invalid_result ->
+        {:completion, "<sাইলent_success/>", []}
+
+      kind == :cron_wakeup and
+          String.contains?(
+            inspect(request, limit: :infinity),
+            "schedule_silent_success_allowed: true"
+          ) ->
+        {:completion, ~s({"outcome":"silent_success","reply":null}), []}
+
+      kind == :cron_wakeup and count == 1 ->
+        {:completion, "<sাইলent_success/>", []}
+
       true ->
         {:completion, reply_for(kind), []}
     end
@@ -278,7 +296,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp latest_chaos_marker_text(_request), do: nil
 
   defp structured_output_request?(request) when is_map(request) do
-    is_map(request["response_format"]) or is_map(get_in(request, ["text", "format"]))
+    get_in(request, ["response_format", "json_schema", "name"]) == "ambient_intent_route" or
+      get_in(request, ["text", "format", "name"]) == "ambient_intent_route"
   end
 
   defp structured_output_request?(_request), do: false
@@ -373,10 +392,16 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:after_new_recall), do: "CHAOS_AFTER_NEW_RECALL_OK"
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
   defp reply_for(:checkback_tool), do: "CHAOS_CHECKBACK_OK"
-  defp reply_for(:checkback_wakeup), do: "CHAOS_CHECKBACK_WAKE_OK"
+
+  defp reply_for(:checkback_wakeup),
+    do: ~s({"outcome":"reply","reply":"CHAOS_CHECKBACK_WAKE_OK"})
+
   defp reply_for(:compaction_summary), do: "## Active Task\n(none)"
   defp reply_for(:cron_tool), do: "CHAOS_CRON_OK"
-  defp reply_for(:cron_wakeup), do: "CHAOS_CRON_WAKE_OK"
+
+  defp reply_for(:cron_wakeup),
+    do: ~s({"outcome":"reply","reply":"CHAOS_CRON_WAKE_OK"})
+
   defp reply_for(:direct), do: "CHAOS_DIRECT_OK"
   defp reply_for(:dm_isolation_seed), do: "CHAOS_DM_ISOLATION_SEED_OK"
   defp reply_for(:followup_second), do: "CHAOS_FOLLOWUP_SECOND_OK"
@@ -420,6 +445,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
        do: FakeOpenAISkillScenarios.tool_call_for(kind, count)
 
   defp tool_call_for(:read_file_tool, 1), do: tool_call_for(:read_file_command)
+  defp tool_call_for(:cron_invalid_result, 1), do: tool_call_for(:read_file_command)
   defp tool_call_for(:read_file_tool, 2), do: tool_call_for(:read_file_tool)
   defp tool_call_for(:patch_tool, 1), do: tool_call_for(:patch_command)
   defp tool_call_for(:patch_tool, 2), do: tool_call_for(:patch_tool)

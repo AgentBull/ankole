@@ -33,7 +33,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnSilentCompletionTest do
 
     test "records the adopted Response of a silent turn and writes no reply" do
       %{event: input, turn_ref: turn_ref} = start_accepted_turn()
-      final = complete_aigateway_turn!(turn_ref, "<silent_success/>")
+      final = complete_aigateway_turn!(turn_ref, "Observation complete.")
       final_response_id = "resp_#{final.id}"
 
       assert {:ok,

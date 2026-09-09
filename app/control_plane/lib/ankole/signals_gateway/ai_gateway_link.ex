@@ -876,7 +876,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
   @doc """
   Loads and validates the immutable Responses facts named by turn completion,
-  then projects the provider-visible reply from them.
+  then projects the reply content from them. The turn commit validates whether
+  that projection is valid for the ActorEvent, including an empty projection.
 
   The database read happens before the Actor transaction. Terminal AIGateway
   rows are immutable, while the later Actor transaction owns all fence checks
@@ -1499,8 +1500,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
          {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items),
          {:ok, generated_image_attachments} <-
            materialize_generated_images(subject_uid, turn_chain),
-         attachments = attachments ++ generated_image_attachments,
-         :ok <- require_user_visible_projection(final_text, clarify_prompt, attachments) do
+         attachments = attachments ++ generated_image_attachments do
       {:ok,
        %{
          final_text: final_text,
@@ -1627,17 +1627,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
     Enum.reverse(deduped)
   end
-
-  defp require_user_visible_projection(final_text, clarify_prompt, attachments) do
-    if present_text?(final_text) or is_map(clarify_prompt) or attachments != [] do
-      :ok
-    else
-      {:error, :turn_completion_has_no_user_visible_projection}
-    end
-  end
-
-  defp present_text?(text) when is_binary(text), do: String.trim(text) != ""
-  defp present_text?(_text), do: false
 
   defp response_id(%Message{id: id}), do: "resp_#{id}"
 end

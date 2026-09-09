@@ -507,8 +507,20 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert state.presentation["revision"] == 0
     refute state.presentation["thought"]
 
-    assert :ok = Events.publish(response, :output_text_delta, %{text: "<silent_"})
-    assert :ok = Events.publish(response, :output_text_delta, %{text: "success/>"})
+    for text <- [
+          "<sাইলent_success/>",
+          "arbitrary raw output",
+          ~s({"outcome":"silent_success","reply":null})
+        ] do
+      for part <- String.codepoints(text) do
+        assert :ok = Events.publish(response, :output_text_delta, %{text: part})
+        state = :sys.get_state(pid)
+        assert state.silent_rich_pending
+        refute state.dirty
+        assert state.text_buffer == ""
+      end
+    end
+
     refute_receive {:mock_provider_outbox_sent, _outbox}, 100
 
     state = :sys.get_state(pid)
@@ -522,6 +534,55 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+  end
+
+  test "scheduled raw text stays private for plain previews and after a rich owner handoff" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("scheduled-handoff")
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        type: "check_back_later.wakeup",
+        payload: %{"data" => %{"wake_payload" => %{"quiet_success" => false}}}
+      })
+      |> Repo.update!()
+
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "<sাইলent_success/>"})
+    send(pid, :flush_edit)
+    refute_receive {:mock_provider_outbox_sent, _}, 100
+    refute :sys.get_state(pid).preview_established
+
+    adapter = %ReplyPreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
+      open_fun: fn _ -> {:ok, %{}} end,
+      update_fun: fn _ -> {:ok, %{}} end,
+      finalize_fun: fn _ -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, &%{&1 | reply_preview_adapter: adapter})
+    steer = steer_actor_event(subject.uid, actor_event, "scheduled-steer")
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, steer)
+
+    assert :ok =
+             Events.publish(response, :output_text_delta, %{
+               text: ~s({"outcome":"reply","reply":"final report"})
+             })
+
+    state = :sys.get_state(pid)
+    assert state.structured_reply
+    assert state.text_buffer == ""
+    assert state.presentation["answer"] in [nil, ""]
+    stop_preview_and_wait(actor_event.id)
+
+    assert :ok = AIReplyPreview.recover(steer.id)
+
+    assert [{recovered_pid, _}] =
+             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    assert :sys.get_state(recovered_pid).structured_reply
   end
 
   test "CardKit coalesces preview changes for one second between syncs" do

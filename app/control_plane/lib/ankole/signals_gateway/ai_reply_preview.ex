@@ -736,6 +736,11 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     rich? = match?(%ReplyPreviewAdapter{}, rich_adapter)
     checkpoint = event.reply_preview_checkpoint || %{}
 
+    stream_event =
+      if event.id == stream_actor_event_id,
+        do: event,
+        else: Repo.get!(ActorEvent, stream_actor_event_id)
+
     presentation =
       checkpoint
       |> Map.get("presentation")
@@ -754,6 +759,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     state = %{
       actor_event: event,
       stream_actor_event_id: stream_actor_event_id,
+      structured_reply: stream_event.type in ["cron.fire", "check_back_later.wakeup"],
       owner_generation: non_negative_integer(checkpoint["owner_generation"]),
       subject_uid: subject_uid,
       conversation_id: conversation_id,
@@ -784,8 +790,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       rich_retry_ms: 1_000,
       rich_retry_at: nil,
       silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
-      # Worker phase and tool events arrive before a quiet scheduled turn can
-      # choose `<silent_success/>`. Do not let those events open a visible card.
+      # A quiet scheduled turn must not open a card before its result is known.
       silent_rich_pending:
         rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0,
       input_superseded: false,
@@ -931,6 +936,11 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     {:noreply, reset_for_response_started(state)}
   end
 
+  # Scheduled model text is a result envelope. Only durable completion can
+  # validate it and project its reply field to a channel.
+  defp handle_gateway_event(:output_text_delta, _payload, %{structured_reply: true} = state),
+    do: {:noreply, state}
+
   defp handle_gateway_event(:output_text_delta, payload, state) do
     delta = map_value(payload, :text)
 
@@ -946,25 +956,20 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
           input_superseded: false
       }
 
-      if state.silent_success_allowed and
-           AIReplyText.silent_success_marker_prefix?(new_buffer) do
-        {:noreply, state}
-      else
-        if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
-          presentation =
-            if input_superseded? do
-              ReplyPresentation.replace_answer(state.presentation, delta)
-            else
-              ReplyPresentation.append_answer(state.presentation, delta)
-            end
+      if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+        presentation =
+          if input_superseded? do
+            ReplyPresentation.replace_answer(state.presentation, delta)
+          else
+            ReplyPresentation.append_answer(state.presentation, delta)
+          end
 
-          {:noreply,
-           state
-           |> Map.put(:silent_rich_pending, false)
-           |> mark_rich_dirty(presentation)}
-        else
-          handle_plain_text_output_delta(state, new_buffer, preview_text)
-        end
+        {:noreply,
+         state
+         |> Map.put(:silent_rich_pending, false)
+         |> mark_rich_dirty(presentation)}
+      else
+        handle_plain_text_output_delta(state, preview_text)
       end
     else
       {:noreply, state}
@@ -1003,12 +1008,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp handle_gateway_event(_event_type, _payload, state), do: {:noreply, state}
 
-  defp handle_plain_text_output_delta(state, new_buffer, preview_text) do
+  defp handle_plain_text_output_delta(state, preview_text) do
     state =
       cond do
-        state.silent_success_allowed and AIReplyText.silent_success_marker_prefix?(new_buffer) ->
-          state
-
         state.preview_disabled ->
           state
 

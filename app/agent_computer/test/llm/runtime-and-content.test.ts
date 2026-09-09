@@ -701,7 +701,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     }
 
     expect(
-      textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_silent', 'loop_finished')
+      textTurnResultFromAssistantReply(
+        scheduledTurnStart,
+        '{"outcome":"silent_success","reply":null}',
+        'resp_silent',
+        'loop_finished'
+      )
     ).toEqual({
       kind: 'noop_completed',
       reason: 'schedule_silent_success',
@@ -713,7 +718,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       outcome: 'loop_finished'
     })
     expect(
-      textTurnResultFromAssistantReply(turnStartForTest(), '<silent_success/>', 'resp_final', 'loop_finished')
+      textTurnResultFromAssistantReply(
+        turnStartForTest(),
+        '{"outcome":"silent_success","reply":null}',
+        'resp_final',
+        'loop_finished'
+      )
     ).toEqual({
       kind: 'turn_completed',
       finalResponseID: 'resp_final',
@@ -725,7 +735,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       outcome: 'loop_finished'
     })
     expect(
-      textTurnResultFromAssistantReply(scheduledTurnStart, '<silent_success/>', 'resp_exhausted', 'iteration_exhausted')
+      textTurnResultFromAssistantReply(
+        scheduledTurnStart,
+        '{"outcome":"silent_success","reply":null}',
+        'resp_exhausted',
+        'iteration_exhausted'
+      )
     ).toEqual({
       kind: 'turn_completed',
       finalResponseID: 'resp_exhausted',

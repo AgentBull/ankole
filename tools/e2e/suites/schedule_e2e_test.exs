@@ -19,8 +19,10 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
   import Ankole.E2E.WaitHelpers,
     only: [
+      ai_messages_for_actor_event: 1,
       cron_event_for_schedule!: 1,
       deadline: 1,
+      wait_for_actor_event_dead_letter: 3,
       wait_for_completed_actor_event_message: 3,
       wait_until: 2
     ]
@@ -31,6 +33,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
@@ -96,7 +100,130 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert counters[:checkback_tool] == 2
     assert counters[:checkback_wakeup] == 1
     assert counters[:cron_tool] == 2
-    assert counters[:cron_wakeup] == 1
+    assert counters[:cron_wakeup] == 2
+
+    for chat_id <- ["oc_chaos_schedule", "oc_chaos_schedule_secondary"],
+        message <- FakeFeishu.State.visible_messages(ctx.fake_feishu.state, chat_id) do
+      text =
+        FakeFeishu.State.rendered_message_text(ctx.fake_feishu.state, message.id) || ""
+
+      refute text =~ "<sাইলent_success/>"
+      refute text =~ ~s("outcome")
+    end
+  end
+
+  @tag timeout: 300_000
+  @tag ownership_timeout: 300_000
+  @tag :schedule_fanout
+  test "a structured silent result completes without a platform message" do
+    ctx = start_worker_e2e_stack!()
+    cron = run_cron_tool_loop(ctx)
+
+    assert {:ok, schedule} =
+             Schedule.update_cron_schedule(cron.cron_schedule.id, %{
+               "delivery" => Map.put(cron.cron_schedule.delivery, "quiet_success", true)
+             })
+
+    before_ids =
+      Enum.map(
+        FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_chaos_schedule"),
+        & &1.id
+      )
+
+    fire_input = fire_cron_schedule!(schedule)
+
+    assert {:ok, _message} =
+             wait_for_completed_actor_event_message(
+               ctx.container,
+               fire_input.id,
+               deadline(60_000)
+             )
+
+    assert Repo.get!(ActorEvent, fire_input.id).turn_outcome == "silent"
+
+    refute Repo.exists?(
+             from(entry in OutboxEntry, where: entry.source_actor_event_id == ^fire_input.id)
+           )
+
+    assert Enum.map(
+             FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_chaos_schedule"),
+             & &1.id
+           ) == before_ids
+  end
+
+  @tag timeout: 300_000
+  @tag ownership_timeout: 300_000
+  @tag :schedule_fanout
+  test "invalid scheduled results stop after a completed tool without replaying the task" do
+    ctx = start_worker_e2e_stack!()
+    cron = run_cron_tool_loop(ctx)
+
+    assert {:ok, schedule} =
+             Schedule.update_cron_schedule(cron.cron_schedule.id, %{
+               "payload" => %{"task" => "CHAOS_CRON_INVALID_RESULT"}
+             })
+
+    fire_input = fire_cron_schedule!(schedule)
+
+    assert {:ok, failed} =
+             wait_for_actor_event_dead_letter(ctx.container, fire_input.id, deadline(60_000))
+
+    assert is_nil(failed.completed_at)
+    assert failed.dead_letter_reason["code"] == "invalid_scheduled_reply"
+
+    messages = ai_messages_for_actor_event(fire_input.id)
+    assert [_command] = tool_call_items(messages, "command")
+    assert command_tool_succeeded?(messages)
+    assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
+
+    activation =
+      Repo.get_by!(ActorSessionActivation,
+        agent_uid: fire_input.agent_uid,
+        session_id: fire_input.session_id
+      )
+
+    refute ActorSessionActivation.live?(activation)
+
+    refute Repo.exists?(
+             from(delivery in ActorEventDelivery,
+               where: delivery.actor_event_id == ^fire_input.id,
+               where: delivery.state in ^ActorEventDelivery.live_states()
+             )
+           )
+
+    assert {:ok, %{status: :idle}} =
+             process_ready_event_for_actor!(
+               fire_input,
+               DateTime.add(activation.lease_expires_at, 1, :second)
+             )
+
+    assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
+    assert [_command] = tool_call_items(ai_messages_for_actor_event(fire_input.id), "command")
+
+    notice =
+      Repo.get_by!(OutboxEntry,
+        source_actor_event_id: fire_input.id,
+        outbound_key: "ai-dead-letter:#{fire_input.id}"
+      )
+
+    expected_notice =
+      Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => fire_input.id})
+
+    assert notice.fallback_visible_text == expected_notice
+
+    dispatch_and_assert_lark_outbox(
+      ctx.fake_feishu,
+      notice,
+      expected_notice,
+      :post,
+      "oc_chaos_schedule"
+    )
+
+    for message <- FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_chaos_schedule") do
+      text = FakeFeishu.State.rendered_message_text(ctx.fake_feishu.state, message.id) || ""
+      refute text =~ "<sাইলent_success/>"
+      refute text =~ ~s("outcome")
+    end
   end
 
   @tag timeout: 300_000

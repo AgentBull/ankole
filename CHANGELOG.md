@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.0.4-rc.1 (2026-09-09)
+
+- Scheduled tasks validate visible replies and quiet success before delivery, so malformed completion markers do not become chat messages. If result correction fails, the task stops with a failure notice instead of repeating completed actions. Update the control plane and Worker together.
+
 ## Version 1.0.3-rc.2 (2026-09-07)
 
 - A provider capacity failure that arrives only as a `service_unavailable_error`, `server_error`, or `overloaded_error` type without an HTTP status is now retried like the other overload aliases, so a user message, scheduled task, or research completion notice recovers instead of entering the dead-letter queue.

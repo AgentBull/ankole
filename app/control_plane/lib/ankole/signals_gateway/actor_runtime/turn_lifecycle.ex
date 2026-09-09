@@ -403,7 +403,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
          dead_letter? =
            dead_letter_after_turn_error?(event, deliveries, reason, async_work_unit),
-         {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
          {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, reason, now),
          {:ok, event} <-
            maybe_delay_retryable_turn_error(
@@ -417,7 +416,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
            ),
          {:ok, _dead_letter_notice} <-
            maybe_commit_dead_letter_notice(repo, event, dead_letter?, reason),
-         {:ok, activation} <- fail_activation_for_turn_error(repo, activation, reason, now),
+         {:ok, %{activation: activation, superseded_deliveries: superseded_count}} <-
+           fail_turn_in_tx(repo, activation, turn_ref, reason, now),
          {:ok, compensation} <-
            compensate_turn_error_in_tx(compensate_in_tx, repo, event, reason, now) do
       {:ok,
@@ -955,6 +955,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> repo.one()
   end
 
+  @doc """
+  Clears a locked turn's live deliveries and fails its activation.
+  The caller must commit the event's failure or retry decision in this transaction.
+  """
+  def fail_turn_in_tx(repo, activation, turn_ref, reason, now) do
+    with {count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
+         {:ok, activation} <- fail_activation_for_turn_error(repo, activation, reason, now) do
+      {:ok, %{activation: activation, superseded_deliveries: count}}
+    end
+  end
+
   defp supersede_live_deliveries(repo, turn_ref, now, reason) do
     ActorEventDelivery
     |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
@@ -1017,12 +1028,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   # The dead-letter row and its provider-visible terminal intent are one durable
   # fact. Committing them in separate transactions leaves an accepted message
   # permanently silent if the control plane exits between the two writes.
-  defp maybe_commit_dead_letter_notice(
-         repo,
-         %ActorEvent{} = event,
-         true,
-         reason
-       ) do
+  defp maybe_commit_dead_letter_notice(repo, event, true, reason),
+    do: commit_dead_letter_notice_in_tx(repo, event, reason)
+
+  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false, _reason),
+    do: {:ok, nil}
+
+  @doc false
+  def commit_dead_letter_notice_in_tx(repo, %ActorEvent{} = event, reason) do
     if AIReplyPreview.channel_reply_eligible?(event) do
       text = dead_letter_notice_text(repo, event, reason)
 
@@ -1034,9 +1047,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       {:ok, nil}
     end
   end
-
-  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false, _reason),
-    do: {:ok, nil}
 
   defp dead_letter_notice_text(%ActorEvent{} = event),
     do: I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})

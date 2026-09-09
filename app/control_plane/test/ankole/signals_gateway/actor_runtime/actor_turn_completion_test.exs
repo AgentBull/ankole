@@ -106,7 +106,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
         })
         |> Repo.update!()
 
-      final = complete_response(agent.uid, event, "one report for both targets")
+      final =
+        complete_response(
+          agent.uid,
+          event,
+          Ankole.JSON.encode!(%{outcome: "reply", reply: "one report for both targets"})
+        )
 
       assert {:ok,
               %{
@@ -346,6 +351,229 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert secondary.ai_message_id == primary.ai_message_id
       assert secondary.payload["text"] == primary.payload["text"]
       refute Map.has_key?(secondary.payload, "reply_presentation")
+    end
+
+    for type <- ["cron.fire", "check_back_later.wakeup"] do
+      test "#{type} projects only a validated reply" do
+        %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("schedule-reply")
+        event = scheduled_event(event, unquote(type), true)
+        final = complete_response(agent.uid, event, ~s({"outcome":"reply","reply":"发送失败，请检查权限。"}))
+        assert {:ok, %{outboxes: %{finals: [outbox]}}} = complete_turn(turn_ref, final)
+        assert outbox.fallback_visible_text == "发送失败，请检查权限。"
+        assert get_in(outbox.payload, ["reply_presentation", "answer"]) == "发送失败，请检查权限。"
+      end
+
+      for raw <- [
+            "<sাইলent_success/>",
+            "<silent_success/>",
+            "arbitrary text",
+            " ",
+            ~s({"outcome":"silnet_success","reply":null}),
+            ~s({"outcome":"reply","reply":""}),
+            ~s({"outcome":"reply","reply":"hidden","extra":true})
+          ],
+          outcome <- ["loop_finished", "silent"] do
+        test "#{type} terminates invalid #{outcome} result #{inspect(raw)}" do
+          %{agent: agent, event: event, turn_ref: turn_ref} =
+            start_accepted_turn("schedule-invalid")
+
+          event = scheduled_event(event, unquote(type), true)
+          final = complete_response(agent.uid, event, unquote(raw))
+          response_id = "resp_#{final.id}"
+
+          assert {:error, :invalid_scheduled_reply} =
+                   commit_turn_completion(turn_ref, response_id, unquote(outcome))
+
+          assert_schedule_dead_letter(event, turn_ref, response_id, unquote(outcome))
+
+          assert {:error, :invalid_scheduled_reply} =
+                   commit_turn_completion(turn_ref, response_id, unquote(outcome))
+
+          assert {:error, :actor_turn_completion_conflict} =
+                   complete_turn(turn_ref, %{final | id: Ecto.UUID.generate()})
+
+          other_outcome = if unquote(outcome) == "silent", do: "loop_finished", else: "silent"
+
+          assert {:error, :actor_turn_completion_conflict} =
+                   commit_turn_completion(turn_ref, response_id, other_outcome)
+
+          assert Repo.aggregate(
+                   from(entry in OutboxEntry, where: entry.source_actor_event_id == ^event.id),
+                   :count
+                 ) == 1
+        end
+      end
+
+      for allowed <- [true, false] do
+        test "#{type} validates silent completion with quiet_success=#{allowed}" do
+          %{agent: agent, event: event, turn_ref: turn_ref} =
+            start_accepted_turn("schedule-silent")
+
+          event = scheduled_event(event, unquote(type), unquote(allowed))
+
+          final =
+            complete_response(agent.uid, event, ~s({"outcome":"silent_success","reply":null}))
+
+          if unquote(allowed) do
+            assert {:ok, %{outboxes: %{finals: [], attachments: [], clarify: nil}}} =
+                     complete_turn_silent(turn_ref, "resp_#{final.id}")
+
+            assert Repo.get!(ActorEvent, event.id).turn_outcome == "silent"
+
+            assert {:ok, %{status: :already_completed}} =
+                     complete_turn_silent(turn_ref, "resp_#{final.id}")
+          else
+            assert {:error, :schedule_silent_success_not_allowed} =
+                     complete_turn_silent(turn_ref, "resp_#{final.id}")
+
+            assert_schedule_dead_letter(event, turn_ref, "resp_#{final.id}", "silent")
+          end
+        end
+      end
+
+      test "#{type} terminates a silent completion without a response" do
+        %{event: event, turn_ref: turn_ref} = start_accepted_turn("schedule-no-response")
+        event = scheduled_event(event, unquote(type), true)
+        assert {:error, :invalid_scheduled_reply} = complete_turn_silent(turn_ref)
+        assert_schedule_dead_letter(event, turn_ref, nil, "silent")
+      end
+    end
+
+    test "invalid scheduled result cannot replay completed tools after lease expiry" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("schedule-no-replay")
+
+      event = scheduled_event(event, "cron.fire", true)
+
+      final =
+        complete_response_items(agent.uid, event, [
+          %{
+            "type" => "function_call",
+            "name" => "send_message",
+            "call_id" => "call_sent",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_sent",
+            "output" => ~s({"ok":true,"message_id":"already_sent"})
+          },
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => [%{"type" => "output_text", "text" => "<sাইলent_success/>"}]
+          }
+        ])
+
+      refute Ankole.SignalsGateway.AIGatewayLink.turn_replay_safe_in_tx(
+               Repo,
+               %{agent_uid: agent.uid, session_id: event.session_id},
+               event.id
+             )
+
+      assert {:error, :invalid_scheduled_reply} = complete_turn(turn_ref, final)
+      assert_schedule_dead_letter(event, turn_ref, "resp_#{final.id}", "loop_finished")
+      activation = Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref.activation_uid)
+      now = DateTime.add(activation.lease_expires_at, 1, :second)
+
+      ActorRuntime.fail_activation_if_expired(activation.activation_uid,
+        now: now,
+        lease_grace_seconds: 0
+      )
+
+      assert {:ok, %{status: :idle}} =
+               process_ready_events_once(now: now, lease_seconds: @long_lease_seconds)
+
+      refute_receive {:actor_lane, _}, 100
+      assert Repo.get!(Message, final.id).content == final.content
+    end
+
+    test "failed scheduled completion RPC stays idempotent after its fences close" do
+      %{agent: agent, event: event, turn_ref: turn_ref, route: route} =
+        start_accepted_turn("schedule-rpc-failure")
+
+      event = scheduled_event(event, "cron.fire", true)
+      final = complete_response(agent.uid, event, "<sাইলent_success/>")
+
+      payload = %FabricProto.ActorTurnCompleteRequest{
+        final_response_id: "resp_#{final.id}",
+        outcome: "loop_finished"
+      }
+
+      for request_id <- ["failure-first", "failure-retry"] do
+        assert {:ok, envelope} =
+                 RPCLane.handle_request(
+                   rpc_request(request_id, "actor_turn.complete", payload, turn: turn_ref),
+                   route
+                 )
+
+        assert rpc_error_payload!(envelope)["code"] == "invalid_scheduled_reply"
+      end
+
+      assert_schedule_dead_letter(event, turn_ref, "resp_#{final.id}", "loop_finished")
+
+      assert Repo.aggregate(
+               from(entry in OutboxEntry, where: entry.source_actor_event_id == ^event.id),
+               :count
+             ) == 1
+    end
+
+    test "scheduled failure ends the applied steer prefix and keeps new instructions queued" do
+      %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("schedule-steers")
+      event = scheduled_event(event, "check_back_later.wakeup", true)
+      applied = queue_completion_steer(agent.uid, event, "applied")
+      activation = Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref.activation_uid)
+      applied_ref = %{turn_ref | revision: activation.revision}
+      assert {:ok, _} = ActorRuntime.handle_turn_accepted(turn_accepted_payload(applied_ref))
+      pending = queue_completion_steer(agent.uid, event, "pending")
+      final = complete_response(agent.uid, event, "<sাইলent_success/>")
+      assert {:error, :invalid_scheduled_reply} = complete_turn(applied_ref, final)
+      assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+      assert Repo.get!(ActorEvent, applied.id).input_state == "dead_letter"
+      assert Repo.get!(ActorEvent, pending.id).input_state == "open"
+      assert is_nil(Repo.get!(ActorEvent, pending.id).completed_at)
+      assert [%OutboxEntry{source_actor_event_id: owner}] = Repo.all(OutboxEntry)
+      assert owner == applied.id
+
+      assert {:ok, %{turn_ref: next}} =
+               process_ready_events_once(
+                 now: DateTime.utc_now(:microsecond),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert next.actor_event_id == pending.id
+    end
+
+    test "invalid scheduled results cannot terminate a turn through a stale fence" do
+      %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("schedule-fence")
+      event = scheduled_event(event, "cron.fire", true)
+      final = complete_response(agent.uid, event, "<sাইলent_success/>")
+
+      assert {:error, :stale_actor_epoch} =
+               complete_turn(%{turn_ref | actor_epoch: turn_ref.actor_epoch + 1}, final)
+
+      assert_turn_remains_open(event)
+      assert Repo.get!(ActorEvent, event.id).input_state == "open"
+    end
+
+    test "an unroutable scheduled failure still stops instead of retrying" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("schedule-unroutable")
+
+      event = scheduled_event(event, "cron.fire", true)
+
+      Repo.get!(Channel, event.signal_channel_id)
+      |> Channel.changeset(%{reply_mode: :none})
+      |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "<sাইলent_success/>")
+      assert {:error, :invalid_scheduled_reply} = complete_turn(turn_ref, final)
+      assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+
+      assert Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref.activation_uid).status ==
+               "failed"
+
+      refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
     end
 
     test "noop RPC commits once and acknowledges a retry" do
@@ -711,34 +939,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert turn_start_payload!(next_envelope).turn.actor_event_id == steer_event.id
     end
 
-    test "tombstoned source becomes terminal without provider outbox or redelivery" do
-      %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("tombstone")
-      final = complete_response(agent.uid, event, "must not be sent")
+    for scheduled? <- [false, true] do
+      test "tombstoned source cancels completion with scheduled=#{scheduled?}" do
+        %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("tombstone")
 
-      %InputTombstone{}
-      |> InputTombstone.changeset(%{
-        agent_uid: agent.uid,
-        binding_name: event.binding_name,
-        signal_channel_id: event.signal_channel_id,
-        source_entry_id: event.source_entry_id,
-        tombstoned_until: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-      })
-      |> Repo.insert!()
+        event =
+          if unquote(scheduled?),
+            do: scheduled_event(event, "check_back_later.wakeup", true),
+            else: event
 
-      assert {:ok, %{status: :turn_canceled, reason: :actor_event_canceled}} =
-               complete_turn(turn_ref, final)
+        final = complete_response(agent.uid, event, "must not be sent")
 
-      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
-      refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
+        %InputTombstone{}
+        |> InputTombstone.changeset(%{
+          agent_uid: agent.uid,
+          binding_name: event.binding_name,
+          signal_channel_id: event.signal_channel_id,
+          source_entry_id: event.source_entry_id,
+          tombstoned_until: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
+        })
+        |> Repo.insert!()
 
-      live_states = ActorEventDelivery.live_states()
+        assert {:ok, %{status: :turn_canceled, reason: :actor_event_canceled}} =
+                 complete_turn(turn_ref, final)
 
-      refute Repo.exists?(
-               from(delivery in ActorEventDelivery,
-                 where: delivery.actor_event_id_fence == ^event.id,
-                 where: delivery.state in ^live_states
+        assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+        refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
+
+        live_states = ActorEventDelivery.live_states()
+
+        refute Repo.exists?(
+                 from(delivery in ActorEventDelivery,
+                   where: delivery.actor_event_id_fence == ^event.id,
+                   where: delivery.state in ^live_states
+                 )
                )
-             )
+      end
     end
 
     test "completes a channel-less internal turn without provider outboxes" do
@@ -1154,6 +1390,83 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
     turn_ref = turn_start_payload!(envelope).turn
 
     %{agent: agent, event: event, turn_ref: turn_ref, route: route}
+  end
+
+  defp queue_completion_steer(agent_uid, event, suffix) do
+    assert {:ok, %{actor_event: steer}} =
+             emit_entry(
+               agent_uid,
+               "mock",
+               group_entry(%{
+                 source_event_id: "schedule-steer-#{suffix}",
+                 signal_channel_id: event.signal_channel_id,
+                 source_entry_id: "schedule-steer-entry-#{suffix}",
+                 provider_thread_id: event.provider_thread_id,
+                 text: "/steer #{suffix}",
+                 explicit: true
+               }),
+               now: DateTime.utc_now(:microsecond)
+             )
+
+    assert {:ok, %{status: :active_steer_nudged}} =
+             process_ready_events_once(now: DateTime.utc_now(:microsecond))
+
+    assert_receive {:actor_lane, envelope}, 2_000
+    assert envelope_body_type(envelope) == :mailbox_updated
+    steer
+  end
+
+  defp assert_schedule_dead_letter(event, turn_ref, response_id, outcome) do
+    stored = Repo.get!(ActorEvent, event.id)
+    assert stored.input_state == "dead_letter"
+    assert is_nil(stored.completed_at)
+    assert stored.dead_letter_reason["final_response_id"] == response_id
+    assert stored.dead_letter_reason["outcome"] == outcome
+    assert %DateTime{} = stored.dead_letter_at
+    activation = Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref.activation_uid)
+    assert activation.status == "failed"
+    assert is_nil(activation.current_actor_event_id)
+
+    refute Repo.exists?(
+             from(delivery in ActorEventDelivery,
+               where: delivery.actor_event_id_fence == ^event.id,
+               where: delivery.state in ^ActorEventDelivery.live_states()
+             )
+           )
+
+    notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{event.id}")
+    assert get_in(notice.payload, ["reply_presentation", "state"]) == "failed"
+    refute notice.fallback_visible_text =~ "<sাইলent_success/>"
+    refute notice.fallback_visible_text =~ ~s("outcome")
+  end
+
+  defp scheduled_event(event, type, quiet_success) do
+    wake_payload =
+      case type do
+        "cron.fire" ->
+          %{
+            "delivery" => %{
+              "quiet_success" => quiet_success,
+              "targets" => [
+                %{
+                  "binding_name" => event.binding_name,
+                  "signal_channel_id" => event.signal_channel_id,
+                  "provider_thread_id" => event.provider_thread_id
+                }
+              ]
+            }
+          }
+
+        "check_back_later.wakeup" ->
+          %{"quiet_success" => quiet_success}
+      end
+
+    event
+    |> ActorEvent.changeset(%{
+      type: type,
+      payload: %{"data" => %{"wake_payload" => wake_payload}}
+    })
+    |> Repo.update!()
   end
 
   defp complete_response(subject_uid, event, text, opts \\ []) do

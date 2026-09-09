@@ -19,14 +19,11 @@ import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
 import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
+import { parseScheduledReply, scheduledReplyFormat, scheduledReplyReminder } from './scheduled_reply'
 import { createTurnWebTools } from './turn_web_tools'
 import { createTextTurnTools } from './text_turn_tools'
 import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../execution/execution-materials'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-
-// The Worker converts this exact reply to a scheduled no-op only when the
-// request permits silent success.
-const silentSuccessMarker = '<silent_success/>'
 
 /**
  * Runs one Ankole text turn inside Agent Computer.
@@ -39,6 +36,7 @@ const silentSuccessMarker = '<silent_success/>'
 export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
   const modelRef = turnStart.model_ref
   const runtimePolicy = agentRuntimePolicyFromTurnStart(turnStart)
+  const scheduleContext = scheduleTurnContextFromTurnStart(turnStart)
   const turnActivity = createTurnActivity({
     sourceSignal: opts.abortSignal,
     inactivityTimeoutMs: runtimePolicy.inactivityTimeoutMs
@@ -150,7 +148,10 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       availableToolNames: [...tools.map(tool => tool.name), ...hostedBrainOperationNames(hostedTools)],
       ambientRoute: opts.ambientRoute
     }
-    const systemPrompt = buildAgentSystemPrompt(promptOptions)
+    const systemPrompt = [
+      buildAgentSystemPrompt(promptOptions),
+      ...(scheduleContext ? [scheduledReplyReminder(scheduleContext.silentSuccessAllowed)] : [])
+    ].join('\n\n')
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
         timezone: conversationTimezone
@@ -171,6 +172,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       visionFallbackModel,
       maxTokens: runtimePolicy.maxOutputTokens,
       maxModelIterations: runtimePolicy.maxIterations,
+      ...(scheduleContext
+        ? {
+            text: scheduledReplyFormat(),
+            repairTools: [],
+            repairHostedTools: [],
+            nudgeEmptyAfterTools: false
+          }
+        : {}),
       stateful: {
         actorEventID: actorEvent.actor_event_id,
         conversationID: aiGatewayConversationID,
@@ -185,8 +194,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       withActivitySuspended: turnActivity.withSuspended,
       getSteeringMessages: async () =>
         steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied),
-      repairFinalResponse: message =>
-        lacksVisibleReply(assistantText(message), turnStart) ? emptyReplyObligationReminder(turnStart) : undefined
+      repairFinalResponse: message => textTurnReplyRepair(turnStart, assistantText(message))
     })
     if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(
@@ -279,34 +287,35 @@ export function textTurnResultFromAssistantReply(
   finalResponseID: string,
   outcome: 'loop_finished' | 'iteration_exhausted'
 ): TurnHandlerResult {
-  if (outcome === 'loop_finished' && silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)) {
+  const schedule = scheduleTurnContextFromTurnStart(turnStart)
+  if (
+    outcome === 'loop_finished' &&
+    schedule &&
+    parseScheduledReply(replyText, schedule.silentSuccessAllowed)?.outcome === 'silent_success'
+  ) {
     return { kind: 'noop_completed', reason: 'schedule_silent_success', finalResponseID }
   }
 
   return { kind: 'turn_completed', finalResponseID, outcome }
 }
 
-function silentSuccessAllowed(turnStart: TurnStart): boolean {
-  return scheduleTurnContextFromTurnStart(turnStart)?.silentSuccessAllowed === true
-}
-
 /**
- * The control plane rejects a completion with no user-visible projection, and
- * that rejection surfaces only after the turn has ended, as a full turn retry.
- * This one bounded reminder settles the obligation inside the turn instead:
- * the loop injects it once, and a second empty response still ends the turn,
- * so the control-plane contract stays the authority on definite failure.
+ * Repair an invalid scheduled result or an empty ordinary reply once in the
+ * current loop. The control plane still validates the final completion.
  */
-function emptyReplyObligationReminder(turnStart: TurnStart): UserMessage {
+export function textTurnReplyRepair(turnStart: TurnStart, replyText: string): UserMessage | undefined {
+  const schedule = scheduleTurnContextFromTurnStart(turnStart)
+  if (schedule) {
+    return parseScheduledReply(replyText, schedule.silentSuccessAllowed)
+      ? undefined
+      : userMessage(scheduledReplyReminder(schedule.silentSuccessAllowed))
+  }
+  if (replyText.trim() !== '') return undefined
+
   const lines = [
     'You ended your turn with no visible output. This turn was started by an event that requires one, and this turn cannot complete without it: nothing you did reaches the user unless the turn ends with final reply text, a clarify question, or a reply_attachment delivery.',
     'End the turn now with a short final reply. If you already delivered the result through reply_attachment or a generated image, reply with one short closing line. If you are blocked, state plainly what blocked you and what you need.'
   ]
-  if (silentSuccessAllowed(turnStart)) {
-    lines.push(
-      `If this scheduled check found nothing that needs attention, reply exactly ${silentSuccessMarker} and nothing else.`
-    )
-  }
   return { role: 'user', content: lines.join('\n') }
 }
 
@@ -316,19 +325,4 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots {
     agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
     ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
   }
-}
-
-function silentSuccessReply(replyText: string): boolean {
-  return replyText.trim() === silentSuccessMarker
-}
-
-/**
- * A reply carries no usable visible content when it is blank, or when it is only
- * the silent-success sentinel on a turn that did not permit silent success. The
- * bounded empty-reply reminder then asks for a real visible reply instead of
- * letting the raw sentinel become the turn output and leak to the channel.
- */
-function lacksVisibleReply(replyText: string, turnStart: TurnStart): boolean {
-  if (replyText.trim() === '') return true
-  return !silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)
 }

@@ -21,11 +21,6 @@ defmodule Ankole.SignalsGateway.AIReplyTextTest do
       assert AIReplyText.normalize_visible_text(text) == "ABC"
     end
 
-    test "strips the silent-success sentinel so it can never reach a channel" do
-      assert AIReplyText.normalize_visible_text("<silent_success/>") == ""
-      assert AIReplyText.normalize_visible_text("done <silent_success/>") == "done"
-    end
-
     test "keeps ordinary reply text and trims surrounding whitespace" do
       assert AIReplyText.normalize_visible_text("  hello world  ") == "hello world"
     end
@@ -36,11 +31,6 @@ defmodule Ankole.SignalsGateway.AIReplyTextTest do
   end
 
   describe "visible_text/1" do
-    test "collapses a sentinel-only assistant message to nil" do
-      items = [%{"type" => "message", "role" => "assistant", "content" => "<silent_success/>"}]
-      assert AIReplyText.visible_text(items) == nil
-    end
-
     test "returns the cleaned assistant text with citation tokens removed" do
       items = [
         %{

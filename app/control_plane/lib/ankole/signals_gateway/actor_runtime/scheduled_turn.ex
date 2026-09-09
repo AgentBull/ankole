@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
 
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.OutboxEntry
 
   # How many previous fires the identical-reply detection reads. The streak
@@ -64,6 +65,51 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
   end
 
   def silent_success_allowed?(%ActorEvent{}), do: false
+
+  def project_completion(%ActorEvent{type: type} = event, completion, outcome)
+      when type in ["cron.fire", "check_back_later.wakeup"] do
+    text =
+      case Map.get(completion, :final_response) do
+        %{content: content} -> AIReplyText.visible_text(content)
+        _ -> nil
+      end
+
+    case {outcome, decode_reply(text)} do
+      {"silent", {:ok, %{"outcome" => "silent_success", "reply" => nil}}} ->
+        if silent_success_allowed?(event),
+          do: {:ok, %{completion | final_text: nil}},
+          else: {:error, :schedule_silent_success_not_allowed}
+
+      {outcome, {:ok, %{"outcome" => "reply", "reply" => reply}}}
+      when outcome != "silent" and is_binary(reply) ->
+        case AIReplyText.normalize_visible_text(reply) do
+          "" -> {:error, :invalid_scheduled_reply}
+          text -> {:ok, %{completion | final_text: text}}
+        end
+
+      {outcome, :empty} when outcome != "silent" ->
+        if is_map(completion.clarify_prompt) or completion.attachments != [],
+          do: {:ok, completion},
+          else: {:error, :invalid_scheduled_reply}
+
+      _ ->
+        {:error, :invalid_scheduled_reply}
+    end
+  end
+
+  def project_completion(%ActorEvent{}, completion, _outcome), do: {:ok, completion}
+
+  defp decode_reply(nil), do: :empty
+
+  defp decode_reply(text) do
+    case Ankole.JSON.decode(text) do
+      {:ok, %{"outcome" => _, "reply" => _} = result} when map_size(result) == 2 ->
+        {:ok, result}
+
+      _ ->
+        :invalid
+    end
+  end
 
   @doc """
   Counts how many previous fires of this cron schedule produced one identical

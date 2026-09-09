@@ -211,11 +211,30 @@ A checkback contains these model-visible fields:
 `context_summary` accepts 8,000 characters.
 
 `quiet_success` defaults to `false`.
-When it is `true`, the future turn can return exactly `<silent_success/>`.
+Scheduled turns use the `scheduled_turn_result` structured response format.
+A visible result is `{"outcome":"reply","reply":"message text"}`. When
+`quiet_success` is `true`, a turn can instead return
+`{"outcome":"silent_success","reply":null}`. Failures, changed state, or a
+need for human action still require a visible reply.
 
-Agent Computer then completes the turn without sending a provider message.
-Failures, changed state, or a need for human action still require a visible
-reply.
+Agent Computer permits one format correction with tools disabled. The control
+plane validates the result and silent-success permission before it commits
+delivery. An invalid result, including an empty result, ends the turn as a
+dead letter. The same transaction stores its failure reason and Response
+anchor, ends the applied input prefix, releases the turn, and queues the
+standard failure notice for the current reply owner. Unapplied instructions
+stay queued. Repeated completion requests return the same rejection without
+another notice. Lease expiry cannot run the failed task again; completed tool
+results stay in the transcript.
+
+Raw scheduled model text is never streamed to a channel, including after a
+preview owner changes. Only the validated `reply` field enters the final
+outbox. Clarify and attachment tools keep their existing delivery contracts.
+
+Text markers have no control meaning. The structured response instructions
+override old task text that requests a marker. Upgrade the control plane and
+Worker together; an old Worker result fails validation instead of reaching a
+channel.
 
 Updating a pending checkback creates a new row, cancels the old row, and links
 the two.
