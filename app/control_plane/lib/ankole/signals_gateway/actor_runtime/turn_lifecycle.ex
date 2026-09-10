@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
   alias Ankole.SignalsGateway.ActorRuntime.TurnStartFailure
+  alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
@@ -37,10 +38,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   @activation_progress_lease_seconds 2_100
   # Prevent scheduler delay from expiring an activation at its exact deadline.
   @activation_lease_grace_seconds 120
-  # Stop retry loops after repeated recoverable Worker failures. Each delivery
-  # attempt lets the Worker retry one model call locally
-  # (`app/agent_computer/src/core/pi-loop/stream-fn.ts`), so one actor event
-  # can cost local attempts x this delivery count model calls before it
+  # Stop retry loops after repeated recoverable Worker failures. A non-capacity
+  # delivery attempt also lets the Worker retry one model call locally
+  # (`app/agent_computer/src/core/pi-loop/stream-fn.ts`), so one actor event can
+  # cost local attempts x this delivery count model calls before it
   # dead-letters.
   @worker_turn_error_dead_letter_attempts 5
   # Give a transient Worker failure a short recovery window before redispatch.
@@ -48,6 +49,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   # Prevent repeated Worker failures from increasing one retry delay without
   # limit.
   @worker_turn_error_retry_max_seconds 120
+  # A provider-capacity failure needs a longer window than a transient Worker
+  # failure: the upstream must recover, and the Worker no longer retries this
+  # class locally. Four waits carry the five-delivery budget, so the automatic
+  # retry strategy never schedules more than 20 minutes of backoff.
+  @worker_turn_error_capacity_ladder_seconds [30, 120, 300, 750]
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -408,7 +414,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     with :ok <- TurnRef.match(rows, turn_ref, :abort),
          {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
          dead_letter? =
-           dead_letter_after_turn_error?(event, deliveries, reason, async_work_unit),
+           dead_letter_after_turn_error?(event, deliveries, reason, now, async_work_unit),
          {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, reason, now),
          {:ok, event} <-
            maybe_delay_retryable_turn_error(
@@ -1001,6 +1007,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          %ActorEvent{} = event,
          _deliveries,
          reason,
+         _now,
          async_work_unit
        )
        when is_atom(async_work_unit) and not is_nil(async_work_unit) do
@@ -1015,14 +1022,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          %ActorEvent{},
          deliveries,
          reason,
+         now,
          nil
        ) do
     not recoverable_turn_error?(reason) or
-      max_delivery_attempt_no(deliveries) >= @worker_turn_error_dead_letter_attempts
+      max_delivery_attempt_no(deliveries) >= @worker_turn_error_dead_letter_attempts or
+      capacity_retry_at_beyond_ladder?(deliveries, reason, now)
   end
 
   defp recoverable_turn_error?(reason),
-    do: retryable_turn_error?(reason) or overflow_turn_error?(reason)
+    do: TurnErrorClassifier.retryable?(reason) or overflow_turn_error?(reason)
 
   defp maybe_mark_event_dead_letter(repo, %ActorEvent{} = event, true, reason, now) do
     Actors.mark_event_dead_letter_in_tx(repo, event, now, reason)
@@ -1137,7 +1146,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          false,
          async_work_unit
        ) do
-    if retryable_turn_error?(reason) do
+    if TurnErrorClassifier.retryable?(reason) do
       retry_available_at =
         turn_error_retry_at(deliveries, reason, now, async_work_unit)
 
@@ -1155,23 +1164,55 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp retry_available_at(_event), do: nil
 
-  defp retryable_turn_error?(%{"details_json" => details}) when is_map(details) do
-    details["retryable"] == true or
-      get_in(details, ["aigateway", "details_json", "retryable"]) == true
-  end
-
-  defp retryable_turn_error?(_reason), do: false
-
   defp turn_error_retry_at(deliveries, reason, now, async_work_unit)
        when is_atom(async_work_unit) and not is_nil(async_work_unit) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
     async_work_unit.turn_error_retry_at(reason, attempt_no, now)
   end
 
-  defp turn_error_retry_at(deliveries, _reason, now, nil) do
+  defp turn_error_retry_at(deliveries, reason, now, nil) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
-    exponential = round(@worker_turn_error_retry_base_seconds * :math.pow(2, attempt_no - 1))
-    DateTime.add(now, min(exponential, @worker_turn_error_retry_max_seconds), :second)
+
+    case TurnErrorClassifier.classify(reason) do
+      :provider_capacity ->
+        DateTime.add(now, capacity_ladder_seconds(attempt_no), :second)
+
+      _other_class ->
+        exponential = round(@worker_turn_error_retry_base_seconds * :math.pow(2, attempt_no - 1))
+        DateTime.add(now, min(exponential, @worker_turn_error_retry_max_seconds), :second)
+    end
+  end
+
+  # The class is read again at every delivery, so a failure that changes class
+  # between deliveries uses the current class and the current attempt number
+  # instead of resetting or accumulating an earlier schedule.
+  defp capacity_ladder_seconds(attempt_no) do
+    Enum.at(
+      @worker_turn_error_capacity_ladder_seconds,
+      min(attempt_no, length(@worker_turn_error_capacity_ladder_seconds)) - 1
+    )
+  end
+
+  # A credential pool that names a recovery time past every wait this event has
+  # left cannot be reached inside the delivery budget, so the event dead-letters
+  # now instead of spending its remaining deliveries on a known-failing window.
+  # The pool time never schedules a wait: a short recovery time is covered by
+  # the ordinary ladder, at the cost of at most one wasted delivery.
+  defp capacity_retry_at_beyond_ladder?(deliveries, reason, now) do
+    with :provider_capacity <- TurnErrorClassifier.classify(reason),
+         %DateTime{} = retry_at <- TurnErrorClassifier.credential_pool_retry_at(reason, now) do
+      attempt_no = max(max_delivery_attempt_no(deliveries), 1)
+      remaining = remaining_capacity_ladder_seconds(attempt_no)
+      DateTime.compare(retry_at, DateTime.add(now, remaining, :second)) == :gt
+    else
+      _no_pool_recovery_time -> false
+    end
+  end
+
+  defp remaining_capacity_ladder_seconds(attempt_no) do
+    @worker_turn_error_capacity_ladder_seconds
+    |> Enum.drop(attempt_no - 1)
+    |> Enum.sum()
   end
 
   defp max_delivery_attempt_no(deliveries) do

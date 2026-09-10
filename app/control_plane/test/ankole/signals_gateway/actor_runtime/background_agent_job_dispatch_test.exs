@@ -1537,7 +1537,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     failure_time = DateTime.add(ready_at, 1, :second)
     expected_retry_at = DateTime.add(failure_time, 60, :second)
 
-    assert {:ok, result} =
+    assert {:ok,
+            %{
+              status: :background_agent_job_requeued,
+              retry_available_at: ^expected_retry_at,
+              background_agent_job_requeue: %{kind: :retryable_requeued, job: requeued}
+            }} =
              fail_turn(
                turn_ref,
                "worker_turn_failed",
@@ -1549,13 +1554,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                now: failure_time
              )
 
-    assert result.status == :turn_failed
-    assert result.retry_available_at == expected_retry_at
-    refute Map.has_key?(result, :turn_error_compensation)
-
-    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "running"
-    assert persisted.attempts == 1
+    # Without a recovery time the pool is an ordinary capacity failure: the Job
+    # returns to `queued` and this attempt charges the execution-failure budget.
+    assert requeued.status == "queued"
+    assert requeued.attempts == 1
+    assert requeued.execution_failures == 1
 
     persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
     assert persisted_event.input_state == "open"
@@ -1585,7 +1588,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     expired_retry_at = DateTime.add(failure_time, -1, :second)
     expected_retry_at = DateTime.add(failure_time, 60, :second)
 
-    assert {:ok, result} =
+    assert {:ok,
+            %{
+              status: :background_agent_job_requeued,
+              retry_available_at: ^expected_retry_at,
+              background_agent_job_requeue: %{kind: :retryable_requeued, job: requeued}
+            }} =
              fail_turn(
                turn_ref,
                "worker_turn_failed",
@@ -1598,13 +1606,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                now: failure_time
              )
 
-    assert result.status == :turn_failed
-    assert result.retry_available_at == expected_retry_at
-    refute Map.has_key?(result, :turn_error_compensation)
-
-    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "running"
-    assert persisted.attempts == 1
+    assert requeued.status == "queued"
+    assert requeued.attempts == 1
+    assert requeued.execution_failures == 1
 
     persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
     assert persisted_event.input_state == "open"

@@ -643,9 +643,18 @@ lease.
 A placement failure returns an unstarted attempt to `queued`.
 
 A retryable worker failure waits before the next execution attempt.
-Infrastructure interruptions retry within minutes, while provider-class failures
-use a ladder that spans hours so a Job survives an upstream outage. Other actor
-events keep a short exponential backoff, because a user waits on them.
+Infrastructure interruptions retry within minutes and never consume the
+execution-failure budget, while provider-capacity failures and other execution
+failures use a ladder that spans hours so a Job survives an upstream outage. The
+control plane classifies the failure once for every retry owner. A
+provider-capacity failure is a retryable failure whose kind is `server` or
+`rate_limit`, or a credential pool exhaustion. The `details_json.retryable`
+value is authoritative over the nested AIGateway value, and an explicit `false`
+is never provider capacity. The ordinary actor Turn reads the same
+classification but keeps its own shorter ladder, because a user waits on it.
+
+Context overflow consumes no execution-failure budget, because that path
+compacts the context and retries instead of failing the task.
 
 A Provider status that rejects the request itself is terminal for the Job.
 Agent Computer reads that status before Codex stream-disconnect wording, so a
@@ -661,8 +670,10 @@ the worker and moves the Job only when that worker is gone.
 
 AIGateway quota exhaustion with a known future recovery time returns the Job
 to `queued` and releases its Worker assignment until that time. The acquired
-execution attempt stays consumed. A stale or missing recovery time uses the
-fixed Job retry ladder instead of immediate dispatch.
+execution attempt stays consumed and the attempt charges no execution-failure
+budget. A stale or missing recovery time is an ordinary provider-capacity
+failure: the Job returns to `queued` on the fixed Job retry ladder and the
+attempt charges the execution-failure budget.
 
 An Agent [token quota](AgentTokenQuota.md) rejection is terminal for the Job.
 Creation and admission do not check the quota; the first rejected request ends

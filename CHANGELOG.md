@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.1.1-rc.1 (2026-09-10)
+
+- A message whose model call an upstream sheds for capacity now waits 30 seconds and then 2, 5, and 12.5 minutes before the Agent gives up, so a short provider overload no longer stops the message with "自动重试已停止". The Worker also stops repeating that model call three times before the first wait, and the automatic retry strategy never schedules more than 20 minutes of backoff.
+- A credential pool with no usable recovery time counts as an ordinary capacity failure: the Background Agent Job returns to the queue on the fixed Job ladder and the attempt charges the execution-failure budget.
+
 ## Version 1.1.0-rc.1 (2026-09-09)
 
 - An operator can now give each Agent a token quota in the Ankole Console: a period in days, a period start time, and a token limit. The Agent page shows the used tokens as a bar with the share of the limit, and the start and end time of the current period.

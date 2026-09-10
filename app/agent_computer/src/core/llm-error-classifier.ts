@@ -22,6 +22,12 @@ export type LLMErrorKind =
   | 'timeout'
   | 'unknown'
 
+/**
+ * Failure classes whose recovery time is owned by the provider or the gateway, not by a local
+ * re-issue: the control plane schedules those on its capacity ladder.
+ */
+const NO_LOCAL_RETRY_KINDS = new Set<LLMErrorKind>(['rate_limit', 'server'])
+
 export interface LLMErrorClassification {
   kind: LLMErrorKind
   /** Safe to re-issue the same request as-is (transient transport/capacity failures). */
@@ -223,20 +229,22 @@ export function llmErrorCode(error: unknown): string | undefined {
   return findErrorProperty(error, ['code'], value => (typeof value === 'string' && value ? value : undefined))
 }
 
-/** Convenience predicate used on the retry hot path; equivalent to `classifyLLMError(error).retryable`. */
-export function isRetryableLLMError(error: unknown): boolean {
-  return classifyLLMError(error).retryable
-}
-
 /**
- * Local retries re-issue the request from inside the worker. A transport owner can use an explicit
- * local hint when only durable redelivery is safe.
+ * Local retries re-issue the request from inside the worker, at sub-second spacing. A transport
+ * owner can use an explicit local hint when only durable redelivery is safe.
+ *
+ * Provider-capacity failures are never retried here. A saturated upstream or a throttled token
+ * budget needs the control plane's minute-scale ladder, and the local attempts only spend the same
+ * outage window three times before control-plane redelivery even starts.
  */
 export function isLocallyRetryableLLMError(error: unknown): boolean {
-  if (!isRetryableLLMError(error)) return false
+  const { kind, retryable } = classifyLLMError(error)
+  if (!retryable) return false
 
   const hint = localRetryableHint(error)
-  return hint ?? true
+  if (hint !== undefined) return hint
+
+  return !NO_LOCAL_RETRY_KINDS.has(kind)
 }
 
 /**

@@ -154,8 +154,10 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(sentPayloads).toHaveLength(3)
   })
 
-  it('retries retryable AIGateway WebSocket open errors in the agent loop', async () => {
+  it('hands a provider rate limit to the control plane instead of retrying it locally', async () => {
     const sentPayloads: JSONObject[] = []
+    const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
+    let caught: unknown
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -168,37 +170,18 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
           fakeResponseSocket(init, data => {
             sentPayloads.push(JSON.parse(data) as JSONObject)
 
-            if (sentPayloads.length === 1) {
-              return [
-                {
-                  type: 'error',
-                  status: 429,
-                  error: {
-                    code: 'upstream_response_failed',
-                    message: 'provider rate limit',
-                    details_json: {
-                      stage: 'socket_open',
-                      upstream_status: 429,
-                      retryable: true
-                    }
-                  }
-                }
-              ]
-            }
-
             return [
               {
-                type: 'response.completed',
-                response: {
-                  id: 'resp_after_429',
-                  status: 'completed',
-                  output: [
-                    {
-                      type: 'message',
-                      role: 'assistant',
-                      content: [{ type: 'output_text', text: 'retried after 429' }]
-                    }
-                  ]
+                type: 'error',
+                status: 429,
+                error: {
+                  code: 'upstream_response_failed',
+                  message: 'provider rate limit',
+                  details_json: {
+                    stage: 'socket_open',
+                    upstream_status: 429,
+                    retryable: true
+                  }
                 }
               }
             ]
@@ -206,27 +189,45 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       }
     })
 
-    const final = await runAgentLoop({
-      model,
-      maxModelIterations: 1,
-      messages: [{ role: 'user', content: 'retry rate limit' }],
-      stateful: {
-        actorEventID: '00000000-0000-0000-0000-000000000006',
-        conversationID: '66666666-6666-6666-6666-666666666666'
-      }
-    })
+    try {
+      await runAgentLoop({
+        model,
+        maxModelIterations: 1,
+        messages: [{ role: 'user', content: 'retry rate limit' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000006',
+          conversationID: '66666666-6666-6666-6666-666666666666'
+        },
+        logger: {
+          info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
+          warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
+        }
+      })
+    } catch (error) {
+      caught = error
+    }
 
-    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after 429' }])
-    expect(sentPayloads).toHaveLength(2)
+    // AIGateway rotates its credential pool for a 429 and reports the pool as
+    // exhausted only when no usable credential remains, so the Worker issues one
+    // request and leaves the wait to the control plane's capacity ladder.
+    expect(caught).toBeInstanceOf(Error)
+    expect(sentPayloads).toHaveLength(1)
     expect(sentPayloads[0]).toMatchObject({
       store: true,
       conversation: 'conv_66666666-6666-6666-6666-666666666666'
     })
-    expect(sentPayloads[1]).toMatchObject({
-      store: true,
-      conversation: 'conv_66666666-6666-6666-6666-666666666666'
+
+    expect(logs.find(log => log.event === 'worker.model_call_failed')).toMatchObject({
+      level: 'warning',
+      fields: {
+        attempt: 1,
+        error_kind: 'rate_limit',
+        error_code: 'upstream_response_failed',
+        status: 429,
+        retryable: true,
+        will_retry: false
+      }
     })
-    expect(sentPayloads[1]!.previous_response_id).toBeUndefined()
   })
 
   it('retries a structured AIGateway WebSocket stale error in the agent loop', async () => {
@@ -297,6 +298,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
   it('falls back to terminal status classification when retryable is absent', async () => {
     const sentPayloads: JSONObject[] = []
     const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
+    let caught: unknown
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -309,37 +311,18 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
           fakeResponseSocket(init, data => {
             sentPayloads.push(JSON.parse(data) as JSONObject)
 
-            if (sentPayloads.length === 1) {
-              return [
-                {
-                  type: 'response.failed',
-                  response: {
-                    id: 'resp_failed_429',
-                    status: 'failed',
-                    error: {
-                      code: 'upstream_response_failed',
-                      provider_status: 429,
-                      message: 'transient upstream response failed'
-                    },
-                    output: []
-                  }
-                }
-              ]
-            }
-
             return [
               {
-                type: 'response.completed',
+                type: 'response.failed',
                 response: {
-                  id: 'resp_after_failed_429',
-                  status: 'completed',
-                  output: [
-                    {
-                      type: 'message',
-                      role: 'assistant',
-                      content: [{ type: 'output_text', text: 'retried after terminal 429' }]
-                    }
-                  ]
+                  id: 'resp_failed_429',
+                  status: 'failed',
+                  error: {
+                    code: 'upstream_response_failed',
+                    provider_status: 429,
+                    message: 'transient upstream response failed'
+                  },
+                  output: []
                 }
               }
             ]
@@ -347,34 +330,35 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       }
     })
 
-    const final = await runAgentLoop({
-      model,
-      maxModelIterations: 90,
-      messages: [{ role: 'user', content: 'retry terminal rate limit' }],
-      stateful: {
-        actorEventID: '00000000-0000-0000-0000-000000000007',
-        conversationID: '77777777-7777-7777-7777-777777777777'
-      },
-      logger: {
-        info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
-        warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
-      }
-    })
+    try {
+      await runAgentLoop({
+        model,
+        maxModelIterations: 90,
+        messages: [{ role: 'user', content: 'retry terminal rate limit' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000007',
+          conversationID: '77777777-7777-7777-7777-777777777777'
+        },
+        logger: {
+          info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
+          warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
+        }
+      })
+    } catch (error) {
+      caught = error
+    }
 
-    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after terminal 429' }])
-    expect(sentPayloads).toHaveLength(2)
-    expect(sentPayloads[1]).toMatchObject({
+    // The gateway omitted `retryable`, so the Worker falls back to the provider
+    // status class. That class is provider capacity, which the control plane
+    // owns, so the Worker still issues exactly one request.
+    expect(caught).toBeInstanceOf(Error)
+    expect(sentPayloads).toHaveLength(1)
+    expect(sentPayloads[0]).toMatchObject({
       store: true,
       conversation: 'conv_77777777-7777-7777-7777-777777777777'
     })
 
-    expect(logs.map(log => log.event)).toEqual([
-      'worker.model_call_started',
-      'worker.model_call_failed',
-      'worker.model_call_started',
-      'worker.model_call_completed'
-    ])
-    expect(logs[1]).toMatchObject({
+    expect(logs.find(log => log.event === 'worker.model_call_failed')).toMatchObject({
       level: 'warning',
       fields: {
         actor_event_id: '00000000-0000-0000-0000-000000000007',
@@ -383,15 +367,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         error_code: 'upstream_response_failed',
         status: 429,
         retryable: true,
-        will_retry: true
-      }
-    })
-    expect(logs[3]).toMatchObject({
-      level: 'info',
-      fields: {
-        attempt: 2,
-        response_id: 'resp_after_failed_429',
-        stop_reason: 'stop'
+        will_retry: false
       }
     })
     expect(JSON.stringify(logs)).not.toContain('transient upstream response failed')

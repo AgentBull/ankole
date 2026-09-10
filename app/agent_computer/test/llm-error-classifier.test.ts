@@ -77,6 +77,48 @@ describe('LLM error classification', () => {
     })
   })
 
+  it('decides local retries by hint, then by kind, and never for a non-retryable failure', () => {
+    expect(isLocallyRetryableLLMError({ code: 'invalid_prompt' })).toBe(false)
+
+    // A transport owner's explicit hint wins in both directions.
+    expect(
+      isLocallyRetryableLLMError(
+        Object.assign(new Error('AIGateway WebSocket closed before response.completed'), {
+          details: { local_retryable: false }
+        })
+      )
+    ).toBe(false)
+
+    expect(
+      isLocallyRetryableLLMError(
+        Object.assign(new Error('AIGateway response failed code=server_error Our servers are currently overloaded.'), {
+          details: { local_retryable: true }
+        })
+      )
+    ).toBe(true)
+
+    // Provider capacity belongs to the control plane's ladder, so the Worker
+    // spends no sub-second local attempts inside the same outage window.
+    for (const error of [
+      { code: 'server_error', message: 'Our servers are currently overloaded. Please try again later.' },
+      { status: 503, message: 'service unavailable' },
+      { status: 429, message: 'rate limited' }
+    ]) {
+      expect(classifyLLMError(error).retryable).toBe(true)
+      expect(isLocallyRetryableLLMError(error)).toBe(false)
+    }
+
+    // Everything else retryable keeps its three local attempts.
+    for (const error of [
+      new Error('stream disconnected before completion'),
+      new Error('read ECONNRESET'),
+      { code: 'upstream_stream_closed_before_terminal_event', message: 'stream closed' }
+    ]) {
+      expect(classifyLLMError(error)).toMatchObject({ kind: 'timeout', retryable: true })
+      expect(isLocallyRetryableLLMError(error)).toBe(true)
+    }
+  })
+
   it('follows wrapped provider cause chains and terminates cyclic graphs', () => {
     const cases: Array<{ error: unknown; kind: LLMErrorKind }> = [
       {

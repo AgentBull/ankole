@@ -672,6 +672,132 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert is_nil(Repo.get!(ActorEvent, event.id).completed_at)
     end
 
+    test "schedules the provider capacity ladder across the five-delivery budget" do
+      failure_time = DateTime.utc_now(:microsecond)
+
+      for {attempt_no, expected_delay} <- [{1, 30}, {2, 120}, {3, 300}, {4, 750}] do
+        %{event: event, turn_ref: turn_ref} =
+          start_accepted_turn("capacity-ladder-#{attempt_no}")
+
+        seed_delivery_attempt!(event, attempt_no)
+
+        assert {:ok, result} =
+                 fail_turn(
+                   turn_ref,
+                   "worker_turn_failed",
+                   "AIGateway response failed code=server_error Our servers are currently overloaded.",
+                   %{
+                     "error_code" => "server_error",
+                     "llm_error_kind" => "server",
+                     "retryable" => true
+                   },
+                   now: failure_time
+                 )
+
+        refute result.dead_lettered?
+        assert result.status == :turn_failed
+        assert result.retry_available_at == DateTime.add(failure_time, expected_delay, :second)
+        assert Repo.get!(ActorEvent, event.id).input_state == "open"
+      end
+    end
+
+    test "dead-letters the fifth provider capacity delivery" do
+      %{event: event, turn_ref: turn_ref} = start_accepted_turn("capacity-exhausted")
+      seed_delivery_attempt!(event, 5)
+
+      assert {:ok, result} =
+               fail_turn(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway response failed code=server_error Our servers are currently overloaded.",
+                 %{
+                   "error_code" => "server_error",
+                   "llm_error_kind" => "server",
+                   "retryable" => true
+                 },
+                 now: DateTime.utc_now(:microsecond)
+               )
+
+      assert result.dead_lettered?
+      assert result.status == :turn_dead_lettered
+      assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+    end
+
+    test "dead-letters at once when the pool recovery time outlasts the remaining ladder" do
+      %{event: event, turn_ref: turn_ref} = start_accepted_turn("capacity-pool-beyond-ladder")
+      seed_delivery_attempt!(event, 1)
+      failure_time = DateTime.utc_now(:microsecond)
+      beyond_ladder = DateTime.add(failure_time, 1_201, :second)
+
+      assert {:ok, result} =
+               fail_turn(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool exhausted.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(beyond_ladder)
+                 },
+                 now: failure_time
+               )
+
+      assert result.dead_lettered?
+      assert result.status == :turn_dead_lettered
+      assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+    end
+
+    test "keeps the ladder wait for a pool recovery time the budget still reaches" do
+      %{event: event, turn_ref: turn_ref} = start_accepted_turn("capacity-pool-within-ladder")
+      seed_delivery_attempt!(event, 1)
+      failure_time = DateTime.utc_now(:microsecond)
+      within_ladder = DateTime.add(failure_time, 1_200, :second)
+
+      assert {:ok, result} =
+               fail_turn(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool exhausted.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(within_ladder)
+                 },
+                 now: failure_time
+               )
+
+      refute result.dead_lettered?
+      assert result.retry_available_at == DateTime.add(failure_time, 30, :second)
+      assert Repo.get!(ActorEvent, event.id).input_state == "open"
+    end
+
+    test "keeps the exponential backoff for a retryable non-capacity failure" do
+      failure_time = DateTime.utc_now(:microsecond)
+
+      for {attempt_no, expected_delay} <- [{1, 5}, {2, 10}, {3, 20}, {4, 40}] do
+        %{event: event, turn_ref: turn_ref} =
+          start_accepted_turn("transient-ladder-#{attempt_no}")
+
+        seed_delivery_attempt!(event, attempt_no)
+
+        assert {:ok, result} =
+                 fail_turn(
+                   turn_ref,
+                   "worker_turn_failed",
+                   "AIGateway response failed code=upstream_stream_closed_before_terminal_event",
+                   %{
+                     "error_code" => "upstream_stream_closed_before_terminal_event",
+                     "llm_error_kind" => "timeout",
+                     "retryable" => true
+                   },
+                   now: failure_time
+                 )
+
+        refute result.dead_lettered?
+        assert result.retry_available_at == DateTime.add(failure_time, expected_delay, :second)
+      end
+    end
+
     test "completion RPC subsumes turn acceptance when its task runs first" do
       %{agent: agent, event: event, turn_ref: turn_ref, route: route} =
         start_sent_turn("completion-before-acceptance")
@@ -1355,6 +1481,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(result.turn_ref))
 
     result
+  end
+
+  # The delivery ledger compacts to the current row per actor event, so one live
+  # row carrying a seeded attempt number is exactly what the control plane sees
+  # after that many redeliveries.
+  defp seed_delivery_attempt!(event, attempt_no) do
+    Repo.get_by!(ActorEventDelivery, actor_event_id: event.id)
+    |> ActorEventDelivery.changeset(%{attempt_no: attempt_no})
+    |> Repo.update!()
   end
 
   defp start_sent_turn(suffix) do

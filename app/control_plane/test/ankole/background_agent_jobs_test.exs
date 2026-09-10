@@ -13,6 +13,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
 
   require Ankole.BackgroundAgentJobs
 
@@ -2755,7 +2756,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   describe "turn error accounting" do
-    test "infrastructure failures use the short ladder and provider failures keep the long one" do
+    test "infrastructure failures use the short ladder and capacity failures the long one" do
       now = DateTime.utc_now(:microsecond)
 
       infrastructure = %{
@@ -2767,10 +2768,23 @@ defmodule Ankole.BackgroundAgentJobsTest do
         }
       }
 
-      provider = %{
+      capacity = %{
         "code" => "worker_turn_failed",
-        "message" => "upstream failed",
-        "details_json" => %{"error_code" => "codex_job_transient", "retryable" => true}
+        "message" => "upstream shed the stream",
+        "details_json" => %{
+          "error_code" => "server_error",
+          "llm_error_kind" => "server",
+          "retryable" => true
+        }
+      }
+
+      execution = %{
+        "code" => "worker_turn_failed",
+        "message" => "job turn persistence failed",
+        "details_json" => %{
+          "error_code" => "background_agent_job_turn_persistence_failed",
+          "retryable" => true
+        }
       }
 
       app_server_timeout = %{
@@ -2782,7 +2796,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
         }
       }
 
-      assert BackgroundAgentJobs.turn_error_class(app_server_timeout) == :infrastructure
+      assert TurnErrorClassifier.classify(app_server_timeout) == :infrastructure
+      assert TurnErrorClassifier.classify(capacity) == :provider_capacity
+      assert TurnErrorClassifier.classify(execution) == :execution
 
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 1, now), now) ==
                15
@@ -2795,10 +2811,29 @@ defmodule Ankole.BackgroundAgentJobsTest do
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 5, now), now) ==
                300
 
-      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 1, now), now) == 60
+      for reason <- [capacity, execution] do
+        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(reason, 1, now), now) == 60
 
-      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 5, now), now) ==
-               7_200
+        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(reason, 5, now), now) ==
+                 7_200
+      end
+    end
+
+    test "a credential pool recovery time replaces the Job ladder" do
+      now = DateTime.utc_now(:microsecond)
+      pool_retry_at = DateTime.add(now, 3_600, :second)
+
+      reason = %{
+        "code" => "worker_turn_failed",
+        "message" => "pool exhausted",
+        "details_json" => %{
+          "error_code" => "credential_pool_exhausted",
+          "retryable" => true,
+          "retry_at" => DateTime.to_iso8601(pool_retry_at)
+        }
+      }
+
+      assert BackgroundAgentJobs.turn_error_retry_at(reason, 1, now) == pool_retry_at
     end
   end
 
