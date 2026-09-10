@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.1.2-rc.1 (2026-09-10)
+
+- Word, Excel, and PowerPoint jobs use the OfficeCLI installed in the Worker image. An older version reference in a Skill no longer stops file work when the installed CLI and its format help run successfully.
+
 ## Version 1.1.1-rc.1 (2026-09-10)
 
 - A message whose model call an upstream sheds for capacity now waits 30 seconds and then 2, 5, and 12.5 minutes before the Agent gives up, so a short provider overload no longer stops the message with "自动重试已停止". The Worker also stops repeating that model call three times before the first wait, and the automatic retry strategy never schedules more than 20 minutes of backoff.

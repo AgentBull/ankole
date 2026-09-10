@@ -17,7 +17,7 @@ Imported source files:
 
 Modifications:
 - Kept OfficeCLI as the file-operation runtime.
-- Replaced self-install setup instructions with Ankole Agent Computer runtime notes.
+- Replaced self-install setup and exact-version checks with the installed Worker runtime and its help.
 - Added Playbook routing and Ankole-local frontmatter.
 - Reduced the command catalog to a help-first operating guide.
 - Aligned the adapted guidance with OfficeCLI 1.0.144.
