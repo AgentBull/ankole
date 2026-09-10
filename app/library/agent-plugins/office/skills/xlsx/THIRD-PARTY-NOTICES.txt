@@ -14,7 +14,7 @@ Imported source files:
 
 Modifications:
 - Copied upstream SKILL.md content first, then changed Ankole-local frontmatter names so the skill name matches its installed directory.
-- Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
+- Replaced self-install setup and exact-version checks with the installed Worker runtime and its help.
 - Added Playbook routing; the upstream scene-layer skills live in ../../playbooks with their own notices.
 - Aligned the adapted guidance with OfficeCLI 1.0.144 and added the verified import persistence fence.
 

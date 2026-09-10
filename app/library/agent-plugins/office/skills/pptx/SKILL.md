@@ -107,13 +107,7 @@ For replication, analyze the reference images to estimate element positions, fon
 
 ## OfficeCLI Runtime
 
-Ankole Agent Computer images install OfficeCLI 1.0.144 at build time. Verify the exact runtime:
-
-```bash
-officecli --version
-```
-
-Require the exact output `1.0.144`. A missing command or a different version means the Worker image and this Skill disagree; a rebuild happens outside this Job, so report the stale runtime as the Job outcome.
+The Worker image build installs OfficeCLI and checks its version. Run `officecli --version` and `officecli help pptx`. If both commands succeed, continue with the installed CLI. Version numbers in upstream references and known-issue notes are not runtime requirements. If either command fails, report the command and error as the runtime blocker. Worker image maintenance happens outside the Job.
 
 ### Gotchas
 
