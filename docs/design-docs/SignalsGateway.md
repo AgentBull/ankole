@@ -485,6 +485,34 @@ successor under the same session key.
 A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
 and invalidates the old turn fence.
 
+The failure decides the wait. ActorRuntime reads one shared classification of
+the Worker turn failure: an infrastructure interruption (a lost runtime, the
+shared-runtime lock, or a failed steer delivery) is not the task failing, a
+retryable provider-capacity failure schedules on the capacity ladder, and every
+other failure is an execution failure. A provider-capacity failure is a
+retryable failure whose kind is `server` or `rate_limit`, or a credential pool
+exhaustion. The Worker records the retryable conclusion for a failed turn, and
+that top-level value is authoritative; the nested AIGateway value is only a
+fallback when the top level is absent.
+
+An ordinary Turn waits 30, 120, 300, and then 750 seconds for a
+provider-capacity failure, using the delivery attempt number that the delivery
+ledger keeps across compaction and restarts. The Worker does not retry that
+class locally, because a saturated upstream needs a minute-scale wait rather
+than three sub-second re-issues inside the same outage window. A transient
+Worker failure keeps the shorter exponential wait that starts at 5 seconds and
+stops growing at 120 seconds. A failure that changes class between deliveries
+uses its current class and current attempt number, so no earlier schedule is
+reset or accumulated.
+
+For an ordinary Turn, a credential pool recovery time never schedules a wait.
+When that time is later than every wait this event has left, the Turn
+dead-letters at once instead of spending its remaining deliveries on a
+known-failing window; a shorter time costs at most one wasted delivery. An
+ordinary Turn admits at most five deliveries, so the automatic retry strategy
+schedules no more than 20 minutes of backoff. Execution time, queueing, and
+control-plane downtime are outside that budget.
+
 `/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
 the current Agent's custom model names and descriptions. This command does not
 start a worker Turn, interrupt live work, or supersede a pending interaction.

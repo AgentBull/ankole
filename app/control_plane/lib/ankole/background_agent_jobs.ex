@@ -19,23 +19,19 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.TurnWatchdog
+  alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
 
   @job_session_prefix "job:"
   @job_session_prefix_size byte_size(@job_session_prefix)
   @minimum_job_id 1000
   @maximum_job_id 9_007_199_254_740_991
-  # Provider-class failures keep the long ladder so the five-failure budget
-  # spans a realistic upstream outage window (about 3.7 hours). Infrastructure
-  # interruptions restart in seconds and never consume that budget, so they
-  # retry on the short ladder instead of holding the Job for hours.
+  # Provider-capacity and execution failures keep the long ladder so the
+  # five-failure budget spans a realistic upstream outage window (about 3.7
+  # hours). Infrastructure interruptions restart in seconds and never consume
+  # that budget, so they retry on the short ladder instead of holding the Job
+  # for hours.
   @turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
   @infrastructure_retry_seconds [15, 30, 60, 120, 300]
-  @infrastructure_error_codes ~w(
-    background_agent_job_runtime_exception
-    agent_codex_runtime_busy
-    background_agent_job_steer_delivery_failed
-    codex_app_server_request_timeout
-  )
 
   @doc """
   Builds the durable actor-session id for one BackgroundAgentJob.
@@ -92,8 +88,12 @@ defmodule Ankole.BackgroundAgentJobs do
   @spec turn_error_retry_at(map(), pos_integer(), DateTime.t()) :: DateTime.t()
   def turn_error_retry_at(reason, delivery_attempt_no, %DateTime{} = now)
       when is_map(reason) and is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
-    credential_pool_retry_at(reason, now) ||
-      DateTime.add(now, ladder_seconds(turn_error_class(reason), delivery_attempt_no), :second)
+    TurnErrorClassifier.credential_pool_retry_at(reason, now) ||
+      DateTime.add(
+        now,
+        ladder_seconds(TurnErrorClassifier.classify(reason), delivery_attempt_no),
+        :second
+      )
   end
 
   @doc false
@@ -142,29 +142,11 @@ defmodule Ankole.BackgroundAgentJobs do
     )
   end
 
-  defp ladder_seconds(:execution, delivery_attempt_no) do
+  defp ladder_seconds(_class, delivery_attempt_no) do
     Enum.at(
       @turn_error_retry_seconds,
       min(delivery_attempt_no, length(@turn_error_retry_seconds)) - 1
     )
-  end
-
-  # Splits worker turn failures into the two retry accounts. Infrastructure
-  # interruptions (runtime loss, the shared-runtime lock, steer transport) are
-  # not the task failing, so they never consume the execution-failure budget.
-  # Everything else, including provider and model failures, is an execution
-  # failure charged against the bounded budget.
-  @doc false
-  @spec turn_error_class(map()) :: :infrastructure | :execution
-  def turn_error_class(reason) when is_map(reason) do
-    details = reason["details_json"] || %{}
-
-    if reason["code"] in @infrastructure_error_codes or
-         details["error_code"] in @infrastructure_error_codes do
-      :infrastructure
-    else
-      :execution
-    end
   end
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
@@ -265,19 +247,9 @@ defmodule Ankole.BackgroundAgentJobs do
         } = reason,
         %DateTime{} = now
       ) do
-    with %DateTime{} <- credential_pool_retry_at(reason, now) || :invalid_retry_at,
-         {:ok, job_id} <- parse_job_session_id(session_id),
-         {:ok, job} <-
-           Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(
-             repo,
-             job_id,
-             agent_uid
-           ) do
-      {:ok, %{kind: :credential_pool_requeued, job: job}}
-    else
-      :invalid_retry_at -> {:ok, nil}
+    case parse_job_session_id(session_id) do
+      {:ok, job_id} -> compensate_credential_pool_exhaustion(repo, job_id, agent_uid, reason, now)
       :error -> {:ok, nil}
-      {:error, _reason} = error -> error
     end
   end
 
@@ -349,20 +321,8 @@ defmodule Ankole.BackgroundAgentJobs do
       )
       when is_map(reason) do
     case parse_job_session_id(session_id) do
-      {:ok, job_id} ->
-        case Lifecycle.requeue_retryable_attempt_in_tx(
-               repo,
-               job_id,
-               agent_uid,
-               charge: charged_turn_error?(reason)
-             ) do
-          {:ok, %Job{} = job} -> {:ok, %{kind: :retryable_requeued, job: job}}
-          {:ok, nil} -> {:ok, nil}
-          {:error, _reason} = error -> error
-        end
-
-      :error ->
-        {:ok, nil}
+      {:ok, job_id} -> requeue_retryable_attempt(repo, job_id, agent_uid, reason)
+      :error -> {:ok, nil}
     end
   end
 
@@ -376,6 +336,36 @@ defmodule Ankole.BackgroundAgentJobs do
          get_in(details, ["aigateway", "code"]) == "agent_token_quota_exceeded",
        do: "agent_token_quota_exceeded",
        else: code
+  end
+
+  # A declared pool recovery time is AIGateway backpressure, so the requeue
+  # keeps the claim and charges no execution-failure budget. A stale or missing
+  # time is an ordinary capacity failure: the Job returns to `queued` and this
+  # attempt charges the budget like any other provider-capacity failure.
+  defp compensate_credential_pool_exhaustion(repo, job_id, agent_uid, reason, now) do
+    case TurnErrorClassifier.credential_pool_retry_at(reason, now) do
+      %DateTime{} ->
+        case Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid) do
+          {:ok, job} -> {:ok, %{kind: :credential_pool_requeued, job: job}}
+          {:error, _reason} = error -> error
+        end
+
+      nil ->
+        requeue_retryable_attempt(repo, job_id, agent_uid, reason)
+    end
+  end
+
+  defp requeue_retryable_attempt(repo, job_id, agent_uid, reason) do
+    case Lifecycle.requeue_retryable_attempt_in_tx(
+           repo,
+           job_id,
+           agent_uid,
+           charge: charged_turn_error?(reason)
+         ) do
+      {:ok, %Job{} = job} -> {:ok, %{kind: :retryable_requeued, job: job}}
+      {:ok, nil} -> {:ok, nil}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp text_value(value) when is_binary(value) and value != "", do: value
@@ -398,41 +388,11 @@ defmodule Ankole.BackgroundAgentJobs do
   defp successor_notice_line(_successor), do: nil
 
   # Context overflow is an automatic compact-and-retry recovery, not the task
-  # failing, so it consumes no execution-failure budget.
+  # failing, so it consumes no execution-failure budget. Every other
+  # non-infrastructure failure is charged, including a provider-capacity
+  # failure whose credential pool gave no usable recovery time.
   defp charged_turn_error?(%{"code" => "context_overflow"}), do: false
-  defp charged_turn_error?(reason), do: turn_error_class(reason) == :execution
-
-  defp credential_pool_retry_at(%{"details_json" => details}, now) when is_map(details) do
-    if credential_pool_exhausted_details?(details) do
-      details
-      |> pool_retry_at_value()
-      |> parse_pool_retry_at(now)
-    end
-  end
-
-  defp credential_pool_retry_at(_reason, _now), do: nil
-
-  defp credential_pool_exhausted_details?(details) do
-    details["error_code"] == "credential_pool_exhausted" or
-      get_in(details, ["aigateway", "code"]) == "credential_pool_exhausted"
-  end
-
-  defp pool_retry_at_value(details) do
-    details["retry_at"] ||
-      get_in(details, ["aigateway", "details_json", "retry_at"])
-  end
-
-  defp parse_pool_retry_at(retry_at, now) when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, parsed, _offset} ->
-        if DateTime.compare(parsed, now) == :gt, do: parsed
-
-      _error ->
-        nil
-    end
-  end
-
-  defp parse_pool_retry_at(_retry_at, _now), do: nil
+  defp charged_turn_error?(reason), do: TurnErrorClassifier.classify(reason) != :infrastructure
 
   @doc false
   def finalize_turn_error(

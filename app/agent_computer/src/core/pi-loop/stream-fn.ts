@@ -52,9 +52,12 @@ import type { PiTurnState, ToolCallWireMeta } from './turn-state'
 const PI_API = 'openai-responses'
 
 /**
- * Local attempts per model call, retried inside this Worker on transient
- * provider errors. The control plane redelivers a failed Turn up to its own
- * dead-letter count (`@worker_turn_error_dead_letter_attempts` in
+ * Local attempts per model call, retried inside this Worker at sub-second
+ * spacing. Only a failure that `isLocallyRetryableLLMError` accepts uses them;
+ * a provider-capacity failure (`server` or `rate_limit`) ends the call after
+ * one attempt and waits on the control plane's capacity ladder. The control
+ * plane redelivers a failed Turn up to its own dead-letter count
+ * (`@worker_turn_error_dead_letter_attempts` in
  * `app/control_plane/lib/ankole/signals_gateway/actor_runtime/turn_lifecycle.ex`),
  * so one actor event can cost this number x that count model calls.
  */
