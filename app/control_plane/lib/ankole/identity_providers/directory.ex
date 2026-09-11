@@ -14,6 +14,7 @@ defmodule Ankole.IdentityProviders.Directory do
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
+  alias Ankole.Repo
 
   defmodule Group do
     @moduledoc """
@@ -53,6 +54,7 @@ defmodule Ankole.IdentityProviders.Directory do
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
     with {:ok, observed} <-
            Principals.upsert_platform_subject_human(Map.put(attrs, :authoritative_profile, true)),
+         :ok <- bind_attested_email(provider_id, observed.principal.uid, attrs),
          :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
          {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts) do
       {:ok, observed}
@@ -65,6 +67,46 @@ defmodule Ankole.IdentityProviders.Directory do
   @spec members_group_name(String.t()) :: String.t()
   def members_group_name(provider_id) when is_binary(provider_id) do
     String.downcase("#{provider_id}:members:all")
+  end
+
+  # The provider is the authority for the address it reports, on directory
+  # sync and on sign-in alike, so the address becomes an `email` identity
+  # binding: the Email adapter identifies a sender only by such a binding. An
+  # address that is already bound elsewhere stays there; an explicit binding
+  # always wins and the conflict is only logged.
+  defp bind_attested_email(provider_id, principal_uid, attrs) do
+    case Principals.normalize_email(Map.get(attrs, :email) || Map.get(attrs, "email")) do
+      nil ->
+        :ok
+
+      email ->
+        Repo.transact(fn repo ->
+          with :ok <- Principals.lock_platform_subject(repo, "email", email) do
+            Principals.bind_external_identity(repo, %{
+              principal_uid: principal_uid,
+              provider: "email",
+              external_id: email,
+              metadata: %{"origin" => "directory", "provider_id" => provider_id}
+            })
+          end
+        end)
+        |> case do
+          {:ok, _identity} ->
+            :ok
+
+          {:error, :platform_subject_already_bound} ->
+            Logging.warning(
+              "identity_providers.directory.email_already_bound",
+              "directory email address is bound to another principal",
+              %{provider_id: provider_id, principal_uid: principal_uid}
+            )
+
+            :ok
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
   end
 
   # Every synced subject also joins the provider-wide members group, so

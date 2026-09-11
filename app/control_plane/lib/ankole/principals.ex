@@ -369,10 +369,13 @@ defmodule Ankole.Principals do
 
   A first-seen subject that carries an email or mobile number already held by
   an existing human Principal binds to that Principal instead of creating a
-  new one, so subjects from different providers converge on one human. An
-  email or mobile value owned by a different Principal than the one the
-  subject resolves to is dropped from the profile update with a warning;
-  subjects are never re-pointed automatically.
+  new one, so subjects from different providers converge on one human. Any
+  other first-seen subject is a new person; when its UID is already taken,
+  the write fails with `:principal_uid_taken` instead of joining that
+  Principal, because an equal UID is not identity evidence. An email or
+  mobile value owned by a different Principal than the one the subject
+  resolves to is dropped from the profile update with a warning; subjects
+  are never re-pointed automatically.
 
   When `external_ids` supplies aliases, an existing binding for any candidate
   wins and every candidate binds to the selected Principal in one transaction.
@@ -395,11 +398,10 @@ defmodule Ankole.Principals do
            {:ok, external_ids} <- candidate_external_ids(attrs),
            {:ok, metadata} <- metadata_attrs(attrs),
            :ok <- lock_platform_subjects(repo, provider, external_ids),
-           :ok <- lock_global_platform_subject(repo, external_id),
            :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
            :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
            existing_identity <- fetch_platform_subject_by_ids(repo, provider, external_ids),
-           {:ok, principal_uid} <-
+           {:ok, selection} <-
              platform_subject_principal_uid(
                repo,
                existing_identity,
@@ -408,7 +410,7 @@ defmodule Ankole.Principals do
                email,
                mobile
              ),
-           {:ok, principal} <- upsert_human_principal(repo, principal_uid, attrs),
+           {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
            profile_attrs <-
              drop_conflicting_contacts(
                repo,
@@ -449,8 +451,7 @@ defmodule Ankole.Principals do
 
   This is the read side of `upsert_platform_subject_human/1` with the same
   ladder: an existing binding for this provider wins, then the owner of the
-  email, then the owner of the mobile number, then the primary subject matches
-  in the installation-wide Principal namespace. It never creates or re-points
+  email, then the owner of the mobile number. It never creates or re-points
   anything; a miss returns `{:error, :not_found}` so the caller decides what an
   unmatched subject means.
   """
@@ -463,16 +464,8 @@ defmodule Ankole.Principals do
 
       case provider_subject_principal_by_ids(provider, external_ids) do
         nil ->
-          case contact_owner_principal(:email, email) ||
-                 contact_owner_principal(:mobile, mobile) do
-            nil ->
-              with {:ok, global_match} <- global_platform_subject_principal(hd(external_ids)) do
-                active_human_result(global_match)
-              end
-
-            contact_match ->
-              active_human_result(contact_match)
-          end
+          (contact_owner_principal(:email, email) || contact_owner_principal(:mobile, mobile))
+          |> active_human_result()
 
         provider_match ->
           active_human_result(provider_match)
@@ -589,10 +582,13 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp upsert_human_principal(repo, uid, attrs) do
+  defp upsert_human_principal(repo, {selection, uid}, attrs) do
     case fetch_principal_for_update(repo, uid) do
-      {:ok, %Principal{type: :human} = principal} ->
+      {:ok, %Principal{type: :human} = principal} when selection == :selected ->
         update_principal_profile(repo, principal, observed_profile_attrs(principal, attrs))
+
+      {:ok, %Principal{type: :human}} ->
+        {:error, :principal_uid_taken}
 
       {:ok, %Principal{type: :agent}} ->
         {:error, :not_human}
@@ -760,12 +756,6 @@ defmodule Ankole.Principals do
     end)
   end
 
-  defp lock_global_platform_subject(repo, external_id) do
-    with {:ok, normalized_id} <- normalize_uid(external_id) do
-      advisory_xact_lock(repo, "principal_global_subject:#{normalized_id}")
-    end
-  end
-
   @doc false
   @spec delete_pending_mapping_request(module(), String.t(), String.t()) :: :ok
   def delete_pending_mapping_request(repo, provider, external_id)
@@ -797,6 +787,12 @@ defmodule Ankole.Principals do
     end
   end
 
+  # A binding, a contact match, or a caller-supplied UID selects the Principal;
+  # the caller-supplied UID is an explicit decision by a reviewer, admission,
+  # or directory sync and creates the Principal when it does not exist yet.
+  # A UID derived from the subject id only ever creates: an existing Principal
+  # with that UID, such as a local account named by its sign-in email, is a
+  # collision, not a match.
   defp platform_subject_principal_uid(
          _repo,
          %ExternalIdentity{principal_uid: principal_uid},
@@ -805,24 +801,19 @@ defmodule Ankole.Principals do
          _email,
          _mobile
        ) do
-    {:ok, principal_uid}
+    {:ok, {:selected, principal_uid}}
   end
 
   defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
     case human_contact_owner_uid(repo, :email, email) ||
            human_contact_owner_uid(repo, :mobile, mobile) do
       nil ->
-        with {:ok, global_match} <- global_platform_subject_principal(repo, external_id) do
-          case global_match do
-            %{principal: %Principal{uid: principal_uid}} ->
-              {:ok, principal_uid}
+        case fetch_attr(attrs, :uid) do
+          {:ok, uid} ->
+            with {:ok, uid} <- normalize_uid(uid), do: {:ok, {:selected, uid}}
 
-            nil ->
-              case fetch_attr(attrs, :uid) do
-                {:ok, uid} -> normalize_uid(uid)
-                :error -> normalize_uid(external_id)
-              end
-          end
+          :error ->
+            with {:ok, uid} <- normalize_uid(external_id), do: {:ok, {:derived, uid}}
         end
 
       owner_uid ->
@@ -832,7 +823,7 @@ defmodule Ankole.Principals do
           %{principal_uid: owner_uid, external_id: external_id}
         )
 
-        {:ok, owner_uid}
+        {:ok, {:selected, owner_uid}}
     end
   end
 
@@ -889,19 +880,6 @@ defmodule Ankole.Principals do
     Enum.find_value(external_ids, fn external_id ->
       provider_subject_principal(provider, external_id)
     end)
-  end
-
-  defp global_platform_subject_principal(external_id) do
-    global_platform_subject_principal(Repo, external_id)
-  end
-
-  defp global_platform_subject_principal(repo, external_id) do
-    with {:ok, normalized_id} <- normalize_uid(external_id) do
-      case repo.get(Principal, normalized_id) do
-        %Principal{} = principal -> {:ok, %{principal: principal}}
-        nil -> {:ok, nil}
-      end
-    end
   end
 
   defp contact_owner_principal(_field, nil), do: nil

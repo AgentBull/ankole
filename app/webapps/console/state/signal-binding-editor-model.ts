@@ -34,6 +34,10 @@ const SIGNAL_ADAPTER_GROUPS = [
   {
     category: 'consumer_im',
     labelKey: 'console.signals.adapter_group_consumer_im'
+  },
+  {
+    category: 'email',
+    labelKey: 'console.signals.adapter_group_email'
   }
 ] as const
 
