@@ -13,6 +13,9 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
 
   @connect_timeout 15_000
   @command_timeout 120_000
+  # The mailbox session fetches a full body only below 25 MB, so a larger
+  # literal is a lying or broken server, not a message to read.
+  @max_literal_bytes 32 * 1024 * 1024
   @line_options [:binary, active: false, packet: :line, packet_size: 4_194_304, buffer: 65_536]
 
   defstruct [:socket, :transport, tag: 0, capabilities: MapSet.new()]
@@ -283,8 +286,10 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
     case Regex.run(~r/\{(\d+)\}\r?\n\z/, line) do
       [marker, count] ->
         text = binary_part(line, 0, byte_size(line) - byte_size(marker))
+        count = String.to_integer(count)
 
-        with {:ok, literal} <- read_bytes(client, String.to_integer(count)),
+        with :ok <- check_literal_size(count),
+             {:ok, literal} <- read_bytes(client, count),
              {:ok, next_line} <- read_line(client) do
           read_segments(client, next_line, [{:literal, literal}, text | segments])
         end
@@ -375,6 +380,11 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp check_literal_size(count) when count > @max_literal_bytes,
+    do: {:error, {:literal_too_large, count}}
+
+  defp check_literal_size(_count), do: :ok
 
   defp read_bytes(_client, 0), do: {:ok, ""}
 

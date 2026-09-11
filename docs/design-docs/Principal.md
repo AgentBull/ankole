@@ -172,9 +172,9 @@ the subject and the existing account are one person, through a manual
 mapping. Ankole does not prepend the provider name to a generated UID; a
 collision is refused instead of renamed.
 
-The transaction locks every supplied provider subject candidate, the email,
-and the mobile keys. It then writes every candidate as an alias for the
-selected Principal. Concurrent observations serialize the same identity
+The transaction locks every supplied provider subject candidate, the email
+and mobile keys, and the Principal UID it selected or derived. It then writes
+every candidate as an alias for the selected Principal. Concurrent observations serialize the same identity
 decisions. If one candidate already belongs to a different Principal, the
 complete alias write fails and rolls back.
 

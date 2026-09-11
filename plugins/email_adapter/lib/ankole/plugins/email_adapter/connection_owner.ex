@@ -67,6 +67,10 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
 
   @impl true
   def init(opts) do
+    # The session task is not linked, so a supervisor shutdown must reach
+    # `terminate/2` to kill it; otherwise the old IMAP session outlives its
+    # owner and a second one starts on the same mailbox.
+    Process.flag(:trap_exit, true)
     config = Config.runtime(Keyword.fetch!(opts, :config))
     consumer = Keyword.fetch!(opts, :consumer)
 

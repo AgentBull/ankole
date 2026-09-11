@@ -19,7 +19,8 @@ defmodule Ankole.Plugins.EmailAdapterTest.FakeImap do
       uidvalidity: Keyword.get(opts, :uidvalidity, 7),
       socket: nil,
       idle_tag: nil,
-      pending_exists: false
+      pending_exists: false,
+      literal_size: Keyword.get(opts, :literal_size)
     }
 
     pid = spawn_link(fn -> accept_loop(listener, state) end)
@@ -150,7 +151,10 @@ defmodule Ankole.Plugins.EmailAdapterTest.FakeImap do
 
       true ->
         :ok =
-          :gen_tcp.send(state.socket, "* #{uid} FETCH (UID #{uid} BODY[] {#{byte_size(raw)}}\r\n")
+          :gen_tcp.send(
+            state.socket,
+            "* #{uid} FETCH (UID #{uid} BODY[] {#{state.literal_size || byte_size(raw)}}\r\n"
+          )
 
         :ok = :gen_tcp.send(state.socket, raw <> ")\r\n")
     end
@@ -310,6 +314,13 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                SignalsGateway.put_binding(second.uid, "email", "other", %{
                  "config" => Map.put(binding_config(), "username", "other-user")
                })
+
+      %{principal: third} = agent_fixture()
+
+      assert {:error, {:email_mailbox_already_bound, _agent, "mail"}} =
+               SignalsGateway.put_binding(third.uid, "email", "cased", %{
+                 "config" => Map.put(binding_config(), "username", "AGENT")
+               })
     end
   end
 
@@ -411,6 +422,18 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {^body, false} = ReplyText.strip_quoted(body)
     end
 
+    test "refuses a multi-mailbox From, survives odd parameters, and keeps literal mask text" do
+      assert %Message{from: nil} = Message.decode("From: a@x.test, b@y.test\r\n\r\nx")
+
+      assert {"attachment", %{"filename" => "a.pdf"}} =
+               Mime.parse_disposition("attachment; x*y=1; filename=a.pdf")
+
+      assert %Message{from: %{name: "EW__1__ literal 张三", address: "z@example.cn"}} =
+               Message.decode(
+                 "From: EW__1__ literal =?UTF-8?B?5byg5LiJ?= <z@example.cn>\r\n\r\nx"
+               )
+    end
+
     test "strips quoted replies below common separators" do
       assert {"Yes, go ahead.", true} =
                ReplyText.strip_quoted(
@@ -442,6 +465,16 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                  ["mx.test; dmarc=pass header.from=other.test"],
                  "a.test"
                )
+
+      assert {:error, :dmarc_domain_mismatch} =
+               Authentication.verify(
+                 :dmarc,
+                 ["mx.test; dmarc=pass header.from=a.test"],
+                 "sub.a.test"
+               )
+
+      assert {:error, :dmarc_domain_missing} =
+               Authentication.verify(:dmarc, ["mx.test; dmarc=pass"], "a.test")
 
       assert :ok =
                Authentication.verify(
@@ -846,6 +879,26 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert :ok = Client.logout(client)
     end
 
+    test "refuses a literal larger than the client limit before reading it" do
+      raw = raw_mail(message_id: "huge@example.com")
+      {:ok, port, _server} = FakeImap.start(messages: %{1 => raw}, literal_size: 99_999_999_999)
+
+      Application.put_env(:ankole, Config,
+        imap_opts: [transport: :tcp, host: "127.0.0.1", port: port]
+      )
+
+      runtime = Config.runtime(validated_config())
+
+      {:ok, client} = Client.connect(Config.imap_options(runtime))
+      {:ok, client} = Client.login(client, runtime.username, runtime.password)
+      {:ok, client, _mailbox} = Client.select(client, "INBOX")
+
+      assert {:error, {:literal_too_large, 99_999_999_999}} =
+               Client.uid_fetch_body(client, 1, :full)
+
+      assert :ok = Client.close(client)
+    end
+
     test "runs a supervised owner that blocks on a bad password and restarts on a changed password" do
       %{principal: agent} = agent_fixture()
       raw = raw_mail(message_id: "owner@example.com", subject: "Owner test")
@@ -1033,6 +1086,42 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                Outbox.send(outbox)
 
       assert failure =~ "tls_alert"
+    end
+
+    test "refuses declared oversize attachments before reading any file" do
+      %{principal: agent} = agent_fixture()
+      consumer = bound_consumer(agent.uid, "mail", "create_standalone")
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive(
+                 "message",
+                 event(1, raw_mail(message_id: "big-att@example.com")),
+                 [
+                   consumer
+                 ]
+               )
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: "mail",
+        outbound_key: "reply-big",
+        operation: :reply,
+        signal_channel_id: Inbound.signal_channel_id(@mailbox, "big-att@example.com"),
+        reply_to_source_entry_id: "big-att@example.com",
+        payload: %{
+          "attachments" => [
+            %{
+              "name" => "big.bin",
+              "user_files_relative_path" => "out/big.bin",
+              "size" => 30_000_000
+            }
+          ]
+        },
+        fallback_visible_text: "see attachment"
+      }
+
+      assert {:error, {:reply_delivery, :permanent, %{"code" => "email_attachments_too_large"}}} =
+               Outbox.send(outbox)
     end
 
     test "classifies SMTP failures for the outbox" do

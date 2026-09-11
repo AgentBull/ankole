@@ -90,24 +90,26 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   An address header must be parsed before its encoded words are decoded
   (RFC 2047 section 6.2): decoded text can contain `<`, `>`, `,`, or `@` and
   would otherwise change which mailbox the header names. The placeholder is a
-  plain atom, so the structure parser cannot see the encoded content, and
+  plain atom with a per-call random token, so the structure parser cannot see
+  the encoded content and literal header text cannot collide with it;
   `restore_encoded_words/2` puts the decoded text back into display names.
   """
   @spec mask_encoded_words(String.t()) :: {String.t(), %{String.t() => String.t()}}
   def mask_encoded_words(value) when is_binary(value) do
     collapsed = collapse_between_encoded_words(value)
+    token = Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 
     words =
       @encoded_word
       |> Regex.scan(collapsed)
       |> Enum.with_index(1)
       |> Map.new(fn {[_all, charset, encoding, payload], index} ->
-        {"EW__#{index}__", decode_encoded_word(charset, encoding, payload)}
+        {"EW#{token}X#{index}X", decode_encoded_word(charset, encoding, payload)}
       end)
 
     masked =
       Enum.reduce(1..map_size(words)//1, collapsed, fn index, acc ->
-        Regex.replace(@encoded_word, acc, "EW__#{index}__", global: false)
+        Regex.replace(@encoded_word, acc, "EW#{token}X#{index}X", global: false)
       end)
 
     {masked, words}
@@ -117,7 +119,9 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   def restore_encoded_words(nil, _words), do: nil
 
   def restore_encoded_words(text, words) when is_binary(text) do
-    Regex.replace(~r/EW__\d+__/, text, fn placeholder -> Map.get(words, placeholder, "") end)
+    Enum.reduce(words, text, fn {placeholder, decoded}, acc ->
+      String.replace(acc, placeholder, decoded)
+    end)
   end
 
   @doc "Splits `type/subtype; a=b` into its parts with decoded parameters."
@@ -334,10 +338,14 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
 
           plain != nil ->
             decode_text(elem(plain, 1))
+
+          true ->
+            nil
         end
 
       {base, value}
     end)
+    |> Enum.reject(fn {_base, value} -> is_nil(value) end)
     |> Map.new()
   end
 

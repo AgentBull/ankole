@@ -4,13 +4,17 @@ defmodule Ankole.Plugins.EmailAdapter.Authentication do
 
   The receiving mail server adds its `Authentication-Results` header above
   every earlier header, so the first one is the local verdict. The `dmarc`
-  rule requires `dmarc=pass` there and, when the header names the checked
-  domain, that domain must be the `From` domain.
+  rule requires `dmarc=pass` there, and the `header.from` domain that the
+  server evaluated must be exactly the `From` domain the adapter parsed.
   """
 
   @spec verify(:dmarc | :none, [String.t()], String.t() | nil) ::
           :ok
-          | {:error, :authentication_results_missing | :dmarc_not_passed | :dmarc_domain_mismatch}
+          | {:error,
+             :authentication_results_missing
+             | :dmarc_not_passed
+             | :dmarc_domain_missing
+             | :dmarc_domain_mismatch}
   def verify(:none, _results, _from_domain), do: :ok
 
   def verify(:dmarc, results, from_domain) do
@@ -48,7 +52,7 @@ defmodule Ankole.Plugins.EmailAdapter.Authentication do
       {"dmarc", "pass", props} ->
         case props["header.from"] do
           nil ->
-            :ok
+            {:error, :dmarc_domain_missing}
 
           checked ->
             if same_domain?(checked, from_domain), do: :ok, else: {:error, :dmarc_domain_mismatch}
@@ -59,10 +63,12 @@ defmodule Ankole.Plugins.EmailAdapter.Authentication do
     end
   end
 
+  # The server evaluated the same From header, so any difference means the two
+  # parses disagree; a suffix match would let a subdomain pass that check.
   defp same_domain?(checked, from_domain) when is_binary(from_domain) do
     checked = checked |> String.downcase() |> String.trim_trailing(".")
     from_domain = from_domain |> String.downcase() |> String.trim_trailing(".")
-    checked == from_domain or String.ends_with?(from_domain, "." <> checked)
+    checked == from_domain
   end
 
   defp same_domain?(_checked, _from_domain), do: false

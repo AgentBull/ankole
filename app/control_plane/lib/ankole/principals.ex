@@ -410,6 +410,7 @@ defmodule Ankole.Principals do
                email,
                mobile
              ),
+           :ok <- lock_principal_uid(repo, selection),
            {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
            profile_attrs <-
              drop_conflicting_contacts(
@@ -774,6 +775,13 @@ defmodule Ankole.Principals do
 
   # The contact join runs on subject creation, so concurrent first-sightings of
   # the same email or mobile must serialize or both would create a principal.
+  # Two providers can derive the same UID at the same time under different
+  # subject locks. This lock serializes them, so the second write sees the
+  # first Principal and returns `:principal_uid_taken` instead of a unique
+  # constraint error.
+  defp lock_principal_uid(repo, {_selection, uid}),
+    do: advisory_xact_lock(repo, "principal_uid:#{uid}")
+
   defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
 
   defp maybe_lock_human_contact(repo, prefix, value) do

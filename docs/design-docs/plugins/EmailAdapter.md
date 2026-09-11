@@ -123,7 +123,8 @@ entry metadata.
 The adapter ignores these messages without a notice and confirms them with
 `\Seen`:
 
-- a message whose `From` is the mailbox address itself;
+- a message whose `From` is the mailbox address itself, or names more than
+  one mailbox;
 - a message with `Auto-Submitted` other than `no`, a `Precedence` of `bulk`,
   `list`, or `junk`, or a `List-Id` header;
 - a message whose sender fails the sender authentication rule below.
@@ -142,9 +143,10 @@ insert another mailbox into the header. The binding also owns a
 
 - `dmarc` (default): the adapter reads the first `Authentication-Results`
   header, which the receiving mail server adds above every earlier header. The
-  message passes when that header contains `dmarc=pass` and its `header.from`
-  domain, when present, equals the `From` domain. Any other result refuses the
-  message before admission.
+  message passes when that header contains `dmarc=pass` and names, in
+  `header.from`, exactly the domain of the parsed `From` address. A missing
+  `header.from`, a different domain, or any other result refuses the message
+  before admission.
 - `none`: the adapter trusts the `From` header. Use this only for a mail
   server on a private network that admits no outside mail.
 

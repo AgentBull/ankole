@@ -126,7 +126,7 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
       | message_id: headers |> Mime.header("message-id") |> normalize_message_id(),
         in_reply_to: headers |> Mime.header("in-reply-to") |> message_id_tokens(),
         references: headers |> Mime.header("references") |> message_id_tokens(),
-        from: headers |> address_list("from") |> List.first(),
+        from: headers |> address_list("from") |> single_mailbox(),
         reply_to: address_list(headers, "reply-to"),
         to: address_list(headers, "to"),
         cc: address_list(headers, "cc"),
@@ -139,6 +139,11 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
 
   # The structure is parsed on the masked header, so an encoded display name
   # cannot inject another mailbox; decoding touches only the display name.
+  # A From header with several mailboxes names no single sender, and DMARC
+  # evaluators refuse it too.
+  defp single_mailbox([mailbox]), do: mailbox
+  defp single_mailbox(_mailboxes), do: nil
+
   defp address_list(headers, name) do
     headers
     |> Mime.headers(name)

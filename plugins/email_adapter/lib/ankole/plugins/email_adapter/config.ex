@@ -288,7 +288,7 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
     runtime = runtime(config)
 
     :sha256
-    |> :crypto.hash([String.downcase(runtime.imap_host), 0, runtime.username])
+    |> :crypto.hash([String.downcase(runtime.imap_host), 0, String.downcase(runtime.username)])
     |> Base.encode16(case: :lower)
   end
 

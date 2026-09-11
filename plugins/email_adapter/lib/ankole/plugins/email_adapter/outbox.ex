@@ -268,11 +268,30 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
     end
   end
 
+  # The declared sizes stop an oversize send before any file is read; the
+  # loaded bytes are checked again because a declaration can be absent.
   defp attachments(outbox) do
-    outbox.payload
-    |> MapHelpers.fetch_list("attachments")
-    |> Enum.map(&attachment_content(&1, outbox.agent_uid))
-    |> MapHelpers.collect_results()
+    declared = MapHelpers.fetch_list(outbox.payload, "attachments")
+
+    with :ok <- declared_attachment_budget(declared) do
+      declared
+      |> Enum.map(&attachment_content(&1, outbox.agent_uid))
+      |> MapHelpers.collect_results()
+    end
+  end
+
+  defp declared_attachment_budget(attachments) do
+    total =
+      attachments
+      |> Enum.map(fn attachment ->
+        case attachment["size"] || attachment["size_bytes"] do
+          size when is_integer(size) and size > 0 -> size
+          _unknown -> 0
+        end
+      end)
+      |> Enum.sum()
+
+    if total > @attachment_limit_bytes, do: {:error, :attachments_too_large}, else: :ok
   end
 
   defp attachment_content(attachment, agent_uid) do

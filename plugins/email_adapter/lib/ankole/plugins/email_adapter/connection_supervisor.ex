@@ -40,8 +40,12 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionSupervisor do
         {:ok, pid}
 
       {:error, :configuration_changed} ->
-        with :ok <- DynamicSupervisor.terminate_child(@supervisor, pid) do
-          start_owner(key, config, consumer)
+        case DynamicSupervisor.terminate_child(@supervisor, pid) do
+          result when result in [:ok, {:error, :not_found}] ->
+            start_owner(key, config, consumer)
+
+          {:error, _reason} = error ->
+            error
         end
 
       {:error, _reason} = error ->
