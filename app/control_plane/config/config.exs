@@ -14,12 +14,22 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.ChinaMarketAIProviders,
   Ankole.Plugins.DingTalkAdapter,
   Ankole.Plugins.DiscordAdapter,
+  Ankole.Plugins.EmailAdapter,
   Ankole.Plugins.GoogleWorkspaceAdapter,
   Ankole.Plugins.LarkAdapter,
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
   Ankole.Plugins.TelegramAdapter,
   Ankole.Plugins.WeComAdapter
+]
+
+# The Email adapter converts GB2312, GBK, and Windows-1252 mail to UTF-8
+# through these codepagex tables; each extra table adds compile time.
+config :codepagex, :encodings, [
+  :ascii,
+  "ISO8859/8859-1",
+  "VENDORS/MICSFT/WINDOWS/CP1252",
+  "VENDORS/MICSFT/WINDOWS/CP936"
 ]
 
 config :ankole, AnkoleWeb.Endpoint,

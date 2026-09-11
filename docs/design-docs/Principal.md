@@ -109,7 +109,9 @@ It stores these fields:
 - A UUIDv7 binding `id`.
 - `principal_uid`.
 - `provider` as the platform-subject namespace, normally an identity-provider
-  `provider_id` such as `lark-main`.
+  `provider_id` such as `lark-main`. The `email` namespace holds mailbox
+  addresses: a row there says that the Principal owns that address, and the
+  Email adapter identifies a sender only through such a row.
 - `external_id` as the provider-scoped subject id.
 - A JSON `metadata` object. Alternate provider ids for the same subject, for
   example a Lark `open_id` next to a `union_id`, live here.
@@ -125,9 +127,9 @@ The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
 Provider names scope binding rows, not Principal identity. When no binding
-already exists for a provider subject, Ankole first matches known contact data.
-If no contact matches, it matches the normalized primary external ID to a
-Principal UID. Equal IDs then intentionally resolve to one Principal.
+already exists for a provider subject, Ankole matches known contact data. An
+equal Principal UID is not a match: a UID such as a local account's sign-in
+email is a name, not evidence that the subject is that person.
 
 There is one identity shape. Login, directory sync, SignalsGateway admission,
 and manual console mappings all write this same row.
@@ -153,25 +155,38 @@ tries these identities in order:
    candidate.
 2. Use the Principal that owns the normalized email.
 3. Use the Principal that owns the normalized mobile number.
-4. Use the Principal whose UID matches the normalized primary external ID.
-5. Use the caller-supplied UID.
-6. Use the normalized primary external ID as the UID.
+4. Use the caller-supplied UID, and create that Principal when it does not
+   exist. The caller is a reviewer, identity admission after a match, or
+   directory sync, so the UID is an explicit decision.
+5. Create a new Principal with the normalized primary external ID as its UID.
 
 The contact lookups include disabled Principals. This can link accounts from
-different providers when they share one email or mobile number.
+different providers when they share one email or mobile number. The contact
+match is safe only for a provider whose users are members of the
+organization; the Email adapter therefore reports no contact fields, and its
+senders match only through an `email` binding.
 
-The transaction locks every supplied provider subject candidate, the primary
-global subject, the email, and the mobile keys. It then writes every candidate
-as an alias for the selected Principal. Concurrent observations serialize the
-same identity decisions. If one candidate already belongs to a different
-Principal, the complete alias write fails and rolls back.
+Step 5 creates; it never joins. When a Principal with that UID already exists,
+the write fails with `principal_uid_taken`. Only an operator can decide that
+the subject and the existing account are one person, through a manual
+mapping. Ankole does not prepend the provider name to a generated UID; a
+collision is refused instead of renamed.
+
+The transaction locks every supplied provider subject candidate, the email
+and mobile keys, and the Principal UID it selected or derived. It then writes
+every candidate as an alias for the selected Principal. Concurrent observations serialize the same identity
+decisions. If one candidate already belongs to a different Principal, the
+complete alias write fails and rolls back.
 
 An existing provider link stays with its current Principal. New contact data
 does not move it.
 
-Ankole does not prepend the provider name to a generated Principal UID. See
-[Provider Subject IDs Share One Principal Namespace](../TradeoffsAndKnownLimits.md#provider-subject-ids-share-one-principal-namespace)
-for the intentional collision tradeoff and the explicit-binding escape hatch.
+Directory sync and provider sign-in also bind the address that the provider
+reports for the user as an `email` identity. The provider is the authority
+for that address, so the binding lets the Email adapter admit the user
+without a manual mapping. An address that is already bound elsewhere stays
+there; the write logs `identity_providers.directory.email_already_bound` and
+continues.
 
 If another Principal owns the supplied email or mobile number, Ankole ignores
 that field and logs `principals.platform_subject.contact_conflict`. It still
@@ -181,11 +196,11 @@ stores the remaining identity data.
 
 `match_platform_subject_human` is the read side of the same ladder. An existing
 binding for any provider-specific candidate ID wins. Otherwise, the optional
-email and mobile values match before the primary ID matches in the
-installation-wide Principal UID namespace. The function returns the matched
-active human Principal or `{:error, :not_found}`. It never creates or re-points
-anything. SignalsGateway identity admission uses it to decide whether a sender
-is known before the binding's unmatched-sender policy applies.
+email and mobile values match. An equal Principal UID never matches. The
+function returns the matched active human Principal or `{:error, :not_found}`.
+It never creates or re-points anything. SignalsGateway identity admission uses
+it to decide whether a sender is known before the binding's unmatched-sender
+policy applies.
 
 Manual mappings bypass the ladder on purpose: `MappingRequests.bind_request`
 and `MappingRequests.bind_subject` write the identity to exactly the Principal

@@ -1734,7 +1734,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           adapter_id: %Schema{type: :string},
           adapter_category: %Schema{
             type: :string,
-            enum: ["enterprise_im", "consumer_im"]
+            enum: ["enterprise_im", "consumer_im", "email"]
           },
           plugin_id: %Schema{type: :string, nullable: true},
           display_name: LocalizedText,

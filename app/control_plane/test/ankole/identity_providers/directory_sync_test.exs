@@ -241,6 +241,51 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
            )
   end
 
+  test "directory sync binds the attested address as an email identity and never steals one" do
+    assert {:ok, synced} =
+             Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
+               provider: "lark-main",
+               external_id: "ou_mail_1",
+               uid: "ou_mail_1",
+               display_name: "Mail One",
+               email: "Mail.One@Corp.example"
+             })
+
+    assert {:ok, by_email} =
+             Ankole.Principals.resolve_platform_subject("email", "mail.one@corp.example")
+
+    assert by_email.uid == synced.principal.uid
+
+    assert {:ok, _again} =
+             Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
+               provider: "lark-main",
+               external_id: "ou_mail_1",
+               uid: "ou_mail_1",
+               email: "mail.one@corp.example"
+             })
+
+    %{principal: other} = Ankole.PrincipalsFixtures.human_fixture()
+
+    assert {:ok, _identity} =
+             Ankole.Principals.MappingRequests.bind_subject(other.uid, %{
+               provider: "email",
+               external_id: "claimed@corp.example"
+             })
+
+    assert {:ok, _second} =
+             Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
+               provider: "lark-main",
+               external_id: "ou_mail_2",
+               uid: "ou_mail_2",
+               email: "claimed@corp.example"
+             })
+
+    assert {:ok, still_other} =
+             Ankole.Principals.resolve_platform_subject("email", "claimed@corp.example")
+
+    assert still_other.uid == other.uid
+  end
+
   defp age_periodic_sync_jobs(provider_id, seconds) do
     cutoff = DateTime.add(DateTime.utc_now(:second), -seconds, :second)
 

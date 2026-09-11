@@ -734,6 +734,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
     rich_adapter = ReplyPreviewAdapter.for_event(event)
     rich? = match?(%ReplyPreviewAdapter{}, rich_adapter)
+    preview_editable? = rich? or editable_outbox?(event)
     checkpoint = event.reply_preview_checkpoint || %{}
 
     stream_event =
@@ -776,8 +777,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       preview_established: false,
       # A provider rejection while establishing or editing disables this
       # best-effort preview for the rest of the turn. Durable terminal output
-      # still uses the outbox path.
-      preview_disabled: false,
+      # still uses the outbox path. A channel that cannot edit an entry never
+      # gets a plain-text preview: the first fragment would become the only
+      # message, and the final reply would turn into an edit the adapter
+      # refuses.
+      preview_editable: preview_editable?,
+      preview_disabled: not preview_editable?,
       # Monotonic key segment for best-effort preview edits.
       edit_sequence: 0,
       dirty: rich? and map_size(checkpoint) > 0,
@@ -1246,7 +1251,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
              tool_calls: %{},
              preview_entry_id: preview_entry_id,
              preview_established: is_binary(preview_entry_id),
-             preview_disabled: false,
+             preview_disabled: not state.preview_editable,
              edit_sequence: 0,
              dirty: false,
              presentation: presentation,
@@ -1847,6 +1852,16 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp adapter_for_event(%ActorEvent{} = event) do
     with {:ok, binding} <- binding_for_event(event) do
       Adapters.fetch_outbox(binding.adapter)
+    end
+  end
+
+  # The plain-text preview posts the first fragment and then edits it in
+  # place, so it needs `edit_entry`. An unresolved adapter counts as not
+  # editable; the durable final reply does not depend on this answer.
+  defp editable_outbox?(%ActorEvent{} = event) do
+    case adapter_for_event(event) do
+      {:ok, adapter} -> MapSet.member?(OutboxAdapter.capabilities(adapter), :edit_entry)
+      {:error, _reason} -> false
     end
   end
 

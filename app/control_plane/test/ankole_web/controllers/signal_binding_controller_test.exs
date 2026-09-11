@@ -118,6 +118,55 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
+  test "admin sees an unsupported delivery with a named state", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(agent.uid, "lark", "lark-main", lark_config("delivery-unsupported"))
+
+    assert response(conn, 200)
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+               now: base_time()
+             )
+
+    assert {:ok, %OutboxEntry{status: :unsupported}} =
+             commit_and_dispatch(
+               agent.uid,
+               "lark-main",
+               %{
+                 outbound_key: "ai-reply:console-unsupported",
+                 delivery_class: :durable_ai_reply,
+                 operation: :edit,
+                 signal_channel_id: "lark:chat:group-a",
+                 target_source_entry_id: "msg-1",
+                 fallback_visible_text: "cannot be edited here"
+               },
+               [:post_entry, :reply_entry],
+               %{}
+             )
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
+
+    assert %{
+             "delivery_failures" => [
+               %{
+                 "outbound_key" => "ai-reply:console-unsupported",
+                 "status" => "unsupported",
+                 "state" => "unsupported",
+                 "attempt_count" => 0,
+                 "can_retry" => false
+               }
+             ]
+           } = json_response(conn, 200)
+  end
+
   test "admin sees and requeues a stopped durable delivery", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 

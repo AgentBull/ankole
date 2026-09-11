@@ -75,6 +75,8 @@ of these values:
   Microsoft Teams, DingTalk, and WeCom use this category.
 - `consumer_im` identifies a consumer messaging adapter. Telegram and Discord
   use this category.
+- `email` identifies the Email adapter, whose senders are identified only by
+  explicit `email` identity bindings.
 
 The category is catalog metadata. The adapter catalog, documentation, and
 Console use it to group adapters. It does not control identity admission,
@@ -259,10 +261,17 @@ What an unmatched sender means is the binding's `unmatched_sender_policy`:
   provider copy, no inbound batch. A message that
   addresses the Agent records one row in `identity_mapping_requests` and
   answers with one fixed localized notice that tells the sender to ask an
-  administrator to bind the account. Unaddressed group chatter from an
+  administrator to bind the account. The notice outbox row records the
+  refused sender under `metadata.unmatched_sender`, because the message it
+  replies to is never mirrored and an adapter whose route needs a recipient
+  must read it from the row. Unaddressed group chatter from an
   unmatched sender is ignored silently.
 - `create_standalone`: the gateway creates a standalone human Principal for
-  the sender and serves them at once.
+  the sender and serves them at once. When the subject id is already a
+  Principal UID, such as a local account whose UID is its sign-in email, the
+  gateway does not create or join an account; the sender waits for manual
+  review as above, because only an operator can decide that they are the
+  same person.
 
 A sender whose Principal is disabled is ignored without a notice.
 
@@ -694,6 +703,10 @@ An adapter updates only the provider message that belongs to the current owner.
 
 After the first successful preview, the ActorEvent stores the provider message
 ID. The final outbox can edit that message instead of sending another one.
+A channel whose adapter declares no reply-preview module and no `edit_entry`
+gets no preview at all: the first fragment would become the only message the
+channel can show. Its final reply, failure notice, and tool activity arrive as
+one new message.
 
 After an active `/steer` event is stored, the current owner stays active. It
 continues to receive presentation updates from the model round that is already

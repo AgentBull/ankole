@@ -103,11 +103,17 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
          %Binding{unmatched_sender_policy: :create_standalone} = binding,
          fact,
          provider,
-         _now
+         now
        ) do
     case upsert_subject(provider, fact.author, nil) do
       {:ok, principal} ->
         admitted_fact(binding, put_author_display(fact, principal), principal.uid)
+
+      # The subject id is already a Principal UID, such as a local account's
+      # sign-in email. Whether they are the same person is an operator
+      # decision, so the sender waits for review instead of a new account.
+      {:error, :principal_uid_taken} ->
+        apply_policy(%{binding | unmatched_sender_policy: :manual_review}, fact, provider, now)
 
       {:error, reason} ->
         held_silently(fact, {:standalone_account_failed, reason})
@@ -276,10 +282,24 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
       signal_channel_id: fact.signal_channel_id,
       provider_thread_id: fact.provider_thread_id,
       reply_to_source_entry_id: fact.source_entry_id,
-      payload: %{"metadata" => %{"source" => "unmapped_sender_notice"}},
+      payload: %{
+        "metadata" => %{
+          "source" => "unmapped_sender_notice",
+          "unmatched_sender" => notice_sender(fact.author)
+        }
+      },
       fallback_visible_text: I18n.t("signals_gateway.reply.unmapped_sender"),
       idempotency_key: outbound_key
     }
+  end
+
+  # The notice replies to a message that is never mirrored, so an adapter
+  # whose route needs a recipient reads the sender from the row itself.
+  defp notice_sender(author) when is_map(author) do
+    author
+    |> Map.take(["platform_subject", "email", "display_name"])
+    |> Enum.reject(fn {_key, value} -> not is_binary(value) end)
+    |> Map.new()
   end
 
   defp maybe_hydrate_author(%Binding{} = binding, fact) do

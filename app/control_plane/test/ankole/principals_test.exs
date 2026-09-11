@@ -436,7 +436,7 @@ defmodule Ankole.PrincipalsTest do
       refute joined.principal.uid == bystander.uid
     end
 
-    test "upsert_platform_subject_human/1 converges equal external ids across providers" do
+    test "upsert_platform_subject_human/1 never joins a Principal only because the UIDs are equal" do
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
@@ -444,24 +444,25 @@ defmodule Ankole.PrincipalsTest do
                  display_name: "Slack Person"
                })
 
-      assert {:ok, second} =
+      assert first.principal.uid == "12345"
+
+      assert {:error, :principal_uid_taken} =
                Principals.upsert_platform_subject_human(%{
                  provider: "dingtalk-main",
                  external_id: "12345",
                  display_name: "DingTalk Person"
                })
 
-      assert first.principal.uid == "12345"
-      assert second.principal.uid == first.principal.uid
-
       assert {:ok, slack_resolved} = Principals.resolve_platform_subject("slack-main", "12345")
-      assert {:ok, ding_resolved} = Principals.resolve_platform_subject("dingtalk-main", "12345")
       assert slack_resolved.uid == first.principal.uid
-      assert ding_resolved.uid == first.principal.uid
+      assert {:error, :not_found} = Principals.resolve_platform_subject("dingtalk-main", "12345")
+
+      assert first.principal.display_name ==
+               Repo.get!(Ankole.Principals.Principal, "12345").display_name
     end
 
-    test "upsert_platform_subject_human/1 uses contacts before a global Principal UID" do
-      %{principal: global_principal} = human_fixture(%{uid: "shared-subject"})
+    test "upsert_platform_subject_human/1 still joins by contact when the UID is taken" do
+      %{principal: _local} = human_fixture(%{uid: "shared-subject"})
 
       %{principal: contact_principal, human_user: contact_owner} =
         human_fixture(%{uid: "first-global-owner", email: "first.global.owner@example.com"})
@@ -473,14 +474,33 @@ defmodule Ankole.PrincipalsTest do
                  email: contact_owner.email
                })
 
-      assert {:ok, second} =
+      assert first.principal.uid == contact_principal.uid
+
+      assert {:error, :principal_uid_taken} =
                Principals.upsert_platform_subject_human(%{
                  provider: "dingtalk-main",
                  external_id: "SHARED-SUBJECT"
                })
+    end
 
-      assert first.principal.uid == contact_principal.uid
-      assert second.principal.uid == global_principal.uid
+    test "upsert_platform_subject_human/1 refuses to turn a local account into an email sender" do
+      assert {:ok, %{principal: local}} =
+               Principals.create_local_user(
+                 %{uid: "owner@corp.example", email: "owner@corp.example"},
+                 false
+               )
+
+      assert {:error, :principal_uid_taken} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "email",
+                 external_id: "owner@corp.example",
+                 display_name: "Owner"
+               })
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("email", "owner@corp.example")
+
+      assert Repo.get!(Ankole.Principals.Principal, local.uid).display_name == local.display_name
     end
 
     test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do
@@ -570,8 +590,8 @@ defmodule Ankole.PrincipalsTest do
                })
     end
 
-    test "matches contacts before the global Principal namespace" do
-      %{principal: global_principal} =
+    test "matches contacts but never an equal Principal UID" do
+      %{principal: _global_principal} =
         human_fixture(%{uid: "shared-global-subject", email: "global.subject@example.com"})
 
       %{principal: contact_principal, human_user: contact_owner} =
@@ -584,10 +604,16 @@ defmodule Ankole.PrincipalsTest do
                  email: contact_owner.email
                })
 
-      assert {:ok, ^global_principal} =
+      assert {:error, :not_found} =
                Principals.match_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "SHARED-GLOBAL-SUBJECT"
+               })
+
+      assert {:error, :not_found} =
+               Principals.match_platform_subject_human(%{
+                 provider: "email",
+                 external_id: "global.subject@example.com"
                })
     end
 

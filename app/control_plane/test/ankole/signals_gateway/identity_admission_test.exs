@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
   alias Ankole.AuthZ.Membership
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequest
+  alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
@@ -94,9 +95,10 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
     assert matched.uid == human.uid
   end
 
-  test "manual review admits a sender whose subject matches a global Principal UID" do
+  test "a sender whose subject equals a Principal UID waits for review under either policy" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
+    binding_fixture(agent.uid, "lark-auto", :ignore, unmatched_sender_policy: :create_standalone)
     %{principal: human} = human_fixture(%{uid: "ou_global_sender"})
 
     author =
@@ -106,14 +108,22 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
         display_name: "Global Sender"
       })
 
-    assert {:ok, %{status: :accepted}} =
+    assert {:ok, %{status: :held_unmapped_sender}} =
              Ingress.emit_entry(agent.uid, "lark-adm", dm_entry(author))
 
-    assert {:ok, matched} =
+    assert {:ok, %{status: :held_unmapped_sender}} =
+             Ingress.emit_entry(agent.uid, "lark-auto", dm_entry(author))
+
+    assert {:error, :not_found} =
              Principals.resolve_platform_subject("lark-main", "ou_global_sender")
 
-    assert matched.uid == human.uid
-    assert Repo.aggregate(MappingRequest, :count) == 0
+    assert [request] = Repo.all(MappingRequest)
+    assert request.external_id == "ou_global_sender"
+
+    assert {:ok, _identity} = MappingRequests.bind_request(request.id, human.uid)
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry(agent.uid, "lark-auto", dm_entry(author))
   end
 
   test "admitted senders accumulate in the binding's signal_source group" do

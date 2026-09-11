@@ -1305,7 +1305,7 @@ export type ProviderHostedCapabilities = {
  * SignalAdapterItem
  */
 export type SignalAdapterItem = {
-  adapter_category: 'enterprise_im' | 'consumer_im'
+  adapter_category: 'enterprise_im' | 'consumer_im' | 'email'
   adapter_id: string
   display_name?: LocalizedText
   fields: Array<SignalAdapterField>

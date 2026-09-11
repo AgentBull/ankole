@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.2.0-rc.1 (2026-09-11)
+
+- An operator can now connect a dedicated mailbox to an Agent with the new Email adapter: Ankole receives mail over IMAP, keeps each email thread as one conversation, and sends the Agent's replies over SMTP with the thread headers that mail clients use. The mailbox belongs to the Agent; a message that another mail client marks as read never reaches it.
+- An email sender is identified only by an explicit `email` identity binding: an administrator maps the address from the mapping request list, a synced directory binds each user's address automatically, or the binding creates a standalone account. A profile email or a local sign-in email never links a sender by itself. By default the adapter requires a DMARC pass from the receiving mail server and ignores automatic and bulk mail. Password and app-password login are supported; OAuth mailboxes are not.
+- A channel whose adapter cannot edit a sent message no longer receives a streaming preview, so an email thread gets the Agent's complete answer as one message instead of its first fragment. The Console signal routing page names a delivery that the channel does not support instead of showing a missing translation.
+- A provider user that matches no binding and no contact is always a new account. Ankole no longer joins it to an existing Principal only because the UIDs are equal, and it refuses the write when that UID is taken; an operator maps the two explicitly when they are one person.
+
 ## Version 1.1.2-rc.1 (2026-09-10)
 
 - Word, Excel, and PowerPoint jobs use the OfficeCLI installed in the Worker image. An older version reference in a Skill no longer stops file work when the installed CLI and its format help run successfully.
