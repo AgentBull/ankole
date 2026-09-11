@@ -81,4 +81,41 @@ defmodule DingTalkOpenAPI.ContactTest do
     assert [{:ok, %{"userid" => "u1"}}, {:ok, %{"userid" => "u2"}}] =
              client |> Contact.stream_department_users(5) |> Enum.to_list()
   end
+
+  test "an incomplete directory page cannot report successful completion", %{client: client} do
+    for result <- [
+          %{"list" => [], "has_more" => true},
+          %{"list" => [], "has_more" => true, "next_cursor" => 0},
+          %{"list" => [], "has_more" => true, "next_cursor" => "100"},
+          %{"list" => [], "has_more" => "false"},
+          %{"has_more" => false}
+        ] do
+      Req.Test.stub(__MODULE__, &Req.Test.json(&1, %{"errcode" => 0, "result" => result}))
+
+      assert [{:error, %DingTalkOpenAPI.Error{reason: :unexpected_shape}}] =
+               client |> Contact.stream_department_users(5) |> Enum.to_list()
+    end
+  end
+
+  test "a cursor cycle returns an error after the last valid page", %{client: client} do
+    Req.Test.stub(__MODULE__, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      cursor = Torque.decode!(body)["cursor"]
+
+      Req.Test.json(conn, %{
+        "errcode" => 0,
+        "result" => %{
+          "list" => [%{"userid" => to_string(cursor)}],
+          "has_more" => true,
+          "next_cursor" => if(cursor == 0, do: 100, else: 0)
+        }
+      })
+    end)
+
+    assert [
+             {:ok, %{"userid" => "0"}},
+             {:error, %DingTalkOpenAPI.Error{reason: :unexpected_shape}}
+           ] =
+             client |> Contact.stream_department_users(5) |> Enum.to_list()
+  end
 end

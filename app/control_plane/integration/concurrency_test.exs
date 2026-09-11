@@ -228,6 +228,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                    AutomationJobs.create_job(%{
                      agent_uid: agent.uid,
                      owner_session_id: "cancel-race",
+                     source_actor_event_id: Ankole.WorkFixtures.service_source(agent.uid).id,
                      directory_path: "/agents/#{agent.uid}/automation/test",
                      label: "Cancellation race"
                    })
@@ -469,6 +470,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                    "agent_uid" => agent.uid,
                    "owner_session_id" => "owner-#{agent.uid}",
                    "source_tool_call_id" => "tool-#{agent.uid}",
+                   "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                    "title" => "Concurrent Job",
                    "task" => "Finish the report.",
                    "reply_route" => %{"binding_name" => "bot", "signal_channel_id" => route}

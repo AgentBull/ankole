@@ -329,6 +329,8 @@ defmodule Ankole.IdentityProviders.LocalPassword do
     {:ok,
      %{
        principal_uid: principal.uid,
+       access_version: principal.access_version,
+       auth_time: System.system_time(:second),
        provider_id: provider["provider_id"],
        email: account_key,
        credential_version: LocalCredential.version(credential),

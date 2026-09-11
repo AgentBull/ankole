@@ -412,7 +412,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                    },
                    "idempotency_key" => "reset-boundary-cron"
                  },
-                 now: DateTime.add(@base_time, 1, :second)
+                 now: DateTime.add(@base_time, 1, :second),
+                 created_by: %{"actor_event_id" => first_input.id}
                )
 
       execution_actor = %{
@@ -476,7 +477,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
 
-      committed = complete_aigateway_turn!(cron_turn_ref, "scheduled work completed")
+      committed =
+        complete_aigateway_turn!(
+          cron_turn_ref,
+          Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "scheduled work completed"})
+        )
 
       assert {:ok, %{status: :turn_completed}} =
                commit_turn_completion(cron_turn_ref, "resp_#{committed.id}", "loop_finished")

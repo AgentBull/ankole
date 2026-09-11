@@ -211,7 +211,20 @@ defmodule Ankole.Principals do
   """
   @spec disable_principal(String.t()) :: principal_result()
   def disable_principal(uid) do
-    Repo.transact(fn repo -> disable_in_tx(repo, uid) end)
+    with {:ok, principal} <- get_principal(uid) do
+      case principal.type do
+        :human ->
+          Ankole.Principals.HumanAccess.disable(
+            principal.uid,
+            "manual_disable",
+            nil,
+            NativeKernel.gen_uuid_v7()
+          )
+
+        _ ->
+          Repo.transact(fn repo -> disable_in_tx(repo, principal.uid) end)
+      end
+    end
   end
 
   # The AuthZ check takes the admin group lock, and the installation-wide lock
@@ -395,6 +408,8 @@ defmodule Ankole.Principals do
            {:ok, external_ids} <- candidate_external_ids(attrs),
            {:ok, metadata} <- metadata_attrs(attrs),
            :ok <- lock_platform_subjects(repo, provider, external_ids),
+           :ok <-
+             Ankole.IdentityProviders.DirectoryAccess.guard_subject(repo, provider, external_ids),
            :ok <- lock_global_platform_subject(repo, external_id),
            :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
            :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),

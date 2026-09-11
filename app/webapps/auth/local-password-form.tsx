@@ -21,15 +21,10 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
   const [password, setPassword] = useState('')
   const login = useMutation({
     mutationFn: (input: { email: string; password: string }) => {
-      // Mirrors the OIDC path: the page URL carries the destination and the
-      // server clamps it to a safe same-origin path.
       const query = new URLSearchParams(window.location.search)
-      const returnTo = query.get('return_to')
-      const oauth = query.get('oauth') === '1'
       return internalAPIPost<LoginResult>('/.internal-apis/sessions/local-password', {
         ...input,
-        ...(returnTo ? { returnTo } : {}),
-        ...(oauth ? { oauth: true } : {})
+        flow: query.get('flow')
       })
     },
     onSuccess: result => {

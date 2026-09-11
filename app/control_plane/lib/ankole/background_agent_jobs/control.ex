@@ -331,6 +331,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       })
 
     SignalsGateway.append_actor_event_in_tx(repo, %{
+      source_work: job,
       agent_uid: job.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
       session_id: BackgroundAgentJobs.job_session_id(job.id),

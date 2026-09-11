@@ -21,6 +21,10 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   @type t :: %__MODULE__{}
 
   schema "automation_jobs" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
+
     belongs_to :agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
@@ -54,6 +58,9 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   def changeset(job, attrs) do
     job
     |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
       :agent_uid,
       :owner_session_id,
       :source_actor_event_id,

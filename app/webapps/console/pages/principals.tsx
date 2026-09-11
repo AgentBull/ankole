@@ -1,3 +1,5 @@
+import { HumanAccessSection } from './principal-access'
+import { WorkAccessReview } from './work-access-review'
 import {
   Avatar,
   AvatarFallback,
@@ -63,7 +65,7 @@ export function AccessSubNav() {
 
 export function PrincipalsListPage() {
   const { t } = useTranslation()
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ query: { include_disabled: true } }))
   const localIdentity = useLocalIdentityProvider()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -93,7 +95,12 @@ export function PrincipalsListPage() {
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       count={rows.length}
-      subNav={<AccessSubNav />}
+      subNav={
+        <div className="grid gap-4">
+          <AccessSubNav />
+          <WorkAccessReview />
+        </div>
+      }
       toolbar={
         <ResourceSearch
           label={t('console.principals.search')}
@@ -172,6 +179,7 @@ export function PrincipalDetailPage() {
       <ErrorBlock error={principal.error} />
       {loadedPrincipal ? (
         <div className="grid gap-10">
+          {loadedPrincipal.type === 'human' ? <HumanAccessSection key={uid} uid={uid} /> : null}
           {localIdentity.enabled && loadedPrincipal.type === 'human' ? (
             <LocalPasswordSection principal={loadedPrincipal} />
           ) : null}

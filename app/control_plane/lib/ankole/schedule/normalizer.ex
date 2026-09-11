@@ -39,7 +39,9 @@ defmodule Ankole.Schedule.Normalizer do
 
     with {:ok, due_at, timezone, schedule} <-
            replacement_checkback_schedule(existing, attrs, now, opts) do
-      build_checkback_attrs(merged_attrs, due_at, timezone, schedule, now)
+      with {:ok, replacement} <-
+             build_checkback_attrs(merged_attrs, due_at, timezone, schedule, now),
+           do: {:ok, Ankole.Principals.WorkAccess.merge(replacement, existing)}
     end
   end
 

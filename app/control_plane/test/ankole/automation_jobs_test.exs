@@ -232,6 +232,7 @@ defmodule Ankole.AutomationJobsTest do
     due_at = DateTime.add(@now, 5, :minute)
 
     attrs = %{
+      "source_actor_event_id" => source.id,
       "agent_uid" => agent.uid,
       "session_id" => source.session_id,
       "binding_name" => source.binding_name,
@@ -328,7 +329,7 @@ defmodule Ankole.AutomationJobsTest do
     first_slot = DateTime.add(@now, 1, :minute)
 
     assert {:ok, %{cron_schedule: schedule}} =
-             Schedule.create_cron_schedule(
+             create_cron_schedule(
                %{
                  "agent_uid" => agent.uid,
                  "owner_session_id" => source.session_id,
@@ -439,6 +440,7 @@ defmodule Ankole.AutomationJobsTest do
 
   defp checkback_attrs(source, due_at, key, automation_job_id) do
     %{
+      "source_actor_event_id" => source.id,
       "agent_uid" => source.agent_uid,
       "session_id" => source.session_id,
       "binding_name" => source.binding_name,
@@ -472,10 +474,20 @@ defmodule Ankole.AutomationJobsTest do
                source_entry_id: "message-#{unique}",
                type: "im.message.addressed",
                available_at: @now,
-               sender_key: nil,
+               sender_key: agent_uid,
                payload: trigger_event("source-#{unique}")
              })
 
     source
+  end
+
+  defp create_cron_schedule(attrs, opts) do
+    Schedule.create_cron_schedule(
+      attrs,
+      Keyword.put_new(opts, :created_by, %{
+        "kind" => "operator_api",
+        "principal_uid" => attrs["agent_uid"] || attrs[:agent_uid]
+      })
+    )
   end
 end

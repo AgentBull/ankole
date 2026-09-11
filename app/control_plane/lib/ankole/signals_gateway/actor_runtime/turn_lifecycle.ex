@@ -79,7 +79,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     job_limit = WorkerPool.job_turn_limit(actor_key)
 
     Repo.transact(fn repo ->
-      with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now, job_limit),
+      with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, actor_event),
+           {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now, job_limit),
            {:ok, turn_start_spec} <- turn_start_spec_result,
            {:ok, turn_start_overrides} <- run_admission_in_tx(repo, turn_start_spec, opts),
            turn_start_spec <- merge_turn_start_spec(turn_start_spec, turn_start_overrides),

@@ -262,13 +262,16 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       |> cron_body(name)
       |> Map.put("agent_uid", agent_uid)
 
-    assert {:ok, %{cron_schedule: schedule}} = Schedule.create_cron_schedule(attrs)
+    assert {:ok, %{cron_schedule: schedule}} =
+             Schedule.create_cron_schedule(attrs, created_by: %{"principal_uid" => agent_uid})
+
     schedule
   end
 
   defp checkback!(agent_uid, session_id, reason) do
     assert {:ok, %{scheduled_event: event}} =
              Schedule.create_check_back_later(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "session_id" => session_id,
                "binding_name" => "lark",

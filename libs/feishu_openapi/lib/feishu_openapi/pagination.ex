@@ -54,6 +54,7 @@ defmodule FeishuOpenAPI.Pagination do
       `["data", "page_token"]`.
     * `:next_page_token` — fallback path to the next-page token. Default
       `["data", "next_page_token"]`.
+    * `:strict` — require items and a boolean `has_more` on every page. Default `false`.
     * `:page_token_param` — query-param name sent back to the API. Default
       `:page_token`.
   """
@@ -66,7 +67,8 @@ defmodule FeishuOpenAPI.Pagination do
           has_more: [String.t()],
           page_token: [String.t()],
           next_page_token: [String.t()],
-          page_token_param: atom()
+          page_token_param: atom(),
+          strict: boolean()
         ]
 
   @default_items_path ["data", "items"]
@@ -93,17 +95,25 @@ defmodule FeishuOpenAPI.Pagination do
     page_token_path = Keyword.get(opts, :page_token, @default_page_token_path)
     next_page_token_path = Keyword.get(opts, :next_page_token, @default_next_page_token_path)
     page_token_param = Keyword.get(opts, :page_token_param, @default_page_token_param)
+    strict = Keyword.get(opts, :strict, false)
 
     forwarded =
-      Keyword.drop(opts, [:items, :has_more, :page_token, :next_page_token, :page_token_param])
+      Keyword.drop(opts, [
+        :items,
+        :has_more,
+        :page_token,
+        :next_page_token,
+        :page_token_param,
+        :strict
+      ])
 
     Stream.resource(
-      fn -> :first_page end,
+      fn -> {:first_page, MapSet.new()} end,
       fn
         :done ->
           {:halt, :done}
 
-        page_token ->
+        {page_token, seen} ->
           query =
             forwarded
             |> Keyword.get(:query, [])
@@ -111,14 +121,29 @@ defmodule FeishuOpenAPI.Pagination do
 
           case FeishuOpenAPI.get(client, path, Keyword.put(forwarded, :query, query)) do
             {:ok, body} when is_map(body) ->
-              items = get_in_path(body, items_path) || []
+              raw_items = get_in_path(body, items_path)
+              items = if is_list(raw_items), do: raw_items, else: []
               wrapped = Enum.map(items, &{:ok, &1})
               has_more = get_in_path(body, has_more_path)
               next_token = page_token(body, page_token_path, next_page_token_path)
 
               cond do
+                strict and (not is_list(raw_items) or not is_boolean(has_more)) ->
+                  {[
+                     {:error,
+                      %Error{code: :invalid_page, msg: "Page items and has_more are required"}}
+                   ], :done}
+
+                has_more and
+                    (not is_binary(next_token) or next_token == "" or
+                       MapSet.member?(seen, next_token)) ->
+                  {[
+                     {:error,
+                      %Error{code: :invalid_page, msg: "Page cursor is missing or repeated"}}
+                   ], :done}
+
                 has_more && is_binary(next_token) ->
-                  {wrapped, next_token}
+                  {wrapped, {next_token, MapSet.put(seen, next_token)}}
 
                 true ->
                   {wrapped, :done}

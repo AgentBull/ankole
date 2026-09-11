@@ -51,13 +51,40 @@ defmodule Ankole.IdentityProviders.Directory do
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, attrs, opts \\ [])
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
-    with {:ok, observed} <-
-           Principals.upsert_platform_subject_human(Map.put(attrs, :authoritative_profile, true)),
-         :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
-         {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts) do
-      {:ok, observed}
-    end
+    Ankole.Repo.transact(fn repo ->
+      observation = Keyword.get(opts, :access_observation)
+
+      if is_binary(observation),
+        do:
+          Ankole.AuthZ.Store.lock_built_in_admin_group_for_update(
+            repo,
+            Ankole.AuthZ.Root.admin_group_name()
+          )
+
+      with {:ok, observed} <-
+             Principals.upsert_platform_subject_human(
+               Map.put(attrs, :authoritative_profile, true)
+             ),
+           :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
+           {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts),
+           {:ok, principal} <-
+             restrict_observed_user(provider_id, observed.principal, observation, opts) do
+        {:ok, %{observed | principal: principal}}
+      end
+    end)
   end
+
+  defp restrict_observed_user(provider_id, principal, reason, opts) when is_binary(reason) do
+    Principals.HumanAccess.restrict_from_provider(
+      principal.uid,
+      provider_id,
+      reason,
+      Keyword.get(opts, :operation_id, Ankole.Kernel.gen_uuid_v7()),
+      Keyword.get(opts, :observed_at)
+    )
+  end
+
+  defp restrict_observed_user(_provider_id, principal, _observation, _opts), do: {:ok, principal}
 
   @doc """
   Returns the AuthZ group name that holds every member of one provider.

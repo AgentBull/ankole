@@ -376,6 +376,7 @@ defmodule Ankole.Workflow do
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
       SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: run,
         agent_uid: run.agent_uid,
         binding_name: binding_name,
         session_id: task_session_id(call.id),
@@ -540,6 +541,7 @@ defmodule Ankole.Workflow do
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
       SignalsGateway.append_actor_event(%{
+        source_work: run,
         agent_uid: run.agent_uid,
         binding_name: binding_name,
         session_id: session_id,
@@ -706,7 +708,10 @@ defmodule Ankole.Workflow do
   end
 
   defp persist_in_tx(repo, attrs) do
-    with :ok <- lock_idempotency(repo, attrs) do
+    attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+    with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+         :ok <- lock_idempotency(repo, attrs) do
       case find_existing(repo, attrs) do
         %Run{status: "running"} = run ->
           with :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id) do
@@ -845,7 +850,8 @@ defmodule Ankole.Workflow do
       when is_integer(run_id) and run_id > 0 and is_list(pending_calls) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
     Repo.transact(fn repo ->
-      commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
+      with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id),
+           do: commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
     end)
   end
 
@@ -1050,8 +1056,9 @@ defmodule Ankole.Workflow do
   def claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent)
       when is_atom(repo) and is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
              is_integer(max_running_per_agent) and max_running_per_agent > 0 do
-    with :ok <- lock_agent_slots(repo, agent_uid),
-         {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
+    with {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
+         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id),
+         :ok <- lock_agent_slots(repo, agent_uid),
          %Run{} = run <- lock_run(repo, run_id, agent_uid),
          %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid),
          :ok <- ensure_claimable(run, call),
@@ -1432,6 +1439,7 @@ defmodule Ankole.Workflow do
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
       SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: run,
         agent_uid: run.agent_uid,
         binding_name: binding_name,
         session_id: task_session_id(call.id),
@@ -1539,6 +1547,7 @@ defmodule Ankole.Workflow do
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
       SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: run,
         agent_uid: run.agent_uid,
         binding_name: binding_name,
         session_id: run.owner_session_id,
@@ -1633,6 +1642,7 @@ defmodule Ankole.Workflow do
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
       SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: run,
         agent_uid: run.agent_uid,
         binding_name: binding_name,
         session_id: task_session_id(call.id),
@@ -1675,6 +1685,7 @@ defmodule Ankole.Workflow do
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name"),
          {:ok, _event} <-
            SignalsGateway.append_actor_event_in_tx(repo, %{
+             source_work: run,
              agent_uid: run.agent_uid,
              binding_name: binding_name,
              session_id: run.owner_session_id,
@@ -1746,6 +1757,21 @@ defmodule Ankole.Workflow do
       nil -> {:ok, nil}
       {:error, :workflow_task_not_found} -> {:ok, nil}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp submit_locked(
+         repo,
+         %Run{status: "cancelled", error: %{"code" => "human_access_revoked"}} = run,
+         %AgentCall{status: "running"} = call,
+         outcome,
+         now
+       ) do
+    if outcome_value(outcome, "ok") == true do
+      commit_success(repo, run, call, outcome_value(outcome, "value"), now)
+    else
+      with {:ok, failure} <- validate_failure(outcome),
+           do: commit_failure(repo, run, call, failure, false, now)
     end
   end
 
@@ -2240,4 +2266,27 @@ defmodule Ankole.Workflow do
   end
 
   defp now, do: DateTime.utc_now()
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    runs = from r in Run, where: r.human_uid == ^uid and r.human_access_version < ^version
+
+    repo.update_all(from(r in runs, where: r.status == "running"),
+      set: [
+        status: "cancelled",
+        completed_at: now,
+        cleanup_completed_at: now,
+        updated_at: now,
+        error: %{"code" => "human_access_revoked"}
+      ]
+    )
+
+    repo.update_all(
+      from(c in AgentCall,
+        where:
+          c.run_id in subquery(from r in runs, select: r.id) and
+            c.status in ["queued", "sleeping"]
+      ),
+      set: [status: "cancelled", updated_at: now, error: %{"code" => "human_access_revoked"}]
+    )
+  end
 end

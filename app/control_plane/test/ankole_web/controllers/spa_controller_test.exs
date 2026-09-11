@@ -44,6 +44,9 @@ defmodule AnkoleWeb.SpaControllerTest do
     {:ok, true} = SetupConfig.put_completed(true)
 
     conn = get(conn, ~p"/sessions/new")
+    next = redirected_to(conn)
+    assert next =~ "/sessions/new?flow="
+    conn = conn |> recycle() |> get(next)
 
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
   end

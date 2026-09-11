@@ -47,7 +47,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
 
     cond do
       is_binary(author["principal_uid"]) ->
-        {:ok, fact}
+        admit_known_sender(fact, author["principal_uid"])
 
       subject_candidates(author) == [] ->
         {:ok, fact}
@@ -151,8 +151,13 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
   # sender could not join must fail loudly and retry instead of entering with
   # a narrower permission surface than the contract states.
   defp admitted_fact(%Binding{} = binding, fact, principal_uid) do
-    with :ok <- ensure_signal_source_membership(binding, principal_uid) do
-      {:ok, FactNormalizer.put_author_principal(fact, principal_uid)}
+    with {:ok, fact} <-
+           admit_known_sender(
+             FactNormalizer.put_author_principal(fact, principal_uid),
+             principal_uid
+           ),
+         :ok <- ensure_signal_source_membership(binding, principal_uid) do
+      {:ok, fact}
     end
   end
 
@@ -432,4 +437,17 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
   end
 
   defp text(_value), do: nil
+
+  defp admit_known_sender(fact, uid) do
+    case Principals.get_principal(uid) do
+      {:ok, %{status: :active, type: :human, access_version: version}} ->
+        {:ok, %{fact | author: Map.put(fact.author || %{}, "human_access_version", version)}}
+
+      {:ok, %{status: :active, type: :agent}} ->
+        {:ok, fact}
+
+      _ ->
+        held_silently(fact, :human_access_revoked)
+    end
+  end
 end

@@ -121,6 +121,16 @@ import {
   ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
+  ankoleWebDirectoryAccessControllerApprove,
+  ankoleWebDirectoryAccessControllerReviewEvent,
+  ankoleWebDirectoryAccessControllerShow,
+  ankoleWebHumanAccessControllerClassifyWork,
+  ankoleWebHumanAccessControllerClearRestriction,
+  ankoleWebHumanAccessControllerDisable,
+  ankoleWebHumanAccessControllerRestore,
+  ankoleWebHumanAccessControllerRetryCleanup,
+  ankoleWebHumanAccessControllerShow,
+  ankoleWebHumanAccessControllerUnresolvedWork,
   ankoleWebIdentityMappingRequestControllerBind,
   ankoleWebIdentityMappingRequestControllerCreateMapping,
   ankoleWebIdentityMappingRequestControllerDelete,
@@ -132,6 +142,8 @@ import {
   ankoleWebOidcClientControllerCreate,
   ankoleWebOidcClientControllerDelete,
   ankoleWebOidcClientControllerIndex,
+  ankoleWebOidcClientControllerLogoutDeliveries,
+  ankoleWebOidcClientControllerRetryLogout,
   ankoleWebOidcClientControllerRotateSecret,
   ankoleWebOidcClientControllerShow,
   ankoleWebOidcClientControllerUpdate,
@@ -488,6 +500,31 @@ import type {
   AnkoleWebControlPlanePluginControllerUpdateData,
   AnkoleWebControlPlanePluginControllerUpdateError,
   AnkoleWebControlPlanePluginControllerUpdateResponse,
+  AnkoleWebDirectoryAccessControllerApproveData,
+  AnkoleWebDirectoryAccessControllerApproveResponse,
+  AnkoleWebDirectoryAccessControllerReviewEventData,
+  AnkoleWebDirectoryAccessControllerReviewEventResponse,
+  AnkoleWebDirectoryAccessControllerShowData,
+  AnkoleWebDirectoryAccessControllerShowResponse,
+  AnkoleWebHumanAccessControllerClassifyWorkData,
+  AnkoleWebHumanAccessControllerClassifyWorkError,
+  AnkoleWebHumanAccessControllerClassifyWorkResponse,
+  AnkoleWebHumanAccessControllerClearRestrictionData,
+  AnkoleWebHumanAccessControllerClearRestrictionError,
+  AnkoleWebHumanAccessControllerClearRestrictionResponse,
+  AnkoleWebHumanAccessControllerDisableData,
+  AnkoleWebHumanAccessControllerDisableError,
+  AnkoleWebHumanAccessControllerDisableResponse,
+  AnkoleWebHumanAccessControllerRestoreData,
+  AnkoleWebHumanAccessControllerRestoreError,
+  AnkoleWebHumanAccessControllerRestoreResponse,
+  AnkoleWebHumanAccessControllerRetryCleanupData,
+  AnkoleWebHumanAccessControllerRetryCleanupResponse,
+  AnkoleWebHumanAccessControllerShowData,
+  AnkoleWebHumanAccessControllerShowError,
+  AnkoleWebHumanAccessControllerShowResponse,
+  AnkoleWebHumanAccessControllerUnresolvedWorkData,
+  AnkoleWebHumanAccessControllerUnresolvedWorkResponse,
   AnkoleWebIdentityMappingRequestControllerBindData,
   AnkoleWebIdentityMappingRequestControllerBindError,
   AnkoleWebIdentityMappingRequestControllerBindResponse,
@@ -521,6 +558,10 @@ import type {
   AnkoleWebOidcClientControllerIndexData,
   AnkoleWebOidcClientControllerIndexError,
   AnkoleWebOidcClientControllerIndexResponse,
+  AnkoleWebOidcClientControllerLogoutDeliveriesData,
+  AnkoleWebOidcClientControllerLogoutDeliveriesResponse,
+  AnkoleWebOidcClientControllerRetryLogoutData,
+  AnkoleWebOidcClientControllerRetryLogoutResponse,
   AnkoleWebOidcClientControllerRotateSecretData,
   AnkoleWebOidcClientControllerRotateSecretError,
   AnkoleWebOidcClientControllerRotateSecretResponse,
@@ -1441,6 +1482,33 @@ export const ankoleWebBrainControllerForgetClaimMutation = (
 }
 
 /**
+ * Approve a current directory snapshot and its removals
+ */
+export const ankoleWebDirectoryAccessControllerApproveMutation = (
+  options?: Partial<Options<AnkoleWebDirectoryAccessControllerApproveData>>
+): UseMutationOptions<
+  AnkoleWebDirectoryAccessControllerApproveResponse,
+  DefaultError,
+  Options<AnkoleWebDirectoryAccessControllerApproveData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebDirectoryAccessControllerApproveResponse,
+    DefaultError,
+    Options<AnkoleWebDirectoryAccessControllerApproveData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebDirectoryAccessControllerApprove({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Delete one file or directory from a worker filesystem root
  */
 export const ankoleWebWorkerFileControllerDeleteMutation = (
@@ -1591,6 +1659,33 @@ export const ankoleWebAiGatewayControllerResponsesMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayControllerResponses({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Retry cleanup of revoked future work
+ */
+export const ankoleWebHumanAccessControllerRetryCleanupMutation = (
+  options?: Partial<Options<AnkoleWebHumanAccessControllerRetryCleanupData>>
+): UseMutationOptions<
+  AnkoleWebHumanAccessControllerRetryCleanupResponse,
+  DefaultError,
+  Options<AnkoleWebHumanAccessControllerRetryCleanupData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebHumanAccessControllerRetryCleanupResponse,
+    DefaultError,
+    Options<AnkoleWebHumanAccessControllerRetryCleanupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebHumanAccessControllerRetryCleanup({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -3266,6 +3361,61 @@ export const ankoleWebScheduleControllerResumeCronMutation = (
   return mutationOptions
 }
 
+export const ankoleWebHumanAccessControllerUnresolvedWorkQueryKey = (
+  options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData>
+) => createQueryKey('ankoleWebHumanAccessControllerUnresolvedWork', options)
+
+/**
+ * List work whose Human or service authority needs review
+ */
+export const ankoleWebHumanAccessControllerUnresolvedWorkOptions = (
+  options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData>
+) =>
+  queryOptions<
+    AnkoleWebHumanAccessControllerUnresolvedWorkResponse,
+    DefaultError,
+    AnkoleWebHumanAccessControllerUnresolvedWorkResponse,
+    ReturnType<typeof ankoleWebHumanAccessControllerUnresolvedWorkQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebHumanAccessControllerUnresolvedWork({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebHumanAccessControllerUnresolvedWorkQueryKey(options)
+  })
+
+/**
+ * Set the reviewed authority of unresolved work
+ */
+export const ankoleWebHumanAccessControllerClassifyWorkMutation = (
+  options?: Partial<Options<AnkoleWebHumanAccessControllerClassifyWorkData>>
+): UseMutationOptions<
+  AnkoleWebHumanAccessControllerClassifyWorkResponse,
+  AnkoleWebHumanAccessControllerClassifyWorkError,
+  Options<AnkoleWebHumanAccessControllerClassifyWorkData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebHumanAccessControllerClassifyWorkResponse,
+    AnkoleWebHumanAccessControllerClassifyWorkError,
+    Options<AnkoleWebHumanAccessControllerClassifyWorkData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebHumanAccessControllerClassifyWork({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAutomationJobControllerIndexQueryKey = (
   options?: Options<AnkoleWebAutomationJobControllerIndexData>
 ) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
@@ -3375,6 +3525,34 @@ export const ankoleWebSignalBindingControllerAdaptersOptions = (
       return data
     },
     queryKey: ankoleWebSignalBindingControllerAdaptersQueryKey(options)
+  })
+
+export const ankoleWebOidcClientControllerLogoutDeliveriesQueryKey = (
+  options: Options<AnkoleWebOidcClientControllerLogoutDeliveriesData>
+) => createQueryKey('ankoleWebOidcClientControllerLogoutDeliveries', options)
+
+/**
+ * List Back-Channel Logout deliveries
+ */
+export const ankoleWebOidcClientControllerLogoutDeliveriesOptions = (
+  options: Options<AnkoleWebOidcClientControllerLogoutDeliveriesData>
+) =>
+  queryOptions<
+    AnkoleWebOidcClientControllerLogoutDeliveriesResponse,
+    DefaultError,
+    AnkoleWebOidcClientControllerLogoutDeliveriesResponse,
+    ReturnType<typeof ankoleWebOidcClientControllerLogoutDeliveriesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebOidcClientControllerLogoutDeliveries({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebOidcClientControllerLogoutDeliveriesQueryKey(options)
   })
 
 export const ankoleWebPrincipalControllerIndexQueryKey = (options?: Options<AnkoleWebPrincipalControllerIndexData>) =>
@@ -3538,6 +3716,33 @@ export const ankoleWebSignalBindingControllerUpdateBindingMutation = (
   return mutationOptions
 }
 
+/**
+ * Clear one verified restriction without restoring access
+ */
+export const ankoleWebHumanAccessControllerClearRestrictionMutation = (
+  options?: Partial<Options<AnkoleWebHumanAccessControllerClearRestrictionData>>
+): UseMutationOptions<
+  AnkoleWebHumanAccessControllerClearRestrictionResponse,
+  AnkoleWebHumanAccessControllerClearRestrictionError,
+  Options<AnkoleWebHumanAccessControllerClearRestrictionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebHumanAccessControllerClearRestrictionResponse,
+    AnkoleWebHumanAccessControllerClearRestrictionError,
+    Options<AnkoleWebHumanAccessControllerClearRestrictionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebHumanAccessControllerClearRestriction({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAuthZGroupControllerMembersQueryKey = (
   options: Options<AnkoleWebAuthZGroupControllerMembersData>
 ) => createQueryKey('ankoleWebAuthZGroupControllerMembers', options)
@@ -3676,6 +3881,33 @@ export const ankoleWebAiGatewayControllerWebSearchMutation = (
   return mutationOptions
 }
 
+/**
+ * Retry a Back-Channel Logout delivery
+ */
+export const ankoleWebOidcClientControllerRetryLogoutMutation = (
+  options?: Partial<Options<AnkoleWebOidcClientControllerRetryLogoutData>>
+): UseMutationOptions<
+  AnkoleWebOidcClientControllerRetryLogoutResponse,
+  DefaultError,
+  Options<AnkoleWebOidcClientControllerRetryLogoutData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebOidcClientControllerRetryLogoutResponse,
+    DefaultError,
+    Options<AnkoleWebOidcClientControllerRetryLogoutData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebOidcClientControllerRetryLogout({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebBrainControllerPrincipalKnowledgeQueryKey = (
   options: Options<AnkoleWebBrainControllerPrincipalKnowledgeData>
 ) => createQueryKey('ankoleWebBrainControllerPrincipalKnowledge', options)
@@ -3702,6 +3934,31 @@ export const ankoleWebBrainControllerPrincipalKnowledgeOptions = (
       return data
     },
     queryKey: ankoleWebBrainControllerPrincipalKnowledgeQueryKey(options)
+  })
+
+export const ankoleWebHumanAccessControllerShowQueryKey = (options: Options<AnkoleWebHumanAccessControllerShowData>) =>
+  createQueryKey('ankoleWebHumanAccessControllerShow', options)
+
+/**
+ * Read Human access, permission review, and cleanup state
+ */
+export const ankoleWebHumanAccessControllerShowOptions = (options: Options<AnkoleWebHumanAccessControllerShowData>) =>
+  queryOptions<
+    AnkoleWebHumanAccessControllerShowResponse,
+    AnkoleWebHumanAccessControllerShowError,
+    AnkoleWebHumanAccessControllerShowResponse,
+    ReturnType<typeof ankoleWebHumanAccessControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebHumanAccessControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebHumanAccessControllerShowQueryKey(options)
   })
 
 export const ankoleWebScheduleControllerIndexCronQueryKey = (
@@ -4403,7 +4660,7 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation = (
 }
 
 /**
- * Clear the current browser admin session
+ * End authentication in the current browser
  */
 export const ankoleWebAuthControllerDeleteSessionMutation = (
   options?: Partial<Options<AnkoleWebAuthControllerDeleteSessionData>>
@@ -4782,6 +5039,33 @@ export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
     queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
   })
 
+/**
+ * Disable a Human and revoke future access
+ */
+export const ankoleWebHumanAccessControllerDisableMutation = (
+  options?: Partial<Options<AnkoleWebHumanAccessControllerDisableData>>
+): UseMutationOptions<
+  AnkoleWebHumanAccessControllerDisableResponse,
+  AnkoleWebHumanAccessControllerDisableError,
+  Options<AnkoleWebHumanAccessControllerDisableData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebHumanAccessControllerDisableResponse,
+    AnkoleWebHumanAccessControllerDisableError,
+    Options<AnkoleWebHumanAccessControllerDisableData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebHumanAccessControllerDisable({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebBrainControllerObjectTypesQueryKey = (
   options?: Options<AnkoleWebBrainControllerObjectTypesData>
 ) => createQueryKey('ankoleWebBrainControllerObjectTypes', options)
@@ -4921,6 +5205,33 @@ export const ankoleWebAiGatewayProviderControllerStartChatgptLoginMutation = (
   return mutationOptions
 }
 
+/**
+ * Retry or dismiss an unresolved provider event
+ */
+export const ankoleWebDirectoryAccessControllerReviewEventMutation = (
+  options?: Partial<Options<AnkoleWebDirectoryAccessControllerReviewEventData>>
+): UseMutationOptions<
+  AnkoleWebDirectoryAccessControllerReviewEventResponse,
+  DefaultError,
+  Options<AnkoleWebDirectoryAccessControllerReviewEventData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebDirectoryAccessControllerReviewEventResponse,
+    DefaultError,
+    Options<AnkoleWebDirectoryAccessControllerReviewEventData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebDirectoryAccessControllerReviewEvent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAiGatewayConversationControllerMessagesQueryKey = (
   options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
 ) => createQueryKey('ankoleWebAiGatewayConversationControllerMessages', options)
@@ -5000,6 +5311,34 @@ export const ankoleWebAiGatewayConversationControllerMessagesInfiniteOptions = (
   )
   return opts as Omit<typeof opts, 'initialData'>
 }
+
+export const ankoleWebDirectoryAccessControllerShowQueryKey = (
+  options: Options<AnkoleWebDirectoryAccessControllerShowData>
+) => createQueryKey('ankoleWebDirectoryAccessControllerShow', options)
+
+/**
+ * Read directory evidence and unresolved events
+ */
+export const ankoleWebDirectoryAccessControllerShowOptions = (
+  options: Options<AnkoleWebDirectoryAccessControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebDirectoryAccessControllerShowResponse,
+    DefaultError,
+    AnkoleWebDirectoryAccessControllerShowResponse,
+    ReturnType<typeof ankoleWebDirectoryAccessControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebDirectoryAccessControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebDirectoryAccessControllerShowQueryKey(options)
+  })
 
 /**
  * Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document
@@ -5486,6 +5825,33 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions = (
     },
     queryKey: ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey(options)
   })
+
+/**
+ * Restore Human access after identity and permission review
+ */
+export const ankoleWebHumanAccessControllerRestoreMutation = (
+  options?: Partial<Options<AnkoleWebHumanAccessControllerRestoreData>>
+): UseMutationOptions<
+  AnkoleWebHumanAccessControllerRestoreResponse,
+  AnkoleWebHumanAccessControllerRestoreError,
+  Options<AnkoleWebHumanAccessControllerRestoreData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebHumanAccessControllerRestoreResponse,
+    AnkoleWebHumanAccessControllerRestoreError,
+    Options<AnkoleWebHumanAccessControllerRestoreData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebHumanAccessControllerRestore({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebOidcClientControllerIndexQueryKey = (options?: Options<AnkoleWebOidcClientControllerIndexData>) =>
   createQueryKey('ankoleWebOidcClientControllerIndex', options)

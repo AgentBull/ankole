@@ -503,6 +503,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
   defp create_job!(agent_uid, event, suffix) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => event.session_id,
                "source_tool_call_id" => "ambient-job-#{suffix}",

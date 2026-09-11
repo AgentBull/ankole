@@ -125,8 +125,21 @@ Login resolves the enterprise user ID before it returns a Principal. Full sync
 reads departments, users, and memberships.
 
 Real-time user events fetch the current user before each update. A user
-departure disables the named subject. Department changes, organization
-removal, and incomplete user events enqueue a full sync.
+departure records a provider restriction through `DirectoryAccess`, including
+the last active Human administrator. The stable Stream `eventId` and each user
+ID form the event deduplication key. The adapter retains `eventBornTime` when
+present. A missing event ID fails processing so Stream requests redelivery.
+An unknown subject remains blocked from later admission. A departure without
+user IDs remains recorded for review and queues a full sync.
+
+Full sync records a snapshot under the current provider configuration. Complete
+department and user pagination is required; missing or repeated cursors fail
+the sync. A successful current snapshot can provide evidence to clear a
+provider restriction after review. Login and partial sync cannot provide that
+evidence. No sync automatically restores a Human, clears a manual restriction,
+or disables missing members. Department changes and organization removal
+enqueue a full sync. See [Human Offboarding](../HumanOffboarding.md) for
+restriction clearance and restoration.
 
 ## Restart and Recovery
 

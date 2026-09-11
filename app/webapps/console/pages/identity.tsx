@@ -1,3 +1,4 @@
+import { DirectoryAccessSection } from './directory-access'
 import {
   Button,
   Checkbox,
@@ -244,6 +245,11 @@ export function IdentityProviderEditorPage() {
       submitUnavailable={draftStatus !== 'ready' || !activeAdapter}
       contentWidth="wide"
       onSubmit={submit}
+      supplementary={
+        selected && selectedAdapter?.capabilities.includes('directory_full_sync') ? (
+          <DirectoryAccessSection key={selected.provider_id} providerID={selected.provider_id} />
+        ) : undefined
+      }
       secondary={
         canRunSync ? (
           <Button

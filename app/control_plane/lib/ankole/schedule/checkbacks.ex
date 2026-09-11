@@ -18,7 +18,10 @@ defmodule Ankole.Schedule.Checkbacks do
 
     with {:ok, attrs} <- Normalizer.checkback_attrs(attrs, now, opts) do
       Repo.transact(fn repo ->
-        with :ok <-
+        attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+        with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+             :ok <-
                AutomationJobs.validate_bindable_in_tx(
                  repo,
                  attrs.automation_job_id,
@@ -44,7 +47,13 @@ defmodule Ankole.Schedule.Checkbacks do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with {:ok, event} <- resolve_current_checkback_in_tx(repo, scheduled_event_id, true) do
+      with :ok <-
+             Ankole.Principals.WorkAccess.check_record_in_tx(
+               repo,
+               ScheduledEvent,
+               scheduled_event_id
+             ),
+           {:ok, event} <- resolve_current_checkback_in_tx(repo, scheduled_event_id, true) do
         case event do
           %ScheduledEvent{status: "scheduled"} ->
             maybe_replace_checkback_in_tx(repo, event, scheduled_event_id, attrs, now, opts)
@@ -263,5 +272,21 @@ defmodule Ankole.Schedule.Checkbacks do
     else
       :ok
     end
+  end
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    repo.update_all(
+      from(e in ScheduledEvent,
+        where:
+          e.human_uid == ^uid and e.human_access_version < ^version and
+            e.status in ["scheduled", "firing"]
+      ),
+      set: [
+        status: "cancelled",
+        cancelled_at: now,
+        updated_at: now,
+        last_fire_error: %{"reason" => "human_access_revoked"}
+      ]
+    )
   end
 end

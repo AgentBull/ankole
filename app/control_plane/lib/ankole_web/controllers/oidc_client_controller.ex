@@ -90,6 +90,73 @@ defmodule AnkoleWeb.OIDCClientController do
     ]
   )
 
+  operation(:logout_deliveries,
+    summary: "List Back-Channel Logout deliveries",
+    parameters: [id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok:
+        {"Logout deliveries", "application/json",
+         AnkoleWeb.Schemas.HumanAccessAPI.LogoutDeliveriesResponse}
+    ]
+  )
+
+  operation(:retry_logout,
+    summary: "Retry a Back-Channel Logout delivery",
+    parameters: [
+      id: [in: :path, type: :string, required: true],
+      delivery_id: [
+        in: :path,
+        schema: %OpenApiSpex.Schema{type: :string, format: :uuid},
+        required: true
+      ]
+    ],
+    responses: [
+      ok:
+        {"Logout deliveries", "application/json",
+         AnkoleWeb.Schemas.HumanAccessAPI.LogoutDeliveriesResponse}
+    ]
+  )
+
+  def logout_deliveries(conn, %{id: id}) do
+    with :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "read") do
+      deliveries(conn, id)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def retry_logout(conn, %{id: id, delivery_id: delivery_id}) do
+    with :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "update"),
+         true <- Enum.any?(OIDC.Logout.deliveries(id), &(&1.delivery.id == delivery_id)),
+         {:ok, _} <- OIDC.Logout.retry(delivery_id) do
+      deliveries(conn, id)
+    else
+      false -> error(conn, :not_found)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp deliveries(conn, id) do
+    rows =
+      Enum.map(OIDC.Logout.deliveries(id), fn %{delivery: d, principal_uid: uid} ->
+        d
+        |> Map.take([
+          :id,
+          :session_id,
+          :status,
+          :attempt_count,
+          :last_attempt_at,
+          :next_attempt_at,
+          :delivered_at,
+          :deadline,
+          :last_error
+        ])
+        |> Map.put(:principal_uid, uid)
+      end)
+
+    json(conn, Ankole.JSON.plain(%{deliveries: rows}))
+  end
+
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "oidc_clients", "read") do
       json(conn, %{oidc_clients: OIDC.list_clients()})
@@ -186,6 +253,8 @@ defmodule AnkoleWeb.OIDCClientController do
        when reason in [
               :invalid_request_body,
               :invalid_allowed_group_ids,
+              :invalid_identity_provider_ids,
+              :unknown_identity_provider,
               :allowed_group_required,
               :unknown_group
             ] do
@@ -208,6 +277,12 @@ defmodule AnkoleWeb.OIDCClientController do
   defp error(conn, reason) do
     ConsoleErrors.unexpected(conn, "oidc.client_api.unexpected_error", reason)
   end
+
+  defp validation_message(:invalid_identity_provider_ids),
+    do: "allowed_identity_provider_ids is invalid"
+
+  defp validation_message(:unknown_identity_provider),
+    do: "An allowed identity provider does not exist"
 
   defp validation_message(:invalid_request_body), do: "request body must be an object"
   defp validation_message(:invalid_allowed_group_ids), do: "allowed_group_ids is invalid"

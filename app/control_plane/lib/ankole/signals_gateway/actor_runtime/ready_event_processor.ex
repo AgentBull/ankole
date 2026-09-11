@@ -31,10 +31,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
     live_delivery? = TurnLifecycle.live_delivery_for_session?(Repo, actor_key)
 
     result =
-      case Actors.next_ready_event(actor_key.agent_uid, actor_key.session_id, now,
-             live_delivery?: live_delivery?,
-             strict_queue_order?: BackgroundAgentJobs.is_job_session_id(actor_key.session_id)
-           ) do
+      case next_authorized_event(actor_key, now, live_delivery?) do
+        {:blocked, event} ->
+          {:ok, %{status: :access_revoked, actor_event: event}}
+
         nil ->
           {:ok, %{status: :idle}}
 
@@ -112,4 +112,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
   end
 
   defp drain_steers_after_turn_start(result, _actor_key, _opts), do: result
+
+  defp next_authorized_event(actor_key, now, live_delivery?) do
+    event =
+      Actors.next_ready_event(actor_key.agent_uid, actor_key.session_id, now,
+        live_delivery?: live_delivery?,
+        strict_queue_order?: BackgroundAgentJobs.is_job_session_id(actor_key.session_id)
+      )
+
+    if event do
+      case Repo.transact(fn repo ->
+             case Ankole.Principals.WorkAccess.check_in_tx(repo, event) do
+               :ok ->
+                 {:ok, event}
+
+               {:error, reason} ->
+                 :ok = Actors.lock_actor_session_in_tx(repo, event.agent_uid, event.session_id)
+                 current = Actors.lock_actor_event_in_tx(repo, event.id)
+
+                 with {:ok, stopped} <-
+                        Actors.mark_event_dead_letter_in_tx(repo, current, now, reason),
+                      do: {:ok, {:blocked, stopped}}
+             end
+           end) do
+        {:ok, result} -> result
+        {:error, reason} -> raise "Actor work admission failed: #{inspect(reason)}"
+      end
+    end
+  end
 end

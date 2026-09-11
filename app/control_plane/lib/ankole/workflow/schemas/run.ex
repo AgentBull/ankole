@@ -37,6 +37,10 @@ defmodule Ankole.Workflow.Schemas.Run do
   end
 
   schema "workflow_runs" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
+
     belongs_to(:agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
@@ -69,6 +73,9 @@ defmodule Ankole.Workflow.Schemas.Run do
   def changeset(run, attrs) do
     run
     |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
       :agent_uid,
       :owner_session_id,
       :reply_route,

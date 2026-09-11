@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.SessionCookieStoreTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   import Plug.Conn
   import Plug.Test
@@ -42,7 +42,10 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
     assert get_session(conn, :setup_secret_plaintext) == "setup-secret"
   end
 
-  test "stores normal login sessions in the same kernel-aead cookie" do
+  test "stores only a durable browser reference in the kernel-aead cookie" do
+    human = Ankole.PrincipalsFixtures.human_fixture()
+    {:ok, _} = Ankole.AuthZ.root_init_admin(human.principal.uid)
+
     conn =
       :get
       |> conn("/")
@@ -50,7 +53,7 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
       |> Plug.Session.call(@session_opts)
       |> fetch_session()
       |> WebSession.put_admin_session(%{
-        principal_uid: "operator-admin",
+        principal_uid: human.principal.uid,
         provider_id: "oidc-main",
         external_id: "external-123"
       })
@@ -72,8 +75,11 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
       |> Plug.Session.call(@session_opts)
       |> fetch_session()
 
+    uid = human.principal.uid
+    assert get_session(conn, :admin_session) == nil
+
     assert %{
-             "principal_uid" => "operator-admin",
+             "principal_uid" => ^uid,
              "provider_id" => "oidc-main",
              "external_id" => "external-123"
            } = WebSession.admin_session(conn)

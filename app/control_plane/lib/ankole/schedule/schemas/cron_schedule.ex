@@ -23,6 +23,9 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   @statuses ~w(active paused deleted completed)
 
   schema "actor_cron_schedules" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
     field :status, :string, default: "active"
 
     belongs_to :agent, Principal,
@@ -52,6 +55,9 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   def changeset(schedule, attrs) do
     schedule
     |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
       :status,
       :agent_uid,
       :owner_session_id,

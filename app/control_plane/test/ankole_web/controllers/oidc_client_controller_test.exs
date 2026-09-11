@@ -95,6 +95,70 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
     assert {:error, :not_found} = OIDC.get_client(client_id)
   end
 
+  test "logout delivery controls show stored results and reject a different Client", %{conn: conn} do
+    allow_cache_database_access()
+    Ankole.AppConfigure.Registry.clear_for_test()
+    Ankole.AppConfigure.Cache.clear_for_test()
+    conn = bearer_conn(conn)
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+
+    attrs = %{
+      name: "Logout controls",
+      type: "confidential",
+      enabled: true,
+      redirect_uris: ["https://client.example.test/callback"],
+      scopes: ["openid"],
+      backchannel_logout_uri: "https://client.example.test/logout"
+    }
+
+    {:ok, %{client: client}} = OIDC.create_client(attrs)
+    {:ok, %{client: other}} = OIDC.create_client(attrs)
+    {:ok, session} = Ankole.OIDCFixtures.session(human.uid, client.id, "openid")
+
+    {:ok, _} =
+      Ankole.Principals.HumanAccess.restrict_from_provider(
+        human.uid,
+        "test",
+        "departure",
+        "logout-controls"
+      )
+
+    list =
+      conn
+      |> recycle_api()
+      |> get("/api/v1/oidc-clients/#{client.id}/logout-deliveries")
+      |> json_response(200)
+
+    assert [%{"id" => id, "session_id" => sid, "status" => "pending", "principal_uid" => uid}] =
+             list["deliveries"]
+
+    assert sid == session.id
+    assert uid == human.uid
+
+    assert conn
+           |> recycle_api()
+           |> get("/api/v1/oidc-clients/#{other.id}/logout-deliveries")
+           |> json_response(200) == %{"deliveries" => []}
+
+    assert conn
+           |> recycle_api()
+           |> post("/api/v1/oidc-clients/#{other.id}/logout-deliveries/#{id}/retries", %{})
+           |> json_response(404)
+
+    Ankole.Repo.get!(Ankole.OIDC.LogoutDelivery, id)
+    |> Ecto.Changeset.change(status: :failed)
+    |> Ankole.Repo.update!()
+
+    response =
+      conn
+      |> recycle_api()
+      |> post("/api/v1/oidc-clients/#{client.id}/logout-deliveries/#{id}/retries", %{})
+      |> json_response(200)
+
+    assert [%{"status" => "pending"}] = response["deliveries"]
+    refute Map.has_key?(hd(response["deliveries"]), "logout_token")
+  end
+
   test "public Client has no secret and cannot rotate one", %{conn: conn} do
     conn = bearer_conn(conn)
 

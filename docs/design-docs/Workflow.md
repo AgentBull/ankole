@@ -202,6 +202,17 @@ Agent Computer:
 PostgreSQL is the durable owner. RuntimeFabric only transports live turn and
 RPC traffic.
 
+## Human Work Authorization
+
+Each run stores `authorization_kind`, `human_uid`, and `human_access_version`
+from the source ActorEvent under [Human Offboarding](HumanOffboarding.md).
+Task dispatch and delegated Jobs retain that fact. A replay, new task, wake,
+or retry must pass the current Human check before admission.
+
+Revocation marks the run cancelled, cancels pending calls, and prevents new
+dispatch. Already admitted calls can finish and retain their results. Cleanup
+does not send an offboarding abort to an admitted Worker turn.
+
 ## What PostgreSQL Stores
 
 `workflow_runs` stores the immutable script and arguments, the owner identity

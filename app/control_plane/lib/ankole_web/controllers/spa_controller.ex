@@ -37,6 +37,10 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
+  def logged_out(conn, _params), do: render_spa(conn, :sessions)
+  def logout_error(conn, _params), do: render_spa(conn, :sessions)
+
   @doc """
   Serves the sign-in SPA only after setup is complete and no admin is signed in.
 
@@ -49,11 +53,30 @@ defmodule AnkoleWeb.SpaController do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
-      active_admin_session?(conn) and params["oauth"] != "1" ->
+      active_admin_session?(conn) and params["oauth"] != "1" and params["switch"] != "1" ->
         redirect(conn, to: ~p"/console")
 
+      not is_binary(params["flow"]) and params["oauth"] != "1" ->
+        with {:ok, conn, transaction} <-
+               WebSession.begin_login(conn, :console, %{
+                 "return_to" => WebSession.safe_return_to(params["return_to"])
+               }) do
+          query =
+            URI.encode_query(Map.merge(Map.take(params, ["switch"]), %{"flow" => transaction.id}))
+
+          redirect(conn, to: "/sessions/new?" <> query)
+        end
+
       true ->
-        render_spa(conn, :sessions)
+        case WebSession.login_transaction(conn, params["flow"]) do
+          {:ok, _transaction} ->
+            render_spa(conn, :sessions)
+
+          {:error, _} ->
+            conn
+            |> put_status(401)
+            |> render_spa(:sessions)
+        end
     end
   end
 
@@ -118,6 +141,9 @@ defmodule AnkoleWeb.SpaController do
       "\">\n",
       "    <meta name=\"ankole-version\" content=\"",
       Version.current() |> html_escape(),
+      "\">\n",
+      "    <meta name=\"ankole-response-status\" content=\"",
+      to_string(conn.status || 200),
       "\">\n",
       "    <title>",
       title,

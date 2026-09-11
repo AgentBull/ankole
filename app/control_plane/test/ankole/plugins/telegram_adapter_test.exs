@@ -898,6 +898,11 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   describe "actions and outbound" do
+    setup do
+      Ankole.PrincipalsFixtures.human_fixture(%{uid: "human-a"})
+      :ok
+    end
+
     test "checkpoints one mutable reply and edits the same Telegram message" do
       parent = self()
       %{principal: agent} = agent_fixture()

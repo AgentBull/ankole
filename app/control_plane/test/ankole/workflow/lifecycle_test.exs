@@ -342,6 +342,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{job: %Job{} = job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-job-before-cancel",
@@ -369,6 +370,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, {:workflow_run_terminal, "cancelled"}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-job-after-cancel",
@@ -389,6 +391,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{job: %Job{status: "queued"} = successor}} =
              BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-respawn-before-cancel",
@@ -416,6 +419,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, {:workflow_run_terminal, "cancelled"}} =
              BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-respawn-after-cancel",
@@ -434,6 +438,7 @@ defmodule Ankole.WorkflowTest do
 
     {:ok, %{job: job}} =
       BackgroundAgentJobs.create_with_dispatch(%{
+        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
         "agent_uid" => agent.uid,
         "owner_session_id" => Workflow.task_session_id(call.id),
         "source_tool_call_id" => "workflow-steer-successor",
@@ -1048,6 +1053,7 @@ defmodule Ankole.WorkflowTest do
   defp run_fixture(agent_uid, overrides \\ []) do
     attrs =
       %{
+        authorization_kind: "service",
         agent_uid: agent_uid,
         owner_session_id: "session-#{System.unique_integer([:positive])}",
         reply_route: %{"binding_name" => "bot"},
@@ -1100,6 +1106,7 @@ defmodule Ankole.WorkflowTest do
 
     {:ok, %{job: job}} =
       BackgroundAgentJobs.create_with_dispatch(%{
+        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
         "agent_uid" => agent_uid,
         "owner_session_id" => Workflow.task_session_id(call.id),
         "source_tool_call_id" => "workflow-terminal-job-#{suffix}",

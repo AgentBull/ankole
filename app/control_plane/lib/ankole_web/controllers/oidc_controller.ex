@@ -14,9 +14,11 @@ defmodule AnkoleWeb.OIDCController do
   @behaviour Boruta.Openid.UserinfoApplication
 
   alias Ankole.AdminAuth
+  alias Ankole.BrowserSessions
   alias Ankole.OIDC
   alias Ankole.OIDC.Boruta.ResourceOwners
   alias Ankole.OIDC.Client
+  alias Ankole.OIDC.LoginPolicy
   alias Ankole.OIDC.SigningKey
   alias Ankole.OIDC.Tokens
   alias Ankole.TokenSigning
@@ -38,6 +40,11 @@ defmodule AnkoleWeb.OIDCController do
       issuer: issuer,
       authorization_endpoint: issuer <> "/oauth/authorize",
       token_endpoint: issuer <> "/oauth/token",
+      introspection_endpoint: issuer <> "/oauth/introspect",
+      introspection_endpoint_auth_methods_supported: ["client_secret_basic"],
+      end_session_endpoint: issuer <> "/oauth/logout",
+      backchannel_logout_supported: true,
+      backchannel_logout_session_supported: true,
       userinfo_endpoint: issuer <> "/oauth/userinfo",
       jwks_uri: issuer <> "/.well-known/jwks.json",
       response_types_supported: ["code"],
@@ -47,7 +54,15 @@ defmodule AnkoleWeb.OIDCController do
       id_token_signing_alg_values_supported: ["RS256"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
       scopes_supported: @supported_scopes,
-      claims_supported: ["sub", "name", "preferred_username", "picture", "email"],
+      claims_supported: [
+        "sub",
+        "name",
+        "preferred_username",
+        "picture",
+        "email",
+        "auth_time",
+        "sid"
+      ],
       code_challenge_methods_supported: ["S256"]
     })
   end
@@ -68,12 +83,40 @@ defmodule AnkoleWeb.OIDCController do
     end
   end
 
-  def resume_authorize(conn, _params) do
-    case WebSession.oauth_authorization(conn) do
-      params when is_map(params) -> authorize(%{conn | query_params: params}, params)
-      _missing -> oauth_json_error(conn, 400, "invalid_request", "authorization request expired")
+  def resume_authorize(conn, %{"flow" => flow}) do
+    result =
+      BrowserSessions.consume_authorization(WebSession.browser_reference(conn), flow, fn params,
+                                                                                         auth ->
+        with {:ok, client, scope} <- validate_authorization_request(params),
+             :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
+             :ok <- LoginPolicy.completed_authentication_allowed?(auth, params),
+             {:ok, resource_owner} <- ResourceOwners.from_authentication(auth),
+             :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
+          {:ok,
+           Boruta.Oauth.authorize(
+             %{conn | query_params: Map.put(params, "scope", scope)},
+             resource_owner,
+             __MODULE__
+           )}
+        end
+      end)
+
+    case result do
+      {:ok, conn} ->
+        conn
+
+      _ ->
+        oauth_json_error(
+          conn,
+          400,
+          "invalid_request",
+          "authorization request expired or no longer allowed"
+        )
     end
   end
+
+  def resume_authorize(conn, _params),
+    do: oauth_json_error(conn, 400, "invalid_request", "authorization transaction is required")
 
   def token(conn, params) do
     case token_request_kind(conn, params) do
@@ -81,6 +124,32 @@ defmodule AnkoleWeb.OIDCController do
       :console_refresh -> console_refresh_token(conn, params)
       {:oidc, client} -> oidc_token(conn, client)
       {:error, code, description} -> oauth_json_error(conn, 400, code, description)
+    end
+  end
+
+  def introspect(conn, params) do
+    with {:ok, :basic, client_id} <- request_client_credentials(conn, params),
+         {:ok, %Client{client_type: :confidential} = client} <- OIDC.get_active_client(client_id),
+         :ok <- client_authentication_shape(client, :basic, params),
+         {:ok, request} <- Boruta.Oauth.Request.Introspect.request(conn),
+         {:ok, response} <- Ankole.OIDC.Boruta.Introspection.check(request) do
+      conn |> no_store() |> json(response)
+    else
+      {:error, :temporarily_unavailable} ->
+        oauth_json_error(
+          conn,
+          503,
+          "temporarily_unavailable",
+          "authentication dependency unavailable"
+        )
+
+      {:error, %OAuthError{error: :invalid_request}} ->
+        oauth_json_error(conn, 400, "invalid_request", "token is required")
+
+      _ ->
+        conn
+        |> put_resp_header("www-authenticate", "Basic realm=\"OIDC introspection\"")
+        |> oauth_json_error(401, "invalid_client", "confidential Client authentication required")
     end
   end
 
@@ -102,9 +171,7 @@ defmodule AnkoleWeb.OIDCController do
 
   @impl true
   def authorize_success(conn, response) do
-    conn
-    |> WebSession.clear_oauth_authorization()
-    |> redirect(external: AuthorizeResponse.redirect_to_url(response))
+    redirect(conn, external: AuthorizeResponse.redirect_to_url(response))
   end
 
   @impl true
@@ -118,6 +185,16 @@ defmodule AnkoleWeb.OIDCController do
 
   @impl true
   def token_success(conn, response) do
+    case Ankole.OIDC.Boruta.IdTokens.for_response(response.id_token) do
+      {:ok, id_token} ->
+        token_response(conn, response, id_token)
+
+      {:error, _} ->
+        oauth_json_error(conn, 503, "temporarily_unavailable", "signing key unavailable")
+    end
+  end
+
+  defp token_response(conn, response, id_token) do
     payload = %{
       access_token: response.access_token,
       token_type: response.token_type,
@@ -126,7 +203,7 @@ defmodule AnkoleWeb.OIDCController do
     }
 
     payload = maybe_put(payload, :refresh_token, response.refresh_token)
-    payload = maybe_put(payload, :id_token, response.id_token)
+    payload = maybe_put(payload, :id_token, id_token)
 
     conn
     |> no_store()
@@ -158,7 +235,7 @@ defmodule AnkoleWeb.OIDCController do
   defp continue_authorization(conn, params, client, scope) do
     params = Map.put(params, "scope", scope)
 
-    case current_resource_owner(conn) do
+    case current_resource_owner(conn, client, params) do
       {:ok, resource_owner, conn} ->
         with :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
           Boruta.Oauth.authorize(%{conn | query_params: params}, resource_owner, __MODULE__)
@@ -171,38 +248,43 @@ defmodule AnkoleWeb.OIDCController do
         if params["prompt"] == "none" do
           redirect_authorization_error(conn, params, "login_required", "Human login is required")
         else
-          conn
-          |> WebSession.put_oauth_authorization(params)
-          |> redirect(to: "/sessions/new?oauth=1")
+          with {:ok, _providers} <- LoginPolicy.providers(client, params),
+               {:ok, conn, transaction} <- WebSession.begin_login(conn, :oauth, params) do
+            redirect(conn, to: "/sessions/new?oauth=1&flow=" <> transaction.id)
+          else
+            {:error, reason} ->
+              redirect_authorization_error(conn, params, "access_denied", message(reason))
+          end
         end
     end
   end
 
-  defp current_resource_owner(conn) do
+  defp current_resource_owner(conn, client, params) do
     case WebSession.oauth_session(conn) do
-      %{"principal_uid" => principal_uid} ->
-        case ResourceOwners.load(principal_uid) do
+      %{} = authentication ->
+        result =
+          with true <- LoginPolicy.can_reuse?(authentication, params),
+               :ok <- LoginPolicy.authorize_source(client, authentication["provider_id"]),
+               do: ResourceOwners.from_authentication(authentication)
+
+        case result do
           {:ok, resource_owner} -> {:ok, resource_owner, conn}
-          {:error, _reason} -> current_admin_resource_owner(conn)
+          _ -> current_admin_resource_owner(conn, client, params)
         end
 
       _missing ->
-        current_admin_resource_owner(conn)
+        current_admin_resource_owner(conn, client, params)
     end
   end
 
-  defp current_admin_resource_owner(conn) do
+  defp current_admin_resource_owner(conn, client, params) do
     case WebSession.admin_session(conn) do
       %{"principal_uid" => principal_uid} = session ->
         with true <- AdminAuth.active_human_admin?(principal_uid),
-             {:ok, resource_owner} <- ResourceOwners.load(principal_uid) do
-          conn =
-            WebSession.put_oauth_session(conn, %{
-              principal_uid: principal_uid,
-              provider_id: session["provider_id"],
-              external_id: session["external_id"]
-            })
-
+             true <- LoginPolicy.can_reuse?(session, params),
+             :ok <- LoginPolicy.authorize_source(client, session["provider_id"]),
+             {:ok, resource_owner} <- ResourceOwners.from_authentication(session),
+             {:ok, _} <- BrowserSessions.reuse_console(WebSession.browser_reference(conn)) do
           {:ok, resource_owner, conn}
         else
           _inactive -> :error
@@ -229,7 +311,7 @@ defmodule AnkoleWeb.OIDCController do
          true <- Regex.match?(@pkce_challenge, challenge),
          true <- optional_string?(params["state"]),
          true <- optional_string?(params["nonce"]),
-         true <- params["prompt"] in [nil, "none"] do
+         :ok <- LoginPolicy.validate(params) do
       {:ok, client, scope}
     else
       {:error, :not_found} -> {:error, "invalid_client", "Client is unknown or disabled"}

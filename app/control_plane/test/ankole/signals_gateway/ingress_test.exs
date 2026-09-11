@@ -652,6 +652,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
@@ -799,6 +800,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
@@ -1713,7 +1715,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       for {event_id, entry_id, author, offset, text} <- [
@@ -1952,7 +1956,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored}} =
@@ -2021,7 +2027,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
