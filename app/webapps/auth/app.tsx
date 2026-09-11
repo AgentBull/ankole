@@ -14,6 +14,7 @@ import { requestErrorMessage } from '../common/request-errors'
 import { ThemeToggle } from '../common/theme-toggle'
 import { LocalPasswordForm } from './local-password-form'
 import { PasswordChangeForm } from './password-change-form'
+import { SessionScreen } from './session-screen'
 import { LoginModel } from './state/login-model'
 
 type LoginProvider = {
@@ -29,6 +30,12 @@ type LoginProvider = {
  * change view.
  */
 export function AuthApp() {
+  const status = Number(document.querySelector<HTMLMetaElement>('meta[name="ankole-response-status"]')?.content ?? 200)
+  if (window.location.pathname !== '/sessions/new' || status >= 400) return <SessionScreen invalid={status >= 400} />
+  return <LoginApp />
+}
+
+function LoginApp() {
   'use no memo'
 
   useSignals()
@@ -37,9 +44,13 @@ export function AuthApp() {
   useEffect(() => {
     document.title = t('auth.document_title')
   }, [t])
+  const flow = new URLSearchParams(window.location.search).get('flow') ?? ''
   const providers = useQuery({
-    queryKey: ['identity-providers'],
-    queryFn: () => internalAPIGet<{ providers: LoginProvider[] }>('/.internal-apis/identity-providers')
+    queryKey: ['identity-providers', flow],
+    queryFn: () =>
+      internalAPIGet<{ providers: LoginProvider[]; identity: { displayName: string; providerID: string } | null }>(
+        `/.internal-apis/identity-providers?flow=${encodeURIComponent(flow)}`
+      )
   })
   const providerList = providers.data?.providers ?? []
   const hasPasswordProvider = providerList.some(provider => provider.kind === 'password')
@@ -63,6 +74,14 @@ export function AuthApp() {
           </div>
         </CardHeader>
         <CardContent>
+          {providers.data?.identity ? (
+            <p className="mb-4 text-sm text-muted-foreground">
+              {t('auth.current_identity', {
+                name: providers.data.identity.displayName,
+                provider: providers.data.identity.providerID
+              })}
+            </p>
+          ) : null}
           {changingPassword ? (
             <PasswordChangeForm model={model} />
           ) : (
@@ -140,6 +159,7 @@ function oidcAuthorizationPath(providerID: string): string {
   const pageQuery = new URLSearchParams(window.location.search)
   const returnTo = pageQuery.get('return_to') ?? '/console'
   const query = new URLSearchParams({ return_to: returnTo })
+  query.set('flow', pageQuery.get('flow') ?? '')
 
   if (pageQuery.get('oauth') === '1') query.set('oauth', '1')
 

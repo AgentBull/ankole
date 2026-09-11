@@ -238,6 +238,9 @@ credentials.
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |
 | [Principal](design-docs/Principal.md) | Human and Agent identities, including linked provider accounts |
+| [Human Offboarding](design-docs/HumanOffboarding.md) | Human disablement, authentication revocation, and task start checks |
+| [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
+| [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |
 | [AuthZ](design-docs/AuthZ.md) | Groups, grants, and CEL decisions |
 | [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
@@ -248,3 +251,7 @@ credentials.
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | Deliberate limits and recovery boundaries |
 
 Provider-specific documents are under `design-docs/plugins/`.
+
+`design-docs/` contains technical architecture, implementation design, and generic
+contracts. Incident records, reproductions, and verification results are not
+part of `docs/`; the changelog records what each release changed.

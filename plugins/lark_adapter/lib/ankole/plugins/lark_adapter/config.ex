@@ -156,7 +156,10 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          {:ok, oidc_scopes} <- string_array(oidc, "scopes", @default_oidc_scopes),
          {:ok, sync_contacts} <- optional_boolean(sync, "contacts", true),
          {:ok, sync_websocket} <- optional_boolean(sync, "websocket", true),
-         {:ok, sync_page_size} <- integer_between(sync, "pageSize", 50, 1, 50) do
+         {:ok, sync_page_size} <- integer_between(sync, "pageSize", 50, 1, 50),
+         {:ok, admission_scope} <-
+           enum_string(sync, "admissionScope", ["none", "contact"], "none"),
+         {:ok, removal_percent} <- integer_between(sync, "maximumRemovalPercent", 20, 1, 100) do
       sync_websocket = sync_websocket and sync_contacts
 
       {:ok,
@@ -168,7 +171,9 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          "sync" => %{
            "contacts" => sync_contacts,
            "websocket" => sync_websocket,
-           "pageSize" => sync_page_size
+           "pageSize" => sync_page_size,
+           "admissionScope" => admission_scope,
+           "maximumRemovalPercent" => removal_percent
          }
        }}
     end

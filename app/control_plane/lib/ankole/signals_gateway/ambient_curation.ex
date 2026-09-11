@@ -444,7 +444,8 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
         {proposed, "degraded"}
 
       observed_human_entry?(event, proposed) and
-          entry_exists?(repo, event.signal_channel_id, proposed) ->
+        entry_exists?(repo, event.signal_channel_id, proposed) and
+          Ankole.Principals.WorkAccess.valid_now?(asked_authorization(repo, event, proposed)) ->
         {proposed, "accepted"}
 
       true ->
@@ -502,7 +503,11 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   defp apply_asked_anchor(repo, event, asked_by_id, "accepted") when is_binary(asked_by_id) do
     ActorEvent
     |> where([event_row], event_row.id == ^event.id)
-    |> repo.update_all(set: [ambient_asked_source_entry_id: asked_by_id])
+    |> repo.update_all(
+      set:
+        [ambient_asked_source_entry_id: asked_by_id] ++
+          Map.to_list(asked_authorization(repo, event, asked_by_id))
+    )
 
     :ok
   end
@@ -585,4 +590,10 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
 
   defp map_value(map, key) when is_map(map), do: Map.get(map, key)
   defp map_value(_value, _key), do: nil
+
+  defp asked_authorization(repo, event, source_entry_id) do
+    entries = get_in(event.payload, ["data", "entries"]) || []
+    entry = Enum.find(entries, &(&1["source_entry_id"] == source_entry_id))
+    Ankole.Principals.WorkAccess.from_observation(repo, entry && entry["author"])
+  end
 end

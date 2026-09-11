@@ -264,7 +264,14 @@ What an unmatched sender means is the binding's `unmatched_sender_policy`:
 - `create_standalone`: the gateway creates a standalone human Principal for
   the sender and serves them at once.
 
-A sender whose Principal is disabled is ignored without a notice.
+A sender whose Principal is disabled is ignored without a notice. Admission
+locks the Human and captures `access_version` before it stores the observation.
+Batched and Ambient work retain that observed version; later contact updates
+cannot renew it. ActorEvents store `authorization_kind`, `human_uid`, and
+`human_access_version`, as defined in [Human Offboarding](HumanOffboarding.md).
+Each new execution attempt checks these fields before it claims a delivery.
+Already admitted deliveries can finish. Revocation removes only the disabled
+Human's pending work from a shared Agent or Session.
 
 Every admitted sender also joins the binding's `signal_source` AuthZ group
 (`signal_source:<agent_uid>:<binding_name>`), so permission policy can address

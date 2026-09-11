@@ -22,6 +22,9 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   @statuses ~w(scheduled firing fired cancelled failed)
 
   schema "actor_scheduled_events" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
     field :kind, :string
     field :status, :string, default: "scheduled"
 
@@ -70,6 +73,9 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   def changeset(event, attrs) do
     event
     |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
       :kind,
       :status,
       :agent_uid,

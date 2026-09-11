@@ -24,6 +24,10 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   @type t :: %__MODULE__{}
 
   schema "actor_events" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
+
     belongs_to :agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
@@ -67,6 +71,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   def changeset(input, attrs) do
     input
     |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
       :agent_uid,
       :binding_name,
       :session_id,

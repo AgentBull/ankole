@@ -214,7 +214,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
         source_entry_id: "message-#{unique}",
         type: "im.message.addressed",
         available_at: DateTime.utc_now(:microsecond),
-        sender_key: nil,
+        sender_key: agent_uid,
         payload: %{
           "specversion" => "1.0",
           "id" => "automation-console-source-#{unique}",

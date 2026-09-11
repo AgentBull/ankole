@@ -451,6 +451,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
     on_exit(fn ->
       :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+      Ankole.AppConfigure.Registry.clear_for_test()
     end)
 
     :ok
@@ -463,19 +464,16 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def group_entry(overrides) do
-    Map.merge(
-      %{
-        source_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
-        signal_channel_id: "lark:chat:group-a",
-        source_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
-        provider_thread_id: "thread-1",
-        channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"},
-        text: "PING",
-        explicit: false,
-        author: %{principal_uid: "alice", id: "ou_alice", display_name: "Alice"},
-        provider_time: @base_time
-      },
-      overrides
+    Ankole.SignalsGatewayFixtures.group_entry(
+      Map.merge(
+        %{
+          source_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
+          source_entry_id: "msg-" <> Integer.to_string(System.unique_integer([:positive])),
+          text: "PING",
+          explicit: false
+        },
+        overrides
+      )
     )
   end
 
@@ -484,6 +482,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
     SignalsGateway.append_actor_event(%{
+      sender_key: agent_uid,
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,

@@ -6,6 +6,7 @@ defmodule Ankole.OIDC.Boruta.Codes do
   import Ecto.Query, warn: false
 
   alias Ankole.OIDC.AuthorizationCode
+  alias Ankole.OIDC.Sessions
   alias Ankole.OIDC.Boruta.Clients
   alias Ankole.OIDC.Boruta.ResourceOwners
   alias Ankole.OIDC.Boruta.TokenGenerator
@@ -27,7 +28,13 @@ defmodule Ankole.OIDC.Boruta.Codes do
 
   @impl true
   def create(params) do
+    Repo.transact(fn -> create_in_tx(params) end)
+  end
+
+  defp create_in_tx(params) do
     with %{client: client, sub: sub, redirect_uri: redirect_uri, scope: scope} <- params,
+         %{extra_claims: %{"ankole_authentication" => auth}} <- params[:resource_owner],
+         {:ok, session} <- Sessions.ensure(client.id, auth, scope),
          "S256" <- params[:code_challenge_method],
          challenge when is_binary(challenge) and challenge != "" <- params[:code_challenge],
          raw <- TokenGenerator.opaque_token(),
@@ -38,6 +45,7 @@ defmodule Ankole.OIDC.Boruta.Codes do
              digest: TokenGenerator.digest(raw),
              client_id: client.id,
              principal_uid: sub,
+             session_id: session.id,
              redirect_uri: redirect_uri,
              scope: scope,
              state: params[:state],
@@ -71,7 +79,10 @@ defmodule Ankole.OIDC.Boruta.Codes do
 
   defp from_row(row, raw) do
     with client when not is_nil(client) <- Clients.get_client(row.client_id),
-         {:ok, resource_owner} <- ResourceOwners.load(row.principal_uid) do
+         {:ok, session} <-
+           Sessions.validate(row.session_id, row.client_id, row.principal_uid, row.scope, :code),
+         {:ok, resource_owner} <-
+           ResourceOwners.from_authentication(Sessions.authentication(session)) do
       %Token{
         type: "code",
         value: raw,

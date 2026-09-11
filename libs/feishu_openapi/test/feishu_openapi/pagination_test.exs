@@ -24,6 +24,27 @@ defmodule FeishuOpenAPI.PaginationTest do
     {:ok, client: client}
   end
 
+  test "strict collection rejects a missing completion marker and repeated cursors", %{
+    client: client
+  } do
+    Req.Test.stub(FeishuOpenAPI.PaginationTest, fn conn ->
+      Req.Test.json(conn, %{"code" => 0, "data" => %{"items" => []}})
+    end)
+
+    assert [{:error, %{code: :invalid_page}}] =
+             Pagination.stream(client, "contact/v3/users", strict: true) |> Enum.to_list()
+
+    Req.Test.stub(FeishuOpenAPI.PaginationTest, fn conn ->
+      Req.Test.json(conn, %{
+        "code" => 0,
+        "data" => %{"items" => [], "has_more" => true, "page_token" => "same"}
+      })
+    end)
+
+    assert [{:error, %{code: :invalid_page}}] =
+             Pagination.stream(client, "contact/v3/users", strict: true) |> Enum.to_list()
+  end
+
   test "iterates across pages and stops when has_more is false", %{client: client} do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 

@@ -261,6 +261,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   defp create_job(agent_uid, suffix, workspace_template_id) do
     BackgroundAgentJobs.create_with_dispatch(%{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
       "agent_uid" => agent_uid,
       "owner_session_id" => "parent-session-#{suffix}",
       "source_tool_call_id" => "tool-#{suffix}",

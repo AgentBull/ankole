@@ -48,7 +48,10 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
   describe "ambient scenario classification" do
     test "uses the latest ambient marker when observed history contains an older ignore marker" do
       request = %{
-        "response_format" => %{"type" => "json_schema"},
+        "response_format" => %{
+          "type" => "json_schema",
+          "json_schema" => %{"name" => "ambient_intent_route"}
+        },
         "messages" => [
           %{
             "role" => "user",
@@ -69,7 +72,10 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
     test "keeps the latest ignore-only ambient observation silent" do
       request = %{
-        "response_format" => %{"type" => "json_schema"},
+        "response_format" => %{
+          "type" => "json_schema",
+          "json_schema" => %{"name" => "ambient_intent_route"}
+        },
         "messages" => [%{"role" => "user", "content" => "CHAOS_AMBIENT_IGNORE"}]
       }
 

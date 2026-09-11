@@ -52,6 +52,23 @@ defmodule Ankole.OIDC.Boruta.ResourceOwners do
 
   def load(_sub), do: {:error, "Resource owner was not found."}
 
+  def from_authentication(%{"principal_uid" => sub, "access_version" => version} = auth) do
+    with :ok <- Ankole.Principals.HumanAccess.check(sub, version),
+         {:ok, owner} <- load(sub) do
+      auth_time =
+        case auth["auth_time"] do
+          seconds when is_integer(seconds) -> DateTime.from_unix!(seconds)
+          _ -> nil
+        end
+
+      claims = %{"ankole_authentication" => auth}
+      claims = if is_binary(auth["sid"]), do: Map.put(claims, "sid", auth["sid"]), else: claims
+      {:ok, %{owner | last_login_at: auth_time, extra_claims: claims}}
+    end
+  end
+
+  def from_authentication(_), do: {:error, :invalid_authentication}
+
   defp load_profile(sub) do
     case Repo.one(
            from principal in Principal,

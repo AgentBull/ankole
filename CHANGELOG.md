@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.2.0-rc.1 (2026-09-11)
+
+- Administrators can disable Human access, review restrictions and permissions before restoration, and inspect access history in Console. Feishu departure, freeze, reviewed directory-scope removal, and DingTalk departure disable the same account. Repeated departure events are processed once, and provider restriction clearance requires current complete directory evidence. An audited operator command can recover administrator access after the last administrator departs.
+- Disablement stops future Human work across messages, schedules, background jobs, workflows, and automations while admitted attempts can finish. Operators must classify unresolved older work before it can run. Restoration requires fresh login and personal Feishu authorization; old credentials and work stay revoked.
+- Browser login now retains one durable identity across Console and OAuth, enforces requested authentication freshness and Client login-source policy, and rejects stale callbacks. The upgrade requires fresh browser login. OIDC Clients can use Introspection, Back-Channel Logout, and RP-Initiated Logout, including repeated logout after cookie removal. Console provides Client session settings and manual notification retry that makes waiting jobs available immediately.
+- The existing OIDC cleanup job removes expired browser and logout state after credential, recent-session, and delivery retention ends; unfinished deliveries remain available for recovery. Expiry indexes support cleanup. Update the owning designs, the known-limits page, and operator recovery guidance, and add database, protocol, browser, and Worker regression coverage. Provider pagination rejects incomplete results instead of treating them as complete directory evidence.
+
 ## Version 1.1.2-rc.1 (2026-09-10)
 
 - Word, Excel, and PowerPoint jobs use the OfficeCLI installed in the Worker image. An older version reference in a Skill no longer stops file work when the installed CLI and its format help run successfully.

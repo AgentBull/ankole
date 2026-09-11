@@ -225,6 +225,11 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   end
 
   defp author(event) do
+    if is_nil(fetch(event, :author_principal_uid)) and
+         is_nil(Ankole.Repo.get(Ankole.Principals.Principal, "mock-human")) do
+      Ankole.PrincipalsFixtures.human_fixture(%{uid: "mock-human"})
+    end
+
     %{
       principal_uid: fetch(event, :author_principal_uid) || "mock-human",
       id: fetch(event, :author_id) || "mock-user",

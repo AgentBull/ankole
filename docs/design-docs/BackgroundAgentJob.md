@@ -237,6 +237,19 @@ Codex manages its thread, collaboration, and task execution. Ankole owns Skill
 selection and loading, and `AgentCodexRuntime` owns Plugin installation and Hook
 trust. PostgreSQL keeps the Job record that survives process failure.
 
+## Human Work Authorization
+
+Each Job stores `authorization_kind`, `human_uid`, and `human_access_version`
+from its authenticated source under [Human Offboarding](HumanOffboarding.md).
+The creation and respawn paths read the current source ActorEvent. Worker
+recovery retains the original authorization. Brain's independent reflection
+caller supplies its Agent as the trusted `created_by` source.
+
+The control plane checks authorization before creation, dispatch admission,
+and a new resume or retry. Revocation stops queued and waiting Jobs after any
+admitted delivery finishes. It does not interrupt that delivery or discard its
+result. Child work keeps the source Human even when it uses Agent credentials.
+
 ## What PostgreSQL Stores
 
 `background_agent_jobs.id` is a PostgreSQL identity bigint that starts at

@@ -256,6 +256,39 @@ defmodule Ankole.Plugins.LarkAdapter do
         advanced: true
       ),
       field(
+        "sync.admissionScope",
+        %{"default" => "Admission scope", "zh-Hans-CN" => "人员准入范围"},
+        %{
+          "default" =>
+            "Use the contact scope only when it defines who may use Ankole. Review the first complete snapshot before automatic removal.",
+          "zh-Hans-CN" => "仅在通讯录范围代表 Ankole 准入范围时启用。自动移除缺员前必须审核首个完整快照。"
+        },
+        :select,
+        default: "none",
+        options: [
+          option("none", %{
+            "default" => "Do not infer removal from absence",
+            "zh-Hans-CN" => "不根据缺员推断停用"
+          }),
+          option("contact", %{"default" => "Reviewed contact scope", "zh-Hans-CN" => "经审核的通讯录范围"})
+        ],
+        advanced: true
+      ),
+      field(
+        "sync.maximumRemovalPercent",
+        %{"default" => "Maximum automatic reduction (%)", "zh-Hans-CN" => "自动处理的最大缩减比例（%）"},
+        %{
+          "default" =>
+            "A larger reduction requires review. An empty directory always requires review.",
+          "zh-Hans-CN" => "超过此比例的缩减需要审核。空目录始终需要审核。"
+        },
+        :integer,
+        default: 20,
+        min: 1,
+        max: 100,
+        advanced: true
+      ),
+      field(
         "sync.pageSize",
         %{"default" => "Records per page", "zh-Hans-CN" => "每页同步数量"},
         %{

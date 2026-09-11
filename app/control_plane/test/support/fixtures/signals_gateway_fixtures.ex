@@ -88,6 +88,11 @@ defmodule Ankole.SignalsGatewayFixtures do
   end
 
   def group_entry(overrides \\ %{}) do
+    if not Map.has_key?(overrides, :author) and
+         is_nil(Ankole.Repo.get(Ankole.Principals.Principal, "alice")) do
+      Ankole.PrincipalsFixtures.human_fixture(%{uid: "alice", display_name: "Alice"})
+    end
+
     Map.merge(
       %{
         source_event_id: "evt-1",

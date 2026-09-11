@@ -23,6 +23,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
   @supported_create_fields ~w(
     agent_uid
+    created_by
     metadata
     model_profile
     owner_session_id
@@ -163,7 +164,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp persist_job(attrs, now) do
     Repo.transact(fn repo ->
-      with :ok <- lock_start_idempotency(repo, attrs) do
+      attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+           :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
           {:ok, job} ->
             existing_job_result(repo, job)
@@ -189,7 +193,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp persist_respawn(source_job_id, attrs, now) do
     Repo.transact(fn repo ->
-      with :ok <- lock_start_idempotency(repo, attrs) do
+      attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+           :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
           {:ok, job} ->
             existing_job_result(repo, job)
@@ -410,7 +417,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
              "metadata" => %{"seeded_from_steer" => true},
              "model_profile" => source_job.model_profile
            }
-           |> respawn_job_attrs(source_job, now),
+           |> respawn_job_attrs(source_job, now)
+           |> Ankole.Principals.WorkAccess.merge(first),
          {:ok, attrs} <- pin_owner_conversation(repo, attrs),
          {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
          {:ok, _dispatch_event} <- append_dispatch_event(repo, job, now) do
@@ -524,6 +532,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     reply_route = job.reply_route || %{}
 
     SignalsGateway.append_actor_event_in_tx(repo, %{
+      source_work: job,
       agent_uid: job.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
       session_id: BackgroundAgentJobs.job_session_id(job.id),

@@ -369,7 +369,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
                source_entry_id: "message-#{unique}",
                type: "im.message.addressed",
                available_at: @now,
-               sender_key: nil,
+               sender_key: agent_uid,
                payload: %{
                  "specversion" => "1.0",
                  "id" => "source-#{unique}",

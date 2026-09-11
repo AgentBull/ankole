@@ -13,6 +13,14 @@ defmodule AnkoleWeb.OIDCControllerTest do
   @redirect_uri "https://spa.example.test/callback"
   @origin "https://spa.example.test"
 
+  setup do
+    allow_cache_database_access()
+    Ankole.AppConfigure.Registry.clear_for_test()
+    Ankole.AppConfigure.Cache.clear_for_test()
+    {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
+    :ok
+  end
+
   test "signing-key reads do not enter the key owner process" do
     assert :ok = :sys.suspend(SigningKey)
 
@@ -465,6 +473,374 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert %{"error" => "invalid_request"} = json_response(missing_csrf, 403)
   end
 
+  test "prompt and max_age require fresh proof and preserve the actual authentication time", %{
+    conn: conn
+  } do
+    human = human_fixture()
+    client = create_client!(%{})
+    session = oauth_session_conn(conn, human.principal.uid)
+    auth_time = WebSession.oauth_session(session)["auth_time"]
+    request = authorization_request(client.id, "openid")
+    session = get(session, "/oauth/authorize", request)
+
+    for params <- [%{"prompt" => "login"}, %{"max_age" => "0"}] do
+      result = get(recycle(session), "/oauth/authorize", Map.merge(request, params))
+      assert String.starts_with?(redirected_to(result), "/sessions/new?")
+      flow = URI.decode_query(URI.parse(redirected_to(result)).query)["flow"]
+      {:ok, transaction} = WebSession.login_transaction(result, flow)
+      assert Map.take(transaction.request, Map.keys(params)) == params
+    end
+
+    result =
+      get(
+        recycle(session),
+        "/oauth/authorize",
+        Map.merge(request, %{"prompt" => "none", "max_age" => "0"})
+      )
+
+    assert redirect_query(result)["error"] == "login_required"
+
+    for age <- ["-1", "abc", "2147483648"] do
+      result = get(recycle(session), "/oauth/authorize", Map.put(request, "max_age", age))
+      assert redirect_query(result)["error"] == "invalid_request"
+    end
+
+    issued = get(recycle(session), "/oauth/authorize", Map.put(request, "max_age", "3600"))
+    assert is_binary(redirect_query(issued)["code"]), inspect(redirect_query(issued))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    claims = verify_id_token!(tokens["id_token"], client.id)
+    assert claims["auth_time"] == auth_time
+    assert is_binary(claims["sid"])
+    refute Map.has_key?(claims, "ankole_authentication")
+  end
+
+  test "unknown upstream authentication time is omitted and cannot meet an age request", %{
+    conn: conn
+  } do
+    human = human_fixture()
+    client = create_client!(%{})
+    session = oauth_session_conn(conn, human.principal.uid, nil)
+    issued = get(session, "/oauth/authorize", authorization_request(client.id, "openid"))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    refute Map.has_key?(verify_id_token!(tokens["id_token"], client.id), "auth_time")
+
+    result =
+      get(
+        recycle(issued),
+        "/oauth/authorize",
+        Map.merge(authorization_request(client.id, "openid"), %{
+          "prompt" => "none",
+          "max_age" => "3600"
+        })
+      )
+
+    assert redirect_query(result)["error"] == "login_required"
+  end
+
+  test "introspection authenticates a confidential caller and limits results to its own grants",
+       %{conn: conn} do
+    human = human_fixture()
+
+    {:ok, %{client: client, client_secret: secret}} =
+      OIDC.create_client(client_attrs(%{type: "confidential"}))
+
+    {:ok, %{client: other, client_secret: other_secret}} =
+      OIDC.create_client(client_attrs(%{type: "confidential"}))
+
+    code = authorize_code!(conn, human.principal.uid, client.id, pkce_verifier())
+    basic = "Basic " <> Base.encode64(client.id <> ":" <> secret)
+
+    tokens =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", basic)
+      |> post("/oauth/token", %{
+        "grant_type" => "authorization_code",
+        "code" => code,
+        "redirect_uri" => @redirect_uri,
+        "code_verifier" => pkce_verifier()
+      })
+      |> json_response(200)
+
+    for token <- [tokens["access_token"], tokens["refresh_token"]] do
+      active =
+        conn
+        |> recycle()
+        |> put_req_header("authorization", basic)
+        |> post("/oauth/introspect", %{"token" => token})
+        |> json_response(200)
+
+      assert active["active"] == true
+      assert active["sub"] == human.principal.uid
+      refute Map.has_key?(active, "client")
+
+      assert %{"active" => false} ==
+               conn
+               |> recycle()
+               |> put_req_header(
+                 "authorization",
+                 "Basic " <> Base.encode64(other.id <> ":" <> other_secret)
+               )
+               |> post("/oauth/introspect", %{"token" => token})
+               |> json_response(200)
+    end
+
+    assert %{"active" => false} ==
+             conn
+             |> recycle()
+             |> put_req_header("authorization", basic)
+             |> post("/oauth/introspect", %{"token" => "unknown"})
+             |> json_response(200)
+
+    assert %{"error" => "invalid_client"} =
+             conn
+             |> recycle()
+             |> post("/oauth/introspect", %{"token" => tokens["access_token"]})
+             |> json_response(401)
+
+    {:ok, _} = Ankole.Principals.disable_principal(human.principal.uid)
+
+    assert %{"active" => false} ==
+             conn
+             |> recycle()
+             |> put_req_header("authorization", basic)
+             |> post("/oauth/introspect", %{"token" => tokens["access_token"]})
+             |> json_response(200)
+  end
+
+  test "RP logout confirms before revocation, checks redirects, and rejects an old browser request",
+       %{conn: conn} do
+    human = human_fixture()
+    client = create_client!(%{post_logout_redirect_uris: ["https://spa.example.test/signed-out"]})
+    session = oauth_session_conn(conn, human.principal.uid)
+    issued = get(session, "/oauth/authorize", authorization_request(client.id, "openid"))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    params = %{
+      "id_token_hint" => tokens["id_token"],
+      "post_logout_redirect_uri" => "https://spa.example.test/signed-out",
+      "state" => "return-state"
+    }
+
+    invalid =
+      get(recycle(issued), "/oauth/logout", %{
+        params
+        | "post_logout_redirect_uri" => "https://attacker.example/"
+      })
+
+    assert html_response(invalid, 400) =~ "ankole-app"
+    prepared = get(recycle(issued), "/oauth/logout", params)
+    id = redirect_query(prepared)["request"]
+    assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+
+    confirmation =
+      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id) |> json_response(200)
+
+    assert confirmation["identity"]["principalUID"] == human.principal.uid
+
+    cancelled =
+      post(recycle(prepared), "/oauth/logout/confirm", %{"request" => id, "action" => "cancel"})
+
+    assert redirected_to(cancelled) == "/sessions/logged-out?cancelled=1"
+    assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+    prepared = get(recycle(issued), "/oauth/logout", params)
+    id = redirect_query(prepared)["request"]
+
+    confirmed =
+      post(recycle(prepared), "/oauth/logout/confirm", %{"request" => id, "action" => "confirm"})
+
+    assert redirected_to(confirmed) == "https://spa.example.test/signed-out?state=return-state"
+    assert {:error, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+    assert WebSession.oauth_session(issued) == nil
+
+    repeated = get(recycle(confirmed), "/oauth/logout", params)
+    repeated_id = redirect_query(repeated)["request"]
+    assert is_binary(repeated_id)
+
+    assert %{"identity" => nil} =
+             get(recycle(repeated), "/.internal-apis/oidc-logout/" <> repeated_id)
+             |> json_response(200)
+
+    repeated =
+      post(recycle(repeated), "/oauth/logout/confirm", %{
+        "request" => repeated_id,
+        "action" => "confirm"
+      })
+
+    assert redirected_to(repeated) == "https://spa.example.test/signed-out?state=return-state"
+
+    assert html_response(
+             post(recycle(prepared), "/oauth/logout/confirm", %{
+               "request" => id,
+               "action" => "confirm"
+             }),
+             409
+           ) =~ "ankole-app"
+  end
+
+  test "a valid hint from another browser requires confirmation of the current identity", %{
+    conn: conn
+  } do
+    first = human_fixture()
+    current = human_fixture()
+    client = create_client!(%{post_logout_redirect_uris: ["https://spa.example.test/signed-out"]})
+
+    issued =
+      conn
+      |> oauth_session_conn(first.principal.uid)
+      |> get("/oauth/authorize", authorization_request(client.id, "openid"))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    params = %{
+      "id_token_hint" => tokens["id_token"],
+      "post_logout_redirect_uri" => "https://spa.example.test/signed-out"
+    }
+
+    current_browser = oauth_session_conn(build_conn(), current.principal.uid)
+    prepared = get(current_browser, "/oauth/logout", params)
+    id = redirect_query(prepared)["request"]
+
+    confirmation =
+      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id) |> json_response(200)
+
+    assert confirmation["identity"]["principalUID"] == current.principal.uid
+
+    cancelled =
+      post(recycle(prepared), "/oauth/logout/confirm", %{"request" => id, "action" => "cancel"})
+
+    assert WebSession.oauth_session(cancelled)["principal_uid"] == current.principal.uid
+    assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+    prepared = get(recycle(cancelled), "/oauth/logout", params)
+    id = redirect_query(prepared)["request"]
+
+    confirmed =
+      post(recycle(prepared), "/oauth/logout/confirm", %{"request" => id, "action" => "confirm"})
+
+    assert redirected_to(confirmed) == "https://spa.example.test/signed-out"
+    assert WebSession.oauth_session(current_browser) == nil
+    assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+  end
+
+  test "ordinary browser logout preserves only explicit offline grants; human revocation removes all",
+       %{conn: conn} do
+    human = human_fixture()
+    client = create_client!(%{})
+    session = oauth_session_conn(conn, human.principal.uid)
+
+    issued =
+      get(session, "/oauth/authorize", authorization_request(client.id, "openid offline_access"))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    Ankole.BrowserSessions.logout(WebSession.browser_reference(issued))
+    assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+
+    refreshed =
+      conn
+      |> recycle()
+      |> post("/oauth/token", %{
+        "grant_type" => "refresh_token",
+        "client_id" => client.id,
+        "refresh_token" => tokens["refresh_token"]
+      })
+      |> json_response(200)
+
+    {:ok, refreshed_claims} =
+      Tokens.verify_access(refreshed["access_token"], Tokens.userinfo_audience())
+
+    assert refreshed_claims["sid"] == verify_id_token!(tokens["id_token"], client.id)["sid"]
+    {:ok, _} = Ankole.Principals.disable_principal(human.principal.uid)
+
+    assert {:error, _} =
+             Tokens.verify_access(refreshed["access_token"], Tokens.userinfo_audience())
+
+    assert %{"error" => "invalid_grant"} =
+             conn
+             |> recycle()
+             |> post("/oauth/token", %{
+               "grant_type" => "refresh_token",
+               "client_id" => client.id,
+               "refresh_token" => refreshed["refresh_token"]
+             })
+             |> json_response(400)
+  end
+
+  test "provider policy changes reject existing access, refresh, and authorization codes", %{
+    conn: conn
+  } do
+    human = human_fixture()
+    client = create_client!(%{})
+
+    tokens =
+      exchange_public_code(
+        conn,
+        client.id,
+        authorize_code!(conn, human.principal.uid, client.id, pkce_verifier()),
+        pkce_verifier()
+      )
+
+    code = authorize_code!(conn, human.principal.uid, client.id, pkce_verifier())
+
+    {:ok, _} =
+      Ankole.IdentityProviders.save_provider(
+        "different",
+        "lark",
+        %{"appID" => "test", "appSecret" => "test"},
+        false
+      )
+
+    {:ok, _} = OIDC.update_client(client.id, %{allowed_identity_provider_ids: ["different"]})
+    assert {:error, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
+
+    assert %{"error" => "invalid_grant"} =
+             conn
+             |> recycle()
+             |> post("/oauth/token", %{
+               "grant_type" => "authorization_code",
+               "client_id" => client.id,
+               "code" => code,
+               "redirect_uri" => @redirect_uri,
+               "code_verifier" => pkce_verifier()
+             })
+             |> json_response(400)
+
+    assert %{"error" => "invalid_grant"} =
+             conn
+             |> recycle()
+             |> post("/oauth/token", %{
+               "grant_type" => "refresh_token",
+               "client_id" => client.id,
+               "refresh_token" => tokens["refresh_token"]
+             })
+             |> json_response(400)
+  end
+
+  defp authorization_request(client_id, scope) do
+    %{
+      "response_type" => "code",
+      "client_id" => client_id,
+      "redirect_uri" => @redirect_uri,
+      "scope" => scope,
+      "state" => "state-1",
+      "code_challenge" => pkce_challenge(pkce_verifier()),
+      "code_challenge_method" => "S256"
+    }
+  end
+
+  defp redirect_query(conn),
+    do: conn |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
   defp create_client!(overrides) do
     {:ok, %{client: client}} = OIDC.create_client(client_attrs(overrides))
     client
@@ -532,14 +908,29 @@ defmodule AnkoleWeb.OIDCControllerTest do
     |> json_response(200)
   end
 
-  defp oauth_session_conn(conn, principal_uid) do
+  defp oauth_session_conn(conn, principal_uid, auth_time \\ System.system_time(:second)) do
+    conn = init_test_session(conn, %{})
+    {:ok, conn, transaction} = WebSession.begin_login(conn, :oauth, %{})
+
+    {:ok, _} =
+      Ankole.BrowserSessions.bind_provider(
+        WebSession.browser_reference(conn),
+        transaction.id,
+        "local"
+      )
+
+    {:ok, version} = Ankole.Principals.HumanAccess.current_version(principal_uid)
+
+    {:ok, conn, _} =
+      WebSession.complete_login(conn, transaction.id, %{
+        "principal_uid" => principal_uid,
+        "provider_id" => "local",
+        "external_id" => principal_uid,
+        "access_version" => version,
+        "auth_time" => auth_time
+      })
+
     conn
-    |> init_test_session(%{})
-    |> WebSession.put_oauth_session(%{
-      principal_uid: principal_uid,
-      provider_id: "local",
-      external_id: principal_uid
-    })
   end
 
   defp verify_id_token!(token, audience) do

@@ -296,6 +296,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, %{job: job}} =
                BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-job-stale",
                  "source_tool_call_id" => "tool-background-agent-job-stale",
@@ -371,6 +372,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, %{job: job}} =
                BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-job-reconnected",
                  "source_tool_call_id" => "tool-background-agent-job-reconnected",

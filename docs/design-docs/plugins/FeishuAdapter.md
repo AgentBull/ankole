@@ -62,8 +62,8 @@ this ownership before it writes the binding and its encrypted configuration.
 
 Each new or saved binding gets a configuration key derived from its normalized
 Agent UID and binding name. Existing `config_ref` values remain readable. A
-save moves an old binding to its binding-owned key, so this change needs no
-encrypted-data migration. New writes use the separate `binding_configs` root,
+save moves an old binding to its binding-owned key, so no encrypted-data
+migration is needed. New writes use the separate `binding_configs` root,
 so no historical Agent UID can overlap the new key. The old `bindings` root
 remains registered for existing `config_ref` values.
 
@@ -313,10 +313,16 @@ The Agent Plugin enables Skills. The routing rule (`SignalBinding` in code) supp
 and cannot make a Skill available.
 
 The `lark-approvals` Skill is a separate user path. A Turn from an active human
-Principal receives a Turn runtime Principal value. Agent Computer
-uses that Principal and `runtime_fabric.worker_auth_key` to derive an opaque
+Principal receives trusted Turn runtime Principal and access-version values. Agent Computer
+uses those facts and `runtime_fabric.worker_auth_key` to derive an opaque
 Lark CLI profile name. It uses HMAC-SHA256 and does not put the worker key in the
-Agent shell.
+Agent shell. Version 1 retains the existing Principal-only HMAC input for stored
+profiles. Later versions use the Principal UID, a NUL separator, and the decimal
+access version. The Worker rejects a Human turn without a positive access version.
+After disablement and reviewed restoration, the new profile requires new app
+registration and user authorization. Old profiles remain on disk for admitted
+attempts, but future turns cannot select them through the trusted wrapper. This
+does not revoke provider credentials outside Ankole.
 
 The Skill wrapper removes the bot credential environment before every command.
 This is necessary because the Lark CLI environment credential provider has
@@ -332,7 +338,7 @@ The current extension model is first-party and trusted, so Ankole does not add
 per-human filesystem isolation for it.
 
 Each Agent Computer's shared Lark CLI configuration holds one derived profile
-and one PersonalAgent app for each human Principal. The first setup has two
+and one PersonalAgent app for each human Principal access version. The first setup has two
 separate provider flows:
 
 1. PersonalAgent app registration creates the app and stores its generated app

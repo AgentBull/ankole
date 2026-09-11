@@ -12,6 +12,9 @@ defmodule Ankole.OIDC do
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.ClientGroup
   alias Ankole.OIDC.Crypto
+  alias Ankole.OIDC.LogoutDelivery
+  alias Ankole.OIDC.LogoutRequest
+  alias Ankole.OIDC.Session
   alias Ankole.OIDC.RefreshToken
   alias Ankole.Principals
   alias Ankole.Repo
@@ -66,6 +69,7 @@ defmodule Ankole.OIDC do
          {:ok, client} <-
            Repo.transact(fn repo ->
              with :ok <- validate_group_ids(repo, group_ids, normalized),
+                  :ok <- validate_identity_provider_ids(normalized),
                   {:ok, client} <-
                     %Client{id: id}
                     |> Client.changeset(Map.drop(normalized, [:allowed_group_ids]))
@@ -94,6 +98,7 @@ defmodule Ankole.OIDC do
                   {:ok, normalized} <- normalize_model_aliases(normalized),
                   {:ok, group_ids} <- group_ids(normalized),
                   :ok <- validate_group_ids(repo, group_ids, normalized),
+                  :ok <- validate_identity_provider_ids(normalized),
                   {:ok, updated} <-
                     client
                     |> Client.changeset(Map.drop(normalized, [:allowed_group_ids]))
@@ -213,11 +218,8 @@ defmodule Ankole.OIDC do
     end
   end
 
-  @doc "Deletes expired authorization codes and OIDC refresh tokens."
-  @spec cleanup_expired_credentials(DateTime.t()) :: %{
-          authorization_codes: non_neg_integer(),
-          refresh_tokens: non_neg_integer()
-        }
+  @doc "Deletes expired credentials and session state after its retention and delivery obligations end."
+  @spec cleanup_expired_credentials(DateTime.t()) :: %{atom() => non_neg_integer()}
   def cleanup_expired_credentials(now \\ DateTime.utc_now(:microsecond)) do
     {authorization_codes, _rows} =
       AuthorizationCode
@@ -229,7 +231,41 @@ defmodule Ankole.OIDC do
       |> where([token], token.absolute_expires_at <= ^now)
       |> Repo.delete_all()
 
-    %{authorization_codes: authorization_codes, refresh_tokens: refresh_tokens}
+    {logout_requests, _} =
+      Repo.delete_all(from r in LogoutRequest, where: r.expires_at <= ^now)
+
+    recent_cutoff = DateTime.add(now, -24 * 60 * 60)
+
+    {oidc_sessions, _} =
+      Repo.delete_all(
+        from s in Session,
+          as: :session,
+          where: s.expires_at <= ^now and (is_nil(s.ended_at) or s.ended_at < ^recent_cutoff),
+          where:
+            not exists(
+              from c in AuthorizationCode,
+                where: c.session_id == parent_as(:session).id,
+                select: 1
+            ),
+          where:
+            not exists(
+              from t in RefreshToken, where: t.session_id == parent_as(:session).id, select: 1
+            ),
+          where:
+            not exists(
+              from d in LogoutDelivery,
+                where: d.session_id == parent_as(:session).id and d.status != :delivered,
+                select: 1
+            )
+      )
+
+    Ankole.BrowserSessions.cleanup_expired(now)
+    |> Map.merge(%{
+      authorization_codes: authorization_codes,
+      refresh_tokens: refresh_tokens,
+      logout_requests: logout_requests,
+      oidc_sessions: oidc_sessions
+    })
   end
 
   @doc "Projects one client without its encrypted secret."
@@ -244,6 +280,11 @@ defmodule Ankole.OIDC do
       scopes: client.scopes,
       allowed_group_ids: allowed_group_ids(client.id),
       allowed_models: client.model_aliases,
+      allowed_identity_provider_ids: client.allowed_identity_provider_ids,
+      backchannel_logout_uri: client.backchannel_logout_uri,
+      backchannel_logout_session_required: client.backchannel_logout_session_required,
+      post_logout_redirect_uris: client.post_logout_redirect_uris,
+      allow_insecure_local_logout: client.allow_insecure_local_logout,
       inserted_at: DateTime.to_iso8601(client.inserted_at),
       updated_at: DateTime.to_iso8601(client.updated_at)
     }
@@ -262,6 +303,23 @@ defmodule Ankole.OIDC do
       model_aliases: fetch(attrs, :allowed_models) || fetch(attrs, :model_aliases),
       allowed_group_ids: fetch(attrs, :allowed_group_ids)
     }
+
+    normalized =
+      Enum.reduce(
+        [
+          :allowed_identity_provider_ids,
+          :backchannel_logout_uri,
+          :backchannel_logout_session_required,
+          :post_logout_redirect_uris,
+          :allow_insecure_local_logout
+        ],
+        normalized,
+        fn key, acc ->
+          if Map.has_key?(attrs, key) or Map.has_key?(attrs, Atom.to_string(key)),
+            do: Map.put(acc, key, fetch(attrs, key)),
+            else: acc
+        end
+      )
 
     if is_list(scopes) and @ai_gateway_scope not in scopes do
       %{normalized | model_aliases: %{}, allowed_group_ids: []}
@@ -282,9 +340,31 @@ defmodule Ankole.OIDC do
     }
 
     Map.new(attrs, fn {key, value} ->
-      {key, if(is_nil(value), do: Map.fetch!(defaults, key), else: value)}
+      {key,
+       if(is_nil(value) and Map.has_key?(defaults, key),
+         do: Map.fetch!(defaults, key),
+         else: value
+       )}
     end)
   end
+
+  defp validate_identity_provider_ids(%{allowed_identity_provider_ids: ids}) when is_list(ids) do
+    Enum.reduce_while(ids, :ok, fn
+      id, :ok when is_binary(id) ->
+        case Ankole.IdentityProviders.fetch_configured_provider(id) do
+          {:ok, _} -> {:cont, :ok}
+          _ -> {:halt, {:error, :unknown_identity_provider}}
+        end
+
+      _, :ok ->
+        {:halt, {:error, :invalid_identity_provider_ids}}
+    end)
+  end
+
+  defp validate_identity_provider_ids(%{allowed_identity_provider_ids: _}),
+    do: {:error, :invalid_identity_provider_ids}
+
+  defp validate_identity_provider_ids(_), do: :ok
 
   defp normalize_model_aliases(%{model_aliases: aliases} = attrs) when is_map(aliases) do
     aliases

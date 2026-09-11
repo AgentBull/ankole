@@ -1,317 +1,165 @@
 defmodule AnkoleWeb.Session do
   @moduledoc """
-  Cookie-session helpers for setup, OIDC state, and admin login.
-
-  Independent namespaces share the one sealed session cookie, kept apart on
-  purpose:
-
-    * `setup_session` / `setup_oidc_state` — the one-time bootstrap flow.
-    * `admin_session` / `admin_oidc_state` — normal admin login.
-    * `oauth_session` / `oauth_authorization` / `oauth_oidc_state` — login and
-      continuation for this installation's authorization endpoint.
-    * `local_password_change` — the forced password change between a local
-      password verify and the admin session it earns.
-
-  Keeping the bootstrap and admin OIDC states under different keys is a security
-  boundary: a setup-time OIDC round-trip can never be replayed to satisfy a later
-  admin login (and vice versa).
-
-  Every entry stamps its own `issued_at`/`expires_at` into the payload, so expiry
-  is enforced on read here rather than relying solely on the cookie `max_age` —
-  short-lived OIDC state can expire well before the 24h cookie does.
+  Browser-session references and isolated setup state under the sealed cookie.
   """
-
   import Plug.Conn
+  alias Ankole.BrowserSessions
+  alias Ankole.Principals.HumanAccess
 
-  @setup_session_key :setup_session
-  @setup_oidc_state_key :setup_oidc_state
-  @setup_brain_packs_key :setup_brain_packs
-  @admin_session_key :admin_session
-  @admin_oidc_state_key :admin_oidc_state
-  @oauth_session_key :oauth_session
-  @oauth_authorization_key :oauth_authorization
-  @oauth_oidc_state_key :oauth_oidc_state
-  @local_password_change_key :local_password_change
+  @browser_key :browser_session
+  @setup_ttl 24 * 60 * 60
+  @state_ttl 10 * 60
+  @legacy_keys [
+    :admin_session,
+    :oauth_session,
+    :admin_oidc_state,
+    :oauth_oidc_state,
+    :oauth_authorization,
+    :local_password_change
+  ]
 
-  @setup_ttl_seconds 24 * 60 * 60
-  @admin_ttl_seconds 24 * 60 * 60
-  @oauth_session_ttl_seconds 24 * 60 * 60
-  # OIDC state lives only long enough to complete one provider round-trip; the
-  # local password-change ticket gets the same short life.
-  @oidc_state_ttl_seconds 10 * 60
-  @local_password_change_ttl_seconds 10 * 60
+  def browser_reference(conn), do: get_session(conn, @browser_key)
 
-  @doc """
-  Stores the Human session used only by the OAuth authorization endpoint.
-  """
-  @spec put_oauth_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_oauth_session(conn, attrs) do
-    Plug.CSRFProtection.delete_csrf_token()
+  def ensure_browser(conn) do
+    case BrowserSessions.get(browser_reference(conn)) do
+      {:ok, _} ->
+        conn
 
-    conn
-    |> configure_session(renew: true)
-    |> put_expiring_session(@oauth_session_key, attrs, @oauth_session_ttl_seconds)
+      {:error, :browser_session_expired} ->
+        {:ok, browser} = BrowserSessions.create()
+
+        conn
+        |> clear_legacy_auth()
+        |> put_session(@browser_key, BrowserSessions.reference(browser))
+    end
   end
 
-  @doc """
-  Reads the OAuth Human session if it is active.
-  """
-  @spec oauth_session(Plug.Conn.t()) :: map() | nil
-  def oauth_session(conn), do: active_payload(get_session(conn, @oauth_session_key))
+  def begin_login(conn, purpose, request) do
+    conn = ensure_browser(conn)
 
-  @doc """
-  Stores one validated authorization request while the Human signs in.
-  """
-  @spec put_oauth_authorization(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_oauth_authorization(conn, params),
-    do:
-      put_expiring_session(
-        conn,
-        @oauth_authorization_key,
-        %{params: params},
-        @oidc_state_ttl_seconds
-      )
+    with {:ok, transaction} <-
+           BrowserSessions.begin_login(browser_reference(conn), purpose, request) do
+      {:ok, conn, transaction}
+    end
+  end
 
-  @doc """
-  Reads the pending authorization request.
-  """
-  @spec oauth_authorization(Plug.Conn.t()) :: map() | nil
-  def oauth_authorization(conn) do
-    case active_payload(get_session(conn, @oauth_authorization_key)) do
-      %{"params" => params} when is_map(params) -> params
-      _missing -> nil
+  def login_transaction(conn, id), do: BrowserSessions.login(browser_reference(conn), id)
+
+  def complete_login(conn, id, auth, before_commit \\ fn -> :ok end) do
+    with {:ok, %{browser: browser, transaction: transaction}} <-
+           BrowserSessions.complete_login(browser_reference(conn), id, auth, before_commit) do
+      Plug.CSRFProtection.delete_csrf_token()
+
+      conn =
+        conn
+        |> configure_session(renew: true)
+        |> clear_legacy_auth()
+        |> put_session(@browser_key, BrowserSessions.reference(browser))
+
+      {:ok, conn, transaction}
     end
   end
 
   @doc """
-  Clears the pending authorization request after a terminal result.
+  Opens the Console context after the isolated setup flow verifies its first administrator.
+  Normal logins must complete the transaction that started before credential verification.
   """
-  @spec clear_oauth_authorization(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_oauth_authorization(conn), do: delete_session(conn, @oauth_authorization_key)
+  def put_admin_session(conn, attrs) do
+    attrs = stringify_keys(attrs)
 
-  @doc """
-  Stores upstream identity-provider state for an OAuth Human login.
-  """
-  @spec put_oauth_oidc_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_oauth_oidc_state(conn, attrs),
-    do: put_expiring_session(conn, @oauth_oidc_state_key, attrs, @oidc_state_ttl_seconds)
+    with {:ok, version} <- HumanAccess.current_version(attrs["principal_uid"]),
+         {:ok, conn, transaction} <- begin_login(conn, :console, %{}),
+         {:ok, _} <-
+           BrowserSessions.bind_provider(
+             browser_reference(conn),
+             transaction.id,
+             attrs["provider_id"]
+           ),
+         {:ok, conn, _} <-
+           complete_login(conn, transaction.id, Map.put(attrs, "access_version", version)) do
+      conn
+    else
+      {:error, reason} -> raise "Cannot establish setup authentication: #{inspect(reason)}"
+    end
+  end
 
-  @doc """
-  Reads upstream identity-provider state for an OAuth Human login.
-  """
-  @spec oauth_oidc_state(Plug.Conn.t()) :: map() | nil
-  def oauth_oidc_state(conn), do: active_payload(get_session(conn, @oauth_oidc_state_key))
+  def admin_session(conn), do: BrowserSessions.authentication(browser_reference(conn), :console)
+  def oauth_session(conn), do: BrowserSessions.authentication(browser_reference(conn), :oauth)
 
-  @doc """
-  Clears upstream identity-provider state for an OAuth Human login.
-  """
-  @spec clear_oauth_oidc_state(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_oauth_oidc_state(conn), do: delete_session(conn, @oauth_oidc_state_key)
+  def logout(conn) do
+    case BrowserSessions.logout(browser_reference(conn)) do
+      {:ok, _} -> {:ok, drop_browser(conn)}
+      {:error, :browser_session_expired} -> {:error, :browser_session_expired}
+      error -> error
+    end
+  end
 
-  @doc """
-  Stores a setup session that expires after 24 hours.
-  """
-  @spec put_setup_session(Plug.Conn.t()) :: Plug.Conn.t()
-  def put_setup_session(conn),
-    do: put_expiring_session(conn, @setup_session_key, %{}, @setup_ttl_seconds)
+  def clear_admin_session(conn) do
+    case logout(conn) do
+      {:ok, conn} -> conn
+      {:error, :browser_session_expired} -> drop_browser(conn)
+    end
+  end
 
-  @doc """
-  Returns whether the setup session is active.
-  """
-  @spec setup_session_active?(Plug.Conn.t()) :: boolean()
-  def setup_session_active?(conn), do: active_session?(get_session(conn, @setup_session_key))
+  defp drop_browser(conn) do
+    Plug.CSRFProtection.delete_csrf_token()
+    conn |> configure_session(renew: true) |> delete_session(@browser_key) |> clear_legacy_auth()
+  end
 
-  @doc """
-  Clears setup-scoped session state.
-  """
-  @spec clear_setup_session(Plug.Conn.t()) :: Plug.Conn.t()
+  defp clear_legacy_auth(conn), do: Enum.reduce(@legacy_keys, conn, &delete_session(&2, &1))
+
+  def put_setup_session(conn), do: put_expiring_session(conn, :setup_session, %{}, @setup_ttl)
+
+  def setup_session_active?(conn),
+    do: not is_nil(active_payload(get_session(conn, :setup_session)))
+
   def clear_setup_session(conn) do
     conn
-    |> delete_session(@setup_session_key)
-    |> delete_session(@setup_oidc_state_key)
-    |> delete_session(@setup_brain_packs_key)
+    |> delete_session(:setup_session)
+    |> delete_session(:setup_oidc_state)
+    |> delete_session(:setup_brain_packs)
   end
 
-  @doc """
-  Stores the Brain industry pack selection made during setup, so completion
-  can materialize it whichever identity path finishes the wizard.
-  """
-  @spec put_setup_brain_packs(Plug.Conn.t(), [String.t()]) :: Plug.Conn.t()
   def put_setup_brain_packs(conn, packs) when is_list(packs),
-    do: put_expiring_session(conn, @setup_brain_packs_key, %{packs: packs}, @setup_ttl_seconds)
+    do: put_expiring_session(conn, :setup_brain_packs, %{packs: packs}, @setup_ttl)
 
-  @doc """
-  Reads the stored Brain pack selection; missing or expired reads return an
-  empty selection (general only).
-  """
-  @spec setup_brain_packs(Plug.Conn.t()) :: [String.t()]
   def setup_brain_packs(conn) do
-    case active_payload(get_session(conn, @setup_brain_packs_key)) do
+    case active_payload(get_session(conn, :setup_brain_packs)) do
       %{"packs" => packs} when is_list(packs) -> packs
-      _missing -> []
+      _ -> []
     end
   end
 
-  @doc """
-  Stores setup OIDC state.
-  """
-  @spec put_setup_oidc_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def put_setup_oidc_state(conn, attrs),
-    do: put_expiring_session(conn, @setup_oidc_state_key, attrs, @oidc_state_ttl_seconds)
+    do: put_expiring_session(conn, :setup_oidc_state, attrs, @state_ttl)
 
-  @doc """
-  Reads setup OIDC state if it is still active.
-  """
-  @spec setup_oidc_state(Plug.Conn.t()) :: map() | nil
-  def setup_oidc_state(conn), do: active_payload(get_session(conn, @setup_oidc_state_key))
+  def setup_oidc_state(conn), do: active_payload(get_session(conn, :setup_oidc_state))
+  def clear_setup_oidc_state(conn), do: delete_session(conn, :setup_oidc_state)
 
-  @doc """
-  Clears setup OIDC state.
-  """
-  @spec clear_setup_oidc_state(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_setup_oidc_state(conn), do: delete_session(conn, @setup_oidc_state_key)
+  def opaque_token, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
 
-  @doc """
-  Stores normal admin-login OIDC state.
-  """
-  @spec put_admin_oidc_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_admin_oidc_state(conn, attrs),
-    do: put_expiring_session(conn, @admin_oidc_state_key, attrs, @oidc_state_ttl_seconds)
-
-  @doc """
-  Reads normal admin-login OIDC state if it is still active.
-  """
-  @spec admin_oidc_state(Plug.Conn.t()) :: map() | nil
-  def admin_oidc_state(conn), do: active_payload(get_session(conn, @admin_oidc_state_key))
-
-  @doc """
-  Clears normal admin-login OIDC state.
-  """
-  @spec clear_admin_oidc_state(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_admin_oidc_state(conn), do: delete_session(conn, @admin_oidc_state_key)
-
-  @doc """
-  Stores the forced password-change ticket after a successful verify.
-  """
-  @spec put_local_password_change(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_local_password_change(conn, attrs) do
-    put_expiring_session(
-      conn,
-      @local_password_change_key,
-      attrs,
-      @local_password_change_ttl_seconds
-    )
-  end
-
-  @doc """
-  Reads the forced password-change ticket if it is still active.
-  """
-  @spec local_password_change(Plug.Conn.t()) :: map() | nil
-  def local_password_change(conn),
-    do: active_payload(get_session(conn, @local_password_change_key))
-
-  @doc """
-  Clears the forced password-change ticket.
-  """
-  @spec clear_local_password_change(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_local_password_change(conn), do: delete_session(conn, @local_password_change_key)
-
-  @doc """
-  Stores an admin session and renews the cookie session id.
-
-  Dropping the CSRF token and renewing the session on login is the standard
-  fixation defense: any token or session id an attacker primed before login is
-  discarded, so the post-login session can't be one they planted.
-  """
-  @spec put_admin_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def put_admin_session(conn, attrs) do
-    Plug.CSRFProtection.delete_csrf_token()
-
-    conn
-    |> configure_session(renew: true)
-    |> put_expiring_session(@admin_session_key, attrs, @admin_ttl_seconds)
-  end
-
-  @doc """
-  Reads the admin session if it is still active.
-  """
-  @spec admin_session(Plug.Conn.t()) :: map() | nil
-  def admin_session(conn), do: active_payload(get_session(conn, @admin_session_key))
-
-  @doc """
-  Clears the admin session.
-  """
-  @spec clear_admin_session(Plug.Conn.t()) :: Plug.Conn.t()
-  def clear_admin_session(conn) do
-    conn
-    |> configure_session(renew: true)
-    |> delete_session(@admin_session_key)
-    |> delete_session(@admin_oidc_state_key)
-  end
-
-  @doc """
-  Mints a high-entropy URL-safe token for OIDC state.
-  """
-  @spec opaque_token() :: String.t()
-  def opaque_token do
-    32
-    |> :crypto.strong_rand_bytes()
-    |> Base.url_encode64(padding: false)
-  end
-
-  @doc """
-  Keeps post-login redirects inside this installation.
-
-  Open-redirect guard for the `return_to` parameter: only same-origin absolute
-  paths pass. `//host` and `/\\host` are rejected because browsers treat them as
-  protocol-relative/scheme links to another origin; anything else falls back to
-  the console.
-  """
-  @spec safe_return_to(term()) :: String.t()
   def safe_return_to(value) when is_binary(value) do
-    case String.starts_with?(value, "/") and
-           not String.starts_with?(value, ["//", "/\\"]) do
-      true -> value
-      false -> "/console"
-    end
+    if String.starts_with?(value, "/") and not String.starts_with?(value, ["//", "/\\"]),
+      do: value,
+      else: "/console"
   end
 
-  def safe_return_to(_value), do: "/console"
+  def safe_return_to(_), do: "/console"
 
-  # Keys are stringified before storage because the payload survives a
-  # serialize/deserialize round-trip through the cookie, where atom keys would
-  # not safely come back. The TTL is baked into the payload so reads can expire it.
-  defp put_expiring_session(conn, key, attrs, ttl_seconds) do
-    now = now_seconds()
+  defp put_expiring_session(conn, key, attrs, ttl) do
+    now = System.system_time(:second)
 
     put_session(
       conn,
       key,
-      attrs
-      |> stringify_keys()
-      |> Map.merge(%{"issued_at" => now, "expires_at" => now + ttl_seconds})
+      attrs |> stringify_keys() |> Map.merge(%{"issued_at" => now, "expires_at" => now + ttl})
     )
   end
 
-  defp active_session?(payload), do: not is_nil(active_payload(payload))
-
-  # An expired or malformed payload reads as absent (`nil`), so a stale cookie is
-  # treated exactly like no session.
-  defp active_payload(%{"expires_at" => expires_at} = payload) when is_integer(expires_at) do
-    case expires_at > now_seconds() do
-      true -> payload
-      false -> nil
-    end
+  defp active_payload(%{"expires_at" => expiry} = payload) when is_integer(expiry) do
+    if expiry > System.system_time(:second), do: payload
   end
 
-  defp active_payload(_payload), do: nil
-
-  defp stringify_keys(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
-  defp now_seconds, do: System.system_time(:second)
+  defp active_payload(_), do: nil
+  defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 end

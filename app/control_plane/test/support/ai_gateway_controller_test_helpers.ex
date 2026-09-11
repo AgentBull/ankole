@@ -293,14 +293,17 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     human = human_fixture(%{uid: unique_uid("ai-gateway-admin")})
     assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
 
+    conn =
+      ConnTest.build_conn()
+      |> Plug.Test.init_test_session(%{})
+      |> AnkoleWeb.Session.put_admin_session(%{
+        principal_uid: human.principal.uid,
+        provider_id: "lark-main",
+        external_id: "external-1"
+      })
+
     assert {:ok, token_set} =
-             ConsoleTokens.mint_for_session(%{
-               "principal_uid" => human.principal.uid,
-               "provider_id" => "lark-main",
-               "external_id" => "external-1",
-               "issued_at" => System.system_time(:second),
-               "expires_at" => System.system_time(:second) + 3_600
-             })
+             ConsoleTokens.mint_for_session(AnkoleWeb.Session.admin_session(conn))
 
     token_set.access_token
   end

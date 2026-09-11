@@ -262,7 +262,16 @@ The built-in administrator receives these actions over `**`:
 
 The setup bootstrap can repair these grants after root setup completes.
 
-AuthZ prevents removal or disabling of the last active human administrator.
+AuthZ prevents manual removal or disabling of the last active Human
+administrator. Confirmed provider departure can disable that Human. The public
+setup remains closed. `recover_admin_in_tx/2` permits the audited operator
+recovery described in [Human Offboarding](HumanOffboarding.md) only when no
+active administrator remains.
+
+`restoration_review/1` projects direct grants, static memberships, and computed
+group rules for explicit approval before Human restoration. Its fingerprint
+includes the current rule set and Human access version. Existing AuthZ editors
+remove unwanted permissions; restoration records the approved projection.
 
 ## Public Functions
 
@@ -288,6 +297,6 @@ functions return detailed domain errors.
 - Use the Rust kernel for shared rule evaluation.
 - Skip invalid persisted rules and emit diagnostics.
 - Deny by default.
-- Protect the last active human administrator.
+- Protect the last active Human administrator during manual operations.
 
 See [Principal](Principal.md) for identity and status rules.

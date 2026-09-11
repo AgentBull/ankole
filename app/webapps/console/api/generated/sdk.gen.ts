@@ -313,6 +313,31 @@ import type {
   AnkoleWebControlPlanePluginControllerUpdateData,
   AnkoleWebControlPlanePluginControllerUpdateErrors,
   AnkoleWebControlPlanePluginControllerUpdateResponses,
+  AnkoleWebDirectoryAccessControllerApproveData,
+  AnkoleWebDirectoryAccessControllerApproveResponses,
+  AnkoleWebDirectoryAccessControllerReviewEventData,
+  AnkoleWebDirectoryAccessControllerReviewEventResponses,
+  AnkoleWebDirectoryAccessControllerShowData,
+  AnkoleWebDirectoryAccessControllerShowResponses,
+  AnkoleWebHumanAccessControllerClassifyWorkData,
+  AnkoleWebHumanAccessControllerClassifyWorkErrors,
+  AnkoleWebHumanAccessControllerClassifyWorkResponses,
+  AnkoleWebHumanAccessControllerClearRestrictionData,
+  AnkoleWebHumanAccessControllerClearRestrictionErrors,
+  AnkoleWebHumanAccessControllerClearRestrictionResponses,
+  AnkoleWebHumanAccessControllerDisableData,
+  AnkoleWebHumanAccessControllerDisableErrors,
+  AnkoleWebHumanAccessControllerDisableResponses,
+  AnkoleWebHumanAccessControllerRestoreData,
+  AnkoleWebHumanAccessControllerRestoreErrors,
+  AnkoleWebHumanAccessControllerRestoreResponses,
+  AnkoleWebHumanAccessControllerRetryCleanupData,
+  AnkoleWebHumanAccessControllerRetryCleanupResponses,
+  AnkoleWebHumanAccessControllerShowData,
+  AnkoleWebHumanAccessControllerShowErrors,
+  AnkoleWebHumanAccessControllerShowResponses,
+  AnkoleWebHumanAccessControllerUnresolvedWorkData,
+  AnkoleWebHumanAccessControllerUnresolvedWorkResponses,
   AnkoleWebIdentityMappingRequestControllerBindData,
   AnkoleWebIdentityMappingRequestControllerBindErrors,
   AnkoleWebIdentityMappingRequestControllerBindResponses,
@@ -346,6 +371,10 @@ import type {
   AnkoleWebOidcClientControllerIndexData,
   AnkoleWebOidcClientControllerIndexErrors,
   AnkoleWebOidcClientControllerIndexResponses,
+  AnkoleWebOidcClientControllerLogoutDeliveriesData,
+  AnkoleWebOidcClientControllerLogoutDeliveriesResponses,
+  AnkoleWebOidcClientControllerRetryLogoutData,
+  AnkoleWebOidcClientControllerRetryLogoutResponses,
   AnkoleWebOidcClientControllerRotateSecretData,
   AnkoleWebOidcClientControllerRotateSecretErrors,
   AnkoleWebOidcClientControllerRotateSecretResponses,
@@ -1224,6 +1253,28 @@ export const ankoleWebBrainControllerForgetClaim = <ThrowOnError extends boolean
   })
 
 /**
+ * Approve a current directory snapshot and its removals
+ */
+export const ankoleWebDirectoryAccessControllerApprove = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebDirectoryAccessControllerApproveData, ThrowOnError>
+): RequestResult<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-providers/{provider_id}/directory-reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Delete one file or directory from a worker filesystem root
  */
 export const ankoleWebWorkerFileControllerDelete = <ThrowOnError extends boolean = false>(
@@ -1375,6 +1426,24 @@ export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Retry cleanup of revoked future work
+ */
+export const ankoleWebHumanAccessControllerRetryCleanup = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerRetryCleanupData, ThrowOnError>
+): RequestResult<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/work-cleanup-retries',
+    ...options
   })
 
 /**
@@ -2810,6 +2879,54 @@ export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boole
   })
 
 /**
+ * List work whose Human or service authority needs review
+ */
+export const ankoleWebHumanAccessControllerUnresolvedWork = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData, ThrowOnError>
+): RequestResult<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/work-access-reviews',
+    ...options
+  })
+
+/**
+ * Set the reviewed authority of unresolved work
+ */
+export const ankoleWebHumanAccessControllerClassifyWork = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerClassifyWorkData, ThrowOnError>
+): RequestResult<
+  AnkoleWebHumanAccessControllerClassifyWorkResponses,
+  AnkoleWebHumanAccessControllerClassifyWorkErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebHumanAccessControllerClassifyWorkResponses,
+    AnkoleWebHumanAccessControllerClassifyWorkErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/work-access-reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List automation jobs
  */
 export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
@@ -2906,6 +3023,24 @@ export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends bo
       }
     ],
     url: '/api/v1/signal-adapters',
+    ...options
+  })
+
+/**
+ * List Back-Channel Logout deliveries
+ */
+export const ankoleWebOidcClientControllerLogoutDeliveries = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerLogoutDeliveriesData, ThrowOnError>
+): RequestResult<AnkoleWebOidcClientControllerLogoutDeliveriesResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebOidcClientControllerLogoutDeliveriesResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}/logout-deliveries',
     ...options
   })
 
@@ -3070,6 +3205,36 @@ export const ankoleWebSignalBindingControllerUpdateBinding = <ThrowOnError exten
   })
 
 /**
+ * Clear one verified restriction without restoring access
+ */
+export const ankoleWebHumanAccessControllerClearRestriction = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerClearRestrictionData, ThrowOnError>
+): RequestResult<
+  AnkoleWebHumanAccessControllerClearRestrictionResponses,
+  AnkoleWebHumanAccessControllerClearRestrictionErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebHumanAccessControllerClearRestrictionResponses,
+    AnkoleWebHumanAccessControllerClearRestrictionErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/access-restrictions/{restriction_id}/clear',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List effective members of one Principal group
  *
  * Static groups return stored memberships. Computed groups return the members evaluated from their condition.
@@ -3203,6 +3368,24 @@ export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boole
   })
 
 /**
+ * Retry a Back-Channel Logout delivery
+ */
+export const ankoleWebOidcClientControllerRetryLogout = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebOidcClientControllerRetryLogoutData, ThrowOnError>
+): RequestResult<AnkoleWebOidcClientControllerRetryLogoutResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebOidcClientControllerRetryLogoutResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/oidc-clients/{id}/logout-deliveries/{delivery_id}/retries',
+    ...options
+  })
+
+/**
  * Audit all knowledge related to one Principal
  */
 export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends boolean = false>(
@@ -3217,6 +3400,28 @@ export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/brain/principals/{principal_uid}/knowledge',
+    ...options
+  })
+
+/**
+ * Read Human access, permission review, and cleanup state
+ */
+export const ankoleWebHumanAccessControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebHumanAccessControllerShowResponses, AnkoleWebHumanAccessControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebHumanAccessControllerShowResponses,
+    AnkoleWebHumanAccessControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/access',
     ...options
   })
 
@@ -3815,7 +4020,7 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnErro
   })
 
 /**
- * Clear the current browser admin session
+ * End authentication in the current browser
  */
 export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
   options?: Options<AnkoleWebAuthControllerDeleteSessionData, ThrowOnError>
@@ -4158,6 +4363,36 @@ export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends
   })
 
 /**
+ * Disable a Human and revoke future access
+ */
+export const ankoleWebHumanAccessControllerDisable = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerDisableData, ThrowOnError>
+): RequestResult<
+  AnkoleWebHumanAccessControllerDisableResponses,
+  AnkoleWebHumanAccessControllerDisableErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebHumanAccessControllerDisableResponses,
+    AnkoleWebHumanAccessControllerDisableErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/access-disables',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List installed Brain object types
  */
 export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean = false>(
@@ -4284,6 +4519,28 @@ export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnErr
   })
 
 /**
+ * Retry or dismiss an unresolved provider event
+ */
+export const ankoleWebDirectoryAccessControllerReviewEvent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebDirectoryAccessControllerReviewEventData, ThrowOnError>
+): RequestResult<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-providers/{provider_id}/directory-events/{event_id}/reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List the messages of one AIGateway conversation
  */
 export const ankoleWebAiGatewayConversationControllerMessages = <ThrowOnError extends boolean = false>(
@@ -4306,6 +4563,24 @@ export const ankoleWebAiGatewayConversationControllerMessages = <ThrowOnError ex
       }
     ],
     url: '/api/v1/ai-gateway/conversations/{conversation_id}/messages',
+    ...options
+  })
+
+/**
+ * Read directory evidence and unresolved events
+ */
+export const ankoleWebDirectoryAccessControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebDirectoryAccessControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/identity-providers/{provider_id}/directory',
     ...options
   })
 
@@ -4759,6 +5034,36 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnErro
     ],
     url: '/api/v1/agent-library/capabilities',
     ...options
+  })
+
+/**
+ * Restore Human access after identity and permission review
+ */
+export const ankoleWebHumanAccessControllerRestore = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebHumanAccessControllerRestoreData, ThrowOnError>
+): RequestResult<
+  AnkoleWebHumanAccessControllerRestoreResponses,
+  AnkoleWebHumanAccessControllerRestoreErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebHumanAccessControllerRestoreResponses,
+    AnkoleWebHumanAccessControllerRestoreErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/access-restorations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

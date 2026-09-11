@@ -615,6 +615,23 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     )
   end
 
+  defp configure_identity_provider(provider_id, config) do
+    allow_cache_database_access()
+    AppConfigureRegistry.clear_for_test()
+    AppConfigureCache.clear_for_test()
+
+    activation = %{
+      "provider_id" => provider_id,
+      "adapter_id" => "dingtalk",
+      "plugin_id" => "dingtalk-adapter",
+      "config_key" => Config.identity_config_key(provider_id),
+      "enabled" => true
+    }
+
+    assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+    activation
+  end
+
   @identity_config %{
     "clientId" => "cli_idp",
     "clientSecret" => "secret",
@@ -733,6 +750,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     ]
 
     stub_identity_requests(self(), users)
+    configure_identity_provider(provider_id, @identity_config)
 
     assert {:ok, %{users: 1, departments: 1}} =
              IdentityProvider.sync_directory(provider_id, @identity_config)
@@ -775,6 +793,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     leave_event = %Event{
       type: "EVENT",
       event_type: "user_leave_org",
+      event_id: "leave-staff-2",
       data: %{"userId" => ["staff-2"]}
     }
 
@@ -785,6 +804,138 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     # would have left the Principal active forever.
     assert {:error, _disabled} = Principals.resolve_platform_subject(provider_id, "staff-2")
     assert Repo.get!(Ankole.Principals.Principal, principal.uid).status == :disabled
+  end
+
+  test "departure records provider evidence once and disables the last administrator" do
+    alias Ankole.IdentityProviders.DirectoryAccess
+    alias Ankole.Principals.HumanAccess
+    provider_id = "dingtalk-leave-#{unique_suffix()}"
+    configure_identity_provider(provider_id, @identity_config)
+
+    assert {:ok, observed} =
+             IdentityProvider.upsert_user(provider_id, %{
+               "userid" => "last-admin",
+               "name" => "Admin"
+             })
+
+    uid = observed.principal.uid
+    assert {:ok, _} = AuthZ.root_init_admin(uid)
+
+    event = %Event{
+      type: "EVENT",
+      event_type: "user_leave_org",
+      event_id: "leave-1",
+      data: %{"userId" => ["last-admin", "unknown-staff"]}
+    }
+
+    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+
+    for _ <- 1..2 do
+      assert {:ok, _} = IdentityProvider.handle_contact_event("user_leave_org", event, [consumer])
+    end
+
+    assert %{status: :disabled, access_version: 2} = Repo.get!(Ankole.Principals.Principal, uid)
+    [restriction] = HumanAccess.restrictions(uid)
+    assert restriction.source == "provider:" <> provider_id
+    assert restriction.reason == "departure"
+    assert Enum.count(HumanAccess.history(uid), &(&1.action == "disable")) == 1
+
+    assert {:error, :provider_recovery_not_verified} =
+             HumanAccess.clear_restriction(uid, restriction.id, nil, "review", "clear")
+
+    assert Enum.sort(Enum.map(DirectoryAccess.events(provider_id), & &1.status)) == [
+             :processed,
+             :review_required
+           ]
+
+    assert {:error, :provider_identity_requires_review} =
+             IdentityProvider.upsert_user(provider_id, %{
+               "userid" => "unknown-staff",
+               "name" => "Unknown"
+             })
+  end
+
+  test "only a complete current DingTalk sync permits provider recovery and does not sweep missing members" do
+    alias Ankole.IdentityProviders.DirectoryAccess
+    alias Ankole.Principals.HumanAccess
+    provider_id = "dingtalk-recovery-#{unique_suffix()}"
+    configure_identity_provider(provider_id, @identity_config)
+    user = %{"userid" => "returned", "name" => "Returned", "dept_id_list" => [20]}
+    assert {:ok, observed} = IdentityProvider.upsert_user(provider_id, user)
+
+    assert {:ok, missing} =
+             IdentityProvider.upsert_user(provider_id, %{
+               "userid" => "missing",
+               "name" => "Missing"
+             })
+
+    uid = observed.principal.uid
+    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+
+    event = %Event{
+      type: "EVENT",
+      event_type: "user_leave_org",
+      event_id: "leave-recovery",
+      data: %{"userId" => ["returned"]}
+    }
+
+    assert {:ok, _} = IdentityProvider.handle_contact_event("user_leave_org", event, [consumer])
+    [restriction] = HumanAccess.restrictions(uid)
+    assert {:ok, _} = HumanAccess.disable(uid, "Independent manual review", nil, "manual")
+    stub_identity_requests(self(), [user])
+    provider_plug = Req.default_options()[:plug]
+
+    Req.default_options(
+      plug: fn conn ->
+        if conn.request_path == "/topapi/v2/user/list" do
+          Req.Test.json(conn, %{
+            "errcode" => 0,
+            "result" => %{"list" => [user], "has_more" => true}
+          })
+        else
+          provider_plug.(conn)
+        end
+      end
+    )
+
+    assert {:error, %DingTalkOpenAPI.Error{reason: :unexpected_shape}} =
+             IdentityProvider.sync_directory(provider_id, @identity_config)
+
+    assert DirectoryAccess.state(provider_id).status == :failed
+
+    assert {:error, :provider_recovery_not_verified} =
+             HumanAccess.clear_restriction(uid, restriction.id, nil, "review", "clear-incomplete")
+
+    stub_identity_requests(self(), [user])
+    assert {:ok, %{users: 1}} = IdentityProvider.sync_directory(provider_id, @identity_config)
+    assert DirectoryAccess.state(provider_id).status == :healthy
+
+    assert {:ok, _} =
+             HumanAccess.clear_restriction(uid, restriction.id, nil, "verified", "clear-complete")
+
+    assert Repo.get!(Ankole.Principals.Principal, uid).status == :disabled
+    assert Repo.get!(Ankole.Principals.Principal, missing.principal.uid).status == :active
+
+    assert Enum.any?(
+             HumanAccess.restrictions(uid),
+             &(&1.source == "manual" and is_nil(&1.cleared_at))
+           )
+  end
+
+  test "incomplete departure events are recorded for review and invalid IDs receive LATER" do
+    alias Ankole.IdentityProviders.DirectoryAccess
+    alias Ankole.Plugins.DingTalkAdapter.Dispatcher
+    alias DingTalkOpenAPI.Stream.Dispatcher, as: StreamDispatcher
+    provider_id = "dingtalk-incomplete-#{unique_suffix()}"
+    configure_identity_provider(provider_id, @identity_config)
+    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+    dispatcher = Dispatcher.build([consumer])
+    event = %Event{type: "EVENT", event_type: "user_leave_org", event_id: "incomplete", data: %{}}
+    assert {:reply, 200, %{"status" => "SUCCESS"}} = StreamDispatcher.dispatch(dispatcher, event)
+    assert [%{status: :review_required, external_ids: []}] = DirectoryAccess.events(provider_id)
+
+    assert {:reply, 200, %{"status" => "LATER"}} =
+             StreamDispatcher.dispatch(dispatcher, %{event | event_id: nil})
   end
 
   describe "normalize_delivery_result/1" do

@@ -582,6 +582,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
           Ankole.Workflow.Schemas.Run.creation_changeset(%Ankole.Workflow.Schemas.Run{}, %{
             agent_uid: agent.uid,
             owner_session_id: seed_input.session_id,
+            authorization_kind: seed_input.authorization_kind,
+            human_uid: seed_input.human_uid,
+            human_access_version: seed_input.human_access_version,
             reply_route: %{
               "binding_name" => "bot",
               "signal_channel_id" => seed_input.signal_channel_id

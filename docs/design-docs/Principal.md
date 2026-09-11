@@ -54,10 +54,13 @@ The table stores these fields:
 - `uid` as the text primary key.
 - `type` as `human`, `agent`, or `system`.
 - `status` as `active` or `disabled`.
+- `access_version`, a positive generation for Human credential and work revocation.
 - Optional `display_name` and `avatar_url`.
 - `inserted_at` and `updated_at`.
 
-Disabling a Principal changes its status but keeps the row.
+Disabling a Principal keeps the row. Human disablement uses `HumanAccess` to
+commit restrictions, a new access version, audit history, OIDC revocation, and
+future-work cleanup together. See [Human Offboarding](HumanOffboarding.md).
 
 ### `human_users`
 
@@ -233,7 +236,8 @@ Root setup finishes only after AuthZ creates a valid active human administrator.
 ## Let AuthZ Decide Permissions
 
 AuthZ stores groups, memberships, grants, conditions, and decisions.
-`Ankole.Principals` supplies only identity and active or disabled status.
+`Ankole.Principals` supplies identity, active or disabled status, and the Human
+revocation generation. AuthZ continues to own permissions.
 
 Authorization fails closed for these cases:
 
@@ -249,7 +253,7 @@ See [AuthZ](AuthZ.md) for the decision contract.
 - Use `principals.uid` to identify the responsible subject.
 - Store Principal UIDs in lowercase.
 - Use `system` only for a system service that owns durable state.
-- Disable a Principal by changing its status. Do not delete it.
+- Disable a Human through `HumanAccess`; keep its identity and audit history.
 - Keep Agent runtime facts outside the common Principal row.
 - Require a nonempty Agent role and a JSON options object.
 - Prefer `platform_subject` when provider records refer to the same human.

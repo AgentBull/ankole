@@ -250,6 +250,28 @@ AIGateway requests, or logs.
 RuntimeFabric currently assumes private endpoints and trusted workers. It does
 not admit public workers or protect traffic on a hostile network.
 
+## Offboarding Stops at Ankole's Boundary
+
+Disabling a Human stops new authentication and new work admission in Ankole.
+Detection of a provider departure depends on provider events and the periodic
+directory sync; a provider outage or an incomplete admission scope delays it,
+and manual disablement remains available.
+
+An attempt that passed its start check before the disablement finishes. Ankole
+does not interrupt it or recheck the Human between its tool calls.
+
+OIDC Clients receive Back-Channel Logout and can query Introspection, but each
+Client applies the result on its own schedule. Ankole sets no end-to-end logout
+deadline and cannot report local disablement as proof that every Client has
+blocked access.
+
+Ankole does not revoke credentials that it did not issue. A Client's cached
+result, a personal provider authorization held outside Ankole, and a Lark CLI
+profile that an admitted attempt already selected keep working until their own
+expiry. See [Human Offboarding](design-docs/HumanOffboarding.md),
+[Browser Sessions](design-docs/BrowserSessions.md), and
+[OIDC Server](design-docs/OIDCServer.md).
+
 ## Browser State Can Disappear with a Worker
 
 `ankole-browser` runs beside Agent Computer. Agent Computer gives it an opaque
