@@ -27,11 +27,19 @@ defmodule Ankole.SignalsGateway.ReplyActionToken do
   def encode(_actor_event_id, _index, _action, _opts),
     do: {:error, :invalid_callback_action}
 
-  @spec resolve(String.t(), String.t(), String.t(), String.t(), [option()]) ::
+  @doc """
+  Resolves one provider callback token to its exact callback value.
+
+  `source_entry_id` names the provider message that carried the button. A
+  provider whose callback names no message (a LINE postback) passes `nil`; the
+  token then binds to the ActorEvent, the binding, and the action fingerprint
+  only, because no adapter surface can tie it to one provider message.
+  """
+  @spec resolve(String.t(), String.t(), String.t(), String.t() | nil, [option()]) ::
           {:ok, map()} | {:error, term()}
   def resolve(token, agent_uid, binding_name, source_entry_id, opts)
       when is_binary(token) and is_binary(agent_uid) and is_binary(binding_name) and
-             is_binary(source_entry_id) and is_list(opts) do
+             (is_binary(source_entry_id) or is_nil(source_entry_id)) and is_list(opts) do
     with {:ok, prefix} <- prefix(opts),
          {:ok, actor_event_id, index, fingerprint} <- decode(token, prefix),
          %ActorEvent{} = event <- Repo.get(ActorEvent, actor_event_id),
@@ -102,6 +110,8 @@ defmodule Ankole.SignalsGateway.ReplyActionToken do
       _missing -> nil
     end
   end
+
+  defp source_entry?(%ActorEvent{}, nil), do: true
 
   defp source_entry?(%ActorEvent{} = event, source_entry_id) do
     event

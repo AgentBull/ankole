@@ -58,7 +58,8 @@ defmodule AnkoleWeb.Endpoint do
       {:json, length: 128 * 1024 * 1024}
     ],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    body_reader: {AnkoleWeb.Plugs.ProviderWebhookBodyReader, :read_body, []}
 
   plug Plug.MethodOverride
   plug Plug.Head

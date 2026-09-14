@@ -73,8 +73,8 @@ of these values:
 
 - `enterprise_im` identifies an enterprise messaging adapter. Lark, Slack,
   Microsoft Teams, DingTalk, and WeCom use this category.
-- `consumer_im` identifies a consumer messaging adapter. Telegram and Discord
-  use this category.
+- `consumer_im` identifies a consumer messaging adapter. Telegram, Discord,
+  and LINE use this category.
 
 The category is catalog metadata. The adapter catalog, documentation, and
 Console use it to group adapters. It does not control identity admission,
@@ -182,6 +182,14 @@ adapter-minted provider token is not replaced either: reading one requires the
 provider to be reachable, which would make every reply depend on provider
 health, and the adapter already gives that short-lived token to the Worker
 shell.
+
+A plugin whose provider delivers events over HTTP declares a
+`signals_gateway.webhook_handler`. The host routes
+`/webhooks/v1/<handler_id>/<instance_id>/<kind>` to that handler for each
+declared kind and passes the parsed body, the query, the headers, and the exact
+request bytes. The handler authenticates the provider itself, usually with a
+signature over those bytes, and completes durable ingress before it returns
+success.
 
 Provider-specific setup and webhook behavior belong in each Plugin document.
 
@@ -335,7 +343,11 @@ An adapter that must fetch attachment bytes first writes a pending attachment
 observation. While it holds the existing entry lock, SignalsGateway assigns each
 new attachment a PostgreSQL sequence ID that starts at 10000. A later
 observation with the same source entry ID and provider reference reuses that ID
-and replaces the pending state with `complete` or `failed`. The attachment
+and replaces the pending state with `complete` or `failed`. A later observation
+from the same Agent without a readable path never replaces a stored attachment
+that this Agent can read, so a redelivered event cannot take a completed
+download away. A path that a different Agent wrote does not count; each Agent
+downloads its own copy. The attachment
 window starts at the pending observation, not after the download. An open batch
 waits for all pending attachments, with a four second materialization cap.
 
