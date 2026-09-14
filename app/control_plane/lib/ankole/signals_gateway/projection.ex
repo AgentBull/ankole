@@ -182,44 +182,62 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp put_attachment_ids(repo, fact, existing_attachments) do
+    agent_uid = Map.get(fact, :agent_uid)
+
     attachments =
       fact.attachments
       |> List.wrap()
       |> Enum.with_index()
       |> Enum.map(fn {attachment, index} ->
-        put_attachment_id(repo, attachment, index, List.wrap(existing_attachments))
+        put_attachment_id(repo, agent_uid, attachment, index, List.wrap(existing_attachments))
       end)
 
     Map.put(fact, :attachments, attachments)
   end
 
-  defp put_attachment_id(repo, attachment, index, existing_attachments)
+  # A later observation cannot take a readable file away from the Agent that
+  # holds it. A provider that redelivers an event can fetch the same file
+  # twice; when the second fetch fails after the first one wrote the bytes, or
+  # reports before it, the stored result with its path stays. This runs under
+  # the entry lock, so the order in which two downloads finish cannot lose the
+  # file. A path that a different Agent wrote is not this Agent's copy, so it
+  # does not block this Agent's own observation.
+  defp put_attachment_id(repo, agent_uid, attachment, index, existing_attachments)
        when is_map(attachment) do
-    attachment_id =
-      existing_attachment_id(attachment, index, existing_attachments) ||
-        materialized_attachment_id(attachment) ||
-        next_attachment_id(repo)
+    existing = matching_existing_attachment(attachment, index, existing_attachments)
 
-    Map.put(attachment, "attachment_id", attachment_id)
+    if materialized_attachment?(agent_uid, existing) and not materialized_path?(attachment) do
+      existing
+    else
+      attachment_id =
+        valid_attachment_id(existing) ||
+          materialized_attachment_id(attachment) ||
+          next_attachment_id(repo)
+
+      Map.put(attachment, "attachment_id", attachment_id)
+    end
   end
 
-  defp put_attachment_id(_repo, attachment, _index, _existing_attachments), do: attachment
+  defp put_attachment_id(_repo, _agent_uid, attachment, _index, _existing_attachments),
+    do: attachment
 
-  defp existing_attachment_id(attachment, index, existing_attachments) do
-    identity = attachment_identity(attachment)
-
-    matching_attachment =
-      if identity do
-        Enum.find(existing_attachments, &(attachment_identity(&1) == identity))
-      else
+  defp matching_existing_attachment(attachment, index, existing_attachments) do
+    case attachment_identity(attachment) do
+      nil ->
         existing_attachment = Enum.at(existing_attachments, index)
 
         if attachment_descriptor(existing_attachment) == attachment_descriptor(attachment),
           do: existing_attachment
-      end
 
-    valid_attachment_id(matching_attachment)
+      identity ->
+        Enum.find(existing_attachments, &(attachment_identity(&1) == identity))
+    end
   end
+
+  defp materialized_path?(%{"agent_computer_path" => path}) when is_binary(path) and path != "",
+    do: true
+
+  defp materialized_path?(_attachment), do: false
 
   defp attachment_identity(attachment) when is_map(attachment) do
     Enum.find_value(@attachment_identity_fields, fn field ->

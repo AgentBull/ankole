@@ -1,5 +1,70 @@
 defmodule AnkoleWeb.SignalWebhookControllerTest do
-  use AnkoleWeb.ConnCase, async: true
+  use AnkoleWeb.ConnCase, async: false
+
+  import Ankole.PrincipalsFixtures
+
+  alias Ankole.Plugins.LineAdapter.Signature
+  alias Ankole.Principals.MappingRequests
+  alias Ankole.Repo
+  alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Entry
+
+  @line_channel_id "1650000777"
+  @line_secret "controller-line-secret"
+  @line_user "U0000000000000000000000000000777"
+
+  test "a signed LINE webhook reaches durable ingress through the raw body", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    %{principal: human} = human_fixture()
+
+    assert {:ok, _identity} =
+             MappingRequests.bind_subject(human.uid, %{provider: "line", external_id: @line_user})
+
+    assert {:ok, _binding} =
+             SignalsGateway.put_binding(agent.uid, "line", "line-http", %{
+               "config" => %{
+                 "channelId" => @line_channel_id,
+                 "channelSecret" => @line_secret,
+                 "channelAccessToken" => "controller-line-token"
+               }
+             })
+
+    body =
+      Ankole.JSON.encode!(%{
+        "destination" => "Ubot0000000000000000000000000000777",
+        "events" => [
+          %{
+            "type" => "message",
+            "mode" => "active",
+            "timestamp" => 1_787_000_000_000,
+            "webhookEventId" => "01LINEHTTP000000000000000001",
+            "deliveryContext" => %{"isRedelivery" => false},
+            "source" => %{"type" => "user", "userId" => @line_user},
+            "message" => %{"id" => "http-m-1", "type" => "text", "text" => "hello"}
+          }
+        ]
+      })
+
+    path = ~p"/webhooks/v1/line/#{@line_channel_id}/events"
+
+    signed =
+      conn
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-line-signature", Signature.sign(body, @line_secret))
+      |> post(path, body)
+
+    assert json_response(signed, 200) == %{}
+    assert %Entry{text: "hello"} = Repo.get_by(Entry, source_entry_id: "http-m-1")
+
+    tampered =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-line-signature", Signature.sign(body, @line_secret))
+      |> post(path, String.replace(body, "hello", "hacked"))
+
+    assert json_response(tampered, 401) == %{"error" => "unauthorized"}
+    assert Repo.aggregate(Entry, :count) == 1
+  end
 
   test "unknown handlers return 404 without echoing the payload", %{conn: conn} do
     conn =

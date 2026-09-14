@@ -12,6 +12,7 @@ defmodule AnkoleWeb.SignalWebhookController do
 
   alias Ankole.Logging
   alias Ankole.SignalsGateway.WebhookHandlers
+  alias AnkoleWeb.Plugs.ProviderWebhookBodyReader
 
   def handle(conn, %{"handler_id" => handler_id, "instance_id" => instance_id, "kind" => kind}) do
     conn = Plug.Conn.fetch_query_params(conn)
@@ -22,6 +23,7 @@ defmodule AnkoleWeb.SignalWebhookController do
       kind: kind,
       query_params: conn.query_params,
       body_params: normalized_body_params(conn),
+      raw_body: ProviderWebhookBodyReader.body(conn),
       headers: request_headers(conn)
     }
 

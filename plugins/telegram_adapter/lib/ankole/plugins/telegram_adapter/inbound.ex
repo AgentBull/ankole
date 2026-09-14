@@ -5,7 +5,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   alias Ankole.{Logging, Principals, Repo, WorkerFiles}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.TelegramAdapter.{Client, EntityText}
+  alias Ankole.Plugins.TelegramAdapter.Client
+  alias Ankole.Plugins.UTF16Text
   alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
   alias Ankole.SignalsGateway.ReplyActionToken
 
@@ -333,7 +334,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
       %{mentions: [], command_prefixes: [], replacements: [], explicit?: false},
       fn
         %{"type" => type} = entity, acc when type in ["mention", "bot_command"] ->
-          value = EntityText.value(text, entity)
+          value = UTF16Text.slice(text, entity["offset"], entity["length"])
 
           cond do
             type == "mention" and bot_mention?(value, username) ->
@@ -391,7 +392,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     base = text || supplemental_text(message)
 
     if is_binary(base) and projection.replacements != [] do
-      base |> EntityText.splice(projection.replacements) |> blank_to_nil()
+      base |> UTF16Text.splice(projection.replacements) |> blank_to_nil()
     else
       blank_to_nil(base)
     end

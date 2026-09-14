@@ -11,7 +11,9 @@ defmodule Ankole.SignalsGateway.WebhookHandlers do
 
   Provider webhook payloads carry no host credentials, so the route itself is
   unauthenticated — every handler module must authenticate the provider
-  (signature, JWT, or shared secret) before acting on a request.
+  (signature, JWT, or shared secret) before acting on a request. The request
+  carries the exact body bytes as `raw_body` next to the parsed `body_params`,
+  because a provider signature covers the bytes it sent.
   """
 
   alias Ankole.Plugins.Registry
@@ -41,6 +43,7 @@ defmodule Ankole.SignalsGateway.WebhookHandlers do
           required(:kind) => String.t(),
           required(:query_params) => map(),
           required(:body_params) => map(),
+          required(:raw_body) => binary(),
           required(:headers) => %{String.t() => String.t()}
         }
 

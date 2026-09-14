@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.3.0-rc.1 (2026-09-14)
+
+- LINE is now available as a chat provider. Give a binding the channel ID, channel secret, and long-lived channel access token from the LINE Developers Console, set the channel's webhook URL to `https://<host>/webhooks/v1/line/<channelId>/events`, and the agent reads one-to-one, group, and multi-person chat messages, downloads received files, answers with push messages that quote the asker in groups, offers clarification choices as buttons, and forgets a message the user unsends. An unknown sender's mapping request shows the LINE display name.
+- Every LINE reply is a push message and counts against the Official Account's monthly message plan; the account's plan must cover the expected traffic. A LINE bot cannot edit or unsend a message, cannot send files, and shows no live progress before the final answer.
+- Provider webhook handlers now receive the exact request bytes next to the parsed body, so a provider signature can be verified.
+- A provider that delivers the same message again can no longer replace an attachment the agent already downloaded with a failed observation. Internal: Telegram and Discord share one UTF-16 text helper.
+
 ## Version 1.2.0-rc.1 (2026-09-11)
 
 - Administrators can disable Human access, review restrictions and permissions before restoration, and inspect access history in Console. Feishu departure, freeze, reviewed directory-scope removal, and DingTalk departure disable the same account. Repeated departure events are processed once, and provider restriction clearance requires current complete directory evidence. An audited operator command can recover administrator access after the last administrator departs.
