@@ -230,16 +230,18 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   defp observed_at(_observation), do: DateTime.utc_now(:microsecond)
 
+  # The download never runs in the webhook process: LINE waits for the answer
+  # and redelivers a slow one. If the task cannot start, the webhook fails
+  # instead, LINE delivers the event again, and the pending observation that
+  # is already durable makes that redelivery fetch the file.
   defp start_materialization(input, attachments, consumer, observed_at) do
-    work = fn -> materialize_and_emit(input, attachments, consumer, observed_at) end
+    {:ok, _pid} =
+      Task.Supervisor.start_child(
+        Ankole.Plugins.LineAdapter.MaterializationTaskSupervisor,
+        fn -> materialize_and_emit(input, attachments, consumer, observed_at) end
+      )
 
-    case Task.Supervisor.start_child(
-           Ankole.Plugins.LineAdapter.MaterializationTaskSupervisor,
-           work
-         ) do
-      {:ok, _pid} -> :ok
-      {:error, _reason} -> work.()
-    end
+    :ok
   end
 
   defp materialize_and_emit(input, attachments, consumer, observed_at) do

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.3.1-rc.1 (2026-09-14)
+
+- A LINE file download that cannot start no longer runs inside the webhook answer. The webhook fails instead, and LINE delivers the message again.
+
 ## Version 1.3.0-rc.1 (2026-09-14)
 
 - LINE is now available as a chat provider. Give a binding the channel ID, channel secret, and long-lived channel access token from the LINE Developers Console, set the channel's webhook URL to `https://<host>/webhooks/v1/line/<channelId>/events`, and the agent reads one-to-one, group, and multi-person chat messages, downloads received files, answers with push messages that quote the asker in groups, offers clarification choices as buttons, and forgets a message the user unsends. An unknown sender's mapping request shows the LINE display name.

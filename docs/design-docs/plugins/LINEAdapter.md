@@ -141,7 +141,9 @@ SignalsGateway first commits the admitted message with a pending attachment
 observation inside the webhook request. A supervised task then downloads the
 bytes from `api-data.line.me`, writes them to the Agent's `user-files` lane,
 and updates the same entry. The webhook answer does not wait for the download.
-An unmatched sender cannot make Ankole download a file. A redelivered event
+If the task cannot start, the webhook fails and LINE delivers the event again;
+the pending observation is already durable, so that redelivery fetches the
+file. An unmatched sender cannot make Ankole download a file. A redelivered event
 keeps a result this Agent already holds and fetches everything else again,
 including a download whose earlier task never finished, because the adapter
 cannot prove that such a task is alive. SignalsGateway never replaces an
