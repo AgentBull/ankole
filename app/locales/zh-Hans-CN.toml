@@ -2001,6 +2001,7 @@ title = "Ankole 初始化"
 validating_and_redirecting = "正在验证并跳转…"
 
 [signals_gateway.reply]
+choose_option = "选择"
 command_stopped = "已停止。"
 continued = "已暂停，后续处理续接于下一张卡片"
 dead_letter = "这条消息未能处理完成，自动重试已停止。请重新发送原请求，回复本消息并发送 /retry，或发送 /retry actor-event::{$ref}。如果 Provider 不接受已存历史，可用 /compress 重建对话。"

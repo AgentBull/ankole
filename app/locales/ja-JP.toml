@@ -2000,6 +2000,7 @@ title = "Ankole セットアップ"
 validating_and_redirecting = "検証してリダイレクト中…"
 
 [signals_gateway.reply]
+choose_option = "選択"
 command_stopped = "停止しました。"
 continued = "一時停止。作業は次のカードで続きます。"
 dead_letter = "このメッセージを完了できず、自動再試行も停止しました。元のリクエストをもう一度送るか、このメッセージに /retry と返信するか、/retry actor-event::{$ref} を送信してください。保存済みの履歴を Provider が受け付けない場合は、/compress で会話を再構築できます。"

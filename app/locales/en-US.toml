@@ -2052,6 +2052,7 @@ title = "Ankole setup"
 validating_and_redirecting = "Validating and redirecting…"
 
 [signals_gateway.reply]
+choose_option = "Choose"
 command_stopped = "Stopped."
 continued = "Paused. Work continues in the next card."
 dead_letter = "This message could not be finished and automatic retries stopped. Send the original request again, reply to this message with /retry, or send /retry actor-event::{$ref}. If the Provider rejects the stored history, use /compress to rebuild the conversation."

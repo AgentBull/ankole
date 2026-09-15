@@ -9,6 +9,10 @@ defmodule Ankole.SignalsGateway.WebhookHandlers do
   handler is the webhook analog of a long-connection owner: a single transport
   entry that the plugin may fan out to chat and identity consumers.
 
+  The host routes both POST and GET to the same handler and passes the request
+  `method`, because a provider that verifies its callback URL asks for it with a
+  GET. A GET carries no body: `raw_body` is empty and `body_params` is empty.
+
   Provider webhook payloads carry no host credentials, so the route itself is
   unauthenticated — every handler module must authenticate the provider
   (signature, JWT, or shared secret) before acting on a request. The request
@@ -41,6 +45,7 @@ defmodule Ankole.SignalsGateway.WebhookHandlers do
           required(:handler_id) => String.t(),
           required(:instance_id) => String.t(),
           required(:kind) => String.t(),
+          required(:method) => String.t(),
           required(:query_params) => map(),
           required(:body_params) => map(),
           required(:raw_body) => binary(),

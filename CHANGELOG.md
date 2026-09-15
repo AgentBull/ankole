@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.4.0-rc.1 (2026-09-15)
+
+- WhatsApp is now available as a chat provider. Give a binding the Meta App ID, App secret, verify token, phone number ID, and a permanent System User access token, then set the App's callback URL to `https://<host>/webhooks/v1/whatsapp/<appId>/events` with the same verify token and subscribe the App to the `messages` field. Several phone numbers of one App can each serve their own agent.
+- In a one-to-one WhatsApp chat the agent reads text, quotes, locations, shared contacts, and received files, answers with quoted replies and files of its own, and offers clarification choices as numbered reply buttons or a numbered list. A sender whose phone number already belongs to a known person is mapped to that account without any administrator action.
+- WhatsApp replies stop with a clear failure more than 24 hours after the user's last message or choice, because Meta closes the customer service window; an operator can retry the stopped reply from the Signal Routing page after the user writes again. Group chats, template messages, message edits, message deletions, and a live progress preview are not available on WhatsApp.
+- The provider webhook route now also answers GET requests, so a provider can verify that it owns the callback URL.
+
 ## Version 1.3.1-rc.1 (2026-09-14)
 
 - A LINE file download that cannot start no longer runs inside the webhook answer. The webhook fails instead, and LINE delivers the message again.

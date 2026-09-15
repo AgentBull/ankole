@@ -19,6 +19,32 @@ defmodule Ankole.SignalsGateway.Projection do
   @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref user_files_relative_path agent_computer_path)
   @attachment_materialization_fields ~w(attachment_id agent_computer_path user_files_relative_path xxh3_128 size size_bytes bytes)
 
+  @doc """
+  Updates the metadata of one channel mirror under the channel row lock.
+
+  An adapter keeps its own provider fact on the channel mirror with this call.
+  The lock is the one ingress takes, so a monotonic value, such as the newest
+  provider time an adapter has seen, cannot move backwards through a concurrent
+  or redelivered event: the function reads the stored metadata and writes the
+  result of `fun` inside the same transaction.
+  """
+  @spec update_channel_metadata(String.t(), (map() -> map())) ::
+          {:ok, Channel.t()} | {:error, :signal_channel_not_found | Ecto.Changeset.t()}
+  def update_channel_metadata(signal_channel_id, fun)
+      when is_binary(signal_channel_id) and is_function(fun, 1) do
+    Ankole.Repo.transact(fn repo ->
+      case lock_channel(repo, signal_channel_id) do
+        %Channel{} = channel ->
+          channel
+          |> Channel.changeset(%{metadata: fun.(channel.metadata || %{})})
+          |> repo.update()
+
+        nil ->
+          {:error, :signal_channel_not_found}
+      end
+    end)
+  end
+
   def maybe_upsert_channel(_repo, %{signal_channel_id: nil}, _now), do: {:ok, nil}
   def maybe_upsert_channel(repo, fact, now), do: upsert_channel(repo, fact, now)
 

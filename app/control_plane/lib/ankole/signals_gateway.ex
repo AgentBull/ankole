@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Bindings
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.Outbox
@@ -171,6 +172,17 @@ defmodule Ankole.SignalsGateway do
       opts
     )
   end
+
+  @doc """
+  Updates one channel mirror's metadata under the channel row lock.
+
+  An adapter keeps its own provider fact on the channel mirror with this call.
+  The lock is the one ingress takes, so a monotonic value cannot move backwards
+  through a concurrent or redelivered event.
+  """
+  @spec update_channel_metadata(String.t(), (map() -> map())) ::
+          {:ok, Channel.t()} | {:error, :signal_channel_not_found | Ecto.Changeset.t()}
+  defdelegate update_channel_metadata(signal_channel_id, fun), to: Projection
 
   @doc """
   Records a provider-visible outbox intent committed by the actor runtime.

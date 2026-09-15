@@ -169,6 +169,22 @@ byte version. An outbound send reads the referenced file as it exists then.
 Each provider keeps its own operation and size limits. An adapter must reject
 unsupported work instead of pretending that the provider completed it.
 
+## WhatsApp Replies Expire after 24 Hours
+
+Meta closes the WhatsApp customer service window 24 hours after the user's
+newest message. Ankole checks that window before every send and stops the reply
+with a permanent error instead of calling the Cloud API, so an answer that a
+background job or a scheduled push produces after the window never arrives. Only
+a paid template message can open a new window, and templates are outside the
+adapter's contract. An operator can retry the stopped row from Console after the
+user writes again.
+
+The Cloud API also reports a failed delivery asynchronously, after it has
+already accepted the send. The outbox row records that send as a success, so
+Ankole logs the later failure and cannot repair the delivery by itself. A send
+carries no idempotency key and offers no read-back, so an uncertain answer
+reports `unknown` and follows the possible-duplicate flow above.
+
 ## Stateful Responses Use WebSockets
 
 The HTTP Responses endpoint is stateless and rejects stateful fields. Stateful

@@ -29,7 +29,8 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
   Ankole.Plugins.TelegramAdapter,
-  Ankole.Plugins.WeComAdapter
+  Ankole.Plugins.WeComAdapter,
+  Ankole.Plugins.WhatsAppAdapter
 ]
 
 config :ankole, AnkoleWeb.Endpoint,

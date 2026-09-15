@@ -506,8 +506,12 @@ defmodule AnkoleWeb.Router do
   # and no Accept negotiation (providers send arbitrary Accept headers).
   # Authenticating the provider is the declared handler's job — Bot Framework
   # JWT, Graph clientState, or whatever the provider signs with.
+  # A provider that verifies its callback URL sends a GET first (Meta's
+  # subscription challenge), so the same action serves both methods and the
+  # handler reads `method` to tell them apart.
   scope "/webhooks", AnkoleWeb do
     post "/v1/:handler_id/:instance_id/:kind", SignalWebhookController, :handle
+    get "/v1/:handler_id/:instance_id/:kind", SignalWebhookController, :handle
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
