@@ -39,8 +39,9 @@ local password or not.
 ## Accounts and Credentials
 
 Accounts only come from setup, the console, or the rescue command. There is no
-self-service registration and no password recovery page. Email addresses are
-trusted without verification because only an operator can create them.
+self-service registration and no password recovery page. The email address
+is not verified: it is the sign-in name, not evidence that the account holder
+controls that mailbox.
 
 The `human_user_local_credentials` table stores one row for each human user
 with a local password:
@@ -56,8 +57,12 @@ The kernel owns the Argon2id primitives (`argon2id_hash`, `argon2id_verify`).
 The control plane never stores or logs a plain password, and the minimum
 length is 6 characters. Local accounts create no
 `principal_external_identities` rows; the lowercase email on `human_users` is
-the sign-in key. A local account and a provider account with the same email
-therefore resolve to the same Principal through the usual contact ladder.
+the sign-in key. A provider account that reports the same email as a
+verified contact, such as a Slack or Google sign-in, resolves to the same
+Principal through the usual contact ladder. Mail from that address does not:
+the Email adapter matches only `email` identity bindings, so the local account
+holder's first mail waits for an administrator to bind the address, unless a
+directory sync or provider sign-in that attests the address has bound it.
 
 ## Sign-in Flow
 

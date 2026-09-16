@@ -152,7 +152,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
              Adapters.fetch_outbox("mock-provider", registry)
 
     assert OutboxAdapter.capabilities(mock) ==
-             MapSet.new([:post_entry, :reply_entry, :outbound_reconciliation])
+             MapSet.new([:post_entry, :reply_entry, :edit_entry, :outbound_reconciliation])
   end
 
   test "rejects string-key callback declarations" do

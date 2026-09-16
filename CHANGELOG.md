@@ -1,11 +1,18 @@
 # Changelog
 
-## Version 1.4.0-rc.1 (2026-09-15)
+## Version 1.5.0-rc.1 (2026-09-16)
 
 - WhatsApp is now available as a chat provider. Give a binding the Meta App ID, App secret, verify token, phone number ID, and a permanent System User access token, then set the App's callback URL to `https://<host>/webhooks/v1/whatsapp/<appId>/events` with the same verify token and subscribe the App to the `messages` field. Several phone numbers of one App can each serve their own agent.
 - In a one-to-one WhatsApp chat the agent reads text, quotes, locations, shared contacts, and received files, answers with quoted replies and files of its own, and offers clarification choices as numbered reply buttons or a numbered list. A sender whose phone number already belongs to a known person is mapped to that account without any administrator action.
 - WhatsApp replies stop with a clear failure more than 24 hours after the user's last message or choice, because Meta closes the customer service window; an operator can retry the stopped reply from the Signal Routing page after the user writes again. Group chats, template messages, message edits, message deletions, and a live progress preview are not available on WhatsApp.
 - The provider webhook route now also answers GET requests, so a provider can verify that it owns the callback URL.
+
+## Version 1.4.0-rc.1 (2026-09-16)
+
+- An operator can now connect a dedicated mailbox to an Agent with the new Email adapter: Ankole receives mail over IMAP, keeps each email thread as one conversation, and sends the Agent's replies over SMTP with the thread headers that mail clients use. The mailbox belongs to the Agent; a message that another mail client marks as read never reaches it.
+- An email sender is identified only by an explicit `email` identity binding: an administrator maps the address from the mapping request list, a synced directory binds each user's address automatically, or the binding creates a standalone account. A profile email or a local sign-in email never links a sender by itself. By default the adapter requires a DMARC pass from the receiving mail server and ignores automatic and bulk mail. Password and app-password login are supported; OAuth mailboxes are not.
+- A channel whose adapter cannot edit a sent message no longer receives a streaming preview, so an email thread gets the Agent's complete answer as one message instead of its first fragment. The Console signal routing page names a delivery that the channel does not support instead of showing a missing translation.
+- A provider user that matches no binding and no contact is always a new account. Ankole no longer joins it to an existing Principal only because the UIDs are equal, and it refuses the write when that UID is taken; an operator maps the two explicitly when they are one person.
 
 ## Version 1.3.1-rc.1 (2026-09-14)
 

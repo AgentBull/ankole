@@ -105,6 +105,8 @@ defmodule Ankole.MixProject do
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:req, "~> 0.7"},
+      {:gen_smtp, "~> 1.3"},
+      {:codepagex, "~> 0.1.13"},
       {:mint_web_socket, "~> 1.0"},
       {:telemetry_metrics, "~> 1.2"},
       {:localize, "~> 1.2"},

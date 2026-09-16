@@ -28,9 +28,12 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
         ingress_module: Inbound,
         outbox_module: Outbox,
         inbound_capabilities: ["entry_receive"],
+        # The plain-text preview edits its first message in place, so this
+        # adapter declares the edit it has always accepted.
         outbound_capabilities: [
           "post_entry",
           "reply_entry",
+          "edit_entry",
           "outbound_reconciliation"
         ]
       },
