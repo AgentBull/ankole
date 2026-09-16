@@ -65,6 +65,7 @@ defmodule Ankole.Workflow.CreationTest do
 
   defp valid_attrs(agent_uid) do
     %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
       "agent_uid" => agent_uid,
       "owner_session_id" => "session-parent",
       "reply_route" => %{"binding_name" => "bot"},

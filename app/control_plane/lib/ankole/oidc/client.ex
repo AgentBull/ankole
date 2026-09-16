@@ -27,6 +27,11 @@ defmodule Ankole.OIDC.Client do
     field :redirect_uris, {:array, :string}, default: []
     field :scopes, {:array, :string}, default: ["openid"]
     field :model_aliases, :map, default: %{}
+    field :allowed_identity_provider_ids, {:array, :string}, default: []
+    field :backchannel_logout_uri, :string
+    field :backchannel_logout_session_required, :boolean, default: true
+    field :post_logout_redirect_uris, {:array, :string}, default: []
+    field :allow_insecure_local_logout, :boolean, default: false
 
     has_many :group_links, ClientGroup, foreign_key: :client_id
 
@@ -50,9 +55,14 @@ defmodule Ankole.OIDC.Client do
       :secret_ciphertext,
       :redirect_uris,
       :scopes,
-      :model_aliases
+      :model_aliases,
+      :allowed_identity_provider_ids,
+      :backchannel_logout_uri,
+      :backchannel_logout_session_required,
+      :post_logout_redirect_uris,
+      :allow_insecure_local_logout
     ])
-    |> normalize_blank([:name])
+    |> normalize_blank([:name, :backchannel_logout_uri])
     |> normalize_lists()
     |> validate_required([
       :name,
@@ -60,7 +70,11 @@ defmodule Ankole.OIDC.Client do
       :client_type,
       :redirect_uris,
       :scopes,
-      :model_aliases
+      :model_aliases,
+      :allowed_identity_provider_ids,
+      :post_logout_redirect_uris,
+      :backchannel_logout_session_required,
+      :allow_insecure_local_logout
     ])
     |> validate_length(:redirect_uris, min: 1)
     |> validate_subset(:scopes, @scopes)
@@ -68,6 +82,7 @@ defmodule Ankole.OIDC.Client do
     |> validate_openid_scope()
     |> validate_secret_shape()
     |> validate_gateway_models()
+    |> validate_logout_uris()
     |> check_constraint(:name, name: :oidc_clients_name_present)
     |> check_constraint(:client_type, name: :oidc_clients_type)
     |> check_constraint(:secret_ciphertext, name: :oidc_clients_secret_shape)
@@ -95,22 +110,63 @@ defmodule Ankole.OIDC.Client do
   def redirect_origin(_uri), do: nil
 
   defp normalize_lists(changeset) do
-    Enum.reduce([:redirect_uris, :scopes], changeset, fn field, acc ->
-      update_change(acc, field, fn values ->
-        values
-        |> Enum.map(fn
-          value when is_binary(value) -> String.trim(value)
-          value -> value
+    Enum.reduce(
+      [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris],
+      changeset,
+      fn field, acc ->
+        update_change(acc, field, fn values ->
+          (values || [])
+          |> Enum.map(fn
+            value when is_binary(value) -> String.trim(value)
+            value -> value
+          end)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
         end)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.uniq()
-      end)
-    end)
+      end
+    )
   end
 
   defp validate_redirect_uris(field, uris) do
     Enum.flat_map(uris, fn uri ->
       if valid_redirect_uri?(uri), do: [], else: [{field, "contains an invalid redirect URI"}]
+    end)
+  end
+
+  defp validate_logout_uris(changeset) do
+    allow_http =
+      get_field(changeset, :allow_insecure_local_logout) == true and
+        get_field(changeset, :client_type) == :confidential
+
+    changeset =
+      if get_field(changeset, :allow_insecure_local_logout) and not allow_http,
+        do: add_error(changeset, :allow_insecure_local_logout, "requires a confidential Client"),
+        else: changeset
+
+    uris =
+      Enum.map(
+        get_field(changeset, :post_logout_redirect_uris, []) || [],
+        &{:post_logout_redirect_uris, &1}
+      )
+
+    backchannel = get_field(changeset, :backchannel_logout_uri)
+
+    uris =
+      if is_binary(backchannel) and backchannel != "",
+        do: [{:backchannel_logout_uri, backchannel} | uris],
+        else: uris
+
+    Enum.reduce(uris, changeset, fn {field, uri}, acc ->
+      parsed = URI.parse(uri)
+
+      valid =
+        valid_redirect_uri?(uri) and
+          (parsed.scheme == "https" or
+             (allow_http and parsed.scheme == "http" and localhost?(parsed.host)))
+
+      if valid,
+        do: acc,
+        else: add_error(acc, field, "requires HTTPS or an enabled confidential local callback")
     end)
   end
 

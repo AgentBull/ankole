@@ -76,6 +76,8 @@ defmodule AnkoleWeb.Router do
   scope "/.internal-apis", AnkoleWeb do
     pipe_through :session_api
 
+    get "/oidc-logout/:id", OIDCLogoutController, :confirmation
+
     get "/setup/state", SetupController, :state
     post "/setup/sessions", SetupController, :create_session
     delete "/setup/sessions/current", SetupController, :delete_session
@@ -112,6 +114,9 @@ defmodule AnkoleWeb.Router do
     get "/oauth/authorize", OIDCController, :authorize
     get "/oauth/authorize/resume", OIDCController, :resume_authorize
     post "/oauth/token", OIDCController, :token
+    post "/oauth/introspect", OIDCController, :introspect
+    get "/oauth/logout", OIDCLogoutController, :request
+    post "/oauth/logout", OIDCLogoutController, :request
     get "/oauth/userinfo", OIDCController, :userinfo
     post "/oauth/userinfo", OIDCController, :userinfo
     options "/oauth/token", OIDCController, :options
@@ -151,6 +156,17 @@ defmodule AnkoleWeb.Router do
 
     get "/principals", PrincipalController, :index
     post "/principals", PrincipalController, :create
+    get "/work-access-reviews", HumanAccessController, :unresolved_work
+    post "/work-access-reviews", HumanAccessController, :classify_work
+    get "/principals/:uid/access", HumanAccessController, :show
+    post "/principals/:uid/access-disables", HumanAccessController, :disable
+    post "/principals/:uid/access-restorations", HumanAccessController, :restore
+
+    post "/principals/:uid/access-restrictions/:restriction_id/clear",
+         HumanAccessController,
+         :clear_restriction
+
+    post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
     get "/principals/:uid", PrincipalController, :show
     patch "/principals/:uid", PrincipalController, :update
     get "/principals/:uid/groups", PrincipalController, :groups
@@ -166,6 +182,11 @@ defmodule AnkoleWeb.Router do
     patch "/oidc-clients/:id", OIDCClientController, :update
     delete "/oidc-clients/:id", OIDCClientController, :delete
     post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
+    get "/oidc-clients/:id/logout-deliveries", OIDCClientController, :logout_deliveries
+
+    post "/oidc-clients/:id/logout-deliveries/:delivery_id/retries",
+         OIDCClientController,
+         :retry_logout
 
     get "/principal-groups", AuthZGroupController, :index
     post "/principal-groups", AuthZGroupController, :create
@@ -353,6 +374,13 @@ defmodule AnkoleWeb.Router do
     get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
 
     get "/identity-provider-adapters", IdentityProviderController, :adapters
+    get "/identity-providers/:provider_id/directory", DirectoryAccessController, :show
+    post "/identity-providers/:provider_id/directory-reviews", DirectoryAccessController, :approve
+
+    post "/identity-providers/:provider_id/directory-events/:event_id/reviews",
+         DirectoryAccessController,
+         :review_event
+
     get "/identity-providers", IdentityProviderController, :index
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
@@ -492,6 +520,9 @@ defmodule AnkoleWeb.Router do
 
     get "/", SpaController, :home
     get "/sessions/new", SpaController, :sessions_new
+    get "/oauth/logout/confirm", SpaController, :logout_confirmation
+    post "/oauth/logout/confirm", OIDCLogoutController, :confirm
+    get "/sessions/logged-out", SpaController, :logged_out
     get "/sessions/oidc/:provider_id/authorization", AuthController, :oidc_authorization
     # The OIDC redirect lands here as a top-level browser navigation (not via the
     # SPA), so it carries the session cookie holding the pending OIDC state.

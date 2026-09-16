@@ -623,6 +623,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
     with {:ok, retry_event} <-
            SignalsGateway.append_actor_event_in_tx(repo, %{
+             source_work: source,
              agent_uid: source.agent_uid,
              binding_name: source.binding_name,
              session_id: source.session_id,

@@ -716,6 +716,7 @@ defmodule Ankole.Workflow.RunServerTest do
   defp run_fixture(agent_uid) do
     Repo.insert!(
       Run.creation_changeset(%Run{}, %{
+        authorization_kind: "service",
         agent_uid: agent_uid,
         owner_session_id: "owner-#{System.unique_integer([:positive])}",
         reply_route: %{"binding_name" => "bot"},

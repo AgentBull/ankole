@@ -88,7 +88,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- lock_agent_slots(repo, agent_uid),
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
+         :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       claim_attempt(repo, job, expected_attempt, turn_start_spec, max_running_per_agent)
@@ -118,7 +119,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
-    with :ok <- lock_agent_slots(repo, agent_uid),
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
+         :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       claim_continuation(repo, job, expected_attempt, turn_start_spec, max_running_per_agent)
@@ -799,6 +801,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
         with binding_name when is_binary(binding_name) <- Attrs.text(reply_route, "binding_name") do
           SignalsGateway.append_actor_event_in_tx(repo, %{
+            source_work: job,
             agent_uid: job.agent_uid,
             binding_name: binding_name,
             session_id: job.owner_session_id,
@@ -1099,4 +1102,20 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp now, do: DateTime.utc_now(:microsecond)
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    repo.update_all(
+      from(j in Job,
+        where:
+          j.human_uid == ^uid and j.human_access_version < ^version and
+            j.status in ["queued", "waiting_on_user"]
+      ),
+      set: [
+        status: "stopped",
+        completed_at: now,
+        updated_at: now,
+        error: %{"code" => "human_access_revoked"}
+      ]
+    )
+  end
 end

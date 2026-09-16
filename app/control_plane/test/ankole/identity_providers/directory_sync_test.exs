@@ -19,19 +19,19 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   end
 
   test "directory full sync interval defaults to six hours and is operator configurable" do
-    assert {:ok, 21_600} = IdentityProviderConfig.directory_full_sync_interval_seconds()
+    assert {:ok, 900} = IdentityProviderConfig.directory_full_sync_interval_seconds()
 
     assert {:ok, 2} =
              AppConfigure.put_global(
-               IdentityProviderConfig.directory_full_sync_interval_hours_definition(),
+               IdentityProviderConfig.directory_full_sync_interval_minutes_definition(),
                2
              )
 
-    assert {:ok, 7_200} = IdentityProviderConfig.directory_full_sync_interval_seconds()
+    assert {:ok, 120} = IdentityProviderConfig.directory_full_sync_interval_seconds()
 
-    assert {:error, {:invalid_integer, "directory_full_sync_interval_hours", %{min: 1}}} =
+    assert {:error, {:invalid_integer, "directory_full_sync_interval_minutes", %{min: 1}}} =
              AppConfigure.put_global(
-               IdentityProviderConfig.directory_full_sync_interval_hours_definition(),
+               IdentityProviderConfig.directory_full_sync_interval_minutes_definition(),
                0
              )
   end
@@ -198,7 +198,7 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   test "periodic directory sync enqueue honors the configured full sync interval" do
     assert {:ok, 1} =
              AppConfigure.put_global(
-               IdentityProviderConfig.directory_full_sync_interval_hours_definition(),
+               IdentityProviderConfig.directory_full_sync_interval_minutes_definition(),
                1
              )
 

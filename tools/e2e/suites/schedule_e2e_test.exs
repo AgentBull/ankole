@@ -41,6 +41,132 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000
+  @tag :human_offboarding
+  test "Human revocation lets the admitted Worker attempt finish and prevents old work after restoration" do
+    alias Ankole.Principals.{HumanAccess, WorkCleanup}
+    ctx = start_worker_e2e_stack!()
+    checkback = run_checkback_tool_loop(ctx)
+    cron = run_cron_tool_loop(ctx)
+    uid = checkback.input.human_uid
+    assert is_binary(uid)
+    assert cron.input.human_uid == uid
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_offboarding_admitted",
+               message_id: "om_offboarding_admitted",
+               chat_id: "oc_offboarding_admitted",
+               chat_type: "p2p",
+               text: "CHAOS_FOLLOWUP_SLOW",
+               mentions: [],
+               create_time_ms: DateTime.to_unix(DateTime.add(base_time(), 30), :millisecond)
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_admitted")
+    assert input.human_uid == uid
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1))
+
+    assert_receive {:fake_llm_request, :followup_slow, 1, _}, 15_000
+
+    assert {:ok, disabled} =
+             HumanAccess.restrict_from_provider(uid, "lark-main", "departure", "offboarding-e2e")
+
+    assert {:ok, %{running: 1}} = WorkCleanup.cleanup(uid, disabled.access_version)
+
+    assert {:ok, _message} =
+             wait_for_completed_actor_event_message(ctx.container, input.id, deadline(60_000))
+
+    assert_actor_event_completed!(input.id)
+
+    assert Repo.get!(Ankole.Schedule.Schemas.ScheduledEvent, checkback.checkback.id).status ==
+             "cancelled"
+
+    assert Repo.get!(Ankole.Schedule.Schemas.CronSchedule, cron.cron_schedule.id).status ==
+             "paused"
+
+    assert {:error, :human_access_revoked} = Schedule.run_cron_schedule(cron.cron_schedule.id)
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_offboarding_blocked",
+               message_id: "om_offboarding_blocked",
+               chat_id: "oc_offboarding_blocked",
+               chat_type: "p2p",
+               text: "CHAOS_FOLLOWUP_SECOND_OK",
+               mentions: [],
+               create_time_ms: DateTime.to_unix(DateTime.add(base_time(), 31), :millisecond)
+             )
+
+    wait_for_event_ack!(ctx.fake_feishu, "evt_offboarding_blocked")
+    finalize_due_inbound_batch_events!()
+
+    refute Repo.exists?(
+             from e in ActorEvent, where: e.source_entry_id == "om_offboarding_blocked"
+           )
+
+    {:ok, ticket} = Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main")
+
+    {:ok, _} =
+      Ankole.IdentityProviders.DirectoryAccess.finish_sync(
+        ticket,
+        "verified-return",
+        [{uid, :healthy}],
+        admission_scope: "none",
+        maximum_removal_percent: 20
+      )
+
+    [restriction] = HumanAccess.restrictions(uid)
+
+    assert {:ok, _} =
+             HumanAccess.clear_restriction(
+               uid,
+               restriction.id,
+               nil,
+               "Verified current directory",
+               "clear-e2e"
+             )
+
+    {:ok, review} = Ankole.AuthZ.restoration_review(uid)
+
+    assert {:ok, _} =
+             HumanAccess.restore(
+               uid,
+               review.fingerprint,
+               nil,
+               "Approved current permission rules",
+               "restore-e2e"
+             )
+
+    assert {:error, :human_access_revoked} = Schedule.run_cron_schedule(cron.cron_schedule.id)
+    assert {:ok, _} = WorkCleanup.cleanup(uid, disabled.access_version)
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_offboarding_fresh",
+               message_id: "om_offboarding_fresh",
+               chat_id: "oc_offboarding_fresh",
+               chat_type: "p2p",
+               text: "CHAOS_FOLLOWUP_SECOND_OK",
+               mentions: [],
+               create_time_ms: DateTime.to_unix(DateTime.add(base_time(), 32), :millisecond)
+             )
+
+    fresh = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_fresh")
+    assert fresh.human_access_version == disabled.access_version
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_event_for_actor!(fresh, DateTime.add(fresh.available_at, 1))
+
+    assert {:ok, _message} =
+             wait_for_completed_actor_event_message(ctx.container, fresh.id, deadline(60_000))
+
+    assert_actor_event_completed!(fresh.id)
+  end
+
+  @tag timeout: 300_000
+  @tag ownership_timeout: 300_000
   @tag :schedule_fanout
   test "scheduled work runs once and cron results fan out with independent retry" do
     ctx = start_worker_e2e_stack!()

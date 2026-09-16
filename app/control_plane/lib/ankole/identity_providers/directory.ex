@@ -14,7 +14,6 @@ defmodule Ankole.IdentityProviders.Directory do
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
-  alias Ankole.Repo
 
   defmodule Group do
     @moduledoc """
@@ -52,14 +51,41 @@ defmodule Ankole.IdentityProviders.Directory do
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, attrs, opts \\ [])
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
-    with {:ok, observed} <-
-           Principals.upsert_platform_subject_human(Map.put(attrs, :authoritative_profile, true)),
-         :ok <- bind_attested_email(provider_id, observed.principal.uid, attrs),
-         :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
-         {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts) do
-      {:ok, observed}
-    end
+    Ankole.Repo.transact(fn repo ->
+      observation = Keyword.get(opts, :access_observation)
+
+      if is_binary(observation),
+        do:
+          Ankole.AuthZ.Store.lock_built_in_admin_group_for_update(
+            repo,
+            Ankole.AuthZ.Root.admin_group_name()
+          )
+
+      with {:ok, observed} <-
+             Principals.upsert_platform_subject_human(
+               Map.put(attrs, :authoritative_profile, true)
+             ),
+           :ok <- bind_attested_email(repo, provider_id, observed.principal.uid, attrs),
+           :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
+           {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts),
+           {:ok, principal} <-
+             restrict_observed_user(provider_id, observed.principal, observation, opts) do
+        {:ok, %{observed | principal: principal}}
+      end
+    end)
   end
+
+  defp restrict_observed_user(provider_id, principal, reason, opts) when is_binary(reason) do
+    Principals.HumanAccess.restrict_from_provider(
+      principal.uid,
+      provider_id,
+      reason,
+      Keyword.get(opts, :operation_id, Ankole.Kernel.gen_uuid_v7()),
+      Keyword.get(opts, :observed_at)
+    )
+  end
+
+  defp restrict_observed_user(_provider_id, principal, _observation, _opts), do: {:ok, principal}
 
   @doc """
   Returns the AuthZ group name that holds every member of one provider.
@@ -73,27 +99,24 @@ defmodule Ankole.IdentityProviders.Directory do
   # sync and on sign-in alike, so the address becomes an `email` identity
   # binding: the Email adapter identifies a sender only by such a binding. An
   # address that is already bound elsewhere stays there; an explicit binding
-  # always wins and the conflict is only logged.
-  defp bind_attested_email(provider_id, principal_uid, attrs) do
+  # always wins and the conflict is only logged. The binding runs on the
+  # caller's transaction, so the logged conflict never rolls back the upsert.
+  defp bind_attested_email(repo, provider_id, principal_uid, attrs) do
     case Principals.normalize_email(Map.get(attrs, :email) || Map.get(attrs, "email")) do
       nil ->
         :ok
 
       email ->
-        Repo.transact(fn repo ->
-          with :ok <- Principals.lock_platform_subject(repo, "email", email) do
-            Principals.bind_external_identity(repo, %{
-              principal_uid: principal_uid,
-              provider: "email",
-              external_id: email,
-              metadata: %{"origin" => "directory", "provider_id" => provider_id}
-            })
-          end
-        end)
-        |> case do
-          {:ok, _identity} ->
-            :ok
-
+        with :ok <- Principals.lock_platform_subject(repo, "email", email),
+             {:ok, _identity} <-
+               Principals.bind_external_identity(repo, %{
+                 principal_uid: principal_uid,
+                 provider: "email",
+                 external_id: email,
+                 metadata: %{"origin" => "directory", "provider_id" => provider_id}
+               }) do
+          :ok
+        else
           {:error, :platform_subject_already_bound} ->
             Logging.warning(
               "identity_providers.directory.email_already_bound",

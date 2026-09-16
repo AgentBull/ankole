@@ -224,6 +224,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "console-parent-research",
                "source_tool_call_id" => "console-tool-research",
@@ -323,6 +324,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   defp create_job!(agent_uid, suffix, title \\ nil) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "console-parent-#{suffix}",
                "source_tool_call_id" => "console-tool-#{suffix}",

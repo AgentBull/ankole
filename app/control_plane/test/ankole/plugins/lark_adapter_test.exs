@@ -15,7 +15,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.Plugins.LarkAdapter.ConnectionOwner
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
@@ -2913,6 +2912,19 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
     test "full directory sync reads users and departments through paginated contact API" do
       config = put_in(identity_config(), ["sync", "pageSize"], 17)
+
+      assert {:ok, ^config} =
+               Ankole.IdentityProviders.Config.save_provider(
+                 %{
+                   "provider_id" => "lark-main",
+                   "adapter_id" => "lark",
+                   "plugin_id" => "lark-adapter",
+                   "config_key" => Config.identity_config_key("lark-main"),
+                   "enabled" => true
+                 },
+                 config
+               )
+
       put_tenant_token(config)
       on_exit(fn -> delete_tenant_token(config) end)
 
@@ -3038,6 +3050,117 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ]
     end
 
+    test "contact group scope collects every member page before approving a snapshot" do
+      config = put_in(identity_config(), ["sync", "admissionScope"], "contact")
+
+      activation = %{
+        "provider_id" => "lark-main",
+        "adapter_id" => "lark",
+        "plugin_id" => "lark-adapter",
+        "config_key" => Config.identity_config_key("lark-main"),
+        "enabled" => true
+      }
+
+      assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        query = URI.decode_query(conn.query_string)
+
+        data =
+          case conn.request_path do
+            "/open-apis/contact/v3/scopes" ->
+              assert query["user_id_type"] == "user_id"
+              assert query["department_id_type"] == "department_id"
+
+              %{
+                "user_ids" => [],
+                "department_ids" => [],
+                "group_ids" => ["scoped-group"],
+                "has_more" => false
+              }
+
+            "/open-apis/contact/v3/group/scoped-group/member/simplelist" ->
+              send(parent, {:scope_member_query, query})
+
+              case query do
+                %{"member_type" => "department", "member_id_type" => "department_id"} ->
+                  %{"memberlist" => [], "has_more" => false}
+
+                %{
+                  "member_type" => "user",
+                  "member_id_type" => "user_id",
+                  "page_token" => "next-member"
+                } ->
+                  %{"memberlist" => [%{"member_id" => "scope-user-2"}], "has_more" => false}
+
+                %{"member_type" => "user", "member_id_type" => "user_id"} ->
+                  %{
+                    "memberlist" => [%{"member_id" => "scope-user-1"}],
+                    "has_more" => true,
+                    "page_token" => "next-member"
+                  }
+              end
+
+            "/open-apis/contact/v3/users/" <> uid ->
+              %{
+                "user" => %{
+                  "user_id" => uid,
+                  "status" => %{
+                    "is_frozen" => false,
+                    "is_exited" => false,
+                    "is_resigned" => false
+                  }
+                }
+              }
+          end
+
+        Req.Test.json(conn, %{"code" => 0, "data" => data})
+      end)
+
+      assert {:ok, %{users: 2, departments: 0}} =
+               IdentityProvider.sync_directory("lark-main", config)
+
+      state = Ankole.IdentityProviders.DirectoryAccess.state("lark-main")
+      assert state.status == :review_required
+      assert Enum.sort(state.member_uids) == ["scope-user-1", "scope-user-2"]
+      assert_receive {:scope_member_query, %{"page_token" => "next-member"}}
+      assert_receive {:scope_member_query, %{"member_type" => "department"}}
+    end
+
+    test "a stale directory configuration cannot start or finish removal reconciliation" do
+      config = identity_config()
+
+      activation = %{
+        "provider_id" => "lark-main",
+        "adapter_id" => "lark",
+        "plugin_id" => "lark-adapter",
+        "config_key" => Config.identity_config_key("lark-main"),
+        "enabled" => true
+      }
+
+      assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+
+      assert {:ok, ticket} =
+               Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main", config)
+
+      changed = Map.put(config, "appID", "cli_changed_scope")
+      assert {:ok, ^changed} = Ankole.IdentityProviders.Config.save_provider(activation, changed)
+
+      assert {:error, :directory_configuration_changed} =
+               Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main", config)
+
+      assert {:ok, :superseded} =
+               Ankole.IdentityProviders.DirectoryAccess.finish_sync(ticket, "old-scope", [],
+                 admission_scope: "contact",
+                 maximum_removal_percent: 100
+               )
+
+      assert {:ok, _} = Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main", changed)
+    end
+
     test "directory upsert follows email, user_id, union_id, then open_id" do
       cases = [
         {%{
@@ -3064,7 +3187,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       end)
     end
 
-    test "contact user events incrementally upsert platform subjects" do
+    test "contact user events persist identity hints before current-state reconciliation" do
       event = %Event{
         id: "evt_contact_user",
         type: "contact.user.updated_v3",
@@ -3081,16 +3204,21 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{principal: principal, human_user: human_user}]} =
+      assert {:ok, [%{id: id, external_ids: ids, status: :pending}]} =
                IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
 
-      assert {:ok, resolved} =
+      assert "ou_contact_incremental" in ids
+      assert "contact.incremental@example.com" in ids
+
+      assert {:error, :not_found} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_contact_incremental")
 
-      assert resolved.uid == principal.uid
-      assert human_user.email == "contact.incremental@example.com"
+      assert_enqueued(
+        worker: Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent,
+        args: %{"event_id" => id}
+      )
     end
 
     test "contact user events fall back to open_id when no stronger subject is present" do
@@ -3112,20 +3240,18 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{principal: principal}]} =
+      assert {:ok, [%{id: id, external_ids: ["ou_open_only"], status: :pending}]} =
                IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
 
-      assert {:ok, resolved} =
-               Principals.resolve_platform_subject("lark-main", "ou_open_only")
-
-      assert resolved.uid == principal.uid
-
-      refute_enqueued(
-        worker: SyncProvider,
-        args: %{"reason" => "missing_platform_subject"}
+      assert_enqueued(
+        worker: Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent,
+        args: %{"event_id" => id}
       )
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "ou_open_only")
     end
 
     test "contact user events enqueue full sync when every supported subject is absent" do
@@ -3147,18 +3273,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{status: :full_sync_enqueued, reason: :missing_platform_subject}]} =
+      assert {:ok, [%{id: id, status: :pending}]} =
                IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
 
       assert_enqueued(
-        worker: SyncProvider,
-        args: %{
-          "provider_id" => "lark-main",
-          "reason" => "missing_platform_subject",
-          "source" => "lark_contact_event"
-        }
+        worker: Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent,
+        args: %{"event_id" => id}
       )
     end
 
@@ -3181,18 +3303,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{status: :full_sync_enqueued, reason: :contact_scope_updated}]} =
+      assert {:ok, [%{id: id, status: :pending}]} =
                IdentityProvider.handle_contact_event("contact.scope.updated_v3", event, [
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
 
       assert_enqueued(
-        worker: SyncProvider,
-        args: %{
-          "provider_id" => "lark-main",
-          "reason" => "contact_scope_updated",
-          "source" => "lark_contact_event"
-        }
+        worker: Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent,
+        args: %{"event_id" => id}
       )
     end
   end

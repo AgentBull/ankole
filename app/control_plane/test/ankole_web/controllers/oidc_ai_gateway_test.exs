@@ -11,7 +11,6 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AuthZ
   alias Ankole.OIDC
-  alias Ankole.OIDC.Tokens
   alias Ankole.Principals
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayResponsesSocket
@@ -193,7 +192,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       |> bearer(fixture.access_token)
       |> post("/api/v1/ai-gateway/responses", allowed_request)
 
-    assert %{"error" => %{"code" => "access_denied"}} = json_response(response, 403)
+    assert %{"error" => %{"code" => "invalid_token"}} = json_response(response, 401)
 
     assert {:ok, _client} =
              OIDC.update_client(fixture.client.id, %{
@@ -209,7 +208,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       |> bearer(fixture.access_token)
       |> post("/api/v1/ai-gateway/responses", allowed_request)
 
-    assert %{"error" => %{"code" => "access_denied"}} = json_response(response, 403)
+    assert %{"error" => %{"code" => "invalid_token"}} = json_response(response, 401)
 
     assert {:ok, _client} = OIDC.update_client(fixture.client.id, %{enabled: true})
     assert {:ok, _human} = Principals.disable_principal(fixture.human.principal.uid)
@@ -220,7 +219,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       |> bearer(fixture.access_token)
       |> post("/api/v1/ai-gateway/responses", allowed_request)
 
-    assert %{"error" => %{"code" => "access_denied"}} = json_response(response, 403)
+    assert %{"error" => %{"code" => "invalid_token"}} = json_response(response, 401)
   end
 
   test "browser WebSocket accepts the credential subprotocol, echoes only the app protocol, and rechecks policy",
@@ -323,7 +322,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       create_gateway_client!("stored-owner-second", fixture.group.id, fixture.model_aliases)
 
     {:ok, second_token} =
-      Tokens.mint_access(
+      Ankole.OIDCFixtures.access_token(
         fixture.human.principal.uid,
         second_client.id,
         "openid ai_gateway.write"
@@ -335,7 +334,11 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
              AuthZ.add_principal_to_group(other_human.principal.uid, fixture.group.id)
 
     {:ok, other_token} =
-      Tokens.mint_access(other_human.principal.uid, second_client.id, "openid ai_gateway.write")
+      Ankole.OIDCFixtures.access_token(
+        other_human.principal.uid,
+        second_client.id,
+        "openid ai_gateway.write"
+      )
 
     {:ok, conversation} =
       Conversations.ensure_conversation(fixture.human.principal.uid, "oidc-human-store")
@@ -448,7 +451,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       create_gateway_client!("store-websocket-second", fixture.group.id, model_aliases)
 
     {:ok, second_token} =
-      Tokens.mint_access(
+      Ankole.OIDCFixtures.access_token(
         fixture.human.principal.uid,
         second_client.id,
         "openid ai_gateway.write"
@@ -581,7 +584,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       )
 
     {:ok, token} =
-      Tokens.mint_access(human.principal.uid, client.id, "openid ai_gateway.write")
+      Ankole.OIDCFixtures.access_token(human.principal.uid, client.id, "openid ai_gateway.write")
 
     %{
       access_token: token.token,

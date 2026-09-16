@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   buildTurnRuntimeEnv,
   CURRENT_ACTOR_SENDER_PRINCIPAL_ENV,
+  CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV,
   LARK_PROFILE_ENV
 } from '../src/core/execution/turn_runtime_env'
 import type { TurnStart } from '../src/lanes/actor_lane'
@@ -16,6 +17,7 @@ describe('turn runtime environment', () => {
 
     expect(env).toEqual({
       [CURRENT_ACTOR_SENDER_PRINCIPAL_ENV]: principalUID,
+      [CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV]: '1',
       [LARK_PROFILE_ENV]: `ankole-u-${digest}`
     })
     expect(env[LARK_PROFILE_ENV]).not.toContain(principalUID)
@@ -41,6 +43,26 @@ describe('turn runtime environment', () => {
     expect(first[LARK_PROFILE_ENV]).not.toBe(otherWorker[LARK_PROFILE_ENV])
   })
 
+  it('requires fresh personal authorization after access revocation', () => {
+    const profile = (version: string) =>
+      buildTurnRuntimeEnv(
+        turnStart({
+          [CURRENT_ACTOR_SENDER_PRINCIPAL_ENV]: 'human-alice',
+          [CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV]: version
+        }),
+        'worker-secret'
+      )[LARK_PROFILE_ENV]
+    expect(profile('2')).not.toBe(profile('1'))
+    expect(profile('3')).not.toBe(profile('2'))
+    expect(profile('2')).toBe(profile('2'))
+    for (const version of ['', '0', '-1', '01', '1.5', '2x']) {
+      expect(() => profile(version)).toThrow(/positive access version/)
+    }
+    const missingVersion = turnStart({ [CURRENT_ACTOR_SENDER_PRINCIPAL_ENV]: 'human-alice' })
+    delete missingVersion.runtime_env![CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV]
+    expect(() => buildTurnRuntimeEnv(missingVersion, 'worker-secret')).toThrow(/positive access version/)
+  })
+
   it('does not derive a profile for unattended turns', () => {
     expect(buildTurnRuntimeEnv(turnStart({}), 'worker-secret')).toEqual({})
   })
@@ -63,5 +85,9 @@ describe('turn runtime environment', () => {
 })
 
 function turnStart(runtimeEnv: Record<string, string>): TurnStart {
-  return { runtime_env: runtimeEnv } as TurnStart
+  return {
+    runtime_env: runtimeEnv[CURRENT_ACTOR_SENDER_PRINCIPAL_ENV]
+      ? { [CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV]: '1', ...runtimeEnv }
+      : runtimeEnv
+  } as TurnStart
 }

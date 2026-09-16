@@ -32,26 +32,44 @@ defmodule DingTalkOpenAPI.Pagination do
     base_body = Keyword.get(opts, :body, %{}) |> normalize_body()
 
     Stream.resource(
-      fn -> {:page, 0} end,
+      fn -> {:page, 0, MapSet.new([0])} end,
       fn
         :done ->
           {:halt, :done}
 
-        {:page, cursor} ->
+        {:page, cursor, seen} ->
           body = Map.merge(base_body, %{"cursor" => cursor, "size" => size})
 
           case DingTalkOpenAPI.post(client, path, body: body) do
             {:ok, response} when is_map(response) ->
-              items = get_in_path(response, items_path) || []
+              items = get_in_path(response, items_path)
               has_more = get_in_path(response, has_more_path)
               next_cursor = get_in_path(response, next_cursor_path)
 
-              next =
-                if has_more && is_integer(next_cursor),
-                  do: {:page, next_cursor},
-                  else: :done
+              cond do
+                not is_list(items) or not is_boolean(has_more) ->
+                  {[
+                     {:error,
+                      %Error{reason: :unexpected_shape, message: "Invalid directory page"}}
+                   ], :done}
 
-              {Enum.map(items, &{:ok, &1}), next}
+                not has_more ->
+                  {Enum.map(items, &{:ok, &1}), :done}
+
+                is_integer(next_cursor) and next_cursor >= 0 and
+                    not MapSet.member?(seen, next_cursor) ->
+                  {Enum.map(items, &{:ok, &1}),
+                   {:page, next_cursor, MapSet.put(seen, next_cursor)}}
+
+                true ->
+                  {[
+                     {:error,
+                      %Error{
+                        reason: :unexpected_shape,
+                        message: "Missing or repeated directory cursor"
+                      }}
+                   ], :done}
+              end
 
             {:error, %Error{} = error} ->
               {[{:error, error}], :done}

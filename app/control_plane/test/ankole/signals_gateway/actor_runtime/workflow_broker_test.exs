@@ -171,6 +171,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowBrokerTest do
     {:ok, event} =
       SignalsGateway.append_actor_event(%{
         agent_uid: agent_uid,
+        sender_key: agent_uid,
         binding_name: "bot",
         session_id: "session-#{unique}",
         source_event_id: "source-#{unique}",

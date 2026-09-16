@@ -22,7 +22,9 @@ defmodule Ankole.OIDC.Boruta.Clients do
         authorize_scope: true,
         authorized_scopes: scopes(client.scopes),
         redirect_uris: client.redirect_uris,
-        supported_grant_types: ["authorization_code", "refresh_token"],
+        supported_grant_types:
+          ["authorization_code", "refresh_token"] ++
+            if(client.client_type == :confidential, do: ["introspect"], else: []),
         access_token_ttl: 30 * 60,
         id_token_ttl: 5 * 60,
         authorization_code_ttl: 5 * 60,

@@ -2,6 +2,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Presentation do
   @moduledoc false
 
   alias Ankole.I18n
+  alias Ankole.Plugins.UTF16Text
   alias Ankole.SignalsGateway.ReplyActionToken
   alias Ankole.SignalsGateway.ReplyPresentation
 
@@ -72,46 +73,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Presentation do
 
   @doc false
   def chunks(value) do
-    value
-    |> to_string()
-    |> message_chunks()
-    |> case do
+    case UTF16Text.chunks(to_string(value), @message_utf16_units) do
       [] -> [I18n.t("signals_gateway.reply.no_content")]
       values -> values
     end
-  end
-
-  defp message_chunks(text) do
-    {chunks, current, _units} =
-      text
-      |> String.graphemes()
-      |> Enum.flat_map(fn grapheme ->
-        if utf16_units(grapheme) > @message_utf16_units,
-          do: String.codepoints(grapheme),
-          else: [grapheme]
-      end)
-      |> Enum.reduce({[], [], 0}, fn segment, {chunks, current, units} ->
-        segment_units = utf16_units(segment)
-
-        if units + segment_units <= @message_utf16_units do
-          {chunks, [segment | current], units + segment_units}
-        else
-          {[Enum.join(Enum.reverse(current)) | chunks], [segment], segment_units}
-        end
-      end)
-
-    chunks =
-      case current do
-        [] -> chunks
-        current -> [Enum.join(Enum.reverse(current)) | chunks]
-      end
-
-    Enum.reverse(chunks)
-  end
-
-  defp utf16_units(text) do
-    Enum.reduce(String.to_charlist(text), 0, fn codepoint, units ->
-      units + if(codepoint > 0xFFFF, do: 2, else: 1)
-    end)
   end
 end

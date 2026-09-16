@@ -129,6 +129,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurnStallTest do
 
     assert {:ok, %{job: job, dispatch_event: event}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "owner-session-stall-#{suffix}",
                "source_tool_call_id" => "tool-stall-#{suffix}",

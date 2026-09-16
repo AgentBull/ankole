@@ -27,6 +27,110 @@ defmodule Ankole.AuthZ do
 
   @computed_preview_group_id "preview"
 
+  def administrator_recovery_required? do
+    members =
+      from m in Membership,
+        join: g in Group,
+        on: g.id == m.group_id,
+        where: g.name == ^Root.admin_group_name() and g.built_in
+
+    Repo.exists?(members) and
+      not Repo.exists?(
+        from [m, _g] in members,
+          join: p in Principal,
+          on: p.uid == m.principal_uid,
+          where: p.type == :human and p.status == :active
+      )
+  end
+
+  @doc false
+  def recover_admin_in_tx(repo, uid) do
+    case Store.lock_built_in_admin_group_for_update(repo, Root.admin_group_name()) do
+      %Group{} = group ->
+        active_admin_exists =
+          repo.exists?(
+            from m in Membership,
+              join: p in Principal,
+              on: p.uid == m.principal_uid,
+              where: m.group_id == ^group.id and p.type == :human and p.status == :active
+          )
+
+        with false <- active_admin_exists,
+             {:ok, principal} <- Store.fetch_principal_for_update(repo, uid),
+             :ok <- Store.ensure_active_human(principal),
+             {:ok, _} <- Store.insert_membership(repo, group.id, principal.uid) do
+          {:ok, principal}
+        else
+          true -> {:error, :active_admin_exists}
+          error -> error
+        end
+
+      nil ->
+        {:error, :setup_not_complete}
+    end
+  end
+
+  @doc """
+  Lists the permission rules that must be approved before Human restoration.
+  Remove unwanted grants or memberships through AuthZ, then request a new review.
+  """
+  def restoration_review(uid) do
+    with {:ok, principal} <- Principals.get_principal(uid) do
+      static_ids =
+        Repo.all(
+          from m in Membership, where: m.principal_uid == ^principal.uid, select: m.group_id
+        )
+
+      groups =
+        Repo.all(
+          from g in Group,
+            where: g.id in ^static_ids or g.kind == :computed,
+            order_by: g.id,
+            select: %{
+              id: g.id,
+              name: g.name,
+              domain: g.domain,
+              kind: g.kind,
+              condition: g.computed_condition
+            }
+        )
+
+      group_ids = Enum.map(groups, & &1.id)
+
+      grants =
+        Repo.all(
+          from g in Grant,
+            where: g.principal_uid == ^principal.uid or g.group_id in ^group_ids,
+            order_by: g.id,
+            select: %{
+              id: g.id,
+              principal_uid: g.principal_uid,
+              group_id: g.group_id,
+              resource_pattern: g.resource_pattern,
+              action: g.action,
+              condition: g.condition
+            }
+        )
+
+      permissions = %{
+        "principal" => %{
+          uid: principal.uid,
+          display_name: principal.display_name,
+          avatar_url: principal.avatar_url,
+          access_version: principal.access_version
+        },
+        "groups" => groups,
+        "grants" => grants
+      }
+
+      fingerprint =
+        :crypto.hash(:sha256, :erlang.term_to_binary(permissions, [:deterministic]))
+        |> Base.url_encode64(padding: false)
+
+      {:ok, %{fingerprint: fingerprint, permissions: permissions}}
+    end
+  end
+
   @doc """
   Lists Principal groups ordered by name.
   """

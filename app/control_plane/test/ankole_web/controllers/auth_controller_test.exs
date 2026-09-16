@@ -182,19 +182,22 @@ defmodule AnkoleWeb.AuthControllerTest do
       |> Map.merge(%{host: "ankole.example.com", port: 80})
       |> init_test_session(%{})
       |> put_req_header("x-forwarded-proto", "https")
-      |> get(~p"/sessions/oidc/lark-main/authorization?return_to=%2Fconsole%2Fagents")
+      |> start_console_login(%{"return_to" => "/console/agents"})
+      |> then(fn conn ->
+        get(conn, "/sessions/oidc/lark-main/authorization", %{"flow" => conn.private.login_flow})
+      end)
 
     authorization_url = redirected_to(conn, 302)
     query = authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    oidc_state = WebSession.admin_oidc_state(conn)
+    {:ok, oidc_state} = WebSession.login_transaction(conn, conn.private[:login_flow])
 
     assert URI.parse(authorization_url).host == "open.feishu.cn"
-    assert query["state"] == oidc_state["state"]
+    assert query["state"] == oidc_state.upstream_state
 
     assert query["redirect_uri"] ==
              "https://ankole.example.com/sessions/oidc/lark-main/callback"
 
-    assert oidc_state["return_to"] == "/console/agents"
+    assert oidc_state.request["return_to"] == "/console/agents"
   end
 
   test "OIDC callback without matching state fails closed", %{conn: conn} do
@@ -203,8 +206,8 @@ defmodule AnkoleWeb.AuthControllerTest do
       |> init_test_session(%{})
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "missing"})
 
-    assert json_response(conn, 400)["error"] ==
-             "OIDC login expired or was replaced; start sign-in again"
+    assert json_response(conn, 401)["error"] ==
+             "login_expired"
 
     assert get_session(conn, :admin_session) == nil
   end
@@ -213,16 +216,23 @@ defmodule AnkoleWeb.AuthControllerTest do
     conn =
       conn
       |> init_test_session(%{})
-      |> WebSession.put_admin_oidc_state(%{
-        provider_id: "lark-main",
-        state: "state-1",
-        redirect_uri: "http://localhost/sessions/oidc/lark-main/callback",
-        return_to: "/console"
-      })
+      |> start_console_login()
+      |> then(fn conn ->
+        {:ok, _} =
+          Ankole.BrowserSessions.bind_provider(
+            WebSession.browser_reference(conn),
+            conn.private.login_flow,
+            "lark-main",
+            "state-1",
+            "http://localhost/sessions/oidc/lark-main/callback"
+          )
+
+        conn
+      end)
       |> get(~p"/sessions/oidc/other-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert json_response(conn, 400)["error"] ==
-             "OIDC login expired or was replaced; start sign-in again"
+    assert json_response(conn, 401)["error"] ==
+             "login_expired"
 
     assert get_session(conn, :admin_session) == nil
   end
@@ -243,8 +253,8 @@ defmodule AnkoleWeb.AuthControllerTest do
       })
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert json_response(conn, 400)["error"] ==
-             "OIDC login expired or was replaced; start sign-in again"
+    assert json_response(conn, 401)["error"] ==
+             "login_expired"
 
     assert get_session(conn, :admin_session) == nil
   end
@@ -295,7 +305,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "correct-horse",
           "returnTo" => "https://evil.example/console"
@@ -314,7 +324,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         conn =
           conn
           |> init_test_session(%{})
-          |> post(~p"/.internal-apis/sessions/local-password", %{
+          |> post_password(%{
             "email" => attempt_email,
             "password" => password
           })
@@ -330,7 +340,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "correct-horse"
         })
@@ -343,21 +353,30 @@ defmodule AnkoleWeb.AuthControllerTest do
     test "a verified non-admin can open only the OAuth Human session", %{conn: conn} do
       %{principal: principal, email: email} = local_user_with_password("correct-horse")
 
-      conn =
-        conn
-        |> init_test_session(%{})
-        |> WebSession.put_oauth_authorization(%{
-          "client_id" => Ankole.Ecto.UUIDv7.autogenerate(),
-          "redirect_uri" => "https://client.example.test/callback"
-        })
-        |> post(~p"/.internal-apis/sessions/local-password", %{
-          "email" => email,
-          "password" => "correct-horse",
-          "oauth" => true
+      {:ok, %{client: client}} =
+        Ankole.OIDC.create_client(%{
+          name: "Password RP",
+          enabled: true,
+          type: "public",
+          redirect_uris: ["https://client.example.test/callback"],
+          scopes: ["openid"]
         })
 
-      assert %{"status" => "ok", "returnTo" => "/oauth/authorize/resume"} =
-               json_response(conn, 200)
+      conn = init_test_session(conn, %{})
+
+      {:ok, conn, transaction} =
+        WebSession.begin_login(conn, :oauth, %{
+          "client_id" => client.id,
+          "redirect_uri" => "https://client.example.test/callback"
+        })
+
+      conn =
+        conn
+        |> Plug.Conn.put_private(:login_flow, transaction.id)
+        |> post_password(%{"email" => email, "password" => "correct-horse"})
+
+      assert %{"status" => "ok", "returnTo" => return_to} = json_response(conn, 200)
+      assert return_to == "/oauth/authorize/resume?flow=" <> transaction.id
 
       assert %{"principal_uid" => principal_uid} = WebSession.oauth_session(conn)
       assert principal_uid == principal.uid
@@ -371,7 +390,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "correct-horse"
         })
@@ -385,7 +404,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "initial-pass",
           "returnTo" => "/console/agents"
@@ -395,14 +414,14 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert get_session(conn, :admin_session) == nil
 
       conn =
-        post(conn, ~p"/.internal-apis/sessions/local-password/change", %{
+        post_change(conn, %{
           "newPassword" => "short"
         })
 
       assert json_response(conn, 422)["error"] == "password_too_short"
 
       conn =
-        post(conn, ~p"/.internal-apis/sessions/local-password/change", %{
+        post_change(conn, %{
           "newPassword" => "my-own-password"
         })
 
@@ -422,7 +441,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password/change", %{
+        |> post_change(%{
           "newPassword" => "my-own-password"
         })
 
@@ -436,14 +455,32 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> WebSession.put_local_password_change(%{
-          principal_uid: principal.uid,
-          provider_id: "local-main",
-          external_id: email,
-          credential_version: credential_version,
-          return_to: "/console"
-        })
-        |> post(~p"/.internal-apis/sessions/local-password/change", %{
+        |> start_console_login()
+        |> then(fn conn ->
+          {:ok, _} =
+            Ankole.BrowserSessions.bind_provider(
+              WebSession.browser_reference(conn),
+              conn.private.login_flow,
+              "local-main"
+            )
+
+          {:ok, _} =
+            Ankole.BrowserSessions.put_password_ticket(
+              WebSession.browser_reference(conn),
+              conn.private.login_flow,
+              %{
+                "principal_uid" => principal.uid,
+                "provider_id" => "local-main",
+                "external_id" => email,
+                "credential_version" => credential_version,
+                "access_version" => principal.access_version,
+                "auth_time" => System.system_time(:second)
+              }
+            )
+
+          conn
+        end)
+        |> post_change(%{
           "newPassword" => "my-own-password"
         })
 
@@ -460,23 +497,24 @@ defmodule AnkoleWeb.AuthControllerTest do
       login_conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "initial-pass"
         })
 
       assert %{"status" => "password_change_required"} = json_response(login_conn, 200)
-      assert is_integer(WebSession.local_password_change(login_conn)["credential_version"])
+      {:ok, transaction} = WebSession.login_transaction(login_conn, login_conn.private.login_flow)
+      assert is_integer(transaction.password_ticket["credential_version"])
 
       first =
-        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+        post_change(login_conn, %{
           "newPassword" => "first-choice-pass"
         })
 
       assert %{"returnTo" => _return_to} = json_response(first, 200)
 
       replay =
-        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+        post_change(login_conn, %{
           "newPassword" => "replayed-pass-123"
         })
 
@@ -496,7 +534,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       login_conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "initial-pass"
         })
@@ -505,7 +543,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert {:ok, reset_password} = LocalPassword.reset_local_password(principal.uid, true)
 
       replay =
-        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+        post_change(login_conn, %{
           "newPassword" => "stale-ticket-password"
         })
 
@@ -528,7 +566,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       for _attempt <- 1..5 do
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "wrong"
         })
@@ -537,7 +575,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => email,
           "password" => "correct-horse"
         })
@@ -553,13 +591,41 @@ defmodule AnkoleWeb.AuthControllerTest do
       conn =
         conn
         |> init_test_session(%{})
-        |> post(~p"/.internal-apis/sessions/local-password", %{
+        |> post_password(%{
           "email" => "admin@example.com",
           "password" => "correct-horse"
         })
 
       assert json_response(conn, 409)["error"] == "setup is not complete"
     end
+  end
+
+  defp start_console_login(conn, request \\ %{}) do
+    {:ok, conn, transaction} = WebSession.begin_login(conn, :console, request)
+    Plug.Conn.put_private(conn, :login_flow, transaction.id)
+  end
+
+  defp post_password(conn, params) do
+    conn =
+      if conn.private[:login_flow],
+        do: conn,
+        else: start_console_login(conn, %{"return_to" => params["returnTo"]})
+
+    post(
+      conn,
+      "/.internal-apis/sessions/local-password",
+      Map.put(params, "flow", conn.private.login_flow)
+    )
+    |> Plug.Conn.put_private(:login_flow, conn.private.login_flow)
+  end
+
+  defp post_change(conn, params) do
+    post(
+      conn,
+      "/.internal-apis/sessions/local-password/change",
+      Map.put(params, "flow", conn.private[:login_flow])
+    )
+    |> Plug.Conn.put_private(:login_flow, conn.private[:login_flow])
   end
 
   defp local_user_with_password(password, must_change \\ false) do

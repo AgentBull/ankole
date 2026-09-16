@@ -13,6 +13,7 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.RefreshToken
   alias Ankole.OIDC.Tokens
+  alias Ankole.OIDC.Sessions
   alias Ankole.Repo
   alias Boruta.Oauth.Error
   alias Boruta.Oauth.Token
@@ -27,7 +28,9 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
            claims,
          client when not is_nil(client) <- Clients.get_client(client_id),
          true <- requested_scope_allowed?(scope, client_scope(client)),
-         {:ok, resource_owner} <- ResourceOwners.load(sub),
+         {:ok, session} <- Sessions.validate(claims["sid"], client_id, sub, scope),
+         {:ok, resource_owner} <-
+           ResourceOwners.from_authentication(Sessions.authentication(session)),
          {:ok, inserted_at} <- timestamp(claims["iat"]) do
       %Token{
         type: "access_token",
@@ -64,8 +67,9 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
              :ok <- ensure_current_scope(current_client, params.scope),
              {:ok, rotation} <- consume_previous_credential(repo, params),
              :ok <- ensure_current_gateway_access(params.client.id, params.sub, params.scope),
-             {:ok, resource_owner} <- current_resource_owner(params.sub),
-             {:ok, minted} <- Tokens.mint_access(params.sub, params.client.id, params.scope),
+             {:ok, resource_owner, session} <- current_resource_owner(repo, params, rotation),
+             {:ok, minted} <-
+               Tokens.mint_access(params.sub, params.client.id, params.scope, session.id),
              {:ok, refresh_token} <-
                maybe_create_refresh(repo, params, rotation, issue_refresh?) do
           {:ok,
@@ -89,7 +93,11 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
   end
 
   @impl true
-  def revoke(%Token{} = token), do: {:ok, %{token | revoked_at: DateTime.utc_now()}}
+  def revoke(%Token{resource_owner: %{extra_claims: %{"sid" => sid}}} = token) do
+    with {:ok, _} <- Sessions.revoke(sid), do: {:ok, %{token | revoked_at: DateTime.utc_now()}}
+  end
+
+  def revoke(%Token{}), do: {:error, :authorization_revoked}
 
   @impl true
   def revoke_refresh_token(%Token{} = token) do
@@ -119,7 +127,7 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
            ),
            returning: true
          ) do
-      {1, [_row]} -> {:ok, :initial}
+      {1, [row]} -> {:ok, {:initial, row}}
       _missing_or_replayed -> {:error, :authorization_code_already_used}
     end
   end
@@ -148,7 +156,7 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
     end
   end
 
-  defp consume_previous_credential(_repo, _params), do: {:ok, :initial}
+  defp consume_previous_credential(_repo, _params), do: {:error, :authorization_code_already_used}
 
   defp maybe_create_refresh(_repo, _params, _rotation, false), do: {:ok, nil}
 
@@ -161,6 +169,7 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
       digest: TokenGenerator.digest(raw),
       client_id: params.client.id,
       principal_uid: params.sub,
+      session_id: elem(rotation, 1).session_id,
       scope: params.scope,
       issued_at: issued_at,
       absolute_expires_at: absolute_expires_at
@@ -175,7 +184,7 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
   defp refresh_window(_client, {:rotation, row}),
     do: {row.issued_at, row.absolute_expires_at}
 
-  defp refresh_window(client, :initial) do
+  defp refresh_window(client, {:initial, _code}) do
     now = DateTime.utc_now()
     {now, DateTime.add(now, client.refresh_token_ttl, :second)}
   end
@@ -183,7 +192,16 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
   defp refresh_from_row(row, raw) do
     with :gt <- DateTime.compare(row.absolute_expires_at, DateTime.utc_now()),
          client when not is_nil(client) <- Clients.get_client(row.client_id),
-         {:ok, resource_owner} <- ResourceOwners.load(row.principal_uid) do
+         {:ok, session} <-
+           Sessions.validate(
+             row.session_id,
+             row.client_id,
+             row.principal_uid,
+             row.scope,
+             :refresh
+           ),
+         {:ok, resource_owner} <-
+           ResourceOwners.from_authentication(Sessions.authentication(session)) do
       %Token{
         type: "access_token",
         value: raw,
@@ -224,10 +242,25 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
     end
   end
 
-  defp current_resource_owner(principal_uid) do
-    case ResourceOwners.load(principal_uid) do
-      {:ok, resource_owner} -> {:ok, resource_owner}
-      {:error, _reason} -> {:error, :inactive_human}
+  defp current_resource_owner(repo, params, {kind, credential}) do
+    principal =
+      repo.one(
+        from p in Ankole.Principals.Principal, where: p.uid == ^params.sub, lock: "FOR SHARE"
+      )
+
+    with %{status: :active} <- principal,
+         {:ok, session} <-
+           Sessions.validate(
+             credential.session_id,
+             params.client.id,
+             params.sub,
+             params.scope,
+             if(kind == :initial, do: :code, else: :refresh)
+           ),
+         {:ok, owner} <- ResourceOwners.from_authentication(Sessions.authentication(session)) do
+      {:ok, owner, session}
+    else
+      _ -> {:error, :inactive_human}
     end
   end
 

@@ -541,6 +541,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
     run =
       Repo.insert!(
         Run.creation_changeset(%Run{}, %{
+          authorization_kind: "service",
           agent_uid: agent_uid,
           owner_session_id: "workflow-owner-#{suffix}",
           reply_route: %{"binding_name" => "bot"},

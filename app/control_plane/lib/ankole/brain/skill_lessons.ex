@@ -212,6 +212,7 @@ defmodule Ankole.Brain.SkillLessons do
            BackgroundAgentJobs.create_with_dispatch(%{
              "agent_uid" => agent_uid,
              "owner_session_id" => owner_session_id,
+             "created_by" => %{"principal_uid" => agent_uid},
              "source_tool_call_id" => "skill-lessons:" <> Integer.to_string(through_job_id),
              "title" => @reflection_title,
              "task" => task,

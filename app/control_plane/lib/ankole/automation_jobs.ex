@@ -30,9 +30,13 @@ defmodule Ankole.AutomationJobs do
   """
   @spec create_job(map()) :: {:ok, Job.t()} | {:error, term()}
   def create_job(attrs) when is_map(attrs) do
-    %Job{}
-    |> Job.changeset(normalize_agent_uid(attrs))
-    |> Repo.insert()
+    Repo.transact(fn repo ->
+      attrs = Ankole.Principals.WorkAccess.inherit(repo, normalize_agent_uid(attrs))
+
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs) do
+        %Job{} |> Job.changeset(attrs) |> repo.insert()
+      end
+    end)
   end
 
   @doc """
@@ -172,7 +176,8 @@ defmodule Ankole.AutomationJobs do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(event) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with %Job{} = job <- lock_job(repo, job_id),
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
+         %Job{} = job <- lock_job(repo, job_id),
          true <- job.agent_uid == String.downcase(agent_uid),
          {:ok, job} <- effective_status(repo, job, now),
          {:ok, event} <- normalize_event(event) do
@@ -194,20 +199,31 @@ defmodule Ankole.AutomationJobs do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      case lock_job_run(repo, run_id) do
-        {%Job{}, %Run{status: status}} when status in ~w(succeeded failed cancelled) ->
-          {:ok, :noop}
+      with %Run{} = snapshot <- repo.get(Run, run_id),
+           :ok <-
+             Ankole.Principals.WorkAccess.check_record_in_tx(
+               repo,
+               Job,
+               snapshot.automation_job_id
+             ) do
+        case lock_job_run(repo, run_id) do
+          {%Job{}, %Run{status: status}} when status in ~w(succeeded failed cancelled) ->
+            {:ok, :noop}
 
-        {%Job{} = job, %Run{} = run} ->
-          with {:ok, job} <- effective_status(repo, job, now) do
-            start_for_status(repo, job, run, now)
-          else
-            nil -> {:error, :automation_job_not_found}
-            {:error, _reason} = error -> error
-          end
+          {%Job{} = job, %Run{} = run} ->
+            with {:ok, job} <- effective_status(repo, job, now) do
+              start_for_status(repo, job, run, now)
+            else
+              nil -> {:error, :automation_job_not_found}
+              {:error, _reason} = error -> error
+            end
 
-        nil ->
-          {:error, :automation_job_run_not_found}
+          nil ->
+            {:error, :automation_job_run_not_found}
+        end
+      else
+        nil -> {:error, :automation_job_run_not_found}
+        error -> error
       end
     end)
   end
@@ -510,6 +526,7 @@ defmodule Ankole.AutomationJobs do
       "automation-job:#{job.id}:run:#{data["automation_job_run_id"]}:#{type}:#{Ecto.UUID.generate()}"
 
     SignalsGateway.append_actor_event_in_tx(repo, %{
+      source_work: job,
       agent_uid: job.agent_uid,
       binding_name: route_text(job.reply_route, "binding_name"),
       session_id: job.owner_session_id,
@@ -669,4 +686,20 @@ defmodule Ankole.AutomationJobs do
 
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(_value), do: nil
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    jobs = from j in Job, where: j.human_uid == ^uid and j.human_access_version < ^version
+
+    repo.update_all(from(j in jobs, where: j.status == "active"),
+      set: [status: "cancelled", cancelled_at: now, updated_at: now]
+    )
+
+    repo.update_all(
+      from(r in Run,
+        where:
+          r.automation_job_id in subquery(from j in jobs, select: j.id) and r.status == "queued"
+      ),
+      set: [status: "cancelled", finished_at: now, updated_at: now, error: "human_access_revoked"]
+    )
+  end
 end

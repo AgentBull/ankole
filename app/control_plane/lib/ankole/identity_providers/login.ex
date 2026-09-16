@@ -54,10 +54,13 @@ defmodule Ankole.IdentityProviders.Login do
     with {:ok, module, config} <- login_module(provider_id, @code_exchange_capability),
          {:ok, %{user: user}} <- module.exchange_code(config, code, opts),
          {:ok, %{principal: principal, identity: identity}} <-
-           module.upsert_user(provider_id, user) do
+           module.upsert_user(provider_id, user),
+         :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version) do
       {:ok,
        %{
          principal_uid: principal.uid,
+         access_version: principal.access_version,
+         auth_time: nil,
          provider_id: provider_id,
          external_id: identity.external_id,
          user: user

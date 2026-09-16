@@ -34,6 +34,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
 
   defp create_job!(agent, attrs \\ %{}) do
     base = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "signal-channel:lesson-test",
       "source_tool_call_id" => "call-" <> Integer.to_string(System.unique_integer([:positive])),

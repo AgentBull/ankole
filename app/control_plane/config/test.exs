@@ -5,9 +5,11 @@ import Config
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
+database_url = URI.parse(Ankole.Config.Bootstrap.env!("DATABASE_URL"))
+test_database = "ankole_test#{Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")}"
+
 config :ankole, Ankole.Repo,
-  url: Ankole.Config.Bootstrap.env!("DATABASE_URL"),
-  database: "ankole_test#{Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")}",
+  url: URI.to_string(%{database_url | path: "/" <> test_database}),
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
   ownership_timeout: 3_600_000,

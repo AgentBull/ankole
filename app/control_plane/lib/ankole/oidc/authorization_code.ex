@@ -27,6 +27,7 @@ defmodule Ankole.OIDC.AuthorizationCode do
     field :code_challenge_digest, :string
     field :code_challenge_method, :string
     field :expires_at, :utc_datetime_usec
+    field :session_id, Ankole.Ecto.UUIDv7
 
     timestamps()
   end
@@ -43,7 +44,8 @@ defmodule Ankole.OIDC.AuthorizationCode do
       :nonce,
       :code_challenge_digest,
       :code_challenge_method,
-      :expires_at
+      :expires_at,
+      :session_id
     ])
     |> validate_required([
       :digest,
@@ -53,7 +55,8 @@ defmodule Ankole.OIDC.AuthorizationCode do
       :scope,
       :code_challenge_digest,
       :code_challenge_method,
-      :expires_at
+      :expires_at,
+      :session_id
     ])
     |> foreign_key_constraint(:client_id)
     |> foreign_key_constraint(:principal_uid)

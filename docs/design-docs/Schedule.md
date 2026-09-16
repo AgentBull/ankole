@@ -24,6 +24,20 @@ recurring rule. `oban_jobs` only tells Oban when to call Schedule.
 Database keys and ActorEvent source IDs prevent an Oban retry from creating the
 same work twice.
 
+## Human Work Authorization
+
+Both scheduled events and cron rules store `authorization_kind`, `human_uid`,
+and `human_access_version` under [Human Offboarding](HumanOffboarding.md).
+Checkbacks inherit the source ActorEvent. Cron creation uses the trusted
+`created_by` option from the authenticated turn or Console Principal; request
+body fields cannot replace it. New fires inherit the rule's retained version.
+
+Fire admission checks and locks each associated Human before the event, cron,
+and bound Automation Job. When the event and job depend on different Humans,
+it locks both in UID order. Revocation pauses old cron rules and cancels pending
+fires and checkbacks. An admitted fire may finish, but completion cannot create
+another valid fire. Resume or manual run does not renew an old authorization.
+
 ## What PostgreSQL Stores
 
 ### One Wake-Up

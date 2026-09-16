@@ -13,12 +13,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv do
   alias Ankole.SignalsGateway.ActorEvent
 
   @current_sender_principal "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL"
+  @current_sender_access_version "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_ACCESS_VERSION"
 
   @spec resolve(ActorEvent.t()) :: %{String.t() => String.t()}
   def resolve(%ActorEvent{payload: payload, sender_key: sender_key}) do
     case principal_candidate(sender_key) do
-      {:active_human, uid} ->
-        %{@current_sender_principal => uid}
+      {:active_human, _uid, _version} = human ->
+        runtime_env(human)
 
       :ineligible ->
         %{}
@@ -44,8 +45,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv do
 
   defp principal_candidate(principal_uid) do
     case Principals.get_principal(principal_uid) do
-      {:ok, %Principal{type: :human, status: :active, uid: uid}} ->
-        {:active_human, uid}
+      {:ok, %Principal{type: :human, status: :active, uid: uid, access_version: version}} ->
+        {:active_human, uid, version}
 
       {:ok, %Principal{}} ->
         :ineligible
@@ -55,7 +56,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv do
     end
   end
 
-  defp runtime_env({:active_human, uid}), do: %{@current_sender_principal => uid}
+  defp runtime_env({:active_human, uid, version}) do
+    %{
+      @current_sender_principal => uid,
+      @current_sender_access_version => Integer.to_string(version)
+    }
+  end
+
   defp runtime_env(:ineligible), do: %{}
   defp runtime_env(:missing), do: %{}
 end

@@ -8,6 +8,18 @@ Automation Jobs does not own trigger time, webhook admission, or Agent turns.
 Schedule and SignalsGateway keep those rules. They call Automation Jobs only
 when they must create a durable run.
 
+## Human Work Authorization
+
+Each definition stores `authorization_kind`, `human_uid`, and
+`human_access_version` from its source ActorEvent, as defined in
+[Human Offboarding](HumanOffboarding.md). Trigger consumption and each attempt
+check the definition's retained authorization. Runs inherit it through their
+immutable `automation_job_id`.
+
+Revocation cancels the definition and queued runs. A running attempt keeps its
+completion rights; a retry or emitted follow-up cannot create newly authorized
+Human work. Independent service definitions keep their own authorization.
+
 ## What PostgreSQL Stores
 
 `automation_jobs` stores one registered script:

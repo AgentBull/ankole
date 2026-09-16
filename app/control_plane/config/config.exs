@@ -1,5 +1,14 @@
 import Config
 
+config :phoenix, :filter_parameters, [
+  "password",
+  "newPassword",
+  "secret",
+  "token",
+  "code",
+  "state"
+]
+
 Code.require_file("support/bootstrap.exs", __DIR__)
 
 Ankole.Config.Bootstrap.load_dotenv!(root: Path.expand("..", __DIR__), env: config_env())
@@ -17,6 +26,7 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.EmailAdapter,
   Ankole.Plugins.GoogleWorkspaceAdapter,
   Ankole.Plugins.LarkAdapter,
+  Ankole.Plugins.LineAdapter,
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
   Ankole.Plugins.TelegramAdapter,
@@ -92,7 +102,7 @@ config :ankole, Oban,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
        {"* * * * *", Ankole.Brain.Jobs.Tick},
-       {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
+       {"*/5 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
        {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials}

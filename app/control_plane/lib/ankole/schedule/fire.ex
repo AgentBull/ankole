@@ -22,16 +22,45 @@ defmodule Ankole.Schedule.Fire do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with {:ok, event, schedule} <-
+      with {:ok, authorized} <- authorize_fire_in_tx(repo, scheduled_event_id, now),
+           {:ok, event, schedule} <-
              claim_due_event_with_schedule_in_tx(repo, scheduled_event_id, now),
+           true <- event.automation_job_id == authorized.automation_job_id,
            {:ok, result} <- fire_claimed_event_in_tx(repo, event, schedule, now, opts) do
         {:ok, result}
       else
+        false -> {:error, :scheduled_event_changed}
         :noop -> {:ok, %{status: :noop, scheduled_event: nil}}
         {:error, _reason} = error -> error
       end
     end)
     |> persist_fire_error(scheduled_event_id, opts)
+  end
+
+  defp authorize_fire_in_tx(repo, id, now) do
+    case repo.get(ScheduledEvent, id) do
+      %ScheduledEvent{status: "scheduled"} = event ->
+        if DateTime.compare(event.due_at, now) == :gt do
+          :noop
+        else
+          job =
+            if event.automation_job_id,
+              do: repo.get(Ankole.AutomationJobs.Schemas.Job, event.automation_job_id)
+
+          # One fire can have two Human sources. Lock both before any work row.
+          sources = Enum.sort_by([event | if(job, do: [job], else: [])], &(&1.human_uid || ""))
+
+          Enum.reduce_while(sources, {:ok, event}, fn source, result ->
+            case Ankole.Principals.WorkAccess.check_in_tx(repo, source) do
+              :ok -> {:cont, result}
+              error -> {:halt, error}
+            end
+          end)
+        end
+
+      _ ->
+        :noop
+    end
   end
 
   defp claim_due_event_with_schedule_in_tx(repo, scheduled_event_id, now) do
@@ -110,6 +139,7 @@ defmodule Ankole.Schedule.Fire do
 
   defp append_scheduled_actor_event(repo, %ScheduledEvent{} = event, now) do
     SignalsGateway.append_actor_event_in_tx(repo, %{
+      source_work: event,
       agent_uid: event.agent_uid,
       binding_name: event.binding_name,
       session_id: event.session_id,

@@ -19,6 +19,8 @@ defmodule Ankole.Principals.Principal do
   schema "principals" do
     field :type, Ecto.Enum, values: [:human, :agent, :system]
     field :status, Ecto.Enum, values: [:active, :disabled], default: :active
+    field :access_version, :integer, default: 1
+    field :access_revoked_at, :utc_datetime_usec
     field :display_name, :string
     field :avatar_url, :string
 

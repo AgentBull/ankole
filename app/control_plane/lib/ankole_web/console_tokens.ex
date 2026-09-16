@@ -35,7 +35,8 @@ defmodule AnkoleWeb.ConsoleTokens do
       when is_binary(principal_uid) do
     now = now_seconds()
 
-    with {:ok, session_exp} <- session_expires_at(session),
+    with :ok <- current_session(session),
+         {:ok, session_exp} <- session_expires_at(session),
          {:ok, sid_hash} <- sid_hash(session),
          {:ok, access_token, access_ttl} <-
            sign_token(
@@ -43,7 +44,8 @@ defmodule AnkoleWeb.ConsoleTokens do
              principal_uid,
              sid_hash,
              now,
-             access_expires_at(now, session_exp)
+             access_expires_at(now, session_exp),
+             session
            ),
          {:ok, refresh_token, refresh_ttl} <-
            sign_token(
@@ -51,7 +53,8 @@ defmodule AnkoleWeb.ConsoleTokens do
              principal_uid,
              sid_hash,
              now,
-             refresh_expires_at(now, session_exp)
+             refresh_expires_at(now, session_exp),
+             session
            ) do
       {:ok,
        %{
@@ -108,7 +111,8 @@ defmodule AnkoleWeb.ConsoleTokens do
          :ok <- require_claim(claims, "scope", @scope),
          :ok <- require_claim(claims, "subject_type", "human"),
          %{"sub" => sub} <- claims,
-         true <- is_binary(sub) and sub != "" do
+         true <- is_binary(sub) and sub != "",
+         :ok <- current_session(Map.put(claims, "principal_uid", sub)) do
       {:ok, claims}
     else
       false -> {:error, :invalid_subject}
@@ -137,7 +141,7 @@ defmodule AnkoleWeb.ConsoleTokens do
   # `expires_at` is already capped to the session expiry by the callers, so a
   # non-positive ttl means the underlying browser session has lapsed — refuse to
   # mint rather than issue an already-dead token.
-  defp sign_token(token_use, principal_uid, sid_hash, now, expires_at) do
+  defp sign_token(token_use, principal_uid, sid_hash, now, expires_at, session) do
     ttl = expires_at - now
 
     case ttl > 0 do
@@ -155,6 +159,9 @@ defmodule AnkoleWeb.ConsoleTokens do
           nbf: now,
           scope: @scope,
           sid_hash: sid_hash,
+          browser_id: session["browser_id"],
+          browser_generation: session["browser_generation"],
+          access_version: session["access_version"],
           sub: principal_uid,
           subject_type: "human",
           token_use: token_use
@@ -183,7 +190,16 @@ defmodule AnkoleWeb.ConsoleTokens do
   defp sid_hash(session) do
     payload =
       session
-      |> Map.take(["principal_uid", "provider_id", "external_id", "issued_at", "expires_at"])
+      |> Map.take([
+        "principal_uid",
+        "provider_id",
+        "external_id",
+        "issued_at",
+        "expires_at",
+        "browser_id",
+        "browser_generation",
+        "access_version"
+      ])
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map(fn {key, value} -> [key, value] end)
 
@@ -203,6 +219,23 @@ defmodule AnkoleWeb.ConsoleTokens do
       :error -> {:error, {:missing_claim, key}}
     end
   end
+
+  defp current_session(%{
+         "principal_uid" => uid,
+         "access_version" => version,
+         "browser_id" => id,
+         "browser_generation" => generation
+       }) do
+    case Ankole.BrowserSessions.authentication(
+           %{"id" => id, "generation" => generation},
+           :console
+         ) do
+      %{"principal_uid" => ^uid, "access_version" => ^version} -> :ok
+      _ -> {:error, :admin_session_revoked}
+    end
+  end
+
+  defp current_session(_), do: {:error, :admin_session_revoked}
 
   # Token lifetime is the lesser of its own TTL and the remaining browser session
   # — a console token can never outlive the cookie session it was derived from.

@@ -146,6 +146,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session",
       "source_tool_call_id" => "tool-background-agent-job-1",
@@ -194,7 +195,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert same_job.id == job.id
     assert same_event.id == event.id
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
   end
 
   test "a Worker completion arriving after an external completion keeps the stored result" do
@@ -202,6 +203,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: %Job{} = job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session",
                "source_tool_call_id" => "tool-late-worker-completion",
@@ -242,6 +244,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: reflection}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
                "source_tool_call_id" => "skill-lessons:9000",
@@ -289,6 +292,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     # An ordinary job's terminal commit still appends its wakeup event.
     assert {:ok, %{job: plain}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "signal-channel:plain-session",
                "source_tool_call_id" => "plain-wakeup-control",
@@ -333,6 +337,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-model-snapshot",
       "source_tool_call_id" => "tool-model-snapshot",
@@ -373,6 +378,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, :model_profile_not_configured} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-no-model",
                "source_tool_call_id" => "tool-no-model",
@@ -395,6 +401,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-custom-model",
       "source_tool_call_id" => "tool-custom-model",
@@ -427,6 +434,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-replay",
       "source_tool_call_id" => "tool-replay",
@@ -460,13 +468,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
 
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
   end
 
   test "concurrent starts converge on one Job and one dispatch" do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-concurrent-start",
       "source_tool_call_id" => "tool-concurrent-start",
@@ -487,13 +496,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert results |> Enum.map(& &1.job.id) |> Enum.uniq() |> length() == 1
     assert results |> Enum.map(& &1.dispatch_event.id) |> Enum.uniq() |> length() == 1
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
   end
 
   test "workspace template selection stores one id and idempotent replay ignores later disablement" do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-research",
       "source_tool_call_id" => "tool-deep-research",
@@ -523,6 +533,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: research}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-trajectory-gate",
                "source_tool_call_id" => "tool-trajectory-gate",
@@ -598,6 +609,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: manual_successor}} =
              BackgroundAgentJobs.respawn_with_dispatch(job.id, %{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => job.owner_session_id,
                "source_tool_call_id" => "manual-steer-successor-conflict",
@@ -794,6 +806,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, {:unsupported_background_agent_job_create_fields, ["workspace_mounts"]}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-invalid-workdir",
                "source_tool_call_id" => "tool-background-agent-job-invalid-workdir",
@@ -810,7 +823,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert Repo.aggregate(Job, :count) == 0
-    assert Repo.aggregate(ActorEvent, :count) == 0
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
   end
 
   test "creation rejects legacy workspace paths before journaling work" do
@@ -823,6 +836,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         ] do
       assert {:error, {:background_agent_job_legacy_workspace_path, message}} =
                BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "parent-session-invalid-task-path-#{index}",
                  "source_tool_call_id" => "tool-background-agent-job-invalid-task-path-#{index}",
@@ -837,9 +851,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
 
     assert Repo.aggregate(Job, :count) == 0
-    assert Repo.aggregate(ActorEvent, :count) == 0
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
 
     attrs = %{
+      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-near-task-path",
       "source_tool_call_id" => "tool-background-agent-job-near-task-path",
@@ -851,7 +866,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, %{job: %Job{} = job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
 
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
 
     legacy_task = "Read the previously accepted input from /workspace/temp/legacy.txt."
     from(row in Job, where: row.id == ^job.id) |> Repo.update_all(set: [task: legacy_task])
@@ -864,7 +879,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert replayed.id == job.id
     assert replayed.task == legacy_task
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
   end
 
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
@@ -1025,6 +1040,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-scheduled-delivery",
                "source_tool_call_id" => "tool-background-agent-job-scheduled-delivery",
@@ -2859,6 +2875,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "parent-session-#{suffix}",
                "source_tool_call_id" => "tool-background-agent-job-#{suffix}",

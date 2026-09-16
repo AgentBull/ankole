@@ -502,7 +502,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
 
   defp run!(ctx, request) do
     {:ok, token} =
-      OIDC.Tokens.mint_access(ctx.human.uid, ctx.client.id, "openid ai_gateway.write")
+      Ankole.OIDCFixtures.access_token(ctx.human.uid, ctx.client.id, "openid ai_gateway.write")
 
     {:ok, grant} = OIDC.Grant.authorize(token.token, nil)
     state = %{subject_uid: ctx.human.uid, subject_type: "oidc_human", oidc_grant: grant}

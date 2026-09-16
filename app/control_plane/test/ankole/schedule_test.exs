@@ -105,7 +105,7 @@ defmodule Ankole.ScheduleTest do
       assert get_in(input.payload, ["data", "wake_payload", "check"]) == "Check the incident."
 
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(event.id, now: due_at)
-      assert Repo.aggregate(ActorEvent, :count) == 1
+      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
     end
 
     test "updating a checkback preserves its due time but replaces stale wakeup instructions" do
@@ -172,7 +172,7 @@ defmodule Ankole.ScheduleTest do
       assert get_in(wakeup.payload, ["data", "wake_payload", "check"]) ==
                "Let the information value and evidence density determine the PDF length."
 
-      assert Repo.aggregate(ActorEvent, :count) == 1
+      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
     end
 
     test "later updates and cancellation follow a replaced checkback id to the current event" do
@@ -229,7 +229,7 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(original.id, now: due_at)
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(first_replacement.id, now: due_at)
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(current.id, now: due_at)
-      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
     end
 
     test "fire failures persist diagnostics and mark final attempt failed" do
@@ -298,7 +298,7 @@ defmodule Ankole.ScheduleTest do
       origin_ai_message = ai_message_fixture(agent.uid)
 
       assert {:ok, %{status: :created, cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    schedule: %{
                      "kind" => "every",
@@ -310,6 +310,7 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time,
                  created_by: %{
                    "kind" => "test",
+                   "principal_uid" => agent.uid,
                    "origin_ai_message_id" => origin_ai_message.id
                  }
                )
@@ -359,7 +360,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:error, :cron_delivery_route_required} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    delivery: nil,
                    schedule: %{
@@ -373,7 +374,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{status: :created, cron_schedule: paused}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    idempotency_key: "paused-cron-key",
@@ -409,7 +410,7 @@ defmodule Ankole.ScheduleTest do
       ]
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "multi-target-delivery",
                    idempotency_key: "multi-target-delivery",
@@ -487,7 +488,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:error, :cron_delivery_route_required} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "invalid-target-list",
                    idempotency_key: "invalid-target-list",
@@ -502,7 +503,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 5, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "snapshot-update",
                    idempotency_key: "snapshot-update",
@@ -542,7 +543,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 5, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "same-slot-resume",
                    idempotency_key: "same-slot-resume",
@@ -598,7 +599,7 @@ defmodule Ankole.ScheduleTest do
       moved_slot = DateTime.add(@base_time, 10, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "slot-round-trip",
                    idempotency_key: "slot-round-trip",
@@ -635,7 +636,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "manual-idempotency",
@@ -682,7 +683,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "terminal-failure-continues",
                    idempotency_key: "terminal-failure-continues",
@@ -721,7 +722,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "count-bounded",
                    idempotency_key: "count-bounded",
@@ -793,7 +794,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "count-bounded-failure",
                    idempotency_key: "count-bounded-failure",
@@ -833,7 +834,7 @@ defmodule Ankole.ScheduleTest do
       cutoff = DateTime.add(@base_time, 90, :second)
 
       assert {:error, :schedule_occurrences_exhausted} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "until-before-first",
                    idempotency_key: "until-before-first",
@@ -848,7 +849,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "until-bounded",
                    idempotency_key: "until-bounded",
@@ -877,7 +878,7 @@ defmodule Ankole.ScheduleTest do
       after_cutoff = DateTime.add(@base_time, 10, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "resume-past-until",
                    idempotency_key: "resume-past-until",
@@ -904,7 +905,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "update-spent-bound",
                    idempotency_key: "update-spent-bound",
@@ -946,7 +947,7 @@ defmodule Ankole.ScheduleTest do
           %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
           assert {:ok, %{cron_schedule: schedule}} =
-                   Schedule.create_cron_schedule(
+                   create_cron_schedule(
                      cron_attrs(agent.uid,
                        name: "concurrent-#{unique}",
                        idempotency_key: "concurrent-#{unique}",
@@ -1061,7 +1062,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{cron_schedule: removed}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "reusable-name",
@@ -1073,7 +1074,7 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{status: "deleted"}} = Schedule.remove_cron_schedule(removed.id)
 
       assert {:ok, %{cron_schedule: current}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "reusable-name",
@@ -1105,7 +1106,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "validated-update",
@@ -1125,25 +1126,25 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:error, :cron_task_required} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid, payload: %{}),
                  now: @base_time
                )
 
       assert {:error, :cron_task_required} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid, payload: %{"task" => "   "}),
                  now: @base_time
                )
 
       assert {:error, :cron_owner_session_reserved} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid, owner_session_id: "cron:#{Ecto.UUID.generate()}"),
                  now: @base_time
                )
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid, status: "paused", name: "task-guard"),
                  now: @base_time
                )
@@ -1195,7 +1196,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid, status: "paused", name: "conversation-lifecycle"),
                  now: @base_time
                )
@@ -1258,7 +1259,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "timezone-update",
                    idempotency_key: "timezone-update",
@@ -1296,7 +1297,7 @@ defmodule Ankole.ScheduleTest do
       repair_at = DateTime.add(@base_time, 10, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "stranded-repair",
                    idempotency_key: "stranded-repair",
@@ -1334,7 +1335,7 @@ defmodule Ankole.ScheduleTest do
       now = DateTime.add(@base_time, 1, :second)
 
       assert {:ok, %{status: :created, cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "manual-paused",
@@ -1373,7 +1374,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 5, :minute)
 
       assert {:ok, %{status: :created, cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "manual-before-pause",
                    idempotency_key: "manual-before-pause",
@@ -1414,7 +1415,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{status: :created, cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    status: "paused",
                    name: "manual-before-delete",
@@ -1443,7 +1444,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{status: :created, cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    name: "created-by-attrs-ignored",
                    idempotency_key: "created-by-attrs-ignored",
@@ -1461,7 +1462,7 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time
                )
 
-      assert schedule.created_by == %{"kind" => "operator_api"}
+      assert schedule.created_by == %{"kind" => "operator_api", "principal_uid" => agent.uid}
       assert [event] = Schedule.list_cron_runs(schedule.id, 10)
       assert event.origin_ai_message_id == nil
     end
@@ -1470,7 +1471,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
       due_at = DateTime.add(@base_time, 5, :minute)
 
-      assert {:error, %Ecto.Changeset{} = changeset} =
+      assert {:error, :work_authorization_review_required} =
                Schedule.create_check_back_later(
                  checkback_attrs(agent.uid,
                    idempotency_key: "missing-source-actor-event",
@@ -1479,8 +1480,6 @@ defmodule Ankole.ScheduleTest do
                  ),
                  now: @base_time
                )
-
-      assert %{source_actor_event_id: [_ | _]} = errors_on(changeset)
 
       assert {:error, %Ecto.Changeset{} = changeset} =
                Schedule.create_check_back_later(
@@ -2207,7 +2206,9 @@ defmodule Ankole.ScheduleTest do
       assert Repo.get(ActorEvent, input.id)
 
       assert Repo.aggregate(
-               from(event in ActorEvent, where: not is_nil(event.completed_at)),
+               from(event in ActorEvent,
+                 where: event.type != "test.work" and not is_nil(event.completed_at)
+               ),
                :count
              ) == 1
 
@@ -2228,7 +2229,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    schedule: %{
                      "kind" => "every",
@@ -2308,7 +2309,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    owner_session_id: channel_input.session_id,
                    delivery: %{
@@ -2414,7 +2415,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    schedule: %{
                      "kind" => "every",
@@ -2489,7 +2490,7 @@ defmodule Ankole.ScheduleTest do
       first_slot = DateTime.add(@base_time, 1, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    delivery: %{
                      "targets" => [
@@ -2549,7 +2550,7 @@ defmodule Ankole.ScheduleTest do
       reset_at = DateTime.add(@base_time, 2, :minute)
 
       assert {:ok, %{cron_schedule: schedule}} =
-               Schedule.create_cron_schedule(
+               create_cron_schedule(
                  cron_attrs(agent.uid,
                    schedule: %{
                      "kind" => "every",
@@ -2769,6 +2770,7 @@ defmodule Ankole.ScheduleTest do
   defp checkback_attrs(agent_uid, overrides) do
     Map.merge(
       %{
+        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
         "agent_uid" => agent_uid,
         "session_id" => "mock:chat:schedule",
         "binding_name" => "bot",
@@ -2892,6 +2894,9 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp group_entry(overrides) do
+    unless Repo.get(Ankole.Principals.Principal, "alice"),
+      do: Ankole.PrincipalsFixtures.human_fixture(%{uid: "alice"})
+
     Map.merge(
       %{
         source_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
@@ -2940,6 +2945,7 @@ defmodule Ankole.ScheduleTest do
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
     SignalsGateway.append_actor_event(%{
+      sender_key: agent_uid,
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       session_id: session_id,
@@ -3042,5 +3048,15 @@ defmodule Ankole.ScheduleTest do
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
       pair -> pair
     end)
+  end
+
+  defp create_cron_schedule(attrs, opts) do
+    Schedule.create_cron_schedule(
+      attrs,
+      Keyword.put_new(opts, :created_by, %{
+        "kind" => "operator_api",
+        "principal_uid" => attrs["agent_uid"] || attrs[:agent_uid]
+      })
+    )
   end
 end

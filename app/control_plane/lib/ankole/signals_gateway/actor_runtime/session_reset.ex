@@ -122,6 +122,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
     with {:ok, reset_time} <- daily_reset_time(opts) do
       SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: Ankole.Principals.WorkAccess.service(),
         agent_uid: subject_uid,
         binding_name: binding_name,
         session_id: conversation_key,

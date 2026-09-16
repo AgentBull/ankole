@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.Jobs.CleanupExpiredCredentials do
   @moduledoc """
-  Idempotent hourly cleanup for expired authorization codes and refresh tokens.
+  Hourly cleanup for expired credentials, browser transactions, and unused session state.
   """
 
   use Oban.Worker, queue: :default, max_attempts: 3

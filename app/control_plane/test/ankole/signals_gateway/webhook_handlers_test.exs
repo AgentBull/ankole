@@ -126,6 +126,7 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
       kind: "events",
       query_params: %{},
       body_params: %{"type" => "message"},
+      raw_body: ~s({"type":"message"}),
       headers: %{"authorization" => "Bearer x"}
     }
 

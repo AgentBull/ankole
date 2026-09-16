@@ -3,6 +3,7 @@ import type { TurnStart } from '../../lanes/actor_lane'
 
 /** Current sender Principal supplied by the control plane. */
 export const CURRENT_ACTOR_SENDER_PRINCIPAL_ENV = 'ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL'
+export const CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV = 'ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_ACCESS_VERSION'
 /** Opaque lark-cli profile that the Worker derives for the current sender. */
 export const LARK_PROFILE_ENV = 'ANKOLE_RUNTIME_LARK_PROFILE'
 /** Worker-owned webhook CLI socket for the current execution. */
@@ -50,8 +51,14 @@ export function buildTurnRuntimeEnv(turnStart: TurnStart, workerAuthKey: string)
 
   const principalUID = runtimeEnv[CURRENT_ACTOR_SENDER_PRINCIPAL_ENV]
   if (principalUID) {
+    const accessVersion = runtimeEnv[CURRENT_ACTOR_SENDER_ACCESS_VERSION_ENV]
+    if (!accessVersion || !/^[1-9][0-9]*$/.test(accessVersion)) {
+      throw new Error('human turn runtime env requires a positive access version')
+    }
+    // Version 1 preserves profiles stored before access revocation was added.
+    const profileIdentity = accessVersion === '1' ? principalUID : `${principalUID}\0${accessVersion}`
     runtimeEnv[LARK_PROFILE_ENV] =
-      larkProfilePrefix + createHmac('sha256', workerAuthKey).update(principalUID, 'utf8').digest('base64url')
+      larkProfilePrefix + createHmac('sha256', workerAuthKey).update(profileIdentity, 'utf8').digest('base64url')
   }
 
   return runtimeEnv

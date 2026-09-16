@@ -154,6 +154,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
 
       assert {:ok, %{status: :accepted}} =
@@ -302,6 +303,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
             "agent_uid" => agent.uid,
             "owner_session_id" => "owner-#{suffix}",
             "source_tool_call_id" => "source-removal-#{suffix}",
+            "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
             "title" => "Preserve #{suffix} Job",
             "task" => "Continue after the source entry is removed.",
             "reply_route" => %{

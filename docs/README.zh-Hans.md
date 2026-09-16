@@ -228,6 +228,9 @@ tools/e2e/run --real-llm
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |
 | [主体（Principal）](design-docs/Principal.md) | 人和 Agent 的统一身份，以及外部账号合并 |
+| [人员离职禁用](design-docs/HumanOffboarding.md) | 人员禁用、认证撤销和任务启动检查 |
+| [浏览器会话](design-docs/BrowserSessions.md) | 浏览器身份、认证新鲜度、并发登录与退出 |
+| [OIDC 服务端](design-docs/OIDCServer.md) | OIDC 协议归属、客户端策略、令牌与注销 |
 | [AuthZ](design-docs/AuthZ.md) | 权限组、授权规则和 CEL 条件 |
 | [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |
@@ -238,3 +241,5 @@ tools/e2e/run --real-llm
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | 当前限制和故障恢复范围 |
 
 各外部平台的专属文档位于 `design-docs/plugins/`。
+
+`design-docs/` 只保存技术架构、实现设计与通用契约。故障案例、复现记录和验证结果不属于 `docs/`；每次发布改了什么由 changelog 记录。

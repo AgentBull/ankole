@@ -13,10 +13,10 @@ defmodule Ankole.OIDC.Tokens do
   def userinfo_audience, do: @userinfo_audience
   def ai_gateway_audience, do: @ai_gateway_audience
 
-  @spec mint_access(String.t(), String.t(), String.t()) ::
+  @spec mint_access(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, %{token: String.t(), expires_at: integer(), inserted_at: DateTime.t()}}
           | {:error, term()}
-  def mint_access(principal_uid, client_id, scope) do
+  def mint_access(principal_uid, client_id, scope, session_id) do
     now = System.system_time(:second)
     expires_at = now + @access_ttl_seconds
 
@@ -29,6 +29,7 @@ defmodule Ankole.OIDC.Tokens do
       jti: NativeKernel.gen_uuid_v7(),
       nbf: now,
       scope: scope,
+      sid: session_id,
       sub: principal_uid,
       subject_type: "human",
       token_use: @access_token_use
@@ -59,7 +60,8 @@ defmodule Ankole.OIDC.Tokens do
          :ok <- require_claim(claims, "subject_type", "human"),
          :ok <- require_scope(claims, "openid"),
          %{"client_id" => client_id, "sub" => sub} <- claims,
-         true <- is_binary(client_id) and client_id != "" and is_binary(sub) and sub != "" do
+         true <- is_binary(client_id) and client_id != "" and is_binary(sub) and sub != "",
+         {:ok, _} <- Ankole.OIDC.Sessions.validate(claims["sid"], client_id, sub, claims["scope"]) do
       {:ok, claims}
     else
       false -> {:error, :invalid_subject}

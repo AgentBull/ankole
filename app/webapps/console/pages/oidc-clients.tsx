@@ -1,3 +1,18 @@
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
+import { useEditorDraft } from '../use-editor-draft'
+import {
+  OIDCClientEditorModel,
+  emptyDraft,
+  draftFromClient,
+  writeBody,
+  profileDraftKey,
+  supportedScopes,
+  type ClientDraft,
+  type ClientModelAliasDraft,
+  type OidcScope
+} from '../state/oidc-client-editor-model'
+import { OIDCSessionSettings, OIDCLogoutDeliveries } from './oidc-session-settings'
 import {
   Badge,
   Button,
@@ -51,9 +66,6 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest,
-  OidcClientCreateRequest,
-  OidcClientItem,
-  OidcClientUpdateRequest,
   PrincipalGroupItem
 } from '../api/generated/types.gen'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -61,31 +73,9 @@ import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, Resou
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { principalGroupDescription, principalGroupDisplayName } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
-import { emptyProfileDraft, type ProfileDraft } from '../state/model-profiles-model'
+import { emptyProfileDraft } from '../state/model-profiles-model'
 import { customProfileNameError } from './custom-model-profiles-editor'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
-
-const supportedScopes = ['openid', 'profile', 'email', 'offline_access', 'ai_gateway.write'] as const
-type OidcScope = (typeof supportedScopes)[number]
-
-type ClientDraft = {
-  allowedGroupIDs: string[]
-  modelAliases: ClientModelAliasDraft[]
-  enabled: boolean
-  name: string
-  redirectURIs: string
-  scopes: OidcScope[]
-  type: 'public' | 'confidential'
-}
-
-type ClientModelAliasDraft = {
-  key: string
-  name: string
-  persisted: boolean
-  profile: ProfileDraft
-  nameError?: string
-  savedProfileKey?: string
-}
 
 type SecretState = { nextPath?: string; value: string }
 
@@ -192,16 +182,17 @@ export function OIDCClientsListPage() {
 }
 
 export function OIDCClientEditorPage() {
+  useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { clientID } = useParams()
   const mode = clientID ? 'edit' : 'new'
-  const [draft, setDraft] = useState<ClientDraft>(emptyDraft)
-  const [savedDraft, setSavedDraft] = useState(() => draftKey(emptyDraft()))
+  const model = useModel(OIDCClientEditorModel)
+  const draft = model.draft.value
+  const setDraft = model.setDraft
   const [validationError, setValidationError] = useState<string>()
   const [secret, setSecret] = useState<SecretState>()
-  const initializedFor = useRef<string | undefined>(undefined)
   const nextAliasID = useRef(0)
   const aiGatewayEnabled = draft.scopes.includes('ai_gateway.write')
 
@@ -224,32 +215,19 @@ export function OIDCClientEditorPage() {
   })
   const loadedClient = clientQuery.data?.oidc_client
 
-  useEffect(() => {
-    const resourceKey = clientID ? `client:${clientID}` : 'new'
-    if (initializedFor.current === resourceKey) return
-
-    if (mode === 'new') {
-      const next = emptyDraft()
-      setDraft(next)
-      setSavedDraft(draftKey(next))
-      initializedFor.current = resourceKey
-    } else if (loadedClient) {
-      const next = draftFromClient(loadedClient)
-      setDraft(next)
-      setSavedDraft(draftKey(next))
-      initializedFor.current = resourceKey
-    }
-  }, [clientID, loadedClient, mode])
-
-  const dirty = draftKey(draft) !== savedDraft
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'oidc-client', clientID },
+    source: mode === 'new' ? emptyDraft() : loadedClient ? draftFromClient(loadedClient) : undefined,
+    absent: () => mode === 'edit' && requestErrorCode(clientQuery.error) === 'not_found'
+  })
+  const dirty = model.dirty.value
   const refresh = () => void queryClient.invalidateQueries()
 
   const createClient = useMutation({
     ...ankoleWebOidcClientControllerCreateMutation(),
     onSuccess: response => {
       const next = draftFromClient(response.oidc_client)
-      setDraft(next)
-      setSavedDraft(draftKey(next))
+      model.markSaved(next)
       refresh()
       toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
       const nextPath = `/oidc-clients/${encodeURIComponent(response.oidc_client.id)}`
@@ -261,8 +239,7 @@ export function OIDCClientEditorPage() {
     ...ankoleWebOidcClientControllerUpdateMutation(),
     onSuccess: response => {
       const next = draftFromClient(response.oidc_client)
-      setDraft(next)
-      setSavedDraft(draftKey(next))
+      model.markSaved(next)
       refresh()
       toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
     }
@@ -397,11 +374,12 @@ export function OIDCClientEditorPage() {
         submitting={pending}
         submitDisabled={mode === 'edit' && !dirty}
         submitUnavailable={
-          (mode === 'edit' && !loadedClient) ||
+          draftStatus !== 'ready' ||
           (aiGatewayEnabled && (providers.isLoading || providerKinds.isLoading || modelCatalog.isLoading))
         }
         contentWidth="wide"
         onSubmit={submit}
+        supplementary={loadedClient ? <OIDCLogoutDeliveries clientID={loadedClient.id} /> : undefined}
         secondary={
           loadedClient ? (
             <div className="flex flex-wrap gap-2">
@@ -435,6 +413,7 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         ) : null}
 
+        <OIDCSessionSettings draft={draft} setDraft={setDraft} />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <LabeledField label={t('console.oidc_clients.name')} required>
             <Input required value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} />
@@ -774,92 +753,6 @@ function ClientSecretDialog({ onClose, secret }: { onClose: () => void; secret?:
   )
 }
 
-function emptyDraft(): ClientDraft {
-  return {
-    allowedGroupIDs: [],
-    modelAliases: [],
-    enabled: true,
-    name: '',
-    redirectURIs: '',
-    scopes: ['openid'],
-    type: 'public'
-  }
-}
-
-function draftFromClient(client: OidcClientItem): ClientDraft {
-  return {
-    allowedGroupIDs: client.allowed_group_ids,
-    modelAliases: Object.entries(client.allowed_models)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, profile]) => {
-        const draft = profileDraftFromRequest(profile)
-
-        return {
-          key: `stored:${name}`,
-          name,
-          persisted: true,
-          profile: draft,
-          savedProfileKey: profileDraftKey(draft)
-        }
-      }),
-    enabled: client.enabled,
-    name: client.name,
-    redirectURIs: client.redirect_uris.join('\n'),
-    scopes: supportedScopes.filter(scope => client.scopes.includes(scope)),
-    type: client.type
-  }
-}
-
-function draftKey(draft: ClientDraft): string {
-  return JSON.stringify({
-    ...draft,
-    modelAliases: draft.modelAliases.map(alias => ({
-      name: alias.name,
-      profile: {
-        contextLength: alias.profile.contextLength,
-        description: alias.profile.description,
-        model: alias.profile.model,
-        providerID: alias.profile.providerID,
-        providerOptions: alias.profile.providerOptions
-      }
-    }))
-  })
-}
-
-function writeBody(
-  draft: ClientDraft,
-  modelAliases: Record<string, ModelProfileWriteRequest>
-): OidcClientUpdateRequest & Omit<OidcClientCreateRequest, 'type'> {
-  return {
-    allowed_group_ids: draft.allowedGroupIDs,
-    allowed_models: modelAliases,
-    enabled: draft.enabled,
-    name: draft.name.trim(),
-    redirect_uris: lines(draft.redirectURIs),
-    scopes: draft.scopes
-  }
-}
-
-function profileDraftFromRequest(profile: ModelProfileWriteRequest): ProfileDraft {
-  return {
-    contextLength: profile.context_length ? String(profile.context_length) : '',
-    description: profile.description ?? '',
-    model: profile.model ?? '',
-    providerID: profile.provider_id ?? '',
-    providerOptions: profile.provider_options ?? {}
-  }
-}
-
-function profileDraftKey(profile: ProfileDraft): string {
-  return JSON.stringify({
-    contextLength: profile.contextLength,
-    description: profile.description,
-    model: profile.model,
-    providerID: profile.providerID,
-    providerOptions: profile.providerOptions
-  })
-}
-
 type ModelAliasesBuildResult =
   | { ok: true; value: Record<string, ModelProfileWriteRequest> }
   | { aliasKey: string; error: string; field: 'name' | 'profile'; ok: false }
@@ -901,15 +794,4 @@ export function buildModelAliases(
   }
 
   return { ok: true, value }
-}
-
-function lines(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean)
-    )
-  ]
 }

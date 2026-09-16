@@ -48,7 +48,13 @@ defmodule Ankole.SignalsGateway.Actors do
         Map.fetch!(attrs, :session_id)
       )
 
-    attrs = put_queue_sequence(repo, attrs)
+    authorization =
+      case Map.get(attrs, :source_work) do
+        nil -> Ankole.Principals.WorkAccess.from_sender(repo, Map.get(attrs, :sender_key))
+        source -> Ankole.Principals.WorkAccess.fields(source)
+      end
+
+    attrs = attrs |> Map.merge(authorization) |> then(&put_queue_sequence(repo, &1))
 
     with {:ok, %ActorEvent{} = event} <-
            %ActorEvent{}
@@ -1086,4 +1092,25 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   defp insert_outbox_intent(_repo, _actor_event, _attrs), do: {:error, :invalid_outbox_intent}
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    live =
+      from d in Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery,
+        where: d.state in ["created", "sent", "accepted"],
+        select: d.actor_event_id
+
+    repo.update_all(
+      from(e in ActorEvent,
+        where:
+          e.human_uid == ^uid and e.human_access_version < ^version and e.input_state == "open" and
+            is_nil(e.completed_at) and e.id not in subquery(live)
+      ),
+      set: [
+        input_state: "dead_letter",
+        dead_letter_at: now,
+        updated_at: now,
+        dead_letter_reason: %{"reason" => "human_access_revoked"}
+      ]
+    )
+  end
 end

@@ -1330,6 +1330,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
   end
 
   test "another group member's attachment does not supersede the active request" do
+    Ankole.PrincipalsFixtures.human_fixture(%{uid: "bob"})
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
 

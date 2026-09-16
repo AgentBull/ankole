@@ -1,11 +1,29 @@
 # Changelog
 
-## Version 1.2.0-rc.1 (2026-09-11)
+## Version 1.4.0-rc.1 (2026-09-16)
 
 - An operator can now connect a dedicated mailbox to an Agent with the new Email adapter: Ankole receives mail over IMAP, keeps each email thread as one conversation, and sends the Agent's replies over SMTP with the thread headers that mail clients use. The mailbox belongs to the Agent; a message that another mail client marks as read never reaches it.
 - An email sender is identified only by an explicit `email` identity binding: an administrator maps the address from the mapping request list, a synced directory binds each user's address automatically, or the binding creates a standalone account. A profile email or a local sign-in email never links a sender by itself. By default the adapter requires a DMARC pass from the receiving mail server and ignores automatic and bulk mail. Password and app-password login are supported; OAuth mailboxes are not.
 - A channel whose adapter cannot edit a sent message no longer receives a streaming preview, so an email thread gets the Agent's complete answer as one message instead of its first fragment. The Console signal routing page names a delivery that the channel does not support instead of showing a missing translation.
 - A provider user that matches no binding and no contact is always a new account. Ankole no longer joins it to an existing Principal only because the UIDs are equal, and it refuses the write when that UID is taken; an operator maps the two explicitly when they are one person.
+
+## Version 1.3.1-rc.1 (2026-09-14)
+
+- A LINE file download that cannot start no longer runs inside the webhook answer. The webhook fails instead, and LINE delivers the message again.
+
+## Version 1.3.0-rc.1 (2026-09-14)
+
+- LINE is now available as a chat provider. Give a binding the channel ID, channel secret, and long-lived channel access token from the LINE Developers Console, set the channel's webhook URL to `https://<host>/webhooks/v1/line/<channelId>/events`, and the agent reads one-to-one, group, and multi-person chat messages, downloads received files, answers with push messages that quote the asker in groups, offers clarification choices as buttons, and forgets a message the user unsends. An unknown sender's mapping request shows the LINE display name.
+- Every LINE reply is a push message and counts against the Official Account's monthly message plan; the account's plan must cover the expected traffic. A LINE bot cannot edit or unsend a message, cannot send files, and shows no live progress before the final answer.
+- Provider webhook handlers now receive the exact request bytes next to the parsed body, so a provider signature can be verified.
+- A provider that delivers the same message again can no longer replace an attachment the agent already downloaded with a failed observation. Internal: Telegram and Discord share one UTF-16 text helper.
+
+## Version 1.2.0-rc.1 (2026-09-11)
+
+- Administrators can disable Human access, review restrictions and permissions before restoration, and inspect access history in Console. Feishu departure, freeze, reviewed directory-scope removal, and DingTalk departure disable the same account. Repeated departure events are processed once, and provider restriction clearance requires current complete directory evidence. An audited operator command can recover administrator access after the last administrator departs.
+- Disablement stops future Human work across messages, schedules, background jobs, workflows, and automations while admitted attempts can finish. Operators must classify unresolved older work before it can run. Restoration requires fresh login and personal Feishu authorization; old credentials and work stay revoked.
+- Browser login now retains one durable identity across Console and OAuth, enforces requested authentication freshness and Client login-source policy, and rejects stale callbacks. The upgrade requires fresh browser login. OIDC Clients can use Introspection, Back-Channel Logout, and RP-Initiated Logout, including repeated logout after cookie removal. Console provides Client session settings and manual notification retry that makes waiting jobs available immediately.
+- The existing OIDC cleanup job removes expired browser and logout state after credential, recent-session, and delivery retention ends; unfinished deliveries remain available for recovery. Expiry indexes support cleanup. Update the owning designs, the known-limits page, and operator recovery guidance, and add database, protocol, browser, and Worker regression coverage. Provider pagination rejects incomplete results instead of treating them as complete directory evidence.
 
 ## Version 1.1.2-rc.1 (2026-09-10)
 

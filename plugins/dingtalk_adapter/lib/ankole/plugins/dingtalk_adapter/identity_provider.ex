@@ -15,12 +15,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
 
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Directory
+  alias Ankole.IdentityProviders.DirectoryAccess
   alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Principals
   alias DingTalkOpenAPI.Contact
   alias DingTalkOpenAPI.Event
   alias DingTalkOpenAPI.OAuth
@@ -117,11 +117,28 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
           {:ok, %{users: non_neg_integer(), departments: non_neg_integer()}} | {:error, term()}
   def sync_directory(provider_id, config, _opts \\ [])
       when is_binary(provider_id) and is_map(config) do
+    with {:ok, ticket} <- DirectoryAccess.begin_sync(provider_id, config) do
+      case collect_and_sync(provider_id, config, ticket) do
+        {:ok, _} = result -> result
+        {:error, reason} -> DirectoryAccess.fail_sync(ticket, reason)
+      end
+    end
+  end
+
+  defp collect_and_sync(provider_id, config, ticket) do
     client = Config.client(config)
 
     with {:ok, department_ids} <- sync_departments(provider_id, client),
-         {:ok, users} <- sync_users(provider_id, config, client, department_ids) do
-      {:ok, %{users: users, departments: length(department_ids)}}
+         {:ok, users} <- sync_users(provider_id, config, client, department_ids),
+         {:ok, _} <-
+           DirectoryAccess.finish_sync(
+             ticket,
+             {config["clientId"], Contact.root_department_id()},
+             Enum.map(users, &{&1, :healthy}),
+             admission_scope: "none",
+             maximum_removal_percent: 100
+           ) do
+      {:ok, %{users: MapSet.size(users), departments: length(department_ids)}}
     end
   end
 
@@ -146,11 +163,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
         requery_users(provider_id, config, user_ids(data))
 
       event_type == "user_leave_org" ->
-        # Departure is authoritative and names the departed userids. A full sync
-        # only upserts (the host never sweeps absentees), so the subjects are
-        # disabled directly; a guard-refused disable falls back to a full sync
-        # instead of looping the event through LATER redelivery.
-        disable_left_users(provider_id, user_ids(data))
+        receive_departure(provider_id, event, user_ids(data))
 
       String.starts_with?(event_type, "org_dept_") ->
         enqueue_full_sync(provider_id, :department_changed)
@@ -252,26 +265,22 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
       [Contact.root_department_id() | department_ids]
       |> Enum.uniq()
-      |> Enum.reduce_while({:ok, 0}, fn dept_id, {:ok, count} ->
+      |> Enum.reduce_while({:ok, MapSet.new()}, fn dept_id, {:ok, users} ->
         case page_department_users(provider_id, client, dept_id, page_size, directory_group_index) do
-          {:ok, added} -> {:cont, {:ok, count + added}}
+          {:ok, added} -> {:cont, {:ok, MapSet.union(users, added)}}
           {:error, _reason} = error -> {:halt, error}
         end
       end)
-      |> case do
-        {:ok, count} -> {:ok, count}
-        {:error, _reason} = error -> error
-      end
     end
   end
 
   defp page_department_users(provider_id, client, dept_id, page_size, directory_group_index) do
     client
     |> Contact.stream_department_users(dept_id, size: page_size)
-    |> Enum.reduce_while({:ok, 0}, fn
-      {:ok, user}, {:ok, count} ->
+    |> Enum.reduce_while({:ok, MapSet.new()}, fn
+      {:ok, user}, {:ok, users} ->
         case upsert_user(provider_id, user, directory_group_index: directory_group_index) do
-          {:ok, _observed} -> {:cont, {:ok, count + 1}}
+          {:ok, observed} -> {:cont, {:ok, MapSet.put(users, observed.principal.uid)}}
           {:error, reason} -> {:halt, {:error, reason}}
         end
 
@@ -280,39 +289,45 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end)
   end
 
-  defp disable_left_users(provider_id, []), do: enqueue_full_sync(provider_id, :user_left_org)
+  defp receive_departure(provider_id, %Event{event_id: id} = event, user_ids)
+       when is_binary(id) and id != "" do
+    subjects = if user_ids == [], do: [nil], else: user_ids
 
-  defp disable_left_users(provider_id, user_ids) do
-    results =
-      Enum.map(user_ids, fn userid ->
-        case Principals.resolve_platform_subject_uid(provider_id, userid) do
-          {:ok, principal_uid} ->
-            case Principals.disable_principal(principal_uid) do
-              {:ok, _principal} -> :disabled
-              {:error, reason} -> {:skipped, userid, reason}
-            end
+    subjects
+    |> Enum.reduce_while({:ok, 0}, fn userid, {:ok, count} ->
+      attrs = %{
+        event_id: Ankole.JSON.encode!([id, userid]),
+        event_type: "user_leave_org",
+        external_ids: if(userid, do: [userid], else: []),
+        reason: "departure",
+        provider_time: departure_time(event.headers || %{})
+      }
 
-          # Never imported by this provider — nothing to disable.
-          {:error, :not_found} ->
-            :unknown_subject
+      case DirectoryAccess.receive_event(provider_id, attrs) do
+        {:ok, stored} ->
+          {:cont, {:ok, count + if(stored.status == :processed, do: 1, else: 0)}}
 
-          {:error, reason} ->
-            {:skipped, userid, reason}
-        end
-      end)
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, _} when user_ids == [] -> enqueue_full_sync(provider_id, :user_left_org)
+      {:ok, count} -> {:ok, %{status: :users_disabled, count: count}}
+      error -> error
+    end
+  end
 
-    skipped = for {:skipped, userid, reason} <- results, do: {userid, reason}
+  defp receive_departure(_provider_id, _event, _user_ids),
+    do: {:error, :missing_departure_event_id}
 
-    if skipped == [] do
-      {:ok, %{status: :users_disabled, count: Enum.count(results, &(&1 == :disabled))}}
+  defp departure_time(headers) do
+    with value when is_binary(value) or is_integer(value) <- headers["eventBornTime"],
+         {millis, ""} <- Integer.parse(to_string(value)),
+         {:ok, time} <- DateTime.from_unix(millis, :millisecond) do
+      time
     else
-      Logging.warning(
-        "dingtalk_adapter.identity_provider.leave_disable_skipped",
-        "dingtalk adapter could not disable departed users; enqueueing full sync",
-        %{provider_id: provider_id, skipped: inspect(skipped)}
-      )
-
-      enqueue_full_sync(provider_id, :user_leave_disable_failed)
+      _ -> nil
     end
   end
 

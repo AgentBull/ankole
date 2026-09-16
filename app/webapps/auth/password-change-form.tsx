@@ -48,7 +48,10 @@ export function PasswordChangeForm({ model }: { model: InstanceType<typeof Login
   })
   const change = useMutation({
     mutationFn: (input: { newPassword: string }) =>
-      internalAPIPost<{ returnTo: string }>('/.internal-apis/sessions/local-password/change', input),
+      internalAPIPost<{ returnTo: string }>('/.internal-apis/sessions/local-password/change', {
+        ...input,
+        flow: new URLSearchParams(window.location.search).get('flow')
+      }),
     onSuccess: result => window.location.assign(result.returnTo),
     onError: error => {
       if (ticketExpired(error)) {

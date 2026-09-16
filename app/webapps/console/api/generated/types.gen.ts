@@ -181,6 +181,14 @@ export type WorkerFileListData = {
 }
 
 /**
+ * DirectoryEventReviewRequest
+ */
+export type DirectoryEventReviewRequest = {
+  action: 'retry' | 'dismiss'
+  reason: string
+}
+
+/**
  * AppConfigurationResponse
  */
 export type AppConfigurationResponse = {
@@ -289,6 +297,17 @@ export type BackgroundAgentJobTurnPlanStep = {
 export type JsonValue = unknown
 
 /**
+ * WorkClassifyRequest
+ */
+export type WorkClassifyRequest = {
+  authorization_kind: 'human' | 'service'
+  human_uid?: string | null
+  id: string
+  kind: string
+  reason: string
+}
+
+/**
  * AIGatewayConversationResponse
  */
 export type AiGatewayConversationResponse = {
@@ -307,6 +326,29 @@ export type AgentUpdateRequest = {
   }
   owner_principal_uid?: string
   role?: string
+}
+
+/**
+ * DirectoryAccessResponse
+ */
+export type DirectoryAccessResponse = {
+  events: Array<DirectoryEventItem>
+  snapshot: DirectorySnapshot | null
+}
+
+/**
+ * HumanAccessResponse
+ */
+export type HumanAccessResponse = {
+  access_revoked_at: string | null
+  access_version: number
+  cleanup_jobs: Array<CleanupJobItem>
+  history: Array<AccessHistoryItem>
+  permission_review: AccessPermissionReview
+  restrictions: Array<AccessRestrictionItem>
+  status: string
+  uid: string
+  work: Array<HumanWorkItem>
 }
 
 /**
@@ -399,12 +441,17 @@ export type WorkerEnvListResponse = {
  * OIDCClientUpdateRequest
  */
 export type OidcClientUpdateRequest = {
+  allow_insecure_local_logout?: boolean
   allowed_group_ids?: Array<string>
+  allowed_identity_provider_ids?: Array<string>
   allowed_models?: {
     [key: string]: ModelProfileWriteRequest
   }
+  backchannel_logout_session_required?: boolean
+  backchannel_logout_uri?: string | null
   enabled?: boolean
   name?: string
+  post_logout_redirect_uris?: Array<string>
   redirect_uris?: Array<string>
   scopes?: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
 }
@@ -449,6 +496,26 @@ export type IdentityProviderSyncRunItem = {
   job_id?: number | null
   provider_id: string
   status: 'enqueued'
+}
+
+/**
+ * DirectorySnapshot
+ */
+export type DirectorySnapshot = {
+  approved_scope_fingerprint: string | null
+  last_error: string | null
+  last_started_at: string | null
+  last_success_at: string | null
+  member_uids: Array<string>
+  missing_uids: Array<string>
+  provider_id: string
+  review_reason: string | null
+  reviewed_at: string | null
+  reviewed_by: string | null
+  revision: number
+  scope_fingerprint: string | null
+  snapshot_fingerprint: string | null
+  status: string
 }
 
 /**
@@ -647,6 +714,21 @@ export type IdentityProviderListResponse = {
 }
 
 /**
+ * LogoutDeliveriesResponse
+ */
+export type LogoutDeliveriesResponse = {
+  deliveries: Array<LogoutDeliveryItem>
+}
+
+/**
+ * AccessReasonRequest
+ */
+export type AccessReasonRequest = {
+  operation_id: string
+  reason: string
+}
+
+/**
  * AIGatewayProviderItem
  */
 export type AiGatewayProviderItem = {
@@ -678,6 +760,32 @@ export type BrainPageContradiction = {
   id: string
   severity: string
   verdict: string
+}
+
+/**
+ * LogoutDeliveryItem
+ */
+export type LogoutDeliveryItem = {
+  attempt_count: number
+  deadline: string
+  delivered_at: string | null
+  id: string
+  last_attempt_at: string | null
+  last_error: string | null
+  next_attempt_at: string | null
+  principal_uid: string
+  session_id: string
+  status: string
+}
+
+/**
+ * AccessReviewPrincipal
+ */
+export type AccessReviewPrincipal = {
+  access_version: number
+  avatar_url: string | null
+  display_name: string | null
+  uid: string
 }
 
 /**
@@ -761,6 +869,17 @@ export type AiGatewayMessageItem = {
   subject_uid: string
   type: 'message' | 'checkpoint'
   updated_at: string
+}
+
+/**
+ * AccessReviewGroup
+ */
+export type AccessReviewGroup = {
+  condition: JsonValue
+  domain: string
+  id: string
+  kind: string
+  name: string
 }
 
 /**
@@ -878,6 +997,18 @@ export type PrincipalUpdateRequest = {
 export type AgentLibraryCapabilitiesResponse = {
   agent_plugins: Array<AgentPluginCapabilityItem>
   skills: Array<AgentLibrarySkillCapabilityItem>
+}
+
+/**
+ * AccessReviewGrant
+ */
+export type AccessReviewGrant = {
+  action: string
+  condition: JsonValue
+  group_id: string | null
+  id: string
+  principal_uid: string | null
+  resource_pattern: string
 }
 
 /**
@@ -1216,10 +1347,32 @@ export type SignalBindingResponse = {
 }
 
 /**
+ * AccessPermissionReview
+ */
+export type AccessPermissionReview = {
+  fingerprint: string
+  permissions: AccessReviewPermissions
+}
+
+/**
  * AgentLibraryDocumentResponse
  */
 export type AgentLibraryDocumentResponse = {
   library_document: AgentLibraryDocumentItem
+}
+
+/**
+ * AccessHistoryItem
+ */
+export type AccessHistoryItem = {
+  access_version: number
+  action: string
+  actor_uid: string | null
+  details: JsonValue
+  id: string
+  inserted_at: string
+  reason: string
+  source: string
 }
 
 /**
@@ -1648,6 +1801,24 @@ export type BrainSuggestionDecideRequest = {
 }
 
 /**
+ * DirectoryEventItem
+ */
+export type DirectoryEventItem = {
+  event_id: string
+  event_type: string
+  external_ids: Array<string>
+  id: string
+  inserted_at: string
+  last_error: string | null
+  processed_at: string | null
+  provider_time: string | null
+  reason: string | null
+  review_reason: string | null
+  reviewed_by: string | null
+  status: string
+}
+
+/**
  * BrainHealthResponse
  */
 export type BrainHealthResponse = {
@@ -1769,6 +1940,19 @@ export type IdentityMappingRequestItem = {
 export type AgentSkillLessonCreateRequest = {
   content: string
   skill_name: string
+}
+
+/**
+ * CleanupJobItem
+ */
+export type CleanupJobItem = {
+  attempt: number
+  completed_at: string | null
+  discarded_at: string | null
+  id: number
+  max_attempts: number
+  scheduled_at: string | null
+  state: string
 }
 
 /**
@@ -1998,6 +2182,15 @@ export type SchedulePayload = {
 }
 
 /**
+ * DirectoryApproveRequest
+ */
+export type DirectoryApproveRequest = {
+  confirm_removals: boolean
+  reason: string
+  snapshot_fingerprint: string
+}
+
+/**
  * BrainClaim
  */
 export type BrainClaim = {
@@ -2064,6 +2257,13 @@ export type AutomationJobItem = {
   status: 'active' | 'cancelled' | 'expired'
   updated_at: string
   wake_on_failure: boolean
+}
+
+/**
+ * WorkReviewResponse
+ */
+export type WorkReviewResponse = {
+  work: Array<HumanWorkItem>
 }
 
 /**
@@ -2264,6 +2464,15 @@ export type BrainSource = {
 }
 
 /**
+ * AccessReviewPermissions
+ */
+export type AccessReviewPermissions = {
+  grants: Array<AccessReviewGrant>
+  groups: Array<AccessReviewGroup>
+  principal: AccessReviewPrincipal
+}
+
+/**
  * WorkerFileMoveResponse
  */
 export type WorkerFileMoveResponse = {
@@ -2288,6 +2497,19 @@ export type SignalDeliveryRequeueRequest = {
  */
 export type AiGatewayProviderResponse = {
   ai_gateway_provider: AiGatewayProviderItem
+}
+
+/**
+ * AccessRestrictionItem
+ */
+export type AccessRestrictionItem = {
+  cleared_at: string | null
+  id: string
+  inserted_at: string
+  provider_time: string | null
+  reason: string
+  recovery_verified_at: string | null
+  source: string
 }
 
 /**
@@ -2449,12 +2671,17 @@ export type LocalPasswordResetRequest = {
  * OIDCClientCreateRequest
  */
 export type OidcClientCreateRequest = {
+  allow_insecure_local_logout?: boolean
   allowed_group_ids: Array<string>
+  allowed_identity_provider_ids?: Array<string>
   allowed_models: {
     [key: string]: ModelProfileWriteRequest
   }
+  backchannel_logout_session_required?: boolean
+  backchannel_logout_uri?: string | null
   enabled: boolean
   name: string
+  post_logout_redirect_uris?: Array<string>
   redirect_uris: Array<string>
   scopes: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
   type: 'public' | 'confidential'
@@ -2572,6 +2799,30 @@ export type ControlPlanePluginItem = {
  */
 export type PermissionGrantListResponse = {
   permission_grants: Array<PermissionGrantItem>
+}
+
+/**
+ * HumanWorkItem
+ */
+export type HumanWorkItem = {
+  agent_uid: string
+  authorization_kind: string
+  human_access_version: number | null
+  human_uid: string | null
+  id: string
+  kind: string
+  status: string
+  updated_at: string
+}
+
+/**
+ * AccessRestoreRequest
+ */
+export type AccessRestoreRequest = {
+  identity_verified: boolean
+  operation_id: string
+  reason: string
+  review_fingerprint: string
 }
 
 /**
@@ -2711,14 +2962,19 @@ export type ScheduleOccurrences = {
  * OIDCClientItem
  */
 export type OidcClientItem = {
+  allow_insecure_local_logout: boolean
   allowed_group_ids: Array<string>
+  allowed_identity_provider_ids: Array<string>
   allowed_models: {
     [key: string]: ModelProfileWriteRequest
   }
+  backchannel_logout_session_required: boolean
+  backchannel_logout_uri: string | null
   enabled: boolean
   id: string
   inserted_at: string
   name: string
+  post_logout_redirect_uris: Array<string>
   redirect_uris: Array<string>
   scopes: Array<string>
   type: 'public' | 'confidential'
@@ -3725,6 +3981,28 @@ export type AnkoleWebBrainControllerForgetClaimResponses = {
 export type AnkoleWebBrainControllerForgetClaimResponse =
   AnkoleWebBrainControllerForgetClaimResponses[keyof AnkoleWebBrainControllerForgetClaimResponses]
 
+export type AnkoleWebDirectoryAccessControllerApproveData = {
+  /**
+   * Snapshot review
+   */
+  body: DirectoryApproveRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/identity-providers/{provider_id}/directory-reviews'
+}
+
+export type AnkoleWebDirectoryAccessControllerApproveResponses = {
+  /**
+   * Directory evidence
+   */
+  200: DirectoryAccessResponse
+}
+
+export type AnkoleWebDirectoryAccessControllerApproveResponse =
+  AnkoleWebDirectoryAccessControllerApproveResponses[keyof AnkoleWebDirectoryAccessControllerApproveResponses]
+
 export type AnkoleWebWorkerFileControllerDeleteData = {
   body?: never
   path: {
@@ -3959,6 +4237,25 @@ export type AnkoleWebAiGatewayControllerResponsesResponses = {
 
 export type AnkoleWebAiGatewayControllerResponsesResponse =
   AnkoleWebAiGatewayControllerResponsesResponses[keyof AnkoleWebAiGatewayControllerResponsesResponses]
+
+export type AnkoleWebHumanAccessControllerRetryCleanupData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/work-cleanup-retries'
+}
+
+export type AnkoleWebHumanAccessControllerRetryCleanupResponses = {
+  /**
+   * Human access
+   */
+  200: HumanAccessResponse
+}
+
+export type AnkoleWebHumanAccessControllerRetryCleanupResponse =
+  AnkoleWebHumanAccessControllerRetryCleanupResponses[keyof AnkoleWebHumanAccessControllerRetryCleanupResponses]
 
 export type AnkoleWebAiGatewayProviderControllerProviderKindsData = {
   body?: never
@@ -6009,6 +6306,53 @@ export type AnkoleWebScheduleControllerResumeCronResponses = {
 export type AnkoleWebScheduleControllerResumeCronResponse =
   AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
 
+export type AnkoleWebHumanAccessControllerUnresolvedWorkData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/work-access-reviews'
+}
+
+export type AnkoleWebHumanAccessControllerUnresolvedWorkResponses = {
+  /**
+   * Work review
+   */
+  200: WorkReviewResponse
+}
+
+export type AnkoleWebHumanAccessControllerUnresolvedWorkResponse =
+  AnkoleWebHumanAccessControllerUnresolvedWorkResponses[keyof AnkoleWebHumanAccessControllerUnresolvedWorkResponses]
+
+export type AnkoleWebHumanAccessControllerClassifyWorkData = {
+  /**
+   * Work review
+   */
+  body: WorkClassifyRequest
+  path?: never
+  query?: never
+  url: '/api/v1/work-access-reviews'
+}
+
+export type AnkoleWebHumanAccessControllerClassifyWorkErrors = {
+  /**
+   * Review changed
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebHumanAccessControllerClassifyWorkError =
+  AnkoleWebHumanAccessControllerClassifyWorkErrors[keyof AnkoleWebHumanAccessControllerClassifyWorkErrors]
+
+export type AnkoleWebHumanAccessControllerClassifyWorkResponses = {
+  /**
+   * Work review
+   */
+  200: WorkReviewResponse
+}
+
+export type AnkoleWebHumanAccessControllerClassifyWorkResponse =
+  AnkoleWebHumanAccessControllerClassifyWorkResponses[keyof AnkoleWebHumanAccessControllerClassifyWorkResponses]
+
 export type AnkoleWebAutomationJobControllerIndexData = {
   body?: never
   path?: never
@@ -6132,6 +6476,25 @@ export type AnkoleWebSignalBindingControllerAdaptersResponses = {
 
 export type AnkoleWebSignalBindingControllerAdaptersResponse =
   AnkoleWebSignalBindingControllerAdaptersResponses[keyof AnkoleWebSignalBindingControllerAdaptersResponses]
+
+export type AnkoleWebOidcClientControllerLogoutDeliveriesData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}/logout-deliveries'
+}
+
+export type AnkoleWebOidcClientControllerLogoutDeliveriesResponses = {
+  /**
+   * Logout deliveries
+   */
+  200: LogoutDeliveriesResponse
+}
+
+export type AnkoleWebOidcClientControllerLogoutDeliveriesResponse =
+  AnkoleWebOidcClientControllerLogoutDeliveriesResponses[keyof AnkoleWebOidcClientControllerLogoutDeliveriesResponses]
 
 export type AnkoleWebPrincipalControllerIndexData = {
   body?: never
@@ -6383,6 +6746,39 @@ export type AnkoleWebSignalBindingControllerUpdateBindingResponses = {
 export type AnkoleWebSignalBindingControllerUpdateBindingResponse =
   AnkoleWebSignalBindingControllerUpdateBindingResponses[keyof AnkoleWebSignalBindingControllerUpdateBindingResponses]
 
+export type AnkoleWebHumanAccessControllerClearRestrictionData = {
+  /**
+   * Review
+   */
+  body: AccessReasonRequest
+  path: {
+    uid: string
+    restriction_id: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/access-restrictions/{restriction_id}/clear'
+}
+
+export type AnkoleWebHumanAccessControllerClearRestrictionErrors = {
+  /**
+   * Review required
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebHumanAccessControllerClearRestrictionError =
+  AnkoleWebHumanAccessControllerClearRestrictionErrors[keyof AnkoleWebHumanAccessControllerClearRestrictionErrors]
+
+export type AnkoleWebHumanAccessControllerClearRestrictionResponses = {
+  /**
+   * Human access
+   */
+  200: HumanAccessResponse
+}
+
+export type AnkoleWebHumanAccessControllerClearRestrictionResponse =
+  AnkoleWebHumanAccessControllerClearRestrictionResponses[keyof AnkoleWebHumanAccessControllerClearRestrictionResponses]
+
 export type AnkoleWebAuthZGroupControllerMembersData = {
   body?: never
   path: {
@@ -6546,6 +6942,26 @@ export type AnkoleWebAiGatewayControllerWebSearchResponses = {
 export type AnkoleWebAiGatewayControllerWebSearchResponse =
   AnkoleWebAiGatewayControllerWebSearchResponses[keyof AnkoleWebAiGatewayControllerWebSearchResponses]
 
+export type AnkoleWebOidcClientControllerRetryLogoutData = {
+  body?: never
+  path: {
+    id: string
+    delivery_id: string
+  }
+  query?: never
+  url: '/api/v1/oidc-clients/{id}/logout-deliveries/{delivery_id}/retries'
+}
+
+export type AnkoleWebOidcClientControllerRetryLogoutResponses = {
+  /**
+   * Logout deliveries
+   */
+  200: LogoutDeliveriesResponse
+}
+
+export type AnkoleWebOidcClientControllerRetryLogoutResponse =
+  AnkoleWebOidcClientControllerRetryLogoutResponses[keyof AnkoleWebOidcClientControllerRetryLogoutResponses]
+
 export type AnkoleWebBrainControllerPrincipalKnowledgeData = {
   body?: never
   path: {
@@ -6564,6 +6980,35 @@ export type AnkoleWebBrainControllerPrincipalKnowledgeResponses = {
 
 export type AnkoleWebBrainControllerPrincipalKnowledgeResponse =
   AnkoleWebBrainControllerPrincipalKnowledgeResponses[keyof AnkoleWebBrainControllerPrincipalKnowledgeResponses]
+
+export type AnkoleWebHumanAccessControllerShowData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/access'
+}
+
+export type AnkoleWebHumanAccessControllerShowErrors = {
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebHumanAccessControllerShowError =
+  AnkoleWebHumanAccessControllerShowErrors[keyof AnkoleWebHumanAccessControllerShowErrors]
+
+export type AnkoleWebHumanAccessControllerShowResponses = {
+  /**
+   * Human access
+   */
+  200: HumanAccessResponse
+}
+
+export type AnkoleWebHumanAccessControllerShowResponse =
+  AnkoleWebHumanAccessControllerShowResponses[keyof AnkoleWebHumanAccessControllerShowResponses]
 
 export type AnkoleWebScheduleControllerIndexCronData = {
   body?: never
@@ -7828,6 +8273,38 @@ export type AnkoleWebAgentComputerWorkerControllerIndexResponses = {
 export type AnkoleWebAgentComputerWorkerControllerIndexResponse =
   AnkoleWebAgentComputerWorkerControllerIndexResponses[keyof AnkoleWebAgentComputerWorkerControllerIndexResponses]
 
+export type AnkoleWebHumanAccessControllerDisableData = {
+  /**
+   * Reason
+   */
+  body: AccessReasonRequest
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/access-disables'
+}
+
+export type AnkoleWebHumanAccessControllerDisableErrors = {
+  /**
+   * Cannot disable
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebHumanAccessControllerDisableError =
+  AnkoleWebHumanAccessControllerDisableErrors[keyof AnkoleWebHumanAccessControllerDisableErrors]
+
+export type AnkoleWebHumanAccessControllerDisableResponses = {
+  /**
+   * Human access
+   */
+  200: HumanAccessResponse
+}
+
+export type AnkoleWebHumanAccessControllerDisableResponse =
+  AnkoleWebHumanAccessControllerDisableResponses[keyof AnkoleWebHumanAccessControllerDisableResponses]
+
 export type AnkoleWebBrainControllerObjectTypesData = {
   body?: never
   path?: never
@@ -7986,6 +8463,29 @@ export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
 
+export type AnkoleWebDirectoryAccessControllerReviewEventData = {
+  /**
+   * Event review
+   */
+  body: DirectoryEventReviewRequest
+  path: {
+    provider_id: string
+    event_id: string
+  }
+  query?: never
+  url: '/api/v1/identity-providers/{provider_id}/directory-events/{event_id}/reviews'
+}
+
+export type AnkoleWebDirectoryAccessControllerReviewEventResponses = {
+  /**
+   * Directory evidence
+   */
+  200: DirectoryAccessResponse
+}
+
+export type AnkoleWebDirectoryAccessControllerReviewEventResponse =
+  AnkoleWebDirectoryAccessControllerReviewEventResponses[keyof AnkoleWebDirectoryAccessControllerReviewEventResponses]
+
 export type AnkoleWebAiGatewayConversationControllerMessagesData = {
   body?: never
   path: {
@@ -8025,6 +8525,25 @@ export type AnkoleWebAiGatewayConversationControllerMessagesResponses = {
 
 export type AnkoleWebAiGatewayConversationControllerMessagesResponse =
   AnkoleWebAiGatewayConversationControllerMessagesResponses[keyof AnkoleWebAiGatewayConversationControllerMessagesResponses]
+
+export type AnkoleWebDirectoryAccessControllerShowData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/identity-providers/{provider_id}/directory'
+}
+
+export type AnkoleWebDirectoryAccessControllerShowResponses = {
+  /**
+   * Directory evidence
+   */
+  200: DirectoryAccessResponse
+}
+
+export type AnkoleWebDirectoryAccessControllerShowResponse =
+  AnkoleWebDirectoryAccessControllerShowResponses[keyof AnkoleWebDirectoryAccessControllerShowResponses]
 
 export type AnkoleWebAgentLibraryControllerUpdateData = {
   /**
@@ -8664,6 +9183,38 @@ export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses]
+
+export type AnkoleWebHumanAccessControllerRestoreData = {
+  /**
+   * Approved review
+   */
+  body: AccessRestoreRequest
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/access-restorations'
+}
+
+export type AnkoleWebHumanAccessControllerRestoreErrors = {
+  /**
+   * Review changed
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebHumanAccessControllerRestoreError =
+  AnkoleWebHumanAccessControllerRestoreErrors[keyof AnkoleWebHumanAccessControllerRestoreErrors]
+
+export type AnkoleWebHumanAccessControllerRestoreResponses = {
+  /**
+   * Human access
+   */
+  200: HumanAccessResponse
+}
+
+export type AnkoleWebHumanAccessControllerRestoreResponse =
+  AnkoleWebHumanAccessControllerRestoreResponses[keyof AnkoleWebHumanAccessControllerRestoreResponses]
 
 export type AnkoleWebOidcClientControllerIndexData = {
   body?: never

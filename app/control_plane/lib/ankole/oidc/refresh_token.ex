@@ -23,6 +23,7 @@ defmodule Ankole.OIDC.RefreshToken do
     field :scope, :string
     field :issued_at, :utc_datetime_usec
     field :absolute_expires_at, :utc_datetime_usec
+    field :session_id, Ankole.Ecto.UUIDv7
 
     timestamps()
   end
@@ -35,7 +36,8 @@ defmodule Ankole.OIDC.RefreshToken do
       :principal_uid,
       :scope,
       :issued_at,
-      :absolute_expires_at
+      :absolute_expires_at,
+      :session_id
     ])
     |> validate_required([
       :digest,
@@ -43,7 +45,8 @@ defmodule Ankole.OIDC.RefreshToken do
       :principal_uid,
       :scope,
       :issued_at,
-      :absolute_expires_at
+      :absolute_expires_at,
+      :session_id
     ])
     |> foreign_key_constraint(:client_id)
     |> foreign_key_constraint(:principal_uid)

@@ -94,7 +94,8 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert action_event.sender_key == human.uid
 
     assert TurnRuntimeEnv.resolve(action_event) == %{
-             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human.uid
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human.uid,
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_ACCESS_VERSION" => "1"
            }
 
     assert get_in(action_event.payload, ["data", "action", "value"]) == %{

@@ -421,6 +421,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
   defp receipt_actor_attrs(endpoint, source_event_id, payload, now) do
     %{
+      source_work: Ankole.Principals.WorkAccess.service(),
       agent_uid: endpoint.agent_uid,
       binding_name: endpoint.binding_name,
       session_id: endpoint.session_id,

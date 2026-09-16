@@ -652,6 +652,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
@@ -799,6 +800,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
@@ -1713,7 +1715,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       for {event_id, entry_id, author, offset, text} <- [
@@ -1952,7 +1956,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored}} =
@@ -2021,7 +2027,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      human_fixture(%{uid: "alice"})
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      human_fixture(%{uid: "bob"})
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
@@ -2323,6 +2331,67 @@ defmodule Ankole.SignalsGatewayIngressTest do
   end
 
   describe "attachment observation surface" do
+    test "a later observation without a path never replaces a materialized attachment" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :record_only)
+      observed_at = DateTime.add(@base_time, 500, :millisecond)
+
+      pending =
+        group_entry(%{
+          source_event_id: "evt-guarded-image",
+          source_entry_id: "msg-guarded-image",
+          text: nil,
+          attachments: [
+            %{provider_ref: "lark:image:guarded", source_message_id: "msg-guarded-image"}
+          ],
+          metadata: Ingress.put_attachment_materialization(%{}, "pending", observed_at)
+        })
+
+      assert {:ok, _pending} = Ingress.emit_entry(agent.uid, "bot", pending, now: observed_at)
+
+      %Entry{attachments: [%{"attachment_id" => attachment_id}]} =
+        Repo.get_by!(Entry,
+          signal_channel_id: "lark:chat:group-a",
+          source_entry_id: "msg-guarded-image"
+        )
+
+      path = "/agents/#{agent.uid}/user-files/inbox/#{attachment_id}/chart.png"
+
+      complete =
+        pending
+        |> Map.put(
+          :metadata,
+          Ingress.put_attachment_materialization(%{}, "complete", observed_at)
+        )
+        |> put_in([:attachments, Access.at(0), :agent_computer_path], path)
+        |> put_in([:attachments, Access.at(0), :materialization_state], "complete")
+
+      assert {:ok, _complete} =
+               Ingress.emit_entry(agent.uid, "bot", complete,
+                 now: DateTime.add(observed_at, 1, :second)
+               )
+
+      failed =
+        pending
+        |> Map.put(:metadata, Ingress.put_attachment_materialization(%{}, "failed", observed_at))
+        |> put_in([:attachments, Access.at(0), :materialization_state], "failed")
+
+      assert {:ok, _late} =
+               Ingress.emit_entry(agent.uid, "bot", failed,
+                 now: DateTime.add(observed_at, 2, :second)
+               )
+
+      assert %Entry{attachments: [kept]} =
+               Repo.get_by!(Entry,
+                 signal_channel_id: "lark:chat:group-a",
+                 source_entry_id: "msg-guarded-image"
+               )
+
+      assert kept["attachment_id"] == attachment_id
+      assert kept["agent_computer_path"] == path
+      assert kept["materialization_state"] == "complete"
+    end
+
     test "attachments need bytes until the ID and the path both point into this agent's inbox" do
       materialized = %{
         "attachment_id" => 10_042,

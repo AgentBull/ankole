@@ -14,7 +14,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     ConnectionReconciler,
     ConnectionSupervisor,
     Dispatcher,
-    EntityText,
     ErrorPolicy,
     Inbound,
     Outbox,
@@ -22,6 +21,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     ReplyPreview
   }
 
+  alias Ankole.Plugins.UTF16Text
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
@@ -328,8 +328,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
   describe "inbound projection" do
     test "reads Telegram UTF-16 entity offsets without splitting supplementary characters" do
-      assert EntityText.slice("😀 @AnkoleBot hi", 3, 10) == "@AnkoleBot"
-      assert EntityText.slice("😀 @AnkoleBot hi", 0, 2) == "😀"
+      assert UTF16Text.slice("😀 @AnkoleBot hi", 3, 10) == "@AnkoleBot"
+      assert UTF16Text.slice("😀 @AnkoleBot hi", 0, 2) == "😀"
     end
 
     test "projects private, addressed group, and forum-topic messages with stable identities" do
@@ -898,6 +898,11 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   describe "actions and outbound" do
+    setup do
+      Ankole.PrincipalsFixtures.human_fixture(%{uid: "human-a"})
+      :ok
+    end
+
     test "checkpoints one mutable reply and edits the same Telegram message" do
       parent = self()
       %{principal: agent} = agent_fixture()

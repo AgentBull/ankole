@@ -290,14 +290,16 @@ defmodule AnkoleWeb.SetupController do
          brain_packs = WebSession.setup_brain_packs(conn),
          {:ok, provider} <- require_local_provider(),
          {:ok, display_name} <- validate_local_admin_display_name(params["display_name"]),
-         {:ok, principal_uid} <- ensure_local_admin_account(email, display_name, params["password"]),
+         {:ok, principal_uid} <-
+           ensure_local_admin_account(email, display_name, params["password"]),
          {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid, brain_packs) do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_admin_session(%{
         principal_uid: principal_uid,
         provider_id: provider["provider_id"],
-        external_id: email
+        external_id: email,
+        auth_time: System.system_time(:second)
       })
       |> json(%{returnTo: "/console"})
     else

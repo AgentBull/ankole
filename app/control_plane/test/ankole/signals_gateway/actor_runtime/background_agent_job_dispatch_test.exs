@@ -85,6 +85,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "owner-session-custom-profile-retry",
                "source_tool_call_id" => "tool-custom-profile-retry",
@@ -721,6 +722,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-respawn-affinity",
                "source_tool_call_id" => "tool-respawn-affinity",
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "message" => "Continue with the follow-up.",
                "reply_route" => %{
                  "binding_name" => "lark",
@@ -1994,6 +1996,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "owner-session-#{suffix}",
                "source_tool_call_id" => "tool-background-agent-job-#{suffix}",

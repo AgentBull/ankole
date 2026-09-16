@@ -27,6 +27,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       end
 
     attrs = %{
+      source_work: event_authorization(repo, fact, type),
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       session_id: session_id,
@@ -266,4 +267,16 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
        when is_binary(source_entry_id), do: "signal_gateway_entries:#{source_entry_id}"
 
   defp envelope_subject(_fact), do: nil
+
+  defp event_authorization(_repo, _fact, "im.message.may_intervene"),
+    do: Ankole.Principals.WorkAccess.service()
+
+  defp event_authorization(_repo, _fact, "signal.entry.removed"),
+    do: Ankole.Principals.WorkAccess.service()
+
+  defp event_authorization(repo, fact, _type) do
+    if Map.has_key?(fact, :finalized_batch_id),
+      do: Ankole.Principals.WorkAccess.from_observation(repo, fact.author),
+      else: Ankole.Principals.WorkAccess.from_sender(repo, Map.get(fact, :sender_key))
+  end
 end

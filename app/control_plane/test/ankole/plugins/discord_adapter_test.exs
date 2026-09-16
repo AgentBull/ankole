@@ -1086,6 +1086,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   end
 
   describe "actions and outbound" do
+    setup do
+      Ankole.PrincipalsFixtures.human_fixture(%{uid: "human-a"})
+      :ok
+    end
+
     test "checkpoints one mutable reply and edits the same Discord message" do
       parent = self()
       %{principal: agent} = agent_fixture()

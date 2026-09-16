@@ -143,6 +143,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           type: %Schema{type: :string, enum: ["public", "confidential"]},
           redirect_uris: %Schema{type: :array, items: %Schema{type: :string}},
           scopes: %Schema{type: :array, items: %Schema{type: :string}},
+          allowed_identity_provider_ids: %Schema{type: :array, items: %Schema{type: :string}},
+          backchannel_logout_uri: %Schema{type: :string, nullable: true},
+          backchannel_logout_session_required: %Schema{type: :boolean},
+          post_logout_redirect_uris: %Schema{type: :array, items: %Schema{type: :string}},
+          allow_insecure_local_logout: %Schema{type: :boolean},
           allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
           allowed_models: %Schema{
             type: :object,
@@ -158,6 +163,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :type,
           :redirect_uris,
           :scopes,
+          :allowed_identity_provider_ids,
+          :backchannel_logout_uri,
+          :backchannel_logout_session_required,
+          :post_logout_redirect_uris,
+          :allow_insecure_local_logout,
           :allowed_group_ids,
           :allowed_models,
           :inserted_at,
@@ -191,6 +201,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
               enum: ["openid", "profile", "email", "offline_access", "ai_gateway.write"]
             }
           },
+          allowed_identity_provider_ids: %Schema{type: :array, items: %Schema{type: :string}},
+          backchannel_logout_uri: %Schema{type: :string, nullable: true},
+          backchannel_logout_session_required: %Schema{type: :boolean},
+          post_logout_redirect_uris: %Schema{type: :array, items: %Schema{type: :string}},
+          allow_insecure_local_logout: %Schema{type: :boolean},
           allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
           allowed_models: %Schema{
             type: :object,
@@ -233,6 +248,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
               enum: ["openid", "profile", "email", "offline_access", "ai_gateway.write"]
             }
           },
+          allowed_identity_provider_ids: %Schema{type: :array, items: %Schema{type: :string}},
+          backchannel_logout_uri: %Schema{type: :string, nullable: true},
+          backchannel_logout_session_required: %Schema{type: :boolean},
+          post_logout_redirect_uris: %Schema{type: :array, items: %Schema{type: :string}},
+          allow_insecure_local_logout: %Schema{type: :boolean},
           allowed_group_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
           allowed_models: %Schema{
             type: :object,

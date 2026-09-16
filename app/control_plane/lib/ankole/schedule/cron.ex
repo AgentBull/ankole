@@ -48,7 +48,10 @@ defmodule Ankole.Schedule.Cron do
 
     with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts) do
       Repo.transact(fn repo ->
-        with :ok <-
+        attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+        with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+             :ok <-
                AutomationJobs.validate_bindable_in_tx(
                  repo,
                  attrs.automation_job_id,
@@ -150,36 +153,41 @@ defmodule Ankole.Schedule.Cron do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      case Store.lock_cron_schedule(repo, cron_schedule_id) do
-        %CronSchedule{status: "paused"} = schedule ->
-          with :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
-               {:ok, next_fire_at} <-
-                 Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
-            # A bound that ran out while the schedule was paused makes resume
-            # complete it: that is the schedule's true state, not an error.
-            if bound_spent?(repo, schedule, next_fire_at) do
-              complete_schedule_in_tx(repo, schedule, now, opts)
-            else
-              with {:ok, schedule} <- put_schedule_status(repo, schedule, "active") do
-                sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+      with :ok <-
+             Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id) do
+        case Store.lock_cron_schedule(repo, cron_schedule_id) do
+          %CronSchedule{status: "paused"} = schedule ->
+            with :ok <-
+                   Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+                 {:ok, next_fire_at} <-
+                   Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
+              # A bound that ran out while the schedule was paused makes resume
+              # complete it: that is the schedule's true state, not an error.
+              if bound_spent?(repo, schedule, next_fire_at) do
+                complete_schedule_in_tx(repo, schedule, now, opts)
+              else
+                with {:ok, schedule} <- put_schedule_status(repo, schedule, "active") do
+                  sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+                end
               end
             end
-          end
 
-        %CronSchedule{status: "active"} = schedule ->
-          with :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
-               :ok <- assert_recurring_invariant_in_tx(repo, schedule) do
-            {:ok, schedule}
-          end
+          %CronSchedule{status: "active"} = schedule ->
+            with :ok <-
+                   Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+                 :ok <- assert_recurring_invariant_in_tx(repo, schedule) do
+              {:ok, schedule}
+            end
 
-        %CronSchedule{status: "completed"} ->
-          {:error, :cron_schedule_completed}
+          %CronSchedule{status: "completed"} ->
+            {:error, :cron_schedule_completed}
 
-        %CronSchedule{status: "deleted"} ->
-          {:error, :cron_schedule_deleted}
+          %CronSchedule{status: "deleted"} ->
+            {:error, :cron_schedule_deleted}
 
-        nil ->
-          {:error, :cron_schedule_not_found}
+          nil ->
+            {:error, :cron_schedule_not_found}
+        end
       end
     end)
   end
@@ -210,7 +218,9 @@ defmodule Ankole.Schedule.Cron do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
+      with :ok <-
+             Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id),
+           %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            :ok <- Store.reject_terminal(schedule),
            :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
            {:ok, request_id} <- manual_request_id(opts),
@@ -597,6 +607,9 @@ defmodule Ankole.Schedule.Cron do
          tool_call_id
        ) do
     %{
+      authorization_kind: schedule.authorization_kind,
+      human_uid: schedule.human_uid,
+      human_access_version: schedule.human_access_version,
       kind: "cron_fire",
       status: "scheduled",
       agent_uid: schedule.agent_uid,
@@ -746,5 +759,14 @@ defmodule Ankole.Schedule.Cron do
     else
       :ok
     end
+  end
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    repo.update_all(
+      from(s in CronSchedule,
+        where: s.human_uid == ^uid and s.human_access_version < ^version and s.status == "active"
+      ),
+      set: [status: "paused", next_fire_at: nil, updated_at: now]
+    )
   end
 end

@@ -4,6 +4,7 @@ export type EditorDraftStatus = 'loading' | 'absent' | 'ready'
 
 export type EditorDraftIdentity =
   | { resource: 'agent'; uid?: string }
+  | { resource: 'oidc-client'; clientID?: string }
   | { resource: 'ai-provider'; providerID?: string }
   | { resource: 'identity-provider'; providerID?: string }
   | { resource: 'principal'; uid?: string }
@@ -31,6 +32,8 @@ type ResolvedEditorDraftIdentity = {
 
 export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): ResolvedEditorDraftIdentity {
   switch (identity.resource) {
+    case 'oidc-client':
+      return sameKey(identity.clientID ? `client:${identity.clientID}` : 'new')
     case 'agent':
       return sameKey(identity.uid ? `agent:${identity.uid}` : 'new')
     case 'ai-provider':
