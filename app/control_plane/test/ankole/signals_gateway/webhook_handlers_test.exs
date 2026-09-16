@@ -13,10 +13,12 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
   defmodule EchoHandler do
     @moduledoc false
 
-    def handle_webhook(%{kind: "validation"} = request) do
+    def handle_webhook(%{kind: "validation", method: "GET"} = request) do
       {:ok,
        %{status: 200, body: request.query_params["validationToken"], content_type: "text/plain"}}
     end
+
+    def handle_webhook(%{kind: "validation"}), do: {:ok, %{status: 405, body: %{}}}
 
     def handle_webhook(%{kind: "events"} = request) do
       send(self(), {:webhook_request, request})
@@ -124,6 +126,7 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
       handler_id: "echo",
       instance_id: "instance-1",
       kind: "events",
+      method: "POST",
       query_params: %{},
       body_params: %{"type" => "message"},
       raw_body: ~s({"type":"message"}),
@@ -133,13 +136,25 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
     assert {:ok, %{status: 200, body: %{"handled" => "instance-1"}}} =
              WebhookHandlers.dispatch(request, registry)
 
-    assert_received {:webhook_request, %{body_params: %{"type" => "message"}}}
+    assert_received {:webhook_request, %{body_params: %{"type" => "message"}, method: "POST"}}
 
+    # A provider that verifies its callback URL asks for it with a GET, so the
+    # handler decides what each method means.
     assert {:ok, %{status: 200, body: "token-1", content_type: "text/plain"}} =
              WebhookHandlers.dispatch(
-               %{request | kind: "validation", query_params: %{"validationToken" => "token-1"}},
+               %{
+                 request
+                 | kind: "validation",
+                   method: "GET",
+                   raw_body: "",
+                   body_params: %{},
+                   query_params: %{"validationToken" => "token-1"}
+               },
                registry
              )
+
+    assert {:ok, %{status: 405}} =
+             WebhookHandlers.dispatch(%{request | kind: "validation"}, registry)
 
     assert {:error, {:webhook_kind_not_declared, "echo", "directory"}} =
              WebhookHandlers.dispatch(%{request | kind: "directory"}, registry)

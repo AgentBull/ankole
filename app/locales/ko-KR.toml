@@ -2003,6 +2003,7 @@ title = "Ankole 설정"
 validating_and_redirecting = "확인 후 리디렉션 중…"
 
 [signals_gateway.reply]
+choose_option = "선택"
 command_stopped = "중지됨."
 continued = "일시 중지되었습니다. 작업은 다음 카드에서 계속됩니다."
 dead_letter = "이 메시지를 완료하지 못했고 자동 재시도도 중지되었습니다. 원래 요청을 다시 보내거나, 이 메시지에 /retry로 답하거나, /retry actor-event::{$ref}를 보내세요. Provider가 저장된 기록을 거부하면 /compress로 대화를 다시 구성하세요."

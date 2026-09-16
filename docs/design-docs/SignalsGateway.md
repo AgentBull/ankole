@@ -74,7 +74,7 @@ of these values:
 - `enterprise_im` identifies an enterprise messaging adapter. Lark, Slack,
   Microsoft Teams, DingTalk, and WeCom use this category.
 - `consumer_im` identifies a consumer messaging adapter. Telegram, Discord,
-  and LINE use this category.
+  LINE, and WhatsApp use this category.
 - `email` identifies the Email adapter, whose senders are identified only by
   explicit `email` identity bindings.
 
@@ -124,6 +124,12 @@ An ingress adapter can declare these input capabilities:
 The adapter converts provider data to Ankole's common format before it calls
 SignalsGateway. SignalsGateway rejects data that PostgreSQL cannot store before
 it acknowledges the provider.
+
+An adapter can also keep its own provider fact on the channel mirror through
+`update_channel_metadata`, which applies the adapter's function to the stored
+channel metadata under the channel row lock that ingress takes. A monotonic
+value, such as the newest provider time the adapter has seen, therefore cannot
+move backwards through a concurrent or redelivered event.
 
 Provider data and stored JSON use string keys. The outer Elixir input map uses
 atom keys. `Ingress` converts inner JSON keys once and rejects mixed or
@@ -186,12 +192,13 @@ health, and the adapter already gives that short-lived token to the Worker
 shell.
 
 A plugin whose provider delivers events over HTTP declares a
-`signals_gateway.webhook_handler`. The host routes
+`signals_gateway.webhook_handler`. The host routes POST and GET requests to
 `/webhooks/v1/<handler_id>/<instance_id>/<kind>` to that handler for each
-declared kind and passes the parsed body, the query, the headers, and the exact
-request bytes. The handler authenticates the provider itself, usually with a
-signature over those bytes, and completes durable ingress before it returns
-success.
+declared kind and passes the request method, the parsed body, the query, the
+headers, and the exact request bytes. A GET carries no body, and a provider
+uses it to verify that it owns the callback URL. The handler authenticates the
+provider itself, usually with a signature over those bytes, and completes
+durable ingress before it returns success.
 
 Provider-specific setup and webhook behavior belong in each Plugin document.
 

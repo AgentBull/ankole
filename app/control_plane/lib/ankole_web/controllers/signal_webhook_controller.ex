@@ -21,6 +21,7 @@ defmodule AnkoleWeb.SignalWebhookController do
       handler_id: handler_id,
       instance_id: instance_id,
       kind: kind,
+      method: conn.method,
       query_params: conn.query_params,
       body_params: normalized_body_params(conn),
       raw_body: ProviderWebhookBodyReader.body(conn),

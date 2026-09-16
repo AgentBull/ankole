@@ -30,7 +30,8 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
   Ankole.Plugins.TelegramAdapter,
-  Ankole.Plugins.WeComAdapter
+  Ankole.Plugins.WeComAdapter,
+  Ankole.Plugins.WhatsAppAdapter
 ]
 
 # The Email adapter converts GB2312, GBK, and Windows-1252 mail to UTF-8
