@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGateway.Adapters do
   alias Ankole.SignalsGateway.Utils
 
   @contract_id "signals_gateway.adapter"
-  @adapter_categories ["enterprise_im", "consumer_im"]
+  @adapter_categories ["enterprise_im", "consumer_im", "email"]
 
   defmodule Definition do
     @moduledoc """

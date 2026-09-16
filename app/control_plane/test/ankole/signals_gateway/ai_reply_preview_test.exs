@@ -64,7 +64,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
   defmodule PostOnlySignalProviderPlugin do
     @moduledoc """
-    Mirrors an adapter that can post but cannot thread, like WeCom or DingTalk.
+    Mirrors an adapter that can post and edit but cannot thread.
     """
 
     @behaviour Ankole.Plugins.Plugin
@@ -90,7 +90,41 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
           ingress_module: Inbound,
           outbox_module: Outbox,
           inbound_capabilities: ["entry_receive"],
-          outbound_capabilities: ["post_entry"]
+          outbound_capabilities: ["post_entry", "edit_entry"]
+        }
+      ]
+    end
+  end
+
+  defmodule ImmutableSignalProviderPlugin do
+    @moduledoc """
+    Mirrors an adapter whose sent entries cannot change, like Email.
+    """
+
+    @behaviour Ankole.Plugins.Plugin
+
+    alias Ankole.PluginFixtures.MockSignalProvider.Inbound
+    alias Ankole.PluginFixtures.MockSignalProvider.Outbox
+
+    @impl true
+    def plugin_id, do: "immutable-signal-provider"
+
+    @impl true
+    def display_name, do: %{"default" => "Immutable Signal Provider"}
+
+    @impl true
+    def adapter_declarations do
+      [
+        %{
+          contract_id: "signals_gateway.adapter",
+          id: "mock-provider",
+          adapter_category: "email",
+          plugin_id: plugin_id(),
+          display_name: display_name(),
+          ingress_module: Inbound,
+          outbox_module: Outbox,
+          inbound_capabilities: ["entry_receive"],
+          outbound_capabilities: ["post_entry", "reply_entry"]
         }
       ]
     end
@@ -992,6 +1026,41 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert initial.operation == :post
     assert is_nil(initial.reply_to_source_entry_id)
     assert initial.fallback_visible_text == "no thread here"
+  end
+
+  test "an adapter that cannot edit gets no streaming preview" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(ImmutableSignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    on_exit(fn ->
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("immutable")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok =
+             Events.publish(response, :tool_call_started, %{
+               "call_id" => "call_read_file",
+               "name" => "read_file"
+             })
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "MAIL"})
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "-ACCEPTANCE-READY"})
+
+    # No fragment reaches the provider, so the final reply stays a fresh
+    # message instead of an edit the adapter would refuse.
+    refute_receive {:mock_provider_outbox_sent, _sent}, 300
+    assert Process.alive?(pid)
+    assert is_nil(Repo.get!(ActorEvent, actor_event.id).reply_preview_source_entry_id)
   end
 
   test "startup closes a completed event whose durable reply outlived an open preview" do

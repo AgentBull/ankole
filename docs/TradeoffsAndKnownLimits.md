@@ -13,28 +13,20 @@ Principal and AuthZ control access inside that instance. They do not isolate
 organizations that do not trust the same infrastructure. Run a separate
 deployment instance for each organization.
 
-## Provider Subject IDs Share One Principal Namespace
+## An Equal Principal UID Is Not an Identity
 
-Provider names scope external identity binding rows. They do not partition
-Principal identity. When a provider subject has no existing binding, runtime
-admission first matches its normalized email and mobile data. If those values
-match no Principal, admission matches the normalized primary external ID to an
-installation-wide Principal UID.
+A Principal UID is a name. A local account uses its sign-in email as its UID,
+and a directory-created Principal uses the provider subject id. When a
+provider subject has no binding and matches no attested contact, admission
+creates a new Principal; it does not join an existing Principal whose UID
+equals the subject id, and it refuses the write when that UID is taken.
 
-After contact matching misses, this rule intentionally makes equal normalized
-subject IDs from different providers share one Principal. The accounts can
-belong to different real people. In that case they also share the Principal's
-permissions, audit identity, and canonical Brain person object. Ankole accepts
-this collision as an explicit cost of the installation-wide Principal identity
-rule.
-
-An operator who needs separate Principals must write an explicit binding for
-the provider subject before automatic admission. An existing provider binding
-always wins.
-
-Do not prepend a provider name to a generated Principal UID. That would replace
-this tradeoff with provider isolation and split one global Principal into
-provider-specific identities. See [Principal](design-docs/Principal.md).
+The cost is that a provider subject whose id equals an existing Principal UID
+gets no account by itself: identity admission holds the sender for manual
+review, and the subject stays unmapped until an operator binds it to a
+Principal. Ankole accepts this cost because the alternative silently gives an
+account to whoever controls a matching identifier, which for an email address
+can be anyone on the internet. See [Principal](design-docs/Principal.md).
 
 ## The Worker Container Protects the Host
 

@@ -332,13 +332,18 @@ defmodule AnkoleWeb.SignalBindingController do
     }
   end
 
+  # An `unsupported` row stops without a recovery state: the route or the
+  # adapter capability, not a provider failure, ended it.
+  defp delivery_state(%{status: :unsupported}), do: "unsupported"
+  defp delivery_state(outbox), do: outbox.recovery_state["state"]
+
   defp signal_delivery_json(outbox) do
     %{
       agent_uid: outbox.agent_uid,
       binding_name: outbox.binding_name,
       outbound_key: outbox.outbound_key,
       status: Atom.to_string(outbox.status),
-      state: outbox.recovery_state["state"],
+      state: delivery_state(outbox),
       attempt_count: outbox.attempt_count,
       max_attempts: outbox.max_attempts,
       possible_duplicate: outbox.recovery_state["possible_duplicate"] == true,

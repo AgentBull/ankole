@@ -10,6 +10,7 @@ describe('groupSignalAdapters', () => {
   test('renders non-empty groups in the fixed order without changing adapter IDs', () => {
     const adapters = [
       adapter('dingtalk', 'enterprise_im'),
+      adapter('email', 'email'),
       adapter('lark', 'enterprise_im'),
       adapter('telegram', 'consumer_im')
     ]
@@ -30,6 +31,11 @@ describe('groupSignalAdapters', () => {
         category: 'consumer_im',
         labelKey: 'console.signals.adapter_group_consumer_im',
         adapterIDs: ['telegram']
+      },
+      {
+        category: 'email',
+        labelKey: 'console.signals.adapter_group_email',
+        adapterIDs: ['email']
       }
     ])
   })
