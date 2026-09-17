@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.5.1-rc.1 (2026-09-17)
+
+- Cron fires created before the Human authorization upgrade recover the authorization already held by their schedule, so pending tasks no longer fail because that migration omitted their authority. Revoked access remains blocked, and failed tasks retain their history; run a missed task manually after the upgrade if it is still needed.
+
 ## Version 1.5.0-rc.1 (2026-09-16)
 
 - WhatsApp is now available as a chat provider. Give a binding the Meta App ID, App secret, verify token, phone number ID, and a permanent System User access token, then set the App's callback URL to `https://<host>/webhooks/v1/whatsapp/<appId>/events` with the same verify token and subscribe the App to the `messages` field. Several phone numbers of one App can each serve their own agent.

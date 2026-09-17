@@ -398,7 +398,12 @@ Backfill work associations only from reliable records. Require manual review
 for unresolved work. Preserve existing UIDs and identity bindings.
 
 The migration backfills Human senders and work with a recorded source event
-from that Human. This includes automation jobs that have such an event. A
+from that Human. This includes automation jobs that have such an event.
+Pending or failed cron fires without a source event inherit the established
+authorization of their recorded cron rule for the same Agent. The repair retains
+the rule's captured access version and each fire's status and error. It does
+not renew revoked access or replay failed fires; use the rule's manual run action
+when a missed task must run. Canceled and completed fires keep their history. A
 legacy Console cron with only `created_by.principal_uid`, work without a proven
 source, and events from non-Human senders remain `review_required`. Inspect
 the unresolved-work list before rollout; its size depends on the stored facts.
