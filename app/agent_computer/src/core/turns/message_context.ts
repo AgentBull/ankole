@@ -2,6 +2,7 @@ import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-su
 import type { TurnStart } from '../../lanes/actor_lane'
 import { formatZonedDateTime } from '../../prompts/zoned_time'
 import type { TextContent, UserMessage } from '../llm'
+import { backgroundAgentJobTurnContextFromTurnStart } from './background_agent_job_turn_context'
 import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
@@ -62,6 +63,12 @@ export function actorEventEnvironmentInfoLines(
  */
 export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] {
   const context = scheduleTurnContextFromTurnStart(turnStart)
+  const backgroundAgentJobContext = backgroundAgentJobTurnContextFromTurnStart(turnStart)
+  if (!context && !backgroundAgentJobContext) return []
+
+  if (backgroundAgentJobContext) {
+    return [`background_job_silent_success_allowed: ${backgroundAgentJobContext.silentSuccessAllowed}`]
+  }
   if (!context) return []
 
   const origin = context.origin

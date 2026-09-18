@@ -850,6 +850,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "result_summary" => result_summary(job),
           "delivery_status" => delivery_status(job),
           "delivery_issue_count" => delivery_issue_count(job),
+          "silent_success_allowed" => silent_success_allowed?(job),
           "artifacts" => bounded_path_handoff(Map.get(job.result || %{}, "artifacts")),
           "artifact_roots" => bounded_path_handoff(Map.get(job.result || %{}, "artifact_roots")),
           "project_path" => Map.get(job.result || %{}, "project_path"),
@@ -896,6 +897,24 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp delivery_issue_count(%Job{}), do: nil
+
+  defp silent_success_allowed?(%Job{
+         status: "succeeded",
+         result: %{"verification" => verification}
+       })
+       when is_map(verification) do
+    verification_ok? = Map.get(verification, "ok") == true
+    message_id? = non_empty_text?(Map.get(verification, "message_id"))
+    no_error? = Map.get(verification, "error") in [nil, ""]
+    no_issues? = Map.get(verification, "issues") in [nil, []]
+
+    verification_ok? and message_id? and no_error? and no_issues?
+  end
+
+  defp silent_success_allowed?(%Job{}), do: false
+
+  defp non_empty_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp non_empty_text?(_value), do: false
 
   defp bound_result_path_handoffs(%{"result" => result} = attrs) when is_map(result) do
     result =

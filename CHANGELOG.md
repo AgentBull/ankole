@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.5.2-rc.1 (2026-09-18)
+
+- A completed Background Agent Job can finish silently after its result is already delivered, and its internal `silent_success` result no longer appears as raw JSON in a provider chat or live preview.
+- Silent completion now requires a persisted provider-delivery verification record; missing or incomplete delivery evidence produces a visible parent result instead.
+
 ## Version 1.5.1-rc.1 (2026-09-17)
 
 - Cron fires created before the Human authorization upgrade recover the authorization already held by their schedule, so pending tasks no longer fail because that migration omitted their authority. Revoked access remains blocked, and failed tasks retain their history; run a missed task manually after the upgrade if it is still needed.

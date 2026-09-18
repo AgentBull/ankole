@@ -18,6 +18,7 @@ import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
 import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
+import { backgroundAgentJobTurnContextFromTurnStart } from './background_agent_job_turn_context'
 import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
 import { parseScheduledReply, scheduledReplyFormat, scheduledReplyReminder } from './scheduled_reply'
 import { createTurnWebTools } from './turn_web_tools'
@@ -296,6 +297,15 @@ export function textTurnResultFromAssistantReply(
     return { kind: 'noop_completed', reason: 'schedule_silent_success', finalResponseID }
   }
 
+  if (
+    outcome === 'loop_finished' &&
+    turnStart.actor_event.type === 'background_agent_job.completed' &&
+    parseScheduledReply(replyText, backgroundAgentJobTurnContextFromTurnStart(turnStart)?.silentSuccessAllowed ?? false)
+      ?.outcome === 'silent_success'
+  ) {
+    return { kind: 'noop_completed', reason: 'background_agent_job_silent_success', finalResponseID }
+  }
+
   return { kind: 'turn_completed', finalResponseID, outcome }
 }
 
@@ -310,6 +320,18 @@ export function textTurnReplyRepair(turnStart: TurnStart, replyText: string): Us
       ? undefined
       : userMessage(scheduledReplyReminder(schedule.silentSuccessAllowed))
   }
+
+  const backgroundAgentJobContext = backgroundAgentJobTurnContextFromTurnStart(turnStart)
+  if (
+    backgroundAgentJobContext &&
+    !backgroundAgentJobContext.silentSuccessAllowed &&
+    parseScheduledReply(replyText, true)?.outcome === 'silent_success'
+  ) {
+    return userMessage(
+      'This completed background agent job has no verified provider-delivery receipt. Do not return silent_success. Return a concise visible result from the completed job.'
+    )
+  }
+
   if (replyText.trim() !== '') return undefined
 
   const lines = [

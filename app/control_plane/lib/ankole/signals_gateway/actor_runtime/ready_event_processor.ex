@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.AmbientIntervention
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurn
   alias Ankole.SignalsGateway.ActorRuntime.EntryLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.RuntimeCommand
   alias Ankole.SignalsGateway.ActorRuntime.ScheduledTurn
@@ -74,6 +75,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
         %ActorEvent{type: type} = event
         when type in ["check_back_later.wakeup", "cron.fire"] ->
           TurnLifecycle.start_worker_turn(actor_key, event, ScheduledTurn.opts(event, opts))
+
+        %ActorEvent{type: "background_agent_job.completed"} = event ->
+          TurnLifecycle.start_worker_turn(
+            actor_key,
+            event,
+            BackgroundAgentJobTurn.wakeup_opts(event, opts)
+          )
 
         %ActorEvent{type: "im.message.may_intervene"} = event ->
           AmbientIntervention.process(actor_key, event, opts)

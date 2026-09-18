@@ -608,6 +608,49 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert retry.reason == first.reason
     end
 
+    test "background-job noop requires the persisted delivery receipt" do
+      %{event: event, turn_ref: turn_ref} = start_accepted_turn("background-noop-receipt")
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          type: "background_agent_job.completed",
+          payload: %{"data" => %{"silent_success_allowed" => false}}
+        })
+        |> Repo.update!()
+
+      assert {:error, :background_agent_job_silent_success_not_allowed} =
+               complete_turn_silent(turn_ref)
+
+      assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+
+      assert %{outbound_key: "ai-dead-letter:" <> _, fallback_visible_text: text} =
+               Repo.get_by!(OutboxEntry, source_actor_event_id: event.id)
+
+      refute text =~ "silent_success"
+    end
+
+    test "background-job noop is accepted with the persisted delivery receipt" do
+      %{event: event, turn_ref: turn_ref} = start_accepted_turn("background-noop-verified")
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          type: "background_agent_job.completed",
+          payload: %{"data" => %{"silent_success_allowed" => true}}
+        })
+        |> Repo.update!()
+
+      assert {:ok,
+              %{status: :turn_completed, outboxes: %{finals: [], attachments: [], clarify: nil}}} =
+               complete_turn_silent(turn_ref)
+
+      assert %{turn_outcome: "silent", completed_at: %DateTime{}} =
+               Repo.get!(ActorEvent, event.id)
+
+      refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
+    end
+
     test "abort RPC preserves input and acknowledges a retry" do
       %{event: event, turn_ref: turn_ref, route: route} = start_accepted_turn("abort-rpc")
 

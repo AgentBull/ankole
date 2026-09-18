@@ -54,6 +54,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @rich_creation_debounce_ms 350
   # Keep rich-preview recovery responsive after repeated temporary failures.
   @rich_retry_max_ms 30_000
+  @silent_success_marker ~s({"outcome":"silent_success","reply":null})
 
   # These event types can use a Turn's AI output as a reply to a Signal channel.
   # Other provider-visible effects have separate lifecycle owners.
@@ -952,29 +953,37 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     if is_binary(delta) do
       input_superseded? = state.input_superseded
       new_buffer = state.text_buffer <> delta
-      preview_text = AIReplyText.normalize_visible_text(new_buffer)
 
-      state = %{
-        state
-        | text_buffer: new_buffer,
-          preview_text: preview_text,
-          input_superseded: false
-      }
-
-      if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
-        presentation =
-          if input_superseded? do
-            ReplyPresentation.replace_answer(state.presentation, delta)
-          else
-            ReplyPresentation.append_answer(state.presentation, delta)
-          end
-
-        {:noreply,
-         state
-         |> Map.put(:silent_rich_pending, false)
-         |> mark_rich_dirty(presentation)}
+      if ordinary_silent_success_candidate?(state, new_buffer) do
+        {:noreply, %{state | text_buffer: new_buffer}}
       else
-        handle_plain_text_output_delta(state, preview_text)
+        preview_text = AIReplyText.normalize_visible_text(new_buffer)
+        candidate_before? = ordinary_silent_success_candidate?(state, state.text_buffer)
+
+        state = %{
+          state
+          | text_buffer: new_buffer,
+            preview_text: preview_text,
+            input_superseded: false
+        }
+
+        if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
+          presentation_delta = if candidate_before?, do: new_buffer, else: delta
+
+          presentation =
+            if input_superseded? do
+              ReplyPresentation.replace_answer(state.presentation, presentation_delta)
+            else
+              ReplyPresentation.append_answer(state.presentation, presentation_delta)
+            end
+
+          {:noreply,
+           state
+           |> Map.put(:silent_rich_pending, false)
+           |> mark_rich_dirty(presentation)}
+        else
+          handle_plain_text_output_delta(state, preview_text)
+        end
       end
     else
       {:noreply, state}
@@ -1012,6 +1021,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
        do: {:noreply, state}
 
   defp handle_gateway_event(_event_type, _payload, state), do: {:noreply, state}
+
+  defp ordinary_silent_success_candidate?(_state, text) when is_binary(text) do
+    String.starts_with?(@silent_success_marker, String.trim(text))
+  end
 
   defp handle_plain_text_output_delta(state, preview_text) do
     state =
