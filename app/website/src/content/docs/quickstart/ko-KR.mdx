@@ -1871,6 +1871,493 @@ export const channelTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    summary:
+      'Telegram은 Bot API long polling을 사용합니다. Ankole이 아웃바운드 연결로 getUpdates를 호출하므로 채팅 경로에는 공개 webhook이 필요하지 않습니다. Telegram은 소비자용 IM입니다. 사용자가 디렉터리의 직원이 아니므로 첫 메시지 전에 identity 매핑을 계획하세요.',
+    prerequisites: ['@BotFather와 대화할 수 있는 Telegram 계정', '테스트용 개인 채팅 또는 그룹'],
+    basic: {
+      title: 'Telegram bot 준비',
+      steps: [
+        {
+          title: '@BotFather로 bot 생성',
+          body: [
+            '@BotFather에 /newbot을 보내고 표시 이름과 bot으로 끝나는 사용자 이름을 선택한 다음, BotFather가 돌려주는 token을 복사하세요. 라우팅 규칙에 필요한 자격 증명은 이 token 하나입니다.'
+          ]
+        },
+        {
+          title: 'bot이 그룹 메시지를 읽도록 허용',
+          body: [
+            '@BotFather에서 Bot Settings → Group Privacy를 열고 privacy mode를 끄세요. privacy mode가 켜져 있으면 그룹은 /command@bot 명령과 bot에 대한 답장만 전달하므로 @멘션이 Agent에 도달하지 않고, observe_all이나 may_intervene은 다른 메시지를 전혀 보지 못합니다. 이 설정 변경은 bot을 그룹에서 제거하고 다시 추가한 뒤에 적용됩니다.'
+          ]
+        },
+        {
+          title: '이전 webhook 제거',
+          body: [
+            'Ankole은 Bot API를 polling하는데, token에 webhook이 설정되어 있으면 Telegram이 polling을 거부합니다. 다른 프로그램이 이 token을 webhook과 함께 사용했다면 규칙을 활성화하기 전에 삭제하세요. Ankole은 webhook_configured를 보고하며 다른 시스템이 소유한 webhook을 삭제하지 않습니다.'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'curl -s "https://api.telegram.org/bot<botToken>/deleteWebhook"'
+            }
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'botToken',
+              value: '123456789:AA…',
+              description: '@BotFather가 발급한 bot token입니다. 하나의 token은 활성화된 라우팅 규칙 하나에만 속할 수 있습니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '여기서 시작하세요. 직접 메시지, @멘션, /command@bot, bot에 대한 답장이 Agent를 지목합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity 매핑, forum topic, 플랫폼 제한',
+      summary: 'Telegram 사용자를 계정에 매핑하는 방법과 Agent가 사용할 수 없는 Telegram 기능을 확인하려면 펼치세요.',
+      steps: [
+        {
+          title: 'Telegram 사용자를 계정에 매핑',
+          body: [
+            'Telegram 사용자에게는 직원 레코드가 없으므로 새 발신자마다 계정 자동 매핑이 실패합니다. 계정 자동 매핑에 실패한 경우를 수동 검토로 유지하세요. 발신자는 고정 안내 하나를 받고 아이덴티티 → 대기 중인 매핑에 나타나며, 관리자가 Telegram identity를 기존 계정(예: 로컬 비밀번호 계정)에 연결합니다. 그 다음 사용자가 메시지를 다시 보냅니다. 독립 계정 자동 생성은 누구나 Agent와 대화할 수 있는 열린 bot에서만 선택하세요.'
+          ]
+        },
+        {
+          title: '대화가 세션에 매핑되는 방식 확인',
+          bullets: [
+            '개인 채팅, 그룹, 슈퍼그룹은 각각 하나의 Agent 세션을 이룹니다.',
+            '슈퍼그룹의 각 forum topic은 별도의 세션입니다.',
+            '채널 게시물, 다른 bot의 메시지, 익명 또는 게스트 발신자는 무시됩니다.'
+          ]
+        },
+        {
+          title: '플랫폼 제한 준수',
+          bullets: [
+            'Bot API는 20 MB보다 큰 파일을 다운로드할 수 없습니다. Agent는 파일 이름과 크기는 보지만 내용은 읽을 수 없습니다.',
+            'Telegram은 사용자가 메시지를 삭제해도 이벤트를 보내지 않으므로 삭제된 텍스트가 세션 context에 남습니다.',
+            '연결이 끊긴 전송을 Telegram이 수락했을 가능성이 있으면 Ankole은 전송을 자동으로 반복하지 않습니다. 두 번째 답장을 게시하는 대신 중복 가능성 흐름을 적용합니다.'
+          ]
+        },
+        {
+          title: 'Agent마다 별도 bot 사용',
+          body: ['하나의 bot token은 활성화된 라우팅 규칙 하나에만 바인딩할 수 있습니다. 추가 Agent마다 @BotFather에서 bot을 하나 더 만드세요.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'discord',
+    label: 'Discord',
+    summary:
+      'Discord는 아웃바운드 WebSocket을 통한 bot Gateway를 사용하므로 채팅 경로에는 공개 webhook이 필요하지 않습니다. Discord는 소비자용 IM입니다. 사용자가 디렉터리의 직원이 아니므로 첫 메시지 전에 identity 매핑을 계획하세요.',
+    prerequisites: [
+      'Developer Portal에서 애플리케이션을 만들 수 있는 Discord 계정',
+      'bot을 초대할 수 있는 서버 또는 테스트용 직접 메시지'
+    ],
+    basic: {
+      title: 'Discord bot 준비',
+      steps: [
+        {
+          title: '애플리케이션과 bot 생성',
+          body: [
+            'Discord Developer Portal을 열고 New Application을 만든 다음 Bot 페이지를 열어 Reset Token을 선택하세요. token은 바로 복사하세요. Discord는 token을 한 번만 보여 줍니다.'
+          ]
+        },
+        {
+          title: 'message content intent 활성화',
+          body: [
+            'Bot 페이지의 Privileged Gateway Intents에서 Message Content Intent를 켜세요. 이것이 없으면 Discord는 bot을 멘션하지 않은 서버 메시지를 빈 내용으로 전달하므로 Agent는 직접 메시지와 자신을 멘션한 메시지만 읽고, observe_all이나 may_intervene은 대화를 볼 수 없습니다. Ankole은 연결 전에 애플리케이션 플래그를 읽고 애플리케이션에 이 intent가 있을 때만 요청합니다.'
+          ],
+          caution: 'Server Members Intent와 Presence Intent는 필요하지 않습니다. 100개가 넘는 서버에 있는 애플리케이션은 message content intent를 유지하려면 Discord 인증이 필요합니다.'
+        },
+        {
+          title: 'bot을 서버에 초대',
+          body: [
+            'OAuth2 → URL Generator를 열고 bot 스코프를 선택한 다음 아래 권한을 추가하세요. 생성된 URL을 열고 서버를 선택하세요. 이 권한 집합은 Ankole이 호출하는 Discord API만 포함합니다.'
+          ],
+          copyItems: [
+            { value: 'View Channels', description: 'bot이 허용된 채널 보기' },
+            { value: 'Send Messages', description: 'Agent 답장 게시' },
+            { value: 'Send Messages in Threads', description: 'thread 안에서 답장' },
+            { value: 'Read Message History', description: '이전 메시지에 답장하고 편집' },
+            { value: 'Attach Files', description: 'Agent가 보낸 파일 업로드' },
+            { value: 'Add Reactions', description: '반응 추가 및 제거' }
+          ]
+        },
+        {
+          title: 'Interactions Endpoint URL 비워 두기',
+          body: [
+            'General Information 페이지에서 Interactions Endpoint URL을 비워 두세요. 이 값이 설정되면 Discord가 버튼 클릭을 Gateway 대신 그 URL로 게시하므로 Agent 답장의 버튼이 Ankole에 도달하지 않습니다.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'botToken',
+              description: 'Bot 페이지의 bot token입니다. 하나의 token은 활성화된 라우팅 규칙 하나에만 속할 수 있습니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '여기서 시작하세요. 직접 메시지, @멘션, bot에 대한 답장이 Agent를 지목합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity 매핑, thread, 플랫폼 제한',
+      summary: 'Discord 사용자를 계정에 매핑하는 방법과 Agent가 사용할 수 없는 Discord 기능을 확인하려면 펼치세요.',
+      steps: [
+        {
+          title: 'Discord 사용자를 계정에 매핑',
+          body: [
+            'Discord 사용자에게는 직원 레코드가 없으므로 새 발신자마다 계정 자동 매핑이 실패합니다. 계정 자동 매핑에 실패한 경우를 수동 검토로 유지하세요. 발신자는 고정 안내 하나를 받고 아이덴티티 → 대기 중인 매핑에 나타나며, 관리자가 Discord identity를 기존 계정(예: 로컬 비밀번호 계정)에 연결합니다. 그 다음 사용자가 메시지를 다시 보냅니다. 독립 계정 자동 생성은 누구나 Agent와 대화할 수 있는 열린 서버에서만 선택하세요.'
+          ]
+        },
+        {
+          title: '대화가 세션에 매핑되는 방식 확인',
+          bullets: [
+            '직접 메시지와 각 서버 채널은 하나의 Agent 세션을 이룹니다.',
+            '각 thread는 별도의 세션입니다.',
+            '다른 bot의 메시지, webhook 게시물, 시스템 알림, 텍스트와 첨부 파일이 없는 메시지는 무시됩니다.',
+            'Agent 텍스트는 사용자, 역할, everyone에게 알림을 보내지 않습니다. Ankole은 보내는 모든 메시지에서 멘션 파싱을 비활성화합니다.'
+          ]
+        },
+        {
+          title: '플랫폼 제한 준수',
+          bullets: [
+            'Ankole은 최대 25 MB의 첨부 파일을 다운로드합니다. 더 큰 파일은 Agent가 이름과 크기는 보지만 내용은 읽을 수 없습니다.',
+            'Discord는 사용자가 메시지를 삭제해도 Ankole이 사용하는 이벤트를 보내지 않으므로 삭제된 텍스트가 세션 context에 남습니다.',
+            '답장은 2,000자에서 분할됩니다. 카드 하나에는 최대 25개의 버튼이 표시됩니다.',
+            '연결이 끊긴 전송을 Discord가 수락했을 가능성이 있으면 Ankole은 전송을 자동으로 반복하지 않습니다. 두 번째 답장을 게시하는 대신 중복 가능성 흐름을 적용합니다.'
+          ]
+        },
+        {
+          title: 'Agent마다 별도 bot 사용',
+          body: ['하나의 bot token은 활성화된 라우팅 규칙 하나에만 바인딩할 수 있습니다. 추가 Agent마다 애플리케이션을 하나 더 만드세요.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'line',
+    label: 'LINE',
+    summary:
+      'LINE은 Messaging API webhook을 Ankole에 게시합니다. 신뢰된 인증서가 있는 공개 HTTPS endpoint가 필수입니다. LINE은 소비자용 IM입니다. 사용자가 디렉터리의 직원이 아니므로 첫 메시지 전에 identity 매핑을 계획하세요.',
+    alert: {
+      title: 'LINE은 일부 Ankole 기능을 제한합니다',
+      body: [
+        'LINE reply token은 webhook 후 1분이면 만료되고 Agent turn은 보통 그보다 길기 때문에 모든 Agent 답장은 push 메시지입니다. push 메시지는 Official Account의 월간 메시지 요금제에서 차감되므로 요금제가 예상 트래픽을 감당해야 합니다. LINE bot은 메시지를 편집, 전송 취소, 반응할 수 없고 파일을 보낼 수 없으며, 최종 답변 전에 실시간 진행 상황을 표시하지 않습니다.',
+        '모든 제한은 플랫폼 자체에서 비롯되며 Ankole이 우회할 수 없습니다.'
+      ]
+    },
+    prerequisites: [
+      'LINE Developers provider와 Messaging API channel을 만들 권한',
+      '공개 HTTPS Ankole 호스트',
+      '테스트용 LINE 계정'
+    ],
+    basic: {
+      title: 'LINE Official Account 준비',
+      steps: [
+        {
+          title: 'Messaging API channel 생성 및 자격 증명 수집',
+          body: [
+            'LINE Developers Console에서 provider 아래에 Messaging API channel을 만드세요. Basic settings에서 Channel ID와 Channel secret을 복사하고, Messaging API tab에서 장기 channel access token을 발급하세요.'
+          ]
+        },
+        {
+          title: 'webhook을 검증하기 전에 라우팅 규칙 생성',
+          body: [
+            '먼저 Console에서 라우팅 규칙을 저장하고 활성화하세요. Ankole은 알 수 없는 Channel ID의 webhook에 상태 404로 응답하므로, 규칙이 있기 전에는 LINE Developers Console의 Verify 버튼이 실패합니다.'
+          ]
+        },
+        {
+          title: 'webhook URL 설정 및 검증',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/line/<channelId>/events'
+            }
+          ],
+          body: [
+            'Messaging API tab에서 이 URL을 입력하고 Use webhook을 켠 다음 Verify를 선택하세요. channelId 경로 구간은 라우팅 규칙의 Channel ID와 일치해야 합니다. Ankole은 모든 요청의 x-line-signature를 channel secret으로 확인하고 잘못된 서명은 상태 401로 거부합니다.'
+          ]
+        },
+        {
+          title: 'bot만 응답하도록 설정',
+          body: [
+            'LINE Official Account Manager에서 Response settings를 열고 응답 방식을 bot으로 설정한 다음, 계정이 Agent 옆에서 따로 답하지 않도록 자동 응답과 인사 메시지를 끄세요. 그룹 채팅에는 LINE Developers Console에서 Allow bot to join group chats를 활성화하세요.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'channelId',
+              description: 'Messaging API Channel ID입니다. 하나의 channel은 활성화된 라우팅 규칙 하나에만 속할 수 있습니다.'
+            },
+            {
+              name: 'channelSecret',
+              description: 'Basic settings의 Channel secret입니다. Ankole이 webhook 서명을 검증할 때 사용합니다.'
+            },
+            {
+              name: 'channelAccessToken',
+              description: 'Messaging API tab에서 발급한 장기 channel access token입니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '여기서 시작하세요. LINE은 모든 그룹 메시지를 전달하므로 observe_all과 may_intervene도 추가 권한 없이 동작합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity 매핑, 그룹 답장, 플랫폼 제한',
+      summary: 'LINE 사용자를 계정에 매핑하는 방법과 그룹에서 Agent가 동작하는 방식을 확인하려면 펼치세요.',
+      steps: [
+        {
+          title: 'LINE 사용자를 계정에 매핑',
+          body: [
+            'LINE 사용자에게는 직원 레코드가 없으므로 새 발신자마다 계정 자동 매핑이 실패합니다. 계정 자동 매핑에 실패한 경우를 수동 검토로 유지하세요. 발신자는 고정 안내 하나를 받고 LINE 표시 이름으로 아이덴티티 → 대기 중인 매핑에 나타나며, 관리자가 LINE identity를 기존 계정(예: 로컬 비밀번호 계정)에 연결합니다. 그 다음 사용자가 메시지를 다시 보냅니다. LINE user ID는 channel을 소유한 LINE Developers provider에 속하므로, 다른 provider 아래의 channel에는 별도의 매핑이 필요합니다.'
+          ]
+        },
+        {
+          title: '그룹에서 Agent가 동작하는 방식 확인',
+          bullets: [
+            '1:1 채팅, 그룹, 다인 채팅은 각각 하나의 Agent 세션을 이룹니다. LINE에는 thread가 없습니다.',
+            '그룹에서는 bot을 @멘션하거나 bot의 메시지를 인용하면 Agent를 지목합니다. 그룹 답장은 질문한 사람을 인용합니다.',
+            '사용자가 전송 취소한 메시지는 세션 context에서 제거됩니다.'
+          ]
+        },
+        {
+          title: '플랫폼 제한 준수',
+          bullets: [
+            '답장은 5,000자에서 분할되며 요청 하나로 최대 다섯 개의 메시지를 보냅니다. 확인 질문에는 최대 네 개의 버튼이 표시됩니다.',
+            'Ankole은 최대 25 MB의 수신 파일을 다운로드합니다. 더 큰 파일은 Agent가 이름과 크기는 보지만 내용은 읽을 수 없습니다.',
+            'Agent는 파일을 보낼 수 없습니다. 텍스트 답장은 그대로 전달됩니다.',
+            'LINE은 월간 요금제가 소진되면 상태 429로 응답합니다. 요금제 변경이나 다음 달이 되어야 해제됩니다.'
+          ]
+        },
+        {
+          title: 'Agent마다 별도 channel 사용',
+          body: ['하나의 Messaging API channel은 활성화된 라우팅 규칙 하나에만 속할 수 있습니다. 추가 Agent마다 channel을 하나 더 만드세요.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'whatsapp',
+    label: 'WhatsApp',
+    summary:
+      'WhatsApp은 Cloud API webhook을 Ankole에 게시합니다. 신뢰된 인증서가 있는 공개 HTTPS endpoint가 필수입니다. WhatsApp은 소비자용 IM이지만, 전화번호가 이미 알려진 사람에게 속한 발신자는 관리자 작업 없이 매핑됩니다.',
+    alert: {
+      title: 'WhatsApp은 일부 Ankole 기능을 제한합니다',
+      body: [
+        'Meta는 사용자의 최근 메시지 또는 버튼 응답 후 24시간이 지나면 고객 서비스 window를 닫습니다. 그 이후의 답장(예: 예약 보고서)은 명확한 실패로 중단되고 사용자에게 도달하지 않습니다. 사용자가 다시 메시지를 보낸 뒤 운영자가 Signal Routing 페이지에서 다시 시도할 수 있습니다. 그룹 채팅, 템플릿 메시지, 메시지 편집, 메시지 삭제, 실시간 진행 상황 미리보기는 사용할 수 없습니다.',
+        '모든 제한은 플랫폼 자체에서 비롯되며 Ankole이 우회할 수 없습니다.'
+      ]
+    },
+    prerequisites: [
+      'WhatsApp 제품이 추가된 Meta App과 전화번호를 소유한 WhatsApp Business Account',
+      '공개 HTTPS Ankole 호스트',
+      '테스트용 WhatsApp 계정'
+    ],
+    basic: {
+      title: 'WhatsApp Business 전화번호 준비',
+      steps: [
+        {
+          title: 'WhatsApp 제품 연결 및 식별자 수집',
+          body: [
+            'Meta App Dashboard에서 App에 WhatsApp 제품을 추가하고 전화번호를 소유한 WhatsApp Business Account를 연결하세요. App settings → Basic에서 App ID와 App secret을, WhatsApp → API Setup에서 Phone number ID를 복사하세요.'
+          ]
+        },
+        {
+          title: '영구 System User token 발급',
+          body: [
+            'Meta Business Suite에서 System User를 만들고 App에 대한 whatsapp_business_messaging 권한을 부여한 다음 만료 없는 token을 생성하세요. 사용자 token은 만료되어 Agent를 중단시킵니다.'
+          ]
+        },
+        {
+          title: 'callback을 검증하기 전에 라우팅 규칙 생성',
+          body: [
+            'verify token을 정하고 Console에 다른 필드와 함께 입력한 다음 라우팅 규칙을 저장하고 활성화하세요. Meta가 callback URL을 Ankole에 대해 검증하므로 규칙이 먼저 있어야 합니다.'
+          ]
+        },
+        {
+          title: 'callback URL 설정 및 messages 구독',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/whatsapp/<appId>/events'
+            }
+          ],
+          body: [
+            'WhatsApp → Configuration을 열고 이 URL과 같은 verify token을 입력한 다음 Verify and save를 선택하세요. 그런 다음 App을 messages webhook 필드에 구독시키세요. 다른 필드는 사용하지 않습니다. Ankole은 모든 요청의 x-hub-signature-256을 App secret으로 확인하고 잘못된 서명은 상태 401로 거부합니다.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'appId',
+              description: 'Meta App ID입니다. 하나의 App에 속한 여러 전화번호가 각자 다른 Agent를 담당할 수 있으며, 그 규칙들은 같은 App secret과 verify token을 공유해야 합니다.'
+            },
+            {
+              name: 'appSecret',
+              description: 'App settings → Basic의 App secret입니다. Ankole이 webhook 서명을 검증할 때 사용합니다.'
+            },
+            {
+              name: 'verifyToken',
+              description: '직접 정하는 값입니다. Meta callback 구성에 같은 값을 입력하세요.'
+            },
+            {
+              name: 'phoneNumberId',
+              description: 'WhatsApp → API Setup의 Phone number ID입니다. 하나의 번호는 활성화된 라우팅 규칙 하나에만 속할 수 있습니다.'
+            },
+            {
+              name: 'accessToken',
+              description: '영구 System User access token입니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '유일한 모드입니다. WhatsApp은 1:1 채팅만 전달하며 모든 메시지가 Agent를 지목합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity 매핑, 답장, 플랫폼 제한',
+      summary: 'WhatsApp 사용자가 계정이 되는 방식과 Agent가 사용할 수 없는 WhatsApp 기능을 확인하려면 펼치세요.',
+      steps: [
+        {
+          title: 'WhatsApp 사용자가 계정이 되는 방식 확인',
+          body: [
+            '발신자의 WhatsApp ID는 Meta가 확인한 전화번호입니다. 기존 계정이 그 휴대폰 번호를 소유하고 있으면(예: 디렉터리 동기화로) 발신자는 즉시 매핑됩니다. 그렇지 않으면 계정 자동 매핑이 실패합니다. 계정 자동 매핑에 실패한 경우를 수동 검토로 유지하세요. 발신자는 고정 안내 하나를 받고 WhatsApp 프로필 이름과 전화번호로 아이덴티티 → 대기 중인 매핑에 나타나며, 관리자가 identity를 기존 계정에 연결합니다. 독립 계정 자동 생성은 누구나 Agent와 대화할 수 있는 열린 번호에서만 선택하세요.'
+          ]
+        },
+        {
+          title: 'Agent가 답장하는 방식 확인',
+          bullets: [
+            '답장은 사용자의 메시지를 인용합니다. 긴 답장은 4,096자에서 분할됩니다.',
+            '선택지가 최대 세 개인 확인 질문에는 답장 버튼이 표시되고, 그보다 많으면 목록 하나가 표시됩니다. 모든 선택지는 번호로 시작합니다.',
+            'Agent는 유형별 Meta 크기 제한 안에서 이미지, 동영상, 오디오, 문서를 보낼 수 있습니다. Meta가 받지 않는 파일은 명확한 오류로 중단되며 텍스트는 그대로 전달됩니다.',
+            '사용자가 WhatsApp에서 삭제한 메시지는 Ankole에 도달하지 않으므로 그 텍스트는 세션 context에 남습니다.'
+          ]
+        },
+        {
+          title: '고객 서비스 window 준수',
+          body: [
+            'Ankole은 전송 전마다 window를 확인합니다. 사용자의 최근 메시지 또는 버튼 응답 후 24시간이 지난 답장은 customer_service_window_closed로 중단되며 Meta에 요청이 전달되지 않습니다. 새 window를 열 수 있는 유일한 방법인 유료 템플릿 메시지는 현재 계약 범위 밖입니다. 사용자가 다시 메시지를 보내면 Signal Routing 페이지의 Retry로 중단된 답장을 보내세요.'
+          ]
+        },
+        {
+          title: '규칙을 해당 전화번호에 유지',
+          body: [
+            '채팅은 그것을 수신한 전화번호에 바인딩됩니다. 규칙을 다른 번호로 옮기면 이전 채팅에 대한 답장은 사용자가 메시지를 보낸 적 없는 번호에서 나가는 대신 binding_phone_number_mismatch로 중단됩니다. 원래 번호를 복원하면 해제됩니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'email',
+    label: 'Email',
+    summary:
+      'Ankole은 전용 메일함을 IMAP으로 읽고 Agent의 답장을 SMTP로 보냅니다. 각 이메일 thread가 하나의 대화입니다. 메일함은 Agent의 것이며, 어떤 사람도 다른 메일 클라이언트로 읽어서는 안 됩니다.',
+    alert: {
+      title: 'Email은 일부 Ankole 기능을 제한합니다',
+      body: [
+        '다른 메일 클라이언트가 읽음으로 표시한 메시지는 Agent에 도달하지 않으므로 메일함은 전용이어야 합니다. Agent 답장은 실시간 진행 상황, 편집, 버튼이 없는 일반 텍스트 이메일 하나입니다. 확인 질문은 번호가 붙은 텍스트로 도착하고 사람은 일반 답장으로 응답합니다. 비밀번호와 앱 비밀번호 로그인만 지원하므로 Gmail에는 앱 비밀번호가 필요하고, OAuth가 필요한 Exchange Online 메일함은 사용할 수 없습니다.',
+        'control plane이 IMAP과 SMTP 서버에 직접 연결할 수 있어야 합니다. HTTP egress proxy는 이를 다루지 않습니다.'
+      ]
+    },
+    prerequisites: [
+      'IMAP과 SMTP 접근이 가능하고 비밀번호 또는 앱 비밀번호가 있는 전용 메일함',
+      'DMARC 결과가 포함된 Authentication-Results header를 추가하는 메일 서버, 또는 외부 메일을 받지 않는 사설 메일 서버'
+    ],
+    basic: {
+      title: '전용 메일함 준비',
+      steps: [
+        {
+          title: '메일함과 비밀번호 생성',
+          body: [
+            'Agent만 사용하는 메일함을 만들고 IMAP과 SMTP를 활성화하세요. provider가 요구하는 경우 계정 비밀번호 대신 Ankole용 앱 비밀번호를 만드세요.'
+          ],
+          caution: '이 메일함을 다른 메일 클라이언트에서 열지 마세요. 다른 클라이언트가 읽음으로 표시한 메시지는 Agent에 보이지 않습니다.'
+        },
+        {
+          title: '서버 설정 수집',
+          body: [
+            'Ankole은 IMAP에 implicit TLS로 연결하며 보통 포트 993을 사용합니다. SMTP는 STARTTLS(보통 포트 587) 또는 implicit TLS(보통 포트 465)를 사용합니다. Ankole은 서버 인증서를 시스템 CA 저장소로 검증합니다.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            { name: 'address', value: 'agent@example.com', description: '메일함 주소입니다. 답장은 이 주소에서 발송됩니다.' },
+            { name: 'displayName', value: 'Ankole Agent', description: '발신 메일의 보낸 사람 이름입니다.' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP 서버 호스트입니다.' },
+            { name: 'imapPort', value: '993', description: 'IMAP 포트입니다. Ankole은 implicit TLS를 사용합니다.' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP 서버 호스트입니다.' },
+            { name: 'smtpPort', value: '587', description: 'SMTP 포트입니다. STARTTLS에는 587을, TLS에는 465를 사용하세요.' },
+            { name: 'smtpSecurity', value: 'starttls', description: 'SMTP 포트에 맞는 starttls 또는 tls입니다.' },
+            { name: 'username', description: '로그인 이름이며 보통 메일함 주소입니다. 하나의 IMAP 호스트와 username 조합은 활성화된 라우팅 규칙 하나에만 속할 수 있습니다.' },
+            { name: 'password', description: '메일함 비밀번호 또는 앱 비밀번호입니다. Ankole은 이를 암호화하여 저장합니다.' },
+            { name: 'senderAuthentication', value: 'dmarc', description: 'dmarc를 유지하세요. 외부 메일을 받지 않는 사설 메일 서버에서만 none으로 설정하세요.' }
+          ]
+        },
+        {
+          title: '테스트 이메일 전송',
+          body: [
+            '본인 주소에서 메일함으로 메일을 보내세요. 본인 주소가 아직 계정에 연결되지 않았다면 매핑 안내를 답장으로 받습니다. 아이덴티티 → 대기 중인 매핑에서 주소를 연결하고 이메일을 다시 보내세요.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '발신자 identity, 발신자 인증, thread',
+      summary: '이메일 발신자가 알려진 계정이 되는 방식과 Ankole이 thread와 대량 메일을 처리하는 방식을 확인하려면 펼치세요.',
+      steps: [
+        {
+          title: '이메일 발신자가 계정이 되는 방식 확인',
+          body: [
+            '인터넷의 누구나 메일함에 메일을 보낼 수 있고 From 주소만으로는 아무것도 증명되지 않으므로, Ankole은 이메일 발신자를 프로필 이메일이나 로컬 로그인 이메일로 매칭하지 않습니다. 발신자는 명시적인 이메일 identity 바인딩을 통해서만 알려집니다. 디렉터리 동기화와 provider 로그인은 provider가 알려준 주소를 바인딩하므로 동기화된 디렉터리의 직원은 수동 단계 없이 허용되며, 그 밖의 주소는 관리자가 아이덴티티 → 대기 중인 매핑에서 바인딩합니다. 독립 계정 자동 생성은 주소를 식별자로 하는 계정을 만들므로 열린 메일함에서만 사용하세요.'
+          ]
+        },
+        {
+          title: '발신자 인증 이해',
+          body: [
+            'senderAuthentication이 dmarc이면 Ankole은 수신 메일 서버가 추가한 Authentication-Results header를 읽고 From 주소의 도메인에 대해 dmarc=pass가 보고된 경우에만 메시지를 받습니다. 실패한 메시지는 안내 없이 무시됩니다. 메일 서버가 사설 네트워크에 있고 외부 메일을 받지 않는 경우에만 none으로 설정하세요.'
+          ]
+        },
+        {
+          title: 'thread와 대량 메일 처리 방식 확인',
+          bullets: [
+            'thread는 제목이 아니라 In-Reply-To와 References header로 배치됩니다. Agent의 답장에는 메일 클라이언트가 사용하는 thread header가 포함됩니다.',
+            '참여자가 발신자와 메일함만인 thread는 1:1 대화입니다. 다른 수신자가 있으면 그룹 대화가 되며, 메일함을 Cc에만 넣은 메시지는 Agent를 지목하지 않습니다.',
+            '알려진 thread의 메시지에서는 답장 구분선 아래의 인용 텍스트가 제거됩니다. thread의 첫 메시지와 전달된 메시지는 본문 전체를 유지합니다.',
+            '메일함 자신이 보낸 메일, 자동 발송 메일과 대량 메일, 메일링 리스트 메일은 안내 없이 무시됩니다.',
+            '25 MB보다 큰 메시지는 header만 도착합니다. 발신 첨부 파일은 메시지당 20 MB로 제한됩니다.'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1930,7 +2417,7 @@ export const signalAdvanced = {
 | **Private deployment instance** | 엔터프라이즈가 배포하고 관리하는 하나의 완전한 Ankole 시스템 | Instance |
 | **Principal** | Ankole에서 identity와 권한을 가질 수 있는 사람, Agent 또는 시스템 서비스 | Principal |
 | **Identity Provider (IdP)** | Console SSO를 제공하고 직원, 연락처, 조직 구조를 동기화하는 외부 identity 소스 | IdP |
-| **Chat platform** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom 같은 외부 대화 플랫폼 | Platform |
+| **Chat platform** | Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp 또는 메일함 같은 외부 대화 플랫폼 | Platform |
 | **Channel Provider** | 메시지를 받고 Agent 답변을 보내는 하나의 채팅 앱 또는 bot 설정 | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | 시그널 소스에서 Agent로 메시지나 이벤트를 보내는 규칙 | Routing rule |
 | **LLM Provider** | 모델 서비스 endpoint, 자격 증명, 사용 가능한 모델을 저장하는 설정 | LLM Provider |
@@ -2024,6 +2511,8 @@ Console에서 채팅 플랫폼의 Control Plane Plugin을 활성화한 다음, �
 
 하나의 채팅 앱은 보통 하나의 bot identity를 나타냅니다. 여러 Agent가 서로 다른 bot 이름, 아바타, 권한이 필요하다면 플랫폼에 앱을 여러 개 만드세요. 앱을 준비한 뒤 Console에서 라우팅 규칙을 만들고 의도한 Agent에 연결하세요.
 
+Slack, Teams, Lark/Feishu, DingTalk, WeCom은 엔터프라이즈 플랫폼입니다. 사용자는 IdP가 동기화한 디렉터리에서 옵니다. Telegram, Discord, LINE, WhatsApp은 소비자용 IM입니다. 사용자에게 직원 레코드가 없으므로 Agent가 응답하기 전에 관리자가 **아이덴티티 → 대기 중인 매핑**에서 새 발신자마다 계정에 매핑합니다. WhatsApp은 알려진 계정이 이미 그 전화번호를 소유한 경우 발신자를 스스로 매핑합니다. Email은 전용 메일함을 연결하며, 발신자는 명시적인 이메일 identity 바인딩을 통해서만 알려집니다.
+
 <QuickstartTabs
   client:visible
   ariaLabel="Choose a channel provider"
@@ -2042,7 +2531,7 @@ Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 | 필드 | 선택할 값 |
 |---|---|
 | **Target Agent** | 3단계에서 만든 Agent |
-| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom |
+| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp 또는 Email |
 | **Rule name** | `slack-main` 또는 `lark-main` 같은 안정적인 이름 |
 | **Group message mode** | `addressed_only`로 시작 |
 | **Channel settings** | 채널 tab의 자격 증명과 값을 붙여 넣기 |

@@ -11,7 +11,7 @@ order: 3
 
 ## Identity Providers
 
-IdP は Console へのサインインを提供します。プラットフォームが対応している場合、従業員、部門、グループの同期もできます。下の credential 名は Ankole のフォームと一致します。正確な権限、provider console の操作手順、検証手順は、リンク先のガイドを参照してください。
+IdP は Console へのサインインを提供します。プラットフォームが対応している場合、従業員、部門、グループの同期もできます。組み込みのローカルパスワード provider には外部アプリケーションが不要です。常に `/setup` と Console に表示され、メールアドレスと Ankole が保存するパスワードでサインインします。最初の管理者、ディレクトリを持たない小さなチーム、またはコンシューマー向け IM のユーザーをマッピングする先のアカウントに使用してください。下の credential 名は Ankole のフォームと一致します。正確な権限、provider console の操作手順、検証手順は、リンク先のガイドを参照してください。
 
 | プラットフォーム | 外部アプリケーション | 主な設定 | 詳細ガイド |
 |---|---|---|---|
@@ -35,6 +35,13 @@ chat アダプターはメッセージを受信し、Agent の返信を送信し
 | Feishu / Lark | 別個のエンタープライズ自社ビルドアプリまたは Custom App | 常時接続。App ID、App Secret、events、bot 権限 | [Feishu / Lark channel ガイド](../quickstart/?channel=lark#chat-channels) |
 | DingTalk | bot を持つ社内エンタープライズアプリ | Stream モード。Client ID と Client Secret、AI カードは任意 | [DingTalk channel ガイド](../quickstart/?channel=dingtalk#chat-channels) |
 | WeCom | スーパー管理者が作成する API モードの AI bot | 常時接続。Bot ID と bot の Secret | [WeCom channel ガイド](../quickstart/?channel=wecom#chat-channels) |
+| Telegram | @BotFather で作成する bot | ロングポーリング。Bot token、グループのプライバシーモードはオフ | [Telegram channel ガイド](../quickstart/?channel=telegram#chat-channels) |
+| Discord | Developer Portal で作成する bot を持つアプリケーション | Gateway WebSocket。Bot token、メッセージ内容の intent、bot 権限 | [Discord channel ガイド](../quickstart/?channel=discord#chat-channels) |
+| LINE | Official Account の Messaging API channel | Webhook。Channel ID、Channel secret、channel access token、webhook URL | [LINE channel ガイド](../quickstart/?channel=line#chat-channels) |
+| WhatsApp | WhatsApp product を追加した Meta App と Business の電話番号 | Cloud API webhook。App ID、App secret、verify token、Phone number ID、System User token | [WhatsApp channel ガイド](../quickstart/?channel=whatsapp#chat-channels) |
+| Email | IMAP と SMTP を持つ専用のメールボックス | IMAP と SMTP のホストとポート、ログイン名、パスワード、送信者認証 | [Email channel ガイド](../quickstart/?channel=email#chat-channels) |
+
+Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM です。そのユーザーには従業員レコードがないため、Agent が応答する前に、新しい送信者を **アイデンティティ → 保留中のマッピング** でアカウントにマッピングします。WhatsApp では、既知のアカウントがすでにその電話番号を所有している場合、送信者は自動的にマッピングされます。メールの送信者は、明示的なメールの identity 紐付けによってのみ既知になります。この紐付けは、社員についてはディレクトリ同期が作成し、それ以外の人については管理者が作成します。[Signal routing ルール](../signal-bindings/) を参照してください。
 
 外部アプリケーションを準備したら、**Console → Signal Routing → New routing rule** を開きます。Agent とアダプターを選択し、credential を入力します。IdP と chat アプリケーションの両方が同じエンタープライズ組織に属する場合にだけ、両者で同じ `platformSubjectNamespace` を使います。組織をまたいで namespace を共有しないでください。
 

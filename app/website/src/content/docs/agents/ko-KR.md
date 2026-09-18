@@ -64,6 +64,16 @@ Agent 페이지에서 **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY**를 �
 
 첫 LLM Provider와 모델 설정은 [Quick start](../quickstart/#llm-providers)를 참조하십시오.
 
+## 토큰 할당량 설정
+
+model profile 옆의 **토큰 할당량** 섹션은 이 Agent가 반복 주기 동안 소비할 수 있는 token을 제한합니다. 주기 길이(일), 주기 시작 시각, token 한도를 설정하십시오. 할당량이 없는 Agent에는 한도가 없습니다.
+
+이 섹션은 사용한 token을 한도 대비 비율 막대로 표시하고, 현재 주기의 시작 시각과 종료 시각을 표시합니다. Ankole은 Agent가 수행하는 모든 model 호출에 대해 provider가 보고하는 input token과 output token을 집계합니다. 예약된 turn, Workflow, Background Agent Job, 그 호출이 시작하는 compaction도 포함됩니다. Brain model 호출, embedding, 웹 tool, 이미지 생성, 사람이 자신의 token으로 보내는 요청은 집계하지 않습니다.
+
+Agent가 한도에 도달하면 chat 메시지는 답변 대신 사용한 token, 한도, 주기 종료 시각이 담긴 답장을 받습니다. 해당 Agent의 Background Agent Job은 다음 주기를 기다리지 않고 실패합니다. 한도는 각 model 호출 전에 확인하므로, 호출 하나가 자신의 사용량만큼 한도를 넘겨 끝날 수 있습니다. 차단된 메시지는 재전송되지 않습니다. 사용자가 주기가 끝난 뒤 다시 보냅니다.
+
+**주기 재설정**은 그 시점에 새 주기를 시작하므로 Agent가 주기 종료 전에 다시 작업할 수 있습니다. **한도 해제**는 할당량을 제거합니다. 두 경우 모두 사용량 기록은 audit를 위해 남습니다. 다른 지출 레버는 [Cost management](../cost-management/)를 참조하십시오.
+
 ## 기능과 environment variable 구성
 
 Agent는 Agent Plugins와 Skills의 deployment 인스턴스 기본값을 상속합니다. 이를 변경하려면 **Console → Agent Library**를 열고 기본값을 편집하거나 이 Agent에 대한 override를 설정하십시오.
@@ -76,7 +86,7 @@ Skill, 명령줄 tool 또는 MCP service에 API key가 필요하면 Agent 페이
 
 ## chat channel 연결
 
-새 Agent가 Slack, Microsoft Teams, Lark, Feishu 또는 DingTalk에서 메시지를 받으려면 먼저 signal routing 규칙이 필요합니다.
+새 Agent가 Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp 또는 전용 메일함에서 메시지를 받으려면 먼저 signal routing 규칙이 필요합니다.
 
 **Console → Signal routing**을 열고 chat application과 대상 Agent를 선택하십시오. 하나의 chat application에는 여러 규칙을 둘 수 있으며, 서로 다른 Agent를 위해 별도의 bot application을 만들 수 있습니다.
 

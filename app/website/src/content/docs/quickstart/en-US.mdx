@@ -1871,6 +1871,493 @@ export const channelTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    summary:
+      'Telegram uses Bot API long polling. Ankole calls getUpdates over an outbound connection, so the chat path does not need a public webhook. Telegram is a consumer IM: its users are not directory employees, so plan the identity mapping before the first message.',
+    prerequisites: ['A Telegram account that can talk to @BotFather', 'A test private chat or group'],
+    basic: {
+      title: 'Prepare a Telegram bot',
+      steps: [
+        {
+          title: 'Create the bot with @BotFather',
+          body: [
+            'Send /newbot to @BotFather, choose a display name and a username that ends in bot, and copy the token that BotFather returns. The token is the only credential the routing rule needs.'
+          ]
+        },
+        {
+          title: 'Let the bot read group messages',
+          body: [
+            'In @BotFather, open Bot Settings → Group Privacy and turn privacy mode off. With privacy mode on, a group delivers only /command@bot commands and replies to the bot, so an @-mention does not reach the Agent, and observe_all or may_intervene never sees other messages. A change of this setting takes effect after the bot is removed from and added to the group again.'
+          ]
+        },
+        {
+          title: 'Remove an old webhook',
+          body: [
+            'Ankole polls the Bot API, and Telegram refuses to poll while a webhook is set for the token. If another program used this token with a webhook, delete it before you enable the rule. Ankole reports webhook_configured and does not delete a webhook that another system owns.'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'curl -s "https://api.telegram.org/bot<botToken>/deleteWebhook"'
+            }
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'botToken',
+              value: '123456789:AA…',
+              description: 'The bot token from @BotFather. One token can belong to only one enabled routing rule.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'Start here. A direct message, an @-mention, a /command@bot, or a reply to the bot addresses the Agent.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Identity mapping, forum topics, and platform limits',
+      summary: 'Expand to map Telegram users to accounts and to learn which Telegram features the Agent cannot use.',
+      steps: [
+        {
+          title: 'Map Telegram users to accounts',
+          body: [
+            'A Telegram user has no employee record, so account auto-mapping fails for every new sender. Keep When account auto-mapping fails on Manual review: the sender receives one fixed notice, appears under Identity → Pending mappings, and an administrator binds the Telegram identity to an existing account, for example a local-password account. The user then sends the message again. Select Create a standalone account only for an open bot where anyone may talk to the Agent.'
+          ]
+        },
+        {
+          title: 'Know how conversations map to sessions',
+          bullets: [
+            'A private chat, a group, and a supergroup each form one Agent session.',
+            'Each forum topic in a supergroup is a separate session.',
+            'Channel posts, messages from other bots, and anonymous or guest senders are ignored.'
+          ]
+        },
+        {
+          title: 'Respect the platform limits',
+          bullets: [
+            'The Bot API cannot download a file larger than 20 MB. The Agent sees the file name and size but cannot read the content.',
+            'Telegram sends no event when a user deletes a message, so the deleted text stays in the session context.',
+            'When Telegram may have accepted a send that the connection lost, Ankole does not repeat the send automatically. It applies the possible-duplicate flow instead of posting a second reply.'
+          ]
+        },
+        {
+          title: 'Use a separate bot for each Agent',
+          body: ['One bot token can be bound to only one enabled routing rule. Create another bot in @BotFather for each additional Agent.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'discord',
+    label: 'Discord',
+    summary:
+      'Discord uses the bot Gateway over an outbound WebSocket, so the chat path does not need a public webhook. Discord is a consumer IM: its users are not directory employees, so plan the identity mapping before the first message.',
+    prerequisites: [
+      'A Discord account that can create an application in the Developer Portal',
+      'A server where you can invite the bot, or a direct message for the test'
+    ],
+    basic: {
+      title: 'Prepare a Discord bot',
+      steps: [
+        {
+          title: 'Create the application and its bot',
+          body: [
+            'Open the Discord Developer Portal, create a New Application, open the Bot page, and select Reset Token. Copy the token at once; Discord shows it only one time.'
+          ]
+        },
+        {
+          title: 'Enable the message content intent',
+          body: [
+            'On the Bot page, under Privileged Gateway Intents, turn on Message Content Intent. Without it, Discord delivers a server message that does not mention the bot with empty content, so the Agent reads only direct messages and messages that mention it, and observe_all or may_intervene cannot see the conversation. Ankole reads the application flag before it connects and asks for the intent only when the application has it.'
+          ],
+          caution: 'Server Members Intent and Presence Intent are not required. An application in more than 100 servers needs Discord verification before it can keep the message content intent.'
+        },
+        {
+          title: 'Invite the bot to the server',
+          body: [
+            'Open OAuth2 → URL Generator, select the bot scope, and add the permissions below. Open the generated URL and select the server. This set covers only the Discord APIs that Ankole calls.'
+          ],
+          copyItems: [
+            { value: 'View Channels', description: 'See the channels the bot is allowed into' },
+            { value: 'Send Messages', description: 'Post Agent replies' },
+            { value: 'Send Messages in Threads', description: 'Reply inside a thread' },
+            { value: 'Read Message History', description: 'Reply to and edit earlier messages' },
+            { value: 'Attach Files', description: 'Upload files sent by the Agent' },
+            { value: 'Add Reactions', description: 'Add and remove reactions' }
+          ]
+        },
+        {
+          title: 'Leave the Interactions Endpoint URL empty',
+          body: [
+            'On the General Information page, keep Interactions Endpoint URL empty. When it is set, Discord posts button clicks to that URL instead of the Gateway, so the buttons in an Agent reply never reach Ankole.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'botToken',
+              description: 'The bot token from the Bot page. One token can belong to only one enabled routing rule.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'Start here. A direct message, an @-mention, or a reply to the bot addresses the Agent.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Identity mapping, threads, and platform limits',
+      summary: 'Expand to map Discord users to accounts and to learn which Discord features the Agent cannot use.',
+      steps: [
+        {
+          title: 'Map Discord users to accounts',
+          body: [
+            'A Discord user has no employee record, so account auto-mapping fails for every new sender. Keep When account auto-mapping fails on Manual review: the sender receives one fixed notice, appears under Identity → Pending mappings, and an administrator binds the Discord identity to an existing account, for example a local-password account. The user then sends the message again. Select Create a standalone account only for an open server where anyone may talk to the Agent.'
+          ]
+        },
+        {
+          title: 'Know how conversations map to sessions',
+          bullets: [
+            'A direct message and each server channel form one Agent session.',
+            'Each thread is a separate session.',
+            'Messages from other bots, webhook posts, system notices, and messages with no text or attachment are ignored.',
+            'Agent text never notifies a user, a role, or everyone. Ankole disables mention parsing on every message it sends.'
+          ]
+        },
+        {
+          title: 'Respect the platform limits',
+          bullets: [
+            'Ankole downloads an attachment of at most 25 MB. The Agent sees the name and size of a larger file but cannot read the content.',
+            'Discord sends no event that Ankole uses when a user deletes a message, so the deleted text stays in the session context.',
+            'A reply is split at 2,000 characters. A card shows at most 25 buttons.',
+            'When Discord may have accepted a send that the connection lost, Ankole does not repeat the send automatically. It applies the possible-duplicate flow instead of posting a second reply.'
+          ]
+        },
+        {
+          title: 'Use a separate bot for each Agent',
+          body: ['One bot token can be bound to only one enabled routing rule. Create another application for each additional Agent.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'line',
+    label: 'LINE',
+    summary:
+      'LINE posts Messaging API webhooks to Ankole. A public HTTPS endpoint with a trusted certificate is mandatory. LINE is a consumer IM: its users are not directory employees, so plan the identity mapping before the first message.',
+    alert: {
+      title: 'LINE limits some Ankole features',
+      body: [
+        'Every Agent reply is a push message, because a LINE reply token expires one minute after the webhook and an Agent turn is usually longer. Push messages count against the monthly message plan of the Official Account, so the plan must cover the expected traffic. A LINE bot cannot edit, unsend, or react to a message, cannot send files, and shows no live progress before the final answer.',
+        'Every limit comes from the platform itself and Ankole cannot work around it.'
+      ]
+    },
+    prerequisites: [
+      'A LINE Developers provider and permission to create a Messaging API channel',
+      'A public HTTPS Ankole host',
+      'A LINE account for the test'
+    ],
+    basic: {
+      title: 'Prepare a LINE Official Account',
+      steps: [
+        {
+          title: 'Create the Messaging API channel and collect its credentials',
+          body: [
+            'In the LINE Developers Console, create a Messaging API channel under your provider. Copy the Channel ID and the Channel secret from Basic settings, and issue a long-lived channel access token on the Messaging API tab.'
+          ]
+        },
+        {
+          title: 'Create the routing rule before you verify the webhook',
+          body: [
+            'Save and enable the routing rule in the Console first. Ankole answers a webhook for an unknown Channel ID with status 404, so the Verify button in the LINE Developers Console fails until the rule exists.'
+          ]
+        },
+        {
+          title: 'Set the webhook URL and verify it',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/line/<channelId>/events'
+            }
+          ],
+          body: [
+            'On the Messaging API tab, enter this URL, turn on Use webhook, and select Verify. The channelId path segment must match the Channel ID in the routing rule. Ankole checks the x-line-signature of every request with the channel secret and rejects a wrong signature with status 401.'
+          ]
+        },
+        {
+          title: 'Let the bot answer alone',
+          body: [
+            'In LINE Official Account Manager, open Response settings. Set the response method to bot, and turn off auto-response and greeting messages, so the account does not answer next to the Agent. For group chats, enable Allow bot to join group chats in the LINE Developers Console.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'channelId',
+              description: 'The Messaging API Channel ID. One channel can belong to only one enabled routing rule.'
+            },
+            {
+              name: 'channelSecret',
+              description: 'The Channel secret from Basic settings. Ankole uses it to verify webhook signatures.'
+            },
+            {
+              name: 'channelAccessToken',
+              description: 'A long-lived channel access token from the Messaging API tab.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'Start here. LINE delivers every group message, so observe_all and may_intervene also work without extra permissions.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Identity mapping, group replies, and platform limits',
+      summary: 'Expand to map LINE users to accounts and to learn how the Agent behaves in groups.',
+      steps: [
+        {
+          title: 'Map LINE users to accounts',
+          body: [
+            'A LINE user has no employee record, so account auto-mapping fails for every new sender. Keep When account auto-mapping fails on Manual review: the sender receives one fixed notice and appears under Identity → Pending mappings with the LINE display name, and an administrator binds the LINE identity to an existing account, for example a local-password account. The user then sends the message again. A LINE user ID belongs to the LINE Developers provider that owns the channel, so channels under different providers need separate mappings.'
+          ]
+        },
+        {
+          title: 'Know how the Agent behaves in groups',
+          bullets: [
+            'A one-to-one chat, a group, and a multi-person chat each form one Agent session. LINE has no threads.',
+            'In a group, an @-mention of the bot or a quote of one of its messages addresses the Agent. A group reply quotes the asker.',
+            'A message that a user unsends is removed from the session context.'
+          ]
+        },
+        {
+          title: 'Respect the platform limits',
+          bullets: [
+            'A reply is split at 5,000 characters, and one request sends at most five messages. A clarification shows at most four buttons.',
+            'Ankole downloads a received file of at most 25 MB. The Agent sees the name and size of a larger file but cannot read the content.',
+            'The Agent cannot send files. Its text reply is still delivered.',
+            'LINE answers an exhausted monthly plan with status 429. Only a plan change or the next month clears it.'
+          ]
+        },
+        {
+          title: 'Use a separate channel for each Agent',
+          body: ['One Messaging API channel can belong to only one enabled routing rule. Create another channel for each additional Agent.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'whatsapp',
+    label: 'WhatsApp',
+    summary:
+      'WhatsApp posts Cloud API webhooks to Ankole. A public HTTPS endpoint with a trusted certificate is mandatory. WhatsApp is a consumer IM, but a sender whose phone number already belongs to a known person is mapped without any administrator action.',
+    alert: {
+      title: 'WhatsApp limits some Ankole features',
+      body: [
+        'Meta closes the customer service window 24 hours after the user’s newest message or button reply. A reply after that, such as a scheduled report, stops with a clear failure and never reaches the user; an operator can retry it from the Signal Routing page after the user writes again. Group chats, template messages, message edits, message deletions, and a live progress preview are not available.',
+        'Every limit comes from the platform itself and Ankole cannot work around it.'
+      ]
+    },
+    prerequisites: [
+      'A Meta App with the WhatsApp product and a WhatsApp Business Account that owns a phone number',
+      'A public HTTPS Ankole host',
+      'A WhatsApp account for the test'
+    ],
+    basic: {
+      title: 'Prepare a WhatsApp Business phone number',
+      steps: [
+        {
+          title: 'Connect the WhatsApp product and collect the identifiers',
+          body: [
+            'In the Meta App Dashboard, add the WhatsApp product to the App and connect the WhatsApp Business Account that owns the phone number. Copy the App ID and the App secret from App settings → Basic, and the Phone number ID from WhatsApp → API Setup.'
+          ]
+        },
+        {
+          title: 'Issue a permanent System User token',
+          body: [
+            'In Meta Business Suite, create a System User, give it the whatsapp_business_messaging permission on the App, and generate a token with no expiry. A user token expires and stops the Agent.'
+          ]
+        },
+        {
+          title: 'Create the routing rule before you verify the callback',
+          body: [
+            'Choose a verify token, enter it and the other fields in the Console, and save and enable the routing rule. Meta verifies the callback URL against Ankole, so the rule must exist first.'
+          ]
+        },
+        {
+          title: 'Set the callback URL and subscribe to messages',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/whatsapp/<appId>/events'
+            }
+          ],
+          body: [
+            'Open WhatsApp → Configuration, enter this URL and the same verify token, and select Verify and save. Then subscribe the App to the messages webhook field; no other field is used. Ankole checks the x-hub-signature-256 of every request with the App secret and rejects a wrong signature with status 401.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'appId',
+              description: 'The Meta App ID. Several phone numbers of one App can each serve their own Agent, and their rules must share the same App secret and verify token.'
+            },
+            {
+              name: 'appSecret',
+              description: 'The App secret from App settings → Basic. Ankole uses it to verify webhook signatures.'
+            },
+            {
+              name: 'verifyToken',
+              description: 'A value you choose. Enter the same value in the Meta callback configuration.'
+            },
+            {
+              name: 'phoneNumberId',
+              description: 'The Phone number ID from WhatsApp → API Setup. One number can belong to only one enabled routing rule.'
+            },
+            {
+              name: 'accessToken',
+              description: 'The permanent System User access token.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'The only mode. WhatsApp delivers one-to-one chats only, and every message addresses the Agent.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Identity mapping, replies, and platform limits',
+      summary: 'Expand to learn how WhatsApp users become accounts and which WhatsApp features the Agent cannot use.',
+      steps: [
+        {
+          title: 'Know how WhatsApp users become accounts',
+          body: [
+            'The sender’s WhatsApp ID is a phone number that Meta verified. When an existing account owns that mobile number, for example from directory sync, the sender is mapped at once. Otherwise account auto-mapping fails: keep When account auto-mapping fails on Manual review, so that the sender receives one fixed notice and appears under Identity → Pending mappings with the WhatsApp profile name and the phone number, and an administrator binds the identity to an existing account. Select Create a standalone account only for an open number where anyone may talk to the Agent.'
+          ]
+        },
+        {
+          title: 'Know how the Agent replies',
+          bullets: [
+            'A reply quotes the user’s message. A long reply is split at 4,096 characters.',
+            'A clarification with up to three choices shows reply buttons; more choices show one list. Every choice starts with its number.',
+            'The Agent can send images, video, audio, and documents within the Meta size limits for each type. A file that Meta does not accept stops with a clear error, and the text still goes out.',
+            'A message that the user deletes in WhatsApp never reaches Ankole, so its text stays in the session context.'
+          ]
+        },
+        {
+          title: 'Respect the customer service window',
+          body: [
+            'Ankole checks the window before every send. A reply more than 24 hours after the user’s newest message or button reply stops with customer_service_window_closed and no request reaches Meta. Paid template messages, the only way to open a new window, are outside the current contract. When the user writes again, use Retry on the Signal Routing page to send the stopped reply.'
+          ]
+        },
+        {
+          title: 'Keep a rule on its phone number',
+          body: [
+            'A chat is bound to the phone number that received it. If you move a rule to another number, replies to the older chats stop with binding_phone_number_mismatch instead of going out from a number the user never wrote to. Restore the original number to release them.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'email',
+    label: 'Email',
+    summary:
+      'Ankole reads a dedicated mailbox over IMAP and sends the Agent’s replies over SMTP. Each email thread is one conversation. The mailbox belongs to the Agent: no person may read it with another mail client.',
+    alert: {
+      title: 'Email limits some Ankole features',
+      body: [
+        'A message that another mail client marks as read never reaches the Agent, so the mailbox must be dedicated. An Agent reply is one plain-text email with no live progress, no edits, and no buttons; a clarification arrives as numbered text and the person answers with a normal reply. Only password and app-password login are supported, so Gmail needs an app password and an Exchange Online mailbox, which requires OAuth, cannot be used.',
+        'The control plane must reach the IMAP and SMTP servers directly; the HTTP egress proxy does not cover them.'
+      ]
+    },
+    prerequisites: [
+      'A dedicated mailbox with IMAP and SMTP access and a password or app password',
+      'A mail server that adds Authentication-Results headers with a DMARC result, or a private mail server that admits no outside mail'
+    ],
+    basic: {
+      title: 'Prepare a dedicated mailbox',
+      steps: [
+        {
+          title: 'Create the mailbox and its password',
+          body: [
+            'Create a mailbox that only the Agent uses, and enable IMAP and SMTP for it. Where the provider requires it, create an app password for Ankole instead of the account password.'
+          ],
+          caution: 'Do not open this mailbox in any other mail client. A message that another client marks as read is invisible to the Agent.'
+        },
+        {
+          title: 'Collect the server settings',
+          body: [
+            'Ankole connects to IMAP over implicit TLS, normally on port 993. SMTP uses STARTTLS, normally on port 587, or implicit TLS, normally on port 465. Ankole verifies the server certificates against the system CA store.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            { name: 'address', value: 'agent@example.com', description: 'The mailbox address. Replies are sent from it.' },
+            { name: 'displayName', value: 'Ankole Agent', description: 'The sender name on outbound mail.' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP server host.' },
+            { name: 'imapPort', value: '993', description: 'IMAP port. Ankole uses implicit TLS.' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP server host.' },
+            { name: 'smtpPort', value: '587', description: 'SMTP port. Use 587 with STARTTLS or 465 with TLS.' },
+            { name: 'smtpSecurity', value: 'starttls', description: 'starttls or tls, matching the SMTP port.' },
+            { name: 'username', description: 'The login name, usually the mailbox address. One IMAP host and username pair can belong to only one enabled routing rule.' },
+            { name: 'password', description: 'The mailbox password or app password. Ankole stores it encrypted.' },
+            { name: 'senderAuthentication', value: 'dmarc', description: 'Keep dmarc. Set none only for a private mail server that admits no outside mail.' }
+          ]
+        },
+        {
+          title: 'Send a test email',
+          body: [
+            'Write to the mailbox from your own address. When your address is not yet bound to your account, you receive the mapping notice as a reply; bind the address under Identity → Pending mappings and send the email again.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Sender identity, sender authentication, and threads',
+      summary: 'Expand to learn how an email sender becomes a known account and how Ankole treats threads and bulk mail.',
+      steps: [
+        {
+          title: 'Know how email senders become accounts',
+          body: [
+            'Anyone on the internet can write to the mailbox, and a From address proves nothing by itself, so Ankole never matches an email sender by a profile email or a local sign-in email. A sender is known only through an explicit email identity binding: directory sync and provider sign-in bind the address the provider reports, so employees of a synced directory are admitted without a manual step; an administrator binds any other address from Identity → Pending mappings. Create a standalone account creates an account whose identifier is the address; use it only for an open mailbox.'
+          ]
+        },
+        {
+          title: 'Understand sender authentication',
+          body: [
+            'With senderAuthentication set to dmarc, Ankole reads the Authentication-Results header that your receiving mail server adds and accepts the message only when it reports dmarc=pass for the domain of the From address. A message that fails is ignored without a notice. Set none only when the mail server is on a private network and admits no outside mail.'
+          ]
+        },
+        {
+          title: 'Know how threads and bulk mail are handled',
+          bullets: [
+            'A thread is placed by its In-Reply-To and References headers, not by subject. A reply from the Agent carries the thread headers that mail clients use.',
+            'A thread whose only participants are the sender and the mailbox is a direct conversation. Other recipients make it a group conversation, and a message that names the mailbox only in Cc does not address the Agent.',
+            'Quoted text below a reply separator is removed from a message in a known thread. The first message of a thread and a forwarded message keep their complete body.',
+            'Mail from the mailbox itself, automatic and bulk mail, and mailing-list mail are ignored without a notice.',
+            'A message larger than 25 MB arrives as headers only. Outbound attachments are limited to 20 MB per message.'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1930,7 +2417,7 @@ This page defines the terms used in Ankole user documentation and interfaces. Th
 | **Private deployment instance** | One complete Ankole system that an enterprise deploys and manages | Instance |
 | **Principal** | A person, Agent, or system service that can have an identity and permissions in Ankole | Principal |
 | **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
-| **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, or WeCom | Platform |
+| **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a mailbox | Platform |
 | **Channel Provider** | One chat application or bot configuration that receives messages and sends Agent replies | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
 | **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
@@ -2024,6 +2511,8 @@ Enable the chat platform's Control Plane Plugin in the Console, and then create 
 
 One chat app usually represents one bot identity. If several Agents need different bot names, avatars, or permissions, create several apps on that platform. After you prepare an app, create its routing rule in the Console and connect it to the intended Agent.
 
+Slack, Teams, Lark/Feishu, DingTalk, and WeCom are enterprise platforms: their users come from the directory that the IdP synchronized. Telegram, Discord, LINE, and WhatsApp are consumer IMs: their users have no employee record, so an administrator maps each new sender to an account under **Identity → Pending mappings** before the Agent serves them; WhatsApp maps a sender by itself when a known account already owns the phone number. Email connects a dedicated mailbox, and a sender is known only through an explicit email identity binding.
+
 <QuickstartTabs
   client:visible
   ariaLabel="Choose a channel provider"
@@ -2042,7 +2531,7 @@ In the Console, open **Signal Routing → New routing rule** and set:
 | Field | What to choose |
 |---|---|
 | **Target Agent** | The Agent you created in step 3 |
-| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk, or WeCom |
+| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or Email |
 | **Rule name** | A stable name such as `slack-main` or `lark-main` |
 | **Group message mode** | Start with `addressed_only` |
 | **Channel settings** | Paste the credentials and values from the channel tab |

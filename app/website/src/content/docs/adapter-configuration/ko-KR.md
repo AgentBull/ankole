@@ -11,7 +11,7 @@ order: 3
 
 ## Identity Providers
 
-IdP는 Console 로그인을 제공합니다. 플랫폼이 지원하면 직원, 부서, 그룹도 동기화할 수 있습니다. 아래의 자격 증명 이름은 Ankole 폼의 이름과 일치합니다. 정확한 권한, provider 콘솔 경로, 검증 단계는 링크된 가이드를 사용하세요.
+IdP는 Console 로그인을 제공합니다. 플랫폼이 지원하면 직원, 부서, 그룹도 동기화할 수 있습니다. 내장된 로컬 비밀번호 provider는 외부 애플리케이션이 필요하지 않습니다. 이 provider는 `/setup`과 Console에 항상 표시되며, Ankole이 저장한 이메일 주소와 비밀번호로 로그인합니다. 첫 번째 관리자, 디렉터리가 없는 소규모 팀, 소비자용 IM 사용자를 매핑할 계정에 사용하세요. 아래의 자격 증명 이름은 Ankole 폼의 이름과 일치합니다. 정확한 권한, provider 콘솔 경로, 검증 단계는 링크된 가이드를 사용하세요.
 
 | 플랫폼 | 외부 애플리케이션 | 주요 구성 | 상세 가이드 |
 |---|---|---|---|
@@ -35,6 +35,13 @@ Provider를 구성한 후 콜백 URL을 `/setup`에 표시된 그대로 등록�
 | Feishu / Lark | 별도의 엔터프라이즈 자체 구축 앱 또는 Custom App | 장기 연결; App ID, App Secret, 이벤트, 봇 권한 | [Feishu / Lark 채널 가이드](../quickstart/?channel=lark#chat-channels) |
 | DingTalk | 봇이 있는 내부 엔터프라이즈 애플리케이션 | Stream 모드; Client ID 및 Client Secret, AI 카드는 선택 사항 | [DingTalk 채널 가이드](../quickstart/?channel=dingtalk#chat-channels) |
 | WeCom | 슈퍼 관리자가 생성한 API 모드 AI 봇 | 장기 연결; Bot ID와 봇 Secret | [WeCom 채널 가이드](../quickstart/?channel=wecom#chat-channels) |
+| Telegram | @BotFather로 생성한 봇 | Long polling; Bot token, 그룹 privacy mode 끄기 | [Telegram 채널 가이드](../quickstart/?channel=telegram#chat-channels) |
+| Discord | Developer Portal에서 봇이 있는 애플리케이션 | Gateway WebSocket; Bot token, message content intent, 봇 권한 | [Discord 채널 가이드](../quickstart/?channel=discord#chat-channels) |
+| LINE | Official Account의 Messaging API channel | Webhook; Channel ID, Channel secret, channel access token, webhook URL | [LINE 채널 가이드](../quickstart/?channel=line#chat-channels) |
+| WhatsApp | WhatsApp 제품이 추가된 Meta App과 Business 전화번호 | Cloud API webhook; App ID, App secret, verify token, Phone number ID, System User token | [WhatsApp 채널 가이드](../quickstart/?channel=whatsapp#chat-channels) |
+| Email | IMAP과 SMTP를 사용하는 전용 메일함 | IMAP과 SMTP 호스트와 포트, 로그인, 비밀번호, 발신자 인증 | [Email 채널 가이드](../quickstart/?channel=email#chat-channels) |
+
+Telegram, Discord, LINE, WhatsApp은 소비자용 IM입니다. 사용자에게 직원 레코드가 없으므로 Agent가 응답하기 전에 새 발신자를 **아이덴티티 → 대기 중인 매핑**에서 계정에 매핑합니다. WhatsApp은 알려진 계정이 이미 그 전화번호를 소유한 경우 발신자를 스스로 매핑합니다. 이메일 발신자는 명시적인 이메일 identity 바인딩을 통해서만 알려지며, 직원의 바인딩은 디렉터리 동기화가 만들고 그 밖의 모든 사람의 바인딩은 관리자가 만듭니다. [Signal routing rules](../signal-bindings/)를 참조하세요.
 
 외부 애플리케이션을 준비한 후 **Console → Signal Routing → New routing rule**을 여세요. Agent와 어댑터를 선택하고 자격 증명을 입력하세요. IdP와 채팅 애플리케이션이 같은 엔터프라이즈 조직에 속할 때만 두 곳에 같은 `platformSubjectNamespace`를 사용하세요. 네임스페이스를 조직 간에 공유하지 마세요.
 

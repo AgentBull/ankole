@@ -8,6 +8,9 @@
 ## Version 1.5.1-rc.1 (2026-09-17)
 
 - Cron fires created before the Human authorization upgrade recover the authorization already held by their schedule, so pending tasks no longer fail because that migration omitted their authority. Revoked access remains blocked, and failed tasks retain their history; run a missed task manually after the upgrade if it is still needed.
+- The website quick start and adapter guide now cover the Telegram, Discord, LINE, WhatsApp, and Email channels: the external app or mailbox each one needs, its platform settings, the Console fields, how a sender becomes a known account, and the platform limits.
+- The website documents the per-Agent token quota on the Agents and Cost management pages, and the disablement and restoration of a departed person, including the administrator recovery command, on the Principals page. The agent-loop page describes the current retry classes and the provider capacity wait ladder.
+- The README and the documentation index list every current chat and identity adapter, and the index links the Automation Jobs, Workflow, Local Password Identity Provider, and Brain Markdoc design documents.
 
 ## Version 1.5.0-rc.1 (2026-09-16)
 

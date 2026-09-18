@@ -87,6 +87,14 @@ Workflow의 `agent()` 호출은 각 attempt마다 완전한 model turn 하나를
 
 Workflow 생성 요청의 `concurrency`와 `max_agent_calls`는 배포 상한을 높일 수 없고 더 낮은 값만 요청할 수 있습니다. Workflow v1은 전체 run을 위한 token 또는 금액 예산을 제공하지 않으며, 각 task는 일반 turn의 iteration, output-token, inactivity 상한을 그대로 적용받습니다. 자세한 사용 방법은 [Workflows](../workflows/)를 참조하세요.
 
+## 레버 7: Agent별 token quota
+
+위의 여섯 레버는 turn 하나의 비용을 결정합니다. token quota는 총량을 막습니다. Agent 하나가 반복 주기 동안 소비할 수 있는 token을 제한하며, 사용량이 한도에 도달하면 AIGateway는 주기가 끝날 때까지 그 Agent의 model 호출을 거부합니다.
+
+Agent 페이지에서 설정합니다. 주기(일), 주기 시작 시각, token 한도를 입력합니다. Agent 페이지는 한도 대비 사용 비율과 현재 주기의 종료 시각을 보여 줍니다. 한도에 도달한 상태에서 도착한 chat 메시지는 사용한 token, 한도, 주기 종료 시각이 담긴 답장을 받습니다. 한도에 도달한 Background Agent Job은 기다리지 않고 실패합니다. 정당한 급증을 계속 진행해야 하면 **주기 재설정**으로 즉시 새 주기를 시작합니다.
+
+quota는 예산 계획 도구가 아니라 정지 장치로 사용하세요. Agent가 한도에 가까워져도 속도를 늦추지 않으며, 호출 하나가 자신의 사용량만큼 한도를 넘겨 끝날 수 있습니다. 아래에서 관찰한 지출을 기준으로, 가장 무거운 정상 주간에 여유를 두고 크기를 정하세요. 필드는 [Agents](../agents/)를 참조하세요.
+
 ## 지출이 실제로 발생하는 곳
 
 model이나 동시성을 바꾸기 전에 Console을 사용하여 호출을 발생시킨 Agent, conversation 또는 Background Agent Job을 찾으세요:

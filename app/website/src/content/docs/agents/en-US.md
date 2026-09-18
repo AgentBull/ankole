@@ -66,6 +66,16 @@ Advanced settings show only options that the selected Provider declares. **Reaso
 
 See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for the first LLM Provider and model setup.
 
+## Set a token quota
+
+The **Token quota** section next to the model profiles limits the tokens that this Agent can consume in a repeating period. Set the period length in days, the period start time, and the token limit. An Agent without a quota has no limit.
+
+The section shows the used tokens as a bar with their share of the limit, and the start and end time of the current period. Ankole counts the input tokens and the output tokens that the provider reports for every model call the Agent makes, including scheduled turns, Workflows, Background Agent Jobs, and the compaction those calls start. Brain model calls, embeddings, web tools, image generation, and requests that a person makes with their own token do not count.
+
+When the Agent reaches the limit, a chat message receives a reply with the used tokens, the limit, and the time the period ends, instead of an answer. A Background Agent Job of that Agent fails and does not wait for the next period. The limit is checked before each model call, so one call can end above the limit by its own usage. Nothing replays a blocked message: the user sends it again after the period ends.
+
+**Reset period** starts a new period at that instant, so the Agent can work again before the period would end. **Remove limit** removes the quota. The usage records stay for audit in both cases. See [Cost management](../cost-management/) for the other spend levers.
+
 ## Configure capabilities and environment variables
 
 The Agent inherits the deployment instance defaults for Agent Plugins and Skills. To change them, open **Console → Agent Library** and edit the defaults or set an override for this Agent.
@@ -78,7 +88,7 @@ It overrides a global value with the same name. See [Environment variables](../w
 
 ## Connect a chat channel
 
-The new Agent needs a signal routing rule before it can receive messages from Slack, Microsoft Teams, Lark, Feishu, or DingTalk.
+The new Agent needs a signal routing rule before it can receive messages from Slack, Microsoft Teams, Lark, Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a dedicated mailbox.
 
 Open **Console → Signal routing** and select the chat application and target Agent. One chat application can have multiple rules, and you can create separate bot applications for different Agents.
 

@@ -11,7 +11,7 @@ During first-run setup, `/setup` shows the login callback URL and a guide link f
 
 ## Identity Providers
 
-An IdP supplies Console sign-in. It can also synchronize employees, departments, or groups when the platform supports this function. The credential names below match the Ankole form. Use the linked guide for the exact permissions, provider-console paths, and verification steps.
+An IdP supplies Console sign-in. It can also synchronize employees, departments, or groups when the platform supports this function. The built-in local password provider needs no external application: it is always listed in `/setup` and the Console, and it signs people in with an email address and a password that Ankole stores. Use it for the first administrator, for a small team without a directory, or for the accounts that consumer-IM users are mapped to. The credential names below match the Ankole form. Use the linked guide for the exact permissions, provider-console paths, and verification steps.
 
 | Platform | External application | Main configuration | Detailed guide |
 |---|---|---|---|
@@ -35,6 +35,13 @@ A chat adapter receives messages and sends Agent replies. For production use, cr
 | Feishu / Lark | Separate enterprise self-built app or Custom App | Long connection; App ID, App Secret, events, and bot permissions | [Feishu / Lark channel guide](../quickstart/?channel=lark#chat-channels) |
 | DingTalk | Internal enterprise application with a bot | Stream mode; Client ID and Client Secret, with optional AI cards | [DingTalk channel guide](../quickstart/?channel=dingtalk#chat-channels) |
 | WeCom | API-mode AI bot created by a super administrator | Long connection; Bot ID and bot Secret | [WeCom channel guide](../quickstart/?channel=wecom#chat-channels) |
+| Telegram | Bot created with @BotFather | Long polling; Bot token, with group privacy mode off | [Telegram channel guide](../quickstart/?channel=telegram#chat-channels) |
+| Discord | Application with a bot in the Developer Portal | Gateway WebSocket; Bot token, message content intent, and bot permissions | [Discord channel guide](../quickstart/?channel=discord#chat-channels) |
+| LINE | Messaging API channel of an Official Account | Webhook; Channel ID, Channel secret, channel access token, and webhook URL | [LINE channel guide](../quickstart/?channel=line#chat-channels) |
+| WhatsApp | Meta App with the WhatsApp product and a Business phone number | Cloud API webhook; App ID, App secret, verify token, Phone number ID, and System User token | [WhatsApp channel guide](../quickstart/?channel=whatsapp#chat-channels) |
+| Email | A dedicated mailbox with IMAP and SMTP | IMAP and SMTP hosts and ports, login, password, and sender authentication | [Email channel guide](../quickstart/?channel=email#chat-channels) |
+
+Telegram, Discord, LINE, and WhatsApp are consumer IMs. Their users have no employee record, so a new sender is mapped to an account under **Identity → Pending mappings** before the Agent serves them; WhatsApp maps a sender by itself when a known account already owns the phone number. An email sender is known only through an explicit email identity binding, which directory sync creates for employees and an administrator creates for everyone else. See [Signal routing rules](../signal-bindings/#choose-what-happens-to-unknown-senders).
 
 After you prepare the external application, open **Console → Signal Routing → New routing rule**. Select the Agent and adapter, and enter the credentials. Use the same `platformSubjectNamespace` for the IdP and chat application only when both applications belong to the same enterprise organization. Do not share a namespace across organizations.
 

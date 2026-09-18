@@ -87,6 +87,14 @@ Background jobs can spend tokens on retries, and the caps are the lever:
 
 A job that fails transiently five times spends five runs' worth of tokens. Most of the time the caps protect you — a configuration error fails fast and stays failed. The lever to watch is the third one: an agent with three concurrent jobs is running three model loops at once. If you do not need that parallelism, the persona ("do one thing at a time") is cheaper than the cap allows.
 
+## Lever 7: the per-Agent token quota
+
+The six levers above shape how much one turn costs. The token quota caps the total: it limits the tokens that one Agent can consume in a repeating period, and AIGateway rejects the Agent's model calls when the usage reaches the limit until the period ends.
+
+Set it on the Agent page: a period in days, a period start time, and a token limit. The Agent page shows the used share of the limit and the end of the current period. A chat message that arrives at the limit gets a reply with the used tokens, the limit, and the time the period ends. A Background Agent Job at the limit fails instead of waiting. **Reset period** starts a new period at once when a legitimate spike must continue.
+
+Use the quota as a stop, not as a budget planner. It does not slow the Agent down as it approaches the limit, and one call can end above the limit by its own usage. Size it from the observed spend below, with room for the heaviest normal week. See [Agents](../agents/#set-a-token-quota) for the fields.
+
 ## Where the spend actually is
 
 Before you change models or concurrency, inspect the Agent, conversation, Workflow, or Background Agent Job that made the calls:

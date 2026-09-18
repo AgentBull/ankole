@@ -120,7 +120,8 @@ The Elixir/OTP control plane owns durable decisions for Principal/AuthZ, Signals
 Ankole runs in production as a complete enterprise Agent Harness. Companies can host the control plane, Agent Computer, kernel, and operator console on their own infrastructure.
 
 - OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other endpoints compatible with the OpenAI API support compaction, stateful conversations, reasoning effort control, and provider usage records.
-- Lark/Feishu and Slack integrations have dedicated coverage for lifecycle, transport, main flows, and real LLM calls.
+- Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, and Email adapters connect Agents to company chat, consumer chat, and a dedicated mailbox. Slack, Entra ID, Google Workspace, Lark/Feishu, DingTalk, WeCom, and a built-in local password provider supply sign-in and directory sync.
+- Per-Agent token quotas cap model spend for a repeating period. Human offboarding disables a departed person's sign-in and future work, from the Console or from a directory departure event, with audited restoration.
 - Brain provides scoped disclosure, conversation and source learning, offline consolidation, operator review, full text search, and vector search.
 - Sessions wake, checkpoint, stream progress, hibernate, recover with context, and accept live steering or cancellation.
 - The operator console included with Ankole manages Agents, library settings, plugins, providers, models, identity, signals, Workers, Brain knowledge, and Background Agent Jobs.
@@ -153,7 +154,7 @@ This repository is the active Ankole control plane and runtime workspace.
 - `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
 - `internals/plugins` - private Control Plane Plugin code compiled into private releases.
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
-- `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.
+- `docs/design-docs` - current design documents for principal identity, authorization, browser sessions, OIDC, human offboarding, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, Brain, jobs, token quotas, and provider adapters.
 
 RuntimeFabric carries live traffic from the control plane to Workers. It moves actor traffic, bounded RPC, and Worker file frames over ZeroMQ. PostgreSQL owns durable replay, fences, reconciliation, and final commits.
 

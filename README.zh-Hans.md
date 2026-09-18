@@ -120,7 +120,8 @@ Elixir/OTP 控制面管理主体与 AuthZ、SignalsGateway、Schedule、Actor Ru
 Ankole 已作为完整的企业级 Agent Harness 在生产环境中运行。企业可以在自己的基础设施上托管控制面、Agent Computer、Kernel 和运维控制台。
 
 - OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter 和其他 OpenAI API 兼容端点支持上下文压缩、有状态会话、推理强度控制和用量记录。
-- 飞书、Lark 和 Slack 集成都经过生命周期、传输和主流程测试，其中包含真实 LLM 调用。
+- Slack、Microsoft Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 和电子邮件适配器把 Agent 接入企业聊天、消费级聊天和专用邮箱。Slack、Entra ID、Google Workspace、飞书 / Lark、钉钉、企业微信和内置的本地密码身份源提供登录与组织架构同步。
+- 按 Agent 设置的 token 额度限制一个重复周期内的模型消耗。人员离职禁用会从控制台或身份源的离职事件停止该人员的登录和后续工作，并支持带审计的恢复。
 - Brain 支持按权限范围披露、从对话与 Source 学习、离线整理、运维复核、全文检索和向量检索。
 - 运行时可以唤醒会话、保存检查点、流式报告进度、休眠、从保留的上下文恢复，并接受实时引导或取消。
 - 内置运维控制台可以管理 Agent、Agent Library 设置、插件、模型提供商、模型、身份、信号、Worker、Brain 知识和后台 Agent 任务。
@@ -153,7 +154,7 @@ Ankole 已作为完整的企业级 Agent Harness 在生产环境中运行。企�
 - `libs/slack_openapi`：本地 Slack Web API、Socket Mode 和 OIDC 客户端库。
 - `internals/plugins`：随仓库维护并编译到私有版本中的第一方 Control Plane Plugin 代码。
 - `tools/devkit`：用于本地服务、应用数据库操作、代码生成和分析的工作区自动化工具。
-- `docs/design-docs`：主体身份、授权、配置、I18n、插件、RuntimeFabric、SignalsGateway 和模型提供商适配器的当前设计文档。
+- `docs/design-docs`：主体身份、授权、浏览器会话、OIDC、人员离职禁用、配置、I18n、插件、RuntimeFabric、SignalsGateway、Brain、任务、token 额度和外部平台适配器的当前设计文档。
 
 RuntimeFabric 是控制面与 Worker 之间的实时通信层。它通过 ZeroMQ 传输 Actor 流量、有界 RPC 和 Worker 文件帧。PostgreSQL 负责持久状态重放、执行权校验、对账和最终提交。SignalsGateway 接收外部消息，将聊天、Webhook 和提供商事件转换为 Actor 事件，同时区分外部来源事实和内部执行状态。
 

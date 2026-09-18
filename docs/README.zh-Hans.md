@@ -90,8 +90,13 @@ PostgreSQL 保存领域文档和工作状态。控制面把其中一些记录物
 | `tools/e2e/` | 端到端测试运行器、辅助服务和测试集 |
 | `docs/` | 当前公开架构与运维文档 |
 
-当前外部平台适配器包括 Lark、DingTalk、Slack、Microsoft 365 和 Google
-Workspace。中国市场模型 Plugin 为 AIGateway 增加模型提供商。
+`plugins/` 下当前的 Control Plane Plugin 提供 Lark、DingTalk、Slack、Microsoft
+365、Google Workspace、WeCom、Telegram、Discord、LINE、WhatsApp 和 Email 适配器。
+Telegram、Discord、LINE 和 WhatsApp 是消费级 IM 适配器：它们把一个 bot 连接到一个
+Agent，并通过管理员手工映射、已知手机号或独立账号把每个发送者映射到主体。Email
+适配器连接一个专用邮箱，只通过显式的 `email` 身份绑定接纳发送者。本地密码身份源属于
+控制面本身。中国市场模型
+Plugin 为 AIGateway 增加模型提供商。
 
 ## 控制面启动顺序
 
@@ -223,11 +228,15 @@ tools/e2e/run --real-llm
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | 按 Agent 的 token 额度、周期、重置与拒绝契约 |
 | [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
 | [BrainV3](design-docs/BrainV3.md) | 实例共享知识、作用域披露、学习与 Dreaming |
+| [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain 正文语法与控制台中的 Object 编辑 |
 | [Skill Lessons](design-docs/SkillLessons.md) | 来自已完成工作的租约制逐 skill 现场笔记 |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |
+| [Automation Jobs](design-docs/AutomationJobs.md) | 由 Agent 拥有、消费触发器且不经过模型回合的脚本 |
+| [Workflow](design-docs/Workflow.md) | 运行有界子 Agent 任务的固定程序 |
 | [主体（Principal）](design-docs/Principal.md) | 人和 Agent 的统一身份，以及外部账号合并 |
+| [本地密码身份源](design-docs/LocalPasswordIdentityProvider.md) | 不依赖外部服务的内置邮箱密码登录 |
 | [人员离职禁用](design-docs/HumanOffboarding.md) | 人员禁用、认证撤销和任务启动检查 |
 | [浏览器会话](design-docs/BrowserSessions.md) | 浏览器身份、认证新鲜度、并发登录与退出 |
 | [OIDC 服务端](design-docs/OIDCServer.md) | OIDC 协议归属、客户端策略、令牌与注销 |

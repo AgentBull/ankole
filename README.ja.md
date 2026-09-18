@@ -120,7 +120,8 @@ Elixir/OTP の Control Plane は、Principal/AuthZ、SignalsGateway、Schedule�
 Ankole は、企業が管理する基盤で運用できる完全な Agent Harness として本番稼働しています。Control Plane、Agent Computer、Kernel、運用コンソールを一つの環境に配置できます。
 
 - OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI 互換エンドポイントは、コンテキスト圧縮、状態を持つ会話、推論強度の制御、利用量の記録に対応します。
-- Lark、Feishu、Slack の連携には、ライフサイクル、通信、主要フロー、実際の LLM 呼び出しを対象とする専用テストがあります。
+- Slack、Microsoft Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、Email のアダプターが、Agent を企業向けチャット、消費者向けチャット、専用メールボックスに接続します。Slack、Entra ID、Google Workspace、Lark/Feishu、DingTalk、WeCom、組み込みのローカルパスワードプロバイダーがサインインとディレクトリ同期を提供します。
+- Agent ごとの token quota が、繰り返し期間内のモデル消費に上限を設けます。Human offboarding は、コンソールまたはディレクトリの退職イベントから、退職した人のサインインと今後の作業を無効化し、監査付きで復元できます。
 - Brain は、範囲付きの開示、会話と Source からの学習、オフライン整理、運用者による確認、全文検索、ベクトル検索を提供します。
 - Session は起動、チェックポイント、進捗配信、休止、コンテキストを保った復旧、実行中の誘導とキャンセルに対応します。
 - 組み込みの運用コンソールは、Agent、Library 設定、Plugin、モデルプロバイダー、モデル、Identity、シグナル、Worker、Brain、Background Agent Job を管理します。
@@ -152,7 +153,7 @@ Ankole は、企業が管理する基盤で運用できる完全な Agent Harnes
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library。
 - `internals/plugins` - private release に compile される first-party Control Plane Plugin code。
 - `tools/devkit` - local services、app database helpers、code generation、analysis のための workspace automation。
-- `docs/design-docs` - principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、provider adapters の現在の design docs。
+- `docs/design-docs` - principal identity、authorization、browser sessions、OIDC、human offboarding、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、Brain、jobs、token quotas、provider adapters の現在の design docs。
 
 RuntimeFabric は control-plane から worker への live fabric です。ZeroMQ 上で actor traffic、bounded RPC、worker-file frames を運び、PostgreSQL が durable replay、fences、reconciliation、final commits の source of truth であり続けます。SignalsGateway は provider ingress layer です。外部 chat、webhook、provider event は actor event になりますが、external source facts を execution state と混同しません。
 

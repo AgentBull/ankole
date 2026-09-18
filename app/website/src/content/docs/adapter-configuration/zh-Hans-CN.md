@@ -11,7 +11,7 @@ order: 3
 
 ## 身份源提供商
 
-IdP 负责 Console 登录，并按平台能力同步员工、部门或用户组。表中的凭证名称与 Ankole 表单一致；具体权限、第三方后台路径和验证步骤以链接中的指南为准。
+IdP 负责 Console 登录，并按平台能力同步员工、部门或用户组。内置的本地密码提供商不需要第三方应用：它始终出现在 `/setup` 和 Console 中，用 Ankole 保存的邮箱和密码登录。首位管理员、没有通讯录的小团队，以及消费级 IM 用户映射到的账号，都可以使用它。表中的凭证名称与 Ankole 表单一致；具体权限、第三方后台路径和验证步骤以链接中的指南为准。
 
 | 平台 | 需要创建的第三方应用 | 需要准备的主要配置 | 完整步骤 |
 |---|---|---|---|
@@ -35,6 +35,13 @@ IdP 负责 Console 登录，并按平台能力同步员工、部门或用户组�
 | 飞书 / Lark | 独立的企业自建应用或 Custom App | 长连接；App ID、App Secret、事件与机器人权限 | [飞书 / Lark 聊天指南](../quickstart/?channel=lark#chat-channels) |
 | 钉钉 | 企业内部应用和机器人 | Stream 模式；Client ID、Client Secret，AI 卡片可选 | [钉钉聊天指南](../quickstart/?channel=dingtalk#chat-channels) |
 | 企业微信 | 由超级管理员创建的 API 模式智能机器人 | 长连接；Bot ID 和机器人 Secret | [企业微信聊天指南](../quickstart/?channel=wecom#chat-channels) |
+| Telegram | 用 @BotFather 创建的机器人 | 长轮询；Bot token，并关闭群组隐私模式 | [Telegram 聊天指南](../quickstart/?channel=telegram#chat-channels) |
+| Discord | Developer Portal 中带机器人的应用 | Gateway WebSocket；Bot token、消息内容 intent 和机器人权限 | [Discord 聊天指南](../quickstart/?channel=discord#chat-channels) |
+| LINE | Official Account 的 Messaging API channel | Webhook；Channel ID、Channel secret、channel access token 和 webhook URL | [LINE 聊天指南](../quickstart/?channel=line#chat-channels) |
+| WhatsApp | 添加了 WhatsApp 产品的 Meta App 和一个 Business 手机号 | Cloud API webhook；App ID、App secret、verify token、Phone number ID 和 System User token | [WhatsApp 聊天指南](../quickstart/?channel=whatsapp#chat-channels) |
+| Email | 一个支持 IMAP 和 SMTP 的专用邮箱 | IMAP 和 SMTP 的主机与端口、登录名、密码和发信人认证 | [Email 聊天指南](../quickstart/?channel=email#chat-channels) |
+
+Telegram、Discord、LINE 和 WhatsApp 是消费级 IM。它们的用户没有员工记录，新发信人需要先在**身份 → 待绑定账号**中映射到账号，Agent 才会为其服务；如果某个已知账号已拥有该手机号，WhatsApp 会自行完成映射。邮件发信人只能通过显式的邮箱身份绑定被识别：员工的绑定由通讯录同步创建，其他人的绑定由管理员创建。见 [信号路由规则](../signal-bindings/)。
 
 第三方应用准备好后，在 **Console → 信号路由 → 新增路由规则**中选择目标 Agent 和适配器，并填写凭证。同一平台的 IdP 与聊天应用属于同一个企业组织时，两处使用相同的 `platformSubjectNamespace`；不同组织不能共用命名空间。
 

@@ -1870,6 +1870,493 @@ export const channelTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    summary:
+      'Telegram は Bot API のロングポーリングを使用します。Ankole はアウトバウンド接続で getUpdates を呼び出すため、チャット経路に公開 webhook は不要です。Telegram はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
+    prerequisites: ['@BotFather と会話できる Telegram アカウント', 'テスト用のプライベートチャットまたはグループ'],
+    basic: {
+      title: 'Telegram bot を準備する',
+      steps: [
+        {
+          title: '@BotFather で bot を作成する',
+          body: [
+            '@BotFather に /newbot を送信し、表示名と bot で終わるユーザー名を選び、BotFather が返す token をコピーしてください。この token は routing ルールに必要な唯一の credential です。'
+          ]
+        },
+        {
+          title: 'bot にグループメッセージを読ませる',
+          body: [
+            '@BotFather で Bot Settings → Group Privacy を開き、プライバシーモードをオフにしてください。プライバシーモードがオンの場合、グループは /command@bot 形式のコマンドと bot への返信だけを配信するため、@ メンションが Agent に届かず、observe_all や may_intervene は他のメッセージを一切見られません。この設定の変更は、bot をグループから削除して再度追加した後に有効になります。'
+          ]
+        },
+        {
+          title: '古い webhook を削除する',
+          body: [
+            'Ankole は Bot API をポーリングしますが、その token に webhook が設定されている間、Telegram はポーリングを拒否します。別のプログラムがこの token を webhook で使用していた場合は、ルールを有効にする前に削除してください。Ankole は webhook_configured を報告し、他のシステムが所有する webhook を削除しません。'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'curl -s "https://api.telegram.org/bot<botToken>/deleteWebhook"'
+            }
+          ]
+        },
+        {
+          title: 'Console のフィールドを収集する',
+          fields: [
+            {
+              name: 'botToken',
+              value: '123456789:AA…',
+              description: '@BotFather から取得した bot token。1 つの token は有効な routing ルール 1 つにのみ属せます。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'ここから始めてください。ダイレクトメッセージ、@ メンション、/command@bot、または bot への返信が Agent 宛になります。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity マッピング、フォーラムトピック、プラットフォームの制限',
+      summary: '展開すると、Telegram ユーザーをアカウントにマッピングする方法と、Agent が使えない Telegram の機能を確認できます。',
+      steps: [
+        {
+          title: 'Telegram ユーザーをアカウントにマッピングする',
+          body: [
+            'Telegram ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Telegram の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンな bot の場合にだけ選択してください。'
+          ]
+        },
+        {
+          title: '会話がセッションにどう対応するかを知る',
+          bullets: [
+            'プライベートチャット、グループ、スーパーグループは、それぞれ 1 つの Agent セッションを形成します。',
+            'スーパーグループ内の各フォーラムトピックは、別のセッションです。',
+            'チャンネル投稿、他の bot からのメッセージ、匿名またはゲストの送信者は無視されます。'
+          ]
+        },
+        {
+          title: 'プラットフォームの制限を守る',
+          bullets: [
+            'Bot API は 20 MB を超えるファイルをダウンロードできません。Agent はファイル名とサイズを見られますが、内容は読めません。',
+            'ユーザーがメッセージを削除しても Telegram はイベントを送信しないため、削除されたテキストはセッションの context に残ります。',
+            '接続が失われた送信を Telegram が受け付けた可能性がある場合、Ankole は送信を自動的に繰り返しません。2 つ目の返信を投稿する代わりに、重複の可能性のフローを適用します。'
+          ]
+        },
+        {
+          title: 'Agent ごとに別の bot を使用する',
+          body: ['1 つの bot token は有効な routing ルール 1 つにのみバインドできます。追加の Agent ごとに @BotFather で別の bot を作成してください。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'discord',
+    label: 'Discord',
+    summary:
+      'Discord はアウトバウンドの WebSocket 経由で bot Gateway を使用するため、チャット経路に公開 webhook は不要です。Discord はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
+    prerequisites: [
+      'Developer Portal でアプリケーションを作成できる Discord アカウント',
+      'bot を招待できるサーバー、またはテスト用のダイレクトメッセージ'
+    ],
+    basic: {
+      title: 'Discord bot を準備する',
+      steps: [
+        {
+          title: 'アプリケーションとその bot を作成する',
+          body: [
+            'Discord Developer Portal を開き、New Application を作成し、Bot ページを開いて Reset Token を選択してください。token はすぐにコピーしてください。Discord はそれを 1 回しか表示しません。'
+          ]
+        },
+        {
+          title: 'メッセージ内容の intent を有効にする',
+          body: [
+            'Bot ページの Privileged Gateway Intents で Message Content Intent をオンにしてください。これがないと、Discord は bot にメンションしないサーバーメッセージを空の内容で配信するため、Agent はダイレクトメッセージと自分にメンションするメッセージだけを読み、observe_all や may_intervene は会話を見られません。Ankole は接続前にアプリケーションのフラグを読み取り、アプリケーションがこの intent を持つ場合にだけ要求します。'
+          ],
+          caution: 'Server Members Intent と Presence Intent は不要です。100 を超えるサーバーに参加しているアプリケーションは、メッセージ内容の intent を維持するために Discord の認証が必要です。'
+        },
+        {
+          title: 'bot をサーバーに招待する',
+          body: [
+            'OAuth2 → URL Generator を開き、bot scope を選択し、以下の権限を追加してください。生成された URL を開いてサーバーを選択します。このセットは、Ankole が呼び出す Discord API だけをカバーします。'
+          ],
+          copyItems: [
+            { value: 'View Channels', description: 'bot が許可されたチャンネルを見る' },
+            { value: 'Send Messages', description: 'Agent の返信を投稿する' },
+            { value: 'Send Messages in Threads', description: 'スレッド内で返信する' },
+            { value: 'Read Message History', description: '以前のメッセージに返信し、編集する' },
+            { value: 'Attach Files', description: 'Agent が送信するファイルをアップロードする' },
+            { value: 'Add Reactions', description: 'リアクションを追加および削除する' }
+          ]
+        },
+        {
+          title: 'Interactions Endpoint URL を空のままにする',
+          body: [
+            'General Information ページで、Interactions Endpoint URL を空のままにしてください。設定されていると、Discord はボタンのクリックを Gateway ではなくその URL に投稿するため、Agent の返信にあるボタンが Ankole に届きません。'
+          ]
+        },
+        {
+          title: 'Console のフィールドを収集する',
+          fields: [
+            {
+              name: 'botToken',
+              description: 'Bot ページから取得した bot token。1 つの token は有効な routing ルール 1 つにのみ属せます。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'ここから始めてください。ダイレクトメッセージ、@ メンション、または bot への返信が Agent 宛になります。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity マッピング、スレッド、プラットフォームの制限',
+      summary: '展開すると、Discord ユーザーをアカウントにマッピングする方法と、Agent が使えない Discord の機能を確認できます。',
+      steps: [
+        {
+          title: 'Discord ユーザーをアカウントにマッピングする',
+          body: [
+            'Discord ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、アイデンティティ → 保留中のマッピング に表示され、管理者が Discord の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。独立アカウントを自動作成 は、誰でも Agent と話せるオープンなサーバーの場合にだけ選択してください。'
+          ]
+        },
+        {
+          title: '会話がセッションにどう対応するかを知る',
+          bullets: [
+            'ダイレクトメッセージと各サーバーチャンネルは、それぞれ 1 つの Agent セッションを形成します。',
+            '各スレッドは別のセッションです。',
+            '他の bot からのメッセージ、webhook の投稿、システム通知、テキストも添付ファイルもないメッセージは無視されます。',
+            'Agent のテキストがユーザー、ロール、または everyone に通知することはありません。Ankole は送信するすべてのメッセージでメンションの解析を無効にします。'
+          ]
+        },
+        {
+          title: 'プラットフォームの制限を守る',
+          bullets: [
+            'Ankole がダウンロードする添付ファイルは最大 25 MB です。それより大きいファイルは、Agent が名前とサイズを見られますが、内容は読めません。',
+            'ユーザーがメッセージを削除しても、Discord は Ankole が使用するイベントを送信しないため、削除されたテキストはセッションの context に残ります。',
+            '返信は 2,000 文字で分割されます。1 つのカードに表示できるボタンは最大 25 個です。',
+            '接続が失われた送信を Discord が受け付けた可能性がある場合、Ankole は送信を自動的に繰り返しません。2 つ目の返信を投稿する代わりに、重複の可能性のフローを適用します。'
+          ]
+        },
+        {
+          title: 'Agent ごとに別の bot を使用する',
+          body: ['1 つの bot token は有効な routing ルール 1 つにのみバインドできます。追加の Agent ごとに別のアプリケーションを作成してください。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'line',
+    label: 'LINE',
+    summary:
+      'LINE は Messaging API の webhook を Ankole に投稿します。信頼された証明書を持つ公開 HTTPS エンドポイントが必須です。LINE はコンシューマー向け IM です。そのユーザーはディレクトリの従業員ではないため、最初のメッセージの前に identity マッピングを計画してください。',
+    alert: {
+      title: 'LINE は Ankole の一部の機能を制限します',
+      body: [
+        'LINE の reply token は webhook の 1 分後に期限切れになり、Agent の Turn は通常それより長いため、Agent のすべての返信はプッシュメッセージです。プッシュメッセージは Official Account の月間メッセージプランに計上されるため、プランは想定されるトラフィックをカバーする必要があります。LINE bot はメッセージの編集、送信取消、リアクションができず、ファイルを送信できず、最終回答の前にリアルタイムの進行状況を表示しません。',
+        'すべての制限はプラットフォーム自体に由来し、Ankole は回避できません。'
+      ]
+    },
+    prerequisites: [
+      'LINE Developers の provider と、Messaging API channel を作成する権限',
+      '公開 HTTPS の Ankole ホスト',
+      'テスト用の LINE アカウント'
+    ],
+    basic: {
+      title: 'LINE Official Account を準備する',
+      steps: [
+        {
+          title: 'Messaging API channel を作成し、その credential を収集する',
+          body: [
+            'LINE Developers Console で、自分の provider の下に Messaging API channel を作成してください。Basic settings から Channel ID と Channel secret をコピーし、Messaging API タブで長期の channel access token を発行してください。'
+          ]
+        },
+        {
+          title: 'webhook を検証する前に routing ルールを作成する',
+          body: [
+            'まず Console で routing ルールを保存して有効にしてください。Ankole は不明な Channel ID への webhook にステータス 404 で応答するため、ルールが存在するまで LINE Developers Console の Verify ボタンは失敗します。'
+          ]
+        },
+        {
+          title: 'webhook URL を設定して検証する',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/line/<channelId>/events'
+            }
+          ],
+          body: [
+            'Messaging API タブでこの URL を入力し、Use webhook をオンにして Verify を選択してください。パスの channelId セグメントは、routing ルールの Channel ID と一致する必要があります。Ankole はすべてのリクエストの x-line-signature を channel secret で検査し、誤った署名をステータス 401 で拒否します。'
+          ]
+        },
+        {
+          title: 'bot だけが応答するようにする',
+          body: [
+            'LINE Official Account Manager で Response settings を開いてください。応答方法を bot に設定し、自動応答とあいさつメッセージをオフにして、アカウントが Agent と並んで応答しないようにします。グループチャットの場合は、LINE Developers Console で Allow bot to join group chats を有効にしてください。'
+          ]
+        },
+        {
+          title: 'Console のフィールドを収集する',
+          fields: [
+            {
+              name: 'channelId',
+              description: 'Messaging API の Channel ID。1 つの channel は有効な routing ルール 1 つにのみ属せます。'
+            },
+            {
+              name: 'channelSecret',
+              description: 'Basic settings の Channel secret。Ankole は webhook の署名検証に使用します。'
+            },
+            {
+              name: 'channelAccessToken',
+              description: 'Messaging API タブで発行した長期の channel access token。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'ここから始めてください。LINE はすべてのグループメッセージを配信するため、observe_all と may_intervene も追加の権限なしで機能します。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity マッピング、グループでの返信、プラットフォームの制限',
+      summary: '展開すると、LINE ユーザーをアカウントにマッピングする方法と、グループでの Agent の動作を確認できます。',
+      steps: [
+        {
+          title: 'LINE ユーザーをアカウントにマッピングする',
+          body: [
+            'LINE ユーザーには従業員レコードがないため、新しい送信者ごとにアカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、LINE の表示名とともに アイデンティティ → 保留中のマッピング に表示され、管理者が LINE の identity を既存のアカウント（たとえばローカルパスワードのアカウント）に紐付けます。その後、ユーザーはメッセージを再送信します。LINE のユーザー ID は channel を所有する LINE Developers の provider に属するため、異なる provider の下にある channel には別々のマッピングが必要です。'
+          ]
+        },
+        {
+          title: 'グループでの Agent の動作を知る',
+          bullets: [
+            '1 対 1 のチャット、グループ、複数人チャットは、それぞれ 1 つの Agent セッションを形成します。LINE にはスレッドがありません。',
+            'グループでは、bot への @ メンション、または bot のメッセージの引用が Agent 宛になります。グループでの返信は質問者を引用します。',
+            'ユーザーが送信取消したメッセージは、セッションの context から削除されます。'
+          ]
+        },
+        {
+          title: 'プラットフォームの制限を守る',
+          bullets: [
+            '返信は 5,000 文字で分割され、1 つのリクエストで送信できるメッセージは最大 5 件です。確認の質問に表示できるボタンは最大 4 個です。',
+            'Ankole がダウンロードする受信ファイルは最大 25 MB です。それより大きいファイルは、Agent が名前とサイズを見られますが、内容は読めません。',
+            'Agent はファイルを送信できません。テキストの返信は引き続き配信されます。',
+            '月間プランを使い切ると、LINE はステータス 429 で応答します。プランの変更または翌月になるまで解消されません。'
+          ]
+        },
+        {
+          title: 'Agent ごとに別の channel を使用する',
+          body: ['1 つの Messaging API channel は有効な routing ルール 1 つにのみ属せます。追加の Agent ごとに別の channel を作成してください。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'whatsapp',
+    label: 'WhatsApp',
+    summary:
+      'WhatsApp は Cloud API の webhook を Ankole に投稿します。信頼された証明書を持つ公開 HTTPS エンドポイントが必須です。WhatsApp はコンシューマー向け IM ですが、電話番号がすでに既知の人物に属している送信者は、管理者の操作なしにマッピングされます。',
+    alert: {
+      title: 'WhatsApp は Ankole の一部の機能を制限します',
+      body: [
+        'Meta は、ユーザーの最新のメッセージまたはボタン応答から 24 時間後にカスタマーサービスウィンドウを閉じます。その後の返信（たとえばスケジュールされたレポート）は明確な失敗で停止し、ユーザーには届きません。ユーザーが再度メッセージを送った後、オペレーターは Signal Routing ページから再試行できます。グループチャット、テンプレートメッセージ、メッセージの編集、メッセージの削除、リアルタイムの進行状況表示は利用できません。',
+        'すべての制限はプラットフォーム自体に由来し、Ankole は回避できません。'
+      ]
+    },
+    prerequisites: [
+      'WhatsApp product を追加した Meta App と、電話番号を所有する WhatsApp Business Account',
+      '公開 HTTPS の Ankole ホスト',
+      'テスト用の WhatsApp アカウント'
+    ],
+    basic: {
+      title: 'WhatsApp Business の電話番号を準備する',
+      steps: [
+        {
+          title: 'WhatsApp product を接続し、識別子を収集する',
+          body: [
+            'Meta App Dashboard で、App に WhatsApp product を追加し、電話番号を所有する WhatsApp Business Account を接続してください。App settings → Basic から App ID と App secret を、WhatsApp → API Setup から Phone number ID をコピーしてください。'
+          ]
+        },
+        {
+          title: '無期限の System User token を発行する',
+          body: [
+            'Meta Business Suite で System User を作成し、App に対する whatsapp_business_messaging 権限を付与して、有効期限なしの token を生成してください。ユーザー token は期限切れになり、Agent を停止させます。'
+          ]
+        },
+        {
+          title: 'コールバックを検証する前に routing ルールを作成する',
+          body: [
+            'verify token を決め、それと他のフィールドを Console に入力して、routing ルールを保存して有効にしてください。Meta はコールバック URL を Ankole に対して検証するため、ルールが先に存在する必要があります。'
+          ]
+        },
+        {
+          title: 'コールバック URL を設定し、messages を購読する',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/whatsapp/<appId>/events'
+            }
+          ],
+          body: [
+            'WhatsApp → Configuration を開き、この URL と同じ verify token を入力して、Verify and save を選択してください。次に、App を messages webhook フィールドに購読させてください。他のフィールドは使用しません。Ankole はすべてのリクエストの x-hub-signature-256 を App secret で検査し、誤った署名をステータス 401 で拒否します。'
+          ]
+        },
+        {
+          title: 'Console のフィールドを収集する',
+          fields: [
+            {
+              name: 'appId',
+              description: 'Meta App ID。1 つの App の複数の電話番号がそれぞれ別の Agent を担当できます。それらのルールは同じ App secret と verify token を共有する必要があります。'
+            },
+            {
+              name: 'appSecret',
+              description: 'App settings → Basic の App secret。Ankole は webhook の署名検証に使用します。'
+            },
+            {
+              name: 'verifyToken',
+              description: '自分で決める値。Meta のコールバック設定に同じ値を入力してください。'
+            },
+            {
+              name: 'phoneNumberId',
+              description: 'WhatsApp → API Setup の Phone number ID。1 つの番号は有効な routing ルール 1 つにのみ属せます。'
+            },
+            {
+              name: 'accessToken',
+              description: '無期限の System User access token。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '唯一のモードです。WhatsApp は 1 対 1 のチャットのみを配信し、すべてのメッセージが Agent 宛になります。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'identity マッピング、返信、プラットフォームの制限',
+      summary: '展開すると、WhatsApp ユーザーがアカウントになる方法と、Agent が使用できない WhatsApp の機能を確認できます。',
+      steps: [
+        {
+          title: 'WhatsApp ユーザーがアカウントになる方法を知る',
+          body: [
+            '送信者の WhatsApp ID は、Meta が検証した電話番号です。既存のアカウントがその携帯番号を所有している場合（たとえばディレクトリ同期による場合）、送信者は即時にマッピングされます。そうでない場合、アカウントの自動マッピングは失敗します。アカウントの自動マッピングに失敗した場合 を 手動レビュー のままにしてください。送信者は固定の通知を 1 回受け取り、WhatsApp のプロフィール名と電話番号とともに アイデンティティ → 保留中のマッピング に表示され、管理者がその identity を既存のアカウントに紐付けます。独立アカウントを自動作成 は、誰でも Agent と会話できる公開番号の場合にのみ選択してください。'
+          ]
+        },
+        {
+          title: 'Agent の返信方法を知る',
+          bullets: [
+            '返信はユーザーのメッセージを引用します。長い返信は 4,096 文字で分割されます。',
+            '選択肢が 3 つまでの確認の質問は返信ボタンを表示し、それより多い選択肢は 1 つのリストを表示します。各選択肢は番号で始まります。',
+            'Agent は、種類ごとの Meta のサイズ制限内で画像、動画、音声、ドキュメントを送信できます。Meta が受け付けないファイルは明確なエラーで停止し、テキストは引き続き送信されます。',
+            'ユーザーが WhatsApp で削除したメッセージは Ankole に届かないため、そのテキストはセッションの context に残ります。'
+          ]
+        },
+        {
+          title: 'カスタマーサービスウィンドウを守る',
+          body: [
+            'Ankole は送信ごとにウィンドウを確認します。ユーザーの最新のメッセージまたはボタン応答から 24 時間を超えた返信は customer_service_window_closed で停止し、Meta にはリクエストが送られません。新しいウィンドウを開く唯一の方法である有料のテンプレートメッセージは、現在の contract の対象外です。ユーザーが再度メッセージを送ったら、Signal Routing ページの 再試行 を使用して、停止した返信を送信してください。'
+          ]
+        },
+        {
+          title: 'ルールをその電話番号に固定する',
+          body: [
+            'チャットは、それを受信した電話番号に紐付けられます。ルールを別の番号に移すと、以前のチャットへの返信は、ユーザーが一度も書き込んでいない番号から送信されるのではなく、binding_phone_number_mismatch で停止します。元の番号に戻すと解消されます。'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'email',
+    label: 'Email',
+    summary:
+      'Ankole は専用のメールボックスを IMAP で読み取り、Agent の返信を SMTP で送信します。各メールスレッドが 1 つの会話です。メールボックスは Agent に属します。他のメールクライアントで人が読んではいけません。',
+    alert: {
+      title: 'Email は Ankole の一部の機能を制限します',
+      body: [
+        '他のメールクライアントが既読にしたメッセージは Agent に届かないため、メールボックスは専用である必要があります。Agent の返信は 1 通のプレーンテキストメールで、リアルタイムの進行状況、編集、ボタンはありません。確認の質問は番号付きのテキストとして届き、人は通常の返信で回答します。パスワードとアプリパスワードによるログインのみをサポートしているため、Gmail にはアプリパスワードが必要で、OAuth を必須とする Exchange Online のメールボックスは使用できません。',
+        'control plane は IMAP サーバーと SMTP サーバーに直接到達する必要があります。HTTP egress proxy はこれらを対象としません。'
+      ]
+    },
+    prerequisites: [
+      'IMAP と SMTP でアクセスでき、パスワードまたはアプリパスワードを持つ専用のメールボックス',
+      'DMARC の結果を含む Authentication-Results ヘッダーを追加するメールサーバー、または外部からのメールを受け付けないプライベートなメールサーバー'
+    ],
+    basic: {
+      title: '専用のメールボックスを準備する',
+      steps: [
+        {
+          title: 'メールボックスとそのパスワードを作成する',
+          body: [
+            'Agent だけが使用するメールボックスを作成し、IMAP と SMTP を有効にしてください。プロバイダーが要求する場合は、アカウントのパスワードではなく Ankole 用のアプリパスワードを作成してください。'
+          ],
+          caution: 'このメールボックスを他のメールクライアントで開かないでください。他のクライアントが既読にしたメッセージは Agent から見えません。'
+        },
+        {
+          title: 'サーバー設定を収集する',
+          body: [
+            'Ankole は IMAP に implicit TLS（通常はポート 993）で接続します。SMTP は STARTTLS（通常はポート 587）または implicit TLS（通常はポート 465）を使用します。Ankole はサーバー証明書をシステムの CA ストアに対して検証します。'
+          ]
+        },
+        {
+          title: 'Console のフィールドを収集する',
+          fields: [
+            { name: 'address', value: 'agent@example.com', description: 'メールボックスのアドレス。返信はここから送信されます。' },
+            { name: 'displayName', value: 'Ankole Agent', description: '送信メールの送信者名。' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP サーバーのホスト。' },
+            { name: 'imapPort', value: '993', description: 'IMAP のポート。Ankole は implicit TLS を使用します。' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP サーバーのホスト。' },
+            { name: 'smtpPort', value: '587', description: 'SMTP のポート。STARTTLS では 587、TLS では 465 を使用してください。' },
+            { name: 'smtpSecurity', value: 'starttls', description: 'SMTP のポートに合わせて starttls または tls。' },
+            { name: 'username', description: 'ログイン名。通常はメールボックスのアドレスです。1 組の IMAP ホストとユーザー名は有効な routing ルール 1 つにのみ属せます。' },
+            { name: 'password', description: 'メールボックスのパスワードまたはアプリパスワード。Ankole は暗号化して保存します。' },
+            { name: 'senderAuthentication', value: 'dmarc', description: 'dmarc のままにしてください。none は、外部からのメールを受け付けないプライベートなメールサーバーの場合にのみ設定してください。' }
+          ]
+        },
+        {
+          title: 'テストメールを送信する',
+          body: [
+            '自分のアドレスからメールボックスにメールを送ってください。自分のアドレスがまだアカウントに紐付けられていない場合は、返信としてマッピングの通知を受け取ります。アイデンティティ → 保留中のマッピング でアドレスを紐付けて、メールを再送信してください。'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '送信者の identity、送信者認証、スレッド',
+      summary: '展開すると、メールの送信者が既知のアカウントになる方法と、Ankole がスレッドと一括メールを扱う方法を確認できます。',
+      steps: [
+        {
+          title: 'メールの送信者がアカウントになる方法を知る',
+          body: [
+            'インターネット上の誰でもメールボックスに書き込めて、From アドレスはそれ自体では何も証明しないため、Ankole はメールの送信者をプロフィールのメールアドレスやローカルサインインのメールアドレスで照合することはありません。送信者は、明示的なメールの identity 紐付けによってのみ既知になります。ディレクトリ同期とプロバイダーのサインインは、プロバイダーが報告するアドレスを紐付けるため、同期されたディレクトリの社員は手動の手順なしに受け入れられます。それ以外のアドレスは、管理者が アイデンティティ → 保留中のマッピング から紐付けます。独立アカウントを自動作成 は、そのアドレスを識別子とするアカウントを作成します。公開メールボックスの場合にのみ使用してください。'
+          ]
+        },
+        {
+          title: '送信者認証を理解する',
+          body: [
+            'senderAuthentication が dmarc の場合、Ankole は受信側のメールサーバーが追加する Authentication-Results ヘッダーを読み取り、From アドレスのドメインについて dmarc=pass を報告している場合にのみメッセージを受け入れます。失敗したメッセージは通知なしに無視されます。none は、メールサーバーがプライベートネットワーク上にあり、外部からのメールを受け付けない場合にのみ設定してください。'
+          ]
+        },
+        {
+          title: 'スレッドと一括メールの扱いを知る',
+          bullets: [
+            'スレッドは件名ではなく、In-Reply-To ヘッダーと References ヘッダーで判定されます。Agent の返信には、メールクライアントが使用するスレッドヘッダーが付きます。',
+            '参加者が送信者とメールボックスだけのスレッドは 1 対 1 の会話です。他の受信者がいるとグループの会話になり、メールボックスを Cc にのみ含むメッセージは Agent 宛になりません。',
+            '既知のスレッド内のメッセージでは、返信区切りの下の引用テキストが削除されます。スレッドの最初のメッセージと転送されたメッセージは、本文全体を保持します。',
+            'メールボックス自身からのメール、自動送信メールと一括メール、メーリングリストのメールは通知なしに無視されます。',
+            '25 MB を超えるメッセージはヘッダーのみが届きます。送信する添付ファイルは 1 通あたり 20 MB までです。'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1929,7 +2416,7 @@ export const signalAdvanced = {
 | **Private deployment instance** | 企業がデプロイして管理する、1 つの完全な Ankole システム | Instance |
 | **Principal** | Ankole で identity と権限を持つことができる人、Agent、またはシステムサービス | Principal |
 | **Identity Provider (IdP)** | Console の SSO を提供し、社員、連絡先、組織構造を同期する外部の identity ソース | IdP |
-| **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom などの外部の会話プラットフォーム | Platform |
+| **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メールボックスなどの外部の会話プラットフォーム | Platform |
 | **Channel Provider** | メッセージを受信して Agent の返信を送信する 1 つのチャットアプリまたは bot 設定 | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | signal ソースから Agent にメッセージまたはイベントを送信するルール | Routing rule |
 | **LLM Provider** | モデルサービスのエンドポイント、credential、利用可能なモデルを保存する設定 | LLM Provider |
@@ -2023,6 +2510,8 @@ Console でチャットプラットフォームの Control Plane Plugin を有�
 
 通常、1 つのチャットアプリは 1 つの bot identity を表します。複数の Agent が異なる bot 名、アバター、または権限を必要とする場合は、そのプラットフォームで複数のアプリを作成してください。アプリを準備したら、Console でその routing ルールを作成し、意図する Agent に接続してください。
 
+Slack、Teams、Lark/Feishu、DingTalk、WeCom はエンタープライズ向けプラットフォームです。そのユーザーは IdP が同期したディレクトリに由来します。Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM です。そのユーザーには従業員レコードがないため、Agent が応答する前に、管理者が **アイデンティティ → 保留中のマッピング** で新しい送信者ごとにアカウントへマッピングします。WhatsApp では、既知のアカウントがすでにその電話番号を所有している場合、送信者は自動的にマッピングされます。Email は専用のメールボックスを接続し、送信者は明示的なメールの identity 紐付けによってのみ既知になります。
+
 <QuickstartTabs
   client:visible
   ariaLabel="channel provider を選択"
@@ -2041,7 +2530,7 @@ Console で、**Signal Routing → New routing rule** を開き、設定して�
 | フィールド | 選択するもの |
 |---|---|
 | **Target Agent** | ステップ 3 で作成した Agent |
-| **Adapter** | Slack、Teams、Lark/Feishu、DingTalk、または WeCom |
+| **Adapter** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または Email |
 | **Rule name** | `slack-main` や `lark-main` などの安定した名前 |
 | **Group message mode** | `addressed_only` から始める |
 | **Channel settings** | チャンネルタブの credential と値を貼り付ける |

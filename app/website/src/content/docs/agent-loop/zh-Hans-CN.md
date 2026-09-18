@@ -21,7 +21,7 @@ order: 117
 | **回合提交** | worker 报告成功时，将回合结局记录为持久事实 |
 | **Activation 过期** | `fail_activation_if_expired/2` 捕获租约用完的卡住或崩溃回合 |
 
-回合错误的重试预算就在这里，不在 worker：最多 5 次尝试（`@worker_turn_error_dead_letter_attempts`），指数退避在 5 到 120 秒之间（`@worker_turn_error_retry_base_seconds` 和 `@max`）。每次失败抬高 epoch，使失败尝试的迟到回复无法匹配后续重试。
+回合错误的重试预算就在这里，不在 worker：最多 5 次投递（`@worker_turn_error_dead_letter_attempts`）。Worker 的瞬时故障按 5 到 120 秒的指数退避等待。模型提供商容量故障（上游 `429`、`5xx` 或凭据池耗尽）走自己的等待梯：30 秒，然后 2、5、12.5 分钟，所以自动重试总共最多安排 20 分钟退避。每次失败抬高 epoch，使失败尝试的迟到回复无法匹配后续重试。
 
 控制面**不**决定模型说什么、agent 调哪些工具、循环跑多少迭代。那些是 worker 的。
 
@@ -65,8 +65,10 @@ agent 循环模块文档明确：worker **不**拥有历史扩展、compaction�
 
 回合失败时，控制面决定重试，不是 worker。worker 报告错误；`handle_turn_error` 分类：
 
-- **可重试**（worker 传输失败、超时）——事件保持 `open`，epoch 抬高，运行时在退避延迟后重新投递。
-- **Dead-letter**——5 次尝试（或 5 次连续回合失败）后，事件移到 `dead_letter`，回合停止重试。运维者检查并解决。
+- **基础设施**（Codex 运行时忙、运行时异常、steer 未能送达）——中断不是任务失败，因此不消耗失败预算。
+- **提供商容量**（可重试的上游 `429` 或 `5xx`，或凭据池耗尽）——事件保持 `open`，epoch 抬高，runtime 按上面的容量等待梯重新投递。Worker 不再在本地重复这一类模型调用。凭据池的恢复时间超过剩余全部等待时，事件立即进入 dead-letter。
+- **执行**（其他可重试故障，例如 Worker 传输故障或超时）——事件保持 `open`，epoch 抬高，runtime 按指数退避后重新投递，并把这次尝试计入预算。
+- **Dead-letter**——5 次投递后，或故障不可重试时，事件移到 `dead_letter`，回合停止重试。用户收到自动重试已停止的通知，运维者检查并解决。
 
 worker 不自行重试。它报告错误，控制面拥有重试决定，因为控制面才能重建 activation 隔离栏。
 

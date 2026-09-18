@@ -21,7 +21,7 @@ The decisive property, stated up front: the control plane owns the turn's *ident
 | **Turn commit** | records the turn's outcome as durable truth when the worker reports success |
 | **Activation expiry** | `fail_activation_if_expired/2` catches a stuck or crashed turn whose lease ran out |
 
-The turn error retry budget lives here, not in the worker: at most 5 attempts (`@worker_turn_error_dead_letter_attempts`), with exponential backoff between 5 and 120 seconds (`@worker_turn_error_retry_base_seconds` and `@max`). Each failed attempt bumps the epoch, so a late reply from the failed attempt cannot match a later retry.
+The turn error retry budget lives here, not in the worker: at most 5 deliveries (`@worker_turn_error_dead_letter_attempts`). A transient Worker failure waits with exponential backoff between 5 and 120 seconds. A provider capacity failure (an upstream `429`, a `5xx`, or an exhausted credential pool) waits on its own ladder of 30 seconds, then 2, 5, and 12.5 minutes, so the automatic retry never schedules more than 20 minutes of backoff in total. Each failed attempt bumps the epoch, so a late reply from the failed attempt cannot match a later retry.
 
 The control plane does **not** decide what the model says, what tools the agent calls, or how many iterations the loop runs. Those are the worker's.
 
@@ -65,8 +65,10 @@ Every worker message carries the `ActorTurnRef` (`activation_uid`, `actor_epoch`
 
 When a turn fails, the control plane decides retry, not the worker. The worker reports the error; `handle_turn_error` classifies it:
 
-- **Retryable** (worker transport failure, timeout) — the event stays `open`, the epoch bumps, the runtime re-delivers after the backoff delay.
-- **Dead-letter** — after 5 attempts (or 5 consecutive turn failures), the event moves to `dead_letter` and the turn stops retrying. An operator inspects and resolves it.
+- **Infrastructure** (a Codex runtime that is busy, a runtime exception, a steer that could not be delivered) — the interruption is not the task failing, so it does not consume the failure budget.
+- **Provider capacity** (a retryable upstream `429` or `5xx`, or an exhausted credential pool) — the event stays `open`, the epoch bumps, and the runtime re-delivers on the capacity ladder above. The Worker does not repeat the model call locally for this class. A credential pool whose recovery time lies past every remaining wait dead-letters at once.
+- **Execution** (every other retryable failure, such as a Worker transport failure or a timeout) — the event stays `open`, the epoch bumps, the runtime re-delivers after the exponential backoff, and the attempt is charged against the budget.
+- **Dead-letter** — after 5 deliveries, or when the failure is not retryable, the event moves to `dead_letter` and the turn stops retrying. The user receives a notice that the automatic retry stopped, and an operator inspects and resolves it.
 
 The worker does not retry on its own. It reports the error and the control plane owns the retry decision, because the control plane is what can re-establish the activation fence.
 

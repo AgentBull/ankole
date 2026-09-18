@@ -120,7 +120,8 @@ Elixir/OTP Control Plane은 Principal/AuthZ, SignalsGateway, Schedule, Actor Run
 Ankole은 회사가 관리하는 인프라에서 운영할 수 있는 완전한 Agent Harness로 프로덕션에서 실행 중입니다. Control Plane, Agent Computer, Kernel, 운영 콘솔을 한 환경에 배치할 수 있습니다.
 
 - OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, 기타 OpenAI 호환 엔드포인트는 컨텍스트 압축, 상태가 있는 대화, 추론 강도 제어, 사용량 기록을 지원합니다.
-- Lark, Feishu, Slack 연동에는 수명 주기, 통신, 주요 흐름, 실제 LLM 호출을 검증하는 전용 테스트가 있습니다.
+- Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, Email 어댑터가 Agent를 기업용 채팅, 소비자용 채팅, 전용 메일박스에 연결합니다. Slack, Entra ID, Google Workspace, Lark/Feishu, DingTalk, WeCom과 내장 로컬 비밀번호 제공자가 로그인과 디렉터리 동기화를 제공합니다.
+- Agent별 token quota가 반복 주기 동안의 모델 사용량에 상한을 둡니다. Human offboarding은 콘솔 또는 디렉터리 퇴사 이벤트에서 퇴사한 사람의 로그인과 이후 작업을 비활성화하며, 감사 기록이 남는 복원을 지원합니다.
 - Brain은 범위에 따른 공개, 대화와 Source 학습, 오프라인 정리, 운영자 검토, 전문 검색, 벡터 검색을 제공합니다.
 - Session은 시작, 체크포인트, 진행 상황 전송, 휴면, 컨텍스트를 유지한 복구, 실행 중 조정과 취소를 지원합니다.
 - 내장 운영 콘솔은 Agent, Library 설정, Plugin, 모델 제공자, 모델, Identity, 신호, Worker, Brain, Background Agent Job을 관리합니다.
@@ -153,7 +154,7 @@ Ankole은 회사가 관리하는 인프라에서 운영할 수 있는 완전한 
 - `libs/slack_openapi` - 로컬 Slack Web API, Socket Mode, OIDC client library.
 - `internals/plugins` - private release로 컴파일되는 first-party Control Plane Plugin 코드.
 - `tools/devkit` - 로컬 서비스, app database helpers, code generation, analysis를 위한 workspace automation.
-- `docs/design-docs` - principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, provider adapters에 대한 현재 설계 문서.
+- `docs/design-docs` - principal identity, authorization, browser sessions, OIDC, human offboarding, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, Brain, jobs, token quotas, provider adapters에 대한 현재 설계 문서.
 
 RuntimeFabric은 control plane에서 worker로의 live fabric입니다. ZeroMQ 위에서 actor traffic, bounded RPC, worker-file frames을 전달하며, PostgreSQL은 durable replay, fences, reconciliation, final commits의 source of truth로 남습니다. SignalsGateway는 provider-ingress 계층으로, 외부 chat, webhook, provider event를 actor event로 바꾸되 source fact를 execution state로 만들지 않습니다.
 

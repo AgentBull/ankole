@@ -124,4 +124,24 @@ Change research-department membership in the company directory. After the next s
 
 A successful save is not enough evidence. Verify the result with a real member account so that you know the resource pattern, action, and membership source are correct.
 
+## Disable a person who leaves
+
+When a person leaves the company, disable their account instead of deleting it. Open the person under **Principals and permission groups**, enter a reason in the **Account access** section, and select **Disable account**. The Principal, its work results, and its audit history stay; the person can no longer sign in, and their Console sessions, OAuth sessions, and tokens are rejected on their next use on every device.
+
+The Identity Provider can also disable the account. A Feishu departure, freeze, or reviewed removal from the synchronized directory scope, and a DingTalk departure, disable the same account through directory sync. A provider event alone never restores access, and a network failure is never treated as a departure.
+
+Disablement stops the person's future work: messages, schedules, Background Agent Jobs, Workflows, and automations that run under their authority are cancelled or rejected at their next start. An attempt that was already admitted is allowed to finish and is shown that way; it is not a failed stop. Older work that predates this check can lack a proven owner. Such work stops with `work_authorization_review_required` until an administrator classifies it under **Review work with unknown authority**; that decision is recorded and can be made only once.
+
+The person's detail page shows the access state, the identity source, the disable reasons and time, the operator or source, the cleanup result for each affected work item, and the logout notification result for each OIDC Client. Cleanup and notification failures show the affected object and a retry action.
+
+**Restore account** requires an administrator, a reason, and a verified identity. The Console first asks you to clear every restriction, shows the group memberships and grants that would apply, and requires your approval of those permission rules. A provider restriction clears only after a recent successful directory check confirms the recovery. After restoration the person signs in again and, for Feishu, authorizes the personal connection again. Old sessions, credentials, and cancelled work stay revoked.
+
+When the last active administrator has left, an operator with control-plane shell access can grant administrator access to a verified active person with an audited command:
+
+```sh
+mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified
+```
+
+The command refuses to run while an active administrator exists and rejects a disabled target.
+
 See [Principal and AuthZ](../principal-authz/) for the full permission model.

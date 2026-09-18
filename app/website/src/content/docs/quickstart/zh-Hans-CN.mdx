@@ -1848,6 +1848,493 @@ export const channelTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    summary:
+      'Telegram 使用 Bot API 长轮询。Ankole 通过出站连接调用 getUpdates，因此聊天链路不需要公网 webhook。Telegram 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+    prerequisites: ['一个能与 @BotFather 对话的 Telegram 账号', '一个测试私聊或群组'],
+    basic: {
+      title: '准备 Telegram 机器人',
+      steps: [
+        {
+          title: '用 @BotFather 创建机器人',
+          body: [
+            '向 @BotFather 发送 /newbot，选择显示名称和一个以 bot 结尾的用户名，然后复制 BotFather 返回的 token。这个 token 是路由规则唯一需要的凭证。'
+          ]
+        },
+        {
+          title: '允许机器人读取群消息',
+          body: [
+            '在 @BotFather 中打开 Bot Settings → Group Privacy，关闭隐私模式。隐私模式开启时，群组只会投递 /command@bot 形式的命令和对机器人的回复，@ 提及到不了 Agent，observe_all 或 may_intervene 也永远看不到其他消息。修改此设置后，需要把机器人移出群组再重新加入才会生效。'
+          ]
+        },
+        {
+          title: '删除旧的 webhook',
+          body: [
+            'Ankole 轮询 Bot API，而 Telegram 在 token 设有 webhook 时拒绝轮询。如果其他程序曾用这个 token 配置过 webhook，请在启用规则前删除它。Ankole 会报告 webhook_configured，不会删除由其他系统拥有的 webhook。'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'curl -s "https://api.telegram.org/bot<botToken>/deleteWebhook"'
+            }
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            {
+              name: 'botToken',
+              value: '123456789:AA…',
+              description: '@BotFather 返回的机器人 token。一个 token 只能属于一条已启用的路由规则。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '先从这里开始。私聊、@ 提及、/command@bot 命令或对机器人的回复都算指名 Agent。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '身份映射、论坛话题与平台限制',
+      summary: '展开以了解如何把 Telegram 用户映射到账号，以及 Agent 无法使用哪些 Telegram 功能。',
+      steps: [
+        {
+          title: '把 Telegram 用户映射到账号',
+          body: [
+            'Telegram 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，出现在身份 → 待绑定账号列表中，由管理员把这个 Telegram 身份绑定到已有账号，例如一个本地密码账号。之后用户重新发送消息即可。只有在允许任何人与 Agent 对话的开放机器人上，才选择「自动创建独立账号」。'
+          ]
+        },
+        {
+          title: '了解会话如何对应 Agent 会话',
+          bullets: [
+            '一个私聊、一个群组和一个超级群组各自构成一个 Agent 会话。',
+            '超级群组中的每个论坛话题是一个独立会话。',
+            '频道帖子、来自其他机器人的消息，以及匿名或访客发信人的消息会被忽略。'
+          ]
+        },
+        {
+          title: '注意平台限制',
+          bullets: [
+            'Bot API 无法下载大于 20 MB 的文件。Agent 能看到文件名和大小，但读不到内容。',
+            '用户删除消息时 Telegram 不发送任何事件，因此被删除的文字仍留在会话上下文中。',
+            '当 Telegram 可能已接受一次发送、但连接随后丢失时，Ankole 不会自动重发，而是走疑似重复流程，不会发出第二条回复。'
+          ]
+        },
+        {
+          title: '为每个 Agent 使用独立机器人',
+          body: ['一个机器人 token 只能绑定给一条已启用的路由规则。每多接入一个 Agent，都要在 @BotFather 中再创建一个机器人。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'discord',
+    label: 'Discord',
+    summary:
+      'Discord 通过出站 WebSocket 使用机器人 Gateway，因此聊天链路不需要公网 webhook。Discord 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+    prerequisites: [
+      '一个能在 Developer Portal 中创建应用的 Discord 账号',
+      '一个可以邀请机器人加入的服务器，或用于测试的私信'
+    ],
+    basic: {
+      title: '准备 Discord 机器人',
+      steps: [
+        {
+          title: '创建应用和机器人',
+          body: [
+            '打开 Discord Developer Portal，创建 New Application，进入 Bot 页面，选择 Reset Token。立即复制 token；Discord 只显示一次。'
+          ]
+        },
+        {
+          title: '启用消息内容 intent',
+          body: [
+            '在 Bot 页面的 Privileged Gateway Intents 下打开 Message Content Intent。没有它，Discord 投递的未提及机器人的服务器消息内容为空，Agent 只能读到私信和提及它的消息，observe_all 或 may_intervene 也看不到对话。Ankole 在连接前会读取应用标志，只有应用具备该 intent 时才会请求它。'
+          ],
+          caution: '不需要 Server Members Intent 和 Presence Intent。加入超过 100 个服务器的应用需要通过 Discord 验证才能保留消息内容 intent。'
+        },
+        {
+          title: '把机器人邀请进服务器',
+          body: [
+            '打开 OAuth2 → URL Generator，选择 bot scope，并添加下列权限。打开生成的 URL 并选择服务器。这组权限只覆盖 Ankole 调用的 Discord API。'
+          ],
+          copyItems: [
+            { value: 'View Channels', description: '查看允许机器人进入的频道' },
+            { value: 'Send Messages', description: '发送 Agent 回复' },
+            { value: 'Send Messages in Threads', description: '在子区中回复' },
+            { value: 'Read Message History', description: '回复和编辑更早的消息' },
+            { value: 'Attach Files', description: '上传 Agent 发送的文件' },
+            { value: 'Add Reactions', description: '添加和移除表情回应' }
+          ]
+        },
+        {
+          title: '保持 Interactions Endpoint URL 为空',
+          body: [
+            '在 General Information 页面，不要填写 Interactions Endpoint URL。一旦设置，Discord 会把按钮点击发到该 URL 而不是 Gateway，Agent 回复中的按钮就永远到不了 Ankole。'
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            {
+              name: 'botToken',
+              description: 'Bot 页面上的机器人 token。一个 token 只能属于一条已启用的路由规则。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '先从这里开始。私信、@ 提及或对机器人的回复都算指名 Agent。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '身份映射、子区与平台限制',
+      summary: '展开以了解如何把 Discord 用户映射到账号，以及 Agent 无法使用哪些 Discord 功能。',
+      steps: [
+        {
+          title: '把 Discord 用户映射到账号',
+          body: [
+            'Discord 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，出现在身份 → 待绑定账号列表中，由管理员把这个 Discord 身份绑定到已有账号，例如一个本地密码账号。之后用户重新发送消息即可。只有在允许任何人与 Agent 对话的开放服务器上，才选择「自动创建独立账号」。'
+          ]
+        },
+        {
+          title: '了解会话如何对应 Agent 会话',
+          bullets: [
+            '一个私信和每个服务器频道各自构成一个 Agent 会话。',
+            '每个子区是一个独立会话。',
+            '来自其他机器人的消息、webhook 帖子、系统通知，以及没有文字和附件的消息会被忽略。',
+            'Agent 的文字永远不会通知某个用户、角色或全体成员。Ankole 对发出的每条消息都禁用提及解析。'
+          ]
+        },
+        {
+          title: '注意平台限制',
+          bullets: [
+            'Ankole 最多下载 25 MB 的附件。更大的文件，Agent 能看到名称和大小，但读不到内容。',
+            '用户删除消息时 Discord 不发送 Ankole 使用的事件，因此被删除的文字仍留在会话上下文中。',
+            '回复按 2,000 字符拆分。一张卡片最多显示 25 个按钮。',
+            '当 Discord 可能已接受一次发送、但连接随后丢失时，Ankole 不会自动重发，而是走疑似重复流程，不会发出第二条回复。'
+          ]
+        },
+        {
+          title: '为每个 Agent 使用独立机器人',
+          body: ['一个机器人 token 只能绑定给一条已启用的路由规则。每多接入一个 Agent，都要再创建一个应用。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'line',
+    label: 'LINE',
+    summary:
+      'LINE 通过 Messaging API webhook 把消息推送给 Ankole，必须有带可信证书的公网 HTTPS 地址。LINE 是消费级 IM：它的用户不是通讯录里的员工，所以要在第一条消息到来之前规划好身份映射。',
+    alert: {
+      title: 'LINE 限制了部分 Ankole 功能',
+      body: [
+        'Agent 的每条回复都是 push 消息，因为 LINE 的 reply token 在 webhook 之后一分钟就会过期，而一个 Agent 回合通常更长。push 消息计入 Official Account 的每月消息套餐，套餐必须覆盖预期流量。LINE 机器人不能编辑、撤回消息或加表情回应，不能发送文件，在最终答案之前也不显示实时进度。',
+        '这些限制全部来自平台本身，Ankole 无法绕过。'
+      ]
+    },
+    prerequisites: [
+      '一个 LINE Developers provider，以及创建 Messaging API channel 的权限',
+      '一个公网 HTTPS 的 Ankole 主机',
+      '一个用于测试的 LINE 账号'
+    ],
+    basic: {
+      title: '准备 LINE Official Account',
+      steps: [
+        {
+          title: '创建 Messaging API channel 并收集凭证',
+          body: [
+            '在 LINE Developers Console 中，在你的 provider 下创建一个 Messaging API channel。从 Basic settings 复制 Channel ID 和 Channel secret，并在 Messaging API 标签页签发一个长期有效的 channel access token。'
+          ]
+        },
+        {
+          title: '先创建路由规则，再验证 webhook',
+          body: [
+            '先在 Console 中保存并启用路由规则。对于未知的 Channel ID，Ankole 会用状态码 404 应答 webhook，因此在规则存在之前，LINE Developers Console 的 Verify 按钮会一直失败。'
+          ]
+        },
+        {
+          title: '设置 webhook URL 并验证',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/line/<channelId>/events'
+            }
+          ],
+          body: [
+            '在 Messaging API 标签页填入此 URL，打开 Use webhook，然后选择 Verify。路径中的 channelId 必须与路由规则里的 Channel ID 一致。Ankole 用 channel secret 检查每个请求的 x-line-signature，签名错误时以状态码 401 拒绝。'
+          ]
+        },
+        {
+          title: '只让机器人应答',
+          body: [
+            '在 LINE Official Account Manager 中打开 Response settings。把应答方式设为 bot，并关闭自动回复和欢迎消息，这样账号不会在 Agent 之外另行回复。群聊需要在 LINE Developers Console 中启用 Allow bot to join group chats。'
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            {
+              name: 'channelId',
+              description: 'Messaging API 的 Channel ID。一个 channel 只能属于一条已启用的路由规则。'
+            },
+            {
+              name: 'channelSecret',
+              description: 'Basic settings 中的 Channel secret。Ankole 用它验证 webhook 签名。'
+            },
+            {
+              name: 'channelAccessToken',
+              description: 'Messaging API 标签页签发的长期有效 channel access token。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '先从这里开始。LINE 会投递每条群消息，因此 observe_all 和 may_intervene 无需额外权限也能工作。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '身份映射、群聊回复与平台限制',
+      summary: '展开以了解如何把 LINE 用户映射到账号，以及 Agent 在群里的行为。',
+      steps: [
+        {
+          title: '把 LINE 用户映射到账号',
+          body: [
+            'LINE 用户没有员工记录，所以每个新发信人的自动映射账号都会失败。把「自动映射账号失败时」保持为「手动审核」：发信人会收到一条固定回复，并以 LINE 显示名称出现在身份 → 待绑定账号列表中，由管理员把这个 LINE 身份绑定到已有账号，例如一个本地密码账号。之后用户重新发送消息即可。LINE 用户 ID 属于拥有该 channel 的 LINE Developers provider，因此不同 provider 下的 channel 需要分别建立映射。'
+          ]
+        },
+        {
+          title: '了解 Agent 在群里的行为',
+          bullets: [
+            '一个一对一聊天、一个群组和一个多人聊天各自构成一个 Agent 会话。LINE 没有子区。',
+            '在群里，@ 提及机器人或引用它的某条消息都算指名 Agent。群聊回复会引用提问者。',
+            '用户撤回的消息会从会话上下文中移除。'
+          ]
+        },
+        {
+          title: '注意平台限制',
+          bullets: [
+            '回复按 5,000 字符拆分，一次请求最多发送五条消息。一次澄清最多显示四个按钮。',
+            'Ankole 最多下载 25 MB 的收到文件。更大的文件，Agent 能看到名称和大小，但读不到内容。',
+            'Agent 不能发送文件，但文字回复仍会送达。',
+            '每月套餐用尽时 LINE 返回状态码 429。只有更换套餐或进入下个月才能解除。'
+          ]
+        },
+        {
+          title: '为每个 Agent 使用独立 channel',
+          body: ['一个 Messaging API channel 只能属于一条已启用的路由规则。每多接入一个 Agent，都要再创建一个 channel。']
+        }
+      ]
+    }
+  },
+  {
+    value: 'whatsapp',
+    label: 'WhatsApp',
+    summary:
+      'WhatsApp 通过 Cloud API webhook 把消息推送给 Ankole，必须有带可信证书的公网 HTTPS 地址。WhatsApp 是消费级 IM，但如果发信人的手机号已属于某个已知的人，无需管理员操作即可完成映射。',
+    alert: {
+      title: 'WhatsApp 限制了部分 Ankole 功能',
+      body: [
+        'Meta 会在用户最新一条消息或按钮回复之后 24 小时关闭客服窗口。此后的回复（例如定时报告）会以明确的失败停止，不会送达用户；用户再次发信后，操作员可以在信号路由页面重试。群聊、模板消息、编辑消息、删除消息和实时进度预览均不可用。',
+        '这些限制全部来自平台本身，Ankole 无法绕过。'
+      ]
+    },
+    prerequisites: [
+      '一个添加了 WhatsApp 产品的 Meta App，以及一个拥有手机号的 WhatsApp Business Account',
+      '一个公网 HTTPS 的 Ankole 主机',
+      '一个用于测试的 WhatsApp 账号'
+    ],
+    basic: {
+      title: '准备 WhatsApp Business 手机号',
+      steps: [
+        {
+          title: '接入 WhatsApp 产品并收集标识',
+          body: [
+            '在 Meta App Dashboard 中，为 App 添加 WhatsApp 产品，并连接拥有该手机号的 WhatsApp Business Account。从 App settings → Basic 复制 App ID 和 App secret，从 WhatsApp → API Setup 复制 Phone number ID。'
+          ]
+        },
+        {
+          title: '签发永久的 System User token',
+          body: [
+            '在 Meta Business Suite 中创建一个 System User，为其授予该 App 的 whatsapp_business_messaging 权限，并生成一个永不过期的 token。用户 token 会过期并导致 Agent 停止工作。'
+          ]
+        },
+        {
+          title: '先创建路由规则，再验证回调',
+          body: [
+            '选择一个 verify token，在 Console 中填入它和其他字段，然后保存并启用路由规则。Meta 会向 Ankole 验证回调 URL，因此规则必须先存在。'
+          ]
+        },
+        {
+          title: '设置回调 URL 并订阅消息',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/whatsapp/<appId>/events'
+            }
+          ],
+          body: [
+            '打开 WhatsApp → Configuration，填入此 URL 和同一个 verify token，然后选择 Verify and save。接着为 App 订阅 messages webhook 字段；其他字段不会被使用。Ankole 用 App secret 检查每个请求的 x-hub-signature-256，签名错误时以状态码 401 拒绝。'
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            {
+              name: 'appId',
+              description: 'Meta App ID。同一个 App 下的多个手机号可以各自服务一个 Agent，它们的规则必须使用相同的 App secret 和 verify token。'
+            },
+            {
+              name: 'appSecret',
+              description: 'App settings → Basic 中的 App secret。Ankole 用它验证 webhook 签名。'
+            },
+            {
+              name: 'verifyToken',
+              description: '由你选择的值。在 Meta 的回调配置中填入同一个值。'
+            },
+            {
+              name: 'phoneNumberId',
+              description: 'WhatsApp → API Setup 中的 Phone number ID。一个手机号只能属于一条已启用的路由规则。'
+            },
+            {
+              name: 'accessToken',
+              description: '永久的 System User access token。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '唯一可用的模式。WhatsApp 只投递一对一聊天，每条消息都指名 Agent。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '身份映射、回复与平台限制',
+      summary: '展开以了解 WhatsApp 用户如何成为账号，以及 Agent 无法使用哪些 WhatsApp 功能。',
+      steps: [
+        {
+          title: '了解 WhatsApp 用户如何成为账号',
+          body: [
+            '发信人的 WhatsApp ID 是一个经 Meta 验证的手机号。如果某个已有账号（例如来自通讯录同步）拥有该手机号，发信人会立即完成映射。否则自动映射账号会失败：把「自动映射账号失败时」保持为「手动审核」，发信人会收到一条固定回复，并以 WhatsApp 资料名称和手机号出现在身份 → 待绑定账号列表中，由管理员把这个身份绑定到已有账号。只有在允许任何人与 Agent 对话的开放号码上，才选择「自动创建独立账号」。'
+          ]
+        },
+        {
+          title: '了解 Agent 如何回复',
+          bullets: [
+            '回复会引用用户的消息。长回复按 4,096 字符拆分。',
+            '不超过三个选项的澄清显示为回复按钮；更多选项显示为一个列表。每个选项都以其编号开头。',
+            'Agent 可以在 Meta 对各类型的大小限制内发送图片、视频、音频和文档。Meta 不接受的文件会以明确的错误停止，文字仍会送达。',
+            '用户在 WhatsApp 中删除的消息不会通知 Ankole，因此其文字仍保留在会话上下文中。'
+          ]
+        },
+        {
+          title: '遵守客服窗口',
+          body: [
+            'Ankole 在每次发送前检查窗口。距用户最新一条消息或按钮回复超过 24 小时的回复会以 customer_service_window_closed 停止，不会向 Meta 发出任何请求。付费模板消息是打开新窗口的唯一方式，目前不在支持范围内。用户再次发信后，在信号路由页面使用「重试」发送被停止的回复。'
+          ]
+        },
+        {
+          title: '让规则留在原来的手机号上',
+          body: [
+            '一个聊天绑定到接收它的手机号。如果把规则改到另一个手机号，对旧聊天的回复会以 binding_phone_number_mismatch 停止，而不会从用户从未联系过的号码发出。恢复原来的手机号即可解除。'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'email',
+    label: 'Email',
+    summary:
+      'Ankole 通过 IMAP 读取一个专用邮箱，并通过 SMTP 发送 Agent 的回复。每个邮件线程是一个会话。这个邮箱属于 Agent：任何人都不得用其他邮件客户端读取它。',
+    alert: {
+      title: '电子邮件限制了部分 Ankole 功能',
+      body: [
+        '被其他邮件客户端标记为已读的邮件不会到达 Agent，因此邮箱必须专用。Agent 的回复是一封纯文本邮件，没有实时进度、编辑和按钮；澄清以带编号的文字送达，用户用普通回复作答。只支持密码和应用专用密码登录，因此 Gmail 需要应用专用密码，而要求 OAuth 的 Exchange Online 邮箱无法使用。',
+        '控制平面必须能直接访问 IMAP 和 SMTP 服务器；HTTP 出站代理不覆盖它们。'
+      ]
+    },
+    prerequisites: [
+      '一个开通了 IMAP 和 SMTP 访问、并有密码或应用专用密码的专用邮箱',
+      '一个会添加带 DMARC 结果的 Authentication-Results 头的邮件服务器，或一个不接收外部邮件的内网邮件服务器'
+    ],
+    basic: {
+      title: '准备专用邮箱',
+      steps: [
+        {
+          title: '创建邮箱及其密码',
+          body: [
+            '创建一个只供 Agent 使用的邮箱，并为它启用 IMAP 和 SMTP。如果服务商要求，为 Ankole 创建一个应用专用密码，而不是使用账号密码。'
+          ],
+          caution: '不要在任何其他邮件客户端中打开这个邮箱。被其他客户端标记为已读的邮件对 Agent 不可见。'
+        },
+        {
+          title: '收集服务器设置',
+          body: [
+            'Ankole 通过隐式 TLS 连接 IMAP，通常是 993 端口。SMTP 使用 STARTTLS（通常是 587 端口）或隐式 TLS（通常是 465 端口）。Ankole 会根据系统 CA 存储验证服务器证书。'
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            { name: 'address', value: 'agent@example.com', description: '邮箱地址。回复从这个地址发出。' },
+            { name: 'displayName', value: 'Ankole Agent', description: '出站邮件上的发件人名称。' },
+            { name: 'imapHost', value: 'imap.example.com', description: 'IMAP 服务器主机。' },
+            { name: 'imapPort', value: '993', description: 'IMAP 端口。Ankole 使用隐式 TLS。' },
+            { name: 'smtpHost', value: 'smtp.example.com', description: 'SMTP 服务器主机。' },
+            { name: 'smtpPort', value: '587', description: 'SMTP 端口。587 配 STARTTLS，465 配 TLS。' },
+            { name: 'smtpSecurity', value: 'starttls', description: 'starttls 或 tls，与 SMTP 端口匹配。' },
+            { name: 'username', description: '登录名，通常就是邮箱地址。一组 IMAP 主机和用户名只能属于一条已启用的路由规则。' },
+            { name: 'password', description: '邮箱密码或应用专用密码。Ankole 加密存储。' },
+            { name: 'senderAuthentication', value: 'dmarc', description: '保持 dmarc。只有不接收外部邮件的内网邮件服务器才设为 none。' }
+          ]
+        },
+        {
+          title: '发送测试邮件',
+          body: [
+            '从你自己的地址给该邮箱写一封邮件。如果你的地址尚未绑定到你的账号，你会收到一封映射提示作为回复；在身份 → 待绑定账号中绑定该地址，然后重新发送邮件。'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '发信人身份、发信人认证与线程',
+      summary: '展开以了解邮件发信人如何成为已知账号，以及 Ankole 如何处理线程和群发邮件。',
+      steps: [
+        {
+          title: '了解邮件发信人如何成为账号',
+          body: [
+            '互联网上的任何人都能给该邮箱写信，而 From 地址本身不能证明任何事情，因此 Ankole 从不按资料邮箱或本地登录邮箱匹配邮件发信人。发信人只能通过显式的邮箱身份绑定被识别：通讯录同步和提供商登录会绑定提供商报告的地址，所以已同步通讯录中的员工无需手动步骤即可接入；其他地址由管理员在身份 → 待绑定账号中绑定。「自动创建独立账号」会创建一个以该地址为标识的账号，只在开放邮箱上使用它。'
+          ]
+        },
+        {
+          title: '理解发信人认证',
+          body: [
+            'senderAuthentication 设为 dmarc 时，Ankole 读取你的收件邮件服务器添加的 Authentication-Results 头，只有当它对 From 地址所在域报告 dmarc=pass 时才接受这封邮件。未通过的邮件会被静默忽略，不发送任何提示。只有邮件服务器位于内网且不接收外部邮件时才设为 none。'
+          ]
+        },
+        {
+          title: '了解线程和群发邮件的处理方式',
+          bullets: [
+            '线程按 In-Reply-To 和 References 头归位，而不是按主题。Agent 的回复带有邮件客户端使用的线程头。',
+            '参与者只有发信人和该邮箱的线程是一对一会话。有其他收件人时就是群组会话，而只在 Cc 中列出该邮箱的邮件不算指名 Agent。',
+            '已知线程中的邮件会移除回复分隔线以下的引用文字。线程的第一封邮件和转发邮件保留完整正文。',
+            '来自该邮箱自身的邮件、自动邮件和群发邮件，以及邮件列表邮件会被静默忽略，不发送任何提示。',
+            '大于 25 MB 的邮件只会送达邮件头。出站附件限制为每封邮件 20 MB。'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1907,7 +2394,7 @@ export const signalAdvanced = {
 | **私有化部署实例** | 一家企业自行部署并管理的一套完整 Ankole 系统 | 实例 |
 | **主体（Principal）** | Ankole 中可以拥有身份和权限的人、Agent 或系统服务 | 主体 |
 | **身份源提供商（Identity Provider，IdP）** | 为 Console 提供单点登录，并向 Ankole 同步员工、通讯录和组织架构的外部身份源 | IdP |
-| **聊天平台** | Slack、Teams、飞书 / Lark、钉钉或企业微信等承载会话的外部平台 | 平台 |
+| **聊天平台** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或邮箱等承载会话的外部平台 | 平台 |
 | **聊天渠道（Channel Provider）** | 接入 Ankole 的一套聊天应用或机器人配置，用来接收消息和发送 Agent 回复 | 聊天渠道 |
 | **信号路由规则（Signal Binding）** | 决定把哪个信号源收到的消息或事件交给哪个 Agent | 路由规则 |
 | **大语言模型提供商（LLM Provider）** | 保存模型服务地址、凭证和可用模型的配置 | 模型提供商 |
@@ -2001,6 +2488,8 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 一个聊天应用通常对应一个机器人身份。多个 Agent 如果要使用不同的机器人名称、头像或权限，就要在同一平台创建多套应用。准备好应用后，紧接着在 Console 中创建路由规则，把这套应用连接到指定的 Agent。
 
+Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的用户来自 IdP 同步的通讯录。Telegram、Discord、LINE 和 WhatsApp 是消费级 IM：它们的用户没有员工记录，管理员需要先在**身份 → 待绑定账号**中把每个新发信人映射到账号，Agent 才会为其服务；如果某个已知账号已拥有该手机号，WhatsApp 会自行完成映射。电子邮件接入的是一个专用邮箱，发信人只能通过显式的邮箱身份绑定被识别。
+
 <QuickstartTabs
   client:visible
   ariaLabel="选择聊天渠道"
@@ -2019,7 +2508,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 | 字段 | 如何选择 |
 |---|---|
 | **Target Agent** | 第 3 步创建的 Agent |
-| **Adapter** | Slack、Teams、飞书 / Lark、钉钉或企业微信 |
+| **Adapter** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或 Email |
 | **规则名称** | 起一个固定的名称，例如 `slack-main` 或 `lark-main` |
 | **Group message mode** | 第一次测试选择 `addressed_only` |
 | **聊天渠道配置** | 填入对应平台 Tab 中准备好的凭证和字段 |

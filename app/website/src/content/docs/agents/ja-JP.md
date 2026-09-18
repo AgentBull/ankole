@@ -66,6 +66,16 @@ Agent ページで **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** を開�
 
 最初の LLM Provider とモデルのセットアップは、[Quick start](../quickstart/#llm-providers)を参照してください。
 
+## token quota を設定する
+
+モデルプロファイルの隣にある **トークンクォータ** セクションは、この Agent が繰り返しの期間内に消費できる token を制限します。期間の長さ（日数）、期間の開始時刻、token の上限を設定します。quota のない Agent には上限がありません。
+
+セクションには、使用済み token が上限に対する割合とともにバーで表示され、現在の期間の開始時刻と終了時刻も表示されます。Ankole は、Agent が行うすべてのモデル呼び出しについて provider が報告する入力 token と出力 token を数えます。スケジュールされた Turn、Workflow、Background Agent Job、およびそれらの呼び出しが開始する compaction も含まれます。Brain のモデル呼び出し、embedding、ウェブツール、画像生成、および人が自分の token で行うリクエストは数えません。
+
+Agent が上限に達すると、チャットメッセージには回答の代わりに、使用済み token、上限、期間の終了時刻を含む返信が返ります。その Agent の Background Agent Job は失敗し、次の期間を待ちません。上限は各モデル呼び出しの前に確認されるため、1 回の呼び出しがその使用量の分だけ上限を超えて終わることがあります。ブロックされたメッセージは再送されません。期間が終了した後、ユーザーがもう一度送信します。
+
+**期間をリセット** はその時点で新しい期間を開始するため、期間が終わる前に Agent が再び作業できます。**上限を解除** は quota を削除します。どちらの場合も、使用量の記録は監査のために残ります。他の支出レバーは [コスト管理](../cost-management/) を参照してください。
+
 ## 機能と環境変数を設定する
 
 Agent は、Agent Plugins と Skills のデプロイメントインスタンスのデフォルトを継承します。変更するには、**Console → Agent Library** を開き、デフォルトを編集するか、この Agent の上書きを設定します。
@@ -78,7 +88,7 @@ Skill、コマンドラインツール、または MCP サービスが API key �
 
 ## chat channel を接続する
 
-新しい Agent は、Slack、Microsoft Teams、Lark、Feishu、DingTalk からメッセージを受け取る前に、signal routing ルールが必要です。
+新しい Agent は、Slack、Microsoft Teams、Lark、Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、または専用のメールボックスからメッセージを受け取る前に、signal routing ルールが必要です。
 
 **Console → Signal routing** を開き、チャットアプリケーションとターゲット Agent を選択します。1 つのチャットアプリケーションに複数のルールを作成でき、異なる Agent 用に別々の bot アプリケーションを作成できます。
 

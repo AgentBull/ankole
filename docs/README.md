@@ -96,9 +96,15 @@ some of those records as Agent Home files that workers can use.
 | `tools/e2e/` | End-to-end runner, support services, and suites |
 | `docs/` | Current public architecture and operations documents |
 
-Current provider adapters cover Lark, DingTalk, Slack, Microsoft 365, and
-Google Workspace. The China-market provider plugin contributes AIGateway
-providers.
+Current Control Plane Plugins under `plugins/` provide the Lark, DingTalk,
+Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE,
+WhatsApp, and Email adapters. Telegram, Discord, LINE, and WhatsApp are
+consumer IM adapters: they connect a bot to one Agent and map each sender to a
+Principal by hand, by a known mobile number, or as a standalone account. The
+Email adapter connects a dedicated mailbox and admits a sender only through an
+explicit `email` identity binding. The local password identity provider is
+part of the control plane.
+The China-market provider plugin contributes AIGateway providers.
 
 ## Control-Plane Boot Order
 
@@ -233,11 +239,15 @@ credentials.
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
 | [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
+| [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console (Chinese) |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ messages, RPC calls, and file transfer |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |
+| [Automation Jobs](design-docs/AutomationJobs.md) | Agent-owned scripts that consume a trigger without a model turn |
+| [Workflow](design-docs/Workflow.md) | One fixed program that runs bounded subagent tasks |
 | [Principal](design-docs/Principal.md) | Human and Agent identities, including linked provider accounts |
+| [Local Password Identity Provider](design-docs/LocalPasswordIdentityProvider.md) | Built-in email and password sign-in without an external service |
 | [Human Offboarding](design-docs/HumanOffboarding.md) | Human disablement, authentication revocation, and task start checks |
 | [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
 | [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |

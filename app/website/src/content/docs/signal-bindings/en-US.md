@@ -55,11 +55,11 @@ sender:
 | Option | Behavior |
 |---|---|
 | **Manual review** (default) | The sender appears under **Identity → Pending mappings** in the Console. Until an administrator binds the account there, a message that addresses the Agent gets one fixed reply that asks the sender to contact an administrator, and nothing else happens — the message does not enter context or Brain learning. |
-| **Create a standalone account** | Ankole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. |
+| **Create a standalone account** | Ankole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. When the sender's platform id is already the identifier of an existing account, such as a local-login account whose identifier is its email address, Ankole creates nothing and holds the sender for manual review, because only an administrator can decide that they are the same person. |
 
 Unaddressed group chatter from an unmapped sender is always ignored.
 
-On Lark and Feishu this also covers external groups: members from another
+On Telegram, Discord, and LINE every sender is unknown at first: these consumer IMs have no company directory, and the platform reports no email or mobile number. Keep **Manual review** and map each person to their account once. WhatsApp reports the sender's verified phone number, so a person whose account already owns that mobile number is mapped at once. An email sender is never matched by a profile email or a local sign-in email, because a From address proves nothing: only an explicit email identity binding admits them, which directory sync creates for employees and you create here for everyone else. On Lark and Feishu the same page also covers external groups: members from another
 tenant have no employee id, so they always need manual binding or the
 standalone option. You can also map an account before the person ever writes,
 for example to link a local-login user to their chat account, from the same

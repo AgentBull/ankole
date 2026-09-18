@@ -65,6 +65,16 @@ Agent 可以使用公司大脑中获准访问的知识。信号路由规则将�
 
 模型提供商和首次模型配置见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
+## 设置 token 额度
+
+模型档案旁的 **Token 额度**区域限制该 Agent 在一个循环周期内可以消耗的 token。设置周期长度（天）、周期起始时间和 token 上限。没有额度的 Agent 不受限制。
+
+该区域以进度条显示已用 token 及其占上限的比例，以及当前周期的起止时间。Ankole 统计提供商为该 Agent 每次模型调用报告的输入 token 和输出 token，包括计划任务回合、Workflow、后台 Agent 任务，以及这些调用触发的上下文压缩。Brain 模型调用、embedding、web 工具、图片生成，以及人员用自己的 token 发起的请求不计入。
+
+Agent 达到上限后，聊天消息不会得到回答，而是收到一条说明已用 token、上限和周期结束时间的回复。该 Agent 的后台 Agent 任务会直接失败，不会等待下一个周期。上限在每次模型调用前检查，因此一次调用可能因自身用量而超出上限。被拦截的消息不会重放：用户在周期结束后重新发送即可。
+
+**重置周期**会立即开始一个新周期，Agent 不必等到周期结束就能继续工作。**取消额度**会移除额度。两种情况下用量记录都会保留以供审计。其他花费杠杆见 [成本管理](../cost-management/)。
+
 ## 配置能力和环境变量
 
 Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，打开 **Console → Agent 能力库**，修改默认设置或为该 Agent 单独覆盖。具体方法见 [Agent 能力库](../skills/)。
@@ -73,7 +83,7 @@ Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，
 
 ## 接入聊天渠道
 
-创建 Agent 后，配置信号路由规则，使 Agent 可以接收 Slack、Microsoft Teams、飞书（Lark）或钉钉中的消息。
+创建 Agent 后，配置信号路由规则，使 Agent 可以接收 Slack、Microsoft Teams、飞书（Lark）、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或专用邮箱中的消息。
 
 打开 **Console → 信号路由**，选择聊天应用和目标 Agent。一个聊天应用可以建立多条规则，也可以为不同 Agent 创建不同的机器人应用。具体方法见 [信号路由规则](../signal-bindings/)。
 
