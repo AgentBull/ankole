@@ -467,17 +467,7 @@ Worker environment changes are injected into new turns. Send a new message after
 
 ## Work on a contribution
 
-Read [`AGENTS.md`](AGENTS.md) before editing. It defines repository-wide ownership boundaries, objective fidelity, test discipline, dependency policy, and the required changelog workflow.
-
-Before changing a subsystem:
-
-1. Inspect `git status --short` and preserve unrelated work.
-2. Read the nearest README, design doc, and existing implementation.
-3. Search for the established pattern before adding another abstraction.
-4. Identify what can be deleted or reused before adding code.
-5. Choose the smallest tests that exercise the real changed boundary.
-
-Do not add a dependency without explicit approval. Do not preserve obsolete names or compatibility paths unless a real current caller requires them.
+Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implementation rules. Follow its task-specific guidance links as needed.
 
 ### Repository map
 
@@ -494,8 +484,6 @@ Do not add a dependency without explicit approval. Do not preserve obsolete name
 | `tools/devkit` | Repository automation, local services, database helpers, and analysis |
 | `tools/e2e` | Dedicated integration and end-to-end suites |
 | `docs/design-docs` | Current design intent for non-trivial subsystems |
-
-PostgreSQL owns durable truth, the Elixir control plane owns commit authority and supervision, the Rust kernel owns shared native primitives and transport, and Agent Computer owns execution and worker-local state.
 
 ### Repository toolkit
 
@@ -564,23 +552,34 @@ These suites are slower and are not part of the default fast path. Run the mode 
 
 A significant or cross-subsystem change should update or add a document under [`docs/design-docs/`](docs/design-docs/). Explain the chosen contract and ownership boundary, not abandoned drafting alternatives.
 
-Every completed change updates the root [`CHANGELOG.md`](CHANGELOG.md). One Git commit corresponds to exactly one changelog version.
+The changelog records each commit's changes. It is historical information, not an authority for product behavior or design decisions. Use the current owning design document, authoritative product declaration, or explicit human decision for those contracts.
 
-Before editing the changelog, inspect its staged and unstaged state:
+### One version per commit
 
-```bash
-git status --short CHANGELOG.md
-git diff -- CHANGELOG.md
-git diff --cached -- CHANGELOG.md
-```
+Every Git commit adds exactly one root `CHANGELOG.md` version that covers every retained change in that commit. A version must not span commits, and a commit must not contain multiple versions. Chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions. A change confined to `internals/` that does not affect FOSS goes only in `internals/CHANGELOG.md`.
 
-If `CHANGELOG.md` is already modified, append the new summary to the latest pending version. If it is clean relative to `HEAD`, add the next `MAJOR.MINOR.PATCH` version.
+Write the entry when work is complete. Check the staged and unstaged changelog against `HEAD`: if it is modified, add to the newest pending version; otherwise add a new version above the newest one. Keep the entry correct as the retained diff changes. All uncommitted work, including work from other agents, belongs to the same next commit and pending version. Split versions only when deliberately preparing separate commits, with one consecutive version per planned commit.
 
-`PATCH` is the default increment. Increment `MINOR`, and reset `PATCH` to `0`, only when the commit lets a user or an operator do something the product could not do before, or when it breaks existing behavior so that a person must change configuration, stored data, or an external caller. Every other change increments `PATCH`, even when users see the difference at once: a bug fix however visible, better speed or reliability inside an existing capability, an internal rewrite, a dependency upgrade, tooling, and documentation. Use the minor increment when one commit contains both types, but only when one change qualifies for `MINOR` on its own. Change `MAJOR` only after an explicit maintainer decision.
+Normally use 1–4 concise bullets. Describe the outcomes users observe and any required operator action. Give changes that users do not experience one brief factual bullet. Cover all material changes without file or test inventories or implementation narratives.
 
-Write one outcome-focused bullet. Describe user-visible behavior or the preserved system guarantee rather than listing files.
+### Version selection
 
-On a `main` push that builds runtime images, the verified control-plane and Worker images receive the newest `MAJOR.MINOR.PATCH` tag. The workflow creates the matching immutable `vMAJOR.MINOR.PATCH` GitHub Release from that exact changelog section. A version cannot be reused for another commit, image digest, or release body.
+Use `MAJOR.MINOR.PATCH` with no leading zeroes. An optional suffix is `-alpha`, `-beta`, or `-rc`, optionally followed by `.N` with an increasing number, such as `1.0.0-rc.1`. Only `alpha` and `beta` mark a pre-release; `rc` is a release candidate and counts as a release.
+
+`PATCH` is the default. Increment `MINOR` and reset `PATCH` to `0` only when a change passes either test:
+
+1. **New capability.** A user or operator can do something the product could not do before. State that capability in the bullet. Making an existing capability correct, faster, more reliable, or easier to understand does not qualify.
+2. **Breaking technical change.** Existing behavior stops working, or a person must change configuration, stored data, or an external caller to retain it. State the required action. A retired option, moved boundary, or renamed field that the upgrade migrates automatically does not qualify.
+
+Every other change increments `PATCH`: bug fixes of any severity or visibility, repairs to match documentation, speed, reliability, limits, defaults, errors, logs, telemetry, layout, internal architecture changes, tooling, dependencies, and documentation. Size and the number of affected subsystems do not determine the increment.
+
+A mixed commit uses `MINOR` only if one change qualifies on its own; `PATCH` changes do not add up to `MINOR`. Use `PATCH` when the `MINOR` case is uncertain. Change `MAJOR` only after an explicit human decision, which also sets any suffix. Until that decision, breaking technical changes use `MINOR`, unlike standard Semantic Versioning.
+
+### Runtime image releases
+
+For a `main` push that runs the runtime-image workflow, the newest changelog version is the release identity. After the control-plane and Worker image pair passes verification, the workflow adds immutable version tags and creates the matching `vVERSION` GitHub Release from that exact changelog section. An `alpha` or `beta` version publishes as a GitHub pre-release and moves `canary`; an `rc` or stable version publishes as a full release and moves `main-latest`.
+
+The workflow must fail rather than reuse a version for another commit, replace an existing image tag with another digest, or publish release notes that differ from the changelog.
 
 ## Submit a pull request
 
