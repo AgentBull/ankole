@@ -54,6 +54,39 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
   end
 
+  describe "background completion silence authorization" do
+    test "requires the persisted provider-delivery receipt" do
+      base = %ActorEvent{type: "background_agent_job.completed", payload: %{"data" => %{}}}
+
+      refute BackgroundAgentJobs.silent_success_allowed?(base)
+
+      refute BackgroundAgentJobs.silent_success_allowed?(%{
+               base
+               | payload: %{"data" => %{"silent_success_allowed" => false}}
+             })
+
+      allowed = %{base | payload: %{"data" => %{"silent_success_allowed" => true}}}
+      assert BackgroundAgentJobs.silent_success_allowed?(allowed)
+    end
+
+    test "validates the silent completion at the control-plane boundary" do
+      event = %ActorEvent{
+        type: "background_agent_job.completed",
+        payload: %{"data" => %{"silent_success_allowed" => false}}
+      }
+
+      assert {:error, :background_agent_job_silent_success_not_allowed} =
+               BackgroundAgentJobs.validate_completion(event, %{final_text: nil}, "silent")
+
+      assert {:error, :background_agent_job_silent_success_not_allowed} =
+               BackgroundAgentJobs.validate_completion(
+                 event,
+                 %{final_text: ~s({"outcome":"silent_success","reply":null})},
+                 "loop_finished"
+               )
+    end
+  end
+
   test "Turn changesets validate concrete progress and official usage snapshots" do
     now = DateTime.utc_now(:microsecond)
 
@@ -958,6 +991,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert get_in(completed_event.payload, ["data", "result_summary"]) ==
              "Launch brief written and verified."
 
+    refute get_in(completed_event.payload, ["data", "silent_success_allowed"])
+
     assert get_in(completed_event.payload, ["data", "project_path"]) ==
              AgentHomePaths.job_workspace(agent.uid, waiting.id)
 
@@ -968,6 +1003,33 @@ defmodule Ankole.BackgroundAgentJobsTest do
              ],
              "truncated" => false
            }
+
+    verified = create_job!(agent.uid, "verified-delivery")
+
+    assert {:ok, %{job: verified_running, wakeup_event: nil}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(verified.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-verified"
+             })
+
+    verified_running = set_attempts!(verified_running, 1)
+    insert_turn!(verified_running, 1, "thread-verified", "turn-verified", "completed")
+
+    assert {:ok, %{wakeup_event: %ActorEvent{} = verified_event}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(verified.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{
+                 "summary" => "Message delivered.",
+                 "verification" => %{
+                   "ok" => true,
+                   "message_id" => "om_verified",
+                   "error" => nil,
+                   "issues" => []
+                 }
+               }
+             })
+
+    assert get_in(verified_event.payload, ["data", "silent_success_allowed"])
 
     failed = create_job!(agent.uid, "failed")
 

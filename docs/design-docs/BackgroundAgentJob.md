@@ -201,6 +201,14 @@ Success, failure, and `waiting_on_user` write a notification for the originating
 conversation. A success notification includes the final Codex response.
 Stopping a Job does not send a notification.
 
+When the terminal result already reached its intended provider recipient, the
+originating conversation may complete without another provider-visible
+notification. The internal `silent_success` result stays private to the
+runtime and never becomes ordinary channel text. The control plane authorizes
+this outcome only when the persisted Job result contains a `verification`
+object with `ok: true`, a non-empty `message_id`, no `error`, and no `issues`.
+Missing or incomplete verification keeps the parent notification visible.
+
 A waiting notification gives the parent only each question's header, text,
 secret flag, and labeled choices. Codex thread, turn, item, question, and option
 IDs remain in Job metadata for resume and do not enter the parent prompt.

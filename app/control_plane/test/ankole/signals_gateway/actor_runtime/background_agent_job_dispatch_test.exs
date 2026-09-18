@@ -4,12 +4,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurn
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
+
+  test "background completion turns carry only the persisted silent-success authorization" do
+    event = %ActorEvent{
+      type: "background_agent_job.completed",
+      payload: %{"data" => %{"silent_success_allowed" => true}}
+    }
+
+    opts = BackgroundAgentJobTurn.wakeup_opts(event, request_context: %{"caller" => "test"})
+
+    assert opts[:request_context] == %{
+             "caller" => "test",
+             "background_job_silent_success_allowed" => true
+           }
+  end
 
   test "dispatch starts a fenced non-conversation turn and increments attempts once" do
     %{principal: agent} = agent_fixture()

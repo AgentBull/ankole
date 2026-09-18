@@ -22,6 +22,7 @@ import {
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import {
   hostedToolsForAmbientRoute,
+  textTurnReplyRepair,
   textTurnResultFromAssistantReply,
   toolsForAmbientRoute
 } from '../../src/core/turns/text_turn'
@@ -748,6 +749,52 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
   })
 
+  it('keeps a background-job completion silent-success marker as a noop', () => {
+    const base = turnStartForTest()
+    const turnStart = {
+      ...base,
+      actor_event: { ...base.actor_event, type: 'background_agent_job.completed' },
+      request_context: { background_job_silent_success_allowed: true }
+    }
+
+    expect(
+      textTurnResultFromAssistantReply(
+        turnStart,
+        '{"outcome":"silent_success","reply":null}',
+        'resp_background_silent',
+        'loop_finished'
+      )
+    ).toEqual({
+      kind: 'noop_completed',
+      reason: 'background_agent_job_silent_success',
+      finalResponseID: 'resp_background_silent'
+    })
+  })
+
+  it('does not silently complete a background job without a persisted delivery receipt', () => {
+    const base = turnStartForTest()
+    const turnStart = {
+      ...base,
+      actor_event: { ...base.actor_event, type: 'background_agent_job.completed' },
+      request_context: { background_job_silent_success_allowed: false }
+    }
+
+    expect(
+      textTurnResultFromAssistantReply(
+        turnStart,
+        '{"outcome":"silent_success","reply":null}',
+        'resp_background_unverified',
+        'loop_finished'
+      )
+    ).toEqual({
+      kind: 'turn_completed',
+      finalResponseID: 'resp_background_unverified',
+      outcome: 'loop_finished'
+    })
+
+    expect(textTurnReplyRepair(turnStart, '{"outcome":"silent_success","reply":null}')).toMatchObject({ role: 'user' })
+  })
+
   it('prepends compact group environment info as a separate user message part', () => {
     const lines = actorEventEnvironmentInfoLines(
       {
@@ -970,6 +1017,17 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(lines).toContain('schedule_turn_mode: check_back_later')
     expect(lines).toContain('schedule_silent_success_allowed: false')
     expect(lines).toContain('schedule_payload: {"symbol":"600519.SH"}')
+  })
+
+  it('keeps background-job silent-success authorization in the current event block', () => {
+    const base = turnStartForTest()
+    const turnStart = {
+      ...base,
+      actor_event: { ...base.actor_event, type: 'background_agent_job.completed' },
+      request_context: { background_job_silent_success_allowed: true }
+    } as TurnStart
+
+    expect(turnRequestEnvironmentInfoLines(turnStart)).toEqual(['background_job_silent_success_allowed: true'])
   })
 
   it('surfaces a verified identical-reply streak and hides anything below one', () => {

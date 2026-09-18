@@ -31,7 +31,11 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.BackgroundAgentJobs
 
-  @scheduled_reply_errors [:invalid_scheduled_reply, :schedule_silent_success_not_allowed]
+  @completion_projection_errors [
+    :invalid_scheduled_reply,
+    :schedule_silent_success_not_allowed,
+    :background_agent_job_silent_success_not_allowed
+  ]
 
   @spec handle(TurnRef.t(), String.t() | nil, String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -143,6 +147,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     reply_event = applied_reply_event(repo, event, deliveries, turn_ref)
 
     with {:ok, completion} <- ScheduledTurn.project_completion(event, completion, outcome),
+         :ok <- BackgroundAgentJobs.validate_completion(event, completion, outcome),
          :ok <- require_user_visible_projection(completion, outcome),
          {:ok, outboxes} <- commit_outboxes(repo, reply_event, completion, outcome, now),
          {:ok, completed_events} <-
@@ -164,8 +169,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          superseded_deliveries: superseded_count
        }}
     else
-      {:error, reason} when reason in @scheduled_reply_errors ->
-        fail_scheduled_completion_in_tx(
+      {:error, reason} when reason in @completion_projection_errors ->
+        fail_invalid_completion_in_tx(
           repo,
           event,
           reply_event,
@@ -192,7 +197,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
        else: {:error, :turn_completion_has_no_user_visible_projection}
   end
 
-  defp fail_scheduled_completion_in_tx(
+  defp fail_invalid_completion_in_tx(
          repo,
          event,
          reply_event,
@@ -678,7 +683,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          outcome
        )
        when is_map(reason) do
-    error = Enum.find(@scheduled_reply_errors, &(Atom.to_string(&1) == reason["code"]))
+    error = Enum.find(@completion_projection_errors, &(Atom.to_string(&1) == reason["code"]))
 
     if error && reason["final_response_id"] == final_response_id && reason["outcome"] == outcome,
       do: {:ok, %{status: :turn_dead_lettered, actor_event: event, error: error}},

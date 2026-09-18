@@ -449,6 +449,30 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert initial.fallback_visible_text == "answer"
   end
 
+  test "background-job silent-success output stays private until the full marker is known" do
+    %{subject: subject, actor_event: actor_event} =
+      addressed_actor_event("background-job-silent-success")
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{type: "background_agent_job.completed"})
+      |> Repo.update!()
+
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    marker = ~s({"outcome":"silent_success","reply":null})
+
+    for codepoint <- String.codepoints(marker) do
+      assert :ok = Events.publish(response, :output_text_delta, %{text: codepoint})
+      refute_receive {:mock_provider_outbox_sent, _outbox}, 20
+    end
+
+    assert :sys.get_state(pid).text_buffer == marker
+    refute :sys.get_state(pid).preview_established
+
+    assert :ok = Events.publish(response, :response_completed, %{content: []})
+    refute_receive {:mock_provider_outbox_sent, _outbox}, 100
+  end
+
   test "an initial provider rejection disables preview retries for later deltas" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("provider-rejection")
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)

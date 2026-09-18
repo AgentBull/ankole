@@ -135,6 +135,53 @@ defmodule Ankole.BackgroundAgentJobs do
 
   def dead_letter_notice_text(%ActorEvent{}), do: nil
 
+  @doc "True when a completed Job event carries an explicit provider-delivery receipt."
+  @spec silent_success_allowed?(ActorEvent.t()) :: boolean()
+  def silent_success_allowed?(%ActorEvent{
+        type: "background_agent_job.completed",
+        payload: payload
+      }) do
+    get_in(payload || %{}, ["data", "silent_success_allowed"]) == true
+  end
+
+  def silent_success_allowed?(%ActorEvent{}), do: false
+
+  @doc false
+  @spec silent_success_text?(term()) :: boolean()
+  def silent_success_text?(text) when is_binary(text) do
+    case Ankole.JSON.decode(text) do
+      {:ok, %{"outcome" => "silent_success", "reply" => nil} = value} ->
+        map_size(value) == 2
+
+      _other ->
+        false
+    end
+  end
+
+  def silent_success_text?(_text), do: false
+
+  @doc "Rejects a background completion that claims silence without the persisted receipt."
+  @spec validate_completion(ActorEvent.t(), map(), String.t()) :: :ok | {:error, atom()}
+  def validate_completion(
+        %ActorEvent{type: "background_agent_job.completed"} = event,
+        completion,
+        outcome
+      )
+      when is_map(completion) and is_binary(outcome) do
+    cond do
+      outcome == "silent" and not silent_success_allowed?(event) ->
+        {:error, :background_agent_job_silent_success_not_allowed}
+
+      outcome != "silent" and silent_success_text?(Map.get(completion, :final_text)) ->
+        {:error, :background_agent_job_silent_success_not_allowed}
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_completion(%ActorEvent{}, _completion, _outcome), do: :ok
+
   defp ladder_seconds(:infrastructure, delivery_attempt_no) do
     Enum.at(
       @infrastructure_retry_seconds,
