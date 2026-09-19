@@ -171,20 +171,20 @@ defmodule Ankole.AIGateway.CodexModels do
     do: Map.put(model_ref, "vision_fallback_model_ref", fallback_ref)
 
   defp intersect_duplicate_modalities(candidates) do
-    {order, modalities_by_slug} =
-      Enum.reduce(candidates, {[], %{}}, fn {slug, modalities}, {order, by_slug} ->
+    {order_rev, modalities_by_slug} =
+      Enum.reduce(candidates, {[], %{}}, fn {slug, modalities}, {order_rev, by_slug} ->
         modalities = MapSet.new(codex_input_modalities(modalities))
 
         case Map.fetch(by_slug, slug) do
           {:ok, current} ->
-            {order, Map.put(by_slug, slug, MapSet.intersection(current, modalities))}
+            {order_rev, Map.put(by_slug, slug, MapSet.intersection(current, modalities))}
 
           :error ->
-            {order ++ [slug], Map.put(by_slug, slug, modalities)}
+            {[slug | order_rev], Map.put(by_slug, slug, modalities)}
         end
       end)
 
-    Enum.map(order, fn slug ->
+    Enum.map(Enum.reverse(order_rev), fn slug ->
       {slug, Map.fetch!(modalities_by_slug, slug) |> MapSet.to_list()}
     end)
   end

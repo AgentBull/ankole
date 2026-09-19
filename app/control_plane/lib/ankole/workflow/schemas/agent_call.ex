@@ -27,6 +27,8 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
     "cancelled" => ~w(cancelled)
   }
 
+  @type t :: %__MODULE__{}
+
   @spec statuses() :: [String.t()]
   def statuses, do: @statuses
 

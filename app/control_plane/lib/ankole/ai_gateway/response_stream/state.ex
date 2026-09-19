@@ -87,28 +87,28 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   def observe(%__MODULE__{} = state, %{} = event, fallback_sequence) do
     case ImageStreamPersistence.observe(state.image_persistence, event) do
       {:ok, image_persistence, events} ->
+        state = %{state | image_persistence: image_persistence}
+
         {state, public_events, status} =
-          state
-          |> Map.put(:image_persistence, image_persistence)
-          |> observe_public_events(events, fallback_sequence)
+          observe_public_events(state, events, fallback_sequence)
 
         {:ok, state, public_events, status}
 
       {:error, image_persistence, events, reason} ->
+        state = %{state | image_persistence: image_persistence}
+
         {state, public_events, status} =
-          state
-          |> Map.put(:image_persistence, image_persistence)
-          |> observe_public_events(events, fallback_sequence)
+          observe_public_events(state, events, fallback_sequence)
 
         {:error, state, public_events, force_cancel(status), reason}
     end
   end
 
-  @spec fail(t(), String.t(), keyword()) :: {t(), [map()], outcome() | nil}
-  def fail(%__MODULE__{terminal?: true} = state, _reason, _opts),
+  @spec fail(t(), keyword()) :: {t(), [map()], outcome() | nil}
+  def fail(%__MODULE__{terminal?: true} = state, _opts),
     do: {state, [], outcome(state)}
 
-  def fail(%__MODULE__{} = state, _reason, opts) do
+  def fail(%__MODULE__{} = state, opts) do
     code = Keyword.get(opts, :code, "provider_stream_error")
     retryable? = Keyword.get(opts, :retryable, false) == true
     message = Keyword.get(opts, :message, safe_error_message(code))
@@ -278,7 +278,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     state =
       state
       |> remember_provider_response_id(event)
-      |> Map.put(:sequence_number, sequence)
+      |> then(&%{&1 | sequence_number: sequence})
       |> account_tool_calls(event)
 
     if event["type"] in @terminal_event_types do
@@ -479,9 +479,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp reconcile_terminal_item_snapshots(_state, event), do: event
 
-  defp reconcile_terminal_item_snapshot(state, %{} = item, provider_index) do
+  defp reconcile_terminal_item_snapshot(state, public_items, %{} = item, provider_index) do
     with nil <- public_item_id(item),
-         {:ok, recorded_item} <- terminal_snapshot_candidate(state, provider_index),
+         {:ok, recorded_item} <- terminal_snapshot_candidate(state, public_items, provider_index),
          true <- terminal_item_subset?(item, recorded_item) do
       recorded_item
     else
@@ -489,19 +489,21 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp reconcile_terminal_item_snapshot(_state, item, _provider_index), do: item
+  defp reconcile_terminal_item_snapshot(_state, _public_items, item, _provider_index), do: item
 
   defp reconcile_terminal_output(state, output) do
+    public_items = chronological(state.public_items) |> List.to_tuple()
+
     reconciled =
       output
       |> Enum.with_index()
       |> Enum.map(fn {item, provider_index} ->
-        reconcile_terminal_item_snapshot(state, item, provider_index)
+        reconcile_terminal_item_snapshot(state, public_items, item, provider_index)
       end)
 
     tail =
       Stream.unfold(length(reconciled), fn provider_index ->
-        case terminal_snapshot_candidate(state, provider_index) do
+        case terminal_snapshot_candidate(state, public_items, provider_index) do
           {:ok, item} -> {item, provider_index + 1}
           :error -> nil
         end
@@ -513,9 +515,10 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp terminal_snapshot_candidate(
          %{tool_loop: %StreamLoop{current_round_items_rev: provider_items}} = state,
+         public_items,
          provider_index
        ) do
-    with {:ok, public_item} <- terminal_public_item_candidate(state, provider_index),
+    with {:ok, public_item} <- terminal_public_item_candidate(state, public_items, provider_index),
          public_id when is_binary(public_id) <- public_item_id(public_item),
          %{} = provider_item <-
            Enum.find(provider_items, fn provider_item ->
@@ -530,18 +533,24 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp terminal_snapshot_candidate(state, provider_index),
-    do: terminal_public_item_candidate(state, provider_index)
+  defp terminal_snapshot_candidate(state, public_items, provider_index),
+    do: terminal_public_item_candidate(state, public_items, provider_index)
 
-  defp terminal_public_item_candidate(state, provider_index) do
+  defp terminal_public_item_candidate(state, public_items, provider_index) do
     with {:ok, public_index} <- Map.fetch(state.provider_output_indexes, provider_index),
-         %{} = item <- Enum.at(chronological(state.public_items), public_index),
+         %{} = item <- public_item_at(public_items, public_index),
          item_id when is_binary(item_id) <- public_item_id(item) do
       {:ok, item}
     else
       _missing -> :error
     end
   end
+
+  defp public_item_at(items, index) when is_integer(index) and index >= 0 do
+    if index < tuple_size(items), do: elem(items, index), else: nil
+  end
+
+  defp public_item_at(items, index), do: Enum.at(Tuple.to_list(items), index)
 
   defp terminal_item_subset?(%{"type" => type} = item, %{"type" => type} = recorded_item)
        when is_binary(type) do
@@ -738,8 +747,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
               state =
                 state
-                |> Map.put(:tool_loop, tool_loop)
-                |> Map.put(:sequence_number, tool_loop.sequence)
+                |> then(&%{&1 | tool_loop: tool_loop, sequence_number: tool_loop.sequence})
                 |> remember_non_terminal_event(event, tool_loop.sequence)
 
               {recorded_ids, recorded_anonymous} =

@@ -414,28 +414,23 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   defp settle_programs(plan, programs, outcomes) do
     Enum.zip(programs, outcomes)
-    |> Enum.reduce_while({:ok, [], [], false}, fn
+    |> Enum.reduce({:ok, [], [], false}, fn
       {program, %{outcome: outcome}}, {:ok, public_rev, downstream_rev, paused?} ->
         case settle_program(plan, program, outcome) do
           {:ok, items, provider_items, current_paused?} ->
-            {:cont,
-             {:ok, Enum.reverse(items, public_rev), Enum.reverse(provider_items, downstream_rev),
-              paused? or current_paused?}}
+            {:ok, Enum.reverse(items, public_rev), Enum.reverse(provider_items, downstream_rev),
+             paused? or current_paused?}
 
           {:error, reason} ->
             failed = failed_outcome("program_result_invalid", reason)
             output = public_output(program.call_id, failed)
             provider_output = downstream_output(program.call_id, failed)
-            {:cont, {:ok, [output | public_rev], [provider_output | downstream_rev], paused?}}
+            {:ok, [output | public_rev], [provider_output | downstream_rev], paused?}
         end
     end)
-    |> case do
-      {:ok, public_rev, downstream_rev, paused?} ->
-        {:ok, Enum.reverse(public_rev), Enum.reverse(downstream_rev), paused?}
-
-      {:error, _reason} = error ->
-        error
-    end
+    |> then(fn {:ok, public_rev, downstream_rev, paused?} ->
+      {:ok, Enum.reverse(public_rev), Enum.reverse(downstream_rev), paused?}
+    end)
   end
 
   defp settle_program(plan, program, %{status: :pending} = outcome) do

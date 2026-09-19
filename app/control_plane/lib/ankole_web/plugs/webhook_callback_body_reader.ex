@@ -31,7 +31,7 @@ defmodule AnkoleWeb.Plugs.WebhookCallbackBodyReader do
       {:ok, body, conn} when byte_size(body) <= @max_body_bytes ->
         conn
         |> put_private(@private_key, body)
-        |> Map.put(:body_params, %{})
+        |> then(&%{&1 | body_params: %{}})
 
       {:ok, _body, conn} ->
         conn

@@ -16,6 +16,8 @@ defmodule Ankole.Principals.Principal do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 
+  @type t :: %__MODULE__{}
+
   schema "principals" do
     field :type, Ecto.Enum, values: [:human, :agent, :system]
     field :status, Ecto.Enum, values: [:active, :disabled], default: :active

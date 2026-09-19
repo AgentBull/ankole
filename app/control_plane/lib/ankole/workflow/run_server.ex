@@ -186,8 +186,7 @@ defmodule Ankole.Workflow.RunServer do
             {:stop, :normal, {:ok, result}, state}
 
           nil ->
-            {:noreply, state} =
-              schedule_retry(%{state | cancelling: false}, :terminal_cleanup_pending)
+            state = schedule_retry(%{state | cancelling: false})
 
             {:reply, {:ok, result}, state}
         end
@@ -219,7 +218,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   def handle_info(
-        {:DOWN, monitor, :process, _pid, reason},
+        {:DOWN, monitor, :process, _pid, _reason},
         %{replay: %{monitor: monitor}} = state
       ) do
     state = clear_replay(state, demonitor?: false)
@@ -227,7 +226,7 @@ defmodule Ankole.Workflow.RunServer do
     if state.cancelling do
       {:noreply, state}
     else
-      schedule_retry(state, {:replay_task_down, reason})
+      {:noreply, schedule_retry(state)}
     end
   end
 
@@ -268,8 +267,8 @@ defmodule Ankole.Workflow.RunServer do
       {:error, :workflow_not_found} ->
         {:stop, :normal, state}
 
-      {:error, reason} ->
-        schedule_retry(state, {:watchdog_failed, reason})
+      {:error, _reason} ->
+        {:noreply, schedule_retry(state)}
     end
   end
 
@@ -308,10 +307,10 @@ defmodule Ankole.Workflow.RunServer do
         {:noreply, %{state | replay: %{ref: ref, pid: pid, monitor: monitor}, dirty: false}}
 
       {:error, :max_children} ->
-        schedule_retry(state, :program_runtime_busy)
+        {:noreply, schedule_retry(state)}
 
-      {:error, reason} ->
-        schedule_retry(state, {:program_runtime_unavailable, reason})
+      {:error, _reason} ->
+        {:noreply, schedule_retry(state)}
     end
   end
 
@@ -419,22 +418,22 @@ defmodule Ankole.Workflow.RunServer do
 
   defp handle_replay_result({:terminal, _status}, state), do: {:stop, :normal, state}
 
-  defp handle_replay_result({:cleanup_failed, reason}, state) do
-    schedule_retry(state, {:terminal_cleanup_failed, reason})
+  defp handle_replay_result({:cleanup_failed, _reason}, state) do
+    {:noreply, schedule_retry(state)}
   end
 
   defp handle_replay_result({:unavailable, reason}, state) do
     if reason == :workflow_not_found,
       do: {:stop, :normal, state},
-      else: schedule_retry(state, {:replay_input_unavailable, reason})
+      else: {:noreply, schedule_retry(state)}
   end
 
   defp handle_replay_result({:snapshot, memo_length, result}, state) do
     handle_snapshot_result(result, memo_length, state)
   end
 
-  defp handle_replay_result(other, state) do
-    schedule_retry(state, {:invalid_replay_result, other})
+  defp handle_replay_result(_other, state) do
+    {:noreply, schedule_retry(state)}
   end
 
   defp handle_snapshot_result({:outcome, %{status: :pending} = outcome}, memo_length, state) do
@@ -447,7 +446,7 @@ defmodule Ankole.Workflow.RunServer do
       {:ok, %{run: %Run{status: "running"}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)
-      {:error, reason} -> schedule_retry(state, {:pending_commit_failed, reason})
+      {:error, _reason} -> {:noreply, schedule_retry(state)}
     end
   end
 
@@ -484,7 +483,7 @@ defmodule Ankole.Workflow.RunServer do
          state
        )
        when error_code in ["program_runtime_busy", "program_run_id_conflict"] do
-    schedule_retry(state, :program_runtime_busy)
+    {:noreply, schedule_retry(state)}
   end
 
   defp handle_snapshot_result({:outcome, %{status: :failed} = outcome}, memo_length, state) do
@@ -508,7 +507,7 @@ defmodule Ankole.Workflow.RunServer do
       {:ok, %{run: %Run{status: "running"}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)
-      {:error, error} -> schedule_retry(state, {:failure_commit_failed, error})
+      {:error, _error} -> {:noreply, schedule_retry(state)}
     end
   end
 
@@ -527,19 +526,19 @@ defmodule Ankole.Workflow.RunServer do
        do: {:stop, :normal, state}
 
   defp finish_or_retry_terminal(%{run: %Run{}}, state),
-    do: schedule_retry(state, :terminal_cleanup_pending)
+    do: {:noreply, schedule_retry(state)}
 
   defp start_replay_or_dirty(%{replay: %{}} = state), do: {:noreply, %{state | dirty: true}}
   defp start_replay_or_dirty(state), do: start_replay(state)
 
-  defp schedule_retry(state, _reason) do
+  defp schedule_retry(state) do
     state = cancel_retry_timer(state)
     ref = make_ref()
 
     timer_ref =
       Process.send_after(self(), {:workflow_retry_replay, ref}, state.runtime_busy_retry_ms)
 
-    {:noreply, %{state | retry_timer: {ref, timer_ref}, dirty: false}}
+    %{state | retry_timer: {ref, timer_ref}, dirty: false}
   end
 
   defp schedule_watchdog(%{watchdog_timer: ref} = state) when is_reference(ref), do: state

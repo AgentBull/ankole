@@ -829,7 +829,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
               %{terminal_response: terminal_response, terminal_error: terminal_error}} =
                State.fail(
                  State.new(agent.principal.uid, %{}, %{}, stateful: stateful),
-                 "provider stream closed",
                  code: "provider_stream_closed_without_terminal",
                  retryable: true
                )
@@ -854,7 +853,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert {state, [], nil} =
                State.fail(
                  State.new(agent.principal.uid, %{}, %{}, stateful: stateful),
-                 "provider stream closed",
                  code: "provider_stream_closed_without_terminal",
                  retryable: true
                )

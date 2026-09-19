@@ -210,15 +210,23 @@ defmodule Ankole.Brain.SourceLearning do
         model ->
           excerpts
           |> pack_excerpts()
-          |> Enum.reduce_while({:ok, %{windows: 0, items: []}}, fn window, {:ok, acc} ->
+          |> Enum.reduce_while({:ok, %{windows: 0, items_rev: []}}, fn window, {:ok, acc} ->
             case extract_window(model, title, window) do
               {:ok, items} ->
-                {:cont, {:ok, %{windows: acc.windows + 1, items: acc.items ++ items}}}
+                {:cont,
+                 {:ok, %{windows: acc.windows + 1, items_rev: Enum.reverse(items, acc.items_rev)}}}
 
               {:error, reason} ->
                 {:halt, {:error, {:extraction_failed, reason}}}
             end
           end)
+          |> case do
+            {:ok, %{windows: windows, items_rev: items_rev}} ->
+              {:ok, %{windows: windows, items: Enum.reverse(items_rev)}}
+
+            {:error, _reason} = error ->
+              error
+          end
       end
     else
       {:ok, %{windows: 0, items: []}}

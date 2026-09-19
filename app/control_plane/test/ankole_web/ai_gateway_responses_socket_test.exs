@@ -3347,9 +3347,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     )
   end
 
-  defp handle_test_failure(state, ref, reason, opts) do
+  defp handle_test_failure(state, ref, _reason, opts) do
     active = state.active_stream
-    {semantic, events, outcome} = ResponseStreamState.fail(active.test_semantic, reason, opts)
+    {semantic, events, outcome} = ResponseStreamState.fail(active.test_semantic, opts)
     state = put_in(state, [:active_stream, :test_semantic], semantic)
 
     AIGatewayResponsesSocket.handle_info(
@@ -3358,13 +3358,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     )
   end
 
-  defp handle_test_event_then_fail(state, ref, event, sequence_number, reason, opts) do
+  defp handle_test_event_then_fail(state, ref, event, sequence_number, _reason, opts) do
     active = state.active_stream
 
     assert {:ok, semantic, events, :continue} =
              ResponseStreamState.observe(active.test_semantic, event, sequence_number)
 
-    {semantic, failure_events, outcome} = ResponseStreamState.fail(semantic, reason, opts)
+    {semantic, failure_events, outcome} = ResponseStreamState.fail(semantic, opts)
     state = put_in(state, [:active_stream, :test_semantic], semantic)
 
     AIGatewayResponsesSocket.handle_info(

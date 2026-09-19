@@ -371,13 +371,11 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
-    attrs = Attrs.normalize_external_attrs(attrs)
-
-    with {:ok, display_name} <- required_text(attrs, "display_name") do
+    with {:ok, display_name} <- required_text(attrs, :display_name) do
       {:ok,
        attrs
-       |> Map.put("display_name", display_name)
-       |> Map.put("created_by_principal_uid", current_principal_uid)}
+       |> Map.put(:display_name, display_name)
+       |> Map.put(:created_by_principal_uid, current_principal_uid)}
     end
   end
 
@@ -386,31 +384,30 @@ defmodule AnkoleWeb.AgentController do
   defp update_attrs(attrs) when is_map(attrs) do
     attrs =
       attrs
-      |> Attrs.normalize_external_attrs()
-      |> Map.drop(["uid", "created_by_principal_uid"])
+      |> Map.drop([:uid, :created_by_principal_uid])
 
     normalize_optional_display_name(attrs)
   end
 
   defp update_attrs(_attrs), do: {:error, :invalid_agent}
 
-  defp required_text(attrs, key) do
+  defp required_text(attrs, key) when is_atom(key) do
     case Map.get(attrs, key) do
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> {:error, {:missing, key}}
+          "" -> {:error, {:missing, Atom.to_string(key)}}
           text -> {:ok, text}
         end
 
       _value ->
-        {:error, {:missing, key}}
+        {:error, {:missing, Atom.to_string(key)}}
     end
   end
 
   defp normalize_optional_display_name(attrs) do
-    if Map.has_key?(attrs, "display_name") do
-      with {:ok, display_name} <- required_text(attrs, "display_name") do
-        {:ok, Map.put(attrs, "display_name", display_name)}
+    if Map.has_key?(attrs, :display_name) do
+      with {:ok, display_name} <- required_text(attrs, :display_name) do
+        {:ok, Map.put(attrs, :display_name, display_name)}
       end
     else
       {:ok, attrs}

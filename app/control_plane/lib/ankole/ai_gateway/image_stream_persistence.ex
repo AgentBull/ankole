@@ -279,7 +279,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
        )
        when is_integer(output_index) and output_index >= 0 do
     state
-    |> Map.update!(:output_items, &Map.put(&1, output_index, item))
+    |> then(&%{&1 | output_items: Map.put(&1.output_items, output_index, item)})
     |> remember_public_sequence(event)
   end
 

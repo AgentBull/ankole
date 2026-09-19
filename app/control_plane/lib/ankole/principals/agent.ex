@@ -14,6 +14,8 @@ defmodule Ankole.Principals.Agent do
   @primary_key false
   @timestamps_opts [type: :utc_datetime_usec]
 
+  @type t :: %__MODULE__{}
+
   schema "agents" do
     belongs_to :principal, Principal,
       foreign_key: :uid,

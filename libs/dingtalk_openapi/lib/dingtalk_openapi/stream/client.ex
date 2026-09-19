@@ -58,6 +58,8 @@ defmodule DingTalkOpenAPI.Stream.Client do
             reconnect_timer: nil,
             dispatch_tasks: %{},
             upgrade_buffer: <<>>,
+            upgrade_status: nil,
+            upgrade_headers: nil,
             status: :disconnected
 
   @type t :: %__MODULE__{}
@@ -280,19 +282,19 @@ defmodule DingTalkOpenAPI.Stream.Client do
   defp handle_responses([], state), do: {:noreply, state}
 
   defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :upgrade_status, status))
+    handle_responses(rest, %{state | upgrade_status: status})
   end
 
   defp handle_responses([{:headers, ref, headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :upgrade_headers, headers))
+    handle_responses(rest, %{state | upgrade_headers: headers})
   end
 
   defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
     case Mint.WebSocket.new(
            state.conn,
            ref,
-           Map.get(state, :upgrade_status),
-           Map.get(state, :upgrade_headers)
+           state.upgrade_status,
+           state.upgrade_headers
          ) do
       {:ok, conn, websocket} ->
         state = %{

@@ -21,6 +21,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   @kinds ~w(check_back_later cron_fire)
   @statuses ~w(scheduled firing fired cancelled failed)
 
+  @type t :: %__MODULE__{}
+
   schema "actor_scheduled_events" do
     field :authorization_kind, :string, default: "review_required"
     field :human_uid, Ankole.Ecto.PrincipalKey

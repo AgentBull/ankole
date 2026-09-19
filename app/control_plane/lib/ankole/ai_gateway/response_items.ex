@@ -461,9 +461,7 @@ defmodule Ankole.AIGateway.ResponseItems do
           index = ledger.count
 
           ledger =
-            ledger
-            |> Map.update!(:items, &[item | &1])
-            |> Map.update!(:count, &(&1 + 1))
+            %{ledger | items: [item | ledger.items], count: ledger.count + 1}
             |> put_identity(semantic_key, item)
             |> remember_pair_fact(item, semantic_key, index, source)
 
@@ -904,12 +902,12 @@ defmodule Ankole.AIGateway.ResponseItems do
     cond do
       type in @call_types ->
         ledger
-        |> Map.update!(:calls, &Map.put(&1, pair_key, fact))
+        |> then(&%{&1 | calls: Map.put(&1.calls, pair_key, fact)})
         |> remember_program_fact(item, pair_key, index, :call)
 
       type in @output_types ->
         ledger
-        |> Map.update!(:outputs, &Map.put(&1, pair_key, fact))
+        |> then(&%{&1 | outputs: Map.put(&1.outputs, pair_key, fact)})
         |> remember_program_fact(item, pair_key, index, :output)
 
       true ->
@@ -1203,9 +1201,7 @@ defmodule Ankole.AIGateway.ResponseItems do
   end
 
   defp remember_unpaired_item(ledger, item) do
-    ledger
-    |> Map.update!(:items, &[item | &1])
-    |> Map.update!(:count, &(&1 + 1))
+    %{ledger | items: [item | ledger.items], count: ledger.count + 1}
   end
 
   defp identity_key(item, pair_key), do: {item["type"], pair_key}

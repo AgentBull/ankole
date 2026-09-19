@@ -87,6 +87,8 @@ defmodule FeishuOpenAPI.WS.Client do
             fragments: %{},
             dispatch_tasks: %{},
             upgrade_buffer: <<>>,
+            _upgrade_status: nil,
+            _upgrade_headers: nil,
             status: :disconnected
 
   # Public API ---------------------------------------------------------
@@ -370,13 +372,14 @@ defmodule FeishuOpenAPI.WS.Client do
   defp parse_url(url) do
     uri = URI.parse(url)
 
-    scheme =
-      case uri.scheme do
-        "ws" -> :ws
-        "wss" -> :wss
-        other -> throw({:bad_scheme, other})
-      end
+    case uri.scheme do
+      "ws" -> parsed_url(uri, :ws)
+      "wss" -> parsed_url(uri, :wss)
+      other -> {:error, {:bad_scheme, other}}
+    end
+  end
 
+  defp parsed_url(uri, scheme) do
     port = uri.port || default_port(scheme)
 
     path =
@@ -386,8 +389,6 @@ defmodule FeishuOpenAPI.WS.Client do
       end
 
     {:ok, scheme, uri.host, port, path}
-  catch
-    {:bad_scheme, s} -> {:error, {:bad_scheme, s}}
   end
 
   defp default_port(:ws), do: 80
@@ -406,16 +407,16 @@ defmodule FeishuOpenAPI.WS.Client do
   # Stash status and headers in transient keys until `:done`, where they're
   # consumed to complete the WebSocket handshake.
   defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :_upgrade_status, status))
+    handle_responses(rest, %{state | _upgrade_status: status})
   end
 
   defp handle_responses([{:headers, ref, resp_headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :_upgrade_headers, resp_headers))
+    handle_responses(rest, %{state | _upgrade_headers: resp_headers})
   end
 
   defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
-    upgrade_status = Map.get(state, :_upgrade_status)
-    upgrade_headers = Map.get(state, :_upgrade_headers)
+    upgrade_status = state._upgrade_status
+    upgrade_headers = state._upgrade_headers
 
     # Promote the bare HTTP connection to a WebSocket using the upgrade response.
     case Mint.WebSocket.new(

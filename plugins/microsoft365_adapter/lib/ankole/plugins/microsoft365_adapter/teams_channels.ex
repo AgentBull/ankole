@@ -486,6 +486,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp mirrored_teams(config) do
     Channel
     |> where([channel], like(channel.id, "teams:%"))
+    |> where_visible_to_app(config)
     |> select([channel], channel.metadata)
     |> Repo.all()
     |> Enum.flat_map(fn metadata ->
@@ -504,6 +505,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp mirrored_group_chats(config) do
     Channel
     |> where([channel], like(channel.id, "teams:%"))
+    |> where_visible_to_app(config)
     |> select([channel], {channel.name, channel.metadata})
     |> Repo.all()
     |> Enum.flat_map(fn {name, metadata} ->
@@ -533,11 +535,27 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp mirror_visible_to_app?(metadata, config),
     do: MapHelpers.optional_text(metadata, "app_id") == config["appID"]
 
+  defp where_visible_to_app(query, %{"appID" => app_id}) when is_binary(app_id) do
+    where(
+      query,
+      [channel],
+      fragment(
+        "jsonb_typeof(?->'app_id') = 'string' AND btrim(?->>'app_id') = ?",
+        channel.metadata,
+        channel.metadata,
+        ^app_id
+      )
+    )
+  end
+
+  defp where_visible_to_app(query, _config), do: query
+
   defp mark_team_channels_left(_config, nil), do: {:ok, %{status: :ignored_missing_team}}
 
   defp mark_team_channels_left(config, team_id) do
     Channel
     |> where([channel], like(channel.id, "teams:%"))
+    |> where_visible_to_app(config)
     |> select([channel], channel.metadata)
     |> Repo.all()
     |> Enum.filter(fn metadata ->

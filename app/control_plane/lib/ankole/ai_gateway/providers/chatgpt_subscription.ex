@@ -109,6 +109,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   def codex_version, do: @codex_version
 
   @doc false
+  @impl Ankole.AIGateway.Provider
   def validate_credential_options(options) when is_map(options) do
     auth_type = Map.get(options, "auth_type", "oauth")
 

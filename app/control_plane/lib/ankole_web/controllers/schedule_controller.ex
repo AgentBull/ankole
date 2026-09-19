@@ -208,7 +208,7 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, updated} <-
            Schedule.update_cron_schedule(
              schedule.id,
-             Ankole.Attrs.normalize_external_attrs(conn.body_params)
+             conn.body_params
            ) do
       json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
     else
@@ -292,8 +292,7 @@ defmodule AnkoleWeb.ScheduleController do
 
   defp cron_create_attrs(conn, agent_uid) do
     conn.body_params
-    |> Ankole.Attrs.normalize_external_attrs()
-    |> Map.put("agent_uid", agent_uid)
+    |> Map.put(:agent_uid, agent_uid)
   end
 
   defp cron_created_by(conn) do

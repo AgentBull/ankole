@@ -60,6 +60,8 @@ defmodule WeComOpenAPI.Bot.Client do
             websocket: nil,
             request_ref: nil,
             upgrade_buffer: <<>>,
+            upgrade_status: nil,
+            upgrade_headers: nil,
             status: :disconnected,
             reconnect_attempt: 0,
             reconnect_timer: nil,
@@ -158,8 +160,8 @@ defmodule WeComOpenAPI.Bot.Client do
     if Map.has_key?(state.pending, req_id) do
       # An ack for this req_id is already outstanding; queue behind it so acks
       # stay attributable (the ack frame carries only the req_id).
-      queue = Map.get(state.reply_queues, req_id, [])
-      {:noreply, put_in(state.reply_queues[req_id], queue ++ [{from, cmd, body}])}
+      queue = Map.get(state.reply_queues, req_id, :queue.new())
+      {:noreply, put_in(state.reply_queues[req_id], :queue.in({from, cmd, body}, queue))}
     else
       {:noreply, send_tracked_frame(state, req_id, cmd, body, from)}
     end
@@ -350,19 +352,19 @@ defmodule WeComOpenAPI.Bot.Client do
   defp handle_responses([], state), do: {:noreply, state}
 
   defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :upgrade_status, status))
+    handle_responses(rest, %{state | upgrade_status: status})
   end
 
   defp handle_responses([{:headers, ref, headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, Map.put(state, :upgrade_headers, headers))
+    handle_responses(rest, %{state | upgrade_headers: headers})
   end
 
   defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
     case Mint.WebSocket.new(
            state.conn,
            ref,
-           Map.get(state, :upgrade_status),
-           Map.get(state, :upgrade_headers)
+           state.upgrade_status,
+           state.upgrade_headers
          ) do
       {:ok, conn, websocket} ->
         state = %{state | conn: conn, websocket: websocket}
@@ -528,13 +530,15 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp advance_reply_queue(state, req_id) do
-    case Map.get(state.reply_queues, req_id, []) do
-      [] ->
+    queue = Map.get(state.reply_queues, req_id, :queue.new())
+
+    case :queue.out(queue) do
+      {:empty, _queue} ->
         %{state | reply_queues: Map.delete(state.reply_queues, req_id)}
 
-      [{from, cmd, body} | rest] ->
+      {{:value, {from, cmd, body}}, rest} ->
         state =
-          if rest == [] do
+          if :queue.is_empty(rest) do
             %{state | reply_queues: Map.delete(state.reply_queues, req_id)}
           else
             put_in(state.reply_queues[req_id], rest)
@@ -668,7 +672,9 @@ defmodule WeComOpenAPI.Bot.Client do
     end)
 
     Enum.each(state.reply_queues, fn {_req_id, queue} ->
-      Enum.each(queue, fn {from, _cmd, _body} -> GenServer.reply(from, error) end)
+      queue
+      |> :queue.to_list()
+      |> Enum.each(fn {from, _cmd, _body} -> GenServer.reply(from, error) end)
     end)
   end
 

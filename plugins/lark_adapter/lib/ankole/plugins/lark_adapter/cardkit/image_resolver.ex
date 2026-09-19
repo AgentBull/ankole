@@ -90,32 +90,35 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   end
 
   defp resolve_urls(urls, state, client, ssrf_filter?) do
-    Enum.reduce_while(urls, {:ok, state}, fn url, {:ok, state} ->
-      case state[url] do
-        %{"status" => status} when status in ["ready", "failed"] ->
-          {:cont, {:ok, state}}
+    state =
+      Enum.reduce(urls, state, fn url, state ->
+        case state[url] do
+          %{"status" => status} when status in ["ready", "failed"] ->
+            state
 
-        _missing ->
-          case resolve_url(url, client, ssrf_filter?) do
-            {:ok, image_key, final_url} ->
-              resolved = %{
-                "status" => "ready",
-                "image_key" => image_key,
-                "final_url" => final_url
-              }
+          _missing ->
+            case resolve_url(url, client, ssrf_filter?) do
+              {:ok, image_key, final_url} ->
+                resolved = %{
+                  "status" => "ready",
+                  "image_key" => image_key,
+                  "final_url" => final_url
+                }
 
-              {:cont, {:ok, Map.put(state, url, resolved)}}
+                Map.put(state, url, resolved)
 
-            {:error, reason} ->
-              failed = %{
-                "status" => "failed",
-                "reason" => inspect(reason, limit: 10, printable_limit: 240)
-              }
+              {:error, reason} ->
+                failed = %{
+                  "status" => "failed",
+                  "reason" => inspect(reason, limit: 10, printable_limit: 240)
+                }
 
-              {:cont, {:ok, Map.put(state, url, failed)}}
-          end
-      end
-    end)
+                Map.put(state, url, failed)
+            end
+        end
+      end)
+
+    {:ok, state}
   end
 
   defp resolve_url(url, client, ssrf_filter?) do

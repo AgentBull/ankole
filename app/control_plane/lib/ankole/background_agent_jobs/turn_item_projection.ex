@@ -4,10 +4,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
 
   The Worker ships semantic items as the one turn content stream; every
   trajectory read path derives its messages from the stored items with this
-  module. The projection must keep the exact message shapes that
-  `Ankole.BackgroundAgentJobs.Trajectory.valid_group_content?/1` accepts and
-  that the message-causality readers (`client:` item keys, pending tool
-  scans) rely on.
+  module. The projection must keep the exact message shapes that the
+  message-causality readers (`client:` item keys, pending tool scans) rely on.
   """
 
   alias Ankole.Text

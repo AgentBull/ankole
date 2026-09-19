@@ -531,12 +531,8 @@ defmodule Ankole.AIGateway.ModelMetadata do
     }
   end
 
-  defp inferred_input_modalities(%LLMDB.Model{capabilities: capabilities}) do
-    cond do
-      truthy_capability?(capabilities, :embeddings) -> ["text"]
-      truthy_capability?(capabilities, :rerank) -> ["text"]
-      true -> ["text"]
-    end
+  defp inferred_input_modalities(%LLMDB.Model{capabilities: _capabilities}) do
+    ["text"]
   end
 
   defp inferred_output_modalities(%LLMDB.Model{capabilities: capabilities}) do
@@ -549,7 +545,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp get_modalities(modalities, key) when is_map(modalities) do
     modalities
-    |> Map.get(key, Map.get(modalities, Atom.to_string(key), []))
+    |> Map.get(key, [])
     |> list_of_strings()
   end
 
@@ -574,7 +570,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp maybe_add(values, _condition, _additions), do: values
 
   defp truthy_capability?(capabilities, key) when is_map(capabilities) do
-    case Map.get(capabilities, key, Map.get(capabilities, Atom.to_string(key))) do
+    case Map.get(capabilities, key) do
       false -> false
       nil -> false
       _value -> true
@@ -584,9 +580,8 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp truthy_capability?(_capabilities, _key), do: false
 
   defp tool_capable?(capabilities) when is_map(capabilities) do
-    case Map.get(capabilities, :tools, Map.get(capabilities, "tools")) do
+    case Map.get(capabilities, :tools) do
       %{enabled: true} -> true
-      %{"enabled" => true} -> true
       true -> true
       _value -> false
     end
@@ -595,7 +590,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp tool_capable?(_capabilities), do: false
 
   defp json_capable?(capabilities) when is_map(capabilities) do
-    case Map.get(capabilities, :json, Map.get(capabilities, "json")) do
+    case Map.get(capabilities, :json) do
       json when is_map(json) ->
         Enum.any?([:native, :schema, :strict], &truthy_capability?(json, &1))
 
@@ -610,9 +605,8 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp json_capable?(_capabilities), do: false
 
   defp reasoning_capable?(capabilities) when is_map(capabilities) do
-    case Map.get(capabilities, :reasoning, Map.get(capabilities, "reasoning")) do
+    case Map.get(capabilities, :reasoning) do
       %{enabled: true} -> true
-      %{"enabled" => true} -> true
       true -> true
       _value -> false
     end
@@ -721,7 +715,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp llm_db_expiration_date(%LLMDB.Model{lifecycle: lifecycle}) do
-    get_in_map(lifecycle, [:retires_at]) || get_in_map(lifecycle, ["retires_at"])
+    get_in_map(lifecycle, [:retires_at])
   end
 
   defp llm_db_links(%LLMDB.Model{doc_url: doc_url}) when is_binary(doc_url) and doc_url != "" do
@@ -818,12 +812,12 @@ defmodule Ankole.AIGateway.ModelMetadata do
   defp integer(_value), do: nil
 
   defp get_integer(map, key) when is_map(map),
-    do: integer(Map.get(map, key, Map.get(map, to_string(key))))
+    do: integer(Map.get(map, key))
 
   defp get_integer(_map, _key), do: nil
 
   defp get_number(map, key) when is_map(map) do
-    case Map.get(map, key, Map.get(map, to_string(key))) do
+    case Map.get(map, key) do
       value when is_number(value) -> value
       _value -> nil
     end

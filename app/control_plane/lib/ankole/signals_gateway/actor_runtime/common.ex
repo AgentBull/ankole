@@ -15,22 +15,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
   def blank?(""), do: true
   def blank?(_value), do: false
 
-  def fetch_text!(map, key) do
-    case fetch_text(map, key) do
-      value when is_binary(value) and value != "" -> value
-      _value -> raise ArgumentError, "missing #{key}"
-    end
-  end
-
   def fetch_text(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, String.to_atom(key))
-  end
-
-  def fetch_map!(map, key) do
-    case fetch_map(map, key) do
-      %{} = value -> value
-      _value -> raise ArgumentError, "missing #{key}"
-    end
   end
 
   def fetch_map(map, key) when is_map(map) and is_atom(key), do: Map.get(map, key)
@@ -63,14 +49,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
       values when is_list(values) -> values
       _value -> []
-    end
-  end
-
-  def fetch_int!(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> String.to_integer(value)
-      _value -> raise ArgumentError, "missing #{key}"
     end
   end
 

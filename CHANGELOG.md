@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.5.3-rc.1 (2026-09-19)
+
+- Internal runtime and SDK state now use declared struct fields and explicit provider hooks, and unused failure, trajectory, and actor-runtime paths are removed without changing the external response or storage contract.
+- Console writes keep the cast request's internal atom-key shape through Agent, AuthZ, schedule, and AIGateway provider owners; Teams mirror scans filter the owning app in PostgreSQL before loading metadata.
+- Elixir runtime paths now keep FIFO waiters in OTP queues, build ordered accumulators without repeated tail copies, trust LLMDB's normalized model shape, and keep GenServer callback tuples at callback sites while preserving response ordering, retry timing, and failure behavior.
+
 ## Version 1.5.2-rc.1 (2026-09-18)
 
 - A completed Background Agent Job can finish silently after its result is already delivered, and its internal `silent_success` result no longer appears as raw JSON in a provider chat or live preview.

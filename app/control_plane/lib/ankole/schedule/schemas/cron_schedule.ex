@@ -22,6 +22,8 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   @timestamps_opts [type: :utc_datetime_usec]
   @statuses ~w(active paused deleted completed)
 
+  @type t :: %__MODULE__{}
+
   schema "actor_cron_schedules" do
     field :authorization_kind, :string, default: "review_required"
     field :human_uid, Ankole.Ecto.PrincipalKey

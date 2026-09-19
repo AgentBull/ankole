@@ -788,9 +788,9 @@ defmodule Ankole.AIGateway.ResponseStream do
       :ok ->
         {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
 
-      {:error, reason} ->
+      {:error, _reason} ->
         {state, events, outcome} =
-          fail_stream(state, "stream_read_failed: #{inspect(reason)}",
+          fail_stream(state,
             code: "provider_stream_error",
             retryable: true
           )
@@ -1014,7 +1014,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       :ok = cancel_program(state.program_task)
 
       {state, _events, _outcome} =
-        fail_stream(state, "stream_consumer_terminated",
+        fail_stream(state,
           code: "stream_consumer_terminated",
           retryable: true
         )
@@ -1124,16 +1124,16 @@ defmodule Ankole.AIGateway.ResponseStream do
 
         observe_event(state, event, sequence)
 
-      {:error, reason} ->
-        stop_with_failure(state, "invalid_response_stream_event: #{reason}")
+      {:error, _reason} ->
+        stop_with_failure(state)
     end
   end
 
   defp native_stream_event(
-         %UniversalAIClient.Chunk{ref: ref, kind: kind},
+         %UniversalAIClient.Chunk{ref: ref, kind: _kind},
          %{native_stream: %{ref: ref}} = state
        ) do
-    stop_with_failure(state, "unexpected_chunk_kind: #{inspect(kind)}",
+    stop_with_failure(state,
       code: "unexpected_downstream_chunk_kind"
     )
   end
@@ -1153,7 +1153,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         })
       else
         {state, events, outcome} =
-          fail_stream(state, "provider_stream_closed_without_terminal",
+          fail_stream(state,
             code: "provider_stream_closed_without_terminal",
             retryable: true
           )
@@ -1182,7 +1182,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           state = state |> log_failure_once(error) |> emit_failure_once(error)
 
           {state, events, outcome} =
-            fail_stream(state, "provider_stream_error: #{inspect(error)}",
+            fail_stream(state,
               code: "provider_stream_error",
               retryable: true
             )
@@ -1208,7 +1208,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         })
       else
         {state, events, outcome} =
-          fail_stream(state, "stream_aborted",
+          fail_stream(state,
             code: "provider_stream_aborted",
             retryable: true
           )
@@ -1275,7 +1275,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         state = %{state | semantic: semantic} |> emit_failure_once(reason)
 
         {state, failure_events, outcome} =
-          fail_stream(state, "image_persistence_failed: #{inspect(reason)}",
+          fail_stream(state,
             code: "artifact_persistence_failed",
             retryable: false
           )
@@ -1357,7 +1357,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         else: "program_runtime_failed"
 
     {state, events, outcome} =
-      fail_stream(state, format_program_failure(reason),
+      fail_stream(state,
         code: code,
         retryable: reason == :program_runtime_busy
       )
@@ -1372,9 +1372,6 @@ defmodule Ankole.AIGateway.ResponseStream do
       %{state | pending_flush: {events, {:terminal, outcome}}}
     end
   end
-
-  defp format_program_failure(reason) when is_binary(reason), do: reason
-  defp format_program_failure(reason), do: inspect(reason)
 
   defp maybe_put_program_option(opts, _key, nil), do: opts
   defp maybe_put_program_option(opts, key, value), do: Keyword.put(opts, key, value)
@@ -1466,11 +1463,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     state = state |> log_failure_once(reason) |> emit_failure_once(reason)
 
     {state, events, outcome} =
-      fail_stream(
-        state,
-        "provider_stream_error: #{inspect(reason)}",
-        failure_opts
-      )
+      fail_stream(state, failure_opts)
 
     {state, events} = prepend_pending_events(state, events)
     send_events(state, events, {:terminal, outcome})
@@ -1659,9 +1652,9 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp pop_tool_loop(%{} = prepared_request), do: Map.pop(prepared_request, :tool_loop)
   defp pop_tool_loop(prepared_request), do: {nil, prepared_request}
 
-  defp stop_with_failure(state, reason, opts \\ []) do
+  defp stop_with_failure(state, opts \\ []) do
     {state, events, outcome} =
-      fail_stream(state, reason,
+      fail_stream(state,
         code: Keyword.get(opts, :code, "provider_stream_error"),
         retryable: true
       )
@@ -1671,7 +1664,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     {:stop, :normal, %{state | closing?: true}}
   end
 
-  defp fail_stream(state, reason, opts) do
+  defp fail_stream(state, opts) do
     failure = %{
       "code" => Keyword.get(opts, :code, "provider_stream_error"),
       "stage" => "response_stream",
@@ -1683,7 +1676,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       |> log_failure_once(failure)
       |> emit_failure_once(failure)
 
-    {semantic, events, outcome} = State.fail(state.semantic, reason, opts)
+    {semantic, events, outcome} = State.fail(state.semantic, opts)
 
     state =
       %{state | semantic: semantic}
@@ -1946,13 +1939,13 @@ defmodule Ankole.AIGateway.ResponseStream do
     {:error, :response_stream_collect_timeout}
   end
 
-  defp cancel_state(state, reason) do
+  defp cancel_state(state, _reason) do
     _ = cancel_native(state.native_stream)
     state = cancel_open_candidate_if_present(state)
     :ok = cancel_program(state.program_task)
 
     {state, _events, _outcome} =
-      fail_stream(state, reason,
+      fail_stream(state,
         code: "response_stream_cancelled",
         retryable: true
       )

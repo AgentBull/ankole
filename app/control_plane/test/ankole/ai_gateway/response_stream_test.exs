@@ -559,7 +559,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
              State.observe(State.new("agent-test", %{}, %{}), raw_error, 0)
 
     assert {_state, [public_event], %{terminal_error: terminal_error}} =
-             State.fail(state, "provider stream closed",
+             State.fail(state,
                code: "provider_stream_closed_without_terminal",
                retryable: true
              )
@@ -608,7 +608,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
   test "a local failure always emits boolean retryability" do
     assert {_state, [public_event], %{terminal_error: terminal_error}} =
-             State.fail(State.new("agent-test", %{}, %{}), "local failure", retryable: nil)
+             State.fail(State.new("agent-test", %{}, %{}), retryable: nil)
 
     assert terminal_error["retryable"] == false
     assert get_in(public_event, ["response", "error", "retryable"]) == false

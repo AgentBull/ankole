@@ -227,7 +227,7 @@ defmodule Ankole.Kernel.UniversalAIClient do
   defp raw_headers(_headers), do: []
 
   defp map_get(map, key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    Map.get(map, key)
   end
 
   defp encode_spec(spec) do

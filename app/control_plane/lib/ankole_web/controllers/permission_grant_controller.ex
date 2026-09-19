@@ -1,5 +1,4 @@
 defmodule AnkoleWeb.PermissionGrantController do
-  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -117,16 +116,21 @@ defmodule AnkoleWeb.PermissionGrantController do
   defp create_attrs(attrs) when is_map(attrs) do
     {:ok,
      attrs
-     |> Attrs.normalize_external_attrs()
-     |> Map.take(~w(principal_uid group_name resource_pattern action condition description))}
+     |> Map.take([
+       :principal_uid,
+       :group_name,
+       :resource_pattern,
+       :action,
+       :condition,
+       :description
+     ])}
   end
 
   defp create_attrs(_attrs), do: {:error, {:missing, "permission_grant"}}
 
   defp update_attrs(attrs) when is_map(attrs) do
     attrs
-    |> Attrs.normalize_external_attrs()
-    |> Map.take(~w(resource_pattern action condition description))
+    |> Map.take([:resource_pattern, :action, :condition, :description])
   end
 
   defp update_attrs(_attrs), do: %{}

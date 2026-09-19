@@ -1,5 +1,4 @@
 defmodule AnkoleWeb.AIGatewayProviderController do
-  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -276,7 +275,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, provider} <-
            ProviderConfigs.add_credential(
              provider_id,
-             Attrs.normalize_external_attrs(conn.body_params)
+             conn.body_params
            ) do
       render_provider(conn, provider)
     else
@@ -292,7 +291,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
            ProviderConfigs.update_credential(
              provider_id,
              credential_id,
-             Attrs.normalize_external_attrs(conn.body_params)
+             conn.body_params
            ) do
       render_provider(conn, provider)
     else
@@ -326,7 +325,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, login} <-
-           ChatGPTAuth.start_login(provider_id, Attrs.normalize_external_attrs(conn.body_params)) do
+           ChatGPTAuth.start_login(provider_id, conn.body_params) do
       json(conn, login)
     else
       {:error, reason} -> error(conn, reason)
@@ -362,7 +361,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, provider} <-
            ChatGPTAuth.add_enterprise_credential(
              provider_id,
-             Attrs.normalize_external_attrs(conn.body_params)
+             conn.body_params
            ) do
       render_provider(conn, provider)
     else
@@ -386,16 +385,14 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # that disagrees with the path is rejected, so a PUT can never silently target a
   # different provider than the one named in its URL.
   defp provider_attrs(provider_id, attrs) when is_map(attrs) do
-    attrs = Attrs.normalize_external_attrs(attrs)
-
-    case Map.get(attrs, "provider_id") do
+    case Map.get(attrs, :provider_id) do
       nil ->
-        {:ok, Map.put(attrs, "provider_id", provider_id)}
+        {:ok, Map.put(attrs, :provider_id, provider_id)}
 
       body_provider_id ->
         with {:ok, body_provider_id} <- normalize_provider_id(body_provider_id) do
           case body_provider_id == provider_id do
-            true -> {:ok, Map.put(attrs, "provider_id", provider_id)}
+            true -> {:ok, Map.put(attrs, :provider_id, provider_id)}
             false -> {:error, :provider_id_mismatch}
           end
         end

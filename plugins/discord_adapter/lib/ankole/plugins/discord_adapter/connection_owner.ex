@@ -138,7 +138,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   end
 
   def handle_info({:retry_event, token}, %{event_retry: {_timer, token}} = state) do
-    {:noreply, state |> Map.put(:event_retry, nil) |> schedule_event_retry()}
+    {:noreply, state |> then(&%{&1 | event_retry: nil}) |> schedule_event_retry()}
   end
 
   def handle_info({:retry_event, _stale_token}, state), do: {:noreply, state}
@@ -325,7 +325,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     |> cancel_event_retry()
     |> drop_pending_head()
     |> advance_sequence(generation, sequence)
-    |> Map.merge(%{last_error: nil, reconnect_attempt: 0})
+    |> then(&%{&1 | last_error: nil, reconnect_attempt: 0})
     |> start_next_event()
   end
 
@@ -340,7 +340,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   # retry it locally without moving the new session's sequence.
   defp handle_task_result({:event_error, _old_generation, reason}, state) do
     state
-    |> Map.put(:last_error, sanitize_reason(reason))
+    |> then(&%{&1 | last_error: sanitize_reason(reason)})
     |> schedule_event_retry()
   end
 
@@ -581,7 +581,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   defp reconnect(state, reason) do
     state
     |> drop_socket()
-    |> Map.put(:last_error, sanitize_reason(reason))
+    |> then(&%{&1 | last_error: sanitize_reason(reason)})
     |> schedule_reconnect()
   end
 
