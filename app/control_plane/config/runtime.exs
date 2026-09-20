@@ -56,10 +56,31 @@ config :opentelemetry,
   traces_exporter: :none,
   resource: ankole_otel_resource
 
+# The ZeroMQ ROUTER stays bound while Workers that have not switched to the
+# Worker Channel still connect with `tcp://`. No bind endpoint disables it.
 runtime_fabric_bind_endpoint = System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT")
 
 if runtime_fabric_bind_endpoint do
   config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint
+end
+
+# Workers reach the relay endpoint of the control-plane Pod that issued a
+# signed file URL, so the origin must name this Pod, never a load-balanced
+# Service address. Kubernetes supplies POD_IP through the Downward API.
+runtime_fabric_internal_origin =
+  case {System.get_env("ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN"), System.get_env("POD_IP")} do
+    {origin, _pod_ip} when is_binary(origin) and origin != "" ->
+      origin
+
+    {_unset, pod_ip} when is_binary(pod_ip) and pod_ip != "" ->
+      "http://#{pod_ip}:#{Ankole.Config.Bootstrap.env_integer("PORT", 4000)}"
+
+    _unset ->
+      nil
+  end
+
+if runtime_fabric_internal_origin do
+  config :ankole, :runtime_fabric_internal_origin, runtime_fabric_internal_origin
 end
 
 library_runtime_config =

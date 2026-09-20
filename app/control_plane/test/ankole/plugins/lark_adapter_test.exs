@@ -28,9 +28,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.WorkerFilesFake
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
@@ -872,22 +871,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, binding_name, :ignore)
 
       route = "lark-missing-attachment-#{System.unique_integer([:positive])}"
-      route_auth = %{route: route, worker_id: "lark-missing-attachment"}
       insert_ready_worker!(route)
 
-      :ok =
-        Broker.register_local_worker(route, fn
-          {:file_transfer_lane, [protocol, "READ_OPEN", transfer_id | _rest]} ->
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "ERROR",
-              transfer_id,
-              "file_not_found",
-              "the worker could not open the attachment"
-            ])
-        end)
-
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      WorkerFilesFake.start!(route,
+        fail: %{"push" => {"file_not_found", "the worker could not open the attachment"}}
+      )
 
       outbox = %OutboxEntry{
         agent_uid: agent.uid,
@@ -1954,47 +1942,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       end)
 
       route = "lark-inbound-attachment-#{System.unique_integer([:positive])}"
-      worker = insert_ready_worker!(route)
-      route_auth = %{route: route, worker_id: worker.worker_id}
-      {:ok, stored} = Agent.start_link(fn -> %{path: nil, chunks: []} end)
-
-      :ok =
-        Broker.register_local_worker(route, fn
-          {:file_transfer_lane, [protocol, "WRITE_OPEN", transfer_id, path, _original_size]} ->
-            Agent.update(stored, &%{&1 | path: path, chunks: []})
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_READY",
-              transfer_id,
-              u64(4 * 1024 * 1024)
-            ])
-
-          {:file_transfer_lane, [protocol, "DATA", transfer_id, _sequence, _offset, _eof, chunk]} ->
-            Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "CREDIT",
-              transfer_id,
-              u64(byte_size(chunk))
-            ])
-
-          {:file_transfer_lane, [protocol, "WRITE_COMMIT", transfer_id]} ->
-            path = Agent.get(stored, & &1.path)
-            send(parent, {:materialized_attachment_path, path})
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_COMMITTED",
-              transfer_id,
-              path,
-              u64(byte_size("attachment")),
-              "8db84f6b892cfa6bdad930c907ecb808"
-            ])
-        end)
-
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      insert_ready_worker!(route)
+      WorkerFilesFake.start!(route, notify: parent)
 
       event =
         receive_event()
@@ -3570,47 +3519,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
   defp register_worker_file!(content) do
     route = "lark-worker-file-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "lark-worker-file"}
-    compressed = Ankole.Kernel.zstd_compress_block(content, 3)
-    true = is_binary(compressed)
     insert_ready_worker!(route)
-
-    :ok =
-      Broker.register_local_worker(route, fn
-        {:file_transfer_lane, [protocol, "READ_OPEN", transfer_id, path, _fingerprint]} ->
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "READ_READY",
-            transfer_id,
-            path,
-            u64(byte_size(content)),
-            ""
-          ])
-
-        {:file_transfer_lane, [protocol, "CREDIT", transfer_id, _credit]} ->
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "DATA",
-            transfer_id,
-            u64(0),
-            u64(0),
-            <<1>>,
-            compressed
-          ])
-
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "READ_DONE",
-            transfer_id,
-            u64(1),
-            u64(byte_size(compressed))
-          ])
-      end)
-
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    WorkerFilesFake.start!(route, on_read: fn _path -> {:ok, content} end)
   end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
 
   defp receive_event do
     %Event{

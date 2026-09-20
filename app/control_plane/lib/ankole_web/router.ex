@@ -493,6 +493,14 @@ defmodule AnkoleWeb.Router do
     post "/web_fetch", AIGatewayController, :web_fetch
   end
 
+  # Worker file relay. The one-time signed token in the query string is the
+  # only credential, so this route has no session, CSRF, bearer token, or
+  # Accept negotiation. `Ankole.WorkerFiles.Relay` owns the session it names.
+  scope "/internal/runtime-fabric", AnkoleWeb do
+    get "/file-relay/:transfer_id", WorkerFileRelayController, :pull
+    put "/file-relay/:transfer_id", WorkerFileRelayController, :push
+  end
+
   # Capability URL ingress for external task receipts. The token in the path is
   # the only admission credential, so this route has no session, CSRF, bearer
   # token, or provider-handler pipeline. The event-callbacks subtree keeps it

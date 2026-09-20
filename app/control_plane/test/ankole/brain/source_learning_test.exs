@@ -20,7 +20,7 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
 
   setup do
     allow_cache_database_access()
@@ -275,8 +275,8 @@ defmodule Ankole.Brain.SourceLearningTest do
       metadata: %{"runtime" => "test"}
     })
 
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     set_items(holder, [])
 
     {:ok, source} =
@@ -314,21 +314,20 @@ defmodule Ankole.Brain.SourceLearningTest do
           })
       })
 
-    send(
-      Broker,
-      {:runtime_fabric_router_received, route,
-       RuntimeFabric.encode_envelope(%FabricProto.Envelope{
-         message_id: "brain-web-fetch-response",
-         correlation_id: request.request_id,
-         lane: :LANE_RPC,
-         durability: :CONTROL_EPHEMERAL,
-         body:
-           {:rpc_response,
-            %FabricProto.RPCResponse{
-              request_id: request.request_id,
-              payload: response_payload
-            }}
-       })}
+    WorkerRoute.local_inbound(
+      route,
+      RuntimeFabric.encode_envelope(%FabricProto.Envelope{
+        message_id: "brain-web-fetch-response",
+        correlation_id: request.request_id,
+        lane: :LANE_RPC,
+        durability: :CONTROL_EPHEMERAL,
+        body:
+          {:rpc_response,
+           %FabricProto.RPCResponse{
+             request_id: request.request_id,
+             payload: response_payload
+           }}
+      })
     )
 
     assert {:ok, %{status: :learned, claims: 0}} = Task.await(learning, 5_000)
@@ -375,8 +374,8 @@ defmodule Ankole.Brain.SourceLearningTest do
       metadata: %{"runtime" => "test"}
     })
 
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
     {:ok, source} =
       SourceLearning.register_source(%{

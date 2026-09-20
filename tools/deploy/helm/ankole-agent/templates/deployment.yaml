@@ -7,7 +7,14 @@ metadata:
 spec:
   replicas: {{ .Values.controlPlane.replicaCount }}
   strategy:
+    {{- if gt (int .Values.controlPlane.replicaCount) 1 }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
@@ -22,6 +29,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "ankole-agent.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -91,10 +99,36 @@ spec:
             - name: fabric
               containerPort: {{ .Values.runtimeFabric.port }}
               protocol: TCP
+            - name: epmd
+              containerPort: 4369
+              protocol: TCP
+            - name: dist
+              containerPort: {{ .Values.controlPlane.distributionPort }}
+              protocol: TCP
+          # The Pod leaves the Service endpoints when it starts terminating.
+          # The pause lets that update reach kube-proxy before SIGTERM closes
+          # the Worker channels, so Workers reconnect to a remaining Pod.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sleep
+                  - "5"
           envFrom:
             - configMapRef:
                 name: {{ include "ankole-agent.controlPlaneName" . }}
           env:
+            # Workers fetch and deliver file bytes at the Pod that issued the
+            # signed relay URL, and the Erlang node name uses the same address.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: RELEASE_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: RELEASE_COOKIE
             - name: ANKOLE_SECRET_BASE
               valueFrom:
                 secretKeyRef:
@@ -187,7 +221,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: ANKOLE_RUNTIME_FABRIC_ENDPOINT
-              value: "tcp://{{ include "ankole-agent.controlPlaneName" . }}:{{ .Values.runtimeFabric.port }}"
+              value: {{ default (printf "ws://%s:%v/runtime-fabric/worker" (include "ankole-agent.controlPlaneName" .) .Values.controlPlane.service.port) .Values.worker.runtimeFabricEndpoint | quote }}
             - name: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
               valueFrom:
                 secretKeyRef:

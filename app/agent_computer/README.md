@@ -6,8 +6,8 @@ mcporter configuration, CodexRunner Jobs, Automation Jobs, browser routing, and
 Worker-side RuntimeFabric lanes inside the Linux Worker image.
 
 This package is not a standalone local CLI. The image contract supplies native
-kernel bindings, bubblewrap, Chromium, Python/Jupyter/document tooling,
-ZeroMQ, and the shared Agent filesystem.
+kernel bindings, bubblewrap, Chromium, Python/Jupyter/document tooling, and
+the shared Agent filesystem.
 
 ## Ownership
 

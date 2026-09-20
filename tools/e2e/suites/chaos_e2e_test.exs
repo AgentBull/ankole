@@ -20,7 +20,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
@@ -363,17 +363,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "RuntimeFabric router restart reauthenticates the old route and a live worker completes turns" do
+  test "control-plane server restart re-routes the reconnected worker and a live worker completes turns" do
     ctx = start_worker_e2e_stack!()
 
-    router_port =
-      case URI.parse(ctx.endpoint) do
-        %URI{port: port} when is_integer(port) -> port
-      end
-
-    safe_stop_router()
-
-    restart_router_on_port!(router_port, ctx.worker_auth_key)
+    restart_control_plane_http_server!(ctx.server_port)
 
     replacement_worker_id = "router-replacement-#{System.unique_integer([:positive])}"
 
@@ -420,6 +413,56 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 120_000
   @tag ownership_timeout: 120_000
+  test "ZeroMQ router restart reauthenticates a legacy worker route and it completes turns" do
+    case DockerWorker.legacy_zmq_image() do
+      nil ->
+        IO.puts("skipping ZeroMQ router restart: the legacy Worker image is not present locally")
+
+      image ->
+        ctx = start_worker_e2e_stack!(worker: false)
+        # The legacy worker resolves AIGateway through this host-bound server.
+        _port = start_ai_gateway_test_http_server!()
+        endpoint = start_zmq_router!()
+        %URI{port: router_port} = URI.parse(endpoint)
+        worker_id = "zmq-chaos-worker-#{System.unique_integer([:positive])}"
+
+        container =
+          start_additional_worker!(endpoint, worker_id, WorkerAuthKey.ensure!(),
+            image: image,
+            mount_source: false
+          )
+
+        safe_stop_router()
+        restart_zmq_router_on_port!(router_port)
+
+        assert {:ok, %AgentComputerWorker{status: "ready", stop_reason: nil}} =
+                 wait_until(deadline(30_000), fn ->
+                   case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+                     %AgentComputerWorker{status: "ready"} = worker -> worker
+                     _worker -> nil
+                   end
+                 end)
+
+        assert :ok =
+                 FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+                   event_id: "evt_chaos_zmq_router_restart_1",
+                   message_id: "om_chaos_zmq_router_restart_1",
+                   chat_id: "oc_chaos_zmq_router_restart",
+                   chat_type: "p2p",
+                   text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
+                   mentions: [lark_bot_mention()]
+                 )
+
+        input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_zmq_router_restart_1")
+        retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
+
+        assert {:ok, reply, _message} =
+                 wait_for_completed_final_reply(container, input.id, deadline(120_000))
+
+        assert reply.text =~ "CHAOS_DIRECT_OK"
+    end
+  end
+
   test "live worker heartbeat rebuilds its missing volatile registry row" do
     ctx = start_worker_e2e_stack!()
     worker = Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
@@ -650,21 +693,5 @@ defmodule Ankole.E2E.ChaosE2ETest do
                end
              end),
            "input #{input.id} was never accepted by a live worker"
-  end
-
-  defp restart_router_on_port!(router_port, worker_auth_key) do
-    endpoint = "tcp://0.0.0.0:#{router_port}"
-
-    assert {:ok, _endpoint} =
-             wait_until(deadline(5_000), fn ->
-               case Broker.start_router(endpoint,
-                      worker_auth_key: worker_auth_key,
-                      poll_interval_ms: 1
-                    ) do
-                 {:ok, endpoint} -> {:ok, endpoint}
-                 {:error, _reason} -> nil
-               end
-             end),
-           "router did not release and restart on #{endpoint}"
   end
 end

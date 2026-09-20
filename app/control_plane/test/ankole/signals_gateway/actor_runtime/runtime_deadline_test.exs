@@ -5,7 +5,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
   alias Ankole.BackgroundAgentJobs
 
   describe "exact runtime deadlines" do
-    test "router recovery keeps an effect-bearing turn live until its Worker reconnects" do
+    test "a same-incarnation reconnect keeps an effect-bearing turn live" do
       output_items = [
         %{
           "type" => "function_call",
@@ -30,10 +30,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       recovered_at = DateTime.add(@base_time, 120, :second)
 
-      assert {:ok, 1} =
-               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.renew_worker_leases_for_router_recovery(
-                 recovered_at
-               )
+      assert {:ok, %AgentComputerWorker{status: "ready"}} =
+               admit_worker("reconnect-" <> worker.transport_route, %{
+                 worker_id: worker.worker_id,
+                 incarnation_id: worker.incarnation_id
+               })
 
       assert {:error, :worker_not_due} =
                ActorRuntime.mark_worker_stale_if_due(worker.worker_id,
@@ -80,8 +81,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert Ankole.AIGateway.StatefulResponses.expand_history(response.conversation_id) == []
 
       live_route = unique_route()
-      :ok = Broker.register_local_worker(live_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      :ok = WorkerRoute.register_local_worker(live_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(live_route) end)
       assert {:ok, _live_worker} = admit_worker(live_route)
 
       assert {:ok, %{turn_ref: retry_turn_ref}} =
@@ -147,8 +148,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, worker} = admit_worker(route)
 
@@ -203,8 +204,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       stale_route = unique_route()
       live_route = unique_route()
 
-      :ok = Broker.register_local_worker(stale_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
+      :ok = WorkerRoute.register_local_worker(stale_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(stale_route) end)
 
       assert {:ok, stale_worker} = admit_worker(stale_route)
 
@@ -252,8 +253,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  )
                )
 
-      :ok = Broker.register_local_worker(live_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      :ok = WorkerRoute.register_local_worker(live_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(live_route) end)
       assert {:ok, live_worker} = admit_worker(live_route)
 
       assert {:ok, %{turn_ref: second_turn_ref}} =
@@ -289,8 +290,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       stale_route = unique_route()
       live_route = unique_route()
 
-      :ok = Broker.register_local_worker(stale_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
+      :ok = WorkerRoute.register_local_worker(stale_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(stale_route) end)
 
       assert {:ok, stale_worker} = admit_worker(stale_route)
 
@@ -343,8 +344,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert persisted.runtime_thread_id == "thread-durable-resume"
       refute persisted.completed_at
 
-      :ok = Broker.register_local_worker(live_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      :ok = WorkerRoute.register_local_worker(live_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(live_route) end)
       assert {:ok, _live_worker} = admit_worker(live_route)
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -365,8 +366,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       %{principal: agent} = agent_fixture()
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, worker} = admit_worker(route)
 
@@ -484,8 +485,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
     binding_fixture(agent.uid, "bot", :ignore)
     route = unique_route()
 
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, worker} = admit_worker(route)
 
     Repo.update_all(

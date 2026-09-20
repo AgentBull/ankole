@@ -11,16 +11,11 @@ use super::config::{
     configure_common_socket,
 };
 use super::error::{TransportError, map_send_error, transport_error};
-use super::framing::validate_file_transfer_frames;
 use super::types::{DealerEvent, SendOutcome};
 
 enum DealerCommand {
     Send {
         payload: Vec<u8>,
-        reply: mpsc::Sender<Result<SendOutcome, TransportError>>,
-    },
-    SendFileFrame {
-        frames: Vec<Vec<u8>>,
         reply: mpsc::Sender<Result<SendOutcome, TransportError>>,
     },
     Stop {
@@ -167,24 +162,6 @@ impl DealerHandle {
             .commands
             .send(DealerCommand::Send {
                 payload,
-                reply: reply_tx,
-            })
-            .map_err(|_| TransportError::SocketClosed)?;
-
-        reply_rx
-            .recv_timeout(self.inner.command_timeout)
-            .map_err(|_| TransportError::Timeout)?
-    }
-
-    /// Sends one raw worker-file frame set from the worker socket.
-    pub fn send_file_frame(&self, frames: Vec<Vec<u8>>) -> Result<SendOutcome, TransportError> {
-        validate_file_transfer_frames(&frames)?;
-        let (reply_tx, reply_rx) = mpsc::channel();
-
-        self.inner
-            .commands
-            .send(DealerCommand::SendFileFrame {
-                frames,
                 reply: reply_tx,
             })
             .map_err(|_| TransportError::SocketClosed)?;
@@ -355,11 +332,6 @@ fn handle_dealer_command(socket: &zmq::Socket, command: DealerCommand) -> bool {
     match command {
         DealerCommand::Send { payload, reply } => {
             let outcome = send_dealer_frames(socket, vec![payload]);
-            let _ = reply.send(outcome);
-            true
-        }
-        DealerCommand::SendFileFrame { frames, reply } => {
-            let outcome = send_dealer_frames(socket, frames);
             let _ = reply.send(outcome);
             true
         }

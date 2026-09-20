@@ -48,13 +48,12 @@ Schedule 在任务到期时创建一条 `ActorEvent`。`BackgroundAgentJob` 执�
 Elixir 控制面运行 Phoenix 和 OTP。它负责写 PostgreSQL、监督服务进程、保存外部平台
 凭据，并提供公开 API。
 
-Rust 内核提供共享的原生能力，包括加密、CEL 求值、Protobuf 校验、压缩和 ZeroMQ
-连接。它不决定或保存工作项的生命周期。
+Rust 内核提供共享的原生能力，包括加密、CEL 求值、Protobuf 校验和压缩。它不决定或保存工作项的生命周期。
 
 Agent Computer 在 Bun 执行进程中运行。它执行当前回合，运行工具和沙箱，并管理
 Codex 会话。它的本地状态可以重建，也不会直接写控制面的业务记录。
 
-RuntimeFabric 只传送实时数据。PostgreSQL 记录已经完成的决定和工作。ZeroMQ 不保留
+RuntimeFabric 只传送实时数据。PostgreSQL 记录已经完成的决定和工作。Worker 连接不保留
 此前的流量，系统只能从 PostgreSQL 恢复。
 
 ## Agent 文件系统
@@ -230,7 +229,7 @@ tools/e2e/run --real-llm
 | [BrainV3](design-docs/BrainV3.md) | 实例共享知识、作用域披露、学习与 Dreaming |
 | [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain 正文语法与控制台中的 Object 编辑 |
 | [Skill Lessons](design-docs/SkillLessons.md) | 来自已完成工作的租约制逐 skill 现场笔记 |
-| [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
+| [RuntimeFabric](design-docs/RuntimeFabric.md) | Worker 通道消息、RPC 和文件中继 |
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |
 | [Automation Jobs](design-docs/AutomationJobs.md) | 由 Agent 拥有、消费触发器且不经过模型回合的脚本 |

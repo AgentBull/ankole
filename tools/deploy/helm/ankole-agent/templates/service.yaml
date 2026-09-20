@@ -21,6 +21,31 @@ spec:
       protocol: TCP
   selector:
     {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+---
+# Node discovery for Distributed Erlang. DNSCluster resolves this name to every
+# control-plane Pod IP, including Pods that are not ready yet, so a starting
+# node joins the cluster before it accepts traffic.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ankole-agent.controlPlaneHeadlessName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: epmd
+      protocol: TCP
+    - name: dist
+      port: {{ .Values.controlPlane.distributionPort }}
+      targetPort: dist
+      protocol: TCP
+  selector:
+    {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
 {{- if .Values.postgresql.enabled }}
 ---
 apiVersion: v1

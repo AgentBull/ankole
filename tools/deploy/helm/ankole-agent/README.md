@@ -284,6 +284,48 @@ When no existing Secret is set, the chart can generate missing secret values
 and preserve them during normal upgrades. Explicit secret management is safer
 for production recovery.
 
+## Worker file relay
+
+Console file uploads and downloads move bytes between the user and a Worker
+through the control-plane Pod that serves the request. The chart injects
+`POD_IP` through the Downward API, and the control plane derives the relay
+origin `http://<POD_IP>:<PORT>` from it. Workers must be able to reach every
+control-plane Pod IP on the HTTP port; a NetworkPolicy that only permits the
+Service address blocks file transfers. Set `ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN`
+in `controlPlane.extraEnv` only when Workers reach the control plane through a
+different per-Pod address.
+
+## Worker transports during the migration
+
+The control plane accepts two Worker transports at the same time: the Worker
+Channel on the HTTP port (`ws://<service>/runtime-fabric/worker`, the default
+`ANKOLE_RUNTIME_FABRIC_ENDPOINT`) and ZeroMQ on `runtimeFabric.port`
+(`tcp://<service>:6010`). Each Worker uses one transport. Set
+`worker.runtimeFabricEndpoint` to the `tcp://` address only for a Worker image
+that has not switched to the Channel. The ZeroMQ listener, its port, and
+`runtimeFabric.bindEndpoint` are removed after every Worker has switched.
+
+## Control-plane replicas
+
+Every control-plane Pod is one named Erlang node, `ankole@<POD_IP>`. The chart
+renders a headless Service for node discovery, sets `DNS_CLUSTER_QUERY` to it,
+stores a generated `RELEASE_COOKIE` in the bootstrap Secret, and fixes the
+distribution port at `controlPlane.distributionPort`. With one replica these
+settings are inert. Above one replica the Deployment switches to a rolling
+update with one surge Pod, and a terminating Pod waits five seconds in
+`preStop` so the Service drops it before its Worker channels close; Workers
+then reconnect through the ClusterIP Service to a remaining Pod.
+
+`networkPolicy.enabled` restricts EPMD and the distribution port to
+control-plane Pods. HTTP stays open to every peer because the ingress controller
+serves the Console and Workers reach each Pod IP for the file relay.
+
+Keep `controlPlane.replicaCount` at 1 until the control-plane singleton
+processes (schedule firing, chat adapter connections, scheduler hydration) are
+verified safe on more than one node. The migration init container also runs
+in every new Pod; a rolling update starts a migration while the old Pod still
+serves.
+
 ## Troubleshooting
 
 - A pending Worker PVC usually means that the selected StorageClass does not
@@ -291,7 +333,7 @@ for production recovery.
 - A blocked `db-migrate` init container usually means that `DATABASE_URL` is
   wrong, PostgreSQL is not ready, or the required extensions are unavailable.
 - A running worker that never becomes ready usually has a wrong RuntimeFabric
-  key or cannot reach the control-plane Service on port `6010`.
+  key or cannot open a WebSocket to the control-plane Service HTTP port.
 - A setup page that reloads after activation usually has no trusted HTTPS
   connection. Check the Ingress certificate and forwarded host.
 - An admission rejection for the worker security context means that the

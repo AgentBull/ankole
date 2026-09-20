@@ -85,10 +85,11 @@ from another Session of the same Agent.
 
 ## RuntimeFabric Does Not Store Work
 
-RuntimeFabric carries live traffic through ZeroMQ. This traffic includes turn
-control, RPC calls, worker status, flow control, and file data.
+RuntimeFabric carries live traffic through one Phoenix Channel per worker. This
+traffic includes turn control, RPC calls, worker status, and flow control.
+File bytes move over HTTP through a signed relay URL.
 
-ZeroMQ is not a durable queue. PostgreSQL keeps any fact that Ankole must replay,
+The worker connection is not a durable queue. PostgreSQL keeps any fact that Ankole must replay,
 check, reconcile, or commit after a restart.
 
 `ActorBus` is a name for Actor message behavior. It is not a second transport
@@ -354,7 +355,7 @@ Ankole currently does not provide:
 
 - long-term memory (the prior Brain module is removed and awaiting a rewrite)
 - public admission for untrusted workers
-- a durable ZeroMQ queue
+- a durable worker message queue
 - automatic discovery of business data from worker files
 - user-defined SignalsGateway routing rules
 - nested Workflows, script changes after a run starts, or a batch-wide Workflow

@@ -1,11 +1,8 @@
 use super::error::TransportError;
 
-pub(super) const FILE_TRANSFER_PROTOCOL: &[u8] = b"ANKOLE_FILE/1";
-
 #[derive(Debug)]
 pub(super) enum RouterInbound {
     Envelope { route: String, payload: Vec<u8> },
-    FileFrame { route: String, frames: Vec<Vec<u8>> },
 }
 
 // Parses ROUTER frames from DEALER workers. A leading empty delimiter is
@@ -32,22 +29,6 @@ pub(super) fn parse_router_frames(
         frames.remove(0);
     }
 
-    if frames.first().map(Vec::as_slice) == Some(FILE_TRANSFER_PROTOCOL) {
-        Ok(RouterInbound::FileFrame { route, frames })
-    } else {
-        let payload = frames.remove(0);
-        Ok(RouterInbound::Envelope { route, payload })
-    }
-}
-
-pub(super) fn validate_file_transfer_frames(frames: &[Vec<u8>]) -> Result<(), TransportError> {
-    match frames.first() {
-        Some(protocol) if protocol.as_slice() == FILE_TRANSFER_PROTOCOL => Ok(()),
-        Some(_) => Err(TransportError::InvalidFrame(
-            "worker file frames must start with ANKOLE_FILE/1".into(),
-        )),
-        None => Err(TransportError::InvalidFrame(
-            "worker file frame set must not be empty".into(),
-        )),
-    }
+    let payload = frames.remove(0);
+    Ok(RouterInbound::Envelope { route, payload })
 }

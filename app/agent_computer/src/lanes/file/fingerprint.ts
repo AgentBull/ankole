@@ -1,10 +1,10 @@
 import { xxh3File128Hex } from '@ankole/kernel'
 import { statSync } from 'node:fs'
 import { normalizeRelativePath } from './path-security'
-import type { FileRoot, FileTransferState } from './types'
+import type { FileRoot, FileLaneState } from './types'
 
 export async function fileFingerprint(
-  state: FileTransferState,
+  state: FileLaneState,
   root: FileRoot,
   relativePath: string,
   filePath: string
@@ -21,11 +21,11 @@ export async function fileFingerprint(
   return xxh3_128
 }
 
-export function forgetFingerprint(state: FileTransferState, root: FileRoot, relativePath: string): void {
+export function forgetFingerprint(state: FileLaneState, root: FileRoot, relativePath: string): void {
   state.fingerprints.delete(fingerprintCacheKey(root, normalizeRelativePath(relativePath)))
 }
 
-export function forgetFingerprintTree(state: FileTransferState, root: FileRoot, relativePath: string): void {
+export function forgetFingerprintTree(state: FileLaneState, root: FileRoot, relativePath: string): void {
   const prefix = `${root}:${normalizeRelativePath(relativePath)}`
   for (const key of state.fingerprints.keys()) {
     if (key === prefix || key.startsWith(`${prefix}/`)) {

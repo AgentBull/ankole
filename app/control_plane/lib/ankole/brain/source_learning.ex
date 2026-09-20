@@ -47,7 +47,7 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Security.SSRFFilter
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
@@ -432,7 +432,7 @@ defmodule Ankole.Brain.SourceLearning do
            idle_ttl_ms: idle_ttl_ms
          },
          {:ok, payload} <-
-           Broker.request_rpc(route, "web_fetch.rendered", encode_proto(request),
+           WorkerRoute.request_rpc(route, "web_fetch.rendered", encode_proto(request),
              timeout_ms: @rendered_fetch_timeout_ms,
              request_id: "brain-rendered-web-fetch-#{Ecto.UUID.generate()}"
            ),

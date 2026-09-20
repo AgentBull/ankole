@@ -63,7 +63,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                 },
                 env: %{
                   "ANKOLE_AGENTS_ROOT" => "/agents",
-                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => "tcp://host.docker.internal:6010",
+                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
+                    "ws://host.docker.internal:4000/runtime-fabric/worker",
                   "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => "secret with / symbols",
                   "WORKER_ID" => "worker-a"
                 },
@@ -77,7 +78,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                 ]
               } = spec} =
                WorkerBootstrap.worker_spec(
-                 endpoint: "tcp://host.docker.internal:6010",
+                 endpoint: "ws://host.docker.internal:4000/runtime-fabric/worker",
                  worker_id: "worker-a",
                  auth_key: "secret with / symbols",
                  image: "ankole-agent-computer:test",
@@ -98,7 +99,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                "-e",
                "ANKOLE_AGENTS_ROOT=/agents",
                "-e",
-               "ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host.docker.internal:6010",
+               "ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://host.docker.internal:4000/runtime-fabric/worker",
                "-e",
                "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret with / symbols",
                "-e",
@@ -123,12 +124,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
       assert {:ok,
               %Spec{
                 env: %{
-                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => "tcp://127.0.0.1:6010",
+                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => "ws://127.0.0.1:4000/runtime-fabric/worker",
                   "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => ^auth_key
                 }
               }} =
                WorkerBootstrap.worker_spec(
-                 endpoint: "tcp://127.0.0.1:6010",
+                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
                  worker_id: "worker-app-config",
                  image: "ankole-agent-computer:test",
                  agents_root: "/tmp/ankole-agents"
@@ -138,7 +139,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
     test "rejects invalid or incomplete worker inputs" do
       assert {:error, {:missing, :agents_root}} =
                WorkerBootstrap.worker_spec(
-                 endpoint: "tcp://127.0.0.1:6010",
+                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
                  worker_id: "worker-a",
                  image: "ankole-agent-computer:test",
                  auth_key: "secret"
@@ -146,7 +147,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
 
       assert {:error, {:invalid, :auth_key}} =
                WorkerBootstrap.worker_spec(
-                 endpoint: "tcp://127.0.0.1:6010",
+                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
                  worker_id: "worker-a",
                  image: "ankole-agent-computer:test",
                  auth_key: "",

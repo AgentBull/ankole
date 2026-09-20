@@ -21,7 +21,6 @@ mod atoms {
     rustler::atoms! {
         ok,
         runtime_fabric_router_received,
-        runtime_fabric_router_file_frame,
         runtime_fabric_router_decode_failed,
         runtime_fabric_router_socket_error,
         universal_ai_client,
@@ -138,6 +137,32 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
 pub fn any_ascii(input: Term<'_>) -> NIFResult<String> {
     let input = decode_string(input, "input")?;
     Ok(common::any_ascii(&input))
+}
+
+/// Seals host-encoded RuntimeFabric envelope bytes for the wire.
+///
+/// The kernel writes the protocol version, lane, and durability that the body
+/// type owns and validates the result, so Elixir and Bun send one protocol.
+#[rustler::nif]
+pub fn runtime_fabric_seal_envelope(envelope_bytes: Term<'_>) -> NIFResult<OwnedBinary> {
+    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
+
+    runtime_fabric::seal_envelope_bytes(envelope_bytes.as_slice())
+        .map_err(error)
+        .and_then(binary_from_vec)
+}
+
+/// Validates received RuntimeFabric envelope bytes.
+///
+/// The kernel stays the single semantic checker for received envelopes; the
+/// host decodes the bytes structurally with its generated codec afterwards.
+#[rustler::nif]
+pub fn runtime_fabric_validate_envelope(envelope_bytes: Term<'_>) -> NIFResult<bool> {
+    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
+
+    runtime_fabric::validate_envelope_bytes(envelope_bytes.as_slice())
+        .map(|_| true)
+        .map_err(error)
 }
 
 /// Parses one Brain body against its canonical CommonMark audience grammar.
@@ -282,23 +307,6 @@ pub fn runtime_fabric_router_send_mandatory(
     router
         .0
         .send_mandatory(transport_route, envelope_bytes.as_slice())
-        .map(|_| "sent_or_queued".to_string())
-        .map_err(transport_error_term)
-}
-
-/// Sends raw RuntimeFabric worker-file multipart frames to one ROUTER identity.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn runtime_fabric_router_send_file_frame(
-    router: ResourceArc<RuntimeFabricRouterResource>,
-    transport_route: Term<'_>,
-    frames: Term<'_>,
-) -> NIFResult<String> {
-    let transport_route = decode_string(transport_route, "transport_route")?;
-    let frames = decode_binary_frames(frames, "frames")?;
-
-    router
-        .0
-        .send_file_frame(transport_route, frames)
         .map(|_| "sent_or_queued".to_string())
         .map_err(transport_error_term)
 }
@@ -465,37 +473,6 @@ pub fn xxh3_128_hex(input: Term<'_>) -> NIFResult<String> {
     let input = decode_binary(input, "input")?;
 
     Ok(common::xxh3_128_hex(input.as_slice()))
-}
-
-/// Compresses one worker-file lane block into a self-contained zstd frame.
-///
-/// Each call produces one independent frame, so the wire is a concatenation of
-/// frames that a receiver can decompress per chunk. `level` follows the zstd
-/// CLI scale and is not negotiated on the wire.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn zstd_compress_block(input: Term<'_>, level: Term<'_>) -> NIFResult<OwnedBinary> {
-    let input = decode_binary(input, "input")?;
-    let level = decode_i32(level, "level")?;
-
-    common::zstd_compress_block(input.as_slice(), level)
-        .map_err(error)
-        .and_then(binary_from_vec)
-}
-
-/// Decompresses one worker-file lane zstd frame with a hard output bound.
-///
-/// `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn zstd_decompress_block(input: Term<'_>, max_out: Term<'_>) -> NIFResult<OwnedBinary> {
-    let input = decode_binary(input, "input")?;
-    let max_out = decode_u64(max_out, "max_out")?;
-
-    common::zstd_decompress_block(
-        input.as_slice(),
-        usize::try_from(max_out).unwrap_or(usize::MAX),
-    )
-    .map_err(error)
-    .and_then(binary_from_vec)
 }
 
 /// Derives a deterministic BLAKE3 sub-key for Elixir callers.
@@ -669,18 +646,6 @@ fn decode_binary<'a>(term: Term<'a>, field: &str) -> NIFResult<Binary<'a>> {
     Binary::from_term(term).map_err(|_| error_message(format!("{field} must be a binary")))
 }
 
-/// Decodes a BEAM list of binaries into owned frame bytes.
-fn decode_binary_frames(term: Term<'_>, field: &str) -> NIFResult<Vec<Vec<u8>>> {
-    let frames: Vec<Binary<'_>> = term
-        .decode()
-        .map_err(|_| error_message(format!("{field} must be a list of binaries")))?;
-
-    Ok(frames
-        .into_iter()
-        .map(|frame| frame.as_slice().to_vec())
-        .collect())
-}
-
 /// Decodes a JSON string into the host-neutral serde value used by AuthZ.
 fn decode_json(term: Term<'_>, field: &str) -> NIFResult<JSONValue> {
     let json = decode_string(term, field)?;
@@ -699,12 +664,6 @@ fn decode_optional_string(term: Term<'_>, field: &str) -> NIFResult<Option<Strin
 fn decode_u64(term: Term<'_>, field: &str) -> NIFResult<u64> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
-}
-
-/// Decodes a signed 32-bit integer.
-fn decode_i32(term: Term<'_>, field: &str) -> NIFResult<i32> {
-    term.decode()
-        .map_err(|_| error_message(format!("{field} must be an integer")))
 }
 
 /// Decodes an Elixir string and reports the field name on failure.
@@ -761,23 +720,6 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
                     transport_route,
                     worker_id,
                     envelope_term,
-                )
-                    .encode(env),
-                Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
-            }
-        }
-        RouterEvent::FileFrame {
-            transport_route,
-            authenticated_worker_id,
-            frames,
-        } => {
-            let worker_id = authenticated_worker_id.unwrap_or_default();
-            match encode_binary_frame_list(env, frames) {
-                Ok(frame_terms) => (
-                    atoms::runtime_fabric_router_file_frame(),
-                    transport_route,
-                    worker_id,
-                    frame_terms,
                 )
                     .encode(env),
                 Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
@@ -914,16 +856,6 @@ fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {
             map
         }
     }
-}
-
-fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Result<Term<'a>, String> {
-    let mut terms: Vec<Term<'a>> = Vec::with_capacity(frames.len());
-
-    for frame in frames {
-        terms.push(encode_binary_term(env, frame)?);
-    }
-
-    Ok(terms.encode(env))
 }
 
 fn encode_binary_term(env: Env<'_>, bytes: Vec<u8>) -> Result<Term<'_>, String> {

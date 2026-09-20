@@ -4,13 +4,15 @@ RuntimeFabric connects the Elixir control plane to Agent Computer workers.
 It carries live messages but does not store them. PostgreSQL stores any data
 that Ankole needs after a restart.
 
-The connection carries three groups of messages:
+The connection carries two groups of messages:
 
 - Actor messages start, steer, stop, and report non-response terminal states.
 - RPC messages ask another process to read or change Ankole data.
-- File messages read or change files on a worker.
 
-All three groups use the same worker connection and authentication.
+Both groups use the same worker connection and authentication. File bytes do
+not travel on this connection. A worker-file operation is a control-plane RPC
+to the worker, and the worker moves the bytes over HTTP with a one-time signed
+relay URL (see "Read and Change Worker Files").
 
 ## Which Process Stores What
 
@@ -27,109 +29,221 @@ Workers run Agent code and access mounted files. They do not define PostgreSQL
 rules or commit business records.
 
 Workers use RPC when they need to read or change stored Ankole data. The control
-plane uses file messages when it needs a worker file.
+plane uses the worker-file RPC methods when it needs a worker file.
 
 All workers in one deployment instance must still see the same Agent Home
 storage.
-File messages do not replace shared storage.
+Worker-file operations do not replace shared storage.
 
-## One ZeroMQ Connection per Worker
+## Two Transports until Every Worker Switches
 
-RuntimeFabric uses one ZeroMQ connection per worker.
+The control plane accepts two physical transports at the same time, and each
+worker uses exactly one, selected by the scheme of
+`ANKOLE_RUNTIME_FABRIC_ENDPOINT`:
 
-- The control plane runs one Rust-managed `ROUTER` socket.
-- Each worker runs one Rust-managed `DEALER` socket.
-- The `DEALER` identity tells the control plane where to send a message.
+- `ws://` or `wss://`: the Worker Channel described below. This is the target
+  transport.
+- `tcp://`: the ZeroMQ transport that earlier worker images use. The control
+  plane keeps one Rust-owned `ROUTER` bound at
+  `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT` with ZAP `PLAIN` authentication
+  (`WORKER_ID` as the username, the shared key as the password). The route is
+  the `DEALER` identity, and a send returns `{:ok, :sent_or_queued}` when the
+  socket queued the envelope; there is no acknowledgement. The `stream` and
+  `transport_seq` envelope fields are zero on this transport.
 
-Actor and RPC messages use Protobuf. File messages use raw multipart frames.
+The dual stack is a migration tool. When every worker connects with `ws://`,
+the ROUTER, its port, the ZAP code, and the worker `DEALER` are removed in one
+change. Nothing else depends on them.
 
-The control-plane envelope shape is:
+The protocol version stays at 5 across the migration. The `stream` and
+`transport_seq` fields are additive, and a published ZeroMQ worker image
+must keep passing the kernel's version check.
+
+## One Phoenix Channel per Worker
+
+RuntimeFabric uses one WebSocket connection per worker, carried by a Phoenix
+Channel on the control plane.
+
+- The control plane serves `AnkoleWeb.RuntimeFabricSocket` at
+  `/runtime-fabric/worker`.
+- Each worker joins one channel on the topic `worker/installation/<worker_id>`.
+  The `installation` segment is a fixed namespace; it is not a tenant model.
+- The channel process is the address of the worker connection. Its
+  `connection_id` is the `transport_route` that PostgreSQL stores.
+
+Every connection has three identities:
+
+| Identity | Owner | Changes when |
+| --- | --- | --- |
+| `worker_id` | operator slot | never |
+| `incarnation_id` | worker process | the worker process restarts |
+| `connection_id` | control plane | the WebSocket reconnects |
+
+Actor and RPC messages use Protobuf. The WebSocket carries the existing
+envelope bytes as binary frames. There is no JSON or Base64 wrapper.
+
+Two envelope fields belong to this transport:
+
+- `stream` names the logical stream (`STREAM_CONTROL`, `STREAM_DURABLE`,
+  `STREAM_TELEMETRY`). It must equal the channel event that carries the
+  envelope, and the body type must belong to that stream.
+- `transport_seq` is the sequence number inside one stream on one
+  connection. It starts at 1 and increases by one for each accepted message.
+  A rejected message (`flow_control`, `wrong_stream`, `bad_sequence`,
+  `invalid_envelope`) does not advance the sequence; the worker repeats it
+  with the same number. A `bad_sequence` reply carries `expected`, the
+  number the control plane waits for.
+
+Worker-to-control-plane traffic uses three channel events. The event name is
+the stream; the payload is one envelope:
+
+| Event | Bodies | Reply |
+| --- | --- | --- |
+| `control` | `worker_ready`, `worker_heartbeat`, `worker_capacity`, `control_shutdown` | after the admission handler returns |
+| `durable` | `turn_accepted`, `worker_progress`, RPC requests, RPC responses, RPC errors | after the PostgreSQL transaction commits; an RPC request is answered when its task starts, and its response is the durable answer |
+| `telemetry` | `observability.spans.export` requests | after the request enters the bounded telemetry window |
+
+The channel answers each event with `ok` or `error`. Every reply, including
+a rejection, carries the stream's cumulative acknowledgement and its
+remaining credit:
 
 ```text
-[transport_route, protobuf_envelope]
+stream          control | durable | telemetry
+acked_seq       highest sequence with no incomplete message below it
+message_credit  messages the control plane can still accept on this stream
+byte_credit     bytes the control plane can still accept on this stream
+reason          only on error
 ```
 
-The worker receives:
+The Phoenix reply reference correlates the reply with the push. It is
+transport state only; `message_id`, `correlation_id`, and the RPC
+`request_id` remain the business keys and the idempotency keys.
+
+Control-plane-to-worker traffic uses two events:
+
+| Event | Bodies |
+| --- | --- |
+| `command` | `turn_start`, `mailbox_updated`, `turn_control`, RPC requests |
+| `reply` | RPC responses and errors |
+
+Both events share one `transport_seq` per connection with `stream` set to
+`STREAM_DURABLE`. The worker acknowledges what it accepted into its inbound
+queue with one `ack` event:
 
 ```text
-[protobuf_envelope]
+acked_seq       highest sequence the worker accepted, cumulative
+message_credit  commands the worker can still take
+byte_credit     bytes the worker can still take
 ```
 
-The control-plane file shape is:
+One acknowledgement resolves every waiting command with a sequence at or
+below `acked_seq`. The unacknowledged commands on one connection stay below
+both the control-plane limit and the worker's last credit; beyond that a send
+is `{:error, :backpressure}`.
 
-```text
-[transport_route, ANKOLE_FILE/1, COMMAND, transfer_id, ...]
-```
+`Ankole.SignalsGateway.ActorRuntime.WorkerRoute` is the only module that
+sends to a worker. The route directory is
+`Ankole.SignalsGateway.ActorRuntime.WorkerTracker`, a `Phoenix.Tracker`:
 
-The worker receives:
+- One topic per worker: `worker/<scope>/<worker_id>`. The `scope` is the
+  fixed namespace `installation`; a future multi-tenant deployment would vary
+  it together with admission, the route fence, and the file roots.
+- The key is the `connection_id`.
+- The metadata holds only stable connection identity: `worker_id`,
+  `incarnation_id`, `connection_id`, `channel_pid`, and `node`. Heartbeat,
+  load, and capacity never enter the tracker.
+- `pool_size` sets the number of tracker shards; per-worker topics spread over
+  them with `phash2(topic, pool_size)`. No scheduling path lists a topic.
 
-```text
-[ANKOLE_FILE/1, COMMAND, transfer_id, ...]
-```
+A send follows these steps:
 
-The parser accepts an empty delimiter or extra proxy identity frames, but the
-generated Ankole protocol does not require them.
+1. A route that spoke on the ZeroMQ `ROUTER` goes to that socket.
+2. Otherwise `Phoenix.Tracker.get_by_key/3` with the worker topic and the
+   route.
+3. Compare the entry's `incarnation_id` and `connection_id` with the current
+   PostgreSQL route fence. A mismatch is `{:error, :stale_route}`.
+4. Call the channel process directly. A process on another node receives the
+   call through Distributed Erlang. No worker command uses a PubSub broadcast.
+5. Wait for the worker's cumulative acknowledgement.
+6. A route in neither directory goes to the `ROUTER` when one is bound, so a
+   ZeroMQ worker that reconnected after a control-plane restart is reached
+   before its first lifecycle message registers it here.
+7. An empty directory, a stale entry, or a missing acknowledgement fails only
+   this send. The caller keeps the PostgreSQL delivery and never changes
+   durable state from a directory result.
 
-## Rust Owns the ZeroMQ Sockets
+`send_mandatory/2` returns `{:ok, :sent_or_queued}` only after the worker
+acknowledged the command. It returns `{:error, :unknown_route}` when no channel
+owns the route, `{:error, :backpressure}` when the connection already holds the
+maximum number of unacknowledged commands, and `{:error, :timeout}` when the
+acknowledgement does not arrive. The caller keeps the PostgreSQL delivery and
+does not change durable state from a routing result.
 
-ZeroMQ requires each socket to stay on one thread. The Rust kernel runs those
-threads.
+The tracker is eventually consistent. It can name a connection that no
+longer exists. That only fails one send attempt; the row locks, the
+`incarnation_id`, the route fence, and the acknowledgement timeout decide
+correctness.
 
-- `ankole-runtime-fabric-router` owns the `ROUTER`.
-- `ankole-runtime-fabric-dealer` owns one `DEALER`.
-- `ankole-runtime-fabric-zap` owns the ZAP `REP` socket.
+## Bounded Windows
 
-Elixir and Bun never operate a ZeroMQ socket directly. They send commands to
-the Rust thread.
+Each stream has a window of unacknowledged messages and bytes on both sides.
 
-Elixir uses `Ankole.Kernel.RuntimeFabric` and the ActorRuntime transport broker.
-Bun uses one host adapter over `RuntimeFabricDealer`.
+| Stream | Control plane accepts in flight | Worker keeps in flight |
+| --- | --- | --- |
+| `control` | 32 messages, 4 MiB | 8 messages, 1 MiB |
+| `durable` | 256 messages, 64 MiB | 64 messages, 16 MiB |
+| `telemetry` | 64 messages, 16 MiB | 16 messages, 4 MiB |
+
+The control plane answers `flow_control` when a message would exceed its
+window, and every reply reports the remaining message and byte credit, so the
+worker sends at most what the last credit allowed. The worker waits and
+repeats a `control` or `durable` message with the same sequence number. It
+drops a `telemetry` message when its own window is full, records the drop,
+and does not block the other streams.
+
+A `command` connection holds at most 64 unacknowledged commands. One WebSocket
+frame contains at most 16 MiB. A channel process closes its connection when its
+mailbox exceeds 10,000 messages; the worker reconnects, and PostgreSQL
+delivery state drives any repeat.
+
+A telemetry drop does not change turn correctness. Telemetry that must not be
+lost needs a durable spool; RuntimeFabric does not provide one.
+
+## Reconnect and Restart
+
+The Phoenix client reconnects with capped exponential backoff and joins the
+channel again. The join payload carries the ready fields, so each join is an
+admission. The worker opens its send windows only after the join succeeded.
+
+A reconnect with the same `incarnation_id` receives a new `connection_id`. One
+transaction moves the worker projection, its live assignments, and its live
+deliveries to the new route. Turn fences do not change. When the old channel
+process then closes, it does not mark the worker stale, because the worker's
+current route is no longer that connection.
+
+A worker restart creates a new `incarnation_id`. The control plane keeps no
+replay spool across that restart:
+
+- The old connection's unacknowledged state is gone.
+- Messages from the old route fail the route fence.
+- An unacknowledged turn follows the existing failure and rebuild path.
+- A repeated durable commit is absorbed by the existing unique constraints and
+  idempotency keys.
+
+If the control plane committed a transaction but the `ok` reply was lost, the
+worker can repeat the message. The domain handler must stay idempotent; the
+channel does not replay.
 
 The Bun adapter handles:
 
-- limited send retries
-- conversion of native errors
+- the Phoenix socket and channel lifecycle
+- stream classification and windows
+- acknowledgement of `command` pushes
 - decoding of generated envelopes
 - calls to kernel validation
-- separation of envelopes from file frames
-- worker drain before shutdown of the `DEALER`
+- worker drain before shutdown
 
 The adapter does not schedule Actors or decide when a turn ends.
-
-## Socket Defaults Limit Waiting and Queues
-
-These defaults keep queues and shutdown delays finite. An operator must not
-treat them as product guarantees.
-
-| Setting | Default |
-| --- | --- |
-| Send queue limit (ZeroMQ high-water mark) | 1,000 |
-| Receive queue limit (ZeroMQ high-water mark) | 1,000 |
-| Send timeout | 1,000 milliseconds |
-| Receive timeout | 1,000 milliseconds |
-| Linger | 0 milliseconds |
-| Poll interval | 10 milliseconds |
-| Host command timeout | 10,000 milliseconds |
-| Dealer inbox events | 1,024 |
-| Dealer inbox bytes | 64 MiB |
-
-The limits let Ankole detect blocked sends, full queues, shutdown, and worker
-loss.
-
-If router startup fails late, Rust closes the bound socket. If the host command
-sender disappears, Rust stops the socket loop.
-
-The transport maps common ZeroMQ errors as follows:
-
-| ZeroMQ error | RuntimeFabric result |
-| --- | --- |
-| `EHOSTUNREACH` | `unknown_route` |
-| `EAGAIN` | `backpressure` |
-| `ETERM` | `socket_closed` |
-| Other errors | `zmq` transport error |
-
-`unknown_route` marks the worker route as stale. ActorRuntime then decides
-whether to retry stored work.
 
 ## Temporary Routing Tables
 
@@ -165,37 +279,46 @@ remain the authority for completion retries after routing state is gone.
 
 ## Authenticate a Worker
 
-RuntimeFabric uses ZeroMQ ZAP with PLAIN authentication.
 The control plane stores one encrypted AppConfigure key:
 
 ```text
 runtime_fabric.worker_auth_key
 ```
 
-The control plane creates this key when necessary. Rust receives only its
-decrypted in-memory value.
+The control plane creates this key when necessary.
 
 Worker startup requires these values:
 
 ```text
 WORKER_ID=worker-a
-ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://control-plane:port
+ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://control-plane:4000/runtime-fabric/worker
 ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=<worker-auth-key>
 ```
 
-The endpoint and shared password are separate bootstrap facts. `WORKER_ID`
-supplies the PLAIN username. The Worker validates the endpoint, copies the key
-into memory, and removes the key from the environment that child processes
-inherit.
+The worker sends the key as the Phoenix socket auth token in the
+`Sec-WebSocket-Protocol` header. The key never appears in the URL. The socket
+`connect/3` callback compares it with the stored key in constant time and
+rejects the upgrade on a mismatch. The Worker validates the endpoint, copies
+the key into memory, and removes the key from the environment that child
+processes inherit.
 
 All workers can use the same key. Ankole does not store a different key for
 each worker.
 
-`worker_id` names a worker slot chosen by the operator. Each new process creates
-a fresh `incarnation_id`.
+`worker_id` names a worker slot chosen by the operator. The socket parameters
+carry it, and the channel topic must name the same worker. Each new process
+creates a fresh `incarnation_id`.
 
-Ready, heartbeat, and capacity messages contain both identifiers.
-The control plane also records the authenticated route.
+The join payload carries the `worker_ready` fields: `worker_id`,
+`incarnation_id`, `runtime`, `version`, `max_turns`, and
+`available_turn_slots`. `join/3` builds the ready message from them, calls
+`WorkerAdmission` with the authenticated route, and registers the connection
+in the tracker. A payload whose `worker_id` differs from the topic or the
+socket fails the join with `identity_mismatch`. A `worker_ready` envelope sent
+after the join is an ordinary lifecycle message.
+
+Ready, heartbeat, and capacity messages contain both identifiers. The control
+plane records the authenticated route.
 
 On process shutdown, the worker sends `control_shutdown` to the control plane.
 This direction means "the worker process is shutting down." The control plane
@@ -208,22 +331,18 @@ transaction releases the old assignments and invalidates their turn fences.
 
 The control plane rejects delayed messages from the old process.
 
-A worker becomes stale after 60 seconds without a valid heartbeat. Cleanup can
-remove its routing record after 3,600 seconds.
-
-After a router restart, the first authenticated worker lifecycle message
-reconnects the route to its ZAP identity.
+A worker becomes stale after 60 seconds without a valid heartbeat, or when its
+current channel process terminates. Cleanup can remove its routing record after
+3,600 seconds.
 
 A valid worker lifecycle message can make a stale worker active again. It cannot
 restore released assignments or old delivery attempts. A stopped worker cannot
 reactivate itself.
 
-Raw file frames cannot authenticate a new worker route because they contain no
-worker lifecycle identity.
-
 This protocol authenticates trusted first-party workers. Database turn fences
-still protect each write. Ankole does not provide CURVE, TLS, or public worker
-admission here.
+still protect each write. Ankole does not provide public worker admission
+here. TLS termination for `wss://` belongs to the ingress in front of the
+control plane.
 
 ## Validate Every Actor and RPC Message
 
@@ -288,7 +407,7 @@ The Protobuf protocol uses four technical lanes:
 - `LANE_RPC` carries RPC requests and results.
 
 The durability flag tells the control plane what it must store or replay.
-It does not make ZeroMQ a stored queue.
+It does not make the worker connection a stored queue.
 
 - `CONTROL_DURABLE` requires a durable control-plane fact.
 - `CONTROL_REPLAYABLE` requires a replayable PostgreSQL fact.
@@ -611,36 +730,18 @@ reset try again.
 
 ## Read and Change Worker Files
 
-The worker file lane uses raw ZeroMQ multipart frames.
-It does not use Protobuf or Base64 for file content.
+The control plane reads and changes worker files through five worker-owned RPC
+methods:
 
-The protocol marker is:
+- `worker_files.pull`: the worker downloads bytes from a signed relay URL and
+  writes one file.
+- `worker_files.push`: the worker uploads one file to a signed relay URL.
+- `worker_files.list`: directory list, with a `max_entries` bound.
+- `worker_files.move`: same-root move or rename.
+- `worker_files.delete`: file delete, or explicit recursive directory delete.
 
-```text
-ANKOLE_FILE/1
-```
-
-Text frames carry commands, transfer IDs, and paths. Binary frames carry sizes,
-offsets, sequence values, timestamps, booleans, and compressed file blocks.
-
-The protocol supports these operation groups:
-
-- Write open, data, credit, commit, and abort.
-- Read open, ready, data, credit, done, and abort.
-- Stat.
-- Directory list.
-- Same-root move.
-- File or explicit recursive delete.
-- Structured error and malformed-command responses.
-
-`READ_OPEN` uses `file_not_found` when the source path is absent and
-`not_regular_file` when the source is not a regular file. These codes are the
-cross-runtime recovery contract. The accompanying error message is for
-diagnosis and is not a recovery key.
-
-A read that observes a different path after `READ_READY` uses `file_changed`.
-The control plane can retry this failure, but it does not accept bytes from the
-old file descriptor as a successful read.
+`rpc.proto` defines the request and response messages. The RPC frame carries
+no turn fence for these methods; the control plane is the caller.
 
 The control plane exposes these public roots:
 
@@ -666,54 +767,95 @@ The internal `agent_home_documents` root accepts only these files:
 - `DESIGN.md`
 
 The public root API does not expose this internal root.
-The file lane never exposes `.codex` state.
+The worker never exposes `.codex` state.
 
-`Ankole.WorkerFiles` owns root policy, route selection, and transfer bounds.
-It selects any ready worker by default.
-An operator path can pin one worker ID.
-A pinned operation never falls back to another worker.
+`Ankole.WorkerFiles` owns root policy, route selection, transfer bounds, and
+the relay session. It selects any ready worker by default. An operator path can
+pin one worker ID. A pinned operation never falls back to another worker.
 
-One file can contain at most 100 MiB in either direction.
-A write fails before the first frame when the input exceeds this limit.
+One file can contain at most 100 MiB in either direction. A write fails before
+the RPC when the input exceeds this limit. A read fails on the worker before
+the upload when the file exceeds `max_bytes`, and the relay rejects a larger
+request body with `413`.
 
-A read checks the authoritative size in `READ_READY`.
-An oversized read sends `READ_ABORT` before any byte credit.
+The worker returns these error codes in `rpc_error.code`:
 
-`MOVE` must stay inside one worker root.
-A directory delete requires `recursive: true`.
+- `file_not_found`: the source path is absent.
+- `not_regular_file`: the source is not a regular file.
+- `file_changed`: the file changed while the worker uploaded it. The control
+  plane does not accept the uploaded bytes as a successful read.
+- `file_too_large`: the file exceeds `max_bytes`.
+- `relay_failed`: the relay URL answered a non-2xx status or the HTTP request
+  failed.
+- `operation_failed`: any other failure.
+
+These codes are the cross-runtime recovery contract. The message is for
+diagnosis only.
+
+`move` must stay inside one worker root. A directory delete requires
+`recursive: true`.
 
 ## Transfer Files Safely
+
+The relay keeps file bytes out of the RuntimeFabric connection and out of
+control-plane memory:
+
+1. The control-plane Pod that serves the user request opens an in-memory relay
+   session with a random `transfer_id` and a short expiry.
+2. It sends `worker_files.pull` or `worker_files.push` with a signed URL on
+   its own internal origin.
+3. The worker sends `GET` (pull) or `PUT` (push) to that URL.
+4. The relay streams the bytes in bounded chunks between the user request and
+   the worker request. It does not buffer a whole file.
+5. The worker answers the RPC with the final size and fingerprint. The
+   control plane then completes the user request.
+
+The signed URL is:
+
+```text
+<internal origin>/internal/runtime-fabric/file-relay/<transfer_id>?token=<signature>
+```
+
+The signature is an HMAC-SHA256 over the method, scope, worker ID, incarnation ID,
+transport route, root, relative path, `max_bytes`, expiry, nonce, and
+`transfer_id`, keyed with the global worker authentication key. A URL is valid
+for one request, one method, and one worker connection, and it expires with
+the session. The URL is a bearer credential: neither runtime writes it to a
+log, and Phoenix filters the `token` parameter.
+
+The internal origin is the address of the issuing control-plane Pod, not a
+load-balanced Service address, because only that Pod holds the relay session.
+`ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN` sets it. When it is absent, the
+control plane derives `http://<POD_IP>:<PORT>` from the Kubernetes Downward
+API. Workers must be able to reach this origin.
+
+The relay session is supervised memory state with an idle timeout. It is not a
+PostgreSQL row. When the relay Pod, the worker, or the user request fails, the
+whole operation fails, both sides release their state, and the caller repeats
+the request. There is no resume.
 
 The worker rejects `..` traversal and symlinks that leave an allowed root. All
 public roots stay under `ANKOLE_AGENTS_ROOT`, which defaults to `/agents`.
 
-Inbound writes use this scratch path:
+A pull writes to this scratch path and then moves the checked file into place
+with an atomic rename:
 
 ```text
 /tmp/ankole-file-transfer/<transfer-id>/
 ```
 
-`WRITE_COMMIT` moves the checked temporary file into place with an atomic
-rename. `WRITE_ABORT` removes it.
+A push reads the file with one descriptor, records its identity and size
+before the upload, and reports `file_changed` when the file differs after the
+upload.
 
-The lane always uses zstd level 3 on the wire.
-It does not negotiate another encoding.
+The relay does not compress file bytes. The transfer is HTTP inside the
+cluster network, and the bounded chunk size limits memory on each hop.
 
-Each `DATA` frame contains an independent zstd frame. One block contains at most
-2 MiB before compression. The final file keeps the original bytes.
+Push and pull metadata include an XXH3 128-bit fingerprint. This value can show
+that a file changed. It is not a cryptographic digest.
 
-The Rust kernel provides zstd to both hosts.
-Elixir uses a dirty CPU scheduler.
-Bun uses an asynchronous native task.
-
-A runtime without native zstd support cannot become ready. It does not use an
-external binary or another compression format.
-
-Stat and read metadata can include an XXH3 128-bit fingerprint.
-This value can show that a file changed. It is not a cryptographic digest.
-
-The process tracks active transfers in memory. The filesystem keeps the file.
-PostgreSQL records how Ankole uses it.
+The worker keeps no transfer state after the RPC answers. The filesystem keeps
+the file. PostgreSQL records how Ankole uses it.
 
 ## Move Attachments without an Agent Turn
 
@@ -812,15 +954,25 @@ Stored ActorEvents and Jobs continue after matching workers connect.
 Rollback uses the previous verified pair in the same two phases.
 Do not roll back only one runtime.
 
+Every control-plane Pod is one named Erlang node. DNSCluster discovers the
+other Pods through a headless Service, the Pods share one release cookie, and
+the distribution port is fixed so a NetworkPolicy can limit it to control-plane
+Pods. Workers never use the distribution ports; they connect to the ClusterIP
+Service for the channel and to the issuing Pod IP for a file relay. A Pod that
+terminates leaves the Service first and then closes its channels, so Workers
+reconnect to a remaining Pod and continue from PostgreSQL delivery state.
+Distributed Erlang provides process addressing only; it is not a durable
+single-writer guarantee.
+
 ## What RuntimeFabric Does Not Do
 
 RuntimeFabric is not any of these systems:
 
-- A durable ZeroMQ queue.
+- A durable message queue or replay spool.
 - A general message broker.
 - A per-lane socket farm.
 - A control-plane NFS mount.
 - An S3-compatible object store.
-- A Protobuf file-chunk protocol.
+- A file-chunk protocol inside the worker connection.
 - A conversation-history RPC service.
 - A second set of domain records written by the worker.

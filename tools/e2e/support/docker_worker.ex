@@ -15,7 +15,10 @@ defmodule Ankole.E2E.DockerWorker do
   @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
   def start_docker_worker!(opts) do
     name = unique_worker_name()
-    image = docker_image()
+    image = Keyword.get(opts, :image, docker_image())
+    # A published image runs its own baked Worker; the source mount only
+    # applies to the content-addressed image built from this tree.
+    mount_source? = Keyword.get(opts, :mount_source, true)
     {agents_root, persist_agents?} = agents_root(name)
 
     {:ok, spec} =
@@ -32,8 +35,8 @@ defmodule Ankole.E2E.DockerWorker do
     args =
       Docker.argv(spec,
         name: name,
-        additional_mounts: docker_dev_agent_computer_mounts(),
-        command: docker_dev_agent_computer_command()
+        additional_mounts: if(mount_source?, do: docker_dev_agent_computer_mounts(), else: []),
+        command: if(mount_source?, do: docker_dev_agent_computer_command(), else: [])
       )
 
     port =
@@ -100,7 +103,25 @@ defmodule Ankole.E2E.DockerWorker do
     :ok
   end
 
-  @doc "Converts the host-bound RuntimeFabric endpoint into a container URL."
+  @doc """
+  Published Worker image that still speaks ZeroMQ; `nil` when it is not
+  available locally. The dual-stack e2e test uses it as the legacy Worker.
+  """
+  @spec legacy_zmq_image() :: String.t() | nil
+  def legacy_zmq_image do
+    image =
+      System.get_env(
+        "ANKOLE_E2E_LEGACY_WORKER_IMAGE",
+        "ghcr.io/agentbull/ankole-agent-computer-worker:e924bf043c2d45be20028fc47204b088ea9cc783"
+      )
+
+    case System.cmd(docker_path(), ["image", "inspect", image], stderr_to_stdout: true) do
+      {_output, 0} -> image
+      _missing -> nil
+    end
+  end
+
+  @doc "Converts a host-bound ZeroMQ router endpoint into a container URL."
   def docker_host_endpoint(endpoint) do
     case URI.parse(endpoint) do
       %URI{scheme: "tcp", port: port} when is_integer(port) ->

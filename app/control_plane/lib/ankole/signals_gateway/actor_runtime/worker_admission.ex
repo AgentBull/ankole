@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
@@ -240,18 +240,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         end
       end)
 
-    if match?({:ok, _result}, result), do: Broker.fail_pending_rpcs(route, reason)
+    if match?({:ok, _result}, result), do: WorkerRoute.fail_pending_rpcs(route, reason)
     result
   end
 
   def mark_route_unusable(_route, _reason), do: :ok
 
   @doc """
-  Marks every ready route stale when the RuntimeFabric router itself stops.
+  Marks every ready route stale when the ZeroMQ ROUTER itself stops.
 
   A router restart invalidates the ZeroMQ route identities held in worker
-  projections. Workers may re-admit themselves, and replacement workers can be
-  scheduled immediately, but stale route rows must not keep receiving turns.
+  projections. Workers on the Worker Channel keep their own connection, so a
+  channel route is staled only by its own channel process; this call covers
+  every live route because the projection does not record the transport.
+  Workers may re-admit themselves, and replacement workers can be scheduled
+  immediately, but stale route rows must not keep receiving turns.
   """
   @spec mark_all_routes_unusable(term()) :: {:ok, non_neg_integer()} | {:error, term()}
   def mark_all_routes_unusable(reason) do
@@ -429,7 +432,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   defp refresh_worker_ready(repo, %AgentComputerWorker{} = worker, attrs, now) do
     replacement? = worker.incarnation_id != attrs.incarnation_id
 
-    with :ok <- maybe_release_replaced_worker(repo, worker, attrs.incarnation_id, now) do
+    with :ok <- maybe_release_replaced_worker(repo, worker, attrs.incarnation_id, now),
+         :ok <- maybe_reroute_worker(repo, worker, attrs, now) do
       attrs =
         if replacement? do
           attrs
@@ -452,6 +456,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     |> repo.insert()
     |> notify_worker_stale_deadline(repo)
   end
+
+  # The same Worker process reconnected on a new connection. Its turn fences
+  # stay valid; only the address that reaches them changes, and every live row
+  # that names the old route moves to the new one in this transaction.
+  defp maybe_reroute_worker(
+         repo,
+         %AgentComputerWorker{incarnation_id: incarnation_id, transport_route: old_route} = worker,
+         %{incarnation_id: incarnation_id, transport_route: new_route},
+         now
+       )
+       when is_binary(new_route) and old_route != new_route do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.worker_id == ^worker.worker_id)
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> repo.update_all(set: [transport_route: new_route, updated_at: now])
+
+    ActorEventDelivery
+    |> where([delivery], delivery.worker_id == ^worker.worker_id)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+    |> repo.update_all(set: [transport_route: new_route, updated_at: now])
+
+    :ok
+  end
+
+  defp maybe_reroute_worker(_repo, _worker, _attrs, _now), do: :ok
 
   defp maybe_release_replaced_worker(
          _repo,
@@ -798,14 +827,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     end
   end
 
+  defp fail_pending_rpcs(route, reason) when is_binary(route),
+    do: WorkerRoute.fail_pending_rpcs(route, reason)
+
+  defp fail_pending_rpcs(_route, _reason), do: :ok
+
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
-
-  defp fail_pending_rpcs(route, reason) when is_binary(route),
-    do: Broker.fail_pending_rpcs(route, reason)
-
-  defp fail_pending_rpcs(_route, _reason), do: :ok
 
   defp collect_notification_results(results) do
     Enum.reduce_while(results, :ok, fn

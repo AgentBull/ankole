@@ -1,24 +1,10 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { fingerprintMode, readBoolFrame, readU64Frame, requiredTextFrame } from './codec'
-import { fileFingerprint, forgetFingerprint, forgetFingerprintTree } from './fingerprint'
-import {
-  assertCreatableFileAddress,
-  assertExistingFileAddress,
-  parseVirtualPathFrame,
-  resolveFileAddress
-} from './path-security'
-import type { FileAddress, FileTransferState, ListEntry } from './types'
+import { forgetFingerprint, forgetFingerprintTree } from './fingerprint'
+import { assertCreatableFileAddress, assertExistingFileAddress, fileAddress, resolveFileAddress } from './path-security'
+import type { FileAddress, FileLaneState, ListEntry } from './types'
 import type { WorkerConfig } from '../../worker/config'
-
-export type StatResult = {
-  address: FileAddress
-  kind: 'file' | 'directory' | 'other'
-  size: number
-  modifiedUnixMs: number
-  fingerprint: string
-}
 
 export type DeleteResult = {
   address: FileAddress
@@ -36,38 +22,14 @@ export type ListResult = {
   entries: ListEntry[]
 }
 
-export async function statPath(config: WorkerConfig, state: FileTransferState, frames: Buffer[]): Promise<StatResult> {
-  const address = parseVirtualPathFrame(frames[3], 'stat path')
-  const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
-  const lexicalFilePath = resolveFileAddress(config, address)
-  const filePath = existsSync(lexicalFilePath)
-    ? assertExistingFileAddress(config, address, lexicalFilePath)
-    : lexicalFilePath
-  if (!existsSync(filePath)) {
-    throw new Error(`path does not exist: ${address.virtualPath}`)
-  }
-
-  const stat = statSync(filePath)
-  const kind = stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other'
-  return {
-    address,
-    kind,
-    size: stat.size,
-    modifiedUnixMs: Math.floor(stat.mtimeMs),
-    fingerprint:
-      stat.isFile() && fingerprint === 'xxh3_128'
-        ? await fileFingerprint(state, address.root, address.relativePath, filePath)
-        : ''
-  }
-}
-
 export async function deletePath(
   config: WorkerConfig,
-  state: FileTransferState,
-  frames: Buffer[]
+  state: FileLaneState,
+  root: string,
+  relativePath: string,
+  recursive: boolean
 ): Promise<DeleteResult> {
-  const address = parseVirtualPathFrame(frames[3], 'delete path')
-  const recursive = readBoolFrame(frames[4], 'recursive')
+  const address = fileAddress(root, relativePath)
   const lexicalFilePath = resolveFileAddress(config, address)
   const filePath = existsSync(lexicalFilePath)
     ? assertExistingFileAddress(config, address, lexicalFilePath)
@@ -79,7 +41,7 @@ export async function deletePath(
   const stat = statSync(filePath)
   if (stat.isDirectory()) {
     if (!recursive) {
-      throw new Error('DELETE requires recursive=true for directories')
+      throw new Error('delete requires recursive=true for directories')
     }
     rmSync(filePath, { recursive: true, force: true })
     forgetFingerprintTree(state, address.root, address.relativePath)
@@ -91,14 +53,16 @@ export async function deletePath(
   return { address }
 }
 
-export async function movePath(config: WorkerConfig, state: FileTransferState, frames: Buffer[]): Promise<MoveResult> {
-  const from = parseVirtualPathFrame(frames[3], 'from path')
-  const to = parseVirtualPathFrame(frames[4], 'to path')
-  const overwrite = readBoolFrame(frames[5], 'overwrite')
-
-  if (from.root !== to.root) {
-    throw new Error('MOVE must stay inside one worker root')
-  }
+export async function movePath(
+  config: WorkerConfig,
+  state: FileLaneState,
+  root: string,
+  fromRelativePath: string,
+  toRelativePath: string,
+  overwrite: boolean
+): Promise<MoveResult> {
+  const from = fileAddress(root, fromRelativePath)
+  const to = fileAddress(root, toRelativePath)
 
   const lexicalFromPath = resolveFileAddress(config, from)
   const fromPath = existsSync(lexicalFromPath)
@@ -127,10 +91,15 @@ export async function movePath(config: WorkerConfig, state: FileTransferState, f
   return { from, to }
 }
 
-export function listPath(config: WorkerConfig, frames: Buffer[]): ListResult {
-  const address = parseVirtualPathFrame(frames[3], 'list path', { allowRoot: true })
-  const recursive = readBoolFrame(frames[4], 'recursive')
-  const maxEntries = boundedMaxEntries(readU64Frame(frames[5], 'max_entries'))
+export function listPath(
+  config: WorkerConfig,
+  root: string,
+  relativePath: string,
+  recursive: boolean,
+  maxEntries: number
+): ListResult {
+  const address = fileAddress(root, relativePath, { allowRoot: true })
+  const boundedEntries = boundedMaxEntries(maxEntries)
   const lexicalDirectoryPath = resolveFileAddress(config, address, { allowRoot: true })
   const directoryPath = existsSync(lexicalDirectoryPath)
     ? assertExistingFileAddress(config, address, lexicalDirectoryPath)
@@ -140,12 +109,12 @@ export function listPath(config: WorkerConfig, frames: Buffer[]): ListResult {
     throw new Error(`directory does not exist: ${address.virtualPath}`)
   }
 
-  const { entries, truncated } = listDirectory(directoryPath, address.relativePath, recursive, maxEntries)
+  const { entries, truncated } = listDirectory(directoryPath, address.relativePath, recursive, boundedEntries)
   return { address, recursive, entries, truncated }
 }
 
 function boundedMaxEntries(value: number): number {
-  if (value < 1) throw new Error('max_entries must be positive')
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('max_entries must be positive')
   return Math.min(value, 10_000)
 }
 

@@ -49,3 +49,9 @@ config :ankole, :signal_connection_reconcile_interval_ms, nil
 config :ankole, :runtime_events, enabled: false
 
 # The limiter test uses a real interval. Other tests do not need wall-clock waits.
+
+# Small channel budgets keep flow-control and acknowledgement tests fast.
+config :ankole, AnkoleWeb.WorkerChannel,
+  command_ack_timeout_ms: 300,
+  pending_command_limit: 2,
+  inflight: [durable: {2, 64 * 1024 * 1024}]

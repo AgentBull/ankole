@@ -3,7 +3,6 @@ import { toError } from './common/errors'
 import { controlShutdownEnvelope } from './fabric/envelopes'
 import { connectRuntimeFabric, type EnvelopeSender } from './fabric/fabric'
 import type { Envelope } from './fabric/envelope_proto'
-import { createFileTransferLane } from './lanes/file'
 import { handleWorkerRPCRequest, RuntimeRPCClient, type WorkerRPCHandlers } from './lanes/rpc_lane'
 import { configureRuntimeFabricTracing } from './observability/runtime-fabric-exporter'
 import { forceFlushWorkerTracing } from './observability/turn-tracing'
@@ -39,15 +38,19 @@ async function runWorker(): Promise<void> {
   const config = loadWorkerConfig()
   verifyWorkerReadiness(config)
 
-  const fabric = connectRuntimeFabric(config)
+  // The transport sends `worker_ready` on every join, including a rejoin
+  // after a lost connection, so the ready message reports the current slots.
+  let activeTurns: ActiveTurns | undefined
+  const fabric = connectRuntimeFabric(config, {
+    readyEnvelope: () => workerReadyEnvelope(config, activeTurns?.availableSlots ?? config.maxConcurrentTurns)
+  })
   const sendEnvelope = fabric.sendEnvelope
   const rpcClient = new RuntimeRPCClient(sendEnvelope)
   configureRuntimeFabricTracing(rpcClient)
 
   const drain = new WorkerDrainState()
-  const fileLane = createFileTransferLane(config, fabric.sendFileFrame)
   const browserRuntime = createWorkerBrowserRuntime()
-  const activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain)
+  activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain)
   const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient, browserRuntime)
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -58,12 +61,7 @@ async function runWorker(): Promise<void> {
 
   try {
     await browserRuntime.start()
-    await sendEnvelope(workerReadyEnvelope(config, activeTurns.availableSlots))
     await activeTurns.publishCapacity()
-    workerLogger.notice('worker.ready_sent', 'worker ready sent', {
-      endpoint: config.endpoint,
-      worker_id: config.workerID
-    })
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
     let shutdownReported = false
@@ -109,11 +107,6 @@ async function runWorker(): Promise<void> {
 
       const received = await fabric.receive(500)
       if (received.kind === 'timeout') continue
-
-      if (received.kind === 'worker_file') {
-        await fileLane.handle(received.frames)
-        continue
-      }
 
       const envelope = received.envelope
       workerLogger.debug('worker.envelope_received', 'runtime fabric envelope received', {

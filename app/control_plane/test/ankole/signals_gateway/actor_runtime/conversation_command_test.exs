@@ -286,8 +286,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       route = unique_route()
       test_pid = self()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -446,8 +446,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: active_input}} =
@@ -546,8 +546,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -600,8 +600,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -729,8 +729,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       assert Repo.aggregate(ActorEventDelivery, :count) == 0
 
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{send_outcome: "sent_or_queued", conversation: next_conversation}} =
@@ -748,8 +748,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: old_input}} =

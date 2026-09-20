@@ -48,6 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         lane: proto::Lane::Control as i32,
         sent_at_unix_ms: 0,
         durability: proto::DurabilityClass::ControlEphemeral as i32,
+        stream: proto::Stream::Unspecified as i32,
+        transport_seq: 0,
         body: Some(proto::envelope::Body::WorkerReady(
             proto::AgentComputerWorkerReady {
                 worker_id: "fixture".to_string(),
@@ -60,14 +62,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )),
     };
     router.send_mandatory(WORKER_ROUTE, &envelope.encode_to_vec())?;
-    router.send_file_frame(
-        WORKER_ROUTE,
-        vec![
-            b"ANKOLE_FILE/1".to_vec(),
-            b"READ_OPEN".to_vec(),
-            b"binding-transfer".to_vec(),
-        ],
-    )?;
 
     let mut stop = String::new();
     io::stdin().read_line(&mut stop)?;

@@ -12,8 +12,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
   test "dispatch claims the task with its profile, context, and independent conversation" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     profiles = [
@@ -96,8 +96,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
   test "a released run slot wakes exactly the earliest capacity-deferred task" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{calls: [first, second, third], events: [_first_event, second_event, _third_event]} =
@@ -291,8 +291,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
   test "turn errors reuse one dispatch event until the third call attempt fails" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{calls: [call], events: [event]} = workflow_fixture(agent.uid)
@@ -376,8 +376,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
   test "a non-retryable turn error stays inside the Workflow call attempt budget" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{calls: [call], events: [event]} = workflow_fixture(agent.uid)
@@ -419,8 +419,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatchTest do
   test "a mailbox message defers around an unstarted or running task and wakes only its sleeper" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{run: run, calls: [first, second], events: dispatch_events} =

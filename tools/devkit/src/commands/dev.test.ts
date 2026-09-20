@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import {
   buildControlPlaneEnv,
+  workerEndpoint,
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
   buildWorkerDockerArgs,
@@ -23,7 +24,7 @@ const spec: WorkerBootstrapSpec = {
   },
   env: {
     ANKOLE_AGENTS_ROOT: '/agents',
-    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://host.docker.internal:6010',
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'ws://host.docker.internal:4000/runtime-fabric/worker',
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'secret',
     WORKER_ID: 'local-dev-worker'
   },
@@ -37,13 +38,21 @@ const spec: WorkerBootstrapSpec = {
   ]
 }
 
+describe('workerEndpoint', () => {
+  test('selects the Worker Channel by default and ZeroMQ for tcp', () => {
+    expect(workerEndpoint('ws', 4000, 6010)).toBe('ws://host.docker.internal:4000/runtime-fabric/worker')
+    expect(workerEndpoint('tcp', 4000, 6010)).toBe('tcp://host.docker.internal:6010')
+  })
+})
+
 describe('buildControlPlaneEnv', () => {
-  test('sets Phoenix and RuntimeFabric development ports without dropping existing env', () => {
+  test('sets the Phoenix development port without dropping existing env', () => {
     const env = buildControlPlaneEnv({ DATABASE_URL: 'postgres://local' }, { port: 4001, fabricPort: 6011 })
 
     expect(env.DATABASE_URL).toBe('postgres://local')
     expect(env.PORT).toBe('4001')
     expect(env.ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT).toBe('tcp://127.0.0.1:6011')
+    expect(env.ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN).toBe('http://host.docker.internal:4001')
     expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('http://host.docker.internal:4001/api/v1/ai-gateway')
   })
 
@@ -121,7 +130,7 @@ describe('buildWorkerDockerArgs', () => {
       expect(args).toContain('host.docker.internal=host-gateway')
       expect(args).toContain('WORKER_ID=local-dev-worker')
       expect(args).toContain('ANKOLE_AGENTS_ROOT=/agents')
-      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host.docker.internal:6010')
+      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://host.docker.internal:4000/runtime-fabric/worker')
       expect(args).toContain('ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret')
       expect(args).not.toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
       expect(args).toContain('type=bind,src=/repo/var/ankole-dev/agents,dst=/agents')

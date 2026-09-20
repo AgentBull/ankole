@@ -1,16 +1,12 @@
 defmodule AnkoleWeb.WorkerFileControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-
-  @credit_window 4 * 1024 * 1024
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.WorkerFilesFake
 
   setup do
     allow_cache_database_access()
@@ -20,25 +16,15 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
-    route = "worker-file-test-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "worker-file-controller"}
-
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
-
-    {:ok, route: route, route_auth: route_auth}
+    {:ok, route: "worker-file-test-#{System.unique_integer([:positive])}"}
   end
 
-  test "list returns entries and truncation from the lane", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "list returns entries and truncation from the worker", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_filesystem_command(route_auth, frames)
-      end)
+    WorkerFilesFake.start!(route,
+      files: %{"/agent_sessions/agent-1/sessions/session-1/log.txt" => "logs"}
+    )
 
     conn =
       bearer_conn(conn)
@@ -60,19 +46,12 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     assert entry["size"] == 4
   end
 
-  test "upload writes a file and returns size and relative path", %{
+  test "upload relays the multipart file and returns size and relative path", %{
     conn: conn,
-    route: route,
-    route_auth: route_auth
+    route: route
   } do
     %{worker_id: worker_id} = register_ready_worker!(route)
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil} end)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_put(route_auth, stored, frames)
-      end)
-
+    fake = WorkerFilesFake.start!(route)
     upload = build_upload!("hello world")
 
     conn =
@@ -91,20 +70,39 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
                "size" => 11
              }
            } = json_response(conn, 200)
+
+    assert %{"/agent_sessions/agent-1/sessions/session-1/inbox/note.txt" => "hello world"} =
+             WorkerFilesFake.files(fake)
   end
 
-  test "download streams file content with content-disposition", %{
+  test "upload rejects a file over the transfer bound before any relay", %{
     conn: conn,
-    route: route,
-    route_auth: route_auth
+    route: route
   } do
     %{worker_id: worker_id} = register_ready_worker!(route)
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil, read_wire: nil} end)
+    fake = WorkerFilesFake.start!(route)
+    upload = build_upload!(:binary.copy(<<0>>, Ankole.WorkerFiles.max_transfer_bytes() + 1))
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_get(route_auth, stored, frames)
-      end)
+    conn =
+      bearer_conn(conn)
+      |> multipart(
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files",
+        root: "user_files",
+        path: "agent-1/user-files/huge.bin",
+        file: upload
+      )
+
+    assert %{"error" => %{"code" => "file_too_large"}} = json_response(conn, 422)
+    assert WorkerFilesFake.writes(fake) == []
+  end
+
+  test "download streams file content with content-disposition", %{conn: conn, route: route} do
+    %{worker_id: worker_id} = register_ready_worker!(route)
+    content = :crypto.strong_rand_bytes(3 * 1024 * 1024)
+
+    WorkerFilesFake.start!(route,
+      files: %{"/user_files/agent-1/user-files/attachments/hello world.txt" => content}
+    )
 
     conn =
       bearer_conn(conn)
@@ -112,7 +110,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
         ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=agent-1/user-files/attachments/hello world.txt"
       )
 
-    assert response(conn, 200) == "hello world"
+    assert response(conn, 200) == content
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition") |> List.first() =~
              "hello%20world.txt"
@@ -121,22 +119,12 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
              "application/octet-stream"
   end
 
-  test "download maps a worker read error for a directory path to 404", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "download maps a worker read error to 404", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_with_error(
-          route_auth,
-          frames,
-          "operation_failed",
-          "not a regular file: /agents/agent-1/sessions"
-        )
-      end)
+    WorkerFilesFake.start!(route,
+      fail: %{"push" => {"not_regular_file", "not a regular file: /agents/agent-1/sessions"}}
+    )
 
     conn =
       bearer_conn(conn)
@@ -144,20 +132,26 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
         ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=agent_sessions&path=agent-1/sessions"
       )
 
-    assert %{"error" => %{"code" => "worker_file_error"}} = json_response(conn, 404)
+    assert %{
+             "error" => %{
+               "code" => "worker_file_error",
+               "details" => [%{"code" => "not_regular_file"}]
+             }
+           } =
+             json_response(conn, 404)
   end
 
-  test "download surfaces file_too_large from the READ_READY authoritative size", %{
+  test "download surfaces file_too_large from the worker's size check", %{
     conn: conn,
-    route: route,
-    route_auth: route_auth
+    route: route
   } do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_large_file(route_auth, frames)
-      end)
+    WorkerFilesFake.start!(route,
+      on_read: fn _path ->
+        {:ok, :binary.copy(<<0>>, Ankole.WorkerFiles.max_transfer_bytes() + 1)}
+      end
+    )
 
     conn =
       bearer_conn(conn)
@@ -165,20 +159,34 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
         ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=agent-1/user-files/big.bin"
       )
 
-    assert %{"error" => %{"code" => "file_too_large"}} = json_response(conn, 422)
+    assert %{"error" => %{"details" => [%{"code" => "file_too_large"}]}} =
+             json_response(conn, 404)
   end
 
-  test "move renames a path", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "download fails closed when the relay token is wrong", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_filesystem_command(route_auth, frames)
-      end)
+    WorkerFilesFake.start!(route,
+      files: %{"/user_files/agent-1/user-files/a.txt" => "secret"},
+      tamper_token: true
+    )
+
+    conn =
+      bearer_conn(conn)
+      |> get(
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=agent-1/user-files/a.txt"
+      )
+
+    assert %{"error" => %{"details" => [%{"code" => "relay_failed"}]}} = json_response(conn, 404)
+  end
+
+  test "move renames a path", %{conn: conn, route: route} do
+    %{worker_id: worker_id} = register_ready_worker!(route)
+
+    fake =
+      WorkerFilesFake.start!(route,
+        files: %{"/user_files/agent-1/user-files/inbox/message-1/hello.txt" => "hi"}
+      )
 
     conn =
       bearer_conn(conn)
@@ -197,19 +205,18 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
                "moved" => true
              }
            } = json_response(conn, 200)
+
+    assert %{"/user_files/agent-1/user-files/archive/message-1/hello.txt" => "hi"} =
+             WorkerFilesFake.files(fake)
   end
 
-  test "delete removes a path", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "delete removes a path", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_filesystem_command(route_auth, frames)
-      end)
+    fake =
+      WorkerFilesFake.start!(route,
+        files: %{"/user_files/agent-1/user-files/archive/message-1/hello.txt" => "hi"}
+      )
 
     conn =
       bearer_conn(conn)
@@ -224,6 +231,8 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
                "deleted" => true
              }
            } = json_response(conn, 200)
+
+    assert WorkerFilesFake.files(fake) == %{}
   end
 
   test "unknown worker returns 404 worker_not_found", %{conn: conn} do
@@ -234,10 +243,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     assert %{"error" => %{"code" => "worker_not_found"}} = json_response(conn, 404)
   end
 
-  test "stale worker returns 409 worker_not_ready", %{
-    conn: conn,
-    route: route
-  } do
+  test "stale worker returns 409 worker_not_ready", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_worker!(route, "stale")
 
     conn =
@@ -247,17 +253,9 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     assert %{"error" => %{"code" => "worker_not_ready"}} = json_response(conn, 409)
   end
 
-  test "worker ERROR frame in list maps to 404", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "worker error in list maps to 404", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_with_error(route_auth, frames, "ENOENT", "path does not exist")
-      end)
+    WorkerFilesFake.start!(route, fail: %{"list" => {"file_not_found", "path does not exist"}})
 
     conn =
       bearer_conn(conn)
@@ -269,17 +267,9 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
              json_response(conn, 404)
   end
 
-  test "worker ERROR frame in move maps to 422", %{
-    conn: conn,
-    route: route,
-    route_auth: route_auth
-  } do
+  test "worker error in move maps to 422", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_with_error(route_auth, frames, "EEXIST", "target exists")
-      end)
+    WorkerFilesFake.start!(route)
 
     conn =
       bearer_conn(conn)
@@ -292,10 +282,25 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     assert %{"error" => %{"code" => "worker_file_error"}} = json_response(conn, 422)
   end
 
-  test "invalid root is rejected by cast and validate", %{
-    conn: conn,
-    route: route
-  } do
+  test "worker error in delete maps to 422", %{conn: conn, route: route} do
+    %{worker_id: worker_id} = register_ready_worker!(route)
+    WorkerFilesFake.start!(route)
+
+    conn =
+      bearer_conn(conn)
+      |> delete(
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=user_files&path=agent-1/user-files/missing.txt"
+      )
+
+    assert %{
+             "error" => %{
+               "code" => "worker_file_error",
+               "details" => [%{"code" => "file_not_found"}]
+             }
+           } = json_response(conn, 422)
+  end
+
+  test "invalid root is rejected by cast and validate", %{conn: conn, route: route} do
     %{worker_id: worker_id} = register_ready_worker!(route)
 
     conn =
@@ -305,148 +310,54 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     assert conn.status == 422
   end
 
-  # --- fake worker responders (mirror file_transfer_lane_test helpers) ---
+  describe "relay endpoint" do
+    test "answers 404 for an unknown transfer and 401 without a token", %{conn: conn} do
+      conn = get(conn, "/internal/runtime-fabric/file-relay/missing?token=abc")
+      assert %{"error" => %{"code" => "unknown_transfer"}} = json_response(conn, 404)
 
-  defp respond_to_filesystem_command(route_auth, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"LIST", [path, recursive, _max_entries]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "LIST_OK",
-          transfer_id,
-          path,
-          recursive,
-          bool(false),
-          entries_frame([
-            %{
-              relative_path: "agent-1/sessions/session-1/log.txt",
-              kind: "file",
-              size: 4,
-              modified_unix_ms: 1_772_000_000_000
-            }
-          ])
-        ])
+      route = "relay-direct-#{System.unique_integer([:positive])}"
+      worker = register_ready_worker!(route).row
 
-      {"MOVE", [from_path, to_path, _overwrite]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "MOVE_OK",
-          transfer_id,
-          from_path,
-          to_path
-        ])
+      {:ok, %{transfer_id: transfer_id, url: url}} =
+        Ankole.WorkerFiles.Relay.open(%{
+          direction: :push,
+          worker: worker,
+          root: "user_files",
+          relative_path: "inbox/a.txt",
+          max_bytes: 4,
+          ttl_ms: 60_000,
+          consumer: self(),
+          owner: self()
+        })
 
-      {"DELETE", [path, _recursive]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "DELETE_OK",
-          transfer_id,
-          path
-        ])
-    end
-  end
+      %URI{path: path, query: "token=" <> token} = URI.parse(url)
 
-  defp respond_to_large_file(route_auth, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"READ_OPEN", [path, _fingerprint]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_READY",
-          transfer_id,
-          path,
-          u64(200 * 1024 * 1024),
-          ""
-        ])
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/octet-stream")
+        |> put(path, "")
 
-      {"READ_ABORT", []} ->
-        :ok
-    end
-  end
+      assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
 
-  defp respond_with_error(route_auth, [protocol, _command, transfer_id | _rest], code, message) do
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      "ERROR",
-      transfer_id,
-      code,
-      message
-    ])
-  end
+      conn = get(build_conn(), path <> "?token=" <> token)
+      assert %{"error" => %{"code" => "method_mismatch"}} = json_response(conn, 405)
 
-  defp respond_to_put(route_auth, stored, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"WRITE_OPEN", [path, _original_size]} ->
-        Agent.update(stored, &%{&1 | begin: path, chunks: []})
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/octet-stream")
+        |> put_req_header("content-length", "10")
+        |> put(path <> "?token=" <> token, "0123456789")
 
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_READY",
-          transfer_id,
-          u64(@credit_window)
-        ])
+      assert %{"error" => %{"code" => "file_too_large"}} = json_response(conn, 413)
+      refute_received {:relay_opened, ^transfer_id, _handler, _size}
 
-      {"DATA", [_sequence, _offset, _eof, chunk]} ->
-        Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/octet-stream")
+        |> put_req_header("content-length", "1")
+        |> put(path <> "?token=" <> token, "x")
 
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "CREDIT",
-          transfer_id,
-          u64(byte_size(chunk))
-        ])
-
-      {"WRITE_COMMIT", []} ->
-        {path, content} =
-          Agent.get(stored, fn state ->
-            {state.begin, zstd_decode_chunks!(state.chunks)}
-          end)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_COMMITTED",
-          transfer_id,
-          path,
-          u64(byte_size(content)),
-          "8db84f6b892cfa6bdad930c907ecb808"
-        ])
-    end
-  end
-
-  defp respond_to_get(route_auth, stored, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"READ_OPEN", [path, _fingerprint]} ->
-        content = zstd_encode!("hello world")
-        Agent.update(stored, &%{&1 | read_wire: content})
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_READY",
-          transfer_id,
-          path,
-          u64(11),
-          "8db84f6b892cfa6bdad930c907ecb808"
-        ])
-
-      {"CREDIT", [_credit]} ->
-        content = Agent.get(stored, & &1.read_wire)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "DATA",
-          transfer_id,
-          u64(0),
-          u64(0),
-          bool(true),
-          content
-        ])
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_DONE",
-          transfer_id,
-          u64(1),
-          u64(byte_size(content))
-        ])
+      assert %{"error" => %{"code" => "transfer_consumed"}} = json_response(conn, 409)
     end
   end
 
@@ -476,51 +387,13 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
   defp build_upload!(content) do
     path = Path.join(System.tmp_dir!(), "ankole-upload-#{System.unique_integer([:positive])}")
     File.write!(path, content)
+    on_exit(fn -> File.rm(path) end)
 
     %Plug.Upload{
       filename: Path.basename(path),
       path: path,
       content_type: "application/octet-stream"
     }
-  end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
-  defp bool(true), do: <<1>>
-  defp bool(false), do: <<0>>
-
-  defp entries_frame(entries) do
-    [
-      <<length(entries)::unsigned-big-integer-size(32)>>,
-      Enum.map(entries, fn entry ->
-        [
-          sized_string(entry.relative_path),
-          sized_string(entry.kind),
-          u64(entry.size),
-          u64(entry.modified_unix_ms)
-        ]
-      end)
-    ]
-    |> IO.iodata_to_binary()
-  end
-
-  defp sized_string(value) do
-    value = IO.iodata_to_binary(value)
-    <<byte_size(value)::unsigned-big-integer-size(32), value::binary>>
-  end
-
-  defp zstd_encode!(content) do
-    compressed = Ankole.Kernel.zstd_compress_block(content, 3)
-    true = is_binary(compressed)
-    compressed
-  end
-
-  defp zstd_decode_chunks!(chunks) do
-    Enum.reduce(chunks, [], fn chunk, acc ->
-      decoded = Ankole.Kernel.zstd_decompress_block(chunk, 2 * 1024 * 1024)
-      true = is_binary(decoded)
-      [decoded | acc]
-    end)
-    |> IO.iodata_to_binary()
   end
 
   defp multipart(conn, path, fields) do

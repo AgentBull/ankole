@@ -9,6 +9,8 @@ data:
   ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: {{ .Values.runtimeFabric.bindEndpoint | quote }}
   PHX_HOST: {{ .Values.controlPlane.publicHost | quote }}
   PORT: {{ .Values.controlPlane.port | quote }}
+  DNS_CLUSTER_QUERY: {{ printf "%s.%s.svc.%s" (include "ankole-agent.controlPlaneHeadlessName" .) .Release.Namespace .Values.controlPlane.clusterDomain | quote }}
+  ANKOLE_DIST_PORT: {{ .Values.controlPlane.distributionPort | quote }}
   {{- range $key, $value := .Values.controlPlane.extraEnv }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}

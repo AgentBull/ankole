@@ -29,8 +29,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControlTest do
   describe "dispatch/1" do
     test "sends one turn_control envelope per control and reports the outcome" do
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       stop = %{route: route, turn_ref: fence(), verb: :stop, reason: "command.stop", payload: %{}}
 
@@ -109,6 +109,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControlTest do
   defp control(%ActorEventDelivery{} = delivery) do
     %{
       route: delivery.transport_route || delivery.worker_id,
+      worker_id: delivery.worker_id,
       turn_ref: TurnRef.from_delivery(delivery),
       verb: :retry,
       reason: "command.retry",

@@ -28,6 +28,7 @@ export {
   EnvelopeSchema,
   Lane,
   MailboxUpdatedSchema,
+  Stream,
   RPCErrorSchema,
   RPCRequestSchema,
   RPCResponseSchema,

@@ -148,14 +148,16 @@ defmodule Ankole.Kernel do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec runtime_fabric_router_send_file_frame(runtime_fabric_router(), String.t(), [binary()]) ::
-          result(String.t())
-  def runtime_fabric_router_send_file_frame(_router, _transport_route, _frames),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
   @spec runtime_fabric_router_stop(runtime_fabric_router()) :: result(boolean())
   def runtime_fabric_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec runtime_fabric_seal_envelope(binary()) :: result(binary())
+  def runtime_fabric_seal_envelope(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec runtime_fabric_validate_envelope(binary()) :: result(boolean())
+  def runtime_fabric_validate_envelope(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
@@ -265,24 +267,6 @@ defmodule Ankole.Kernel do
   """
   @spec xxh3_128_hex(binary()) :: result(String.t())
   def xxh3_128_hex(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Compresses one worker-file lane block into a self-contained zstd frame.
-
-  The wire is a concatenation of independent frames, one per `DATA` chunk, so a
-  receiver decompresses each chunk in isolation. `level` follows the zstd CLI
-  scale (1..=22).
-  """
-  @spec zstd_compress_block(binary(), integer()) :: result(binary())
-  def zstd_compress_block(_input, _level), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decompresses one worker-file lane zstd frame with a hard output bound.
-
-  `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
-  """
-  @spec zstd_decompress_block(binary(), non_neg_integer()) :: result(binary())
-  def zstd_decompress_block(_input, _max_out), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Derives a deterministic BLAKE3 sub-key from a seed and labeled context.

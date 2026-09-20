@@ -157,16 +157,6 @@ impl JsRuntimeFabricDealer {
             .map_err(runtime_fabric_error)
     }
 
-    #[napi(ts_args_type = "frames: Buffer[]")]
-    pub fn send_file_frame(&self, frames: Vec<Buffer>) -> Result<()> {
-        let frames = frames.into_iter().map(|frame| frame.to_vec()).collect();
-
-        self.handle
-            .send_file_frame(frames)
-            .map(|_| ())
-            .map_err(runtime_fabric_error)
-    }
-
     #[napi(ts_return_type = "Promise<Buffer[] | null>")]
     pub fn recv_raw_async(&self, timeout_ms: u32) -> AsyncTask<RecvRawTask> {
         AsyncTask::new(RecvRawTask {
@@ -265,67 +255,6 @@ impl Task for XXH3FileHashTask {
 #[napi(js_name = "xxh3String128Hex")]
 pub fn js_xxh3_string_128_hex(input: String) -> String {
     common::xxh3_128_hex(input.as_bytes())
-}
-
-/// Compresses one worker-file lane block into a self-contained zstd frame.
-///
-/// Runs on a libuv worker thread so the JS event loop is not blocked while a
-/// block is being compressed. `level` follows the zstd CLI scale (1..=22).
-#[napi(js_name = "zstdCompressBlock", ts_return_type = "Promise<Buffer>")]
-pub fn js_zstd_compress_block(data: Buffer, level: i32) -> AsyncTask<ZstdCompressTask> {
-    AsyncTask::new(ZstdCompressTask {
-        input: data.to_vec(),
-        level,
-    })
-}
-
-/// Decompresses one worker-file lane zstd frame with a hard output bound.
-///
-/// `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
-/// Runs on a libuv worker thread so the JS event loop is not blocked.
-#[napi(js_name = "zstdDecompressBlock", ts_return_type = "Promise<Buffer>")]
-pub fn js_zstd_decompress_block(data: Buffer, max_out: u32) -> AsyncTask<ZstdDecompressTask> {
-    AsyncTask::new(ZstdDecompressTask {
-        input: data.to_vec(),
-        max_out: u64::from(max_out),
-    })
-}
-
-pub struct ZstdCompressTask {
-    input: Vec<u8>,
-    level: i32,
-}
-
-impl Task for ZstdCompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        common::zstd_compress_block(&self.input, self.level).map_err(napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(Buffer::from(output))
-    }
-}
-
-pub struct ZstdDecompressTask {
-    input: Vec<u8>,
-    max_out: u64,
-}
-
-impl Task for ZstdDecompressTask {
-    type Output = Vec<u8>;
-    type JsValue = Buffer;
-
-    fn compute(&mut self) -> Result<Self::Output> {
-        let max_out = usize::try_from(self.max_out).unwrap_or(usize::MAX);
-        common::zstd_decompress_block(&self.input, max_out).map_err(napi_error)
-    }
-
-    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-        Ok(Buffer::from(output))
-    }
 }
 
 /// Computes a standard unified text diff body using the native kernel diff primitive.

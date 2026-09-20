@@ -33,6 +33,18 @@ defmodule AnkoleWeb.Endpoint do
   # accept requests from outside that ingress.
   plug Plug.RewriteOn, [:x_forwarded_proto]
 
+  # One WebSocket per Agent Computer Worker. The worker auth key arrives as
+  # the Phoenix auth token; binary frames carry protobuf envelopes and one
+  # frame is bounded so a Worker cannot grow this process without limit.
+  socket "/runtime-fabric/worker", AnkoleWeb.RuntimeFabricSocket,
+    auth_token: true,
+    websocket: [
+      max_frame_size: 16 * 1024 * 1024,
+      timeout: 60_000,
+      compress: false
+    ],
+    longpoll: false
+
   plug Plug.Static,
     at: "/",
     from: :ankole,

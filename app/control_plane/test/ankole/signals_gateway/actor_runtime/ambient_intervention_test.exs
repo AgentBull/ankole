@@ -5,8 +5,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientInterventionTest do
 
   setup do
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
     :ok
   end

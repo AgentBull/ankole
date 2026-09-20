@@ -3,11 +3,11 @@ defmodule Ankole.Kernel.RuntimeFabric do
   Elixir facade for RuntimeFabric envelope transport.
 
   Envelopes are `Ankole.RuntimeFabric.V1.Envelope` structs generated from
-  `envelope.proto` by `Ankole.Kernel.RuntimeFabric.Proto`; this facade encodes
-  them and drives the Rust-owned ZeroMQ ROUTER socket. The native kernel
-  validates protocol invariants on every send and receive, so both hosts see
-  the same semantic errors. Actor and RPC semantics live above this layer in
-  the control plane.
+  `envelope.proto` by `Ankole.Kernel.RuntimeFabric.Proto`. This facade seals
+  and validates them through the kernel, which stays the single semantic
+  checker for both hosts, and drives the Rust-owned ZeroMQ ROUTER socket that
+  the dual-stack migration keeps for Workers on the `tcp://` transport. Actor
+  and RPC semantics live above this layer in the control plane.
   """
 
   alias Ankole.Kernel
@@ -29,6 +29,31 @@ defmodule Ankole.Kernel.RuntimeFabric do
   """
   @spec decode_envelope(binary()) :: {:ok, Envelope.t()} | {:error, term()}
   def decode_envelope(bytes) when is_binary(bytes), do: Envelope.decode(bytes)
+
+  @doc """
+  Encodes and seals one envelope for the wire.
+
+  Callers build envelopes with a body and correlation only; the kernel writes
+  the header and rejects a body that breaks the protocol.
+  """
+  @spec seal_and_encode(Envelope.t()) :: {:ok, binary()} | {:error, String.t()}
+  def seal_and_encode(%Envelope{} = envelope) do
+    case Kernel.runtime_fabric_seal_envelope(encode_envelope(envelope)) do
+      {:error, reason} -> {:error, reason}
+      bytes when is_binary(bytes) -> {:ok, bytes}
+    end
+  end
+
+  @doc """
+  Validates inbound bytes with the kernel and decodes them.
+  """
+  @spec decode_and_validate(binary()) :: {:ok, Envelope.t()} | {:error, term()}
+  def decode_and_validate(bytes) when is_binary(bytes) do
+    case Kernel.runtime_fabric_validate_envelope(bytes) do
+      true -> decode_envelope(bytes)
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @doc """
   Starts a Rust-owned ZeroMQ ROUTER socket.
@@ -67,23 +92,6 @@ defmodule Ankole.Kernel.RuntimeFabric do
     envelope_bytes = encode_envelope(envelope)
 
     case Kernel.runtime_fabric_router_send_mandatory(router, transport_route, envelope_bytes) do
-      "sent_or_queued" -> {:ok, :sent_or_queued}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
-  end
-
-  @doc """
-  Sends one raw worker-file multipart frame set to a worker route.
-
-  File transfer frames are the RuntimeFabric byte lane. They intentionally do
-  not pass through the protobuf envelope codec used by actor and RPC traffic.
-  """
-  @spec router_send_file_frame(router(), String.t(), [binary()]) ::
-          {:ok, :sent_or_queued} | {:error, atom() | String.t()}
-  def router_send_file_frame(router, transport_route, frames)
-      when is_binary(transport_route) and is_list(frames) do
-    case Kernel.runtime_fabric_router_send_file_frame(router, transport_route, frames) do
       "sent_or_queued" -> {:ok, :sent_or_queued}
       {:error, reason} -> {:error, reason}
       other -> {:error, other}

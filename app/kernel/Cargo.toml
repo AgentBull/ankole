@@ -79,7 +79,6 @@ url = "2.5.8"
 uuid = { version = "1.26.0", features = ["v4", "v7", "fast-rng"] }
 zmq = "0.10.0"
 xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
-zstd = "0.13"
 
 [build-dependencies]
 napi-build = "2.4.1"

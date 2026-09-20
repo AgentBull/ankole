@@ -27,6 +27,15 @@ enum Lane {
   LANE_RPC = 4;
 }
 
+// Logical stream of one envelope on the Worker Channel. The channel event
+// name carries the same value; ZeroMQ transport ignores it.
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_CONTROL = 1;
+  STREAM_DURABLE = 2;
+  STREAM_TELEMETRY = 3;
+}
+
 enum DurabilityClass {
   DURABILITY_UNSPECIFIED = 0;
   // CONTROL_* means the control plane owns durable truth, replay, or ephemeral
@@ -48,6 +57,10 @@ message Envelope {
   // fence.
   int64 sent_at_unix_ms = 6;
   DurabilityClass durability = 7;
+  // Channel transport only: per-stream sequence, strictly increasing from 1 per
+  // connection; cumulative acknowledgements refer to it. Zero on ZeroMQ.
+  Stream stream = 4;
+  uint64 transport_seq = 8;
   oneof body {
     // Worker lifecycle messages describe homogeneous computer workers. They do
     // not negotiate per-worker features.

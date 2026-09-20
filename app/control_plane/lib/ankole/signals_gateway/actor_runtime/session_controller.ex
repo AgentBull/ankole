@@ -18,6 +18,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ActorDirectory
   alias Ankole.SignalsGateway.ActorRuntime.SessionSupervisor
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Reply
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
 
   # Processing one ready batch can drive a worker run end to end, so the
@@ -65,16 +66,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   Queues one authenticated worker turn envelope on its actor's serial process.
 
   This is asynchronous so transport remains available while a domain callback
-  uses the RPC or worker-file lane. Messages forwarded by the one inbound
-  dispatcher retain their wire order for a given actor controller.
+  uses the RPC lane. Messages forwarded by the one inbound dispatcher retain
+  their wire order for a given actor controller. The Worker receives its
+  answer through `reply_to` once the envelope is committed.
   """
-  @spec dispatch_inbound(actor_key(), String.t(), map()) :: :ok | {:error, term()}
-  def dispatch_inbound(actor_key, route, envelope)
+  @spec dispatch_inbound(actor_key(), String.t(), map(), Reply.t()) :: :ok | {:error, term()}
+  def dispatch_inbound(actor_key, route, envelope, reply_to \\ nil)
       when is_map(actor_key) and is_binary(route) and is_map(envelope) do
     actor_key = Common.normalize_actor_key(actor_key)
 
     with {:ok, _pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
-      GenServer.cast(ActorDirectory.via(actor_key), {:dispatch_inbound, route, envelope})
+      GenServer.cast(
+        ActorDirectory.via(actor_key),
+        {:dispatch_inbound, route, envelope, reply_to}
+      )
     end
   end
 
@@ -88,8 +93,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   end
 
   @impl true
-  def handle_cast({:dispatch_inbound, route, envelope}, state) do
-    ActorLane.handle(envelope, route)
+  def handle_cast({:dispatch_inbound, route, envelope, reply_to}, state) do
+    Reply.done(reply_to, ActorLane.handle(envelope, route))
     {:noreply, state, @idle_timeout}
   end
 

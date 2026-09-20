@@ -5,7 +5,6 @@ import {
   assertExistingPathWithin,
   canonicalExistingRoots
 } from '../../core/real-path-boundary'
-import { requiredTextFrame } from './codec'
 import { assertFileRootContract, isFileRoot, rootPathFor } from './roots'
 import type { FileAddress } from './types'
 import type { WorkerConfig } from '../../worker/config'
@@ -60,26 +59,19 @@ export function scratchDirectoryFor(transferID: string): string {
   return tempDir
 }
 
-export function parseVirtualPathFrame(
-  frame: Buffer | undefined,
-  label: string,
-  opts: { allowRoot?: boolean } = {}
-): FileAddress {
-  const virtualPath = requiredTextFrame(frame, label)
-  if (!virtualPath.startsWith('/')) {
-    throw new Error(`${label} must be an absolute worker virtual path`)
-  }
-
-  const [root, ...segments] = virtualPath.slice(1).split('/')
+/**
+ * Builds the validated address of one path inside a worker-visible root.
+ */
+export function fileAddress(root: string, relativePath: unknown, opts: { allowRoot?: boolean } = {}): FileAddress {
   if (!isFileRoot(root)) {
     throw new Error(`unsupported file root: ${root}`)
   }
 
-  const relativePath = normalizeRelativePath(segments.join('/'), opts)
+  const normalized = normalizeRelativePath(relativePath, opts)
   return {
     root,
-    relativePath,
-    virtualPath: relativePath ? `/${root}/${relativePath}` : `/${root}`
+    relativePath: normalized,
+    virtualPath: normalized ? `/${root}/${normalized}` : `/${root}`
   }
 }
 

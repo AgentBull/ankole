@@ -14,13 +14,21 @@ secrets:
   # Empty values are generated on install and preserved during upgrades.
   ankoleSecretBase: ""
   workerAuthKey: ""
+  # Shared by every control-plane Pod for Distributed Erlang.
+  releaseCookie: ""
   # Required when postgresql.enabled is false and existingSecret is empty.
   databaseURL: ""
   # Used only by the bundled PostgreSQL service.
   postgresqlPassword: ""
 
 controlPlane:
+  # More than one replica needs Distributed Erlang between the Pods: the chart
+  # renders the headless Service, cookie, and distribution port for every
+  # replica count and switches to RollingUpdate above one replica.
   replicaCount: 1
+  distributionPort: 9100
+  clusterDomain: cluster.local
+  terminationGracePeriodSeconds: 60
   image:
     repository: ghcr.io/agentbull/ankole-agent-control-plane
     tag: main-latest
@@ -54,12 +62,17 @@ controlPlane:
   tolerations: []
   affinity: {}
 
+# ZeroMQ stays bound while Workers that have not switched to the Worker
+# Channel still connect with `tcp://`. Remove it after every Worker switched.
 runtimeFabric:
   port: 6010
   bindEndpoint: tcp://0.0.0.0:6010
 
 worker:
   replicaCount: 1
+  # Transport of the Worker. The default is the Worker Channel. A Worker that
+  # has not switched uses `tcp://<control-plane service>:6010` (ZeroMQ).
+  runtimeFabricEndpoint: ""
   image:
     repository: ghcr.io/agentbull/ankole-agent-computer-worker
     tag: main-latest
@@ -127,6 +140,12 @@ postgresql:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# Restricts the Erlang distribution ports to control-plane Pods. HTTP stays
+# open to the ingress controller and to Workers, which need every Pod IP for
+# the file relay.
+networkPolicy:
+  enabled: false
 
 ingress:
   enabled: false

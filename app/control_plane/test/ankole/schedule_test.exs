@@ -13,7 +13,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.PluginFixtures.MockSignalProvider.Inbound, as: MockInbound
   alias Ankole.Plugins.Spec
@@ -1570,8 +1570,8 @@ defmodule Ankole.ScheduleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: source_event}} =
@@ -1989,8 +1989,8 @@ defmodule Ankole.ScheduleTest do
       %{actor_event: source_event} = maybe_finalize_test_inbound_batch(receive_result)
 
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -2147,8 +2147,8 @@ defmodule Ankole.ScheduleTest do
     test "checkback wakeup can finish silently only with explicit quiet success" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       due_at = DateTime.add(@base_time, 1, :minute)
@@ -2222,8 +2222,8 @@ defmodule Ankole.ScheduleTest do
       seed_mock_channel(agent.uid, "bot")
 
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       first_slot = DateTime.add(@base_time, 1, :minute)
@@ -2286,8 +2286,8 @@ defmodule Ankole.ScheduleTest do
       seed_mock_channel(agent.uid, "bot")
 
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       # Hold the owner conversation open with an addressed message turn.
@@ -2408,8 +2408,8 @@ defmodule Ankole.ScheduleTest do
     test "cron-origin turns cannot broadly mutate cron schedules" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       first_slot = DateTime.add(@base_time, 1, :minute)
@@ -2483,8 +2483,8 @@ defmodule Ankole.ScheduleTest do
     test "cron quiet success consumes the fire without provider outbox" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       first_slot = DateTime.add(@base_time, 1, :minute)

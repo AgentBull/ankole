@@ -321,6 +321,36 @@
     "response_type": "ankole.runtime_fabric.v1.WorkerEnvResolveResponse"
   },
   {
+    "method": "worker_files.delete",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.WorkerFileDeleteRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkerFileDeleteResponse"
+  },
+  {
+    "method": "worker_files.list",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.WorkerFileListRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkerFileListResponse"
+  },
+  {
+    "method": "worker_files.move",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.WorkerFileMoveRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkerFileMoveResponse"
+  },
+  {
+    "method": "worker_files.pull",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.WorkerFileTransferRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkerFileTransferResponse"
+  },
+  {
+    "method": "worker_files.push",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.WorkerFileTransferRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkerFileTransferResponse"
+  },
+  {
     "method": "workflow.cancel",
     "scope": "turn",
     "effect": "write",

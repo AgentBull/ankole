@@ -426,46 +426,6 @@ defmodule Ankole.KernelTest do
 
     assert worker_ready.protocol_version == 5
 
-    brain_request =
-      golden_dir
-      |> Path.join("rpc_brain_recall_request.v5.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
-
-    assert {:rpc_request,
-            %V1.RPCRequest{
-              request_id: "golden-rpc-brain-recall-1",
-              method: "brain.recall"
-            } = brain_request_frame} = brain_request.body
-
-    assert brain_request_frame.turn.actor.agent_uid == "agent-1"
-
-    assert %{"budget_tokens" => 512, "query" => "golden memory"} ==
-             brain_request_frame.payload
-             |> V1.BrainRequest.decode!()
-             |> Map.fetch!(:params_json)
-             |> Torque.decode!()
-
-    brain_response =
-      golden_dir
-      |> Path.join("rpc_brain_recall_response.v5.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
-
-    assert {:rpc_response,
-            %V1.RPCResponse{request_id: "golden-rpc-brain-recall-1"} =
-              brain_response_frame} = brain_response.body
-
-    assert %{
-             "chunks" => [
-               %{"object_slug" => "concepts/golden", "text" => "Golden memory."}
-             ]
-           } ==
-             brain_response_frame.payload
-             |> V1.JSONPassthroughResponse.decode!()
-             |> Map.fetch!(:body_json)
-             |> Torque.decode!()
-
     overlay_request =
       golden_dir
       |> Path.join("rpc_skill_overlay_resolve_request.v5.bin")

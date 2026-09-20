@@ -30,8 +30,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "dispatch starts a fenced non-conversation turn and increments attempts once" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "dispatch")
@@ -86,8 +86,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "a custom Job profile freezes its resolved model across retry admission" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
     assert {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
 
@@ -175,8 +175,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "a message cannot resume a settled job" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "settled-resume")
@@ -208,8 +208,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "Turn checkpoints accept identical retries and reject divergent equal revisions" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "turn-revision")
@@ -320,8 +320,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "Turn checkpoints persist native Codex child threads under the root job" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "child-turn")
@@ -379,8 +379,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "a waiting reply completes the same Job without a successor" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "waiting-releases-capacity")
@@ -550,8 +550,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "accepted-active-steer")
@@ -662,8 +662,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "respawn-affinity")
@@ -759,8 +759,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "durable-steer")
@@ -860,8 +860,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     stale_route = unique_route()
     live_route = unique_route()
-    :ok = Broker.register_local_worker(stale_route, self())
-    on_exit(fn -> Broker.unregister_local_worker(stale_route) end)
+    :ok = WorkerRoute.register_local_worker(stale_route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(stale_route) end)
     assert {:ok, stale_worker} = admit_worker(stale_route)
 
     job = create_job!(agent.uid, "late-worker-status")
@@ -895,8 +895,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                stale_after_seconds: 60
              )
 
-    :ok = Broker.register_local_worker(live_route, self())
-    on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+    :ok = WorkerRoute.register_local_worker(live_route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(live_route) end)
     assert {:ok, live_worker} = admit_worker(live_route)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -943,8 +943,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "a failed active steer is replayed through its owner after the recovery turn commits" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "replay-steer")
@@ -1122,8 +1122,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     assert {:ok, %{send_outcome: "sent_or_queued", replayed_steers: 2}} =
@@ -1172,8 +1172,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     first = create_job!(first_agent.uid, "subscription-first")
@@ -1245,12 +1245,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     first_route = unique_route()
     second_route = unique_route()
-    :ok = Broker.register_local_worker(first_route, self())
-    :ok = Broker.register_local_worker(second_route, self())
+    :ok = WorkerRoute.register_local_worker(first_route, self())
+    :ok = WorkerRoute.register_local_worker(second_route, self())
 
     on_exit(fn ->
-      Broker.unregister_local_worker(first_route)
-      Broker.unregister_local_worker(second_route)
+      WorkerRoute.unregister_local_worker(first_route)
+      WorkerRoute.unregister_local_worker(second_route)
     end)
 
     assert {:ok, first_worker} =
@@ -1315,8 +1315,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "same-Agent work waits for capacity when every worker is full" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
     assert {:ok, worker} = admit_worker(route, %{capacity: %{"available_turn_slots" => 1}})
 
@@ -1413,8 +1413,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "per-agent capacity is claimed atomically with worker placement" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     jobs =
@@ -1464,8 +1464,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "credential pool exhaustion keeps the Job attempt and waits for the earliest recovery" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "credential-pool-exhausted")
@@ -1536,8 +1536,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "an unavailable pool without a recovery time consumes the normal Job retry budget" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "credential-pool-terminal")
@@ -1586,8 +1586,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "an expired pool recovery time uses the normal Job retry ladder" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "credential-pool-expired-recovery")
@@ -1637,8 +1637,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "credential-pool-storm")
@@ -1705,8 +1705,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
     assert {:ok, _worker} =
              admit_worker(route, %{capacity: %{"available_turn_slots" => 9}})
@@ -1813,8 +1813,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "worker-setup-failed")
@@ -1868,8 +1868,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "turn-persistence-rejected")
@@ -1952,8 +1952,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "running-stop")

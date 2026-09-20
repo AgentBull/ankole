@@ -505,6 +505,8 @@ fn base_envelope(
         lane: lane as i32,
         sent_at_unix_ms: 1_782_300_000_000,
         durability: durability as i32,
+        stream: proto::Stream::Unspecified as i32,
+        transport_seq: 0,
         body: Some(body),
     }
 }

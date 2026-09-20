@@ -31,6 +31,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.Repo
@@ -108,26 +109,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   end
 
   @doc """
-  Returns a live worker route for filesystem operations.
+  Returns one ready worker for filesystem or Worker-owned RPC operations.
 
   Worker-file operations are not actor turns and do not consume turn capacity.
   They only need one ready worker that can reach the shared filesystem.
   """
-  @spec file_worker_route() :: {:ok, String.t()} | {:error, :no_worker_available}
-  def file_worker_route do
-    file_worker_route_in_tx(Repo)
-  end
-
-  defp file_worker_route_in_tx(repo) do
+  @spec file_worker() :: {:ok, AgentComputerWorker.t()} | {:error, :no_worker_available}
+  def file_worker do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
-    |> repo.all()
-    |> Enum.find_value(&worker_route/1)
+    |> Repo.all()
+    |> Enum.find(&(worker_route(&1) not in [nil, ""]))
     |> case do
-      route when is_binary(route) and route != "" -> {:ok, route}
-      _missing -> {:error, :no_worker_available}
+      %AgentComputerWorker{} = worker -> {:ok, worker}
+      nil -> {:error, :no_worker_available}
     end
+  end
+
+  @doc """
+  Returns the live route of one ready worker.
+  """
+  @spec file_worker_route() :: {:ok, WorkerRoute.target()} | {:error, :no_worker_available}
+  def file_worker_route do
+    with {:ok, worker} <- file_worker(), do: {:ok, worker_target(worker)}
   end
 
   @doc """
@@ -137,40 +142,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   control plane does not track which workers hold a shard for an Agent; a
   worker without one treats the operation as a no-op.
   """
-  @spec ready_worker_routes() :: [String.t()]
+  @spec ready_worker_routes() :: [WorkerRoute.target()]
   def ready_worker_routes do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
     |> Repo.all()
-    |> Enum.map(&worker_route/1)
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.filter(&(worker_route(&1) not in [nil, ""]))
+    |> Enum.map(&worker_target/1)
   end
 
   @doc """
-  Resolves the live route for one specific worker.
+  Returns the `WorkerRoute` target of one worker projection.
+  """
+  @spec worker_target(AgentComputerWorker.t()) :: WorkerRoute.target()
+  def worker_target(%AgentComputerWorker{} = worker),
+    do: %{worker_id: worker.worker_id, transport_route: worker_route(worker)}
+
+  @doc """
+  Resolves one specific ready worker.
 
   Workers mount the installation's shared RWX Agent filesystem, but this operator API
   deliberately targets one worker so mount reachability and failures remain
-  attributable to the selected runtime. Unlike `file_worker_route/0`, it never
+  attributable to the selected runtime. Unlike `file_worker/0`, it never
   falls back to another worker.
   """
-  @spec worker_file_route(String.t()) ::
-          {:ok, String.t()} | {:error, :worker_not_found | :worker_not_ready}
-  def worker_file_route(worker_id) when is_binary(worker_id) do
-    worker_file_route_in_tx(Repo, worker_id)
-  end
-
-  defp worker_file_route_in_tx(repo, worker_id) do
-    case repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+  @spec file_worker_by_id(String.t()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, :worker_not_found | :worker_not_ready}
+  def file_worker_by_id(worker_id) when is_binary(worker_id) do
+    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
       nil ->
         {:error, :worker_not_found}
 
       %AgentComputerWorker{status: @ready_worker_status} = worker ->
-        case worker_route(worker) do
-          route when is_binary(route) and route != "" -> {:ok, route}
-          _missing -> {:error, :worker_not_ready}
-        end
+        if worker_route(worker) in [nil, ""],
+          do: {:error, :worker_not_ready},
+          else: {:ok, worker}
 
       %AgentComputerWorker{} ->
         {:error, :worker_not_ready}
@@ -430,7 +437,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     |> repo.insert()
   end
 
-  defp worker_route(%AgentComputerWorker{} = worker) do
+  @doc """
+  Returns the transport route of one worker row.
+  """
+  @spec worker_route(AgentComputerWorker.t()) :: String.t() | nil
+  def worker_route(%AgentComputerWorker{} = worker) do
     worker.transport_route || worker.worker_id
   end
 

@@ -5,11 +5,6 @@ pub enum RouterEvent {
         authenticated_worker_id: Option<String>,
         envelope_bytes: Vec<u8>,
     },
-    FileFrame {
-        transport_route: String,
-        authenticated_worker_id: Option<String>,
-        frames: Vec<Vec<u8>>,
-    },
     DecodeFailed {
         transport_route: String,
         reason: String,

@@ -162,6 +162,7 @@ RuntimeFabric 位于 Docker internal network。只有 Caddy 会发布主机端�
 | `POSTGRES_PASSWORD` | 必填 | 内置 PostgreSQL 密码 |
 | `ANKOLE_SECRET_BASE` | 必填 | 应用 root secret |
 | `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | 必填 | Worker 共享认证 key |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | Worker Channel 地址 | 设为 `tcp://control-plane:6010` 可让尚未切换的 Worker 镜像继续走 ZeroMQ |
 | `ANKOLE_MAX_CONCURRENT_TURNS` | `9` | 单 Worker 最大并发 Turn |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | 控制面数据库连接池 |
 | `ANKOLE_CONTROL_PLANE_IMAGE` | `main-latest` 镜像 | 控制面镜像或 digest |

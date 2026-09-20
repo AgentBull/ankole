@@ -1,5 +1,5 @@
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import { isRuntimeFabricTransportError } from '../fabric/fabric'
+import { isRuntimeFabricTransportError, type RuntimeFabricErrorCode } from '../fabric/fabric'
 import { jsonBytes } from '../fabric/envelope_proto'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
@@ -155,9 +155,20 @@ function isRejection<M extends TerminalMethod>(response: RPCResponseOf<M> | RPCR
   return !('$typeName' in response)
 }
 
+// A lost or congested connection is transient; a protocol rejection is not.
+const retryableTransportCodes: RuntimeFabricErrorCode[] = [
+  'socket_closed',
+  'timeout',
+  'flow_control',
+  'native_error',
+  'unknown_route',
+  'backpressure',
+  'zmq'
+]
+
 function retryableCompletionError(error: unknown): boolean {
   if (error instanceof RPCTimeoutError) return true
   if (!isRuntimeFabricTransportError(error)) return false
 
-  return ['unknown_route', 'backpressure', 'timeout', 'zmq', 'native_error'].includes(error.code)
+  return retryableTransportCodes.includes(error.code)
 }
