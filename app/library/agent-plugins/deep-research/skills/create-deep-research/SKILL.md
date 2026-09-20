@@ -1,6 +1,6 @@
 ---
 name: create-deep-research
-description: "Create a Deep Research BackgroundAgentJob for a topic that needs broad evidence or data gathering, comparison of many sources, or a forecast of what may happen. Use this Skill when the request states or implies that the human wants this research and will wait for it. Answer directly when the topic resolves quickly without broad research or forecasting; when unsure on either point, ask first."
+description: "Create a Deep Research BackgroundAgentJob for substantial evidence-based investigation of the external world: what is true, how it may develop, or whether a claim or forecast holds. This includes asset prices, demand, competition, and risk even when the reader will act on the result. Use research-for-planning only for researching constraints and options to design a controllable operating, product, market-entry, or launch plan."
 default_enabled: true
 ankole-runtime: main
 category: research

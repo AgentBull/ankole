@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 1.6.2-rc.1 (2026-09-21)
+
+- Research into market, competitor, channel, cost, compliance, and resource
+  constraints for a controllable operating or market-entry choice now has a
+  focused `research-for-planning` Skill. Its routing entry separates that
+  work from external-world research and forecasts, while mixed requests can
+  split the subquestions and return to the requested action. Asset-price and
+  buy/hold judgments remain with Deep Research.
+
 ## Version 1.6.1-rc.1 (2026-09-20)
 
 - Brain `remember` now treats an empty or blank `until_date` as no date for every claim kind. A model that fills every declared property sent `""` for fact kinds and was refused with `until_date_only_for_takes`; the declared `until_date` schema now also requires a full ISO date.
