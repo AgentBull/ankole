@@ -14,7 +14,6 @@ mod search;
 mod token;
 mod transliteration;
 mod web_url;
-mod zstd_block;
 
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
 pub use diff::unified_text_diff;
@@ -29,7 +28,6 @@ pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::estimate_o200k_base_tokens;
 pub use transliteration::any_ascii;
 pub use web_url::{HostClass, WebURLFacts, web_url_facts};
-pub use zstd_block::{zstd_compress_block, zstd_decompress_block};
 
 #[cfg(test)]
 mod tests {

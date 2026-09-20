@@ -19,7 +19,8 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.E2E.FakeOpenAIPlug
   alias Ankole.E2E.WaitHelpers
@@ -164,11 +165,18 @@ defmodule Ankole.E2E.Harness do
     %{registry: registry, supervisor: supervisor}
   end
 
-  def start_ai_gateway_test_http_server! do
+  @control_plane_server_id :e2e_control_plane_http_server
+
+  def start_ai_gateway_test_http_server!(port \\ 0) do
     server =
       start_supervised!(
         {Bandit,
-         plug: AnkoleWeb.Endpoint, scheme: :http, ip: {0, 0, 0, 0}, port: 0, startup_log: false}
+         plug: AnkoleWeb.Endpoint,
+         scheme: :http,
+         ip: {0, 0, 0, 0},
+         port: port,
+         startup_log: false},
+        id: @control_plane_server_id
       )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
@@ -178,6 +186,16 @@ defmodule Ankole.E2E.Harness do
 
     Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
       base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
+    )
+
+    # The Docker worker pulls and pushes relay files at this same host-bound
+    # server, not at the endpoint's configured loopback port.
+    old_origin = Application.fetch_env(:ankole, :runtime_fabric_internal_origin)
+
+    Application.put_env(
+      :ankole,
+      :runtime_fabric_internal_origin,
+      "http://host.docker.internal:#{port}"
     )
 
     on_exit(fn ->
@@ -195,13 +213,14 @@ defmodule Ankole.E2E.Harness do
             Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
           )
       end
-    end)
-  end
 
-  def safe_stop_router do
-    Broker.stop_router()
-  catch
-    :exit, _reason -> :ok
+      case old_origin do
+        {:ok, value} -> Application.put_env(:ankole, :runtime_fabric_internal_origin, value)
+        :error -> Application.delete_env(:ankole, :runtime_fabric_internal_origin)
+      end
+    end)
+
+    port
   end
 
   # -- suite stack --------------------------------------------------------------
@@ -209,10 +228,9 @@ defmodule Ankole.E2E.Harness do
   @doc """
   Starts the full worker e2e stack one suite test needs:
 
-  fake OpenAI upstream + fake Feishu platform + agent domain + RuntimeFabric
-  router + AIGateway HTTP
-  server + one real Docker worker, then waits for WS connections and worker
-  admission. Returns the ctx map the scenario functions consume.
+  fake OpenAI upstream + fake Feishu platform + agent domain + control-plane
+  HTTP server (Worker Channel and AIGateway) + one real Docker worker, then
+  waits for WS connections and worker admission. Returns the ctx map the scenario functions consume.
 
   Options: `secondary: true` adds the second agent/app, `multi_agent: true`
   adds the multi-agent-room bindings, `real_llm_api_key:` switches the domain
@@ -269,22 +287,15 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Starts the RuntimeFabric router, an AIGateway HTTP server that the Worker can
-  reach, and one admitted Docker worker. Returns
-  `%{container:, worker_id:, endpoint:, worker_auth_key:}`.
+  Starts the control-plane HTTP server that the Worker can reach (Worker
+  Channel and AIGateway) and one admitted Docker worker. Returns
+  `%{container:, worker_id:, endpoint:, worker_auth_key:, server_port:}`.
   """
   def start_worker!(prefix) do
     worker_id = "#{prefix}-worker-#{System.unique_integer([:positive])}"
-    worker_auth_key = unique_worker_auth_key()
-
-    {:ok, endpoint} =
-      Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth_key: worker_auth_key,
-        poll_interval_ms: 1
-      )
-
-    on_exit(fn -> safe_stop_router() end)
-    start_ai_gateway_test_http_server!()
+    worker_auth_key = WorkerAuthKey.ensure!()
+    port = start_ai_gateway_test_http_server!()
+    endpoint = worker_endpoint(port)
 
     container = start_additional_worker!(endpoint, worker_id, worker_auth_key)
 
@@ -292,20 +303,67 @@ defmodule Ankole.E2E.Harness do
       container: container,
       worker_id: worker_id,
       endpoint: endpoint,
-      worker_auth_key: worker_auth_key
+      worker_auth_key: worker_auth_key,
+      server_port: port
     }
   end
 
+  @doc "Worker Channel URL for a Docker worker against a host-bound control-plane port."
+  def worker_endpoint(port) when is_integer(port) do
+    "ws://host.docker.internal:#{port}/runtime-fabric/worker"
+  end
+
   @doc """
-  Starts one more Docker worker against an already-running router and waits for
-  its admission projection.
+  Binds the ZeroMQ ROUTER on a free host port for Workers that still use
+  `tcp://` and returns the container-side endpoint. Stopped on exit.
   """
-  def start_additional_worker!(endpoint, worker_id, worker_auth_key) do
+  def start_zmq_router!(port \\ 0) do
+    {:ok, endpoint} =
+      WorkerRoute.start_router("tcp://0.0.0.0:#{port}",
+        worker_auth_key: WorkerAuthKey.ensure!(),
+        poll_interval_ms: 1
+      )
+
+    on_exit(fn -> safe_stop_router() end)
+    Ankole.E2E.DockerWorker.docker_host_endpoint(endpoint)
+  end
+
+  @doc "Stops the ZeroMQ ROUTER if the route exit is still alive."
+  def safe_stop_router do
+    WorkerRoute.stop_router()
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc """
+  Restarts the ZeroMQ ROUTER on the same host port; the old socket must
+  release the port first.
+  """
+  def restart_zmq_router_on_port!(router_port) do
+    endpoint = "tcp://0.0.0.0:#{router_port}"
+
+    assert {:ok, _endpoint} =
+             WaitHelpers.wait_until(WaitHelpers.deadline(5_000), fn ->
+               case WorkerRoute.start_router(endpoint,
+                      worker_auth_key: WorkerAuthKey.ensure!(),
+                      poll_interval_ms: 1
+                    ) do
+                 {:ok, endpoint} -> {:ok, endpoint}
+                 {:error, _reason} -> nil
+               end
+             end),
+           "router did not release and restart on #{endpoint}"
+  end
+
+  @doc """
+  Starts one more Docker worker against the running control-plane server and
+  waits for its admission projection.
+  """
+  def start_additional_worker!(endpoint, worker_id, worker_auth_key, docker_opts \\ []) do
     container =
       Ankole.E2E.DockerWorker.start_docker_worker!(
-        endpoint: Ankole.E2E.DockerWorker.docker_host_endpoint(endpoint),
-        worker_id: worker_id,
-        worker_auth_key: worker_auth_key
+        [endpoint: endpoint, worker_id: worker_id, worker_auth_key: worker_auth_key] ++
+          docker_opts
       )
 
     on_exit(fn -> Ankole.E2E.DockerWorker.cleanup_docker_worker(container) end)
@@ -1136,7 +1194,15 @@ defmodule Ankole.E2E.Harness do
       flunk("OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY is required for real Lark LLM e2e")
   end
 
-  def unique_worker_auth_key, do: "lark-e2e-" <> Ecto.UUID.generate()
+  @doc """
+  Stops the control-plane HTTP server and starts it again on the same port, so
+  every Worker connection drops and the Worker must reconnect.
+  """
+  def restart_control_plane_http_server!(port) when is_integer(port) do
+    :ok = stop_supervised!(@control_plane_server_id)
+    ^port = start_ai_gateway_test_http_server!(port)
+    :ok
+  end
 
   @doc "Sets a test-scoped Slack transport without storing its endpoint in binding config."
   def put_slack_test_client_opts!(client_opts) do

@@ -13,8 +13,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -40,8 +40,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -93,8 +93,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -217,8 +217,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -280,8 +280,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -359,8 +359,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -414,8 +414,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -469,8 +469,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -568,8 +568,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 
@@ -641,8 +641,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} = admit_worker(route)
 

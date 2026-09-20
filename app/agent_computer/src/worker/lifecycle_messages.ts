@@ -104,19 +104,19 @@ export function workerCapacityEnvelope(
 }
 
 /**
- * Treats heartbeat as replaceable lease evidence. Backpressure drops one
- * heartbeat; any other transport error remains fatal. Capacity,
- * acknowledgements, and RPC replies still fail normally.
+ * Treats heartbeat as replaceable lease evidence. A heartbeat that the control
+ * plane does not answer, or that finds the connection closed, is dropped; the
+ * next one renews the lease. Any other transport error remains fatal.
  */
 export async function sendWorkerHeartbeat(sendEnvelope: EnvelopeSender, heartbeat: Envelope): Promise<void> {
   try {
     await sendEnvelope(heartbeat)
   } catch (error) {
-    if (!isRuntimeFabricTransportError(error, 'backpressure')) {
+    if (!isRuntimeFabricTransportError(error, 'socket_closed') && !isRuntimeFabricTransportError(error, 'timeout')) {
       throw error
     }
 
-    workerLogger.warning('worker.heartbeat_skipped', 'worker heartbeat skipped', { reason: 'backpressure' })
+    workerLogger.warning('worker.heartbeat_skipped', 'worker heartbeat skipped', { reason: error.code })
   }
 }
 

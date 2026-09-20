@@ -54,6 +54,10 @@ Component names.
 {{- printf "%s-control-plane" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "ankole-agent.controlPlaneHeadlessName" -}}
+{{- printf "%s-control-plane-headless" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "ankole-agent.workerName" -}}
 {{- printf "%s-worker" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -99,6 +103,10 @@ Bootstrap Secret and generated values.
 
 {{- define "ankole-agent.workerAuthKey" -}}
 {{- include "ankole-agent.preservedSecretValue" (dict "root" . "key" "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" "explicit" .Values.secrets.workerAuthKey "length" 48) -}}
+{{- end -}}
+
+{{- define "ankole-agent.releaseCookie" -}}
+{{- include "ankole-agent.preservedSecretValue" (dict "root" . "key" "RELEASE_COOKIE" "explicit" .Values.secrets.releaseCookie "length" 64) -}}
 {{- end -}}
 
 {{- define "ankole-agent.postgresqlPassword" -}}

@@ -1,6 +1,14 @@
 import { runAutomationJob } from '../automation-jobs/run'
 import { agentHomePaths } from '../core/agent-home-paths'
 import { deleteCodexLogs2AtDailyReset } from '../core/codex-runner/runtime/fix-codex-logs2-sqlite-bug'
+import {
+  createFileLaneState,
+  handleWorkerFileDelete,
+  handleWorkerFileList,
+  handleWorkerFileMove,
+  handleWorkerFilePull,
+  handleWorkerFilePush
+} from '../lanes/file'
 import { type RuntimeRPCClient, type WorkerRPCHandlers } from '../lanes/rpc_lane'
 import { jsonBytes } from '../fabric/envelope_proto'
 import type { BrowserRuntime } from '../browser-runtime'
@@ -14,7 +22,14 @@ export function createWorkerRPCHandlers(
   rpcClient: RuntimeRPCClient,
   browserRuntime: BrowserRuntime
 ): WorkerRPCHandlers {
+  const fileLane = createFileLaneState()
+
   return {
+    pullWorkerFile: request => handleWorkerFilePull(config, fileLane, request),
+    pushWorkerFile: request => handleWorkerFilePush(config, fileLane, request),
+    listWorkerFiles: async request => handleWorkerFileList(config, request),
+    moveWorkerFile: request => handleWorkerFileMove(config, fileLane, request),
+    deleteWorkerFile: request => handleWorkerFileDelete(config, fileLane, request),
     runAutomationJob: request =>
       runAutomationJob(request, {
         config,

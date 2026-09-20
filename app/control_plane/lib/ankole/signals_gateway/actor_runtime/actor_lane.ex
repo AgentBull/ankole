@@ -34,7 +34,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
 
   def actor_key(_envelope), do: {:error, :missing_turn_ref}
 
-  @spec handle(FabricProto.Envelope.t(), String.t()) :: :ok
+  @spec handle(FabricProto.Envelope.t(), String.t()) :: {:ok, term()} | {:error, term()}
   def handle(%FabricProto.Envelope{body: {type, payload}}, route)
       when type in @turn_types and is_binary(route) do
     payload
@@ -58,9 +58,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
 
   defp dispatch({:error, _reason} = error, _type), do: error
 
-  defp log_result({:ok, _result}, _type, _route), do: :ok
+  defp log_result({:ok, _result} = result, _type, _route), do: result
 
-  defp log_result({:error, reason}, type, route) do
+  defp log_result({:error, reason} = error, type, route) do
     Logging.warning(
       "runtime_fabric.actor_lane_handling_failed",
       "runtime fabric actor lane handling failed",
@@ -71,6 +71,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
       }
     )
 
-    :ok
+    error
   end
 end

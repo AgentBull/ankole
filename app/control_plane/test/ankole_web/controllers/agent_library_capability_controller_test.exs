@@ -12,7 +12,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
 
   setup do
     allow_cache_database_access()
@@ -215,8 +215,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   test "a Skill disable sends one scoped control to each active Job turn", %{conn: conn} do
     %{principal: agent} = background_agent_fixture()
     route = "agent-library-skill-disable-#{System.unique_integer([:positive])}"
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
     assert {:ok, %{job: job, dispatch_event: event}} = create_job(agent.uid, "skill-disable", nil)
 

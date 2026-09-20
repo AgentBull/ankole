@@ -51,8 +51,8 @@ You do not need to learn every runtime before starting. The repository-level Bun
 | Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://localhost:4000` |
 | Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
 | Agent Computer | Runs model turns, tools, skills, and worker-local state | `app/agent_computer` | Docker container `ankole-dev-agent-computer` |
-| Kernel | Provides shared native primitives and RuntimeFabric transport | `app/kernel` | Loaded by Elixir and Bun |
-| RuntimeFabric | Carries live control-plane-to-worker traffic | Control Plane and Kernel | `localhost:6010` |
+| Kernel | Provides shared native primitives and RuntimeFabric envelope validation | `app/kernel` | Loaded by Elixir and Bun |
+| RuntimeFabric | Carries live control-plane-to-worker traffic over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
 
 ### Elixir in five minutes
 
@@ -425,7 +425,6 @@ A failed migration or an unfamiliar Ecto error is not automatic permission to re
 curl -I http://localhost:4000/
 lsof -nP -iTCP:4000 -sTCP:LISTEN
 lsof -nP -iTCP:3035 -sTCP:LISTEN
-lsof -nP -iTCP:6010 -sTCP:LISTEN
 ```
 
 Resolve the first process conflict or compile failure. Do not change the documented ports without also updating every dependent callback and worker endpoint.

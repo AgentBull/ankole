@@ -13,11 +13,18 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs'
-import { runtimeFabricSealEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import { runtimeFabricSealEnvelope } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createFileTransferLane } from '../src/lanes/file'
-import { runtimeFabricFileProtocol } from '../src/fabric/fabric'
+import {
+  createFileLaneState,
+  FileTransferError,
+  handleWorkerFileDelete,
+  handleWorkerFileList,
+  handleWorkerFileMove,
+  handleWorkerFilePull,
+  handleWorkerFilePush
+} from '../src/lanes/file'
 import {
   ActorEventEnvelopeSchema,
   createEnvelope,
@@ -46,7 +53,10 @@ import type { TurnStart } from '../src/lanes/actor_lane'
 import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active_turns'
 import { WorkerDrainState } from '../src/worker/drain'
 import type { BrowserRuntime } from '../src/browser-runtime'
-import { ActorTurnAbortResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import {
+  ActorTurnAbortResponseSchema,
+  WorkerFileTransferRequestSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { turnFailureDetails } from '../src/worker/turn_failure'
 import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
 import { RPCRejectedError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
@@ -107,11 +117,25 @@ describe('@ankole/agent-computer runtime', () => {
     })
   }
 
-  it('parses a credential-free RuntimeFabric endpoint', () => {
-    expect(parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toBe('tcp://127.0.0.1:6010')
-    expect(() => parseRuntimeFabricEndpoint('tcp://:secret@127.0.0.1:6010')).toThrow(/credentials/)
-    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1')).toThrow(/host:port/)
-    expect(() => parseRuntimeFabricEndpoint('http://127.0.0.1:6010')).toThrow(/tcp/)
+  it('parses a credential-free RuntimeFabric endpoint and selects the transport', () => {
+    expect(parseRuntimeFabricEndpoint('ws://127.0.0.1:4000/runtime-fabric/worker/')).toEqual({
+      transport: 'channel',
+      endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker'
+    })
+    expect(parseRuntimeFabricEndpoint('wss://ankole.example.com/runtime-fabric/worker')).toEqual({
+      transport: 'channel',
+      endpoint: 'wss://ankole.example.com/runtime-fabric/worker'
+    })
+    expect(parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toEqual({
+      transport: 'zmq',
+      endpoint: 'tcp://127.0.0.1:6010'
+    })
+    expect(() => parseRuntimeFabricEndpoint('ws://:secret@127.0.0.1:4000/runtime-fabric/worker')).toThrow(/credentials/)
+    expect(() => parseRuntimeFabricEndpoint('ws://127.0.0.1:4000')).toThrow(/path/)
+    expect(() => parseRuntimeFabricEndpoint('ws://127.0.0.1:4000/runtime-fabric/worker?token=x')).toThrow(/path/)
+    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010/path')).toThrow(/tcp:\/\/host:port/)
+    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1')).toThrow(/tcp:\/\/host:port/)
+    expect(() => parseRuntimeFabricEndpoint('http://127.0.0.1:4000/x')).toThrow(/tcp:\/\/host:port, ws/)
   })
 
   it('emits worker.ready without actor authority fields', () => {
@@ -517,472 +541,252 @@ describe('@ankole/agent-computer runtime', () => {
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
   })
 
-  it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-'))
+  it('pulls a relay upload into a worker root through an atomic rename', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-pull-'))
     const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const sender = {
-      async sendFileFrame(frames: Buffer[]) {
-        sentFrames.push(frames)
-      }
-    }
+    const state = createFileLaneState()
+    const plainText = 'hello relay world'
+    const relay = relayStub({ body: plainText })
 
     try {
       const paths = agentHomePaths(config.agentsRoot, 'agent-1')
       mkdirSync(paths.userFiles, { recursive: true })
-      mkdirSync(paths.installedSkills, { recursive: true })
-      mkdirSync(paths.sessions, { recursive: true })
-      mkdirSync(config.builtinSkillsRoot, { recursive: true })
 
-      const lane = createFileTransferLane(config, sender.sendFileFrame)
-      const plainText = 'hello zstd world'
-      const sourcePath = join(root, 'source.txt')
-      writeFileSync(sourcePath, plainText)
-      const compressed = await zstdCompressBlock(Buffer.from(plainText), 3)
-
-      const transferID = 'transfer-1'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('WRITE_OPEN'),
-        Buffer.from(transferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
-        u64Frame(Buffer.byteLength(plainText))
-      ])
-      expect(frameFor(sentFrames, transferID, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('DATA'),
-        Buffer.from(transferID),
-        u64Frame(0),
-        u64Frame(0),
-        boolFrame(true),
-        compressed
-      ])
-      expect(frameFor(sentFrames, transferID, 'CREDIT')[3]).toEqual(u64Frame(compressed.byteLength))
-
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferID)])
+      const result = await handleWorkerFilePull(config, state, {
+        ...transferRequest(relay, 'transfer-1', 'user_files', 'agent-1/user-files/inbox/lark/message-1/hello.txt'),
+        maxBytes: 1024n
+      })
 
       expect(readFileSync(join(paths.userFiles, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
-      const committed = frameFor(sentFrames, transferID, 'WRITE_COMMITTED')
-      expect(committed[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt')
-      expect(readU64Frame(committed[4])).toBe(Buffer.byteLength(plainText))
-      expect(committed[5]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
+      expect(result).toMatchObject({
+        root: 'user_files',
+        relativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
+        size: BigInt(Buffer.byteLength(plainText))
+      })
+      expect(result.xxh3128).toMatch(/^[a-f0-9]{32}$/)
+      expect(relay.requests).toEqual([{ method: 'GET', path: '/relay/transfer-1' }])
+      expect(existsSync('/tmp/ankole-file-transfer/transfer-1')).toBe(false)
 
-      const documentTransferID = 'transfer-document'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('WRITE_OPEN'),
-        Buffer.from(documentTransferID),
-        Buffer.from('/agent_home_documents/agent-1/SOUL.md'),
-        u64Frame(Buffer.byteLength(plainText))
-      ])
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('DATA'),
-        Buffer.from(documentTransferID),
-        u64Frame(0),
-        u64Frame(0),
-        boolFrame(true),
-        compressed
-      ])
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(documentTransferID)])
+      const document = await handleWorkerFilePull(config, state, {
+        ...transferRequest(relay, 'transfer-document', 'agent_home_documents', 'agent-1/SOUL.md'),
+        maxBytes: 1024n
+      })
+      expect(document.size).toBe(BigInt(Buffer.byteLength(plainText)))
       expect(readFileSync(paths.soul, 'utf8')).toBe(plainText)
       expect(statSync(paths.soul).mode & 0o222).toBe(0)
-
-      const getTransferID = 'transfer-2'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(getTransferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
-        Buffer.from('xxh3_128')
-      ])
-      const readReady = frameFor(sentFrames, getTransferID, 'READ_READY')
-      expect(readReady[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt')
-      expect(readU64Frame(readReady[4])).toBe(Buffer.byteLength(plainText))
-      await Bun.sleep(25)
-      expect(dataChunks(sentFrames, getTransferID)).toHaveLength(0)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('CREDIT'),
-        Buffer.from(getTransferID),
-        u64Frame(creditWindow)
-      ])
-
-      const readDone = await waitForFrame(sentFrames, getTransferID, 'READ_DONE')
-      const getChunks = dataChunks(sentFrames, getTransferID)
-      const decompressed = Buffer.concat(
-        await Promise.all(getChunks.map(chunk => zstdDecompressBlock(chunk, 2 * 1024 * 1024)))
-      )
-      expect(decompressed.toString('utf8')).toBe(plainText)
-      expect(readU64Frame(readDone[3])).toBe(getChunks.length)
-      expect(readU64Frame(readDone[4])).toBe(Buffer.concat(getChunks).byteLength)
-
-      const missingTransferID = 'transfer-read-missing'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(missingTransferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/missing.txt'),
-        Buffer.from('none')
-      ])
-      expect(frameFor(sentFrames, missingTransferID, 'ERROR')[3]?.toString('utf8')).toBe('file_not_found')
-
-      const directoryTransferID = 'transfer-read-directory'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(directoryTransferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1'),
-        Buffer.from('none')
-      ])
-      expect(frameFor(sentFrames, directoryTransferID, 'ERROR')[3]?.toString('utf8')).toBe('not_regular_file')
-
-      const abortTransferID = 'transfer-read-abort'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(abortTransferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
-        Buffer.from('none')
-      ])
-      expect(frameFor(sentFrames, abortTransferID, 'READ_READY')[3]?.toString('utf8')).toBe(
-        '/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'
-      )
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferID)])
-      await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferID), u64Frame(1)])
-      expect(frameFor(sentFrames, abortTransferID, 'ERROR')[3]?.toString('utf8')).toBe('operation_failed')
-
-      const replacedPath = join(paths.userFiles, 'inbox/lark/message-1/replaced.txt')
-      const replacementPath = join(paths.userFiles, 'inbox/lark/message-1/replacement.txt')
-      writeFileSync(replacedPath, 'original bytes')
-
-      const replacedTransferID = 'transfer-read-replaced'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(replacedTransferID),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/replaced.txt'),
-        Buffer.from('none')
-      ])
-      expect(frameFor(sentFrames, replacedTransferID, 'READ_READY')[3]?.toString('utf8')).toBe(
-        '/user_files/agent-1/user-files/inbox/lark/message-1/replaced.txt'
-      )
-
-      writeFileSync(replacementPath, 'replacement bytes have a different size')
-      renameSync(replacementPath, replacedPath)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('CREDIT'),
-        Buffer.from(replacedTransferID),
-        u64Frame(creditWindow)
-      ])
-
-      const replacedError = await waitForFrame(sentFrames, replacedTransferID, 'ERROR')
-      expect(replacedError[3]?.toString('utf8')).toBe('file_changed')
-      expect(replacedError[4]?.toString('utf8')).toContain('file changed during read')
-      expect(
-        sentFrames.some(
-          frames => frames[1]?.toString('utf8') === 'READ_DONE' && frames[2]?.toString('utf8') === replacedTransferID
-        )
-      ).toBe(false)
-      expect(JSON.stringify(sentFrames)).not.toContain('object_key')
-      expect(JSON.stringify(sentFrames)).not.toContain('sha256')
     } finally {
+      relay.stop()
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('ends a read when the source is truncated after READ_READY', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-truncated-'))
+  it('rejects an oversize or failed relay pull without leaving a partial file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-pull-bounds-'))
     const config = workerConfigForRoot(root)
-    const sent: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sent.push(frames)
-    })
+    const state = createFileLaneState()
+    const relay = relayStub({ body: 'x'.repeat(64), status: 200 })
+
     try {
       const paths = agentHomePaths(config.agentsRoot, 'agent-1')
       mkdirSync(paths.userFiles, { recursive: true })
-      const path = join(paths.userFiles, 'truncated.txt')
-      writeFileSync(path, 'original bytes')
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from('truncated'),
-        Buffer.from('/user_files/agent-1/user-files/truncated.txt'),
-        Buffer.from('none')
-      ])
-      writeFileSync(path, 'short')
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('CREDIT'),
-        Buffer.from('truncated'),
-        u64Frame(creditWindow)
-      ])
-      const error = await waitForFrame(sent, 'truncated', 'ERROR')
-      expect(error[3]?.toString()).toBe('file_changed')
-      expect(sent.filter(frames => frames[1]?.toString() === 'ERROR')).toHaveLength(1)
-      expect(sent.some(frames => frames[1]?.toString() === 'READ_DONE')).toBe(false)
+      const request = transferRequest(relay, 'transfer-big', 'user_files', 'agent-1/user-files/big.txt')
+
+      const oversize = await handleWorkerFilePull(config, state, { ...request, maxBytes: 16n }).catch(caught => caught)
+      expect(oversize).toBeInstanceOf(FileTransferError)
+      expect(oversize.code).toBe('file_too_large')
+      expect(existsSync(join(paths.userFiles, 'big.txt'))).toBe(false)
+      expect(existsSync('/tmp/ankole-file-transfer/transfer-big')).toBe(false)
+
+      relay.status = 410
+      const failed = await handleWorkerFilePull(config, state, { ...request, maxBytes: 1024n }).catch(caught => caught)
+      expect(failed.code).toBe('relay_failed')
+      expect(failed.message).not.toContain('token')
+      expect(existsSync(join(paths.userFiles, 'big.txt'))).toBe(false)
+
+      const badTransfer = await handleWorkerFilePull(config, state, {
+        ...request,
+        transferId: '../bad-transfer',
+        maxBytes: 1024n
+      }).catch(caught => caught)
+      expect(badTransfer.message).toMatch(/invalid transfer_id/)
     } finally {
+      relay.stop()
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('refuses a read whose path became another file with the same size and mtime', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-identity-'))
+  it('pushes a worker file to the relay and reports file identity errors', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-push-'))
     const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const sender = {
-      async sendFileFrame(frames: Buffer[]) {
-        sentFrames.push(frames)
-      }
-    }
+    const state = createFileLaneState()
+    const relay = relayStub({})
 
     try {
       const paths = agentHomePaths(config.agentsRoot, 'agent-1')
-      mkdirSync(paths.userFiles, { recursive: true })
-      const lane = createFileTransferLane(config, sender.sendFileFrame)
+      mkdirSync(join(paths.userFiles, 'inbox'), { recursive: true })
+      writeFileSync(join(paths.userFiles, 'inbox/hello.txt'), 'hello world')
 
-      const swappedPath = join(paths.userFiles, 'swapped.txt')
-      const replacementPath = join(paths.userFiles, 'replacement.txt')
+      const result = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-1', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+        maxBytes: 1024n
+      })
+      expect(result).toMatchObject({
+        root: 'user_files',
+        relativePath: 'agent-1/user-files/inbox/hello.txt',
+        size: 11n
+      })
+      expect(result.xxh3128).toMatch(/^[a-f0-9]{32}$/)
+      expect(relay.requests).toEqual([{ method: 'PUT', path: '/relay/push-1' }])
+      expect(relay.received.get('/relay/push-1')?.toString('utf8')).toBe('hello world')
+      expect(relay.receivedHeaders.get('/relay/push-1')?.get('content-length')).toBe('11')
+
+      const tooLarge = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-large', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+        maxBytes: 4n
+      }).catch(caught => caught)
+      expect(tooLarge.code).toBe('file_too_large')
+      expect(relay.requests).toHaveLength(1)
+
+      const missing = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-missing', 'user_files', 'agent-1/user-files/inbox/missing.txt'),
+        maxBytes: 1024n
+      }).catch(caught => caught)
+      expect(missing.code).toBe('file_not_found')
+
+      const directory = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-directory', 'user_files', 'agent-1/user-files/inbox'),
+        maxBytes: 1024n
+      }).catch(caught => caught)
+      expect(directory.code).toBe('not_regular_file')
+
+      relay.status = 500
+      const rejected = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-rejected', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+        maxBytes: 1024n
+      }).catch(caught => caught)
+      expect(rejected.code).toBe('relay_failed')
+      relay.status = 200
+
+      // The relay stub swaps the file while the PUT is in flight. The
+      // replacement keeps the size and mtime, so only the inode check can
+      // tell the control plane that the bytes it holds belong to another file.
+      const swappedPath = join(paths.userFiles, 'inbox/swapped.txt')
+      const replacementPath = join(paths.userFiles, 'inbox/replacement.txt')
       const sharedMtime = new Date(1_700_000_000_000)
       writeFileSync(swappedPath, 'original bytes')
       utimesSync(swappedPath, sharedMtime, sharedMtime)
-
-      const transferID = 'transfer-read-swapped'
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('READ_OPEN'),
-        Buffer.from(transferID),
-        Buffer.from('/user_files/agent-1/user-files/swapped.txt'),
-        Buffer.from('none')
-      ])
-      expect(frameFor(sentFrames, transferID, 'READ_READY')[3]?.toString('utf8')).toBe(
-        '/user_files/agent-1/user-files/swapped.txt'
-      )
-
-      // The replacement matches every observable property the old check
-      // compared, so only the file's identity distinguishes it. Sending the
-      // open descriptor's bytes and reporting success would hand the control
-      // plane one file's content under another file's name.
-      writeFileSync(replacementPath, 'replaced bytes')
-      utimesSync(replacementPath, sharedMtime, sharedMtime)
-      renameSync(replacementPath, swappedPath)
-      const swapped = statSync(swappedPath)
-      expect(swapped.size).toBe('original bytes'.length)
-      expect(swapped.mtimeMs).toBe(sharedMtime.getTime())
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('CREDIT'),
-        Buffer.from(transferID),
-        u64Frame(creditWindow)
-      ])
-
-      const error = await waitForFrame(sentFrames, transferID, 'ERROR')
-      expect(error[3]?.toString('utf8')).toBe('file_changed')
-      expect(
-        sentFrames.some(
-          frames => frames[1]?.toString('utf8') === 'READ_DONE' && frames[2]?.toString('utf8') === transferID
-        )
-      ).toBe(false)
+      relay.onRequest = () => {
+        writeFileSync(replacementPath, 'replaced bytes')
+        utimesSync(replacementPath, sharedMtime, sharedMtime)
+        renameSync(replacementPath, swappedPath)
+      }
+      const swapped = await handleWorkerFilePush(config, state, {
+        ...transferRequest(relay, 'push-swapped', 'user_files', 'agent-1/user-files/inbox/swapped.txt'),
+        maxBytes: 1024n
+      }).catch(caught => caught)
+      expect(swapped.code).toBe('file_changed')
     } finally {
+      relay.stop()
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('handles file lane LIST, MOVE, DELETE, and XXH3 STAT observations', async () => {
+  it('lists, moves, and deletes worker files through typed requests', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-ops-'))
     const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const sender = {
-      async sendFileFrame(frames: Buffer[]) {
-        sentFrames.push(frames)
-      }
-    }
+    const state = createFileLaneState()
 
     try {
       const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
-      mkdirSync(join(userFilesRoot, 'inbox/lark/message-1'), {
-        recursive: true
-      })
+      mkdirSync(join(userFilesRoot, 'inbox/lark/message-1'), { recursive: true })
       writeFileSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'hello world')
 
-      const lane = createFileTransferLane(config, sender.sendFileFrame)
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('LIST'),
-        Buffer.from('list-1'),
-        Buffer.from('/user_files/agent-1/user-files/inbox'),
-        boolFrame(true),
-        u64Frame(1000)
-      ])
-      const listFrame = frameFor(sentFrames, 'list-1', 'LIST_OK')
-      const entries = decodeEntries(listFrame[6]!)
-      expect(entries).toContainEqual(
+      const listing = handleWorkerFileList(config, {
+        root: 'user_files',
+        relativePath: 'agent-1/user-files/inbox',
+        recursive: true,
+        maxEntries: 1000n
+      } as never)
+      expect(listing.relativePath).toBe('agent-1/user-files/inbox')
+      expect(listing.entries).toContainEqual(
         expect.objectContaining({
-          relative_path: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
+          relativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
           kind: 'file',
-          size: 11
+          size: 11n
         })
       )
 
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('stat-1'),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
-        Buffer.from('xxh3_128')
-      ])
-      expect(frameFor(sentFrames, 'stat-1', 'STAT_OK')[7]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
+      const rootListing = handleWorkerFileList(config, {
+        root: 'user_files',
+        relativePath: 'agent-1/user-files',
+        recursive: false,
+        maxEntries: 1n
+      } as never)
+      expect(rootListing.truncated).toBe(false)
+      expect(rootListing.entries).toHaveLength(1)
 
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('MOVE'),
-        Buffer.from('move-1'),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/renamed.txt'),
-        boolFrame(false)
-      ])
+      const moved = await handleWorkerFileMove(config, state, {
+        root: 'user_files',
+        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
+        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
+        overwrite: false
+      } as never)
+      expect(moved.toRelativePath).toBe('agent-1/user-files/inbox/lark/message-1/renamed.txt')
       expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'))).toBe(false)
       expect(readFileSync(join(userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
 
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('DELETE'),
-        Buffer.from('delete-1'),
-        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/renamed.txt'),
-        boolFrame(false)
-      ])
-      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/renamed.txt'))).toBe(false)
-      expect(JSON.stringify(sentFrames)).not.toContain('sha256')
+      writeFileSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'), 'old content')
+      const blocked = await handleWorkerFileMove(config, state, {
+        root: 'user_files',
+        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
+        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
+        overwrite: false
+      } as never).catch(caught => caught)
+      expect(blocked.message).toMatch(/already exists/)
+      await handleWorkerFileMove(config, state, {
+        root: 'user_files',
+        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
+        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
+        overwrite: true
+      } as never)
+      expect(readFileSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'), 'utf8')).toBe('hello world')
+
+      const directoryDelete = await handleWorkerFileDelete(config, state, {
+        root: 'user_files',
+        relativePath: 'agent-1/user-files/inbox',
+        recursive: false
+      } as never).catch(caught => caught)
+      expect(directoryDelete.message).toMatch(/recursive=true/)
+
+      const deleted = await handleWorkerFileDelete(config, state, {
+        root: 'user_files',
+        relativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
+        recursive: false
+      } as never)
+      expect(deleted.relativePath).toBe('agent-1/user-files/inbox/lark/message-1/target.txt')
+      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'))).toBe(false)
+
+      const sessionsRoot = agentHomePaths(config.agentsRoot, 'agent-1').sessions
+      mkdirSync(join(sessionsRoot, 'session-1'), { recursive: true })
+      writeFileSync(join(sessionsRoot, 'session-1/log.txt'), 'logs')
+      const sessions = handleWorkerFileList(config, {
+        root: 'agent_sessions',
+        relativePath: 'agent-1/sessions',
+        recursive: true,
+        maxEntries: 1000n
+      } as never)
+      expect(sessions.entries).toContainEqual(
+        expect.objectContaining({ relativePath: 'agent-1/sessions/session-1/log.txt', kind: 'file', size: 4n })
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('overwrites with rename without deleting the target before a failed move', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-move-overwrite-'))
-    const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sentFrames.push(frames)
-    })
-
-    try {
-      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
-      mkdirSync(join(userFilesRoot, 'replace'), { recursive: true })
-      writeFileSync(join(userFilesRoot, 'replace/source.txt'), 'new content')
-      writeFileSync(join(userFilesRoot, 'replace/target.txt'), 'old content')
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('MOVE'),
-        Buffer.from('move-overwrite-file'),
-        Buffer.from('/user_files/agent-1/user-files/replace/source.txt'),
-        Buffer.from('/user_files/agent-1/user-files/replace/target.txt'),
-        boolFrame(true)
-      ])
-
-      frameFor(sentFrames, 'move-overwrite-file', 'MOVE_OK')
-      expect(existsSync(join(userFilesRoot, 'replace/source.txt'))).toBe(false)
-      expect(readFileSync(join(userFilesRoot, 'replace/target.txt'), 'utf8')).toBe('new content')
-
-      mkdirSync(join(userFilesRoot, 'replace/source-dir'), { recursive: true })
-      mkdirSync(join(userFilesRoot, 'replace/target-dir'), { recursive: true })
-      writeFileSync(join(userFilesRoot, 'replace/source-dir/source.txt'), 'source content')
-      writeFileSync(join(userFilesRoot, 'replace/target-dir/target.txt'), 'target content')
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('MOVE'),
-        Buffer.from('move-overwrite-directory'),
-        Buffer.from('/user_files/agent-1/user-files/replace/source-dir'),
-        Buffer.from('/user_files/agent-1/user-files/replace/target-dir'),
-        boolFrame(true)
-      ])
-
-      expect(errorMessageFor(sentFrames, 'move-overwrite-directory')).not.toBe('')
-      expect(readFileSync(join(userFilesRoot, 'replace/source-dir/source.txt'), 'utf8')).toBe('source content')
-      expect(readFileSync(join(userFilesRoot, 'replace/target-dir/target.txt'), 'utf8')).toBe('target content')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('rejects unsafe file lane paths and transfer ids while allowing Agent-scoped lists', async () => {
+  it('rejects unsafe file lane roots, paths, and escaping symlinks', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-paths-'))
     const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sentFrames.push(frames)
-    })
-
-    try {
-      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
-      mkdirSync(paths.userFiles, { recursive: true })
-      mkdirSync(paths.installedSkills, { recursive: true })
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('LIST'),
-        Buffer.from('list-root'),
-        Buffer.from('/user_files/agent-1/user-files'),
-        boolFrame(false),
-        u64Frame(1000)
-      ])
-      expect(frameFor(sentFrames, 'list-root', 'LIST_OK')[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files')
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('absolute-path'),
-        Buffer.from('/user_files//tmp/escape.txt'),
-        Buffer.from('none')
-      ])
-      expect(errorMessageFor(sentFrames, 'absolute-path')).toMatch(/relative_path must not be absolute/)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('parent-path'),
-        Buffer.from('/user_files/../escape.txt'),
-        Buffer.from('none')
-      ])
-      expect(errorMessageFor(sentFrames, 'parent-path')).toMatch(/invalid relative_path/)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('bad-root'),
-        Buffer.from('/unsupported/file.txt'),
-        Buffer.from('none')
-      ])
-      expect(errorMessageFor(sentFrames, 'bad-root')).toMatch(/unsupported file root/)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('WRITE_OPEN'),
-        Buffer.from('../bad-transfer'),
-        Buffer.from('/user_files/agent-1/user-files/safe.txt'),
-        u64Frame(0)
-      ])
-      expect(errorMessageFor(sentFrames, '../bad-transfer')).toMatch(/invalid transfer_id/)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('rejects file lane symlinks that resolve outside their configured root', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-symlink-'))
-    const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sentFrames.push(frames)
-    })
+    const state = createFileLaneState()
 
     try {
       const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
@@ -991,73 +795,16 @@ describe('@ankole/agent-computer runtime', () => {
       writeFileSync(outsidePath, 'secret')
       symlinkSync(outsidePath, join(userFilesRoot, 'escaped.txt'))
 
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('symlink-escape'),
-        Buffer.from('/user_files/agent-1/user-files/escaped.txt'),
-        Buffer.from('none')
-      ])
+      const deleteFor = (relativePath: string, fileRoot = 'user_files') =>
+        handleWorkerFileDelete(config, state, { root: fileRoot, relativePath, recursive: false } as never).catch(
+          caught => caught.message
+        )
 
-      expect(errorMessageFor(sentFrames, 'symlink-escape')).toMatch(/path resolves outside root/)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('resolves the agent_sessions root and round-trips LIST and STAT', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-sessions-'))
-    const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sentFrames.push(frames)
-    })
-
-    try {
-      const sessionsRoot = agentHomePaths(config.agentsRoot, 'agent-1').sessions
-      mkdirSync(join(sessionsRoot, 'session-1'), {
-        recursive: true
-      })
-      writeFileSync(join(sessionsRoot, 'session-1/log.txt'), 'logs')
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('LIST'),
-        Buffer.from('list-sessions'),
-        Buffer.from('/agent_sessions/agent-1/sessions'),
-        boolFrame(true),
-        u64Frame(1000)
-      ])
-      const listFrame = frameFor(sentFrames, 'list-sessions', 'LIST_OK')
-      expect(listFrame[3]?.toString('utf8')).toBe('/agent_sessions/agent-1/sessions')
-      const entries = decodeEntries(listFrame[6]!)
-      expect(entries).toContainEqual(
-        expect.objectContaining({
-          relative_path: 'agent-1/sessions/session-1/log.txt',
-          kind: 'file',
-          size: 4
-        })
-      )
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('stat-sessions'),
-        Buffer.from('/agent_sessions/agent-1/sessions/session-1/log.txt'),
-        Buffer.from('xxh3_128')
-      ])
-      const statFrame = frameFor(sentFrames, 'stat-sessions', 'STAT_OK')
-      expect(statFrame[3]?.toString('utf8')).toBe('/agent_sessions/agent-1/sessions/session-1/log.txt')
-      expect(readU64Frame(statFrame[5])).toBe(4)
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('unknown-root'),
-        Buffer.from('/shared_files/a.txt'),
-        Buffer.from('none')
-      ])
-      expect(errorMessageFor(sentFrames, 'unknown-root')).toMatch(/unsupported file root/)
+      expect(await deleteFor('/tmp/escape.txt')).toMatch(/relative_path must not be absolute/)
+      expect(await deleteFor('../escape.txt')).toMatch(/invalid relative_path/)
+      expect(await deleteFor('agent-1/user-files/a.txt', 'unsupported')).toMatch(/unsupported file root/)
+      expect(await deleteFor('agent-1/user-files/escaped.txt')).toMatch(/path resolves outside root/)
+      expect(await deleteFor('agent-1/other/a.txt')).toMatch(/does not match user_files layout/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -1066,7 +813,8 @@ describe('@ankole/agent-computer runtime', () => {
 
 function workerConfig(): WorkerConfig {
   return {
-    endpoint: 'tcp://127.0.0.1:6010',
+    endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
+    transport: 'channel',
     workerAuthKey: 'secret',
     workerID: 'worker-a',
     incarnationID: 'incarnation-a',
@@ -1091,7 +839,8 @@ function actorTurnRef() {
 
 function workerConfigForRoot(root: string): WorkerConfig {
   return {
-    endpoint: 'tcp://127.0.0.1:6010',
+    endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
+    transport: 'channel',
     workerAuthKey: 'secret',
     workerID: 'worker-a',
     incarnationID: 'incarnation-a',
@@ -1101,89 +850,59 @@ function workerConfigForRoot(root: string): WorkerConfig {
   }
 }
 
-const creditWindow = 4 * 1024 * 1024
-
-function frameFor(frames: Buffer[][], transferID: string, command: string): Buffer[] {
-  const frameSet = frames.find(
-    frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferID
-  )
-  expect(frameSet, `missing ${command} for ${transferID}`).toBeTruthy()
-  return frameSet!
+type RelayStub = {
+  url: string
+  status: number
+  requests: Array<{ method: string; path: string }>
+  received: Map<string, Buffer>
+  receivedHeaders: Map<string, Headers>
+  onRequest?: () => void
+  stop(): void
 }
 
-function errorMessageFor(frames: Buffer[][], transferID: string): string {
-  return frameFor(frames, transferID, 'ERROR')[4]?.toString('utf8') ?? ''
-}
-
-async function waitForFrame(
-  frames: Buffer[][],
-  transferID: string,
-  command: string,
-  timeoutMs = 1000
-): Promise<Buffer[]> {
-  const deadline = Date.now() + timeoutMs
-
-  while (Date.now() < deadline) {
-    const matches = frames.filter(
-      frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferID
-    )
-    if (matches.length > 0) return matches.at(-1)!
-    await Bun.sleep(5)
+/**
+ * Stands in for the control-plane relay endpoint: GET serves `body`, PUT
+ * captures the request body. Both answer with `status`.
+ */
+function relayStub(options: { body?: string; status?: number }): RelayStub {
+  const stub: RelayStub = {
+    url: '',
+    status: options.status ?? 200,
+    requests: [],
+    received: new Map(),
+    receivedHeaders: new Map(),
+    stop: () => undefined
   }
-
-  throw new Error(`missing ${command} for ${transferID}`)
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    async fetch(request) {
+      const path = new URL(request.url).pathname
+      stub.requests.push({ method: request.method, path })
+      stub.onRequest?.()
+      if (request.method === 'PUT') {
+        stub.received.set(path, Buffer.from(await request.arrayBuffer()))
+        stub.receivedHeaders.set(path, request.headers)
+        return new Response(null, { status: stub.status })
+      }
+      return new Response(options.body ?? '', {
+        status: stub.status,
+        headers: { 'content-type': 'application/octet-stream' }
+      })
+    }
+  })
+  stub.url = `http://127.0.0.1:${server.port}`
+  stub.stop = () => server.stop(true)
+  return stub
 }
 
-function dataChunks(frames: Buffer[][], transferID: string): Buffer[] {
-  return frames
-    .filter(frame => frame[1]?.toString('utf8') === 'DATA' && frame[2]?.toString('utf8') === transferID)
-    .map(frame => frame[6] ?? Buffer.alloc(0))
-}
-
-function u64Frame(value: number): Buffer {
-  const frame = Buffer.alloc(8)
-  frame.writeBigUInt64BE(BigInt(value))
-  return frame
-}
-
-function readU64Frame(frame: Buffer | undefined): number {
-  expect(frame).toBeTruthy()
-  return Number(frame!.readBigUInt64BE())
-}
-
-function boolFrame(value: boolean): Buffer {
-  return Buffer.from([value ? 1 : 0])
-}
-
-function decodeEntries(frame: Buffer): Array<JSONObject> {
-  let offset = 0
-  const count = frame.readUInt32BE(offset)
-  offset += 4
-  const entries: Array<JSONObject> = []
-
-  for (let index = 0; index < count; index += 1) {
-    const relativePath = readSizedString(frame, offset)
-    offset = relativePath.offset
-    const kind = readSizedString(frame, offset)
-    offset = kind.offset
-    const size = Number(frame.readBigUInt64BE(offset))
-    offset += 8
-    const modified = Number(frame.readBigUInt64BE(offset))
-    offset += 8
-    entries.push({
-      relative_path: relativePath.value,
-      kind: kind.value,
-      size,
-      modified_unix_ms: modified
-    })
-  }
-
-  return entries
-}
-
-function readSizedString(frame: Buffer, offset: number): { value: string; offset: number } {
-  const size = frame.readUInt32BE(offset)
-  const start = offset + 4
-  const end = start + size
-  return { value: frame.subarray(start, end).toString('utf8'), offset: end }
+function transferRequest(relay: RelayStub, transferID: string, root: string, relativePath: string) {
+  return create(WorkerFileTransferRequestSchema, {
+    transferId: transferID,
+    url: `${relay.url}/relay/${transferID}?token=secret-token`,
+    root,
+    relativePath,
+    maxBytes: 1024n,
+    expiresAt: '2099-01-01T00:00:00Z'
+  })
 }

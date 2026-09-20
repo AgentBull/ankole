@@ -275,7 +275,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 - `db-migrate` init container 卡住，通常表示 `DATABASE_URL` 错误、PostgreSQL
   尚未就绪，或者缺少必需 extension。
 - Worker 正在运行但一直没有 ready，通常表示 RuntimeFabric key 错误，或者
-  Worker 无法访问控制面 Service 的 `6010` 端口。
+  Worker 无法通过控制面 Service 的 HTTP 端口建立 WebSocket 连接。
 - 输入 activation code 后设置页面又回到原状态，通常表示 HTTPS 连接不受信任。
   请检查 Ingress certificate 和转发后的 host。
 - Worker security context 被准入策略拒绝，表示集群不允许当前隔离设置。请使用

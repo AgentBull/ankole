@@ -8,8 +8,8 @@ defmodule Ankole.WorkAccessTest do
     %{principal: agent} = agent_fixture()
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _} = admit_worker(route)
     source = source_event(agent.uid, human.uid)
     key = %{agent_uid: agent.uid, session_id: source.session_id}

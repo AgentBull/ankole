@@ -13,6 +13,7 @@ defmodule AnkoleWeb.WorkerFileController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
+  alias Ankole.Logging
   alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
@@ -179,7 +180,7 @@ defmodule AnkoleWeb.WorkerFileController do
 
   def download(conn, %{worker_id: worker_id, root: root, path: path}) do
     with :ok <- authorize(conn, worker_id, "read"),
-         {:ok, %{"content" => content}} <- WorkerFiles.get(root, path, worker_id: worker_id) do
+         {:ok, %{"body" => body}} <- WorkerFiles.stream(root, path, worker_id: worker_id) do
       filename = Path.basename(path)
 
       conn
@@ -188,10 +189,31 @@ defmodule AnkoleWeb.WorkerFileController do
         "content-disposition",
         "attachment; filename*=UTF-8''" <> URI.encode(filename, &URI.char_unreserved?/1)
       )
-      |> send_resp(200, content)
+      |> send_chunked(200)
+      |> stream_download(body)
     else
       {:error, reason} -> error(conn, reason, :read)
     end
+  end
+
+  # The response has started, so a relay failure can only end the connection
+  # early; the client sees a truncated body and repeats the whole request.
+  defp stream_download(conn, body) do
+    Enum.reduce_while(body, conn, fn data, conn ->
+      case chunk(conn, data) do
+        {:ok, conn} -> {:cont, conn}
+        {:error, _reason} -> {:halt, conn}
+      end
+    end)
+  rescue
+    error in WorkerFiles.RelayError ->
+      Logging.warning(
+        "worker_files.download_truncated",
+        "worker file download ended before the relay completed",
+        %{reason: inspect(error.reason)}
+      )
+
+      conn
   end
 
   def upload(conn, %{worker_id: worker_id}) do
@@ -200,8 +222,8 @@ defmodule AnkoleWeb.WorkerFileController do
     with :ok <- authorize(conn, worker_id, "update"),
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
-         {:ok, content} <- File.read(upload.path),
-         {:ok, result} <- WorkerFiles.put(root, path, content, worker_id: worker_id) do
+         {:ok, result} <-
+           WorkerFiles.put(root, path, {:file, upload.path}, worker_id: worker_id) do
       json(conn, %{
         uploaded_file: %{
           root: result["root"],
@@ -270,8 +292,8 @@ defmodule AnkoleWeb.WorkerFileController do
     end
   end
 
-  # Rejecting before `File.read/1` keeps an oversize multipart temp file out of
-  # memory; the byte bound itself is owned and re-enforced by `WorkerFiles.put/4`.
+  # Rejects before the relay opens; the byte bound itself is owned and
+  # re-enforced by `WorkerFiles.put/4`.
   defp assert_upload_size(%Plug.Upload{path: path}) do
     max_bytes = WorkerFiles.max_transfer_bytes()
 
@@ -313,8 +335,8 @@ defmodule AnkoleWeb.WorkerFileController do
   defp error_descriptor(:timeout, _kind),
     do: {504, "worker_timeout", "worker did not respond in time", []}
 
-  defp error_descriptor(:not_started, _kind),
-    do: {503, "file_lane_unavailable", "file lane is unavailable", []}
+  defp error_descriptor(:no_worker_available, _kind),
+    do: {409, "worker_not_ready", "no worker is ready", []}
 
   defp error_descriptor(%{"code" => code, "message" => message}, :read) do
     {404, "worker_file_error", message, [%{code: code}]}

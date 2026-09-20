@@ -7,7 +7,6 @@ use prost::Message;
 use crate::runtime_fabric::{PROTOCOL_VERSION, proto};
 
 use super::dealer::{DealerInbox, emit_dealer_frames};
-use super::framing::FILE_TRANSFER_PROTOCOL;
 use super::router::RouterEventSink;
 use super::*;
 
@@ -142,53 +141,6 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
         Some(proto::envelope::Body::TurnStart(_))
     ));
 
-    dealer
-        .send_file_frame(vec![
-            FILE_TRANSFER_PROTOCOL.to_vec(),
-            b"STAT_OK".to_vec(),
-            b"transfer-a".to_vec(),
-            b"/user_files/inbox/a.txt".to_vec(),
-            b"file".to_vec(),
-            1_u64.to_be_bytes().to_vec(),
-            1_u64.to_be_bytes().to_vec(),
-            Vec::new(),
-        ])
-        .expect("file frame sends to router");
-
-    let file_event = wait_for_router_event(&events).expect("file frame event");
-    match file_event {
-        RouterEvent::FileFrame {
-            transport_route,
-            authenticated_worker_id,
-            frames,
-        } => {
-            assert_eq!(transport_route, "worker-instance-a");
-            assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
-            assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
-            assert_eq!(frames[1], b"STAT_OK");
-            assert_eq!(frames[2], b"transfer-a");
-        }
-        other => panic!("unexpected router event: {other:?}"),
-    }
-
-    router
-        .send_file_frame(
-            "worker-instance-a",
-            vec![
-                FILE_TRANSFER_PROTOCOL.to_vec(),
-                b"READ_OPEN".to_vec(),
-                b"transfer-b".to_vec(),
-                b"/user_files/inbox/a.txt".to_vec(),
-                b"xxh3_128".to_vec(),
-            ],
-        )
-        .expect("file frame sends to dealer");
-
-    let frames = wait_for_dealer_file_frame(&dealer).expect("dealer file frame");
-    assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
-    assert_eq!(frames[1], b"READ_OPEN");
-    assert_eq!(frames[2], b"transfer-b");
-
     let unknown = router
         .send_mandatory("missing-worker", &turn_start_envelope_bytes())
         .expect_err("missing route fails");
@@ -274,14 +226,6 @@ fn wait_for_dealer_payload(dealer: &DealerHandle) -> Option<Vec<u8>> {
     }
 }
 
-fn wait_for_dealer_file_frame(dealer: &DealerHandle) -> Option<Vec<Vec<u8>>> {
-    match dealer.recv(Duration::from_secs(2)).expect("dealer recv") {
-        Some(DealerEvent::RawFrames(frames)) => Some(frames),
-        Some(event) => panic!("unexpected dealer event: {event:?}"),
-        None => None,
-    }
-}
-
 fn worker_ready_envelope_bytes() -> Vec<u8> {
     proto::Envelope {
         protocol_version: PROTOCOL_VERSION,
@@ -290,6 +234,8 @@ fn worker_ready_envelope_bytes() -> Vec<u8> {
         lane: proto::Lane::Control as i32,
         sent_at_unix_ms: 0,
         durability: proto::DurabilityClass::ControlEphemeral as i32,
+        stream: proto::Stream::Unspecified as i32,
+        transport_seq: 0,
         body: Some(proto::envelope::Body::WorkerReady(
             proto::AgentComputerWorkerReady {
                 worker_id: "worker-a".to_string(),
@@ -312,6 +258,8 @@ fn turn_start_envelope_bytes() -> Vec<u8> {
         lane: proto::Lane::Turn as i32,
         sent_at_unix_ms: 0,
         durability: proto::DurabilityClass::ControlReplayable as i32,
+        stream: proto::Stream::Unspecified as i32,
+        transport_seq: 0,
         body: Some(proto::envelope::Body::TurnStart(proto::TurnStart {
             turn: Some(proto::ActorTurnRef {
                 actor: Some(proto::ActorKey {

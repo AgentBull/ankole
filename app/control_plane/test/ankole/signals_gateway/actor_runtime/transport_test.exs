@@ -2,22 +2,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   describe "transport, admission, and bootstrap" do
-    test "broker uses ZeroMQ mandatory route outcome when router is running" do
+    test "route exit uses ZeroMQ mandatory route outcome when router is running" do
       assert {:ok, endpoint} =
-               Broker.start_router("tcp://127.0.0.1:*",
+               WorkerRoute.start_router("tcp://127.0.0.1:*",
                  worker_auth_key: "test-token",
                  poll_interval_ms: 1
                )
 
-      on_exit(fn -> Broker.stop_router() end)
+      on_exit(fn -> WorkerRoute.stop_router() end)
 
       assert endpoint =~ "tcp://"
 
       assert {:error, :unknown_route} =
-               Broker.send_mandatory("missing-worker", worker_ready_envelope())
+               WorkerRoute.send_mandatory("missing-worker", worker_ready_envelope())
     end
 
-    test "broker retries a transient router bind conflict until transport recovers" do
+    test "route exit retries a transient router bind conflict until transport recovers" do
       assert {:ok, occupied_router} =
                Ankole.Kernel.RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
                  worker_auth_key: "test-token",
@@ -26,11 +26,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       on_exit(fn -> Ankole.Kernel.RuntimeFabric.router_stop(occupied_router) end)
       endpoint = Ankole.Kernel.RuntimeFabric.router_endpoint(occupied_router)
-      broker_name = unique_process_name("retrying_runtime_fabric_broker")
+      route_name = unique_process_name("retrying_runtime_fabric_route")
 
       start_supervised!(
-        {Broker,
-         name: broker_name,
+        {WorkerRoute,
+         name: route_name,
          router: [
            endpoint: endpoint,
            worker_auth_key: "test-token",
@@ -38,23 +38,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
          ]}
       )
 
-      assert %{router: nil, router_retry_timer: timer} = :sys.get_state(broker_name)
+      assert %{router: nil, router_retry_timer: timer} = :sys.get_state(route_name)
       assert is_reference(timer)
       assert :ok = Ankole.Kernel.RuntimeFabric.router_stop(occupied_router)
 
-      assert {:ok, ^endpoint} = wait_for_router_endpoint(broker_name, 200)
+      assert {:ok, ^endpoint} = wait_for_router_endpoint(route_name, 200)
     end
 
     test "control plane can call a worker RPC method over the RPC lane" do
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       probe_payload = encode_proto!(%FabricProto.WorkerEnvResolveRequest{})
 
       task =
         Task.async(fn ->
-          Broker.request_rpc(
+          WorkerRoute.request_rpc(
             route,
             "test.probe",
             probe_payload,
@@ -68,24 +68,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert request.payload == probe_payload
       request_id = request.request_id
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, route,
-         encode_fabric_envelope(%FabricProto.Envelope{
-           message_id: "worker-rpc-response",
-           correlation_id: request_id,
-           lane: :LANE_RPC,
-           durability: :CONTROL_EPHEMERAL,
-           body:
-             {:rpc_response,
-              %FabricProto.RPCResponse{
-                request_id: request_id,
-                payload:
-                  encode_proto!(%FabricProto.WorkerEnvResolveResponse{
-                    vars: %{"runtime" => "bun"}
-                  })
-              }}
-         })}
+      WorkerRoute.local_inbound(
+        route,
+        encode_fabric_envelope(%FabricProto.Envelope{
+          message_id: "worker-rpc-response",
+          correlation_id: request_id,
+          lane: :LANE_RPC,
+          durability: :CONTROL_EPHEMERAL,
+          body:
+            {:rpc_response,
+             %FabricProto.RPCResponse{
+               request_id: request_id,
+               payload:
+                 encode_proto!(%FabricProto.WorkerEnvResolveResponse{
+                   vars: %{"runtime" => "bun"}
+                 })
+             }}
+        })
       )
 
       assert {:ok, payload} = Task.await(task, 500)
@@ -96,28 +95,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
     test "worker staleness fails pending RPC callers without waiting for their method deadline" do
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       task =
         Task.async(fn ->
-          Broker.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
+          WorkerRoute.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
         end)
 
       assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, _request}}}, 200
-      assert :ok = Broker.fail_pending_rpcs(route, :heartbeat_timeout)
+      assert :ok = WorkerRoute.fail_pending_rpcs(route, :heartbeat_timeout)
       assert {:error, {:worker_route_unusable, :heartbeat_timeout}} = Task.await(task, 500)
     end
 
     test "a replacement worker fails RPC callers owned by the previous incarnation" do
       route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, worker} = admit_worker(route)
 
       task =
         Task.async(fn ->
-          Broker.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
+          WorkerRoute.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
         end)
 
       assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, _request}}}, 200
@@ -170,20 +169,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, _failure_id} = Ecto.UUID.cast(failure_id)
 
-      broker_pid = Process.whereis(Broker)
-      :ok = Broker.register_local_worker("worker-route", self())
-      on_exit(fn -> Broker.unregister_local_worker("worker-route") end)
+      broker_pid = Process.whereis(WorkerRoute)
+      :ok = WorkerRoute.register_local_worker("worker-route", self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker("worker-route") end)
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, "worker-route",
-         encode_fabric_envelope(%FabricProto.Envelope{
-           message_id: "rpc-handler-crash-envelope",
-           correlation_id: "rpc-handler-crash",
-           lane: :LANE_RPC,
-           durability: :CONTROL_EPHEMERAL,
-           body: {:rpc_request, request}
-         })}
+      WorkerRoute.local_inbound(
+        "worker-route",
+        encode_fabric_envelope(%FabricProto.Envelope{
+          message_id: "rpc-handler-crash-envelope",
+          correlation_id: "rpc-handler-crash",
+          lane: :LANE_RPC,
+          durability: :CONTROL_EPHEMERAL,
+          body: {:rpc_request, request}
+        })
       )
 
       assert_receive {:actor_lane,
@@ -207,8 +205,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       binding_fixture(agent.uid, "bot", :may_intervene)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -331,12 +329,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)
 
-      assert {:ok, 1} =
-               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.mark_all_routes_unusable(
-                 :router_stopped
+      assert {:ok, :marked_stale} =
+               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.mark_route_unusable(
+                 route,
+                 :socket_closed
                )
 
-      assert %AgentComputerWorker{status: "stale", stop_reason: "router_stopped"} =
+      assert %AgentComputerWorker{status: "stale", stop_reason: "socket_closed"} =
                Repo.get!(AgentComputerWorker, worker.id)
 
       assert {:ok, revalidated} =
@@ -375,9 +374,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)
 
-      assert {:ok, 1} =
-               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.mark_all_routes_unusable(
-                 :router_stopped
+      assert {:ok, :marked_stale} =
+               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.mark_route_unusable(
+                 route,
+                 :socket_closed
                )
 
       assert %AgentComputerWorker{status: "stale", stopped_at: %DateTime{}} =
@@ -408,8 +408,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       route = unique_route()
       wrong_route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -443,14 +443,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
           body: {:turn_accepted, turn_accepted_payload(turn_ref)}
         })
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, wrong_route, nil, accepted_envelope}
+      WorkerRoute.local_inbound(
+        wrong_route,
+        accepted_envelope
       )
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, route, nil, accepted_envelope}
+      WorkerRoute.local_inbound(
+        route,
+        accepted_envelope
       )
 
       assert %ActorEventDelivery{state: "accepted"} =
@@ -462,8 +462,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -493,12 +493,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
           body: {:control_shutdown, %FabricProto.ControlShutdown{reason: "sigterm"}}
         })
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, route, nil, shutdown_envelope}
+      WorkerRoute.local_inbound(
+        route,
+        shutdown_envelope
       )
 
-      :sys.get_state(Broker)
+      :sys.get_state(WorkerRoute)
       :sys.get_state(Ankole.SignalsGateway.ActorRuntime.InboundDispatcher)
       assert Repo.get!(AgentComputerWorker, worker.id).status == "draining"
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
@@ -520,8 +520,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -586,9 +586,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
              )}
         })
 
-      send(
-        Broker,
-        {:runtime_fabric_router_received, route, nil, noop_envelope}
+      WorkerRoute.local_inbound(
+        route,
+        noop_envelope
       )
 
       assert_receive {:actor_lane, response_envelope}, 2_000
@@ -598,6 +598,66 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(input.id)
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(steer_event.id)
+    end
+
+    test "a same-incarnation reconnect re-routes live assignments and deliveries" do
+      route = unique_route()
+      assert {:ok, worker} = admit_worker(route)
+      %{principal: agent} = agent_fixture()
+      now = DateTime.utc_now(:microsecond)
+      session_id = "reroute-session"
+
+      assignment =
+        Repo.insert!(%Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment{
+          agent_uid: agent.uid,
+          session_id: session_id,
+          worker_id: worker.worker_id,
+          transport_route: route,
+          status: "assigned",
+          assigned_at: now,
+          metadata: %{}
+        })
+
+      assert {:ok, event} =
+               append_runtime_actor_event(agent.uid, session_id, "reroute.test", now: now)
+
+      delivery =
+        Repo.insert!(%ActorEventDelivery{
+          actor_event_id: event.id,
+          agent_uid: agent.uid,
+          session_id: session_id,
+          queue_sequence: event.queue_sequence,
+          attempt_no: 1,
+          actor_lane_message_id: "reroute-message",
+          correlation_id: "reroute-message",
+          activation_uid: "reroute-activation",
+          actor_epoch: 1,
+          actor_event_id_fence: event.id,
+          revision: 0,
+          worker_id: worker.worker_id,
+          transport_route: route,
+          state: "sent",
+          error: %{}
+        })
+
+      new_route = unique_route()
+
+      assert {:ok, %AgentComputerWorker{transport_route: ^new_route, status: "ready"}} =
+               admit_worker(new_route, %{
+                 worker_id: worker.worker_id,
+                 incarnation_id: worker.incarnation_id
+               })
+
+      assert %{transport_route: ^new_route, status: "assigned"} =
+               Repo.reload!(assignment)
+
+      assert %{transport_route: ^new_route, state: "sent"} = Repo.reload!(delivery)
+
+      assert {:error, :stale_transport_route} =
+               ActorRuntime.handle_worker_heartbeat(
+                 worker_heartbeat_payload(worker),
+                 %{authenticated?: true, transport_route: route}
+               )
     end
 
     test "worker admission rejects duplicate live route ownership" do
@@ -673,20 +733,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
     end
   end
 
-  defp wait_for_router_endpoint(broker, attempts) when attempts > 0 do
-    case GenServer.call(broker, :router_endpoint) do
+  defp wait_for_router_endpoint(route, attempts) when attempts > 0 do
+    case GenServer.call(route, :router_endpoint) do
       {:ok, _endpoint} = ready ->
         ready
 
       {:error, :not_started} ->
         receive do
         after
-          10 -> wait_for_router_endpoint(broker, attempts - 1)
+          10 -> wait_for_router_endpoint(route, attempts - 1)
         end
     end
   end
 
-  defp wait_for_router_endpoint(_broker, 0), do: {:error, :router_not_recovered}
+  defp wait_for_router_endpoint(_route, 0), do: {:error, :router_not_recovered}
 
   defp wait_for_completed_event(actor_event_id, attempts \\ 100)
 

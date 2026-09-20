@@ -4,7 +4,6 @@
 export declare class RuntimeFabricDealer {
   constructor(endpoint: string, identity: string, username: string, password: string)
   sendEnvelope(envelope: Buffer): void
-  sendFileFrame(frames: Buffer[]): void
   recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>
   stop(): void
 }
@@ -76,19 +75,3 @@ export declare function xxh3File128Hex(path: string): Promise<string>
 
 /** Computes the non-cryptographic XXH3 128-bit fingerprint for a UTF-8 string. */
 export declare function xxh3String128Hex(input: string): string
-
-/**
- * Compresses one worker-file lane block into a self-contained zstd frame.
- *
- * Runs on a libuv worker thread so the JS event loop is not blocked while a
- * block is being compressed. `level` follows the zstd CLI scale (1..=22).
- */
-export declare function zstdCompressBlock(data: Buffer, level: number): Promise<Buffer>
-
-/**
- * Decompresses one worker-file lane zstd frame with a hard output bound.
- *
- * `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
- * Runs on a libuv worker thread so the JS event loop is not blocked.
- */
-export declare function zstdDecompressBlock(data: Buffer, maxOut: number): Promise<Buffer>

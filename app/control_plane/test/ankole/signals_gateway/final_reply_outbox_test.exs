@@ -701,8 +701,8 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     assert {:ok, %{actor_event: event}} =

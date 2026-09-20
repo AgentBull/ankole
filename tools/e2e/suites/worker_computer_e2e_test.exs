@@ -24,7 +24,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     only: [deadline: 1, wait_for_worker_projection: 3]
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
 
@@ -34,19 +34,12 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert_docker_image!()
 
     worker_id = "docker-worker-#{System.unique_integer([:positive])}"
-    worker_auth_key = unique_worker_auth_key()
-
-    {:ok, endpoint} =
-      Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth_key: worker_auth_key,
-        poll_interval_ms: 1
-      )
-
-    on_exit(fn -> safe_stop_router() end)
+    worker_auth_key = WorkerAuthKey.ensure!()
+    endpoint = worker_endpoint(start_ai_gateway_test_http_server!())
 
     container =
       start_docker_worker!(
-        endpoint: docker_host_endpoint(endpoint),
+        endpoint: endpoint,
         worker_id: worker_id,
         worker_auth_key: worker_auth_key
       )
@@ -59,24 +52,45 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert :ok = assert_launch_contract!(container)
   end
 
+  @tag timeout: 90_000
+  test "a ZeroMQ Worker image is admitted through the dual stack" do
+    case legacy_zmq_image() do
+      nil ->
+        IO.puts("skipping ZeroMQ dual-stack admission: the legacy Worker image is not present locally")
+
+      image ->
+        worker_id = "docker-zmq-worker-#{System.unique_integer([:positive])}"
+        worker_auth_key = WorkerAuthKey.ensure!()
+        start_ai_gateway_test_http_server!()
+        endpoint = start_zmq_router!()
+
+        container =
+          start_docker_worker!(
+            endpoint: endpoint,
+            worker_id: worker_id,
+            worker_auth_key: worker_auth_key,
+            image: image,
+            mount_source: false
+          )
+
+        on_exit(fn -> cleanup_docker_worker(container) end)
+
+        assert {:ok, %AgentComputerWorker{worker_id: ^worker_id, transport_route: ^worker_id}} =
+                 wait_for_worker_projection(worker_id, container, deadline(60_000))
+    end
+  end
+
   @tag timeout: 30_000
   test "Docker image worker with the wrong global worker auth key is not admitted" do
     assert_docker_image!()
 
     worker_id = "docker-rejected-worker-#{System.unique_integer([:positive])}"
-    worker_auth_key = unique_worker_auth_key()
-
-    {:ok, endpoint} =
-      Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth_key: worker_auth_key,
-        poll_interval_ms: 1
-      )
-
-    on_exit(fn -> safe_stop_router() end)
+    worker_auth_key = WorkerAuthKey.ensure!()
+    endpoint = worker_endpoint(start_ai_gateway_test_http_server!())
 
     container =
       start_docker_worker!(
-        endpoint: docker_host_endpoint(endpoint),
+        endpoint: endpoint,
         worker_id: worker_id,
         worker_auth_key: "wrong-" <> worker_auth_key
       )

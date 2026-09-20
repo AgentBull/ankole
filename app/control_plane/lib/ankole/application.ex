@@ -59,6 +59,7 @@ defmodule Ankole.Application do
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,
+        Ankole.WorkerFiles.Supervisor,
         Ankole.SignalsGateway.Supervisor,
         Ankole.Workflow.Supervisor
       ]

@@ -8,11 +8,11 @@ use crate::runtime_fabric;
 
 use super::auth::{
     AuthenticatedRouteState, AuthenticatedRoutes, ZapErrorSink, authenticated_envelope_route,
-    authenticated_route, start_zap_server, zap_auth_config,
+    start_zap_server, zap_auth_config,
 };
 use super::config::{RouterConfig, configure_common_socket};
 use super::error::{TransportError, map_send_error, transport_error};
-use super::framing::{RouterInbound, parse_router_frames, validate_file_transfer_frames};
+use super::framing::{RouterInbound, parse_router_frames};
 use super::types::{RouterEvent, SendOutcome};
 
 pub type RouterEventSink = Arc<dyn Fn(RouterEvent) + Send + Sync + 'static>;
@@ -21,11 +21,6 @@ enum RouterCommand {
     Send {
         route: String,
         payload: Vec<u8>,
-        reply: mpsc::Sender<Result<SendOutcome, TransportError>>,
-    },
-    SendFileFrame {
-        route: String,
-        frames: Vec<Vec<u8>>,
         reply: mpsc::Sender<Result<SendOutcome, TransportError>>,
     },
     Stop {
@@ -75,32 +70,6 @@ impl RouterHandle {
             .send(RouterCommand::Send {
                 route: transport_route.into(),
                 payload,
-                reply: reply_tx,
-            })
-            .map_err(|_| TransportError::SocketClosed)?;
-
-        reply_rx
-            .recv_timeout(self.command_timeout)
-            .map_err(|_| TransportError::Timeout)?
-    }
-
-    /// Sends one raw worker-file frame set to a worker route.
-    ///
-    /// File transfer frames are RuntimeFabric data-plane traffic. They are raw
-    /// ZeroMQ multipart frames and intentionally bypass the protobuf envelope
-    /// codec used by the actor and RPC lanes.
-    pub fn send_file_frame(
-        &self,
-        transport_route: impl Into<String>,
-        frames: Vec<Vec<u8>>,
-    ) -> Result<SendOutcome, TransportError> {
-        validate_file_transfer_frames(&frames)?;
-        let (reply_tx, reply_rx) = mpsc::channel();
-
-        self.commands
-            .send(RouterCommand::SendFileFrame {
-                route: transport_route.into(),
-                frames,
                 reply: reply_tx,
             })
             .map_err(|_| TransportError::SocketClosed)?;
@@ -341,15 +310,6 @@ fn handle_router_command(socket: &zmq::Socket, command: RouterCommand) -> bool {
             let _ = reply.send(outcome);
             true
         }
-        RouterCommand::SendFileFrame {
-            route,
-            frames,
-            reply,
-        } => {
-            let outcome = send_router_file_frame(socket, route, frames);
-            let _ = reply.send(outcome);
-            true
-        }
         RouterCommand::Stop { reply } => {
             let _ = reply.send(Ok(()));
             false
@@ -366,23 +326,6 @@ fn send_router_payload(
 ) -> Result<SendOutcome, TransportError> {
     socket
         .send_multipart(vec![route.into_bytes(), payload], zmq::DONTWAIT)
-        .map(|_| SendOutcome::SentOrQueued)
-        .map_err(map_send_error)
-}
-
-fn send_router_file_frame(
-    socket: &zmq::Socket,
-    route: String,
-    frames: Vec<Vec<u8>>,
-) -> Result<SendOutcome, TransportError> {
-    // Frames are validated at the RouterHandle::send_file_frame entry point
-    // before crossing into the socket thread, mirroring the dealer send path.
-    let mut routed_frames = Vec::with_capacity(frames.len() + 1);
-    routed_frames.push(route.into_bytes());
-    routed_frames.extend(frames);
-
-    socket
-        .send_multipart(routed_frames, zmq::DONTWAIT)
         .map(|_| SendOutcome::SentOrQueued)
         .map_err(map_send_error)
 }
@@ -430,28 +373,6 @@ fn emit_router_frames(
                     reason: error.to_string(),
                 }),
             }
-        }
-        Ok(RouterInbound::FileFrame { route, frames }) => {
-            let auth = if requires_auth {
-                match authenticated_route(auth_routes, &route) {
-                    Some(auth) => Some(auth),
-                    None => {
-                        sink(RouterEvent::DecodeFailed {
-                            transport_route: route,
-                            reason: "unauthenticated_route".to_string(),
-                        });
-                        return;
-                    }
-                }
-            } else {
-                None
-            };
-
-            sink(RouterEvent::FileFrame {
-                transport_route: route,
-                authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
-                frames,
-            });
         }
         Err((route, error)) => sink(RouterEvent::DecodeFailed {
             transport_route: route.unwrap_or_default(),

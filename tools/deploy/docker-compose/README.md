@@ -172,6 +172,7 @@ ports.
 | `POSTGRES_PASSWORD` | required | Bundled PostgreSQL password |
 | `ANKOLE_SECRET_BASE` | required | Root application secret |
 | `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | required | Shared Worker authentication key |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | Worker Channel URL | `tcp://control-plane:6010` keeps a Worker image on ZeroMQ until it switches |
 | `ANKOLE_MAX_CONCURRENT_TURNS` | `9` | Maximum turns on the single Worker |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | Control-plane database pool |
 | `ANKOLE_CONTROL_PLANE_IMAGE` | `main-latest` image | Control-plane image or digest |

@@ -150,8 +150,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
       assert Repo.aggregate(Message, :count) == initial_message_count
 
-      :ok = Broker.register_local_worker(live_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      :ok = WorkerRoute.register_local_worker(live_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(live_route) end)
       assert {:ok, _worker} = admit_worker(live_route)
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -244,8 +244,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       dead_route = unique_route()
 
-      :ok = Broker.register_local_worker(dead_route, self())
-      on_exit(fn -> Broker.unregister_local_worker(dead_route) end)
+      :ok = WorkerRoute.register_local_worker(dead_route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(dead_route) end)
       assert {:ok, _worker} = admit_worker(dead_route)
 
       assert {:ok, %{actor_event: input}} =
@@ -415,8 +415,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -488,8 +488,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -559,8 +559,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       # The owner session and its channel must exist like a real run's owner:
@@ -656,8 +656,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: poison_event}} =
@@ -770,8 +770,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: poison_event}} =
@@ -805,8 +805,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: poison_event}} =
@@ -850,8 +850,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: poison_event}} =
@@ -908,8 +908,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
       assert {:ok, _worker} =
                admit_worker(route, %{capacity: %{"available_turn_slots" => 9}})
@@ -963,8 +963,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -1005,8 +1005,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -1046,8 +1046,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
@@ -1126,8 +1126,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =

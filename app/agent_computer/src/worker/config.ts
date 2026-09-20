@@ -1,8 +1,17 @@
 import { existsSync } from 'node:fs'
 import { AGENTS_ROOT, BUILTIN_SKILLS_ROOT } from '../core/agent-home-paths'
 
+/** Physical RuntimeFabric transport, chosen by the endpoint URL scheme. */
+export type RuntimeFabricTransport = 'zmq' | 'channel'
+
+export type RuntimeFabricEndpoint = {
+  transport: RuntimeFabricTransport
+  endpoint: string
+}
+
 export type WorkerConfig = {
   endpoint: string
+  transport: RuntimeFabricTransport
   workerAuthKey: string
   workerID: string
   incarnationID: string
@@ -39,7 +48,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined>): WorkerC
   }
 
   return {
-    endpoint: parseRuntimeFabricEndpoint(requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT')),
+    ...parseRuntimeFabricEndpoint(requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT')),
     workerAuthKey: requiredRawEnv(env, 'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY'),
     workerID: requiredEnv(env, 'WORKER_ID'),
     incarnationID: crypto.randomUUID(),
@@ -84,31 +93,49 @@ function optionalEnv(env: Record<string, string | undefined>, key: string, fallb
 }
 
 /**
- * Validates and normalizes the physical RuntimeFabric endpoint.
+ * Validates and normalizes the RuntimeFabric endpoint and selects the transport.
+ *
+ * One Worker uses one physical transport. `tcp://host:port` selects the
+ * ZeroMQ DEALER (no path, query, or credentials). `ws://host:port/path` or
+ * `wss://host:port/path` selects the Phoenix Channel; the value is the socket
+ * path on the control plane, for example
+ * `ws://control-plane:4000/runtime-fabric/worker`, and the client appends the
+ * transport segment. Credentials never travel in the URL.
  */
-export function parseRuntimeFabricEndpoint(value: string): string {
+export function parseRuntimeFabricEndpoint(value: string): RuntimeFabricEndpoint {
   let url: URL
 
   try {
     url = new URL(value)
   } catch (_error) {
-    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
-  }
-
-  if (url.protocol !== 'tcp:') {
-    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must use tcp://')
+    throw new Error(endpointFormatMessage)
   }
 
   if (url.username || url.password) {
     throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must not include credentials')
   }
 
-  if (!url.hostname || !url.port || !['', '/'].includes(url.pathname) || url.search || url.hash) {
-    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
+  if (url.protocol === 'tcp:') {
+    if (!url.hostname || !url.port || !['', '/'].includes(url.pathname) || url.search || url.hash) {
+      throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
+    }
+    return { transport: 'zmq', endpoint: `tcp://${url.host}` }
   }
 
-  return `tcp://${url.host}`
+  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+    throw new Error(endpointFormatMessage)
+  }
+
+  const path = url.pathname.replace(/\/+$/, '')
+  if (!url.hostname || !path || url.search || url.hash) {
+    throw new Error(endpointFormatMessage)
+  }
+
+  return { transport: 'channel', endpoint: `${url.protocol}//${url.host}${path}` }
 }
+
+const endpointFormatMessage =
+  'ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port, ws://host:port/path, or wss://host:port/path'
 
 function requiredEnv(env: Record<string, string | undefined>, key: string): string {
   const value = env[key]?.trim()

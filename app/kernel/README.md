@@ -27,8 +27,10 @@ The current shared surface is:
   it (prost-build in Rust, protox in Elixir, protoc-gen-es in TypeScript).
 - `runtime_fabric/transport/` - Rust-owned ZeroMQ ROUTER/DEALER transport split
   across auth, config, router, dealer, and framing modules, including ZAP/PLAIN
-  worker authentication, mandatory route sends, bounded socket options, route
-  and decode errors, and raw `ANKOLE_FILE/1` worker-file multipart frames.
+  worker authentication, mandatory route sends, bounded socket options, and
+  route and decode errors. It carries protobuf envelopes only; Workers on the
+  `tcp://` transport use it during the dual-stack migration, and the Phoenix
+  Channel transport lives in the control plane.
 - `universal_ai_client/` - feature-gated native async streaming client for
   prepared AI provider requests, including upstream HTTP SSE/EventStream and
   WebSocket transport, provider response normalization, downstream SSE/WebSocket
@@ -65,8 +67,6 @@ Host runtimes provide complete inputs:
 - RuntimeFabric receives protobuf envelope bytes produced by the host's
   generated codec. The kernel validates them on every send and receive path,
   but durable replay and commit authority stay in the control plane.
-- Worker-file frames are live transport bytes. File and skill semantics stay in
-  the host runtime and durable stores.
 - UniversalAIClient receives provider endpoint/header/transport specs plus the
   public model request. The kernel owns model request body encoding, raw HTTP
   execution, the live streaming data plane, API protocol normalization,

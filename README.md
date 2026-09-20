@@ -59,7 +59,7 @@ Five mechanisms keep the work alive and accountable:
 
 - A Virtual Actor gives each session an address, mailbox, lifecycle, and recovery path.
 - OTP supervision trees isolate a session that hangs, times out, or crashes.
-- ZeroMQ carries wakeups, steering, checkpoints, streams, and backpressure with low latency.
+- One Phoenix Channel per Worker carries wakeups, steering, checkpoints, streams, and backpressure with low latency.
 - Agent Computer runs the model loop, tools, files, terminal state, and streaming output close to the workspace.
 - PostgreSQL keeps mailboxes, turns, reminders, decisions, and committed actions for recovery and audit.
 
@@ -133,7 +133,7 @@ Ankole is still defining its public API compatibility contract. Releases can inc
 | --- | --- |
 | Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, Brain, SignalsGateway, and operator APIs. |
 | Agent Computer | Bun/TypeScript Worker runtime under `app/agent_computer`. Runs the Agent loop and local tools inside an isolated Linux Worker image. Its supported role is Worker execution. |
-| Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ transport. |
+| Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and RuntimeFabric envelope validation. |
 | Frontend | Vite + React console, auth, and setup surfaces under `app/webapps`, built into the Phoenix static shell. |
 | Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
 | Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
@@ -144,7 +144,7 @@ Ankole is still defining its public API compatibility contract. Releases can inc
 This repository is the active Ankole control plane and runtime workspace.
 
 - `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and durable state in PostgreSQL.
-- `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, protobuf envelopes, and ZeroMQ RuntimeFabric transport.
+- `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, and RuntimeFabric protobuf envelopes.
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
 - `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
 - `app/library` - bundled Skills, Agent Plugins provided by Ankole, and starter templates such as `MISSION.md` and `SOUL.md`.
@@ -156,7 +156,7 @@ This repository is the active Ankole control plane and runtime workspace.
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
 - `docs/design-docs` - current design documents for principal identity, authorization, browser sessions, OIDC, human offboarding, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, Brain, jobs, token quotas, and provider adapters.
 
-RuntimeFabric carries live traffic from the control plane to Workers. It moves actor traffic, bounded RPC, and Worker file frames over ZeroMQ. PostgreSQL owns durable replay, fences, reconciliation, and final commits.
+RuntimeFabric carries live traffic from the control plane to Workers. It moves actor traffic and bounded RPC over one Phoenix Channel per Worker, and Worker files over HTTP relay URLs. PostgreSQL owns durable replay, fences, reconciliation, and final commits.
 
 SignalsGateway receives provider traffic. It converts external chats, webhooks, and provider events into actor events while preserving the source facts.
 
@@ -217,7 +217,7 @@ Once the control plane is running, the worker bootstrap helper renders the Docke
 
 ```shell
 cd app/control_plane
-mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
+mix ankole.actor_runtime.worker_bootstrap --endpoint ws://host.docker.internal:4000/runtime-fabric/worker --worker-id worker-a
 ```
 
 Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Store runtime application configuration in the AppConfigure records in PostgreSQL.

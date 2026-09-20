@@ -23,7 +23,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.SignalsGateway.Outbox
@@ -493,7 +493,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     route = assignment.transport_route || assignment.worker_id
     envelope = TurnEnvelope.mailbox_updated(turn_ref, input)
 
-    case Broker.send_mandatory(route, envelope) do
+    case WorkerRoute.send_mandatory(
+           %{worker_id: assignment.worker_id, transport_route: route},
+           envelope
+         ) do
       {:ok, :sent_or_queued} ->
         {:ok, Map.put(result, :send_outcome, "sent_or_queued")}
 

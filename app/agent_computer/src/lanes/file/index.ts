@@ -1,111 +1,107 @@
-import { match } from '@agentbull/active-support'
-import {
-  boolFrame,
-  encodeEntries,
-  isFileTransferFrame,
-  requiredTextFrame,
-  sendError,
-  sendFrame,
-  textFrame,
-  u64Frame
-} from './codec'
-import { FileTransferError } from './errors'
-import { handleReadAbort, handleReadOpen, sendReadData } from './transfer-read'
-import {
-  cleanupWriteTransfer,
-  handleData,
-  handleWriteAbort,
-  handleWriteCommit,
-  handleWriteOpen
-} from './transfer-write'
-import { deletePath, listPath, movePath, statPath } from './vfs'
-import type { FileTransferContext, FileTransferState } from './types'
-import type { FileFrameSender } from '../../fabric/fabric'
+import type { MessageInitShape } from '@bufbuild/protobuf'
+import type {
+  WorkerFileDeleteRequest,
+  WorkerFileDeleteResponseSchema,
+  WorkerFileListRequest,
+  WorkerFileListResponseSchema,
+  WorkerFileMoveRequest,
+  WorkerFileMoveResponseSchema,
+  WorkerFileTransferRequest,
+  WorkerFileTransferResponseSchema
+} from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { pullFile, pushFile } from './relay'
+import type { FileLaneState } from './types'
+import { deletePath, listPath, movePath } from './vfs'
 import type { WorkerConfig } from '../../worker/config'
-import { errorMessage } from '../../common/errors'
 
-export type FileTransferLane = {
-  handle(frames: Buffer[]): Promise<void>
+export { FileTransferError, type FileTransferErrorCode } from './errors'
+export type { FileLaneState } from './types'
+
+/**
+ * Worker-owned file operations that the control plane calls over RPC.
+ *
+ * Bulk bytes move over the HTTP relay URL in each transfer request; the
+ * RPC reply only reports the result. The lane state holds the fingerprint
+ * cache, nothing else survives one call.
+ */
+export function createFileLaneState(): FileLaneState {
+  return { fingerprints: new Map() }
 }
 
-export function createFileTransferLane(config: WorkerConfig, sender: FileFrameSender): FileTransferLane {
-  const context: FileTransferContext = {
-    config,
-    sender,
-    state: createState()
-  }
+export async function handleWorkerFilePull(
+  config: WorkerConfig,
+  state: FileLaneState,
+  request: WorkerFileTransferRequest
+): Promise<MessageInitShape<typeof WorkerFileTransferResponseSchema>> {
+  const result = await pullFile(config, state, request)
+  return transferResponse(result)
+}
 
+export async function handleWorkerFilePush(
+  config: WorkerConfig,
+  state: FileLaneState,
+  request: WorkerFileTransferRequest
+): Promise<MessageInitShape<typeof WorkerFileTransferResponseSchema>> {
+  const result = await pushFile(config, state, request)
+  return transferResponse(result)
+}
+
+export function handleWorkerFileList(
+  config: WorkerConfig,
+  request: WorkerFileListRequest
+): MessageInitShape<typeof WorkerFileListResponseSchema> {
+  const result = listPath(config, request.root, request.relativePath, request.recursive, Number(request.maxEntries))
   return {
-    handle: frames => dispatchFrame(context, frames)
+    root: result.address.root,
+    relativePath: result.address.relativePath,
+    truncated: result.truncated,
+    entries: result.entries.map(entry => ({
+      relativePath: entry.relative_path,
+      kind: entry.kind,
+      size: BigInt(entry.size),
+      modifiedUnixMs: BigInt(entry.modified_unix_ms)
+    }))
   }
 }
 
-function createState(): FileTransferState {
-  return { puts: new Map(), gets: new Map(), fingerprints: new Map() }
+export async function handleWorkerFileMove(
+  config: WorkerConfig,
+  state: FileLaneState,
+  request: WorkerFileMoveRequest
+): Promise<MessageInitShape<typeof WorkerFileMoveResponseSchema>> {
+  const result = await movePath(
+    config,
+    state,
+    request.root,
+    request.fromRelativePath,
+    request.toRelativePath,
+    request.overwrite
+  )
+  return {
+    root: result.from.root,
+    fromRelativePath: result.from.relativePath,
+    toRelativePath: result.to.relativePath
+  }
 }
 
-async function dispatchFrame(context: FileTransferContext, frames: Buffer[]): Promise<void> {
-  const transferID = textFrame(frames[2]) || 'unknown'
-  let command = 'unknown'
+export async function handleWorkerFileDelete(
+  config: WorkerConfig,
+  state: FileLaneState,
+  request: WorkerFileDeleteRequest
+): Promise<MessageInitShape<typeof WorkerFileDeleteResponseSchema>> {
+  const result = await deletePath(config, state, request.root, request.relativePath, request.recursive)
+  return { root: result.address.root, relativePath: result.address.relativePath }
+}
 
-  try {
-    if (!isFileTransferFrame(frames)) {
-      throw new Error('invalid file-transfer protocol marker')
-    }
-
-    command = requiredTextFrame(frames[1], 'command')
-    await match(command)
-      .with('WRITE_OPEN', () => handleWriteOpen(context, transferID, frames))
-      .with('DATA', () => handleData(context, transferID, frames))
-      .with('WRITE_COMMIT', () => handleWriteCommit(context, transferID))
-      .with('WRITE_ABORT', () => handleWriteAbort(context, transferID))
-      .with('READ_OPEN', () => handleReadOpen(context, transferID, frames))
-      .with('READ_ABORT', () => handleReadAbort(context, transferID))
-      .with('CREDIT', () => sendReadData(context, transferID, frames))
-      .with('STAT', async () => {
-        const result = await statPath(context.config, context.state, frames)
-        await sendFrame(context.sender, [
-          'STAT_OK',
-          transferID,
-          result.address.virtualPath,
-          result.kind,
-          u64Frame(result.size),
-          u64Frame(result.modifiedUnixMs),
-          result.fingerprint
-        ])
-      })
-      .with('DELETE', async () => {
-        const result = await deletePath(context.config, context.state, frames)
-        await sendFrame(context.sender, ['DELETE_OK', transferID, result.address.virtualPath])
-      })
-      .with('MOVE', async () => {
-        const result = await movePath(context.config, context.state, frames)
-        await sendFrame(context.sender, ['MOVE_OK', transferID, result.from.virtualPath, result.to.virtualPath])
-      })
-      .with('LIST', async () => {
-        const result = listPath(context.config, frames)
-        await sendFrame(context.sender, [
-          'LIST_OK',
-          transferID,
-          result.address.virtualPath,
-          boolFrame(result.recursive),
-          boolFrame(result.truncated),
-          encodeEntries(result.entries)
-        ])
-      })
-      .otherwise(() => {
-        throw new Error(`unsupported file lane command: ${command}`)
-      })
-    return
-  } catch (error) {
-    if (command === 'DATA') {
-      cleanupWriteTransfer(context, transferID)
-    }
-    await sendError(
-      context.sender,
-      transferID,
-      error instanceof FileTransferError ? error.code : 'operation_failed',
-      errorMessage(error)
-    )
+function transferResponse(result: {
+  address: { root: string; relativePath: string }
+  size: number
+  xxh3_128: string
+}): MessageInitShape<typeof WorkerFileTransferResponseSchema> {
+  return {
+    root: result.address.root,
+    relativePath: result.address.relativePath,
+    size: BigInt(result.size),
+    xxh3128: result.xxh3_128
   }
 }

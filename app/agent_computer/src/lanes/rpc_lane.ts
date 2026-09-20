@@ -104,8 +104,17 @@ import {
   WorkflowTaskSleepRequestSchema,
   WorkflowTaskSleepResponseSchema,
   WorkerEnvResolveRequestSchema,
-  WorkerEnvResolveResponseSchema
+  WorkerEnvResolveResponseSchema,
+  WorkerFileDeleteRequestSchema,
+  WorkerFileDeleteResponseSchema,
+  WorkerFileListRequestSchema,
+  WorkerFileListResponseSchema,
+  WorkerFileMoveRequestSchema,
+  WorkerFileMoveResponseSchema,
+  WorkerFileTransferRequestSchema,
+  WorkerFileTransferResponseSchema
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { FileTransferError } from './file/errors'
 
 /**
  * Worker-originated RuntimeFabric RPC operation registry.
@@ -173,7 +182,12 @@ export const rpcMethods = {
   webhookEndpointCancel: 'webhook.endpoint.cancel',
   skillsInstalledReplace: 'skills.installed.replace',
   skillsOverlayResolve: 'skills.overlay.resolve',
-  workerEnvResolve: 'worker_env.resolve'
+  workerEnvResolve: 'worker_env.resolve',
+  workerFilesPull: 'worker_files.pull',
+  workerFilesPush: 'worker_files.push',
+  workerFilesList: 'worker_files.list',
+  workerFilesMove: 'worker_files.move',
+  workerFilesDelete: 'worker_files.delete'
 } as const
 
 export type RPCMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
@@ -246,7 +260,12 @@ export const rpcOperationMeta = {
   [rpcMethods.webhookEndpointCancel]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsInstalledReplace]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsOverlayResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.workerEnvResolve]: { scope: 'worker_agent' }
+  [rpcMethods.workerEnvResolve]: { scope: 'worker_agent' },
+  [rpcMethods.workerFilesPull]: { owner: 'worker' },
+  [rpcMethods.workerFilesPush]: { owner: 'worker' },
+  [rpcMethods.workerFilesList]: { owner: 'worker' },
+  [rpcMethods.workerFilesMove]: { owner: 'worker' },
+  [rpcMethods.workerFilesDelete]: { owner: 'worker' }
 } as const satisfies Record<RPCMethod, RPCOperationMeta>
 
 /**
@@ -454,6 +473,26 @@ export const rpcSchemas = {
   [rpcMethods.workerEnvResolve]: {
     request: WorkerEnvResolveRequestSchema,
     response: WorkerEnvResolveResponseSchema
+  },
+  [rpcMethods.workerFilesPull]: {
+    request: WorkerFileTransferRequestSchema,
+    response: WorkerFileTransferResponseSchema
+  },
+  [rpcMethods.workerFilesPush]: {
+    request: WorkerFileTransferRequestSchema,
+    response: WorkerFileTransferResponseSchema
+  },
+  [rpcMethods.workerFilesList]: {
+    request: WorkerFileListRequestSchema,
+    response: WorkerFileListResponseSchema
+  },
+  [rpcMethods.workerFilesMove]: {
+    request: WorkerFileMoveRequestSchema,
+    response: WorkerFileMoveResponseSchema
+  },
+  [rpcMethods.workerFilesDelete]: {
+    request: WorkerFileDeleteRequestSchema,
+    response: WorkerFileDeleteResponseSchema
   }
 } as const satisfies Record<RPCMethod, { request: DescMessage; response: DescMessage }>
 
@@ -700,16 +739,35 @@ export class RuntimeRPCClient {
   }
 }
 
+/** One worker-owned operation: the handler that runs it and how its result is reported. */
+type WorkerRPCHandler<M extends WorkerOwnedRPCMethod> = (
+  request: MessageShape<(typeof rpcSchemas)[M]['request']>
+) => Promise<MessageInitShape<(typeof rpcSchemas)[M]['response']>>
+
 export type WorkerRPCHandlers = {
-  runAutomationJob?: (
-    request: MessageShape<typeof AutomationJobRunRequestSchema>
-  ) => Promise<MessageInitShape<typeof AutomationJobRunResponseSchema>>
-  maintainCodexLogs2?: (
-    request: MessageShape<typeof CodexLogs2DailyMaintenanceRequestSchema>
-  ) => Promise<MessageInitShape<typeof CodexLogs2DailyMaintenanceResponseSchema>>
-  renderWebFetch?: (
-    request: MessageShape<typeof RenderedWebFetchRequestSchema>
-  ) => Promise<MessageInitShape<typeof RenderedWebFetchResponseSchema>>
+  runAutomationJob?: WorkerRPCHandler<typeof rpcMethods.automationJobRun>
+  maintainCodexLogs2?: WorkerRPCHandler<typeof rpcMethods.codexLogs2DailyMaintenance>
+  renderWebFetch?: WorkerRPCHandler<typeof rpcMethods.renderedWebFetch>
+  pullWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesPull>
+  pushWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesPush>
+  listWorkerFiles?: WorkerRPCHandler<typeof rpcMethods.workerFilesList>
+  moveWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesMove>
+  deleteWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesDelete>
+}
+
+const workerRPCHandlerKeys = {
+  [rpcMethods.automationJobRun]: 'runAutomationJob',
+  [rpcMethods.codexLogs2DailyMaintenance]: 'maintainCodexLogs2',
+  [rpcMethods.renderedWebFetch]: 'renderWebFetch',
+  [rpcMethods.workerFilesPull]: 'pullWorkerFile',
+  [rpcMethods.workerFilesPush]: 'pushWorkerFile',
+  [rpcMethods.workerFilesList]: 'listWorkerFiles',
+  [rpcMethods.workerFilesMove]: 'moveWorkerFile',
+  [rpcMethods.workerFilesDelete]: 'deleteWorkerFile'
+} as const satisfies Record<WorkerOwnedRPCMethod, keyof WorkerRPCHandlers>
+
+function isWorkerOwnedRPCMethod(method: string): method is WorkerOwnedRPCMethod {
+  return method in workerRPCHandlerKeys
 }
 
 /**
@@ -721,64 +779,38 @@ export async function handleWorkerRPCRequest(
   request: RPCRequestMessage,
   handlers?: WorkerRPCHandlers
 ): Promise<void> {
-  if (request.method === rpcMethods.automationJobRun && handlers?.runAutomationJob) {
-    try {
-      const payload = fromBinary(AutomationJobRunRequestSchema, request.payload)
-      const result = await handlers.runAutomationJob(payload)
-      await sendWorkerRPCResponse(
-        sendEnvelope,
-        request,
-        toBinary(AutomationJobRunResponseSchema, create(AutomationJobRunResponseSchema, result))
-      )
-    } catch (error) {
-      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {
-        method: request.method
-      })
-    }
+  const method = request.method
+  const handler = isWorkerOwnedRPCMethod(method) ? handlers?.[workerRPCHandlerKeys[method]] : undefined
+  if (!isWorkerOwnedRPCMethod(method) || !handler) {
+    await sendWorkerRPCError(sendEnvelope, request, 'unknown_rpc_method', `unknown worker RPC method: ${method}`, {
+      method
+    })
     return
   }
 
-  if (request.method === rpcMethods.codexLogs2DailyMaintenance && handlers?.maintainCodexLogs2) {
-    try {
-      const payload = fromBinary(CodexLogs2DailyMaintenanceRequestSchema, request.payload)
-      const result = await handlers.maintainCodexLogs2(payload)
-      await sendWorkerRPCResponse(
-        sendEnvelope,
-        request,
-        toBinary(CodexLogs2DailyMaintenanceResponseSchema, create(CodexLogs2DailyMaintenanceResponseSchema, result))
-      )
-    } catch (error) {
-      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {
-        method: request.method
+  const schema = rpcSchemas[method]
+  try {
+    // The compiler cannot correlate rpcSchemas[M] request/response pairs
+    // through the method union, so the payload narrowing happens here once.
+    const payload = fromBinary(schema.request, request.payload)
+    const result = await (handler as WorkerRPCHandler<WorkerOwnedRPCMethod>)(payload as never)
+    await sendWorkerRPCResponse(
+      sendEnvelope,
+      request,
+      toBinary(schema.response, create(schema.response, result as MessageInitShape<DescMessage>))
+    )
+  } catch (error) {
+    if (error instanceof FileTransferError) {
+      await sendWorkerRPCError(sendEnvelope, request, error.code, error.message, { method, retryable: false })
+    } else if (method.startsWith('worker_files.')) {
+      await sendWorkerRPCError(sendEnvelope, request, 'operation_failed', errorMessage(error), {
+        method,
+        retryable: false
       })
+    } else {
+      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), { method })
     }
-    return
   }
-
-  if (request.method === rpcMethods.renderedWebFetch && handlers?.renderWebFetch) {
-    try {
-      const payload = fromBinary(RenderedWebFetchRequestSchema, request.payload)
-      const result = await handlers.renderWebFetch(payload)
-      await sendWorkerRPCResponse(
-        sendEnvelope,
-        request,
-        toBinary(RenderedWebFetchResponseSchema, create(RenderedWebFetchResponseSchema, result))
-      )
-    } catch (error) {
-      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {
-        method: request.method
-      })
-    }
-    return
-  }
-
-  await sendWorkerRPCError(
-    sendEnvelope,
-    request,
-    'unknown_rpc_method',
-    `unknown worker RPC method: ${request.method}`,
-    { method: request.method }
-  )
 }
 
 async function sendWorkerRPCResponse(

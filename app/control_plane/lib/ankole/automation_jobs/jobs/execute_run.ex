@@ -16,7 +16,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
   @run_timeout_ms 600_000
@@ -66,7 +66,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
          request = run_request(job, run, skills),
          {:ok, route} <- WorkerPool.file_worker_route(),
          {:ok, payload} <-
-           Broker.request_rpc(
+           WorkerRoute.request_rpc(
              route,
              "automation_job.run",
              encode(request),

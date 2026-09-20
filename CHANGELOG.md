@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.6.0-rc.1 (2026-09-20)
+
+- RuntimeFabric now carries Worker traffic over one Phoenix Channel per Worker. A Worker whose `ANKOLE_RUNTIME_FABRIC_ENDPOINT` is a `ws://` or `wss://` URL such as `ws://control-plane:4000/runtime-fabric/worker` connects through the channel and sends the shared key as the socket auth token; a `tcp://` endpoint keeps the ZeroMQ transport, and the control plane accepts both until every Worker has switched. Each stream carries a sequence number, the control plane acknowledges cumulatively with message and byte credits, and a Worker reconnect keeps its running turns. The protocol version stays 5. The Helm charts, Docker Compose, and the devkit default new Workers to the channel.
+- The control-plane release runs as a named Erlang node and the Helm charts add a headless Service, a generated release cookie, a fixed distribution port, a rolling update above one replica, a `preStop` drain pause, and an optional NetworkPolicy, so several control-plane Pods can route Worker commands to each other. Keep one replica until the control-plane singleton processes are verified on more than one node.
+- Worker files now move over HTTP instead of the RuntimeFabric connection. The control plane sends a one-time signed relay URL to the Worker through the new `worker_files.pull` and `worker_files.push` RPC methods, streams Console uploads and downloads without buffering a whole file, and lists, moves, and deletes through Worker-owned RPC methods. Operators must let Workers reach each control-plane Pod's internal HTTP origin; set `ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN` or inject `POD_IP`, and the Helm charts, Docker Compose, and devkit now do so. The raw multipart file frames, the zstd block codec, and the control-plane file transfer lane are removed.
+
 ## Version 1.5.3-rc.1 (2026-09-19)
 
 - Internal runtime and SDK state now use declared struct fields and explicit provider hooks, and unused failure, trajectory, and actor-runtime paths are removed without changing the external response or storage contract.

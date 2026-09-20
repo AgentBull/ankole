@@ -21,7 +21,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.TurnStartFailure
   alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.I18n
@@ -554,8 +554,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
     maybe_start_preview(actor_event, conversation)
     route = assignment.transport_route || assignment.worker_id
+    target = %{worker_id: assignment.worker_id, transport_route: route}
 
-    case Broker.send_mandatory(route, envelope) do
+    case WorkerRoute.send_mandatory(target, envelope) do
       {:ok, :sent_or_queued} ->
         Enum.each(deliveries, &mark_delivery_sent(&1.id, "sent_or_queued"))
         {:ok, Map.put(result, :send_outcome, "sent_or_queued")}

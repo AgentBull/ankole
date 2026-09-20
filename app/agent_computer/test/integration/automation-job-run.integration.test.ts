@@ -205,7 +205,8 @@ function runFixture(source: string): {
     root,
     directory,
     config: {
-      endpoint: 'tcp://127.0.0.1:6010',
+      endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
+      transport: 'channel',
       workerAuthKey: 'test-secret',
       workerID: 'worker-1',
       incarnationID: 'incarnation-1',

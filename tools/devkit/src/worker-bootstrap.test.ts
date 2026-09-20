@@ -15,7 +15,7 @@ const workerSpec: WorkerBootstrapSpec = {
   },
   env: {
     ANKOLE_AGENTS_ROOT: '/agents',
-    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://host.docker.internal:6010',
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'ws://host.docker.internal:4000/runtime-fabric/worker',
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'secret',
     WORKER_ID: 'worker-a'
   },
@@ -68,7 +68,7 @@ describe('buildDockerRunArgs', () => {
       '-e',
       'ANKOLE_AGENTS_ROOT=/agents',
       '-e',
-      'ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host.docker.internal:6010',
+      'ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://host.docker.internal:4000/runtime-fabric/worker',
       '-e',
       'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret',
       '-e',

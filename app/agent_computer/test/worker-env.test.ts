@@ -13,15 +13,20 @@ const turnStart = {
 
 describe('parseWorkerEnv Skill roots', () => {
   const requiredEnv = {
-    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'ws://127.0.0.1:4000/runtime-fabric/worker',
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ' secret with / symbols ',
     WORKER_ID: 'worker-a'
   }
 
   it('keeps endpoint and auth as separate bootstrap facts', () => {
     expect(parseWorkerEnv(requiredEnv)).toMatchObject({
-      endpoint: 'tcp://127.0.0.1:6010',
+      endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
+      transport: 'channel',
       workerAuthKey: ' secret with / symbols '
+    })
+    expect(parseWorkerEnv({ ...requiredEnv, ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010' })).toMatchObject({
+      endpoint: 'tcp://127.0.0.1:6010',
+      transport: 'zmq'
     })
   })
 

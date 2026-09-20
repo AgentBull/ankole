@@ -52,15 +52,14 @@ The Elixir control plane runs Phoenix and OTP. It writes to PostgreSQL, supervis
 services, stores provider credentials, and serves the public APIs.
 
 The Rust kernel provides shared native functions. These functions handle
-cryptography, CEL evaluation, protobuf validation, compression, and ZeroMQ
-sockets. The kernel does not decide or store a work item's state.
+cryptography, CEL evaluation, protobuf validation, and compression. The kernel does not decide or store a work item's state.
 
 Agent Computer runs in a Bun worker. It executes one turn, runs tools and
 sandboxes, and manages Codex sessions. Its local state can be rebuilt.
 It does not write control-plane records.
 
 RuntimeFabric carries live traffic. PostgreSQL records completed decisions and
-work. ZeroMQ cannot provide earlier traffic during recovery.
+work. The worker connection cannot provide earlier traffic during recovery.
 
 ## Agent Filesystem
 
@@ -241,7 +240,7 @@ credentials.
 | [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
 | [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console (Chinese) |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |
-| [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ messages, RPC calls, and file transfer |
+| [RuntimeFabric](design-docs/RuntimeFabric.md) | Worker channel messages, RPC calls, and file relay |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |
 | [Automation Jobs](design-docs/AutomationJobs.md) | Agent-owned scripts that consume a trigger without a model turn |

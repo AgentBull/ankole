@@ -39,12 +39,23 @@ export function buildControlPlaneEnv(
   const aiGatewayBaseURL =
     env.ANKOLE_AI_GATEWAY_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
 
+  // The control plane binds both transports: the Worker Channel on the HTTP
+  // port and the ZeroMQ ROUTER for a Worker that has not switched.
   return {
     ...env,
     PORT: String(opts.port),
     ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: `tcp://127.0.0.1:${opts.fabricPort}`,
+    ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: `http://host.docker.internal:${opts.port}`,
     ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL
   }
+}
+
+export type WorkerTransport = 'ws' | 'tcp'
+
+export function workerEndpoint(transport: WorkerTransport, port: number, fabricPort: number): string {
+  return transport === 'tcp'
+    ? `tcp://host.docker.internal:${fabricPort}`
+    : `ws://host.docker.internal:${port}/runtime-fabric/worker`
 }
 
 export function buildManagedWorkerPsArgs(containerName = defaultContainerName): string[] {
@@ -170,12 +181,12 @@ async function waitForTCPPort(host: string, port: number, timeoutMs: number, abo
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
-    if (aborted()) throw new Error(`control plane exited before RuntimeFabric bound ${host}:${port}`)
+    if (aborted()) throw new Error(`control plane exited before it listened on ${host}:${port}`)
     if (await canConnect(host, port)) return
     await new Promise(resolve => setTimeout(resolve, 250))
   }
 
-  throw new Error(`timed out waiting for RuntimeFabric on ${host}:${port}`)
+  throw new Error(`timed out waiting for the control plane on ${host}:${port}`)
 }
 
 function canConnect(host: string, port: number): Promise<boolean> {
@@ -251,12 +262,17 @@ async function runDev(flags: {
   build: boolean
   port: number
   'fabric-port': number
+  'worker-transport': string
   'worker-id': string
   'worker-image'?: string
   'agents-root': string
 }): Promise<void> {
   const port = flags.port
   const fabricPort = flags['fabric-port']
+  const workerTransport = flags['worker-transport']
+  if (workerTransport !== 'ws' && workerTransport !== 'tcp') {
+    throw new Error(`--worker-transport must be ws or tcp, got ${workerTransport}`)
+  }
   const workerImage =
     flags['worker-image'] ?? (await resolveLocalWorkerImage({ scope: 'source-mounted', allowBuild: flags.build }))
   const workerID = flags['worker-id']
@@ -271,7 +287,7 @@ async function runDev(flags: {
   if (flags.migrate) await runAppMigrations()
 
   const workerSpec = await renderWorkerBootstrapSpec({
-    endpoint: `tcp://host.docker.internal:${fabricPort}`,
+    endpoint: workerEndpoint(workerTransport, port, fabricPort),
     workerID,
     image: workerImage,
     agentsRoot
@@ -301,7 +317,7 @@ async function runDev(flags: {
 
   try {
     controlPlane = startControlPlane(controlPlaneEnv)
-    await waitForTCPPort('127.0.0.1', fabricPort, 30_000, () => controlPlane?.exitCode !== null)
+    await waitForTCPPort('127.0.0.1', port, 30_000, () => controlPlane?.exitCode !== null)
     worker = startWorker(workerSpec)
 
     const exit = await waitForFirstExit([
@@ -350,8 +366,13 @@ export function devCommand(): Crust {
       },
       'fabric-port': {
         type: 'number',
-        description: 'RuntimeFabric TCP bind port on 127.0.0.1.',
+        description: 'ZeroMQ ROUTER bind port on 127.0.0.1 for a Worker that has not switched to the Channel.',
         default: defaultFabricPort
+      },
+      'worker-transport': {
+        type: 'string',
+        description: 'Worker transport: ws (Worker Channel, default) or tcp (ZeroMQ).',
+        default: 'ws'
       },
       'worker-id': {
         type: 'string',

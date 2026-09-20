@@ -28,7 +28,6 @@ describe('@ankole/kernel', () => {
 
     const source = await declarations.text()
     expect(source).toContain('sendEnvelope(envelope: Buffer): void')
-    expect(source).toContain('sendFileFrame(frames: Buffer[]): void')
     expect(source).toContain('recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>')
     expect(source).toContain('stop(): void')
     expect(source).not.toContain('recvRaw(timeoutMs')
@@ -73,17 +72,7 @@ describe('@ankole/kernel', () => {
     expect(diff).toContain('+TWO\n')
   })
 
-  it('compresses and bounds zstd worker-file blocks through the Bun bridge', async () => {
-    const payload = Buffer.from('worker-file-block'.repeat(128))
-    const compressed = await kernel.zstdCompressBlock(payload, 3)
-    const decompressed = await kernel.zstdDecompressBlock(compressed, payload.length)
-
-    expect(Buffer.from(decompressed).equals(payload)).toBe(true)
-    await expect(kernel.zstdDecompressBlock(compressed, 8)).rejects.toThrow(/decompressed block exceeds max_out/)
-  })
-
   it('keeps the RuntimeFabric dealer surface async and physical', () => {
-    expect(kernel.RuntimeFabricDealer.prototype.sendFileFrame).toBeFunction()
     expect(kernel.RuntimeFabricDealer.prototype.recvRawAsync).toBeFunction()
     expect(kernel.RuntimeFabricDealer.prototype.recv).toBeUndefined()
     expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeUndefined()
@@ -162,8 +151,6 @@ describe('@ankole/kernel', () => {
   it('validates host-encoded envelope bytes as the single semantic checker', () => {
     kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v5.bin'))
     kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v5.bin'))
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_brain_recall_request.v5.bin'))
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_brain_recall_response.v5.bin'))
     kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_skill_overlay_resolve_request.v5.bin'))
     kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_skill_overlay_resolve_response.v5.bin'))
 

@@ -26,9 +26,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.WorkerFilesFake
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
@@ -464,45 +463,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                })
 
       route = "telegram-inbound-attachment-#{System.unique_integer([:positive])}"
-      worker = insert_ready_worker!(route)
-      route_auth = %{route: route, worker_id: worker.worker_id}
-      {:ok, stored_path} = Agent.start_link(fn -> nil end)
-
-      :ok =
-        Broker.register_local_worker(route, fn
-          {:file_transfer_lane, [protocol, "WRITE_OPEN", transfer_id, path, _size]} ->
-            Agent.update(stored_path, fn _current -> path end)
-            send(parent, {:materialized_attachment_path, path})
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_READY",
-              transfer_id,
-              u64(4 * 1024 * 1024)
-            ])
-
-          {:file_transfer_lane, [protocol, "DATA", transfer_id, _sequence, _offset, _eof, chunk]} ->
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "CREDIT",
-              transfer_id,
-              u64(byte_size(chunk))
-            ])
-
-          {:file_transfer_lane, [protocol, "WRITE_COMMIT", transfer_id]} ->
-            path = Agent.get(stored_path, & &1)
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_COMMITTED",
-              transfer_id,
-              path,
-              u64(byte_size("attachment")),
-              "8db84f6b892cfa6bdad930c907ecb808"
-            ])
-        end)
-
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      insert_ready_worker!(route)
+      WorkerFilesFake.start!(route, notify: parent)
 
       message =
         private_message(9002, nil)
@@ -1441,8 +1403,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     |> byte_size()
     |> div(2)
   end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
 
   defp preview_update(request) do
     {:ok, adapter} = ReplyPreviewAdapter.from_module(ReplyPreview)

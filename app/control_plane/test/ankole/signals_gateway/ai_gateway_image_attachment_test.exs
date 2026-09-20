@@ -10,13 +10,12 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Ecto.UUIDv7
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.WorkerFilesFake
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Repo
 
-  @credit_window 4 * 1024 * 1024
   @png Base.decode64!(
          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
        )
@@ -24,17 +23,8 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
   setup do
     route = "image-attachment-test-#{System.unique_integer([:positive])}"
     worker_id = "worker-#{route}"
-    route_auth = %{route: route, worker_id: worker_id}
-    stored = start_supervised!({Agent, fn -> %{transfers: %{}, writes: []} end})
-
     insert_ready_worker!(worker_id, route)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_write(route_auth, stored, frames)
-      end)
-
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    stored = WorkerFilesFake.start!(route)
 
     {:ok, route: route, stored: stored}
   end
@@ -185,7 +175,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     assert {:ok, response} = StatefulResponses.commit_complete(response, [image_item(id)])
 
     Repo.delete_all(AgentComputerWorker)
-    Broker.unregister_local_worker(route)
+    WorkerRoute.unregister_local_worker(route)
 
     assert {:error, {:generated_image_materialization_failed, ^id, :no_worker_available}} =
              AIGatewayLink.load_turn_completion(
@@ -227,7 +217,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     end)
   end
 
-  defp writes(stored), do: Agent.get(stored, &Enum.reverse(&1.writes))
+  defp writes(stored), do: WorkerFilesFake.writes(stored)
 
   defp insert_ready_worker!(worker_id, route) do
     now = DateTime.utc_now(:microsecond)
@@ -245,64 +235,4 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
       metadata: %{"runtime" => "test"}
     })
   end
-
-  defp respond_to_write(route_auth, stored, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"WRITE_OPEN", [path, _original_size]} ->
-        Agent.update(stored, fn state ->
-          put_in(state, [:transfers, transfer_id], %{path: path, chunks: []})
-        end)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_READY",
-          transfer_id,
-          u64(@credit_window)
-        ])
-
-      {"DATA", [_sequence, _offset, _eof, chunk]} ->
-        Agent.update(stored, fn state ->
-          update_in(state, [:transfers, transfer_id, :chunks], &[chunk | &1])
-        end)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "CREDIT",
-          transfer_id,
-          u64(byte_size(chunk))
-        ])
-
-      {"WRITE_COMMIT", []} ->
-        %{path: path, chunks: chunks} = Agent.get(stored, & &1.transfers[transfer_id])
-        content = zstd_decode_chunks!(chunks)
-
-        Agent.update(stored, fn state ->
-          %{
-            state
-            | transfers: Map.delete(state.transfers, transfer_id),
-              writes: [%{path: path, content: content} | state.writes]
-          }
-        end)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_COMMITTED",
-          transfer_id,
-          path,
-          u64(byte_size(content)),
-          ""
-        ])
-    end
-  end
-
-  defp zstd_decode_chunks!(chunks) do
-    Enum.reduce(chunks, [], fn chunk, acc ->
-      decoded = Ankole.Kernel.zstd_decompress_block(chunk, 2 * 1024 * 1024)
-      true = is_binary(decoded)
-      [decoded | acc]
-    end)
-    |> IO.iodata_to_binary()
-  end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
 end

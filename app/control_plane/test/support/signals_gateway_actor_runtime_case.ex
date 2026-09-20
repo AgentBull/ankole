@@ -65,7 +65,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker, warn: false
-      alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker, warn: false
+      alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap, warn: false
       alias Ankole.Repo, warn: false

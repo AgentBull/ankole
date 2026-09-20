@@ -25,7 +25,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControl do
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
@@ -36,6 +36,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControl do
 
   @type control :: %{
           route: String.t(),
+          worker_id: String.t() | nil,
           turn_ref: TurnRef.t(),
           verb: verb(),
           reason: String.t() | nil,
@@ -71,6 +72,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControl do
     |> Enum.map(fn delivery ->
       %{
         route: route(delivery),
+        worker_id: delivery.worker_id,
         turn_ref: TurnRef.from_delivery(delivery),
         verb: verb,
         reason: reason,
@@ -88,8 +90,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnControl do
 
   defp send_control(%{route: route, turn_ref: %TurnRef{} = turn_ref, verb: verb} = control) do
     envelope = TurnEnvelope.turn_control(turn_ref, Atom.to_string(verb), wire_payload(control))
+    target = %{worker_id: Map.get(control, :worker_id), transport_route: route}
 
-    case Broker.send_mandatory(route, envelope) do
+    case WorkerRoute.send_mandatory(target, envelope) do
       {:ok, :sent_or_queued} ->
         Map.put(control, :send_outcome, "sent_or_queued")
 

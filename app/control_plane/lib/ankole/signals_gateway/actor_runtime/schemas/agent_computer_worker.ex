@@ -81,7 +81,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker do
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     # worker_id is the stable pool identity authenticated by RuntimeFabric,
     # incarnation_id identifies one concrete process lifetime, and
-    # transport_route is the live ZeroMQ address used for replies. Uniqueness
+    # transport_route is the Worker Channel connection that reaches it. Uniqueness
     # stops two rows claiming the same stable identity or route to send to.
     |> unique_constraint([:worker_id], name: :agent_computer_workers_worker_id_index)
     |> unique_constraint([:transport_route], name: :agent_computer_workers_transport_route_index)

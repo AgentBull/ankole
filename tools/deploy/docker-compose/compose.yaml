@@ -12,6 +12,7 @@ x-control-plane-environment: &control-plane-environment
   ANKOLE_LIBRARY_ROOT: /app/app/library
   ANKOLE_AI_GATEWAY_BASE_URL: http://control-plane:4000/api/v1/ai-gateway
   ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: tcp://0.0.0.0:6010
+  ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: http://control-plane:4000
 
 x-logging: &default-logging
   driver: json-file
@@ -100,7 +101,9 @@ services:
     restart: unless-stopped
     environment:
       WORKER_ID: ${ANKOLE_WORKER_ID:-worker-local-1}
-      ANKOLE_RUNTIME_FABRIC_ENDPOINT: tcp://control-plane:6010
+      # ws:// selects the Worker Channel; tcp://control-plane:6010 keeps a
+      # Worker image on ZeroMQ until it switches.
+      ANKOLE_RUNTIME_FABRIC_ENDPOINT: ${ANKOLE_RUNTIME_FABRIC_ENDPOINT:-ws://control-plane:4000/runtime-fabric/worker}
       ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?Set ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY in .env}
       ANKOLE_AGENTS_ROOT: /agents
       ANKOLE_MAX_CONCURRENT_TURNS: ${ANKOLE_MAX_CONCURRENT_TURNS:-9}

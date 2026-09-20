@@ -9,6 +9,7 @@
         "existingSecret": { "type": "string" },
         "ankoleSecretBase": { "type": "string" },
         "workerAuthKey": { "type": "string" },
+        "releaseCookie": { "type": "string" },
         "databaseURL": { "type": "string" },
         "postgresqlPassword": { "type": "string" }
       }
@@ -17,9 +18,20 @@
       "type": "object",
       "required": ["replicaCount", "image", "publicHost"],
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "distributionPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "clusterDomain": { "type": "string", "minLength": 1 },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 10 },
         "publicHost": { "type": "string", "minLength": 1 },
         "image": { "$ref": "#/$defs/image" }
+      }
+    },
+    "runtimeFabric": {
+      "type": "object",
+      "required": ["port", "bindEndpoint"],
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "bindEndpoint": { "type": "string", "pattern": "^tcp://" }
       }
     },
     "worker": {
@@ -27,6 +39,7 @@
       "required": ["replicaCount", "image", "agents"],
       "properties": {
         "replicaCount": { "type": "integer", "minimum": 1 },
+        "runtimeFabricEndpoint": { "type": "string", "pattern": "^$|^(ws|wss|tcp)://" },
         "image": { "$ref": "#/$defs/image" },
         "agents": {
           "type": "object",
@@ -70,6 +83,13 @@
             }
           }
         }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" }
       }
     },
     "ingress": {

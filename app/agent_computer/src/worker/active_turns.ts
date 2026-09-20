@@ -418,7 +418,7 @@ async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn
   } catch (error) {
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       actor_event_id: active.turnStart.turn.actor_event_id,
-      reason: isRuntimeFabricTransportError(error, 'backpressure') ? 'backpressure' : 'send_error',
+      reason: isRuntimeFabricTransportError(error) ? error.code : 'send_error',
       error: toError(error)
     })
   }

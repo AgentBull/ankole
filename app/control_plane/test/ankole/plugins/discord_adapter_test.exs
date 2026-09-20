@@ -100,9 +100,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.WorkerFilesFake
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
@@ -787,45 +786,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                })
 
       route = "discord-inbound-attachment-#{System.unique_integer([:positive])}"
-      worker = insert_ready_worker!(route)
-      route_auth = %{route: route, worker_id: worker.worker_id}
-      {:ok, stored_path} = Agent.start_link(fn -> nil end)
-
-      :ok =
-        Broker.register_local_worker(route, fn
-          {:file_transfer_lane, [protocol, "WRITE_OPEN", transfer_id, path, _size]} ->
-            Agent.update(stored_path, fn _current -> path end)
-            send(parent, {:materialized_attachment_path, path})
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_READY",
-              transfer_id,
-              u64(4 * 1024 * 1024)
-            ])
-
-          {:file_transfer_lane, [protocol, "DATA", transfer_id, _sequence, _offset, _eof, chunk]} ->
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "CREDIT",
-              transfer_id,
-              u64(byte_size(chunk))
-            ])
-
-          {:file_transfer_lane, [protocol, "WRITE_COMMIT", transfer_id]} ->
-            path = Agent.get(stored_path, & &1)
-
-            FileTransferLane.handle_worker_frame(route_auth, [
-              protocol,
-              "WRITE_COMMITTED",
-              transfer_id,
-              path,
-              u64(byte_size("attachment")),
-              "8db84f6b892cfa6bdad930c907ecb808"
-            ])
-        end)
-
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      insert_ready_worker!(route)
+      WorkerFilesFake.start!(route, notify: parent)
 
       message =
         dm_message("9002", nil)
@@ -1808,46 +1770,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     port
   end
 
-  # The outbox reads attachment bytes out of the agent's user-files lane, so a
-  # ready worker has to answer the read frames for that lane.
+  # The outbox reads attachment bytes through WorkerFiles, so a ready worker
+  # has to answer the push relay for that path.
   defp register_file_reader(route, content) do
-    worker = insert_ready_worker!(route)
-    route_auth = %{route: route, worker_id: worker.worker_id}
-    wire = Ankole.Kernel.zstd_compress_block(content, 3)
-
-    :ok =
-      Broker.register_local_worker(route, fn
-        {:file_transfer_lane, [protocol, "READ_OPEN", transfer_id, path, _fingerprint]} ->
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "READ_READY",
-            transfer_id,
-            path,
-            u64(byte_size(content)),
-            ""
-          ])
-
-        {:file_transfer_lane, [protocol, "CREDIT", transfer_id, _credit]} ->
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "DATA",
-            transfer_id,
-            u64(0),
-            u64(0),
-            <<1>>,
-            wire
-          ])
-
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "READ_DONE",
-            transfer_id,
-            u64(1),
-            u64(byte_size(wire))
-          ])
-      end)
-
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    insert_ready_worker!(route)
+    WorkerFilesFake.start!(route, on_read: fn _path -> {:ok, content} end)
   end
 
   defp insert_ready_worker!(route) do
@@ -1884,8 +1811,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     |> byte_size()
     |> div(2)
   end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
 
   defp preview_update(request) do
     {:ok, adapter} = ReplyPreviewAdapter.from_module(ReplyPreview)

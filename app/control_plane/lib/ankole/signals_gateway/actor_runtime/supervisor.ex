@@ -3,13 +3,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   Supervision root for control-plane actor-runtime services.
 
   This supervisor is the failure domain for the actor runtime. It uses
-  `:one_for_one`: each child is an independent concern (transport, naming, and
-  per-actor controllers), so one crashing does not invalidate the others' state.
-  Durable correctness lives in PostgreSQL, not in these processes.
+  `:one_for_one`: each child is an independent concern (route directory,
+  naming, per-actor controllers, and the local-route broker), so one crashing
+  does not invalidate the others' state. Durable correctness lives in
+  PostgreSQL, not in these processes.
   """
 
   use Supervisor
 
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
 
   @doc """
@@ -25,34 +27,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   def init(opts) do
     WorkerAuthKey.ensure!()
 
-    # Start every inbound consumer before the socket-owning broker. Domain work
-    # runs in the dispatcher, supervised RPC tasks, or per-actor controllers;
-    # the broker never calls back into a lane while it owns the ROUTER process.
+    # Start every inbound consumer before the route exit. Domain work runs in the
+    # dispatcher, supervised RPC tasks, or per-actor controllers; neither a
+    # Worker Channel nor the ROUTER owner calls back into a lane.
     children = [
-      Ankole.SignalsGateway.ActorRuntime.FileTransferLane,
+      Ankole.SignalsGateway.ActorRuntime.WorkerTracker,
       {Task.Supervisor, name: Ankole.SignalsGateway.ActorRuntime.InboundTaskSupervisor},
       Ankole.SignalsGateway.ActorRuntime.ActorDirectory,
       Ankole.SignalsGateway.ActorRuntime.SessionSupervisor,
       Ankole.SignalsGateway.ActorRuntime.InboundDispatcher,
-      broker_child(opts)
+      route_child(opts)
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  # Decides whether the broker boots with a real ZeroMQ ROUTER or stays in
-  # local-route-only mode. No endpoint configured (the test default) -> start the
-  # broker bare so local route handlers can stand in for workers. An endpoint
-  # configured -> hand the broker router opts so it binds the production socket.
-  # A malformed config is an operator error at boot, so we crash startup loudly
-  # rather than silently come up with no transport.
-  defp broker_child(opts) do
+  # The ZeroMQ ROUTER exists only while Workers still use it. No bind endpoint
+  # configured (the test default) means the Worker Channel is the only
+  # transport. A malformed config is an operator error at boot.
+  defp route_child(opts) do
     case router_opts(opts) do
       {:ok, nil} ->
-        Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+        WorkerRoute
 
       {:ok, router_opts} ->
-        {Ankole.SignalsGateway.ActorRuntime.Transport.Broker, router: router_opts}
+        {WorkerRoute, router: router_opts}
 
       {:error, reason} ->
         raise ArgumentError, "invalid actor runtime router config: #{inspect(reason)}"
@@ -68,11 +67,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   defp normalize_router_opts(value) when value in [nil, false, []], do: {:ok, nil}
 
   defp normalize_router_opts(opts) when is_list(opts) do
-    {endpoint, opts} = Keyword.pop(opts, :bind_endpoint)
-
-    case endpoint do
+    case Keyword.get(opts, :bind_endpoint) do
       endpoint when is_binary(endpoint) and endpoint != "" ->
-        router_opts_with_auth_key(endpoint, opts)
+        {:ok, opts |> Keyword.delete(:bind_endpoint) |> Keyword.put(:endpoint, endpoint)}
 
       _value ->
         {:error, :missing_endpoint}
@@ -80,12 +77,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   end
 
   defp normalize_router_opts(_value), do: {:error, :invalid_router_config}
-
-  # Resolves the worker auth key before the native ROUTER starts. Rust receives
-  # only the current in-memory key; AppConfigure remains the durable owner.
-  defp router_opts_with_auth_key(endpoint, opts) do
-    opts = Keyword.put_new(opts, :worker_auth_key, WorkerAuthKey.ensure!())
-
-    {:ok, Keyword.put(opts, :endpoint, endpoint)}
-  end
 end

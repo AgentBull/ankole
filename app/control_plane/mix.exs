@@ -96,6 +96,7 @@ defmodule Ankole.MixProject do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
       {:phoenix, "~> 1.8.13"},
+      {:phoenix_pubsub, "~> 2.1"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},

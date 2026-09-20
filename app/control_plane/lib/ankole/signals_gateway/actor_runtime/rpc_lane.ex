@@ -243,7 +243,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   defp presence(_value), do: nil
 
-  # RuntimeFabric's Broker owns the shared ROUTER for every worker. A defect or
+  # WorkerRoute is the shared exit for every worker. A defect or
   # unexpected database failure in one semantic method must fail that RPC, not
   # terminate the transport owner and disconnect the whole worker pool.
   defp dispatch_method_safely(request, ctx) do

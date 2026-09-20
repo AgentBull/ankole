@@ -1,21 +1,13 @@
 defmodule Ankole.WorkerFilesTest do
   use Ankole.DataCase, async: true
 
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
-  alias Ankole.Repo
   alias Ankole.WorkerFiles
-
-  @credit_window 4 * 1024 * 1024
+  alias Ankole.WorkerFiles.Relay
+  alias Ankole.WorkerFilesFake
 
   setup do
-    route = "worker-files-test-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "worker-files-test"}
-
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
-
-    {:ok, route: route, route_auth: route_auth}
+    {:ok, route: "worker-files-test-#{System.unique_integer([:positive])}"}
   end
 
   test "rejects roots outside the declared policy without touching a route" do
@@ -42,71 +34,139 @@ defmodule Ankole.WorkerFilesTest do
 
     assert {:error, {:file_too_large, ^oversize, ^max_bytes}} =
              WorkerFiles.put("user_files", "inbox/huge.bin", content)
-  end
 
-  test "put chooses a ready worker route and round-trips bounded content", %{
-    route: route,
-    route_auth: route_auth
-  } do
-    insert_ready_worker!(route)
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil, read_wire: nil} end)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_put_get(route_auth, stored, frames)
-      end)
-
-    assert {:ok, %{"command" => "WRITE_COMMITTED", "relative_path" => "inbox/a.txt"}} =
-             WorkerFiles.put("user_files", "inbox/a.txt", "hello world")
-
-    compressed =
-      Agent.get(stored, fn state -> state.chunks |> Enum.reverse() |> IO.iodata_to_binary() end)
-
-    refute compressed == "hello world"
-    assert Agent.get(stored, fn state -> zstd_decode_chunks!(state.chunks) end) == "hello world"
-
-    # The read side runs under the module's byte bound: READ_READY reports a
-    # size below the bound, so credit is granted and content streams back.
-    assert {:ok, %{"content" => "hello world"}} = WorkerFiles.get("user_files", "inbox/a.txt")
-  end
-
-  test "get rejects a file over max_transfer_bytes on READ_READY authoritative size", %{
-    route: route,
-    route_auth: route_auth
-  } do
-    insert_ready_worker!(route)
-    parent = self()
-    max_bytes = WorkerFiles.max_transfer_bytes()
-    oversize = max_bytes + 1
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_oversize_read(route_auth, parent, oversize, frames)
-      end)
+    path = Path.join(System.tmp_dir!(), "ankole-oversize-#{System.unique_integer([:positive])}")
+    File.write!(path, content)
+    on_exit(fn -> File.rm(path) end)
 
     assert {:error, {:file_too_large, ^oversize, ^max_bytes}} =
-             WorkerFiles.get("user_files", "inbox/huge.bin")
-
-    assert_receive {:worker_files_read_aborted, _transfer_id}, 100
-    refute_received {:worker_files_unexpected_credit, _transfer_id}
+             WorkerFiles.put("user_files", "inbox/huge.bin", {:file, path})
   end
 
-  test "worker_id pins the route to that worker", %{route: route, route_auth: route_auth} do
+  test "put relays binary and file sources through the signed URL", %{route: route} do
+    insert_ready_worker!(route)
+    fake = WorkerFilesFake.start!(route)
+
+    assert {:ok, %{"relative_path" => "inbox/a.txt", "size" => 11, "xxh3_128" => fingerprint}} =
+             WorkerFiles.put("user_files", "inbox/a.txt", "hello world")
+
+    assert is_binary(fingerprint)
+
+    path = Path.join(System.tmp_dir!(), "ankole-put-#{System.unique_integer([:positive])}")
+    File.write!(path, "from a file")
+    on_exit(fn -> File.rm(path) end)
+
+    assert {:ok, %{"relative_path" => "inbox/b.txt", "size" => 11}} =
+             WorkerFiles.put("user_files", "inbox/b.txt", {:file, path})
+
+    assert %{
+             "/user_files/inbox/a.txt" => "hello world",
+             "/user_files/inbox/b.txt" => "from a file"
+           } = WorkerFilesFake.files(fake)
+
+    assert {:ok, %{"content" => "hello world", "size" => 11}} =
+             WorkerFiles.get("user_files", "inbox/a.txt")
+  end
+
+  test "stream delivers a multi-chunk file in order", %{route: route} do
+    insert_ready_worker!(route)
+    content = :crypto.strong_rand_bytes(3 * 1024 * 1024)
+    WorkerFilesFake.start!(route, files: %{"/user_files/inbox/big.bin" => content})
+
+    assert {:ok, %{"size" => size, "body" => body}} =
+             WorkerFiles.stream("user_files", "inbox/big.bin")
+
+    assert size == byte_size(content)
+    chunks = Enum.to_list(body)
+    assert length(chunks) > 1
+    assert IO.iodata_to_binary(chunks) == content
+    assert Registry.count(Ankole.WorkerFiles.RelayRegistry) == 0
+  end
+
+  test "push relay rejects a body over the byte bound before reading it", %{route: route} do
+    insert_ready_worker!(route)
+    max_bytes = WorkerFiles.max_transfer_bytes()
+
+    WorkerFilesFake.start!(route,
+      on_read: fn _path -> {:ok, :binary.copy(<<0>>, max_bytes + 1)} end
+    )
+
+    assert {:error, %{"code" => "file_too_large"}} =
+             WorkerFiles.get("user_files", "inbox/huge.bin")
+  end
+
+  test "push relay refuses a tampered token", %{route: route} do
+    insert_ready_worker!(route)
+    content = "secret bytes"
+
+    WorkerFilesFake.start!(route,
+      files: %{"/user_files/inbox/a.txt" => content},
+      tamper_token: true
+    )
+
+    assert {:error, %{"code" => "relay_failed", "message" => message}} =
+             WorkerFiles.get("user_files", "inbox/a.txt")
+
+    assert message =~ "401"
+  end
+
+  test "worker errors surface with their code", %{route: route} do
+    insert_ready_worker!(route)
+    WorkerFilesFake.start!(route)
+
+    assert {:error, %{"code" => "file_not_found"}} =
+             WorkerFiles.get("user_files", "inbox/missing.txt")
+
+    assert {:error, %{"code" => "file_not_found"}} =
+             WorkerFiles.delete("user_files", "inbox/missing.txt")
+  end
+
+  test "list, move, and delete are worker-owned RPCs", %{route: route} do
+    insert_ready_worker!(route)
+
+    WorkerFilesFake.start!(route,
+      files: %{"/agent_sessions/agent-1/sessions/session-1/log.txt" => "logs"}
+    )
+
+    assert {:ok,
+            %{
+              "root" => "agent_sessions",
+              "relative_path" => "agent-1/sessions",
+              "truncated" => false,
+              "entries" => [
+                %{
+                  "relative_path" => "agent-1/sessions/session-1/log.txt",
+                  "kind" => "file",
+                  "size" => 4
+                }
+              ]
+            }} = WorkerFiles.list("agent_sessions", "agent-1/sessions")
+
+    assert {:ok, %{"moved" => true, "to_relative_path" => "agent-1/sessions/archive/log.txt"}} =
+             WorkerFiles.move(
+               "agent_sessions",
+               "agent-1/sessions/session-1/log.txt",
+               "agent-1/sessions/archive/log.txt"
+             )
+
+    assert {:ok, %{"deleted" => true}} =
+             WorkerFiles.delete("agent_sessions", "agent-1/sessions/archive/log.txt")
+
+    assert {:ok, %{"entries" => []}} = WorkerFiles.list("agent_sessions", "agent-1/sessions")
+  end
+
+  test "worker_id pins the route to that worker", %{route: route} do
     %{worker_id: worker_id} = insert_ready_worker!(route)
+    WorkerFilesFake.start!(route)
 
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_list(route_auth, frames)
-      end)
-
-    assert {:ok, %{"command" => "LIST", "root" => "agent_sessions"}} =
+    assert {:ok, %{"root" => "agent_sessions"}} =
              WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: worker_id)
 
     assert {:error, :worker_not_found} =
              WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: "missing-worker")
   end
 
-  test "Codex state is not exposed as a File Lane root" do
+  test "Codex state is not exposed as a worker file root" do
     refute "codex_accounts" in WorkerFiles.roots()
 
     assert {:error, {:unsupported_file_root, "codex_accounts"}} =
@@ -126,127 +186,88 @@ defmodule Ankole.WorkerFilesTest do
     assert WorkerFiles.sanitize_path_segment(String.duplicate("a", 200)) ==
              String.duplicate("a", 160)
 
-    # Transliterated output stays inside the safe alphabet and the bound.
     sanitized = WorkerFiles.sanitize_path_segment("Q3 报表 (final).xlsx")
     assert sanitized =~ ~r/^[A-Za-z0-9._-]+$/
     assert String.length(sanitized) <= 160
 
-    # Values that reduce to a path-traversal or empty segment become the
-    # fixed fallback instead of reaching Path.join.
     for degenerate <- ["", ".", "..", "///", nil, 42] do
       assert WorkerFiles.sanitize_path_segment(degenerate) == "attachment"
     end
   end
 
-  defp respond_to_list(route_auth, [protocol, "LIST", transfer_id, path, recursive, _max]) do
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      "LIST_OK",
-      transfer_id,
-      path,
-      recursive,
-      bool(false),
-      entries_frame([])
-    ])
-  end
+  describe "relay sessions" do
+    test "are one-time, method-bound, and expire", %{route: route} do
+      worker = insert_ready_worker!(route)
 
-  defp respond_to_put_get(route_auth, stored, [protocol, command, transfer_id | rest]) do
-    case {command, rest} do
-      {"WRITE_OPEN", [path, original_size]} ->
-        Agent.update(
-          stored,
-          &%{&1 | begin: %{path: path, original_size: parse_u64!(original_size)}, chunks: []}
-        )
+      {:ok, %{transfer_id: transfer_id, url: url}} =
+        Relay.open(%{
+          direction: :pull,
+          worker: worker,
+          root: "user_files",
+          relative_path: "inbox/a.txt",
+          max_bytes: 10,
+          ttl_ms: 60_000,
+          source: {:binary, "hello"},
+          owner: self()
+        })
 
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_READY",
-          transfer_id,
-          u64(@credit_window)
-        ])
+      %URI{query: "token=" <> token} = URI.parse(url)
 
-      {"DATA", [_sequence, _offset, _eof, chunk]} ->
-        Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
+      assert {:error, :invalid_token} = Relay.consume(transfer_id, "GET", token <> "x")
+      assert {:error, :invalid_token} = Relay.consume(transfer_id, "GET", nil)
+      assert {:error, :method_mismatch} = Relay.consume(transfer_id, "PUT", token)
+      assert {:ok, %{source: {:binary, "hello"}}} = Relay.consume(transfer_id, "GET", token)
+      assert {:error, :consumed} = Relay.consume(transfer_id, "GET", token)
+      assert {:error, :not_found} = Relay.consume("missing", "GET", token)
 
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "CREDIT",
-          transfer_id,
-          u64(byte_size(chunk))
-        ])
+      {:ok, %{transfer_id: expired_id, url: expired_url}} =
+        Relay.open(%{
+          direction: :push,
+          worker: worker,
+          root: "user_files",
+          relative_path: "inbox/b.txt",
+          max_bytes: 10,
+          ttl_ms: 0,
+          consumer: self(),
+          owner: self()
+        })
 
-      {"WRITE_COMMIT", []} ->
-        {path, content} =
-          Agent.get(stored, fn state ->
-            {state.begin.path, zstd_decode_chunks!(state.chunks)}
-          end)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "WRITE_COMMITTED",
-          transfer_id,
-          path,
-          u64(byte_size(content)),
-          "8db84f6b892cfa6bdad930c907ecb808"
-        ])
-
-      {"READ_OPEN", [path, _fingerprint]} ->
-        content = zstd_encode!("hello world")
-        Agent.update(stored, &%{&1 | read_wire: content})
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_READY",
-          transfer_id,
-          path,
-          u64(11),
-          ""
-        ])
-
-      {"CREDIT", [_credit]} ->
-        content = Agent.get(stored, & &1.read_wire)
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "DATA",
-          transfer_id,
-          u64(0),
-          u64(0),
-          bool(true),
-          content
-        ])
-
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_DONE",
-          transfer_id,
-          u64(1),
-          u64(byte_size(content))
-        ])
+      %URI{query: "token=" <> expired_token} = URI.parse(expired_url)
+      Process.sleep(20)
+      assert {:error, reason} = Relay.consume(expired_id, "PUT", expired_token)
+      assert reason in [:expired, :not_found]
     end
-  end
 
-  defp respond_to_oversize_read(route_auth, parent, oversize, [
-         protocol,
-         command,
-         transfer_id | rest
-       ]) do
-    case {command, rest} do
-      {"READ_OPEN", [path, _fingerprint]} ->
-        FileTransferLane.handle_worker_frame(route_auth, [
-          protocol,
-          "READ_READY",
-          transfer_id,
-          path,
-          u64(oversize),
-          ""
-        ])
+    test "stop when the owner exits", %{route: route} do
+      worker = insert_ready_worker!(route)
+      parent = self()
 
-      {"CREDIT", [_credit]} ->
-        send(parent, {:worker_files_unexpected_credit, transfer_id})
+      owner =
+        spawn(fn ->
+          {:ok, session} =
+            Relay.open(%{
+              direction: :pull,
+              worker: worker,
+              root: "user_files",
+              relative_path: "inbox/a.txt",
+              max_bytes: 10,
+              ttl_ms: 60_000,
+              source: {:binary, "hello"},
+              owner: self()
+            })
 
-      {"READ_ABORT", []} ->
-        send(parent, {:worker_files_read_aborted, transfer_id})
+          send(parent, {:opened, session.transfer_id})
+
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      assert_receive {:opened, transfer_id}
+      assert [{_pid, _value}] = Registry.lookup(Ankole.WorkerFiles.RelayRegistry, transfer_id)
+      send(owner, :stop)
+      Process.sleep(20)
+      assert [] = Registry.lookup(Ankole.WorkerFiles.RelayRegistry, transfer_id)
     end
   end
 
@@ -266,47 +287,5 @@ defmodule Ankole.WorkerFilesTest do
       started_at: now,
       metadata: %{"runtime" => "test"}
     })
-  end
-
-  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
-  defp parse_u64!(<<value::unsigned-big-integer-size(64)>>), do: value
-  defp bool(true), do: <<1>>
-  defp bool(false), do: <<0>>
-
-  defp entries_frame(entries) do
-    [
-      <<length(entries)::unsigned-big-integer-size(32)>>,
-      Enum.map(entries, fn entry ->
-        [
-          sized_string(entry.relative_path),
-          sized_string(entry.kind),
-          u64(entry.size),
-          u64(entry.modified_unix_ms)
-        ]
-      end)
-    ]
-    |> IO.iodata_to_binary()
-  end
-
-  defp sized_string(value) do
-    value = IO.iodata_to_binary(value)
-    <<byte_size(value)::unsigned-big-integer-size(32), value::binary>>
-  end
-
-  defp zstd_encode!(content) do
-    compressed = Ankole.Kernel.zstd_compress_block(content, 3)
-    true = is_binary(compressed)
-    compressed
-  end
-
-  defp zstd_decode_chunks!(chunks) do
-    # `chunks` is stored newest-first; iterate in stored order and prepend each
-    # decoded block to recover the original oldest-first concatenation.
-    Enum.reduce(chunks, [], fn chunk, acc ->
-      decoded = Ankole.Kernel.zstd_decompress_block(chunk, 2 * 1024 * 1024)
-      true = is_binary(decoded)
-      [decoded | acc]
-    end)
-    |> IO.iodata_to_binary()
   end
 end

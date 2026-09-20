@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
 
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
   @rpc_timeout_ms 10_000
@@ -68,7 +68,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
               }
 
             {:error, reason} ->
-              %{acc | failures: acc.failures ++ [%{route: route, reason: inspect(reason)}]}
+              %{
+                acc
+                | failures:
+                    acc.failures ++ [%{route: route.transport_route, reason: inspect(reason)}]
+              }
           end
         end)
         |> then(&{:ok, &1})
@@ -77,12 +81,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
 
   defp maintain_worker(job_id, agent_uid, route, request) do
     with {:ok, payload} <-
-           Broker.request_rpc(
+           WorkerRoute.request_rpc(
              route,
              "codex_logs2.daily_maintenance",
              encode(request),
              timeout_ms: @rpc_timeout_ms,
-             request_id: "codex-logs2-daily-#{job_id}-#{route}"
+             request_id: "codex-logs2-daily-#{job_id}-#{route.transport_route}"
            ),
          {:ok, response} <- FabricProto.CodexLogs2DailyMaintenanceResponse.decode(payload),
          :ok <- validate_response_status(response.status) do
@@ -92,7 +96,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
         Logging.warning(
           "signals_gateway.codex_logs2_daily_maintenance_worker_failed",
           "Codex logs daily maintenance could not reach one worker",
-          %{agent_uid: agent_uid, route: route, reason: inspect(reason)}
+          %{agent_uid: agent_uid, route: route.transport_route, reason: inspect(reason)}
         )
 
         {:error, reason}

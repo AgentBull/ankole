@@ -24,8 +24,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     )
 
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{actor_event: actor_event} =
@@ -520,8 +520,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
   defp start_accepted_actor_event(agent_uid, event_attrs) do
     route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
     %{actor_event: actor_event} =

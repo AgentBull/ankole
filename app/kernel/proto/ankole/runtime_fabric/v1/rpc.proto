@@ -676,3 +676,71 @@ message InstalledSkillReplaceRequest {
 }
 
 message InstalledSkillReplaceResponse {}
+
+// worker files
+
+// Control-plane-originated file operations on the Worker-visible filesystem.
+// Bulk bytes never travel inside RuntimeFabric: `worker_files.pull` and
+// `worker_files.push` carry a one-time signed relay URL on the control-plane
+// Pod that owns the user request, and the Worker moves the bytes over HTTP.
+// `url` is a short-lived bearer credential and must not be logged.
+message WorkerFileTransferRequest {
+  string transfer_id = 1;
+  string url = 2;
+  string root = 3;
+  string relative_path = 4;
+  uint64 max_bytes = 5;
+  string expires_at = 6;
+}
+
+message WorkerFileTransferResponse {
+  string root = 1;
+  string relative_path = 2;
+  uint64 size = 3;
+  string xxh3_128 = 4;
+}
+
+message WorkerFileListRequest {
+  string root = 1;
+  string relative_path = 2;
+  bool recursive = 3;
+  uint64 max_entries = 4;
+}
+
+message WorkerFileListEntry {
+  string relative_path = 1;
+  string kind = 2; // file | directory | other
+  uint64 size = 3;
+  int64 modified_unix_ms = 4;
+}
+
+message WorkerFileListResponse {
+  string root = 1;
+  string relative_path = 2;
+  bool truncated = 3;
+  repeated WorkerFileListEntry entries = 4;
+}
+
+message WorkerFileMoveRequest {
+  string root = 1;
+  string from_relative_path = 2;
+  string to_relative_path = 3;
+  bool overwrite = 4;
+}
+
+message WorkerFileMoveResponse {
+  string root = 1;
+  string from_relative_path = 2;
+  string to_relative_path = 3;
+}
+
+message WorkerFileDeleteRequest {
+  string root = 1;
+  string relative_path = 2;
+  bool recursive = 3;
+}
+
+message WorkerFileDeleteResponse {
+  string root = 1;
+  string relative_path = 2;
+}

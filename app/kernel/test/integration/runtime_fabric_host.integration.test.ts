@@ -12,7 +12,7 @@ import {
 } from '../../../agent_computer/src/fabric/envelope_proto'
 
 describe('RuntimeFabric native host adapter integration', () => {
-  it('classifies real native envelope and multipart receives and owns dealer stop', async () => {
+  it('receives a real native envelope and owns dealer stop', async () => {
     const endpointPath = `/tmp/ankole-runtime-fabric-napi-peer-${crypto.randomUUID()}.endpoint`
     const kernelRoot = fileURLToPath(new URL('../..', import.meta.url))
     const peer = Bun.spawn(
@@ -50,15 +50,6 @@ describe('RuntimeFabric native host adapter integration', () => {
         kind: 'envelope',
         envelope: { messageId: 'binding-roundtrip-envelope' }
       })
-      const fileOutcome = await fabric.receive(2_000)
-      expect(fileOutcome.kind).toBe('worker_file')
-      if (fileOutcome.kind === 'worker_file') {
-        expect(fileOutcome.frames.map(frame => frame.toString())).toEqual([
-          'ANKOLE_FILE/1',
-          'READ_OPEN',
-          'binding-transfer'
-        ])
-      }
 
       peer.stdin.write('stop\n')
       peer.stdin.end()
