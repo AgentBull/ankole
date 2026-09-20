@@ -313,9 +313,13 @@ defmodule Ankole.Brain.Tools do
 
   # remember
 
+  # A model that fills every declared property sends an absent date as "",
+  # so an empty or blank until_date means no date for every kind.
   defp write_claim(kind, attrs, params, context) do
+    until_date = optional_text(params["until_date"])
+
     cond do
-      kind in Claims.fact_kinds() and is_nil(params["until_date"]) ->
+      kind in Claims.fact_kinds() and is_nil(until_date) ->
         attrs =
           Map.merge(attrs, %{
             notability: params["notability"] || "medium",
@@ -329,11 +333,11 @@ defmodule Ankole.Brain.Tools do
         {:error, :until_date_only_for_takes}
 
       true ->
-        with :ok <- validate_until_date(params["until_date"]) do
+        with :ok <- validate_until_date(until_date) do
           attrs =
             attrs
             |> Map.delete(:context)
-            |> Map.merge(%{weight: params["weight"] || 0.6, until_date: params["until_date"]})
+            |> Map.merge(%{weight: params["weight"] || 0.6, until_date: until_date})
 
           case Claims.write_take(attrs, context.querier_uid) do
             {:ok, claim} -> {:ok, %{claim: claim, status: :inserted}}
@@ -659,6 +663,7 @@ defmodule Ankole.Brain.Tools do
         "until_date" => %{
           "type" => "string",
           "format" => "date",
+          "minLength" => 10,
           "description" =>
             "For take kinds only: the ISO date by which the judgment or prediction can be resolved."
         },

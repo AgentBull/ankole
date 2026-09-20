@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.6.1-rc.1 (2026-09-20)
+
+- Brain `remember` now treats an empty or blank `until_date` as no date for every claim kind. A model that fills every declared property sent `""` for fact kinds and was refused with `until_date_only_for_takes`; the declared `until_date` schema now also requires a full ISO date.
+
 ## Version 1.6.0-rc.1 (2026-09-20)
 
 - RuntimeFabric now carries Worker traffic over one Phoenix Channel per Worker. A Worker whose `ANKOLE_RUNTIME_FABRIC_ENDPOINT` is a `ws://` or `wss://` URL such as `ws://control-plane:4000/runtime-fabric/worker` connects through the channel and sends the shared key as the socket auth token; a `tcp://` endpoint keeps the ZeroMQ transport, and the control plane accepts both until every Worker has switched. Each stream carries a sequence number, the control plane acknowledges cumulatively with message and byte credits, and a Worker reconnect keeps its running turns. The protocol version stays 5. The Helm charts, Docker Compose, and the devkit default new Workers to the channel.
