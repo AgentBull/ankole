@@ -232,6 +232,37 @@ defmodule Ankole.Brain.ToolsTest do
                  },
                  context.context
                )
+
+      # A model that fills every declared property sends "" for an absent date.
+      assert {:ok, %{"status" => "inserted"} = blank_fact} =
+               Tools.execute(
+                 "remember",
+                 %{
+                   "claim" => "Podcast transcripts come from the official page first",
+                   "kind" => "preference",
+                   "scope" => "world",
+                   "provenance" => "test conversation",
+                   "until_date" => ""
+                 },
+                 context.context
+               )
+
+      assert Repo.get!(Ankole.Brain.Schemas.Claim, blank_fact["claim_id"]).until_date == nil
+
+      assert {:ok, %{"status" => "inserted"} = blank_take} =
+               Tools.execute(
+                 "remember",
+                 %{
+                   "claim" => "The share price closes above 50 CNY",
+                   "kind" => "bet",
+                   "scope" => "world",
+                   "provenance" => "deep research job 1234",
+                   "until_date" => " "
+                 },
+                 context.context
+               )
+
+      assert Repo.get!(Ankole.Brain.Schemas.Claim, blank_take["claim_id"]).until_date == nil
     end
 
     test "rejects an off-grid confidence and an unknown kind before writing", context do
