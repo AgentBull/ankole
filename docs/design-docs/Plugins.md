@@ -76,6 +76,26 @@ research contract, starts one BackgroundAgentJob, and accepts the result. Its
 working state, Markdown semantic draft, and contract-defined artifacts. The Job
 does not load the main-only member Skill.
 
+Research routing has two different epistemic objects, not two levels of
+urgency and not a split based on whether the reader will act:
+
+- `create-deep-research` investigates the external world. It establishes
+  facts, compares evidence, explains or assesses external developments, and
+  evaluates claims or forecasts. Stock buy/hold questions, price and demand
+  forecasts, competitive outcomes, and risk estimates stay here even when the
+  requested answer contains an action.
+- `research-for-planning` investigates the environment of a controllable
+  operating, product, market-entry, or launch choice. It compares feasible
+  options and gathers market, competitor, channel, cost, compliance, and
+  resource constraints so a planner can select an action combination. It does
+  not predict the target market, asset prices, demand, or other external
+  outcomes.
+
+Neither Skill is triggered by the word “plan”, a supplied bundle of sources, a
+PDF deliverable, plan writing or review, or a single quick lookup. A mixed
+request splits subquestions by this research object and then returns to the
+requested action. If there is no material investigation gap, answer directly.
+
 The public `github` package owns GitHub repository webhook setup,
 reconciliation, redelivery, and removal in its `github-webhooks` Skill.
 SignalsGateway supplies only the callback capability. It does not contain a

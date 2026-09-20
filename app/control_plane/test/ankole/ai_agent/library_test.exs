@@ -114,6 +114,29 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert brainstorming["content"] =~ "This is a playbook, not a fixed workflow."
   end
 
+  test "keeps action-oriented and external-world research as distinct routes" do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
+
+    action_research = Enum.find(skills, &(&1["skill_name"] == "research-for-planning"))
+    research = Enum.find(skills, &(&1["skill_name"] == "create-deep-research"))
+
+    assert action_research["category"] == "research"
+    assert action_research["description"] =~ "market, competitor, channel"
+    assert action_research["description"] =~ "controllable"
+    assert action_research["description"] =~ "not for writing or reviewing a plan"
+    assert research["category"] == "research"
+    assert research["description"] =~ "external world"
+    assert research["description"] =~ "asset prices"
+    assert research["description"] =~ "market-entry"
+
+    assert {:ok, action_research_view} = Library.skill_view(agent.uid, "research-for-planning")
+    assert action_research_view["content"] =~ "Activate it only when both conditions hold"
+    assert action_research_view["content"] =~ "A quick lookup"
+    assert action_research_view["content"] =~ "stock buy/hold questions"
+    assert action_research_view["content"] =~ "Split those questions"
+  end
+
   test "new agents are seeded with soul, mission, and design library entries" do
     %{principal: agent} = agent_fixture()
 
