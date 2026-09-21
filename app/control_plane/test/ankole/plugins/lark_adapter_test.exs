@@ -1362,6 +1362,50 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert reply.reply_to_source_entry_id == "om_root"
     end
 
+    test "post files become downloadable attachments alongside text and images" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_word", %{
+          "title" => "",
+          "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
+          "content_v2" => [
+            [%{"tag" => "text", "text" => "Use this template"}],
+            [%{"tag" => "img", "image_key" => "img_partners"}]
+          ],
+          "files" => [
+            %{"file_key" => "file_template", "file_name" => "notice.docx", "is_folder" => false}
+          ]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "Use this template[image]"
+
+      assert [
+               %{"provider_ref" => "lark:image:img_partners"},
+               %{
+                 "provider_ref" => "lark:file:file_template",
+                 "file_key" => "file_template",
+                 "name" => "notice.docx",
+                 "download_type" => "file",
+                 "source_message_id" => "om_post_word"
+               }
+             ] = normalized.attachments
+    end
+
+    test "file-only posts retain unique valid files" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+      file = %{"file_key" => "file_template", "file_name" => "notice.docx"}
+
+      event = post_receive_event("om_files_only", %{"files" => [file, nil, %{}, file]})
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == nil
+      assert [%{"provider_ref" => "lark:file:file_template"}] = normalized.attachments
+    end
+
     test "post normalization reads content_v2 when legacy content is absent" do
       %{principal: agent} = agent_fixture()
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -1977,6 +2021,53 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       refute String.contains?(attachment["agent_computer_path"], "om_any_ascii")
       refute String.contains?(attachment["agent_computer_path"], "file_any_ascii")
+    end
+
+    test "materializes a Word file attached to an unaddressed rich post" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+      config = chat_config()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      stub_lark_requests(parent, fn request ->
+        assert request.request_path ==
+                 "/open-apis/im/v1/messages/om_post_template/resources/file_template"
+
+        {:binary, 200, "word template"}
+      end)
+
+      route = "lark-post-template-#{System.unique_integer([:positive])}"
+      insert_ready_worker!(route)
+      WorkerFilesFake.start!(route, notify: parent)
+
+      event =
+        post_receive_event("om_post_template", %{
+          "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
+          "files" => [
+            %{"file_key" => "file_template", "file_name" => "notice.docx", "is_folder" => false}
+          ]
+        })
+        |> update_message(&Map.put(&1, "mentions", []))
+
+      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert entry.text == "Use this template"
+      assert [attachment] = entry.attachments
+      expected_relative_path = "inbox/#{attachment["attachment_id"]}/notice.docx"
+
+      assert attachment["user_files_relative_path"] == expected_relative_path
+
+      assert attachment["agent_computer_path"] ==
+               "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
+
+      expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
+      assert_receive {:materialized_attachment_path, ^expected_lane_path}
+      assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
     test "attachment receipt is durable before the provider download starts" do

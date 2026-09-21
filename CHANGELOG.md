@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.3-rc.1 (2026-09-21)
+
+- Feishu rich posts now include files from the message's `files` list as
+  downloadable attachments. A Word template sent with text reaches the Agent's
+  inbox through the same path as a standalone file. Files and inline images
+  in the same post are retained, and repeated file references are deduplicated.
+
 ## Version 1.6.2-rc.1 (2026-09-21)
 
 - Research into market, competitor, channel, cost, compliance, and resource
