@@ -62,10 +62,11 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
 
   The chat endpoint speaks OpenAI-compatible Chat Completions, so the provider
   only adds Google's client/auth headers before the shared OpenAI resolver runs
-  in Rust.
+  in Rust. Caller `metadata` stays local because the endpoint rejects the whole
+  request when it contains that field.
   """
-  def prepare_language_model(ctx) do
-    ctx
+  def prepare_language_model(%{request: request} = ctx) do
+    %{ctx | request: Map.delete(request, "metadata")}
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
     |> UniversalAIRequest.bearer_auth()

@@ -648,6 +648,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     [
       {"google_ai_studio.llm_text", fn -> case_llm_direct(agent, "primary") end},
       {"google_ai_studio.llm_multimodal", fn -> case_llm_multimodal(agent, "primary", image) end},
+      {"google_ai_studio.tool_call_round_trip",
+       fn -> case_llm_tool_call_round_trip(agent, "primary") end},
       {"google_ai_studio.concurrent_llm_text", fn -> case_google_concurrent_llm(agent) end}
       | cases
     ]
@@ -878,20 +880,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         "extra_body" => %{"enable_thinking" => false},
         "max_output_tokens" => 512,
         "temperature" => 0,
-        "tools" => [
-          %{
-            "type" => "function",
-            "name" => "get_weather",
-            "description" => "Gets current weather for one city.",
-            "parameters" => %{
-              "type" => "object",
-              "additionalProperties" => false,
-              "required" => ["city"],
-              "properties" => %{"city" => %{"type" => "string"}}
-            },
-            "strict" => true
-          }
-        ],
+        "tools" => [weather_tool()],
         "tool_choice" => "auto"
       })
 
@@ -916,6 +905,60 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       status: response.body["status"],
       function_name: call["name"],
       argument_keys: arguments |> Map.keys() |> Enum.sort()
+    }
+  end
+
+  # Gemini rejects caller metadata, and it rejects a replayed function call of
+  # the current turn without its thought signature. The second request replays
+  # the first output as a stateless caller does.
+  defp case_llm_tool_call_round_trip(agent, model) do
+    question = %{
+      "role" => "user",
+      "content" => "Use the tool to look up the weather for Shanghai."
+    }
+
+    request = %{
+      "model" => model,
+      "metadata" => %{"e2e_case" => "tool_call_round_trip"},
+      "tools" => [weather_tool()]
+    }
+
+    {:ok, first} = AIGateway.create_response(agent.uid, Map.put(request, "input", [question]))
+    output = Map.fetch!(first.body, "output")
+    call = Enum.find(output, &(&1["type"] == "function_call"))
+    require!(is_map(call), "function_call output item missing")
+
+    tool_result = %{
+      "type" => "function_call_output",
+      "call_id" => call["call_id"],
+      "output" => "Sunny, 24 C"
+    }
+
+    {:ok, second} =
+      AIGateway.create_response(
+        agent.uid,
+        Map.put(request, "input", [question | output] ++ [tool_result])
+      )
+
+    require!(second.body["status"] == "completed", "tool result turn did not complete")
+
+    second.body
+    |> summarize_llm_response()
+    |> Map.put(:first_output_types, Enum.map(output, & &1["type"]))
+  end
+
+  defp weather_tool do
+    %{
+      "type" => "function",
+      "name" => "get_weather",
+      "description" => "Gets current weather for one city.",
+      "parameters" => %{
+        "type" => "object",
+        "additionalProperties" => false,
+        "required" => ["city"],
+        "properties" => %{"city" => %{"type" => "string"}}
+      },
+      "strict" => true
     }
   end
 

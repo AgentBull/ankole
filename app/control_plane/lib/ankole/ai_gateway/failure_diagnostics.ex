@@ -823,6 +823,12 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     end
   end
 
+  # Google's OpenAI-compatible endpoint puts the error object in a one-item
+  # array. A status rejection reaches this module with that array wrapped as
+  # `%{"body" => array}`, because its decoded body must be a map.
+  defp provider_error_fields(%{"body" => [%{} = body]}), do: provider_error_fields(body)
+  defp provider_error_fields([%{} = body]), do: provider_error_fields(body)
+
   defp provider_error_fields(%{} = body) do
     error = body |> value("error") |> map_or(body)
 
