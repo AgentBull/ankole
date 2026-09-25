@@ -7,11 +7,15 @@ const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning:";
 struct ChatReasoning {
     details: Vec<Value>,
     text: String,
+    /// Provider `extra_content` of each tool call, keyed by call ID. Gemini
+    /// puts its thought signature here and rejects a replayed function call of
+    /// the current turn that does not return it.
+    tool_call_extra_content: BTreeMap<String, Value>,
 }
 
 impl ChatReasoning {
     fn is_empty(&self) -> bool {
-        self.details.is_empty() && self.text.is_empty()
+        self.details.is_empty() && self.text.is_empty() && self.tool_call_extra_content.is_empty()
     }
 
     fn append_delta(&mut self, delta: &Value) -> Result<bool, StreamError> {
@@ -43,6 +47,32 @@ impl ChatReasoning {
             }
         }
 
+        // The call ID arrives with its `extra_content`, so the state binds to
+        // that call and survives replay even when other calls sit between.
+        for tool_call in delta
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(extra_content) = tool_call
+                .get("extra_content")
+                .filter(|value| value.is_object())
+            else {
+                continue;
+            };
+            let Some(call_id) = tool_call
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|call_id| !call_id.is_empty())
+            else {
+                continue;
+            };
+            self.tool_call_extra_content
+                .insert(call_id.to_string(), extra_content.clone());
+            appended = true;
+        }
+
         Ok(appended)
     }
 
@@ -59,6 +89,12 @@ impl ChatReasoning {
             Value::Array(self.details.clone()),
         );
         payload.insert("reasoning".to_string(), json!(self.text));
+        if !self.tool_call_extra_content.is_empty() {
+            payload.insert(
+                "tool_call_extra_content".to_string(),
+                Value::Object(self.tool_call_extra_content.clone().into_iter().collect()),
+            );
+        }
 
         reasoning_envelope::encode(CHAT_REASONING_PREFIX, context, payload)
     }
@@ -77,8 +113,20 @@ impl ChatReasoning {
             Some(Value::Null) | None => String::new(),
             Some(_invalid) => return None,
         };
+        let tool_call_extra_content = match object.get("tool_call_extra_content") {
+            Some(Value::Object(entries)) => entries
+                .iter()
+                .map(|(call_id, extra_content)| (call_id.clone(), extra_content.clone()))
+                .collect(),
+            Some(Value::Null) | None => BTreeMap::new(),
+            Some(_invalid) => return None,
+        };
 
-        let reasoning = Self { details, text };
+        let reasoning = Self {
+            details,
+            text,
+            tool_call_extra_content,
+        };
         if reasoning.is_empty() {
             return None;
         }
@@ -88,6 +136,8 @@ impl ChatReasoning {
     fn extend(&mut self, mut other: Self) {
         self.details.append(&mut other.details);
         self.text.push_str(&other.text);
+        self.tool_call_extra_content
+            .append(&mut other.tool_call_extra_content);
     }
 
     fn apply_to_message(&self, message: &mut Map<String, Value>) {
@@ -99,6 +149,18 @@ impl ChatReasoning {
         }
         if !self.text.is_empty() {
             message.insert("reasoning".to_string(), json!(self.text));
+        }
+        if let Some(Value::Array(tool_calls)) = message.get_mut("tool_calls") {
+            for tool_call in tool_calls.iter_mut().filter_map(Value::as_object_mut) {
+                let extra_content = tool_call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|call_id| self.tool_call_extra_content.get(call_id))
+                    .cloned();
+                if let Some(extra_content) = extra_content {
+                    tool_call.insert("extra_content".to_string(), extra_content);
+                }
+            }
         }
     }
 }

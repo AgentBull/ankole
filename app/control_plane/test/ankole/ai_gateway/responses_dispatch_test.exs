@@ -7105,7 +7105,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert {:ok, %{body: body}} =
-             AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"})
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "metadata" => %{"trace" => "abc"}
+             })
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
@@ -7114,6 +7118,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["model"] == "gemini-2.5-pro"
     assert request.body["reasoning_effort"] == "high"
     refute Map.has_key?(request.body, "reasoningEffort")
+    refute Map.has_key?(request.body, "metadata")
     assert body["model"] == "gemini-2.5-pro"
 
     assert {:ok, %{body: embedding_body}} =

@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.6.3-rc.1 (2026-09-25)
+
+- Google AI Studio (Gemini) models now work for Agent turns, Workflow tasks, and Background Agent Jobs. AIGateway no longer sends caller `metadata`, which Google refused with HTTP 400 before the first model call. It also sends back the thought signature of each Gemini tool call, which Google requires for the request after a tool call.
+- A Google AI Studio request failure now shows Google's error message instead of "The upstream provider request failed.".
+
 ## Version 1.6.2-rc.1 (2026-09-21)
 
 - Research into market, competitor, channel, cost, compliance, and resource
