@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.6.4-rc.1 (2026-09-25)
+
+- A Background Agent Job on a Google AI Studio (Gemini) model no longer fails with "Function call is missing a thought_signature" after a round that used a hosted tool such as Brain `recall`, or when the model writes text before its tool call. AIGateway now returns each Gemini tool-call signature by call ID, independent of item order.
+
 ## Version 1.6.3-rc.1 (2026-09-25)
 
 - Google AI Studio (Gemini) models now work for Agent turns, Workflow tasks, and Background Agent Jobs. AIGateway no longer sends caller `metadata`, which Google refused with HTTP 400 before the first model call. It also sends back the thought signature of each Gemini tool call, which Google requires for the request after a tool call.

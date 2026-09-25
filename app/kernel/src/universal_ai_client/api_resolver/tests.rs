@@ -1302,8 +1302,8 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
     );
 }
 
-// Gemini streams each parallel call whole and without `index`, and signs only
-// the first call of a step.
+// Gemini streams its text before the calls, streams each parallel call whole
+// and without `index`, and signs only the first call of a step.
 #[test]
 fn openai_chat_stream_round_trips_tool_call_extra_content() {
     let signature = json!({"google": {"thought_signature": "signature-state"}});
@@ -1322,6 +1322,11 @@ fn openai_chat_stream_round_trips_tool_call_extra_content() {
         context
     });
 
+    resolver
+        .ingest(json!({
+            "choices": [{"delta": {"role": "assistant", "content": "I will check both cities."}, "index": 0}]
+        }))
+        .unwrap();
     for tool_call in [
         json!({
             "extra_content": signature.clone(),
@@ -1348,49 +1353,66 @@ fn openai_chat_stream_round_trips_tool_call_extra_content() {
         .unwrap();
 
     let events = resolver.finish().unwrap();
-    let output = events.last().unwrap()["response"]["output"]
+    let item_types = |items: &[Value]| {
+        items
+            .iter()
+            .map(|item| item["type"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let terminal_output = events.last().unwrap()["response"]["output"]
         .as_array()
         .unwrap()
         .clone();
-    let types = output
+    assert_eq!(
+        item_types(&terminal_output),
+        ["message", "reasoning", "function_call", "function_call"]
+    );
+    // A tool-loop Response keeps its items in `output_item.done` order, which
+    // puts the reasoning item before the assistant text.
+    let done_output = events
         .iter()
-        .map(|item| item["type"].as_str().unwrap())
+        .filter(|event| event["type"] == "response.output_item.done")
+        .map(|event| event["item"].clone())
         .collect::<Vec<_>>();
-    assert_eq!(types, ["reasoning", "function_call", "function_call"]);
-    assert_eq!(output[1]["call_id"], "call_paris");
-    assert_eq!(output[2]["call_id"], "call_tokyo");
+    assert_eq!(
+        item_types(&done_output),
+        ["reasoning", "message", "function_call", "function_call"]
+    );
 
-    let mut replay_input = output.clone();
-    for call_id in ["call_paris", "call_tokyo"] {
-        replay_input.push(json!({
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": "sunny"
-        }));
-    }
-    let replay_body = |model: &str| {
+    let replay_tool_calls = |model: &str, output: &[Value]| {
+        let mut replay_input = output.to_vec();
+        for call_id in ["call_paris", "call_tokyo"] {
+            replay_input.push(json!({
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": "sunny"
+            }));
+        }
         let mut replay_request = request.clone();
-        replay_request["input"] = Value::Array(replay_input.clone());
+        replay_request["input"] = Value::Array(replay_input);
         let replay = APIResolver::new(
             APIResolverKind::OpenAIChatCompletions,
             reasoning_source_context("google_ai_studio_openai", model, replay_request),
         );
-        Value::Object(replay.build_body().unwrap())
+        let body = Value::Object(replay.build_body().unwrap());
+        body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|message| message.get("tool_calls").cloned())
+            .unwrap()
     };
 
-    let body = replay_body("gemini-test");
-    let tool_calls = &body["messages"][0]["tool_calls"];
-    assert_eq!(tool_calls[0]["id"], "call_paris");
-    assert_eq!(tool_calls[0]["extra_content"], signature);
-    assert_eq!(tool_calls[1]["id"], "call_tokyo");
-    assert!(tool_calls[1].get("extra_content").is_none());
+    for output in [&terminal_output, &done_output] {
+        let tool_calls = replay_tool_calls("gemini-test", output);
+        assert_eq!(tool_calls[0]["id"], "call_paris");
+        assert_eq!(tool_calls[0]["extra_content"], signature);
+        assert_eq!(tool_calls[1]["id"], "call_tokyo");
+        assert!(tool_calls[1].get("extra_content").is_none());
 
-    let foreign_body = replay_body("other-model");
-    assert!(
-        foreign_body["messages"][0]["tool_calls"][0]
-            .get("extra_content")
-            .is_none()
-    );
+        let foreign_tool_calls = replay_tool_calls("other-model", output);
+        assert!(foreign_tool_calls[0].get("extra_content").is_none());
+    }
 }
 
 #[test]
