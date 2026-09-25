@@ -1527,8 +1527,11 @@ The same envelope carries the `extra_content` object of each Chat tool call,
 keyed by call ID. Gemini puts its thought signature there. It signs only the
 first call of a parallel step, and it rejects a replayed function call of the
 current turn that does not return its signature. A continuation puts each
-stored `extra_content` back on the tool call with the same ID. The envelope
-scope rule also applies here, so a signature never goes to another model.
+stored `extra_content` back on the tool call with the same ID. It reads every
+reasoning item in the input for this and does not use the item position. Gemini
+streams its text before the call it signs, and a tool-loop Response stores the
+round's reasoning item before that text. The envelope scope rule also applies
+here, so a signature never goes to another model.
 
 For Anthropic Messages, the adapter keeps the native `thinking` and
 `redacted_thinking` blocks with their signatures, and emits one Responses

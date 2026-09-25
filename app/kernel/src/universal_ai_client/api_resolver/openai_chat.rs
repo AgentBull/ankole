@@ -136,8 +136,6 @@ impl ChatReasoning {
     fn extend(&mut self, mut other: Self) {
         self.details.append(&mut other.details);
         self.text.push_str(&other.text);
-        self.tool_call_extra_content
-            .append(&mut other.tool_call_extra_content);
     }
 
     fn apply_to_message(&self, message: &mut Map<String, Value>) {
@@ -149,18 +147,6 @@ impl ChatReasoning {
         }
         if !self.text.is_empty() {
             message.insert("reasoning".to_string(), json!(self.text));
-        }
-        if let Some(Value::Array(tool_calls)) = message.get_mut("tool_calls") {
-            for tool_call in tool_calls.iter_mut().filter_map(Value::as_object_mut) {
-                let extra_content = tool_call
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .and_then(|call_id| self.tool_call_extra_content.get(call_id))
-                    .cloned();
-                if let Some(extra_content) = extra_content {
-                    tool_call.insert("extra_content".to_string(), extra_content);
-                }
-            }
         }
     }
 }
@@ -1161,11 +1147,49 @@ fn chat_messages(
             );
             discard_unattached_chat_reasoning(&mut pending_reasoning);
             flush_chat_tool_output_images(&mut messages, &mut pending_tool_output_images);
+            restore_tool_call_extra_content(context, items, &mut messages);
         }
         _input => {}
     }
 
     Ok(Value::Array(messages))
+}
+
+// A tool loop can store a round's reasoning item before the assistant text of
+// that round, and the text then takes the positional reasoning. The call ID
+// keeps each `extra_content` on its own call wherever its reasoning item sits.
+fn restore_tool_call_extra_content(
+    context: &ResponseContext,
+    items: &[Value],
+    messages: &mut [Value],
+) {
+    let extra_content = items
+        .iter()
+        .filter_map(Value::as_object)
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+        .filter_map(|item| ChatReasoning::decode_item(item, context))
+        .flat_map(|reasoning| reasoning.tool_call_extra_content)
+        .collect::<BTreeMap<_, _>>();
+    if extra_content.is_empty() {
+        return;
+    }
+
+    for tool_call in messages
+        .iter_mut()
+        .filter_map(|message| message.get_mut("tool_calls"))
+        .filter_map(Value::as_array_mut)
+        .flatten()
+        .filter_map(Value::as_object_mut)
+    {
+        let restored = tool_call
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|call_id| extra_content.get(call_id))
+            .cloned();
+        if let Some(restored) = restored {
+            tool_call.insert("extra_content".to_string(), restored);
+        }
+    }
 }
 
 // Several OpenAI-compatible chat backends accept only one system message at

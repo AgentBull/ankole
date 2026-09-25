@@ -910,7 +910,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   # Gemini rejects caller metadata, and it rejects a replayed function call of
   # the current turn without its thought signature. The second request replays
-  # the first output as a stateless caller does.
+  # the first output as a stateless caller does. The model writes text before
+  # its call, so the reasoning item that carries the signature is not next to
+  # the call it signs.
   defp case_llm_tool_call_round_trip(agent, model) do
     question = %{
       "role" => "user",
@@ -919,6 +921,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     request = %{
       "model" => model,
+      "instructions" =>
+        "Before you call a tool, write one short sentence that says what you will do.",
       "metadata" => %{"e2e_case" => "tool_call_round_trip"},
       "tools" => [weather_tool()]
     }
@@ -927,6 +931,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     output = Map.fetch!(first.body, "output")
     call = Enum.find(output, &(&1["type"] == "function_call"))
     require!(is_map(call), "function_call output item missing")
+
+    require!(
+      Enum.any?(output, &(&1["type"] == "message")),
+      "assistant text before the function call missing"
+    )
 
     tool_result = %{
       "type" => "function_call_output",
