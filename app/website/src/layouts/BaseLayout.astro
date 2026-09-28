@@ -1,4 +1,5 @@
 ---
+import AgentDirective from '../components/AgentDirective.astro'
 import BaseHead from '../components/BaseHead.astro'
 import Footer from '../components/Footer.astro'
 import Header from '../components/Header.astro'
@@ -11,15 +12,20 @@ interface Props {
 	description: string
 	/** Path after /{lang}/, used for canonical and hreflang links. */
 	path?: string
+	/**
+	 * Site path of this page's Markdown version, when the page has one. Such a page places its own
+	 * AgentDirective inside the article, where text extractors keep it.
+	 */
+	markdownPath?: string
 }
 
-const { lang, title, description, path = '' } = Astro.props
+const { lang, title, description, path = '', markdownPath } = Astro.props
 ---
 
 <!doctype html>
 <html lang={BCP47[lang]}>
 	<head>
-		<BaseHead title={title} description={description} lang={lang} path={path} />
+		<BaseHead title={title} description={description} lang={lang} path={path} markdownPath={markdownPath} />
 		<noscript>
 			<style>
 				/* Entrances start hidden. Without scripts they never play, so show them. */
@@ -38,6 +44,7 @@ const { lang, title, description, path = '' } = Astro.props
 		>
 			{t(lang, 'a11y.skipToContent')}
 		</a>
+		{!markdownPath && <AgentDirective lang={lang} />}
 		<Header lang={lang} />
 		<div id="main-content">
 			<slot />

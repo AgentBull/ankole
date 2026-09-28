@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.5-rc.1 (2026-09-28)
+
+- The website now publishes a Markdown version of each documentation page at `/<locale>/docs/<page>/index.md`, and an `llms.txt` index and an `llms-full.txt` file for each language at `/<locale>/llms.txt` and `/<locale>/llms-full.txt`. `/llms.txt` and `/llms-full.txt` serve English. The Markdown of Quick start and FAQ contains every deployment method, identity provider, and chat channel, not only the selected tab.
+- The Quick start agent prompt now sends the Agent to the Markdown version of Quick start. Each documentation page has a Copy page button that copies its Markdown, and a menu that opens the Markdown or opens the page in ChatGPT, Claude, or Cursor. Each page also links its Markdown version and its language's `llms.txt` for agents.
+- The website build fails when a documentation MDX component has no Markdown form, and its link check now also covers the Markdown and `llms.txt` files.
+- The website now builds with Astro 7.3.5, `@astrojs/react` 7, `@astrojs/mdx` 8.0.2, `intl-messageformat` 12, Motion 13.4.4, sharp 0.35.5, and Vite 8.3.1. The repository no longer tracks the generated `app/website/.astro/` directory; Astro recreates it on each dev, build, and check run.
+
 ## Version 1.6.4-rc.1 (2026-09-25)
 
 - A Background Agent Job on a Google AI Studio (Gemini) model no longer fails with "Function call is missing a thought_signature" after a round that used a hosted tool such as Brain `recall`, or when the model writes text before its tool call. AIGateway now returns each Gemini tool-call signature by call ID, independent of item order.

@@ -3,6 +3,9 @@
  * Client-side language detection and redirect.
  * Used on non-prefixed URLs to redirect to /{lang}/...
  */
+import { DEFAULT_LOCALE } from '../i18n/config'
+import { t } from '../i18n/utils'
+
 interface Props {
 	/** The path after the lang prefix, e.g. "docs" */
 	path?: string
@@ -10,6 +13,8 @@ interface Props {
 const { path = '' } = Astro.props
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const targetPath = path ? `/${path}/` : '/'
+// Agents that fetch the site root do not run the redirect script, so the page names the index.
+const llmsIndexUrl = new URL(`${base}/llms.txt`, Astro.site).href
 ---
 
 <!doctype html>
@@ -36,6 +41,9 @@ const targetPath = path ? `/${path}/` : '/'
 		<noscript>
 			<meta http-equiv="refresh" content={`0;url=${base}/en-US${targetPath}`} />
 		</noscript>
+		<link rel="alternate" type="text/plain" title="LLM index" href={llmsIndexUrl} />
 	</head>
-	<body></body>
+	<body>
+		<p>{t(DEFAULT_LOCALE, 'agent.directive.site', { index: llmsIndexUrl })}</p>
+	</body>
 </html>

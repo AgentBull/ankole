@@ -1,11 +1,14 @@
 ---
 import type { MarkdownHeading } from 'astro'
+import AgentDirective from '../components/AgentDirective.astro'
+import DocsPageActions from '../components/docs/DocsPageActions'
 import DocsPager from '../components/docs/DocsPager.astro'
 import DocsSidebar from '../components/docs/DocsSidebar.astro'
 import DocsToc from '../components/docs/DocsToc.astro'
 import { getSiteTitle } from '../consts'
 import type { Locale } from '../i18n/config'
-import type { DocNavItem, DocsSection } from '../lib/docs-model'
+import { t } from '../i18n/utils'
+import { docMarkdownPath, type DocNavItem, type DocsSection } from '../lib/docs-model'
 import BaseLayout from './BaseLayout.astro'
 
 interface Props {
@@ -23,9 +26,27 @@ interface Props {
 }
 
 const { lang, title, description, path, headings, sections, currentSlug, prev, next, fallbackNotice } = Astro.props
+const markdownPath = docMarkdownPath(lang, currentSlug)
+const actionLabels = {
+	copied: t(lang, 'docs.actions.copied'),
+	copy: t(lang, 'docs.actions.copy'),
+	copyFailed: t(lang, 'docs.actions.copyFailed'),
+	menu: t(lang, 'docs.actions.menu'),
+	openChatgpt: t(lang, 'docs.actions.openChatgpt'),
+	openClaude: t(lang, 'docs.actions.openClaude'),
+	openCursor: t(lang, 'docs.actions.openCursor'),
+	viewMarkdown: t(lang, 'docs.actions.viewMarkdown')
+}
+const actionPrompt = t(lang, 'docs.actions.prompt', { url: new URL(markdownPath, Astro.site).href })
 ---
 
-<BaseLayout lang={lang} title={`${title} · ${getSiteTitle(lang)}`} description={description} path={path}>
+<BaseLayout
+	lang={lang}
+	title={`${title} · ${getSiteTitle(lang)}`}
+	description={description}
+	path={path}
+	markdownPath={markdownPath}
+>
 	<div class="mx-auto max-w-7xl px-4 sm:px-6">
 		<div class="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[16rem_minmax(0,1fr)_14rem]">
 			<DocsSidebar lang={lang} sections={sections} currentSlug={currentSlug} />
@@ -42,6 +63,8 @@ const { lang, title, description, path, headings, sections, currentSlug, prev, n
 				}
 				<article class="prose max-w-none dark:prose-invert">
 					<h1>{title}</h1>
+					<AgentDirective lang={lang} markdownPath={markdownPath} />
+					<DocsPageActions client:load labels={actionLabels} markdownPath={markdownPath} prompt={actionPrompt} />
 					<slot />
 				</article>
 				<DocsPager lang={lang} prev={prev} next={next} />
