@@ -1,4 +1,4 @@
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Transform } from 'node:stream'
 import build from 'pino-pretty'
@@ -69,15 +69,20 @@ export function isRoutineOTPApplicationStop(log: PrettyLog): boolean {
   )
 }
 
-export function logsCommand(): Crust {
-  return new Crust('logs')
-    .meta({
+export function logsCommand() {
+  return defineCommand(
+    'logs',
+    {
       aliases: ['log'],
       description: 'Format Ankole structured logs for local development.'
-    })
-    .command('pretty', cmd =>
-      cmd.meta({ description: 'Pretty-print Ankole JSON log lines from stdin.' }).run(() => runPrettyLogs())
-    )
+    },
+    command =>
+      command.add(
+        defineCommand('pretty', { description: 'Pretty-print Ankole JSON log lines from stdin.' }, child =>
+          child.action(() => runPrettyLogs())
+        )
+      )
+  )
 }
 
 function label(log: PrettyLog, key: string, labelKey: string): string | undefined {

@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry

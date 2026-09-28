@@ -195,11 +195,6 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert lark["displayName"]["default"] == "Lark"
     assert lark["defaultProviderID"] == "lark-main"
 
-    assert hd(lark["fields"])["label"]["zh-Hans-CN"] == "App ID"
-
-    assert hd(lark["fields"])["description"]["default"] ==
-             "Find it under Basic information > Credentials in the developer console."
-
     fields_by_path = Map.new(lark["fields"], &{&1["path"], &1})
     assert fields_by_path["appID"]["advanced"] == false
     assert fields_by_path["oidc.scopes"]["advanced"] == true

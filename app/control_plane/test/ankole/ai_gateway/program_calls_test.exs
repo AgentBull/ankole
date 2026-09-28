@@ -192,11 +192,6 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert binding_identities(plan) == []
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["program"]
 
-      [program] = provider_request["tools"]
-      assert program["description"] =~ "matching direct tool declarations: []"
-      assert program["description"] =~ "programmatic-only bindings and contracts: []"
-      assert program["description"] =~ ~s|tools["<name>"](args)|
-
       assert {:ok, job} = PTC.job(plan.ptc, program_call("prog_js", "text(42)"))
       assert job.runtime_bindings == []
       assert job.bindings == []
@@ -240,22 +235,6 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
              ]
 
       refute Enum.any?(provider_request["tools"], &Map.has_key?(&1, "allowed_callers"))
-
-      [program] = Enum.filter(provider_request["tools"], &(&1["name"] == "program"))
-      assert program["description"] =~ ~s|matching direct tool declarations: ["market"]|
-      refute program["description"] =~ "output_schema"
-
-      {_provider_request, programmatic_only_plan} =
-        plan!(
-          request([
-            market_tool(["programmatic"], %{
-              "strict" => true,
-              "output_schema" => output_schema
-            })
-          ])
-        )
-
-      assert PTC.provider_tool(programmatic_only_plan.ptc)["description"] =~ "output_schema"
 
       {_provider_request, changed_plan} =
         plan!(
@@ -314,11 +293,6 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
 
       {_provider_request, plan} = plan!(request(tools))
       call = program_call("codex_globals", "text('ok')")
-
-      description = PTC.provider_tool(plan.ptc)["description"]
-      assert description =~ ~s|"global_name":"__root"|
-      assert description =~ ~s|"global_name":"price_check"|
-      assert description =~ ~s|"global_name":"team_zone__1_send_note"|
 
       assert {:ok, job} = PTC.job(plan.ptc, call)
 

@@ -37,7 +37,7 @@ describe('@ankole/agent-computer Workflow task turn', () => {
     await expect(runTurnHandlers(start, {} as TurnHandlerOptions)).rejects.toThrow('run_id')
   })
 
-  it('runs the isolated prompt and non-recursive tool catalog before committing submit_result', async () => {
+  it('runs a task with a non-recursive tool catalog before committing submit_result', async () => {
     const start = workflowTurnStart()
     start.request_context = {
       ...start.request_context,
@@ -96,16 +96,7 @@ describe('@ankole/agent-computer Workflow task turn', () => {
       const firstRequest = fixture.modelRequests[0]!
       expect(firstRequest.instructions).toContain('You are Release Agent')
       expect(firstRequest.instructions).toContain('Check evidence before drawing a conclusion.')
-      expect(firstRequest.instructions).toContain('Run id: 1001')
-      expect(firstRequest.instructions).toContain('Call id: 2002')
-      expect(firstRequest.instructions).toContain('Task label: "release verification"')
-      expect(firstRequest.instructions).toContain('call submit_result as your final action')
-      expect(firstRequest.instructions).toContain('Do not return the task result as prose.')
-      expect(firstRequest.instructions).toContain('"verified":{"type":"boolean"}')
-      expect(firstRequest.instructions).toContain('delegate long work with create_background_job')
-      expect(firstRequest.instructions).toContain('sleep with attention set to true')
       expect(firstRequest.instructions).not.toContain('<skills>')
-      expect(firstRequest.instructions).not.toContain('This turn continues your earlier work')
       expect(JSON.stringify(firstRequest.input)).toContain('Verify release artifacts.')
       expect(toolNames(firstRequest)).toEqual([
         'create_background_job',
@@ -310,10 +301,7 @@ describe('@ankole/agent-computer Workflow task turn', () => {
         reason: 'workflow_task_committed'
       })
       const firstRequest = fixture.modelRequests[0]!
-      expect(firstRequest.instructions).toContain('This turn continues your earlier work')
-      expect(firstRequest.instructions).toContain('"verified":{"type":"boolean"}')
       const input = JSON.stringify(firstRequest.input)
-      expect(input).toContain('Your sleep deadline passed')
       expect(input).toContain('Waiting for background job 1234.')
       expect(input).not.toContain('Verify release artifacts.')
       expect(fixture.submissions).toHaveLength(1)

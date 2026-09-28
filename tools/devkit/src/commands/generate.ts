@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { chdir } from 'node:process'
 
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 import chalk from 'chalk'
 
 import { packageRootPath, repoRootPath } from '../utils'
@@ -10,13 +10,15 @@ const defaultCollection = '@agentbull/devkit'
 const collectionPath = join(packageRootPath, 'src/schematics/collection.json')
 
 /** Returns the Crust command placeholder for help and command discovery. */
-export function generateCommand(): Crust {
-  return new Crust('generate')
-    .meta({
+export function generateCommand() {
+  return defineCommand(
+    'generate',
+    {
       aliases: ['g'],
       description: 'Generates and/or modifies files based on schematic.'
-    })
-    .run(() => showUsage())
+    },
+    command => command.action(() => showUsage())
+  )
 }
 
 /**

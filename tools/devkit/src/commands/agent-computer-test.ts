@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 
 import { resolveLocalWorkerImage } from '../local-worker-image'
 import { buildDockerRunArgs, renderContainerBootstrapSpec, type WorkerBootstrapSpec } from '../worker-bootstrap'
@@ -99,19 +99,25 @@ function testCommand(suite: AgentComputerTestSuite): string[] {
   }
 }
 
-export function agentComputerTestCommand(): Crust {
-  return new Crust('agent-computer-test')
-    .meta({ description: 'Run Agent Computer package tests in the canonical worker container runtime.' })
-    .flags({
-      suite: {
-        type: 'string',
-        description: 'Test suite to run: unit or integration.',
-        default: 'unit'
-      },
-      image: {
-        type: 'string',
-        description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
-      }
-    })
-    .run(({ flags }) => runAgentComputerTests(parseAgentComputerTestSuite(flags.suite), flags.image))
+export function agentComputerTestCommand() {
+  return defineCommand(
+    'agent-computer-test',
+    { description: 'Run Agent Computer package tests in the canonical worker container runtime.' },
+    command =>
+      command
+        .flags(
+          {
+            name: 'suite',
+            type: 'string',
+            description: 'Test suite to run: unit or integration.',
+            default: 'unit'
+          },
+          {
+            name: 'image',
+            type: 'string',
+            description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
+          }
+        )
+        .action(({ flags }) => runAgentComputerTests(parseAgentComputerTestSuite(flags.suite), flags.image))
+  )
 }

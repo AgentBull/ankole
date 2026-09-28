@@ -551,7 +551,7 @@ describe('web tools', () => {
   for (const warmCount of [1, 2]) {
     it(`shares one page-text budget with ${warmCount} cached large pages`, async () => {
       const urls = ['https://budget-a.example/', 'https://budget-b.example/']
-      const fullText = 'a'.repeat(WEB_FETCH_BUDGET_CHARS * 2) + '\nfinal paragraph'
+      const fullText = `${'a'.repeat(WEB_FETCH_BUDGET_CHARS * 2)}\nfinal paragraph`
       const requests: string[][] = []
       const tools = await createWebTools({
         workspaceRoot,

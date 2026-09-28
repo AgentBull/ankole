@@ -1,4 +1,4 @@
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 
 import {
   appRootPath,
@@ -9,28 +9,32 @@ import {
   startComposeServices
 } from '../utils'
 
-const commonDBFlags = {
-  name: {
+const commonDBFlags = [
+  {
+    name: 'name',
     type: 'string',
     description:
       'Database name. Defaults to the database in app/control_plane/.env.local or app/control_plane/.env.development.'
   },
-  'start-services': {
+  {
+    name: 'start-services',
     type: 'boolean',
     description: 'Start the Compose services before the database operation.',
     default: true
   },
-  pull: {
+  {
+    name: 'pull',
     type: 'boolean',
     description: 'Pull the latest service images before starting services.',
     default: true
   },
-  'wait-timeout': {
+  {
+    name: 'wait-timeout',
     type: 'number',
     description: 'Seconds to wait for service health checks.',
     default: 60
   }
-} as const
+] as const
 
 /** Creates the local app database inside the devkit Postgres container. */
 export const createLocalAppDatabase = async (databaseName: string): Promise<void> => {
@@ -92,87 +96,87 @@ const requireYes = (command: string, yes?: boolean): void => {
 }
 
 /** Builds the `kit app-db` command tree. */
-export function appDBCommand(): Crust {
-  return new Crust('app-db')
-    .meta({
+export function appDBCommand() {
+  return defineCommand(
+    'app-db',
+    {
       aliases: ['db'],
       description: 'Create, drop, or rebuild the Ankole Agent app database.'
-    })
-    .command('create', cmd =>
-      cmd
-        .meta({ description: 'Create the app database if it does not already exist.' })
-        .flags(commonDBFlags)
-        .run(async ({ flags }) => {
-          const databaseName = resolveAppDatabaseName(flags.name)
-          if (flags['start-services']) {
-            await startComposeServices({
-              pull: flags.pull,
-              waitTimeout: flags['wait-timeout']
+    },
+    command =>
+      command.add(
+        defineCommand('create', { description: 'Create the app database if it does not already exist.' }, child =>
+          child.flags(...commonDBFlags).action(async ({ flags }) => {
+            const databaseName = resolveAppDatabaseName(flags.name)
+            if (flags['start-services']) {
+              await startComposeServices({
+                pull: flags.pull,
+                waitTimeout: flags['wait-timeout']
+              })
+            }
+            await createLocalAppDatabase(databaseName)
+          })
+        ),
+        defineCommand('drop', { description: 'Drop the app database.' }, child =>
+          child
+            .flags(...commonDBFlags, {
+              name: 'yes',
+              type: 'boolean',
+              description: 'Confirm the destructive drop operation.',
+              default: false
             })
-          }
-          await createLocalAppDatabase(databaseName)
-        })
-    )
-    .command('drop', cmd =>
-      cmd
-        .meta({ description: 'Drop the app database.' })
-        .flags({
-          ...commonDBFlags,
-          yes: {
-            type: 'boolean',
-            description: 'Confirm the destructive drop operation.',
-            default: false
-          }
-        })
-        .run(async ({ flags }) => {
-          requireYes('app-db drop', flags.yes)
+            .action(async ({ flags }) => {
+              requireYes('app-db drop', flags.yes)
 
-          const databaseName = resolveAppDatabaseName(flags.name)
-          if (flags['start-services']) {
-            await startComposeServices({
-              pull: flags.pull,
-              waitTimeout: flags['wait-timeout']
+              const databaseName = resolveAppDatabaseName(flags.name)
+              if (flags['start-services']) {
+                await startComposeServices({
+                  pull: flags.pull,
+                  waitTimeout: flags['wait-timeout']
+                })
+              }
+              await dropDatabase(databaseName)
             })
-          }
-          await dropDatabase(databaseName)
-        })
-    )
-    .command('rebuild', cmd =>
-      cmd
-        .meta({ description: 'Drop, create, and migrate the app database.' })
-        .flags({
-          ...commonDBFlags,
-          yes: {
-            type: 'boolean',
-            description: 'Confirm the destructive rebuild operation.',
-            default: false
-          },
-          migrate: {
-            type: 'boolean',
-            description: 'Run control-plane Ecto migrations after recreating the database.',
-            default: true
-          }
-        })
-        .run(async ({ flags }) => {
-          requireYes('app-db rebuild', flags.yes)
+        ),
+        defineCommand('rebuild', { description: 'Drop, create, and migrate the app database.' }, child =>
+          child
+            .flags(
+              ...commonDBFlags,
+              {
+                name: 'yes',
+                type: 'boolean',
+                description: 'Confirm the destructive rebuild operation.',
+                default: false
+              },
+              {
+                name: 'migrate',
+                type: 'boolean',
+                description: 'Run control-plane Ecto migrations after recreating the database.',
+                default: true
+              }
+            )
+            .action(async ({ flags }) => {
+              requireYes('app-db rebuild', flags.yes)
 
-          const databaseName = resolveAppDatabaseName(flags.name)
-          if (flags['start-services']) {
-            await startComposeServices({
-              pull: flags.pull,
-              waitTimeout: flags['wait-timeout']
+              const databaseName = resolveAppDatabaseName(flags.name)
+              if (flags['start-services']) {
+                await startComposeServices({
+                  pull: flags.pull,
+                  waitTimeout: flags['wait-timeout']
+                })
+              }
+              await dropDatabase(databaseName)
+              await createLocalAppDatabase(databaseName)
+              // Migration is optional so callers can recreate an empty database for
+              // debugging schema generation or failed migration states.
+              if (flags.migrate) await runAppMigrations()
             })
-          }
-          await dropDatabase(databaseName)
-          await createLocalAppDatabase(databaseName)
-          // Migration is optional so callers can recreate an empty database for
-          // debugging schema generation or failed migration states.
-          if (flags.migrate) await runAppMigrations()
-        })
-    )
-    .command('migrate', cmd =>
-      cmd
-        .meta({ description: 'Run control-plane Ecto migrations against the configured local database.' })
-        .run(() => runAppMigrations())
-    )
+        ),
+        defineCommand(
+          'migrate',
+          { description: 'Run control-plane Ecto migrations against the configured local database.' },
+          child => child.action(() => runAppMigrations())
+        )
+      )
+  )
 }

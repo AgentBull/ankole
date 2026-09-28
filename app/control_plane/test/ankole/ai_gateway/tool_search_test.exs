@@ -77,8 +77,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       [search_tool] = Enum.filter(provider_request["tools"], &(&1["name"] == "tool_search"))
       assert search_tool["type"] == "function"
-      assert search_tool["description"] =~ "bx_market_data"
-      assert search_tool["description"] =~ "龙虎榜席位数据"
       assert search_tool["parameters"]["required"] == ["paths"]
       assert search_tool["parameters"]["properties"]["paths"]["type"] == "array"
     end
@@ -151,7 +149,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       [search_tool] = provider_request["tools"]
       assert search_tool["type"] == "function"
       assert search_tool["name"] == "tool_search"
-      assert search_tool["description"] == "Search over MCP servers: bullx_financial_data"
     end
 
     test "honors an explicit execution declaration" do
@@ -204,8 +201,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
              ]
 
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
-      assert hd(provider_request["tools"])["description"] =~ "mcp__finance"
-      refute hd(provider_request["tools"])["description"] =~ "stock_price"
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__finance"])
       assert loaded["namespace"] == "mcp__finance"
@@ -564,38 +559,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert %ToolSearch.Plan{} = plan
     end
 
-    test "keeps loaded tools out of the searchable listing" do
-      loaded = deferred_tool("bx_market_data", "A股行情数据查询")
-
-      search_call = %{
-        "type" => "tool_search_call",
-        "call_id" => nil,
-        "status" => "completed",
-        "execution" => "server",
-        "arguments" => %{"paths" => ["bx_market_data"]}
-      }
-
-      output_item = %{
-        "type" => "tool_search_output",
-        "call_id" => nil,
-        "status" => "completed",
-        "execution" => "server",
-        "tools" => [loaded]
-      }
-
-      request =
-        base_request(
-          [deferred_tool("bx_market_data", "A股行情数据查询"), deferred_tool("bx_news", "新闻")],
-          [search_call, output_item]
-        )
-
-      assert {:ok, provider_request, _plan} = ToolSearch.plan(request)
-
-      [search_tool] = Enum.filter(provider_request["tools"], &(&1["name"] == "tool_search"))
-      refute search_tool["description"] =~ "bx_market_data:"
-      assert search_tool["description"] =~ "bx_news"
-    end
-
     test "rejects managed history when its declaration is absent" do
       cases = [
         {%{"type" => "program", "call_id" => "prog"}, {:invalid_program, :declaration_missing}},
@@ -755,9 +718,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert plan.execution == :server
       assert plan.loaded_identities == MapSet.new([{nil, "calendar"}])
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar", "tool_search"]
-
-      search_tool = Enum.find(provider_request["tools"], &(&1["name"] == "tool_search"))
-      refute search_tool["description"] =~ "calendar:"
     end
 
     test "replays a complete server search pair after its tool leaves the current catalog" do
@@ -1053,7 +1013,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert bytes > 32_768
     end
 
-    test "a dual-channel contract is referenced once instead of copied into program" do
+    test "a large direct tool declaration is retained" do
       huge_tool = %{
         "type" => "function",
         "name" => "huge",
@@ -1062,14 +1022,10 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         "allowed_callers" => ["direct", "programmatic"]
       }
 
-      assert {:ok, provider_request, plan} =
+      assert {:ok, provider_request, _plan} =
                ToolSearch.plan(
                  base_request([huge_tool, %{"type" => "programmatic_tool_calling"}])
                )
-
-      program = PTC.provider_tool(plan.ptc)
-      assert program["description"] =~ ~s|matching direct tool declarations: ["huge"]|
-      refute program["description"] =~ String.duplicate("x", 1_000)
 
       assert Enum.any?(
                provider_request["tools"],

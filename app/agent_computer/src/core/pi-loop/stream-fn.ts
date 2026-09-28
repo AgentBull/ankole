@@ -14,7 +14,7 @@
  *
  * Tool results must reach AIGateway even on a round pi's own loop never
  * revisits. `recordToolResultsEagerly` shares this private cursor and is called
- * from `shouldStopAfterTurn`; `run()`'s delta therefore never contains a tool
+ * from `finishTurn`; `run()`'s delta therefore never contains a tool
  * result.
  */
 
@@ -22,13 +22,18 @@ import type {
   AssistantMessage as PiAssistantMessage,
   AssistantMessageEventStream,
   Context as PiContext,
+  JsonObject as PiJSONObject,
   Message as PiMessage,
-  Tool as PiTool,
   ToolResultMessage as PiToolResultMessage,
   UserMessage as PiUserMessage,
   Usage as PiUsage
 } from '@earendil-works/pi-ai'
-import { createAssistantMessageEventStream, parseStreamingJson } from '@earendil-works/pi-ai'
+import {
+  createAssistantMessageEventStream,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+  parseStreamingJson
+} from '@earendil-works/pi-ai'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { withRetry } from '../../common/async'
@@ -86,6 +91,7 @@ export function createPiStreamFn(
     | 'hostedTools'
     | 'onHostedBrainItem'
     | 'logger'
+    | 'tools'
   >,
   turnState: PiTurnState
 ): {
@@ -131,7 +137,10 @@ export function createPiStreamFn(
    * `run()` call's delta — stays consistent, and returns the new response id.
    */
   async function recordToolResultsEagerly(context: PiContext, followUps: PiUserMessage[]): Promise<string> {
-    const toolResults = context.messages.slice(cursor).map(message => toOurMessage(message, toolCallMeta))
+    const toolResults = context.messages
+      .slice(cursor)
+      .filter(message => message.role !== 'system')
+      .map(message => toOurMessage(message, toolCallMeta))
     const followUpMessages = followUps.map(message => toOurMessage(message, toolCallMeta))
     const bundled = [...toolResults, ...followUpMessages]
     const completeActorEventIDs = turnState.pendingCompleteActorEventIDs.splice(0)
@@ -200,7 +209,7 @@ export function createPiStreamFn(
     // as ordinary input items from the previous anchor.
     //
     // The delta otherwise never contains a tool result: `recordToolResultsEagerly`
-    // (called from `shouldStopAfterTurn`, before pi ever gets back here)
+    // (called from `finishTurn`, before pi ever gets back here)
     // already consumed and advanced the cursor past those. Whatever remains is
     // plain steering — external, iteration-limit synthesis, empty-response
     // nudge, or response repair — bound for `.call()` as-is.
@@ -223,7 +232,11 @@ export function createPiStreamFn(
         return
       }
 
-      const messagesForCall = delta.map(message => toOurMessage(message, toolCallMeta))
+      // pi 0.87 records its system prompt and tool loadout in the transcript.
+      // AIGateway receives those through instructions and tools instead.
+      const messagesForCall = delta
+        .filter(message => message.role !== 'system')
+        .map(message => toOurMessage(message, toolCallMeta))
 
       let textSoFar = ''
       let textStarted = false
@@ -237,11 +250,15 @@ export function createPiStreamFn(
       }
       stream.push({ type: 'start', partial: partialMessage(config, '') })
 
+      const activeToolNames = new Set(getCurrentTools(context.messages).map(tool => tool.name))
+      const activeTools = (config.tools ?? []).filter(tool =>
+        activeToolNames.has(toolIdentity(tool.namespace, tool.name))
+      )
       const callOptions: CallModelOptions = {
-        instructions: context.systemPrompt,
+        instructions: getCurrentSystemPrompt(context.messages),
         messages: messagesForCall,
-        tools: toWireToolSet(context.tools),
-        programmaticToolCalling: hasProgrammaticCaller(context.tools),
+        tools: toWireToolSet(activeTools),
+        programmaticToolCalling: hasProgrammaticCaller(activeTools),
         hostedTools,
         maxOutputTokens: config.maxTokens,
         temperature: config.temperature,
@@ -343,30 +360,25 @@ export function registeredWorkerTools(tools: readonly unknown[] | undefined): Wo
   return (tools ?? []) as WorkerAgentTool[]
 }
 
-function toWireToolSet(tools: PiTool[] | undefined): ToolSet | undefined {
+function toWireToolSet(tools: WorkerAgentTool[] | undefined): ToolSet | undefined {
   if (!tools?.length) return undefined
-  // `tools` is pi's registered set, whose `name` already is the identity
-  // alias (see `bareToolName`); the wire declaration needs the bare name.
-  // The unknown-tool sentinel is loop-internal and never declared.
-  const definitions: [string, ToolDefinition][] = registeredWorkerTools(tools)
-    .filter(tool => tool.name !== UNKNOWN_TOOL_SENTINEL_NAME)
-    .map(tool => [
-      tool.name,
-      {
-        name: bareToolName(tool.name),
-        description: tool.description,
-        parameters: tool.schema,
-        inputFormat: tool.inputFormat,
-        jsonSchema: tool.jsonSchema,
-        outputSchema: tool.outputSchema,
-        strict: tool.strict,
-        namespace: tool.namespace,
-        namespaceDescription: tool.namespaceDescription,
-        deferLoading: tool.deferLoading,
-        toolSearchText: tool.toolSearchText,
-        allowedCallers: allowedCallers(tool)
-      }
-    ])
+  const definitions: [string, ToolDefinition][] = tools.map(tool => [
+    toolIdentity(tool.namespace, tool.name),
+    {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.schema,
+      inputFormat: tool.inputFormat,
+      jsonSchema: tool.jsonSchema,
+      outputSchema: tool.outputSchema,
+      strict: tool.strict,
+      namespace: tool.namespace,
+      namespaceDescription: tool.namespaceDescription,
+      deferLoading: tool.deferLoading,
+      toolSearchText: tool.toolSearchText,
+      allowedCallers: allowedCallers(tool)
+    }
+  ])
   return Object.fromEntries(definitions)
 }
 
@@ -375,8 +387,8 @@ function allowedCallers(tool: WorkerAgentTool): Array<'direct' | 'programmatic'>
   return tool.allowedCallers ?? ['direct']
 }
 
-function hasProgrammaticCaller(tools: PiTool[] | undefined): boolean {
-  return registeredWorkerTools(tools).some(tool => allowedCallers(tool).includes('programmatic'))
+function hasProgrammaticCaller(tools: WorkerAgentTool[] | undefined): boolean {
+  return (tools ?? []).some(tool => allowedCallers(tool).includes('programmatic'))
 }
 
 /** `functions` is the Codex default namespace: a bare tool and one explicitly in `functions` share this identity. */
@@ -661,7 +673,7 @@ function toPiAssistantMessage(
         // call from a cut response to a tool — it only fails it — and the
         // alias's `\0` must not leak into pi's model-visible error text.
         name: call.name,
-        arguments: truncatedToolCallArguments(call) as Record<string, unknown>,
+        arguments: truncatedToolCallArguments(call) as PiJSONObject,
         ...(call.namespace ? { namespace: call.namespace } : {})
       })
     }
@@ -701,14 +713,14 @@ function toPiAssistantMessage(
       // pi-ai types `arguments` as `Record<string, any>` only for the common
       // function-call case; a plain string reaches `execute()` unmodified at
       // runtime regardless of that static shape.
-      let toolArguments: Record<string, unknown>
+      let toolArguments: PiJSONObject
       if (call.type === 'custom') {
-        toolArguments = call.arguments as unknown as Record<string, unknown>
+        toolArguments = call.arguments as unknown as PiJSONObject
       } else {
         try {
           const repaired = repairToolArgumentsJSON(call.arguments)
           if (repaired.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${repaired.repair}`)
-          toolArguments = repaired.value as Record<string, unknown>
+          toolArguments = repaired.value as PiJSONObject
         } catch (error) {
           // One unparseable call must fail alone and recoverably (the model
           // retries it next round), not throw the whole turn away along

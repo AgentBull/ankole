@@ -252,7 +252,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       )
 
     assert get_in(completed.result, ["output_text"]) =~ marker
-    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.153.2 "
+    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.158.0 "
 
     legacy_auth_path =
       Path.join([ctx.container.agents_root, ctx.agent.uid, ".codex", "auth.json"])

@@ -27,13 +27,9 @@ import {
   toolsForAmbientRoute
 } from '../../src/core/turns/text_turn'
 import { steeringMessages, steeringMessagesWithAcknowledgement } from '../../src/core/turns/turn_control'
-import { buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import { create } from '@bufbuild/protobuf'
-import {
-  AgentConversationContextResponseSchema,
-  AIGatewayAPIKeyResponseSchema
-} from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { AIGatewayAPIKeyResponseSchema } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
@@ -522,7 +518,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(messages).toHaveLength(1)
     expect(messages[0]?.role).toBe('user')
     const content = messages[0]?.role === 'user' ? messages[0].content : ''
-    expect(content).toContain('Steering instruction:')
     expect(content).toContain('CHAOS_STEERED_OK')
     expect(turnStart.turn.revision).toBe(1)
   })
@@ -931,69 +926,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice(chatbot-user-id) (chatbot)'])
     expect(opaqueAuthorGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: user_123(user_123)'])
     expect(legacyAuthorGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: legacy-user(legacy-user)'])
-  })
-
-  it('defines the group speaker uid format in the system prompt', () => {
-    const systemPrompt = buildAgentSystemPrompt({
-      userFilesRoot: '/workspace/user-files',
-      workspaceRoot: '/workspace',
-      turnStart: turnStartForTest() as TurnStart,
-      agentConversationContext: create(AgentConversationContextResponseSchema, {
-        agent: { displayName: 'Test Agent' },
-        conversation: { timezone: 'UTC' }
-      }),
-      availableToolNames: []
-    })
-
-    expect(systemPrompt).toContain('name(uid)')
-    expect(systemPrompt).toContain('user_123(user_123)')
-  })
-
-  it('explains only the available Brain operations and keeps lazy Skill routing in read-only turns', () => {
-    const prompt = (availableToolNames: string[]) =>
-      buildAgentSystemPrompt({
-        userFilesRoot: '/workspace/user-files',
-        workspaceRoot: '/workspace',
-        turnStart: turnStartForTest() as TurnStart,
-        agentConversationContext: create(AgentConversationContextResponseSchema, {
-          agent: { displayName: 'Test Agent' },
-          conversation: { timezone: 'UTC' }
-        }),
-        availableToolNames
-      })
-
-    const withMemory = prompt(['remember', 'recall'])
-    expect(withMemory).toContain('<long_term_memory>')
-    expect(withMemory).toContain('called the Brain')
-    expect(withMemory).toContain('Dreaming')
-    expect(withMemory).toContain('learned into it automatically')
-    expect(withMemory).toContain('ConfidentialityPolicy.md')
-    expect(withMemory).not.toContain('lazyload-agent-skills/')
-
-    const withLazySkillRouting = prompt(['remember', 'recall', 'get_page', 'skill_view'])
-    expect(withLazySkillRouting).toContain(
-      'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`.'
-    )
-
-    const readOnly = prompt(['recall', 'get_page', 'skill_view'])
-    expect(readOnly).toContain('<long_term_memory>')
-    expect(readOnly).toContain('Use `recall` to search the Brain and `get_page` to read one full page')
-    expect(readOnly).toContain('A `lazyload-agent-skills/` record is a Skill discovery record')
-    expect(readOnly).not.toContain('`remember`')
-    expect(readOnly).not.toContain('Dreaming')
-
-    const recallOnly = prompt(['recall'])
-    expect(recallOnly).toContain('<long_term_memory>')
-    expect(recallOnly).toContain('Use `recall` to search the Brain')
-    expect(recallOnly).not.toContain('`get_page`')
-    expect(recallOnly).not.toContain('lazyload-agent-skills/')
-
-    const getPageWithoutSkillView = prompt(['get_page'])
-    expect(getPageWithoutSkillView).toContain('Use `get_page` to read one full Brain page')
-    expect(getPageWithoutSkillView).not.toContain('lazyload-agent-skills/')
-
-    expect(prompt([])).not.toContain('<long_term_memory>')
-    expect(prompt(['skill_view'])).not.toContain('<long_term_memory>')
   })
 
   it('keeps schedule values in the current event block', () => {

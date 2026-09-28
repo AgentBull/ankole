@@ -155,8 +155,9 @@ describe('Codex observations from accepted recorder events', () => {
       notification('item/completed', { item: summary }),
       output,
       output
-    ])
+    ]) {
       recorder.handleNotification(event)
+    }
     await recorder.flush()
     for (const event of [call, activity, output]) recorder.handleNotification(event)
     recorder.handleNotification(notification('turn/completed', { turn: { ...startedTurn(), status: 'completed' } }))

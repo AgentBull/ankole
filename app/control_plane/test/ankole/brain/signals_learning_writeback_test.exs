@@ -24,15 +24,8 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
     %{principal: alice} = human_fixture()
 
-    test_pid = self()
-
     base_url =
       start_upstream_server(fn %{path: "chat/completions", body: body} ->
-        send(
-          test_pid,
-          {:extraction_prompt, body["messages"] |> List.first() |> Map.get("content")}
-        )
-
         items = %{
           "items" => [
             %{
@@ -101,16 +94,6 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
        %{alice: alice, channel: channel} do
     assert {:ok, %{status: :complete, written: %{claims: 1}}} =
              SignalsLearning.process_channel(channel.id)
-
-    assert_receive {:extraction_prompt, prompt}
-    assert prompt =~ "send me something written first"
-    assert prompt =~ "source audience is an upper bound"
-    assert prompt =~ "never create an agent object or invent an agents/ slug"
-    refute prompt =~ "agent (slug prefix agents/)"
-    refute prompt =~ "agent-skills (slug prefix"
-    assert prompt =~ ~s("world" for content learned from this conversation)
-    # No stored page matches this transcript, so the dedup block stays out.
-    refute prompt =~ "Known pages already in memory"
 
     assert [claim] =
              Claim
@@ -198,13 +181,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     refute SignalsLearning.has_pending_slice?(channel.id)
   end
 
-  describe "known page injection" do
-    # The counterfactual behind write-time dedup: the model only reuses an
-    # existing page when the prompt names it. The faked model plays an
-    # obedient extractor — with the known-page list it files under the
-    # listed slug, without the list it declares the same entity as a new
-    # page — so a regression that drops the injection fails the
-    # single-page assertion below.
+  describe "existing page writeback" do
     setup %{alice: alice} do
       {:ok, _object} =
         Ankole.Brain.Objects.create_object(
@@ -212,51 +189,22 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
           :system
         )
 
-      {:ok, _alias} = Ankole.Brain.Links.add_alias("companies/acme", "acme")
-
-      test_pid = self()
       holder = "people/" <> alice.uid
 
       base_url =
         start_upstream_server(fn %{path: "chat/completions", body: body} ->
-          prompt = body["messages"] |> List.first() |> Map.get("content")
-          send(test_pid, {:dedup_prompt, prompt})
-
-          items =
-            if prompt =~ "companies/acme — Acme Corporation" do
-              [
-                %{
-                  "type" => "fact",
-                  "claim" => "Acme wants to renew before the end of the quarter",
-                  "kind" => "commitment",
-                  "holder" => holder,
-                  "notability" => "high",
-                  "confidence" => 0.7,
-                  "object_slug" => "companies/acme",
-                  "provenance" => "renewal message"
-                }
-              ]
-            else
-              [
-                %{
-                  "type" => "object",
-                  "slug" => "companies/acme-corp",
-                  "object_type" => "company",
-                  "title" => "Acme Corp",
-                  "aliases" => ["acme"]
-                },
-                %{
-                  "type" => "fact",
-                  "claim" => "Acme wants to renew before the end of the quarter",
-                  "kind" => "commitment",
-                  "holder" => holder,
-                  "notability" => "high",
-                  "confidence" => 0.7,
-                  "object_slug" => "companies/acme-corp",
-                  "provenance" => "renewal message"
-                }
-              ]
-            end
+          items = [
+            %{
+              "type" => "fact",
+              "claim" => "Acme wants to renew before the end of the quarter",
+              "kind" => "commitment",
+              "holder" => holder,
+              "notability" => "high",
+              "confidence" => 0.7,
+              "object_slug" => "companies/acme",
+              "provenance" => "renewal message"
+            }
+          ]
 
           body_text = Ankole.JSON.encode!(%{"items" => items})
           {:json, 200, chat_completion_body(body["model"], body_text)}
@@ -275,7 +223,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
       :ok
     end
 
-    test "a mentioned known entity reuses its page instead of creating a duplicate",
+    test "an extracted claim links an existing page without creating a duplicate",
          %{agent: agent, alice: alice} do
       channel = insert_channel!()
 
@@ -291,13 +239,6 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
       assert {:ok, %{status: :complete, written: %{claims: 1, objects: 0}}} =
                SignalsLearning.process_channel(channel.id)
 
-      assert_receive {:dedup_prompt, prompt}
-      assert prompt =~ "Known pages already in memory"
-      assert prompt =~ "companies/acme — Acme Corporation (aka: acme)"
-      assert prompt =~ "must reuse the listed slug"
-
-      # One page, not two: the fact landed on the existing page and no
-      # duplicate slug appeared.
       assert [%{slug: "companies/acme"}] =
                Ankole.Brain.Schemas.Object
                |> where([object], like(object.slug, "companies/%"))

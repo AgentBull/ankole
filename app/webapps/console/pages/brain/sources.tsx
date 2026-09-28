@@ -297,11 +297,12 @@ export function BrainSourcesPage() {
             className="grid gap-4"
             onSubmit={event => {
               event.preventDefault()
-              if (scopeTarget)
+              if (scopeTarget) {
                 updateScope.mutate({
                   path: { source_id: scopeTarget.id },
                   body: { default_audience_scope: sourceScope.trim() || null }
                 })
+              }
             }}>
             <LabeledField label={t('console.brain.scope')}>
               <Input

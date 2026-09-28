@@ -187,7 +187,6 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     UniversalAIRequest.new(ctx, "responses", :openai_responses)
   end
 
-
   defp stream_spec(url) do
     %{
       api_resolver: :openai_responses,

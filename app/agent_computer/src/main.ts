@@ -1,8 +1,10 @@
 import { match } from '@agentbull/active-support'
 import { toError } from './common/errors'
+import { createChannelTransport } from './fabric/channel_transport'
 import { controlShutdownEnvelope } from './fabric/envelopes'
-import { connectRuntimeFabric, type EnvelopeSender } from './fabric/fabric'
+import type { EnvelopeSender } from './fabric/fabric'
 import type { Envelope } from './fabric/envelope_proto'
+import { connectZeroMQTransport } from './fabric/zmq_transport'
 import { handleWorkerRPCRequest, RuntimeRPCClient, type WorkerRPCHandlers } from './lanes/rpc_lane'
 import { configureRuntimeFabricTracing } from './observability/runtime-fabric-exporter'
 import { forceFlushWorkerTracing } from './observability/turn-tracing'
@@ -40,10 +42,14 @@ async function runWorker(): Promise<void> {
 
   // The transport sends `worker_ready` on every join, including a rejoin
   // after a lost connection, so the ready message reports the current slots.
+  // The ready callback can run before the ActiveTurns constructor returns.
+  // oxlint-disable-next-line prefer-const
   let activeTurns: ActiveTurns | undefined
-  const fabric = connectRuntimeFabric(config, {
-    readyEnvelope: () => workerReadyEnvelope(config, activeTurns?.availableSlots ?? config.maxConcurrentTurns)
-  })
+  const readyEnvelope = () => workerReadyEnvelope(config, activeTurns?.availableSlots ?? config.maxConcurrentTurns)
+  const fabric =
+    config.transport === 'zmq'
+      ? connectZeroMQTransport(config, { readyEnvelope })
+      : createChannelTransport(config, { readyEnvelope })
   const sendEnvelope = fabric.sendEnvelope
   const rpcClient = new RuntimeRPCClient(sendEnvelope)
   configureRuntimeFabricTracing(rpcClient)

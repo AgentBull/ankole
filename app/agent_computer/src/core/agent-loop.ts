@@ -17,10 +17,10 @@ import { imageBytes } from '../common/image-bytes'
 import {
   Agent,
   type AfterToolCallResult,
+  type AgentTurnContext,
   type AgentLoopTurnUpdate,
   type AgentTool as PiAgentTool,
-  type BeforeToolCallResult,
-  type ShouldStopAfterTurnContext
+  type BeforeToolCallResult
 } from '@earendil-works/pi-agent-core'
 import type {
   AssistantMessage as PiAssistantMessage,
@@ -31,6 +31,7 @@ import type {
   UserMessage as PiUserMessage
 } from '@earendil-works/pi-ai'
 import { createHash } from 'node:crypto'
+import { Type } from 'typebox'
 import {
   safeJsonParse as safeJSONParse,
   safeJsonStringify as safeJSONStringify,
@@ -179,13 +180,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     execute: wrapToolExecute(tool, config, turnState, semaphore)
   }))
   // The pairing target for calls to undeclared tools — see
-  // `UNKNOWN_TOOL_SENTINEL_NAME`. pi only ever reads its `name` (resolution)
-  // and `prepareArguments` (which always throws the marked failure before
-  // validation or hooks could run), so nothing else needs to be real.
+  // `UNKNOWN_TOOL_SENTINEL_NAME`. pi now snapshots every registered tool's
+  // declaration, so the sentinel needs serializable parameters. Its
+  // `prepareArguments` still rejects the call before execution.
   const unknownToolSentinel = {
     name: UNKNOWN_TOOL_SENTINEL_NAME,
     label: UNKNOWN_TOOL_SENTINEL_NAME,
     description: 'Loop-internal pairing target for calls to undeclared tools.',
+    parameters: Type.Any(),
     prepareArguments: (args: unknown): never => {
       noteToolFailure({
         kind: 'unknown_tool',
@@ -197,7 +199,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     }
   }
 
-  async function finalizeCompletedTurn(ctx: ShouldStopAfterTurnContext): Promise<CompletedTurnFinalization> {
+  async function finalizeCompletedTurn(ctx: AgentTurnContext): Promise<CompletedTurnFinalization> {
     const roundTerminated = turnState.roundTerminated
     turnState.roundTerminated = false
 
@@ -503,21 +505,24 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       return override
     },
 
-    shouldStopAfterTurn: async ctx => {
+    finishTurn: async ctx => {
+      // The new hook also runs on provider errors and aborts. The old hook
+      // did not, and neither terminal response has a turn to finalize.
+      if (ctx.message.stopReason === 'error' || ctx.message.stopReason === 'aborted') return
       try {
         const finalization = await finalizeCompletedTurn(ctx)
         nextTurnUpdate = finalization.nextTurnUpdate
-        return finalization.shouldStop
+        return finalization.shouldStop ? { action: 'end' as const } : undefined
       } catch (error) {
         // Upstream requires this callback to resolve. End the loop and surface
         // the original finalization failure after `agent.prompt()` settles.
         turnFinalizationError = error ?? new Error('Agent turn finalization failed')
         nextTurnUpdate = undefined
-        return true
+        return { action: 'end' as const }
       }
     },
 
-    // pi-agent-core 0.84.4 calls this only when another turn will start. The
+    // pi-agent-core calls this only when another turn will start. The
     // preceding hook has already recorded the completed turn and built the
     // update, so this hook only applies it to the next provider request.
     prepareNextTurnWithContext: () => {
@@ -592,7 +597,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     throw turnState.lastError ?? new Error(lastAssistant.errorMessage || 'LLM provider returned an error')
   }
   // A turn can also end on the error results of a second cut round (see
-  // `shouldStopAfterTurn`). Those results were never sent anywhere, but the
+  // `finishTurn`). Those results were never sent anywhere, but the
   // cut response itself is stored, so its id is the turn's anchor — the
   // partial call it holds is quarantined from provider replay on continuation.
   const responseID =

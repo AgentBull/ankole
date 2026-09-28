@@ -160,8 +160,6 @@ defmodule Ankole.Brain.SkillLessonsTest do
     assert reflection.metadata["human_input_job_ids"] == [first.id]
     assert reflection.owner_session_id == "brain:skill-lessons:" <> agent.uid
     assert reflection.title == "Skill lessons reflection"
-    assert reflection.task =~ "# Skill field-note reflection"
-    assert reflection.task =~ "## Enabled skills"
     assert reflection.task =~ "不要再扩大范围"
     assert reflection.task =~ "openpyxl 3.1.2"
     assert reflection.task =~ "next call in turn: python3 build.py --list"

@@ -515,7 +515,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     http_client = fn request ->
       assert request.url ==
-               "https://chatgpt.com/backend-api/codex/models?client_version=0.153.2"
+               "https://chatgpt.com/backend-api/codex/models?client_version=0.158.0"
 
       assert {"Authorization", "Bearer chatgpt-access"} in request.headers
       assert {"ChatGPT-Account-ID", "account-fedramp"} in request.headers

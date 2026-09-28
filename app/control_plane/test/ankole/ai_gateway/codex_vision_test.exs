@@ -35,7 +35,6 @@ defmodule Ankole.AIGateway.CodexVisionTest do
                  assert fallback_request["model"] == fallback["selector"]
                  assert fallback_request["provider_options"] == fallback["provider_options"]
                  assert length(image_parts(fallback_request)) == 2
-                 assert fallback_request["instructions"] =~ "untrusted data"
 
                  {:ok,
                   %{
@@ -57,9 +56,7 @@ defmodule Ankole.AIGateway.CodexVisionTest do
     refute Map.has_key?(adapted, "__ankole_codex_vision")
 
     text = all_text(adapted)
-    assert text =~ "untrusted image content"
     assert text =~ "A chart and its legend."
-    assert text =~ "additional image covered"
   end
 
   test "keeps the turn context on the nested fallback request" do

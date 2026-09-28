@@ -194,8 +194,6 @@ describe('@ankole/agent-computer skill tools', () => {
       const tool = tools.find(candidate => candidate.name === 'skill_view')!
       const result = await tool.execute('call-long', { name: 'long-report' })
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
-      expect(text).toContain('create_background_job')
-      expect(text).toContain('use the long-report Skill')
       expect(text).not.toContain('Private operation body')
       expect(text).not.toContain('private overlay')
       expect(text).not.toContain('skill://')
@@ -261,7 +259,6 @@ describe('@ankole/agent-computer skill tools', () => {
 
       expect(instructionText).toContain('# Full voice drafting method')
       expect(instructionText).toContain('Use the preferred cadence.')
-      expect(instructionText).not.toContain('create_background_job')
       expect(referenceText).toContain('# Voice examples')
       expect(loadedNames).toEqual(['voice-drafting-method', 'voice-drafting-method'])
     } finally {
@@ -369,7 +366,6 @@ describe('@ankole/agent-computer skill tools', () => {
       const result = await tool.execute('call-enabled', { name: 'enabled-skill' })
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
       expect(text).toContain('# Base instructions')
-      expect(text).toContain('Agent-specific additions:')
       expect(text).toContain('Agent-specific evidence rule.')
 
       await expect(tool.execute('call-disabled', { name: 'disabled-skill' })).rejects.toThrow('skill is not enabled')

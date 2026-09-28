@@ -474,7 +474,7 @@ class ChannelTransport implements RuntimeFabricHost {
   private applyReply(stream: RuntimeFabricStream, reply: StreamReply): void {
     const state = this.streams[stream]
     if (reply.ackedSeq !== undefined) {
-      for (const [seq, settle] of [...state.inFlight]) {
+      for (const [seq, settle] of state.inFlight) {
         if (seq <= reply.ackedSeq) settle({ status: 'ok' })
       }
     }
@@ -801,7 +801,7 @@ class ChannelTransport implements RuntimeFabricHost {
 
   private settleInFlight(outcome: PushOutcome): void {
     for (const state of Object.values(this.streams)) {
-      for (const settle of [...state.inFlight.values()]) settle(outcome)
+      for (const settle of state.inFlight.values()) settle(outcome)
     }
   }
 

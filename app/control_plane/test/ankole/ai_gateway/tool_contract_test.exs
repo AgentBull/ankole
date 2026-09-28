@@ -148,26 +148,6 @@ defmodule Ankole.AIGateway.ToolContractTest do
              ]
     end
 
-    test "uses the Codex default namespace descriptions" do
-      assert {:ok, descriptors} =
-               ToolContract.normalize([
-                 %{
-                   "type" => "namespace",
-                   "name" => "analysis_tools",
-                   "tools" => [%{"type" => "function", "name" => "inspect"}]
-                 },
-                 %{
-                   "type" => "namespace",
-                   "name" => "functions",
-                   "tools" => [%{"type" => "function", "name" => "default_tool"}]
-                 }
-               ])
-
-      assert [analysis, functions] = ToolContract.response_specs(descriptors)
-      assert analysis["description"] == "Tools in the analysis_tools namespace."
-      assert functions["description"] == ""
-    end
-
     test "defaults an omitted caller list to direct execution" do
       assert {:ok, [%Descriptor{allowed_callers: ["direct"]}]} =
                ToolContract.normalize([

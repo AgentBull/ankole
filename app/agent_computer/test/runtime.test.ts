@@ -1,6 +1,5 @@
 import { create, toBinary, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   existsSync,
   mkdirSync,

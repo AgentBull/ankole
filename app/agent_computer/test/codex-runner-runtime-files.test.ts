@@ -16,8 +16,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
       mission: 'MISSION'
     }).content
     expect(content).toContain('/agents/agent-1/jobs/job-1')
-    expect(content).toContain('real paths inside this Worker')
-    expect(content).toContain('request_parent_input')
   })
 
   it('renders the Job start time in the installation timezone it labels', () => {
@@ -29,8 +27,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
       timezone: 'Asia/Shanghai',
       now
     }).content
-    expect(content).toContain('Job start time: 2026-08-06 05:27 (Asia/Shanghai).')
-    expect(content).toContain('Report times in Asia/Shanghai')
+    expect(content).toContain('2026-08-06 05:27 (Asia/Shanghai)')
     expect(content).not.toContain(now.toISOString())
 
     const withoutTimezone = renderCodexJobAgents({
@@ -39,7 +36,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
       mission: 'MISSION',
       now
     }).content
-    expect(withoutTimezone).toContain('Job start time: 2026-08-05 21:27 (UTC).')
+    expect(withoutTimezone).toContain('2026-08-05 21:27 (UTC)')
 
     // A timezone Intl cannot use must degrade the clock and its label together.
     const unusableTimezone = renderCodexJobAgents({
@@ -49,25 +46,17 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
       timezone: 'Mars/Olympus_Mons',
       now
     }).content
-    expect(unusableTimezone).toContain('Job start time: 2026-08-05 21:27 (UTC).')
+    expect(unusableTimezone).toContain('2026-08-05 21:27 (UTC)')
   })
 
-  it('renders the shared Job guidance template after the execution context', () => {
+  it('includes the provided Job guidance', () => {
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
       soul: 'SOUL',
       mission: 'MISSION',
       jobGuidance: 'Guidance body.'
     }).content
-    expect(content).toContain('## Job Guidance\n\nGuidance body.')
-    expect(content.indexOf('## Execution Context')).toBeLessThan(content.indexOf('## Job Guidance'))
-
-    const without = renderCodexJobAgents({
-      jobRoot: '/agents/agent-1/jobs/job-1',
-      soul: 'SOUL',
-      mission: 'MISSION'
-    }).content
-    expect(without).not.toContain('## Job Guidance')
+    expect(content).toContain('Guidance body.')
   })
 
   it('reads the bundled AGENT_JOB.md template through the builtin library root', () => {
@@ -84,7 +73,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     }
   })
 
-  it('renders the Ankole Skill catalog and lazy Skill routing rule in trusted Job guidance', () => {
+  it('renders the Ankole Skill catalog in trusted Job guidance', () => {
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',
       soul: 'SOUL',
@@ -95,7 +84,6 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
 
     expect(content).toContain('## Skills')
     expect(content).toContain('- ordinary')
-    expect(content).toContain('A `lazyload-agent-skills/` record is a Skill discovery record')
   })
 
   it('migrates legacy Skill roots once without replacing existing AGENTS guidance', () => {

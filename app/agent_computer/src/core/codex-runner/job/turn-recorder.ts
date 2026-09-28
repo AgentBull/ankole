@@ -405,8 +405,9 @@ export class BackgroundAgentJobTurnRecorder {
         terminal(turn.status) ||
         turn.completedItemIDs.has(callID) ||
         this.pendingCollaborationCalls.has(callID)
-      )
+      ) {
         return
+      }
       const argumentsValue = parseJSONValue(item.arguments, {})
       this.pendingCollaborationCalls.set(callID, {
         runtimeTurnID: turn.runtimeTurnID,

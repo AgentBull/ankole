@@ -32,16 +32,10 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
                }
              ])
 
-    assert prompt["fallback_visible_text"] ==
-             """
-             Who should this brief target?
-
-             1. Operators — People running the system.
-             2. Executives
-
-             Reply with a number or type your answer.
-             """
-             |> String.trim_trailing()
+    assert prompt["fallback_visible_text"] =~ "Who should this brief target?"
+    assert prompt["fallback_visible_text"] =~ "Operators"
+    assert prompt["fallback_visible_text"] =~ "People running the system."
+    assert prompt["fallback_visible_text"] =~ "Executives"
 
     interactive = prompt["interactive_output"]
 

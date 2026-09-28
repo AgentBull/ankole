@@ -1,5 +1,5 @@
 import { Crust } from '@crustjs/core'
-import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
+import { didYouMean, help } from '@crustjs/extensions'
 import { analyzeCommand } from './commands/analyze'
 import { agentComputerTestCommand } from './commands/agent-computer-test'
 import { appDBCommand } from './commands/app-db'
@@ -22,23 +22,22 @@ if (rawArgv[0] === 'generate' || rawArgv[0] === 'g') {
   process.exit(0)
 }
 
-let app = new Crust('bun kit')
-  .meta({ description: 'Ankole Agent repository development toolkit.' })
-  .use(didYouMeanPlugin({ mode: 'help' }))
-  .use(helpPlugin())
-  .command(isCICommand())
-  .command(isDevCommand())
-  .command(generateCommand())
-
-app = app.command(externalServicesCommand())
-app = app.command(envSetupCommand())
-app = app.command(appDBCommand())
-app = app.command(agentComputerTestCommand())
-app = app.command(devCommand())
-app = app.command(localPasswordCommand())
-app = app.command(logsCommand())
-app = app.command(showCommand())
-app = app.command(analyzeCommand())
+const app = new Crust('bun kit', { description: 'Ankole Agent repository development toolkit.' })
+  .extend(didYouMean({ mode: 'help' }), help())
+  .add(
+    isCICommand(),
+    isDevCommand(),
+    generateCommand(),
+    externalServicesCommand(),
+    envSetupCommand(),
+    appDBCommand(),
+    agentComputerTestCommand(),
+    devCommand(),
+    localPasswordCommand(),
+    logsCommand(),
+    showCommand(),
+    analyzeCommand()
+  )
 
 try {
   await app.execute()

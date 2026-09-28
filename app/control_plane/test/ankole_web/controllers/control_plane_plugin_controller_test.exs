@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Setup.Config, as: SetupConfig

@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.7-rc.1 (2026-09-29)
+
+- The Worker image now runs Codex CLI 0.158.0. Its generated app-server protocol matches the binary, and Job web search, MCP tools, Plugins, and durable resume work with this release.
+- The Worker image updates Bun to 1.4.2, MCPorter to 0.14.1, OfficeCLI to 1.0.152, and PDF Inspector to 1.25.2. Agent turns and tool declarations work with pi-agent-core and pi-ai 0.87.1.
+- The control plane, kernel, provider clients, web apps, and website use updated locked dependencies. Console's JSON editor works with json-edit-react 2.0 and React 19.3, and the devkit commands work with Crust 0.5.
+- Tests no longer fix the wording of first-party Skill bodies, model-facing descriptions, prompts, or setup help text. Skill loading, data projection, and tool execution checks remain. The Worker transport modules no longer form a runtime import cycle.
+
 ## Version 1.6.6-rc.1 (2026-09-28)
 
 - Feishu rich posts now include files from the message's `files` list as

@@ -13,6 +13,7 @@
   "bracketSpacing": true,
   "ignorePatterns": [
     "**/db/meta/*.json",
+    "app/webapps/openapi/*.json",
     "packages/native-addons/index.d.ts",
     "packages/native-addons/index.js",
     "packages/native-addons/main.js",

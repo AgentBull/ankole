@@ -1,13 +1,11 @@
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 import { runCycles } from './cycles'
 import { runSmells } from './smells'
 import { runStructure } from './structure'
 import type { CheckResult, ExitCode } from './types'
 import { runUnused } from './unused'
 
-const jsonFlag = {
-  json: { type: 'boolean', description: 'Emit machine-readable JSON.', default: false }
-} as const
+const jsonFlag = { name: 'json', type: 'boolean', description: 'Emit machine-readable JSON.', default: false } as const
 
 function emit(result: CheckResult, json: boolean): void {
   if (json) {
@@ -76,56 +74,53 @@ async function runAll(options: { json: boolean; skip?: string }): Promise<void> 
   process.exitCode = exitCode
 }
 
-export function analyzeCommand(): Crust {
-  return new Crust('analyze')
-    .meta({
+export function analyzeCommand() {
+  return defineCommand(
+    'analyze',
+    {
       aliases: ['check'],
       description: 'Static repository checks for the Ankole monorepo.'
-    })
-    .command('smells', cmd =>
-      cmd
-        .meta({ description: 'Declared dependency-boundary gate.' })
-        .flags({ ...jsonFlag })
-        .run(({ flags }) => {
-          emit(runSmells({ json: flags.json }), flags.json)
-        })
-    )
-    .command('unused', cmd =>
-      cmd
-        .meta({ description: 'Knip unused-file gate vs the owner/reason allowlist.' })
-        .flags({ ...jsonFlag })
-        .run(async ({ flags }) => {
-          emit(await runUnused({ json: flags.json }), flags.json)
-        })
-    )
-    .command('structure', cmd =>
-      cmd
-        .meta({ description: 'konsistent structural convention gate.' })
-        .flags({ ...jsonFlag })
-        .run(async ({ flags }) => {
-          emit(await runStructure({ json: flags.json }), flags.json)
-        })
-    )
-    .command('cycles', cmd =>
-      cmd
-        .meta({ description: 'Runtime-value import-cycle gate, target = 0.' })
-        .flags({
-          ...jsonFlag,
-          'include-tests': { type: 'boolean', description: 'Include test files.', default: false }
-        })
-        .run(({ flags }) => {
-          emit(runCycles({ json: flags.json, includeTests: flags['include-tests'] }), flags.json)
-        })
-    )
-    .command('all', cmd =>
-      cmd
-        .meta({ description: 'Run all gates and aggregate the exit code.' })
-        .flags({
-          ...jsonFlag,
-          skip: { type: 'string', description: 'Comma list of checks to skip, for example unused.' }
-        })
-        .run(async ({ flags }) => {
-          await runAll({ json: flags.json, skip: flags.skip })
-        })
-    )
+    },
+    command =>
+      command.add(
+        defineCommand('smells', { description: 'Declared dependency-boundary gate.' }, child =>
+          child.flags(jsonFlag).action(({ flags }) => {
+            emit(runSmells({ json: flags.json }), flags.json)
+          })
+        ),
+        defineCommand('unused', { description: 'Knip unused-file gate vs the owner/reason allowlist.' }, child =>
+          child.flags(jsonFlag).action(async ({ flags }) => {
+            emit(await runUnused({ json: flags.json }), flags.json)
+          })
+        ),
+        defineCommand('structure', { description: 'konsistent structural convention gate.' }, child =>
+          child.flags(jsonFlag).action(async ({ flags }) => {
+            emit(await runStructure({ json: flags.json }), flags.json)
+          })
+        ),
+        defineCommand('cycles', { description: 'Runtime-value import-cycle gate, target = 0.' }, child =>
+          child
+            .flags(jsonFlag, {
+              name: 'include-tests',
+              type: 'boolean',
+              description: 'Include test files.',
+              default: false
+            })
+            .action(({ flags }) => {
+              emit(runCycles({ json: flags.json, includeTests: flags['include-tests'] }), flags.json)
+            })
+        ),
+        defineCommand('all', { description: 'Run all gates and aggregate the exit code.' }, child =>
+          child
+            .flags(jsonFlag, {
+              name: 'skip',
+              type: 'string',
+              description: 'Comma list of checks to skip, for example unused.'
+            })
+            .action(async ({ flags }) => {
+              await runAll({ json: flags.json, skip: flags.skip })
+            })
+        )
+      )
+  )
 }

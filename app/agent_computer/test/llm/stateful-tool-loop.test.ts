@@ -1719,7 +1719,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
   it('ends the turn when a terminating call runs after an ordinary call in the same round', async () => {
     // pi's own batch check ends a round only when every call terminated;
     // here the ordinary call runs first (terminate: false), so only the
-    // loop's `shouldStopAfterTurn` bridge ends the turn.
+    // loop's `finishTurn` bridge ends the turn.
     const sentPayloads: JSONObject[] = []
     let sideEffectCalls = 0
     const model = createModel({

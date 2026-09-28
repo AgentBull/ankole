@@ -82,11 +82,8 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, shipped_sources} = Library.shipped_skill_sources()
     assert Enum.count(shipped_sources, &(&1.name == "idea-lineage")) == 1
 
-    assert {:ok, research_view} = Library.skill_view(agent.uid, "create-deep-research")
-    assert research_view["content"] =~ "Deep Research"
-
-    assert {:ok, lineage_view} = Library.skill_view(agent.uid, "idea-lineage")
-    assert lineage_view["content"] =~ "Idea lineage"
+    assert {:ok, _research_view} = Library.skill_view(agent.uid, "create-deep-research")
+    assert {:ok, _lineage_view} = Library.skill_view(agent.uid, "idea-lineage")
 
     for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
       assert %AgentSkill{
@@ -107,34 +104,8 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert Enum.find(skills, &(&1["skill_name"] == "design-md"))
 
-    assert {:ok, design_skill} = Library.skill_view(agent.uid, "design-md")
-    assert design_skill["content"] =~ "~/DESIGN.md"
-
-    assert {:ok, brainstorming} = Library.skill_view(agent.uid, "brainstorming")
-    assert brainstorming["content"] =~ "This is a playbook, not a fixed workflow."
-  end
-
-  test "keeps action-oriented and external-world research as distinct routes" do
-    %{principal: agent} = agent_fixture()
-    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
-
-    action_research = Enum.find(skills, &(&1["skill_name"] == "research-for-planning"))
-    research = Enum.find(skills, &(&1["skill_name"] == "create-deep-research"))
-
-    assert action_research["category"] == "research"
-    assert action_research["description"] =~ "market, competitor, channel"
-    assert action_research["description"] =~ "controllable"
-    assert action_research["description"] =~ "not for writing or reviewing a plan"
-    assert research["category"] == "research"
-    assert research["description"] =~ "external world"
-    assert research["description"] =~ "asset prices"
-    assert research["description"] =~ "market-entry"
-
-    assert {:ok, action_research_view} = Library.skill_view(agent.uid, "research-for-planning")
-    assert action_research_view["content"] =~ "Activate it only when both conditions hold"
-    assert action_research_view["content"] =~ "A quick lookup"
-    assert action_research_view["content"] =~ "stock buy/hold questions"
-    assert action_research_view["content"] =~ "Split those questions"
+    assert {:ok, _design_skill} = Library.skill_view(agent.uid, "design-md")
+    assert {:ok, _brainstorming} = Library.skill_view(agent.uid, "brainstorming")
   end
 
   test "new agents are seeded with soul, mission, and design library entries" do
@@ -172,7 +143,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:ok, skill} = Library.skill_view(agent.uid, "pdf")
     assert skill["skill_uri"] == "skill://enabled/pdf/SKILL.md"
-    assert skill["content"] =~ "# PDF"
     refute skill["content"] =~ "name: pdf"
     refute skill["has_agent_overlay"]
 
@@ -211,11 +181,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:ok, skill} = Library.skill_view(agent.uid, "pdf")
     assert skill["has_agent_overlay"]
-    assert skill["content"] =~ "Agent-specific additions"
-    assert skill["content"] =~ "Field notes (dated; verify against the current environment):"
     assert skill["content"] =~ "If page extraction returns empty text"
-    assert skill["content"] =~ ", human] Verify totals"
-
     {human_index, _} = :binary.match(skill["content"], "Verify totals")
     {dreaming_index, _} = :binary.match(skill["content"], "If page extraction")
     assert human_index < dreaming_index

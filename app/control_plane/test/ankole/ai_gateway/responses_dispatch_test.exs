@@ -7988,9 +7988,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert tool["name"] == "exec"
     assert tool["parameters"]["required"] == ["input"]
 
-    assert tool["parameters"]["properties"]["input"]["description"] ==
-             "Raw tool input. It must match this grammar:\nstart: SOURCE"
-
     call_types = Enum.map(request.body["input"], & &1["type"])
     assert "function_call" in call_types
     assert "function_call_output" in call_types

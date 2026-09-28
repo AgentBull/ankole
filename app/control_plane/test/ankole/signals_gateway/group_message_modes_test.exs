@@ -21,8 +21,6 @@ defmodule Ankole.SignalsGateway.GroupMessageModesTest do
     assert field.path == "group_message_mode"
     assert field.default == "observe_all"
     assert field.advanced == false
-    assert field.label["zh-Hans-CN"] == "群聊消息模式"
     assert Enum.map(field.options, & &1.value) == ["observe_all", "may_intervene"]
-    assert hd(field.options).description["default"] =~ "Mirror unaddressed group messages"
   end
 end

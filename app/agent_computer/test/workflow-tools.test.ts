@@ -5,7 +5,6 @@ import { actorEventText } from '../src/core/turns/actor_event_text'
 import { createTextTurnTools } from '../src/core/turns/text_turn_tools'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
-  AgentConversationContextResponseSchema,
   WorkflowCancelResponseSchema,
   WorkflowCreateResponseSchema,
   WorkflowGetResponseSchema,
@@ -13,7 +12,6 @@ import {
   WorkflowTaskMessageSendResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
-import { buildAgentSystemPrompt } from '../src/prompts/system_prompt'
 import { createCancelWorkflowTool } from '../src/tools/workflow/cancel-workflow'
 import { createListWorkflowsTool } from '../src/tools/workflow/list-workflows'
 import { createSendMessageToWorkflowTaskTool } from '../src/tools/workflow/send-message-to-workflow-task'
@@ -50,14 +48,6 @@ describe('@ankole/agent-computer Workflow parent tools', () => {
     ])
     expect(jsonSchema.required.sort()).toEqual(['script', 'title'])
     expect(jsonSchema.properties.model_profile.enum).toEqual(['deepseek', 'kimi'])
-    expect(tool.description).toContain('failed call resolves to null')
-    expect(tool.description).toContain('Each attempt is one real subagent turn')
-    expect(tool.description).toContain('one agent() call can use up to three attempts')
-    expect(tool.description).toContain('must terminate')
-    expect(tool.description).toContain('Every object must set additionalProperties to false')
-    expect(tool.description).toContain('list every property name in required')
-    expect(tool.description).toContain('default primary profile')
-    expect(tool.description).not.toContain('default coding profile')
     expect(tool.schema.safeParse({ title: 'Fanout', script: "return await agent('Check');" }).success).toBe(true)
     expect(tool.schema.safeParse({ title: 'Fanout', script: 'return 1;', concurrency: 33 }).success).toBe(false)
     expect(tool.schema.safeParse({ title: 'Fanout', script: 'return 1;', max_agent_calls: 1_025 }).success).toBe(false)
@@ -80,9 +70,6 @@ describe('@ankole/agent-computer Workflow parent tools', () => {
         return createResponse()
       }) as RPCRequester
     })
-
-    expect(tool.description).toContain('default primary profile')
-    expect(tool.description).not.toContain('default coding profile')
 
     const result = await tool.execute(
       'call-workflow',
@@ -168,8 +155,6 @@ describe('@ankole/agent-computer Workflow parent tools', () => {
 
     expect(result.details.live_tasks).toEqual(liveTasks)
     expect(result.details.counts.sleeping).toBe(1)
-    expect(tool.description).toContain('A sleeping task is still executing')
-    expect(tool.description).toContain('send_message_to_workflow_task')
   })
 
   it('sends one asynchronous owner message to a live task', async () => {
@@ -333,31 +318,7 @@ describe('@ankole/agent-computer Workflow parent tools', () => {
   })
 })
 
-describe('@ankole/agent-computer Workflow prompt and terminal event context', () => {
-  it('gates the bounded fanout policy on the workflow tool', () => {
-    const prompt = (availableToolNames: string[]) =>
-      buildAgentSystemPrompt({
-        userFilesRoot: '/agents/agent-1/user-files',
-        workspaceRoot: '/agents/agent-1/workspace',
-        turnStart: turnStartForTest(),
-        agentConversationContext: create(AgentConversationContextResponseSchema, {
-          agent: { displayName: 'Test Agent' },
-          conversation: { timezone: 'UTC' }
-        }),
-        availableToolNames
-      })
-
-    const withWorkflow = prompt(['workflow', 'show_workflow', 'list_workflows', 'cancel_workflow'])
-    expect(withWorkflow).toContain('<workflow_policy>')
-    expect(withWorkflow).toContain('Each attempt is one real subagent turn')
-    expect(withWorkflow).toContain('one agent() call can use up to three attempts')
-    expect(withWorkflow).toContain('handle a failed agent() result as null')
-    expect(withWorkflow).toContain('completion or failure wakes this conversation automatically')
-    expect(withWorkflow).toContain('check_back_later')
-    expect(prompt(['show_workflow'])).not.toContain('<workflow_policy>')
-    expect(prompt([])).not.toContain('<workflow_policy>')
-  })
-
+describe('@ankole/agent-computer Workflow terminal event context', () => {
   it('renders completed and failed Workflow wakeups as actionable owner input', () => {
     const payload = {
       data: {

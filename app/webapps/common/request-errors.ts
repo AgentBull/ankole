@@ -85,7 +85,8 @@ function conciseMessage(message: string): string {
   // headers, cookies, stack trace, or source dump that follows it.
   const [summary] = trimmed.split(/\n\s*\n|\n##\s/)
   const safe = summary?.trim() || trimmed
-  if (safe.startsWith('# ') || safe.includes('\nException:'))
+  if (safe.startsWith('# ') || safe.includes('\nException:')) {
     return safe.split(/\r?\n/, 1)[0] ?? i18n.t('common.request_failed')
+  }
   return safe.length <= 500 ? safe : `${safe.slice(0, 500)}…`
 }

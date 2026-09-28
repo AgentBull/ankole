@@ -7,7 +7,7 @@ import {
   RiEditLine,
   RiFileCopyLine
 } from '@remixicon/react'
-import { JsonEditor, type IconReplacements, type LocalisedStrings, type Theme } from 'json-edit-react'
+import { JsonEditor, type LocalisedStrings, type Theme } from 'json-edit-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { serializeJSONObjectDraft } from './state/json-editor'
@@ -62,23 +62,24 @@ export default function JSONObjectEditor({
       }}
       rootName={name}
       theme={THEME}
-      icons={ICONS}
       translations={translations}
       className="ankole-json-editor min-w-full"
       minWidth="100%"
       maxWidth="100%"
-      rootFontSize="13px"
+      baseFontSize="13px"
       indent={2}
       defaultValue={null}
-      enableClipboard={false}
-      restrictDrag
+      showClipboardButton={false}
+      allowDrag={false}
       searchText={search}
       searchFilter="all"
       showIconTooltips
-      showCollectionCount="when-closed"
+      showCollectionCount="when-collapsed"
       showStringQuotes
       onUpdate={({ newData }) =>
-        serializeJSONObjectDraft(newData) === undefined ? t('console.settings.json_object_required') : undefined
+        serializeJSONObjectDraft(newData) === undefined
+          ? { error: t('console.settings.json_object_required') }
+          : undefined
       }
     />
   )
@@ -89,46 +90,17 @@ const ICON_CLASS =
 const DANGER_ICON_CLASS =
   'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive'
 
-const ICONS: IconReplacements = {
-  add: (
-    <span className={ICON_CLASS}>
-      <RiAddLine className="size-4" />
-    </span>
-  ),
-  edit: (
-    <span className={ICON_CLASS}>
-      <RiEditLine className="size-4" />
-    </span>
-  ),
-  delete: (
-    <span className={DANGER_ICON_CLASS}>
-      <RiDeleteBinLine className="size-4" />
-    </span>
-  ),
-  copy: (
-    <span className={ICON_CLASS}>
-      <RiFileCopyLine className="size-4" />
-    </span>
-  ),
-  ok: (
-    <span className={ICON_CLASS}>
-      <RiCheckLine className="size-4" />
-    </span>
-  ),
-  cancel: (
-    <span className={DANGER_ICON_CLASS}>
-      <RiCloseLine className="size-4" />
-    </span>
-  ),
-  chevron: (
-    <span className="inline-flex size-4 items-center justify-center text-muted-foreground">
-      <RiArrowRightSLine className="size-4" />
-    </span>
-  )
-}
-
 const THEME: Theme = {
   displayName: 'Ankole',
+  icons: {
+    add: { content: <RiAddLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
+    edit: { content: <RiEditLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
+    delete: { content: <RiDeleteBinLine x={4} y={4} size={16} />, svgProps: { className: DANGER_ICON_CLASS } },
+    copy: { content: <RiFileCopyLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
+    ok: { content: <RiCheckLine x={4} y={4} size={16} />, svgProps: { className: ICON_CLASS } },
+    cancel: { content: <RiCloseLine x={4} y={4} size={16} />, svgProps: { className: DANGER_ICON_CLASS } },
+    collection: { content: <RiArrowRightSLine size={16} />, svgProps: { className: 'size-4 text-muted-foreground' } }
+  },
   styles: {
     container: {
       width: '100%',

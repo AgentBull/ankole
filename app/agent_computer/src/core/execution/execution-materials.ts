@@ -70,9 +70,10 @@ export async function prepareExecutionMaterials(
     const projectedWorkerEnv = input.projectEnv ? input.projectEnv(lark.workerEnv) : lark.workerEnv.vars
     await input.consumeMaterialSourceEnv?.(projectedWorkerEnv)
     input.abortSignal?.throwIfAborted()
-    mcporter = materializeMCPorterConfig(input.mcpServers, {
-      ...(input.mcporterDirectory ? { directory: input.mcporterDirectory } : {})
-    })
+    mcporter = materializeMCPorterConfig(
+      input.mcpServers,
+      input.mcporterDirectory ? { directory: input.mcporterDirectory } : {}
+    )
 
     if (input.browser) {
       browser = await input.browser.runtime.materializePersistent({
@@ -91,7 +92,7 @@ export async function prepareExecutionMaterials(
 
     return {
       workerEnv: { ...withoutBrowserMaterialSourceEnv(projectedWorkerEnv), ...mcporter.env },
-      runtimeEnv: { ...(input.runtimeEnv ?? {}), ...lark.runtimeEnv },
+      runtimeEnv: { ...input.runtimeEnv, ...lark.runtimeEnv },
       browserEnv,
       mcpServers: input.mcpServers,
       cleanup: async () => {

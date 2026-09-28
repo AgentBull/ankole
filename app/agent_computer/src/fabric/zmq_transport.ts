@@ -5,7 +5,6 @@ import { workerLogger } from '../worker/logging'
 import { decodeEnvelope, encodeEnvelope, type Envelope } from './envelope_proto'
 import {
   RuntimeFabricTransportError,
-  type RuntimeFabricConnectionOptions,
   type RuntimeFabricErrorCode,
   type RuntimeFabricHost,
   type RuntimeFabricReceiveOutcome
@@ -56,7 +55,7 @@ const nativeErrorCodes = new Set<RuntimeFabricErrorCode>([
 
 export function connectZeroMQTransport(
   config: ZeroMQConnectionConfig,
-  options: RuntimeFabricConnectionOptions
+  options: { readyEnvelope?: () => Envelope }
 ): RuntimeFabricHost {
   let host: RuntimeFabricHost
   try {

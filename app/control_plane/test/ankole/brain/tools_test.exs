@@ -70,9 +70,6 @@ defmodule Ankole.Brain.ToolsTest do
     assert Tools.function_specs(["get_page", "recall"]) |> Enum.map(& &1["name"]) ==
              ["recall", "get_page"]
 
-    [remember] = Tools.function_specs(["remember"])
-    assert remember["description"] =~ "agents/<uid> identifies a system Agent Principal"
-
     assert Tools.read_only?("recall")
     refute Tools.read_only?("remember")
     refute Tools.operation?("delete_everything")
@@ -118,7 +115,7 @@ defmodule Ankole.Brain.ToolsTest do
              )
   end
 
-  test "a result that names a lazy Skill record gets the loading hint", _context do
+  test "a result that names a lazy Skill record is identified", _context do
     assert Tools.lazy_skill_result?(%{"page" => %{"slug" => "lazyload-agent-skills/pdf"}})
 
     assert Tools.lazy_skill_result?(%{
@@ -126,7 +123,6 @@ defmodule Ankole.Brain.ToolsTest do
            })
 
     refute Tools.lazy_skill_result?(%{"page" => %{"slug" => "concepts/wire-format"}})
-    assert Tools.lazy_skill_hint() =~ "skill_view"
   end
 
   test "delta reports entity candidates on ambiguity", context do

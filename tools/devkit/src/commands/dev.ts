@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:chi
 import { existsSync, mkdirSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { Crust } from '@crustjs/core'
+import { defineCommand } from '@crustjs/core'
 
 import { createLocalAppDatabase, runAppMigrations } from './app-db'
 import { resolveLocalWorkerImage } from '../local-worker-image'
@@ -340,54 +340,67 @@ async function runDev(flags: {
   }
 }
 
-export function devCommand(): Crust {
-  return new Crust('dev')
-    .meta({ description: 'Start local Postgres, Phoenix control plane, and one Docker Agent Computer worker.' })
-    .flags({
-      services: {
-        type: 'boolean',
-        description: 'Start Docker Compose support services.',
-        default: true
-      },
-      migrate: {
-        type: 'boolean',
-        description: 'Run control-plane Ecto migrations.',
-        default: true
-      },
-      build: {
-        type: 'boolean',
-        description: 'Build a missing or stale worker image.',
-        default: true
-      },
-      port: {
-        type: 'number',
-        description: 'Phoenix HTTP port.',
-        default: defaultPhoenixPort
-      },
-      'fabric-port': {
-        type: 'number',
-        description: 'ZeroMQ ROUTER bind port on 127.0.0.1 for a Worker that has not switched to the Channel.',
-        default: defaultFabricPort
-      },
-      'worker-transport': {
-        type: 'string',
-        description: 'Worker transport: ws (Worker Channel, default) or tcp (ZeroMQ).',
-        default: 'ws'
-      },
-      'worker-id': {
-        type: 'string',
-        description: 'Agent Computer worker id.',
-        default: defaultWorkerID
-      },
-      'worker-image': {
-        type: 'string',
-        description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
-      },
-      'agents-root': {
-        type: 'string',
-        description: 'Host Agent Home root mounted at /agents in the worker.',
-        default: defaultAgentsRoot
-      }
-    })
-    .run(({ flags }) => runDev(flags))
+export function devCommand() {
+  return defineCommand(
+    'dev',
+    { description: 'Start local Postgres, Phoenix control plane, and one Docker Agent Computer worker.' },
+    command =>
+      command
+        .flags(
+          {
+            name: 'services',
+            type: 'boolean',
+            description: 'Start Docker Compose support services.',
+            default: true
+          },
+          {
+            name: 'migrate',
+            type: 'boolean',
+            description: 'Run control-plane Ecto migrations.',
+            default: true
+          },
+          {
+            name: 'build',
+            type: 'boolean',
+            description: 'Build a missing or stale worker image.',
+            default: true
+          },
+          {
+            name: 'port',
+            type: 'number',
+            description: 'Phoenix HTTP port.',
+            default: defaultPhoenixPort
+          },
+          {
+            name: 'fabric-port',
+            type: 'number',
+            description: 'ZeroMQ ROUTER bind port on 127.0.0.1 for a Worker that has not switched to the Channel.',
+            default: defaultFabricPort
+          },
+          {
+            name: 'worker-transport',
+            type: 'string',
+            description: 'Worker transport: ws (Worker Channel, default) or tcp (ZeroMQ).',
+            default: 'ws'
+          },
+          {
+            name: 'worker-id',
+            type: 'string',
+            description: 'Agent Computer worker id.',
+            default: defaultWorkerID
+          },
+          {
+            name: 'worker-image',
+            type: 'string',
+            description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
+          },
+          {
+            name: 'agents-root',
+            type: 'string',
+            description: 'Host Agent Home root mounted at /agents in the worker.',
+            default: defaultAgentsRoot
+          }
+        )
+        .action(({ flags }) => runDev(flags))
+  )
 }

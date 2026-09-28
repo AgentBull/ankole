@@ -37,7 +37,7 @@ describe('previewBrainObjectBody', () => {
     expect(previewBrainObjectBody(body)).toEqual([
       {
         scope: 'principal:alice',
-        text: ['Private', '~~~markdoc', '{% /audience %}', '~~~', 'Still private'].join('\n') + '\n'
+        text: `${['Private', '~~~markdoc', '{% /audience %}', '~~~', 'Still private'].join('\n')}\n`
       }
     ])
   })

@@ -210,8 +210,9 @@ function encodeObservationContent(value: unknown): { value: string; omitted: boo
         sensitiveKey(key) ||
         key.startsWith('__ankole_') ||
         ['headers', 'metadata', 'encrypted_content', 'encrypted_function_args'].includes(key.toLowerCase())
-      )
+      ) {
         return undefined
+      }
       return typeof nested === 'string'
         ? redactText(nested).replace(/\bdata:[^\s"'<>]+/giu, '[inline media omitted]')
         : nested

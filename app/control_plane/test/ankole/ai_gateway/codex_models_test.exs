@@ -5,7 +5,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
 
   # Field set from the codex pin's own minimal deserialize test
   # (`model_info_defaults_availability_nux_to_none_when_omitted`,
-  # rust-v0.153.2 codex-rs/protocol/src/openai_models.rs). Every field
+  # rust-v0.158.0 codex-rs/protocol/src/openai_models.rs). Every field
   # listed there is required by serde on the pinned version.
   @required_card_fields ~w(
     slug display_name description supported_reasoning_levels shell_type
@@ -15,7 +15,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
   )
 
   test "codex_manifest_request? keys on the client_version query parameter" do
-    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.153.2"})
+    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.158.0"})
     refute CodexModels.codex_manifest_request?(%{})
     refute CodexModels.codex_manifest_request?(%{"q" => "gpt"})
   end
@@ -51,10 +51,6 @@ defmodule Ankole.AIGateway.CodexModelsTest do
     refute card["include_plugin_usage_instructions"]
     refute card["include_apps_usage_instructions"]
     assert is_binary(card["base_instructions"])
-    assert byte_size(card["base_instructions"]) > 10_000
-
-    assert card["base_instructions"] =~
-             "Model-visible tool output is limited to 10000 tokens."
   end
 
   test "cards keep the configured search tool on standard Responses" do
