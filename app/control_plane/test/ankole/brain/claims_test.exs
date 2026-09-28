@@ -112,6 +112,21 @@ defmodule Ankole.Brain.ClaimsTest do
       assert duplicate.id == second.id
     end
 
+    test "persists integer confidence endpoints as floats", %{human: human} do
+      for confidence <- [0, 1] do
+        assert {:ok, %{claim: claim, status: :inserted}} =
+                 Claims.write_fact(
+                   fact_attrs(%{
+                     claim: "Confidence endpoint #{confidence}",
+                     confidence: confidence
+                   }),
+                   human.uid
+                 )
+
+        assert Repo.get!(Claim, claim.id).confidence === confidence * 1.0
+      end
+    end
+
     test "rejects off-grid confidence", %{human: human} do
       assert {:error, {:off_weight_grid, :confidence}} =
                Claims.write_fact(fact_attrs(%{confidence: 0.42}), human.uid)
@@ -174,6 +189,26 @@ defmodule Ankole.Brain.ClaimsTest do
   end
 
   describe "write_take/3 and lifecycle" do
+    test "persists integer weight endpoints as floats", %{human: human} do
+      for weight <- [0, 1] do
+        assert {:ok, take} =
+                 Claims.write_take(
+                   %{
+                     object_slug: "companies/acme",
+                     claim: "Weight endpoint #{weight}",
+                     kind: "bet",
+                     holder: "people/#{human.uid}",
+                     audience_scope: "world",
+                     weight: weight,
+                     provenance: "analysis session"
+                   },
+                   human.uid
+                 )
+
+        assert Repo.get!(Claim, take.id).weight === weight * 1.0
+      end
+    end
+
     test "writes an active take with open kind", %{human: human} do
       assert {:ok, take} =
                Claims.write_take(

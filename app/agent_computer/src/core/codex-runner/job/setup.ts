@@ -123,10 +123,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         timezone: agentContext.conversation?.timezone
       }).content
     : undefined
+  const materialized = materializeCodexConfig({
+    agentsRoot: opts.agentsRoot,
+    agentUID: job.agentUid
+  })
   const preparedAgentPlugins = prepareAgentPlugins({
     projectRoot: projectLocation.hostPath,
     agentPlugins: agentPluginCatalog,
-    agentHome: opts.agentHome,
+    codexHome: materialized.codexHome,
     libraryRoot: join(opts.builtinSkillsRoot, 'agent-plugins'),
     initializeProject,
     ...(initializeProject && job.workspaceTemplateId ? { workspaceTemplateId: job.workspaceTemplateId } : {}),
@@ -144,10 +148,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey
   })
   opts.abortSignal?.throwIfAborted()
-  const materialized = materializeCodexConfig({
-    agentsRoot: opts.agentsRoot,
-    agentUID: job.agentUid
-  })
   // The hosted tool declaration decides whether Codex asks the Provider to run
   // web search; createTurnWebTools decides whether the Worker exposes the local tool.
   const hostedWebSearch = (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')

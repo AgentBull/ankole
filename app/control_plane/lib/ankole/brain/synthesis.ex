@@ -45,7 +45,16 @@ defmodule Ankole.Brain.Synthesis do
       evidence = scoped_evidence(recall)
 
       evidence_claims =
-        Enum.map_join(evidence.claims, "\n", fn claim -> "- [#{claim.holder}] #{claim.claim}" end)
+        Enum.map_join(evidence.claims, "\n", fn claim ->
+          period =
+            case claim.claim_type do
+              "fact" -> "valid from #{claim.valid_from}, until #{claim.valid_until}"
+              "take" -> "since #{claim.since_date}, until #{claim.until_date}"
+            end
+
+          "- [claim #{claim.id}; page #{claim.object_slug}; #{claim.holder}; #{claim.kind}; #{period}] #{claim.claim}\n" <>
+            "  Provenance: #{claim.provenance}"
+        end)
 
       evidence_chunks =
         Enum.map_join(evidence.chunks, "\n\n", fn chunk ->
@@ -66,7 +75,7 @@ defmodule Ankole.Brain.Synthesis do
       #{evidence_chunks}
       """
 
-      with {:ok, output} <- ModelCalls.complete_json(model, prompt),
+      with {:ok, output} <- ModelCalls.complete_json(model, prompt, caller: "brain.synthesis"),
            title when is_binary(title) <- output["title"],
            body when is_binary(body) <- output["body"] do
         # The scope enters the slug so one question asked inside two

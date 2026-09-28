@@ -99,7 +99,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
         agent.uid,
         brain_request("primary", """
         Call the remember tool exactly once to store this fact with kind "fact", scope "world",
-        and provenance "release planning note":
+        confidence 1, and provenance "release planning note":
         The launch review meeting is on the second Friday of October.
         Then reply with exactly one line: REMEMBER_OK
         """)
@@ -118,6 +118,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
     assert claim.claim =~ "launch review"
     assert claim.author_uid == agent.uid
     assert claim.audience_scope == "world"
+    assert claim.confidence === 1.0
     assert final_text(outcome) =~ "REMEMBER_OK"
   end
 

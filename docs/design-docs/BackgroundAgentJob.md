@@ -410,6 +410,12 @@ The Agent Home is shared durable storage. The Codex Home is a rebuildable
 Worker-local shard because SQLite WAL cannot use the shared network filesystem.
 The Bubblewrap runtime mounts both paths and keeps the Codex Home writable.
 
+Plugin packages and their local marketplace are rebuildable Codex runtime
+files. Both live under the Worker-local Codex Home. They must not use the
+shared Agent Home: one Worker's startup cleanup could delete another Worker's
+active staging directory. Older shared Plugin caches are no longer read or
+written; they can be removed after all Workers have upgraded.
+
 Each `(Agent, Worker)` pair owns one active Codex app-server process through
 `AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
 process. A parent-scoped `subAgentActivity` assigns each child thread to the

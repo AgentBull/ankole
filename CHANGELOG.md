@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 1.6.8-rc.1 (2026-09-29)
+
+- Background Agent Jobs on different Workers no longer share mutable Plugin
+  packages or marketplace files. Each Worker builds and installs them in its
+  local Codex Home, and a cleanup failure preserves the original setup error.
+- Brain accepts integer confidence and weight endpoints. Memory prompts
+  preserve audience scope on retries, verify writes before reporting success,
+  and check historical claims when current status matters. Memory analysis
+  receives claim dates, attribution, and provenance, including the separate
+  Fact validity dates and Take prediction periods.
+- AIGateway traces retain classified failure codes, provider status, and retry
+  facts. Brain model calls identify their phase in Langfuse. Automatic learning
+  still requires an active maintainer Agent and its model profiles.
+- The local Worker fallback now uses the OS base published with 1.6.6-rc.1.
+  The published Worker image for the current commit remains the first choice.
+
 ## Version 1.6.7-rc.1 (2026-09-29)
 
 - The Worker image now runs Codex CLI 0.158.0. Its generated app-server protocol matches the binary, and Job web search, MCP tools, Plugins, and durable resume work with this release.

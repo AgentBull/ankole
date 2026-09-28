@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
+import * as fs from 'node:fs'
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
 import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -13,6 +14,69 @@ import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/j
 import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
+  it('keeps another Worker package, marketplace, and in-flight copy intact during rebuild', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-worker-isolation-'))
+    const libraryRoot = join(root, 'library')
+    const agentHome = join(root, 'shared-agent-home')
+    createPlugin(libraryRoot, 'alpha', {})
+
+    try {
+      const workers = ['a', 'b'].map(worker =>
+        prepareAgentPlugins({
+          projectRoot: join(agentHome, 'jobs', worker),
+          agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+          codexHome: join(root, worker, 'codex-home'),
+          libraryRoot,
+          initializeProject: false
+        })
+      )
+      const [first, second] = workers
+      materializeAgentPluginPackages(first!, { rebuild: true })
+      const pendingCopy = join(first!.materializedRoot, 'plugins', '.plugin-alpha-in-flight')
+      mkdirSync(pendingCopy)
+      writeFileSync(join(pendingCopy, 'pending'), 'copy in progress')
+      const marketplace = readFileSync(first!.marketplacePath, 'utf8')
+
+      materializeAgentPluginPackages(second!, { rebuild: true })
+      expect(readFileSync(join(pendingCopy, 'pending'), 'utf8')).toBe('copy in progress')
+      expect(readFileSync(first!.marketplacePath, 'utf8')).toBe(marketplace)
+      expect(first!.agentPlugins[0]!.materializedRoot).not.toBe(second!.agentPlugins[0]!.materializedRoot)
+      expect(existsSync(join(agentHome, 'runtime-materials'))).toBe(false)
+      expect(existsSync(join(agentHome, '.agents'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports the original copy failure when staging cleanup also fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-copy-failure-'))
+    const libraryRoot = join(root, 'library')
+    createPlugin(libraryRoot, 'alpha', {})
+    const prepared = prepareAgentPlugins({
+      projectRoot: join(root, 'project'),
+      agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+      codexHome: join(root, 'codex-home'),
+      libraryRoot,
+      initializeProject: false
+    })
+    const originalError = new Error('copy failed before cleanup')
+    const copy = spyOn(fs, 'copyFileSync').mockImplementation(() => {
+      throw originalError
+    })
+    const remove = spyOn(fs, 'rmSync').mockImplementation(() => {
+      throw new Error('cleanup failed')
+    })
+    try {
+      expect(() => materializeAgentPluginPackages(prepared, { rebuild: true })).toThrow(originalError)
+      expect(copy).toHaveBeenCalled()
+      expect(remove).toHaveBeenCalled()
+    } finally {
+      copy.mockRestore()
+      remove.mockRestore()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('selects Plugin Skills, copies one workspace template, and never recopies it on resume', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-agent-plugin-materializer-'))
     const libraryRoot = join(root, 'library')
@@ -30,7 +94,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const first = prepareAgentPlugins({
         projectRoot,
         agentPlugins: catalog,
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -50,7 +114,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const second = prepareAgentPlugins({
         projectRoot,
         agentPlugins: catalog,
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: false
       })
@@ -75,7 +139,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot: join(root, 'project'),
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha', 'file-conflict', 'config-conflict']),
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -94,7 +158,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         prepareAgentPlugins({
           projectRoot: join(root, 'symlink-project'),
           agentPlugins: agentPluginCatalog(libraryRoot, ['symlinked']),
-          agentHome: join(root, 'agent-home'),
+          codexHome: join(root, 'codex-home'),
           libraryRoot,
           initializeProject: true,
           agentsContent: 'job guidance'
@@ -120,7 +184,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -147,7 +211,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       prepareAgentPlugins({
         projectRoot,
         agentPlugins: initialCatalog,
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -161,7 +225,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const resumed = prepareAgentPlugins({
         projectRoot,
         agentPlugins: currentCatalog,
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: false
       })
@@ -187,7 +251,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         agentsContent: 'job guidance'
@@ -212,7 +276,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
-        agentHome: join(root, 'agent-home'),
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: true,
         agentsContent: 'job guidance'
@@ -237,7 +301,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot: join(agentHome, 'jobs', '1000'),
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
-        agentHome,
+        codexHome: join(root, 'codex-home'),
         libraryRoot,
         initializeProject: false
       })

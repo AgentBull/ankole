@@ -566,6 +566,7 @@ defmodule Ankole.Brain.Tools do
         "Write one durable memory claim to the shared Brain.",
         "Use it for information with long-term value: facts, preferences, commitments, beliefs, events, and your own takes, bets, or hunches. Do not store small talk or transient task detail.",
         "Consult ConfidentialityPolicy.md when you choose scope. Omit scope to use the conversation audience; set it explicitly when the fact should reach a different audience. When one input contains parts with different disclosure ranges, split it and call remember once for each part with its own scope.",
+        "Use a Principal UID, not a page slug, in principal scopes. Preserve the intended audience on validation retries.",
         "holder names who HOLDS the judgment, not who the claim is about: when a person states an opinion about someone else, the holder is that person. Relaying someone's judgment keeps their holder; your own endorsement of it is a separate take.",
         "agents/<uid> identifies a system Agent Principal, not a Skill, model, tool, automation, or assistant persona. Reuse an existing canonical Agent slug only for that Agent. Attach a claim to the entity it describes, not to the Agent working on it.",
         "Use multiples of 0.05 for confidence and weight.",

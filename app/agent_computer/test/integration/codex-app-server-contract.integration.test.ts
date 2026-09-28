@@ -604,7 +604,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       const prepared = prepareAgentPlugins({
         projectRoot: alphaProject,
         agentPlugins: catalog,
-        agentHome,
+        codexHome,
         libraryRoot,
         initializeProject: true,
         agentsContent: '# Alpha Job'
@@ -628,7 +628,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       await pluginStage(client.initialize(), 'initialize')
       const runtimeOwner = new AgentCodexRuntime('agent-1', client)
       await pluginStage(
-        runtimeOwner.ensureAgentPlugins({ cwd: agentHome, prepared }),
+        runtimeOwner.ensureAgentPlugins(prepared),
         'official Plugin install, Hook trust, and global disable'
       )
 
@@ -648,6 +648,62 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  it('starts the same Agent on two Worker processes through Plugin install and the first Turn', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-worker-processes-'))
+    const requests: JSONObject[] = []
+    const provider = createPluginResponsesProvider(requests)
+    const baseURL = `http://127.0.0.1:${provider.port}/v1`
+    const processes: Array<Bun.Subprocess<'ignore', 'pipe', 'pipe'>> = []
+    try {
+      createAgentPluginFixture(join(root, 'library'), 'alpha', 'ALPHA_BODY', true)
+      for (const worker of ['a', 'b']) {
+        const codexHome = join(root, worker, 'codex-home')
+        const cwd = join(root, 'shared-agent-home', 'jobs', worker)
+        const config = codexJobThreadConfig({ cwd, codexHome, env: {}, runtime: pluginTestRuntime(baseURL) }) as Record<
+          string,
+          any
+        >
+        config.model_providers.ankole_aigateway.supports_websockets = false
+        const inputPath = join(root, `${worker}.json`)
+        writeFileSync(inputPath, JSON.stringify({ root, worker, baseURL, config }))
+        processes.push(
+          Bun.spawn(['bun', join(import.meta.dir, '../fixtures/plugin-worker-runtime.ts'), inputPath], {
+            stdin: 'ignore',
+            stdout: 'pipe',
+            stderr: 'pipe'
+          })
+        )
+      }
+      await pluginStage(
+        (async () => {
+          while (!['a', 'b'].every(worker => existsSync(join(root, `ready-${worker}`)))) await Bun.sleep(10)
+        })(),
+        'both Worker processes ready'
+      )
+      writeFileSync(join(root, 'start'), '')
+      const results = await Promise.all(
+        processes.map(async proc => {
+          const [code, stdout, stderr] = await Promise.all([
+            proc.exited,
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text()
+          ])
+          if (code !== 0) throw new Error(`Worker exited ${code}: ${stderr}`)
+          return JSON.parse(stdout) as { marketplacePath: string; threadId: string }
+        })
+      )
+      expect(new Set(results.map(result => result.marketplacePath)).size).toBe(2)
+      expect(new Set(results.map(result => result.threadId)).size).toBe(2)
+      expect(requests).toHaveLength(2)
+      expect(existsSync(join(root, 'shared-agent-home', 'runtime-materials'))).toBe(false)
+    } finally {
+      for (const proc of processes) proc.kill()
+      await Promise.all(processes.map(proc => proc.exited))
       provider.stop(true)
       rmSync(root, { recursive: true, force: true })
     }

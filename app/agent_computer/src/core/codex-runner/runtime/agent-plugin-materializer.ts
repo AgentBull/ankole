@@ -47,14 +47,14 @@ export type PreparedAgentPlugins = {
 export function prepareAgentPlugins(input: {
   projectRoot: string
   agentPlugins: AgentPluginCatalogEntry[]
-  agentHome: string
+  codexHome: string
   libraryRoot?: string
   initializeProject: boolean
   workspaceTemplateId?: string
   agentsContent?: string
 }): PreparedAgentPlugins {
   const libraryRoot = input.libraryRoot ?? BUILTIN_AGENT_PLUGINS_ROOT
-  const materializedRoot = join(input.agentHome, 'runtime-materials', 'agent-plugins')
+  const materializedRoot = join(input.codexHome, 'runtime-materials', 'agent-plugins')
   const catalog = [...input.agentPlugins].sort((left, right) => compareCodePointStrings(left.id, right.id))
   assertUniqueAgentPluginIDs(catalog)
   const catalogByID = new Map(catalog.map(agentPlugin => [agentPlugin.id, agentPlugin]))
@@ -81,15 +81,15 @@ export function prepareAgentPlugins(input: {
   return {
     agentPlugins,
     marketplaceName: AGENT_PLUGIN_MARKETPLACE_NAME,
-    marketplacePath: join(input.agentHome, '.agents', 'plugins', 'marketplace.json'),
-    marketplaceRoot: input.agentHome,
+    marketplacePath: join(input.codexHome, '.agents', 'plugins', 'marketplace.json'),
+    marketplaceRoot: input.codexHome,
     materializedRoot
   }
 }
 
 /**
- * Builds the stable Agent-owned packages used by official Codex Plugin APIs.
- * AgentCodexRuntime serializes all calls to this function.
+ * Builds packages in the Worker-local Codex Home. AgentCodexRuntime serializes
+ * setup in this shard; another Worker must never clean or replace these files.
  */
 export function materializeAgentPluginPackages(prepared: PreparedAgentPlugins, input: { rebuild: boolean }): void {
   const pluginsRoot = join(prepared.materializedRoot, 'plugins')
@@ -110,7 +110,6 @@ export function materializeAgentPluginPackages(prepared: PreparedAgentPlugins, i
  */
 export async function installTrustAndDisableAgentPlugins(
   client: Pick<CodexAppServerClient, 'request'>,
-  cwd: string,
   prepared: PreparedAgentPlugins
 ): Promise<void> {
   await client.request('config/batchWrite', {
@@ -125,8 +124,8 @@ export async function installTrustAndDisableAgentPlugins(
   }
   if (prepared.agentPlugins.length === 0) return
 
-  await assertInstalledPluginState(client, cwd, prepared, true)
-  const hooks = await selectedPluginHooks(client, cwd, prepared)
+  await assertInstalledPluginState(client, prepared, true)
+  const hooks = await selectedPluginHooks(client, prepared)
   if (hooks.length > 0) {
     await client.request('config/batchWrite', {
       edits: [
@@ -138,7 +137,7 @@ export async function installTrustAndDisableAgentPlugins(
       ],
       reloadUserConfig: true
     })
-    const trustedHooks = await selectedPluginHooks(client, cwd, prepared)
+    const trustedHooks = await selectedPluginHooks(client, prepared)
     const untrusted = trustedHooks.filter(hook => hook.trustStatus !== 'trusted')
     if (untrusted.length > 0) {
       throw new Error(`Agent Plugin hooks remain untrusted: ${untrusted.map(hook => hook.key).join(', ')}`)
@@ -157,7 +156,7 @@ export async function installTrustAndDisableAgentPlugins(
     ],
     reloadUserConfig: true
   })
-  await assertInstalledPluginState(client, cwd, prepared, false)
+  await assertInstalledPluginState(client, prepared, false)
 }
 
 function validateAgentPluginRef(
@@ -355,7 +354,11 @@ function replaceMaterializedPlugin(agentPlugin: PreparedAgentPlugin): void {
     copyDirectoryStrict(agentPlugin.sourceRoot, stagedRoot)
     commitStagedDirectory(stagedRoot, agentPlugin.materializedRoot)
   } catch (error) {
-    rmSync(stagedRoot, { recursive: true, force: true })
+    try {
+      rmSync(stagedRoot, { recursive: true, force: true })
+    } catch {
+      // The next rebuild removes leftovers. Keep the original setup failure.
+    }
     throw error
   }
 }
@@ -408,11 +411,10 @@ function writeMarketplace(prepared: PreparedAgentPlugins): void {
 
 async function assertInstalledPluginState(
   client: Pick<CodexAppServerClient, 'request'>,
-  cwd: string,
   prepared: PreparedAgentPlugins,
   enabled: boolean
 ): Promise<void> {
-  const response = asObject(await client.request('plugin/installed', { cwds: [cwd] }))
+  const response = asObject(await client.request('plugin/installed', { cwds: [prepared.marketplaceRoot] }))
   const marketplace = arrayOfObjects(response.marketplaces).find(
     candidate => candidate.name === prepared.marketplaceName
   )
@@ -429,9 +431,10 @@ async function assertInstalledPluginState(
 
 async function selectedPluginHooks(
   client: Pick<CodexAppServerClient, 'request'>,
-  cwd: string,
   prepared: PreparedAgentPlugins
 ): Promise<Array<{ key: string; currentHash: string; trustStatus?: string }>> {
+  // Codex discovers a local marketplace from HOME or an explicit cwd, not CODEX_HOME.
+  const cwd = prepared.marketplaceRoot
   const response = asObject(await client.request('hooks/list', { cwds: [cwd] }))
   const expectedPluginIDs = new Set(prepared.agentPlugins.map(agentPlugin => pluginKey(agentPlugin, prepared)))
   const entry =

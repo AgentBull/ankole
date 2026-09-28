@@ -56,7 +56,9 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   test "a ZeroMQ Worker image is admitted through the dual stack" do
     case legacy_zmq_image() do
       nil ->
-        IO.puts("skipping ZeroMQ dual-stack admission: the legacy Worker image is not present locally")
+        IO.puts(
+          "skipping ZeroMQ dual-stack admission: the legacy Worker image is not present locally"
+        )
 
       image ->
         worker_id = "docker-zmq-worker-#{System.unique_integer([:positive])}"
@@ -133,6 +135,32 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert status != 0
     assert output =~ ~s("event":"worker.error")
     assert output =~ "ANKOLE_AGENT_UID must not be set on an agent computer worker"
+  end
+
+  @tag :post_file_attachment
+  @tag timeout: 180_000
+  test "a Lark rich-post file reaches the Docker Worker and the model request" do
+    ctx = start_worker_e2e_stack!()
+    result = run_file_attachment_roundtrip(ctx, "post")
+    path = result.attachment["agent_computer_path"]
+
+    assert {"CHAOS_INBOUND_FILE_BYTES deck", 0} =
+             System.cmd("docker", ["exec", ctx.container.name, "cat", path],
+               stderr_to_stdout: true
+             )
+
+    assert Enum.any?(FakeOpenAIState.requests(), fn entry ->
+             request = Ankole.JSON.encode!(entry.request)
+             String.contains?(request, "deck.pdf") and String.contains?(request, path)
+           end)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "CHAOS_GENERIC_OK",
+      :reply,
+      "om_file_1"
+    )
   end
 
   @tag timeout: 900_000

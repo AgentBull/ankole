@@ -51,7 +51,10 @@ defmodule Ankole.Brain.Patterns do
       object_slug: claim.object_slug,
       audience_scope: claim.audience_scope,
       holder: claim.holder,
-      claim: claim.claim
+      claim: claim.claim,
+      valid_from: claim.valid_from,
+      context: claim.context,
+      provenance: claim.provenance
     })
     |> Repo.all()
     |> Enum.group_by(& &1.audience_scope)
@@ -72,7 +75,12 @@ defmodule Ankole.Brain.Patterns do
       |> Repo.all()
       |> Enum.filter(&(Markdoc.scopes(&1.body) == {:ok, [scope]}))
 
-    evidence = Enum.map_join(facts, "\n", &"- [[#{&1.object_slug}]] [#{&1.holder}] #{&1.claim}")
+    evidence =
+      Enum.map_join(facts, "\n", fn fact ->
+        "- [[#{fact.object_slug}]] [#{fact.holder}; valid from #{fact.valid_from}] #{fact.claim}\n" <>
+          "  Context: #{fact.context}\n  Provenance: #{fact.provenance}"
+      end)
+
     pages = Enum.map_join(existing, "\n\n", &"### #{&1.slug} — #{&1.title}\n#{&1.body}")
 
     prompt = """

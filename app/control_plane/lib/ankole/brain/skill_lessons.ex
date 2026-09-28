@@ -377,7 +377,7 @@ defmodule Ankole.Brain.SkillLessons do
     skill_hashes = agent_skill_hashes(agent_uid)
     prompt = review_prompt(agent_uid, docket, index, current_release, skill_hashes)
 
-    case ModelCalls.complete_json(model, prompt) do
+    case ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.skill_lesson_review") do
       {:ok, %{"reviews" => reviews}} when is_list(reviews) ->
         context = %{
           index_job_ids: MapSet.new(index, & &1.id),

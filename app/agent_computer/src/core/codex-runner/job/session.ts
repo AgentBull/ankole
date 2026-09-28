@@ -257,10 +257,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const initializeResponse = jsonObject(this.runtimeLease.runtime.initializeResponse)
     if (await this.finishClaimedFinalization()) return
 
-    await this.runtimeLease.runtime.ensureAgentPlugins({
-      cwd: this.prepared.runtimeAcquire.agentHome,
-      prepared: this.prepared.preparedAgentPlugins
-    })
+    await this.runtimeLease.runtime.ensureAgentPlugins(this.prepared.preparedAgentPlugins)
     if (await this.finishClaimedFinalization()) return
 
     const resumeOutcome = this.prepared.replaceLegacySkillThread

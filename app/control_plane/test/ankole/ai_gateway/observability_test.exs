@@ -558,6 +558,66 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     refute inspect(spans) =~ "secret provider text"
   end
 
+  test "credential pool failures keep the gateway code and safe retry facts in both spans" do
+    enable_export(self(), "langfuse")
+
+    reason =
+      {:credential_pool_exhausted,
+       %{
+         "retry_at" => "2026-09-28T15:12:46Z",
+         "upstream_error" => %{
+           "error" => %{"code" => "RESOURCE_EXHAUSTED", "message" => "secret provider text"}
+         }
+       }}
+
+    observation =
+      "principal-2"
+      |> AIGatewayObservability.start_response(%{"input" => "inspect the image"})
+      |> AIGatewayObservability.start_round(
+        %{runtime: %{"provider_kind" => "google_ai_studio"}},
+        %{response_context: %{model: "gemini-test", request: %{"input" => "inspect the image"}}}
+      )
+      |> AIGatewayObservability.fail_round(reason)
+
+    AIGatewayObservability.finish_response(observation, {:error, reason})
+    spans = exported_spans()
+
+    for name <- ["ai_gateway.response", "chat gemini-test"] do
+      span = span!(spans, name)
+      assert span.status == :error
+      assert span.attributes["error.type"] == "credential_pool_exhausted"
+      assert span.attributes["ankole.ai_gateway.provider_status"] == 429
+      # The pinned OTLP exporter encodes Erlang boolean atoms as strings.
+      assert span.attributes["ankole.ai_gateway.retryable"] == "true"
+      assert span.attributes["ankole.ai_gateway.retry_at"] == "2026-09-28T15:12:46Z"
+      assert span.attributes["ankole.ai_gateway.provider_error_code"] == "RESOURCE_EXHAUSTED"
+    end
+
+    refute inspect(spans) =~ "secret provider text"
+  end
+
+  for {reason, expected} <- [
+        {%{"message" => "failed"}, "provider_error"},
+        {%{"code" => nil}, "provider_error"},
+        {%{"code" => 429}, "provider_error"},
+        {%{code: :rate_limit_exceeded}, "rate_limit_exceeded"},
+        {{:universal_ai_request_failed, %{"code" => nil}}, "universal_ai_request_failed"}
+      ] do
+    @failure_reason reason
+    @expected_error_code expected
+    test "normalizes trace error #{inspect(reason)} through the gateway classifier" do
+      enable_export(self(), "langfuse")
+
+      "principal-2"
+      |> AIGatewayObservability.start_response(%{"input" => "hello"})
+      |> AIGatewayObservability.fail(@failure_reason)
+
+      response = span!(exported_spans(), "ai_gateway.response")
+      assert response.status == :error
+      assert response.attributes["error.type"] == @expected_error_code
+    end
+  end
+
   test "codex session headers give a trace its session, client, and release facts" do
     enable_export(self(), "langfuse")
     System.put_env("ANKOLE_VERSION", "26.7.99")

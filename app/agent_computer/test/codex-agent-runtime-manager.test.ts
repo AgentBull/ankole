@@ -252,7 +252,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
           skills: [{ catalogName: 'alpha-skill' }]
         })
       ],
-      agentHome,
+      codexHome: join(root, 'codex-home'),
       libraryRoot,
       initializeProject: false
     })
@@ -289,7 +289,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
           return {
             data: [
               {
-                cwd: agentHome,
+                cwd: prepared.marketplaceRoot,
                 hooks: [
                   {
                     pluginId: 'alpha@ankole-agent-runtime',
@@ -309,10 +309,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
     const runtime = new AgentCodexRuntime('agent-1', fakeClient)
 
     try {
-      await Promise.all([
-        runtime.ensureAgentPlugins({ cwd: agentHome, prepared }),
-        runtime.ensureAgentPlugins({ cwd: agentHome, prepared })
-      ])
+      await Promise.all([runtime.ensureAgentPlugins(prepared), runtime.ensureAgentPlugins(prepared)])
       expect(calls).toEqual([
         'config:features.plugins',
         'plugin/install',

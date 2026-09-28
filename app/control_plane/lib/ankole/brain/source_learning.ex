@@ -294,7 +294,7 @@ defmodule Ankole.Brain.SourceLearning do
     #{window_text}
     """
 
-    case ModelCalls.complete_json(model, prompt) do
+    case ModelCalls.complete_json(model, prompt, caller: "brain.source_learning") do
       {:ok, %{"items" => items}} when is_list(items) ->
         if Enum.all?(items, &is_map/1),
           do: {:ok, items},

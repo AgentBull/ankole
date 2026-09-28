@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.Observability do
       tracer: 0
     ]
 
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.RequestContext
   alias Ankole.Observability, as: RuntimeObservability
   alias Ankole.Observability.Provider
@@ -24,6 +25,7 @@ defmodule Ankole.AIGateway.Observability do
   alias OpenTelemetry.Span
 
   @response_span_name "ai_gateway.response"
+  @failure_fields ~w(failure_kind provider_status http_status retryable retry_at error_stage provider_error_code provider_error_type)a
 
   defstruct response_span: nil,
             round_span: nil,
@@ -93,7 +95,7 @@ defmodule Ankole.AIGateway.Observability do
   def fail_round(nil, _reason), do: nil
 
   def fail_round(%__MODULE__{} = observation, reason) do
-    safe(observation, fn -> fail_open_round(observation, error_type(reason)) end)
+    safe(observation, fn -> fail_open_round(observation, reason) end)
   end
 
   @spec finish_response(t() | nil, term()) :: t() | nil
@@ -338,11 +340,10 @@ defmodule Ankole.AIGateway.Observability do
   end
 
   defp do_fail(observation, reason) do
-    error_type = error_type(reason)
-    observation = fail_open_round(observation, error_type)
+    observation = fail_open_round(observation, reason)
 
     if recording?(observation.response_span) do
-      mark_error(observation.response_span, error_type)
+      mark_failure(observation.response_span, reason)
       Span.end_span(observation.response_span)
     end
 
@@ -482,9 +483,9 @@ defmodule Ankole.AIGateway.Observability do
     %{observation | round_span: nil, round_first_output?: false, round_started_at: nil}
   end
 
-  defp fail_open_round(%__MODULE__{round_span: round_span} = observation, error_type) do
+  defp fail_open_round(%__MODULE__{round_span: round_span} = observation, reason) do
     if recording?(round_span) do
-      mark_error(round_span, error_type)
+      mark_failure(round_span, reason)
       Span.end_span(round_span)
     end
 
@@ -492,20 +493,25 @@ defmodule Ankole.AIGateway.Observability do
   end
 
   defp finish_span(span, body) do
-    case terminal_error_type(body) do
-      nil -> Span.set_status(span, OpenTelemetry.status(:ok))
-      error_type -> mark_error(span, error_type)
+    cond do
+      is_map(map_value(body, "error")) -> mark_failure(span, map_value(body, "error"))
+      map_value(body, "status") == "failed" -> mark_failure(span, :response_failed)
+      true -> Span.set_status(span, OpenTelemetry.status(:ok))
     end
 
     Span.end_span(span)
   end
 
-  defp terminal_error_type(body) do
-    cond do
-      is_map(map_value(body, "error")) -> error_type(map_value(body, "error"))
-      map_value(body, "status") == "failed" -> "response_failed"
-      true -> nil
-    end
+  defp mark_failure(span, reason) do
+    error = error_map(reason)
+
+    attributes =
+      Map.new(error["details_json"], fn {key, value} ->
+        {"ankole.ai_gateway." <> key, value}
+      end)
+
+    Span.set_attributes(span, attributes)
+    mark_error(span, error["code"])
   end
 
   defp usage_attributes(usage) when is_map(usage) do
@@ -557,28 +563,25 @@ defmodule Ankole.AIGateway.Observability do
   defp response_body({:error, reason}), do: %{"status" => "failed", "error" => error_map(reason)}
   defp response_body(reason), do: %{"status" => "failed", "error" => error_map(reason)}
 
-  defp error_map(reason), do: %{"code" => error_type(reason)}
+  defp error_map(reason) do
+    classification = FailureDiagnostics.classify(reason)
 
-  defp error_type(%{} = error) do
-    case map_value(error, "code") do
-      code when is_binary(code) and code != "" -> code
-      code when is_atom(code) -> Atom.to_string(code)
-      _code -> "provider_error"
-    end
+    details =
+      classification
+      |> Map.take(@failure_fields)
+      |> Map.new(fn {key, value} ->
+        key = if key == :error_stage, do: "stage", else: Atom.to_string(key)
+
+        value =
+          if is_atom(value) and not is_boolean(value), do: Atom.to_string(value), else: value
+
+        {key, value}
+      end)
+
+    %{"code" => Map.get(classification, :error_code, "provider_error"), "details_json" => details}
   end
 
-  defp error_type({tag, %{} = details}) when is_atom(tag) do
-    case map_value(details, "code") do
-      code when is_binary(code) and code != "" -> code
-      code when is_atom(code) -> Atom.to_string(code)
-      _code -> Atom.to_string(tag)
-    end
-  end
-
-  defp error_type({tag, _details}) when is_atom(tag), do: Atom.to_string(tag)
-  defp error_type({tag, _one, _two}) when is_atom(tag), do: Atom.to_string(tag)
-  defp error_type(tag) when is_atom(tag), do: Atom.to_string(tag)
-  defp error_type(_reason), do: "provider_error"
+  defp error_type(reason), do: error_map(reason)["code"]
 
   defp runtime(%{runtime: runtime}) when is_map(runtime), do: runtime
   defp runtime(%{"runtime" => runtime}) when is_map(runtime), do: runtime

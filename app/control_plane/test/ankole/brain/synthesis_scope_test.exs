@@ -22,8 +22,11 @@ defmodule Ankole.Brain.SynthesisScopeTest do
 
     {:ok, _result} = SchemaPacks.install_packs([])
 
+    test_pid = self()
+
     base_url =
       start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        send(test_pid, {:synthesis_request, body})
         answer = Ankole.JSON.encode!(%{"title" => "Renewal risk", "body" => @analysis_body})
         {:json, 200, chat_completion_body(body["model"], answer)}
       end)
@@ -97,6 +100,42 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     assert page.audience_scope == "world"
     assert page.dropped_evidence == 0
     assert page.slug in recalled_slugs(bob.uid, "renewal")
+  end
+
+  test "the model receives fact validity and the separate prediction period", %{agent: agent} do
+    fact = write_fact!(agent, "Acme published its renewal terms", "world")
+
+    {:ok, take} =
+      Claims.write_take(
+        %{
+          object_slug: "companies/acme",
+          claim: "Acme will renew its contract",
+          kind: "prediction",
+          holder: "agents/" <> agent.uid,
+          audience_scope: "world",
+          weight: 0.65,
+          since_date: "2027-02-01",
+          until_date: "2027-03-31",
+          provenance: "Account review on 2027-02-01"
+        },
+        agent.uid,
+        embed: false
+      )
+
+    assert {:ok, _page} = Synthesis.synthesize(agent.uid, "Acme renewal")
+    assert_receive {:synthesis_request, request}
+    prompt = request["messages"] |> List.first() |> Map.fetch!("content")
+
+    for value <- [
+          fact.id,
+          to_string(fact.valid_from),
+          take.id,
+          take.since_date,
+          take.until_date,
+          take.provenance
+        ] do
+      assert prompt =~ value
+    end
   end
 
   defp write_fact!(agent, claim, audience_scope) do

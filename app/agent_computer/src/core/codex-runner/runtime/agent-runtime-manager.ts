@@ -328,12 +328,12 @@ export class AgentCodexRuntime {
     })
   }
 
-  async ensureAgentPlugins(input: { cwd: string; prepared: PreparedAgentPlugins }): Promise<void> {
+  async ensureAgentPlugins(prepared: PreparedAgentPlugins): Promise<void> {
     await this.runAgentSetup(async () => {
       if (this.lost) throw this.lost
       const signature = JSON.stringify({
-        marketplace: input.prepared.marketplacePath,
-        plugins: input.prepared.agentPlugins.map(agentPlugin => ({
+        marketplace: prepared.marketplacePath,
+        plugins: prepared.agentPlugins.map(agentPlugin => ({
           id: agentPlugin.id,
           version: agentPlugin.manifestVersion,
           source: agentPlugin.sourceRoot,
@@ -344,17 +344,17 @@ export class AgentCodexRuntime {
         throw new Error(`Agent ${this.agentUID} Plugin catalog changed while its Codex runtime was active`)
       }
 
-      materializeAgentPluginPackages(input.prepared, { rebuild: !this.pluginsInitialized })
+      materializeAgentPluginPackages(prepared, { rebuild: !this.pluginsInitialized })
       if (this.pluginsInitialized) return
       if (this.threadOwners.size > 0) {
         throw new Error('Agent Plugin installation must finish before the first Job thread starts')
       }
-      await installTrustAndDisableAgentPlugins(this.client, input.cwd, input.prepared)
+      await installTrustAndDisableAgentPlugins(this.client, prepared)
       this.pluginCatalogSignature = signature
       this.pluginsInitialized = true
       this.logger?.info('worker.codex_agent_plugins_ready', 'Agent Codex runtime Plugins are ready', {
         agent_uid: this.agentUID,
-        plugin_count: input.prepared.agentPlugins.length
+        plugin_count: prepared.agentPlugins.length
       })
     })
   }
@@ -697,7 +697,7 @@ export class AgentCodexRuntime {
   }
 
   private async runAgentSetup(operation: () => void | Promise<void>): Promise<void> {
-    // Serialize Agent Home credential and Plugin updates across Job sessions.
+    // Serialize this Worker's Codex Home credential and Plugin updates across Job sessions.
     if (this.lost) throw this.lost
     const current = this.agentSetup.then(async () => {
       if (this.lost) throw this.lost

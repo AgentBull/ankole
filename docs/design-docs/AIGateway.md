@@ -1359,6 +1359,13 @@ through `response.output_item.done` in that round are the output. The request
 that a provider terminal echoes (`instructions`, `input`, `tools`) is not part
 of the output. Exported content keeps JSON booleans and `null` as such.
 
+Failed spans use `FailureDiagnostics` for `error.type` and the safe
+`ankole.ai_gateway.*` failure attributes: classification, HTTP and provider
+status, retryability, retry time, stage, and provider error code or type.
+A missing inner code does not replace an outer failure such as
+`credential_pool_exhausted` with `nil`. Trace error attributes do not contain
+raw provider error messages or response bodies.
+
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token
 usage with cache-read, cache-write, and reasoning detail buckets, Principal,

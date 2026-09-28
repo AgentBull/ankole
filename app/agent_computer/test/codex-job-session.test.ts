@@ -379,7 +379,7 @@ function sessionFixture(
     preparedAgentPlugins: prepareAgentPlugins({
       projectRoot,
       agentPlugins: [],
-      agentHome,
+      codexHome,
       libraryRoot,
       initializeProject: false
     }),

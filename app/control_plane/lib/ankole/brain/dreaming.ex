@@ -398,7 +398,7 @@ defmodule Ankole.Brain.Dreaming do
     #{segment.text}
     """
 
-    case ModelCalls.complete_json(model, prompt) do
+    case ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.timelines") do
       {:ok, output} ->
         written =
           output["items"]
@@ -593,11 +593,16 @@ defmodule Ankole.Brain.Dreaming do
      "severity":"info|low|medium|high",
      "confidence":0.8}
 
-    Claim A (valid from #{a.valid_from}): #{a.claim}
-    Claim B (valid from #{b.valid_from}): #{b.claim}
+    Claim A (#{a.kind}, valid from #{a.valid_from}, until #{a.valid_until}): #{a.claim}
+    Context A: #{a.context}
+    Provenance A: #{a.provenance}
+    Claim B (#{b.kind}, valid from #{b.valid_from}, until #{b.valid_until}): #{b.claim}
+    Context B: #{b.context}
+    Provenance B: #{b.provenance}
     """
 
-    with {:ok, output} <- ModelCalls.complete_json(model, prompt),
+    with {:ok, output} <-
+           ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.contradictions"),
          verdict when verdict in @contradiction_verdicts <- output["verdict"],
          confidence when is_number(confidence) <- output["confidence"] do
       record_contradiction_verdict(a.id, b.id, verdict, confidence, output)

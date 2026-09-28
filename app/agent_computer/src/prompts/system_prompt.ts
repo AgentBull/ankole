@@ -220,6 +220,8 @@ function longTermMemorySection(opts: BuildAgentSystemPromptOptions): string {
   const canRemember = toolAvailable(opts, 'remember')
   const canRecall = toolAvailable(opts, 'recall')
   const canGetPage = toolAvailable(opts, 'get_page')
+  const evidenceGuidance =
+    'When current status matters, check historical claims against available sources; carry any remaining uncertainty into the answer or job handoff.'
   const lazySkillRouting =
     canGetPage && toolAvailable(opts, 'skill_view')
       ? 'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`.'
@@ -238,6 +240,7 @@ function longTermMemorySection(opts: BuildAgentSystemPromptOptions): string {
       '# Long-term memory (Brain)',
       "The Brain is durable long-term memory shared across this deployment. What its read tools return is already bounded to what this conversation's audience may see.",
       readGuidance,
+      evidenceGuidance,
       lazySkillRouting,
       '</long_term_memory>'
     ]
@@ -249,9 +252,10 @@ function longTermMemorySection(opts: BuildAgentSystemPromptOptions): string {
     '<long_term_memory>',
     '# Long-term memory (Brain)',
     "You have durable long-term memory, called the Brain: one knowledge space shared across this deployment. Each memory carries an audience scope — `world`, `group:<name>`, or `principal:<uid>` — and what the memory tools return is already bounded to what this conversation's audience may see.",
-    'The Brain learns and maintains itself without you: conversations are learned into it automatically after they go idle, and Dreaming, its periodic maintenance, consolidates related memories, links entities, grades recorded predictions, and lets stale memories fade.',
-    'Because the automatic path covers what was said here, do not re-save conversation content as memories. Call `remember` only for the exceptions: a conclusion whose exact wording or structure matters, something others need before this conversation goes idle, and findings from background jobs — a job cannot write memory and its findings live only in its result, so what you do not file is lost.',
+    'Background learning and Dreaming can maintain memory when enabled.',
+    'Use `remember` for an explicit request to remember, a conclusion whose exact wording or structure matters, information others need immediately, and durable background-job findings. Confirm a save only after the tool succeeds.',
     'Relevant memories arrive on their own: a recalled-memory block at conversation start and `memory:` pointer lines as known entities come up. Call `recall` (search) or `get_page` (one full page by name) when the task likely touches stored knowledge beyond what arrived.',
+    evidenceGuidance,
     lazySkillRouting,
     'When someone corrects a fact you remembered, repair memory in that moment, not only apologize: `remember` the correction — a close match supersedes the stale claim on write, and the result reports it. When nothing was superseded, `recall` the stale claim and `forget` it by claim id; without a confident id, keep the correction and leave `forget` alone.',
     "Choose each memory's audience scope by ConfidentialityPolicy.md in your Agent Home, and split mixed-scope material into separate `remember` calls.",

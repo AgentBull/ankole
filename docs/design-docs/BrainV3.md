@@ -276,7 +276,17 @@ Background learning writes memory without a `remember` call:
 
 Extraction quality is a prompt contract: one independently changeable
 assertion per item, confidence on the grid, first-person conviction caps.
-The server enforces only the mechanical gates.
+The server enforces only the mechanical gates. JSON integers at the grid
+endpoints (`0` and `1`) are valid and are stored as floats.
+
+The conversation prompt does not promise that background learning has run.
+An explicit request to remember durable information uses `remember`, and a
+successful tool result is required before the Agent reports a saved memory.
+An omitted scope retains the conversation audience. Retrying a rejected
+Principal UID must not widen that audience. The Agent uses relevant history
+already in context and retrieves more when needed. When current status
+matters, it checks historical claims against available sources and carries
+remaining uncertainty into its answer or background Job handoff.
 
 ## Dreaming and Self-Healing
 
@@ -324,6 +334,14 @@ Self-healing runs on its own cron: it embeds pending rows, repairs missing
 projections, and reports drift. Time decay itself stores nothing: ranking
 recomputes effective confidence on read, and `brain.forgetting` holds the
 halflives.
+
+These model calls are stateless and have no tools or conversation history.
+Grading, contradiction checks, and pattern detection receive available claim
+dates, context, attribution, and provenance. Grading also receives the Take's
+period and provenance. On-demand synthesis receives claim IDs, pages, holders,
+and provenance, with Fact validity dates and Take periods kept separate.
+Brain model calls set a phase-specific `brain.*` caller in AIGateway traces,
+so operators can inspect each prompt and result in Langfuse.
 
 ## Configuration
 

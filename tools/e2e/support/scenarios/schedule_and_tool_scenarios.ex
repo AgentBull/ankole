@@ -307,11 +307,27 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     |> Enum.sort_by(&get_in(&1.payload, ["metadata", "delivery_target", "primary"]), :desc)
   end
 
-  def run_file_attachment_roundtrip(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
+  def run_file_attachment_roundtrip(
+        %{fake_feishu: fake_feishu, agent: agent, container: container},
+        message_type \\ "file"
+      ) do
+    file = %{"file_key" => "file_1", "file_name" => "deck.pdf"}
+
+    {content, expected_text} =
+      case message_type do
+        "file" ->
+          {file, nil}
+
+        "post" ->
+          text = "Please read the attached report."
+
+          {%{
+             "title" => "",
+             "content" => [[%{"tag" => "text", "text" => text}]],
+             "files" => [file]
+           }, text}
+      end
+
     # Seed the platform-side file so the real inbound download endpoint can
     # serve it during attachment materialization.
     assert :ok =
@@ -328,8 +344,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                message_id: "om_file_1",
                chat_id: "oc_chaos_file",
                chat_type: "p2p",
-               message_type: "file",
-               content: %{"file_key" => "file_1", "file_name" => "deck.pdf"},
+               message_type: message_type,
+               content: content,
                mentions: [],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 4, :second), :millisecond)
@@ -338,7 +354,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     input = actor_event_by_source_entry_id!(agent.uid, "om_file_1")
     assert input.type == "im.message.addressed"
 
-    assert {:ok, %Entry{text: nil, attachments: [attachment]}} =
+    assert {:ok, %Entry{text: ^expected_text, attachments: [attachment]}} =
              wait_until(deadline(10_000), fn ->
                case Repo.get_by!(Entry,
                       signal_channel_id: "lark:oc_chaos_file",
@@ -386,7 +402,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     assert reply.text =~ "CHAOS_GENERIC_OK"
     assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply, message: message}
+    %{input: input, reply: reply, message: message, attachment: attachment}
   end
 
   def run_reply_attachment_tool_loop(%{

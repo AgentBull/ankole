@@ -70,7 +70,11 @@ defmodule Ankole.Brain.Calibration do
           |> Repo.all()
       end
 
-    evidence_text = Enum.map_join(evidence, "\n", fn fact -> "- #{fact.claim}" end)
+    evidence_text =
+      Enum.map_join(evidence, "\n", fn fact ->
+        "- [#{fact.holder}; #{fact.kind}; valid from #{fact.valid_from}] #{fact.claim}\n" <>
+          "  Context: #{fact.context}\n  Provenance: #{fact.provenance}"
+      end)
 
     domains =
       Ankole.Brain.Schemas.SchemaCalibrationDomain
@@ -92,13 +96,16 @@ defmodule Ankole.Brain.Calibration do
     Installed calibration domains: #{domain_line}
 
     Prediction (held by #{take.holder}, weight #{take.weight}): #{take.claim}
+    Since: #{take.since_date || "not stated"}
     Until: #{take.until_date || "not stated"}
+    Provenance: #{take.provenance}
 
     Evidence:
     #{evidence_text}
     """
 
-    with {:ok, output} <- ModelCalls.complete_json(model, prompt),
+    with {:ok, output} <-
+           ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.calibration"),
          quality when quality in ["correct", "incorrect", "partial", "unresolvable"] <-
            output["quality"],
          confidence when is_number(confidence) <- output["confidence"] do
