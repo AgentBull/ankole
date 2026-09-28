@@ -2023,51 +2023,66 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute String.contains?(attachment["agent_computer_path"], "file_any_ascii")
     end
 
-    test "materializes a Word file attached to an unaddressed rich post" do
-      parent = self()
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "lark", :record_only)
-      config = chat_config()
-      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+    for {filename, stored_name} <- [
+          {"notice.docx", "notice.docx"},
+          {"report.pdf", "report.pdf"},
+          {"industry outlook.txt", "industry_outlook.txt"},
+          {"Archive.zip", "Archive.zip"}
+        ] do
+      @post_filename filename
+      @post_stored_name stored_name
+      test "materializes #{@post_filename} attached to an unaddressed rich post" do
+        parent = self()
+        %{principal: agent} = agent_fixture()
+        binding_fixture(agent.uid, "lark", :record_only)
+        config = chat_config()
+        consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
 
-      put_tenant_token(config)
-      on_exit(fn -> delete_tenant_token(config) end)
+        put_tenant_token(config)
+        on_exit(fn -> delete_tenant_token(config) end)
 
-      stub_lark_requests(parent, fn request ->
-        assert request.request_path ==
-                 "/open-apis/im/v1/messages/om_post_template/resources/file_template"
+        stub_lark_requests(parent, fn request ->
+          assert request.request_path ==
+                   "/open-apis/im/v1/messages/om_post_template/resources/file_template"
 
-        {:binary, 200, "word template"}
-      end)
+          {:binary, 200, "attachment bytes"}
+        end)
 
-      route = "lark-post-template-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-      WorkerFilesFake.start!(route, notify: parent)
+        route = "lark-post-template-#{System.unique_integer([:positive])}"
+        insert_ready_worker!(route)
+        WorkerFilesFake.start!(route, notify: parent)
 
-      event =
-        post_receive_event("om_post_template", %{
-          "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
-          "files" => [
-            %{"file_key" => "file_template", "file_name" => "notice.docx", "is_folder" => false}
-          ]
-        })
-        |> update_message(&Map.put(&1, "mentions", []))
+        event =
+          post_receive_event("om_post_template", %{
+            "content" => [[%{"tag" => "text", "text" => "Use this template"}]],
+            "content_v2" => [[%{"tag" => "text", "text" => "Use this template", "style" => []}]],
+            "files" => [
+              %{
+                "file_key" => "file_template",
+                "file_name" => @post_filename,
+                "is_folder" => false
+              }
+            ]
+          })
+          |> update_message(&Map.put(&1, "mentions", []))
 
-      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
-               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+        assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+                 Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert entry.text == "Use this template"
-      assert [attachment] = entry.attachments
-      expected_relative_path = "inbox/#{attachment["attachment_id"]}/notice.docx"
+        assert entry.text == "Use this template"
+        assert [attachment] = entry.attachments
+        assert attachment["name"] == @post_filename
+        expected_relative_path = "inbox/#{attachment["attachment_id"]}/#{@post_stored_name}"
 
-      assert attachment["user_files_relative_path"] == expected_relative_path
+        assert attachment["user_files_relative_path"] == expected_relative_path
 
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
+        assert attachment["agent_computer_path"] ==
+                 "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
 
-      expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
-      assert_receive {:materialized_attachment_path, ^expected_lane_path}
-      assert Repo.aggregate(ActorEvent, :count) == 0
+        expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
+        assert_receive {:materialized_attachment_path, ^expected_lane_path}
+        assert Repo.aggregate(ActorEvent, :count) == 0
+      end
     end
 
     test "attachment receipt is durable before the provider download starts" do

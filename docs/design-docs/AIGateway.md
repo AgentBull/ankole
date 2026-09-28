@@ -6,7 +6,8 @@ request, and records Responses. It also owns provider retry and the end of one
 model request.
 
 Caller `metadata` is local Response state. Generic OpenAI-compatible providers
-do not receive it because support for that OpenAI field is not portable.
+and Google AI Studio do not receive it because support for that OpenAI field is
+not portable. Google AI Studio rejects a whole request that contains it.
 
 AIGateway does not run the Agent model loop and does not complete Actor work.
 Agent Computer runs the loop. SignalsGateway completes the ActorEvent and sends
@@ -1521,6 +1522,16 @@ history. It never sends foreign reasoning to the next provider. An explicit publ
 If reasoning has no assistant content or tool call, the adapter discards it
 during replay. It cannot attach that state to a valid Chat message, and some
 Chat providers reject an assistant message with no content or tool call.
+
+The same envelope carries the `extra_content` object of each Chat tool call,
+keyed by call ID. Gemini puts its thought signature there. It signs only the
+first call of a parallel step, and it rejects a replayed function call of the
+current turn that does not return its signature. A continuation puts each
+stored `extra_content` back on the tool call with the same ID. It reads every
+reasoning item in the input for this and does not use the item position. Gemini
+streams its text before the call it signs, and a tool-loop Response stores the
+round's reasoning item before that text. The envelope scope rule also applies
+here, so a signature never goes to another model.
 
 For Anthropic Messages, the adapter keeps the native `thinking` and
 `redacted_thinking` blocks with their signatures, and emits one Responses

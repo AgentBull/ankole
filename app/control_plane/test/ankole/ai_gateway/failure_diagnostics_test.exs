@@ -589,6 +589,31 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              } = FailureDiagnostics.project({:universal_ai_request_failed, %{"code" => "other"}})
     end
 
+    test "a Google error array keeps the provider message" do
+      message = ~s(Invalid JSON payload received. Unknown name "metadata": Cannot find field.)
+
+      excerpt =
+        Ankole.JSON.encode!([
+          %{"error" => %{"code" => 400, "message" => message, "status" => "INVALID_ARGUMENT"}}
+        ])
+
+      rejected =
+        Ankole.AIGateway.UniversalAIRequest.normalize_stream_error(%{
+          "code" => "provider_status_rejected",
+          "provider_status" => 400,
+          "provider_body_excerpt" => excerpt
+        })
+
+      invalid = {:invalid_upstream_response, 400, Ankole.JSON.decode!(excerpt)}
+
+      for reason <- [rejected, invalid] do
+        assert FailureDiagnostics.classify(reason)[:provider_message] == message
+      end
+
+      assert %{status: 400, error: %{"message" => ^message}} =
+               FailureDiagnostics.project(rejected, stage: "socket_open")
+    end
+
     test "an exhausted credential pool keeps one wording, retry headers, and resets_at" do
       retry_at = DateTime.utc_now(:second) |> DateTime.add(600)
       iso = DateTime.to_iso8601(retry_at)
