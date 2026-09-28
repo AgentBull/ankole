@@ -1,6 +1,7 @@
 ---
 import '../styles/website.css'
 import { BCP47, LOCALES, type Locale } from '../i18n/config'
+import { llmsIndexPath } from '../lib/docs-model'
 
 interface Props {
 	title: string
@@ -8,9 +9,11 @@ interface Props {
 	lang: Locale
 	/** Path after /{lang}/, e.g. "docs/introduction" or "" for the homepage. */
 	path?: string
+	/** Site path of this page's Markdown version, when the page has one. */
+	markdownPath?: string
 }
 
-const { title, description, lang, path = '' } = Astro.props
+const { title, description, lang, path = '', markdownPath } = Astro.props
 
 /** Google Analytics stays out of local runs, so development does not enter the data. */
 const analyticsId = import.meta.env.PROD ? 'G-QHEKT8PK29' : null
@@ -69,6 +72,10 @@ gtag('config', '${analyticsId}');`}
 	))
 }
 <link rel="alternate" hreflang="x-default" href={new URL(`${base}/en-US${cleanPath}`, Astro.site)} />
+
+<!-- Agent-readable versions -->
+{markdownPath && <link rel="alternate" type="text/markdown" href={new URL(markdownPath, Astro.site)} />}
+<link rel="alternate" type="text/plain" title="LLM index" href={new URL(llmsIndexPath(lang), Astro.site)} />
 
 <!-- Primary Meta Tags -->
 <title>{title}</title>

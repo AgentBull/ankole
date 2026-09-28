@@ -93,6 +93,34 @@ function extractIslandHrefs(html, source) {
   return hrefs
 }
 
+/**
+ * Generated Markdown and llms.txt files link with absolute URLs, so the check needs the origin that
+ * the build used. The sitemap index holds it, from `site` in astro.config.mjs.
+ */
+function siteOriginFrom(sitemapIndex) {
+  const location = sitemapIndex.match(/<loc>([^<]+)<\/loc>/)?.[1]
+  if (location === undefined) throw new Error('sitemap-index.xml has no <loc>, so the site origin is unknown')
+  return new URL(decodeHtmlEntities(location)).origin
+}
+
+/** Link destinations in a generated Markdown or text file: Markdown links and bare site URLs. */
+function extractTextLinks(text, siteOrigin) {
+  const destinations = [...text.matchAll(/\]\(([^()\s]+)(?:\s+"[^"]*")?\)/g)].map(match => match[1])
+  // A bare URL ends at the first character that cannot appear in a URL, such as CJK punctuation.
+  // Link destinations can hold CJK anchors, so the first expression reads those instead.
+  const bareUrl = new RegExp(
+    `(?<!\\]\\()${siteOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[A-Za-z0-9\\-._~/?#%&=+!*;,:@$]*`,
+    'g'
+  )
+  const bare = [...text.matchAll(bareUrl)].map(match => match[0].replace(/[.,;:!?]+$/, ''))
+  return [...destinations, ...bare]
+}
+
+/** Markdown anchors name headings of the HTML page that the Markdown file mirrors. */
+function anchorPage(target) {
+  return target.endsWith('/index.md') ? `${target.slice(0, -'index.md'.length)}index.html` : target
+}
+
 function targetFile(pathname, distFiles) {
   const path = pathname.replace(/^\/+/, '')
   const candidates = path === '' || pathname.endsWith('/') ? [`${path}index.html`] : [path, `${path}/index.html`]
@@ -121,61 +149,82 @@ function isInternalHref(href) {
 async function main() {
   const files = (await listFiles(DIST_DIR)).sort((left, right) => toDistPath(left).localeCompare(toDistPath(right)))
   const distFiles = new Set(files.map(toDistPath))
-  const htmlFiles = files.filter(file => file.endsWith('.html'))
-  const htmlByPath = new Map(
-    await Promise.all(htmlFiles.map(async file => [toDistPath(file), await readFile(file, 'utf8')]))
-  )
+  const siteOrigin = siteOriginFrom(await readFile(join(DIST_DIR, 'sitemap-index.xml'), 'utf8'))
+  const readByPath = async extensions =>
+    new Map(
+      await Promise.all(
+        files
+          .filter(file => extensions.some(extension => file.endsWith(extension)))
+          .map(async file => [toDistPath(file), await readFile(file, 'utf8')])
+      )
+    )
+  const htmlByPath = await readByPath(['.html'])
+  const textByPath = await readByPath(['.md', '.txt'])
   const idsByPath = new Map([...htmlByPath].map(([path, html]) => [path, new Set(extractAttributeValues(html, 'id'))]))
   const failures = []
   let internalHrefCount = 0
+
+  const checkHref = (source, href) => {
+    if (!isInternalHref(href) && !href.startsWith(`${siteOrigin}/`)) return
+
+    let url
+    try {
+      url = new URL(
+        href.startsWith(siteOrigin) ? href.slice(siteOrigin.length) : href,
+        `${INTERNAL_ORIGIN}${toPagePath(source)}`
+      )
+    } catch {
+      failures.push({ source, href, reason: 'target is not a valid URL' })
+      internalHrefCount += 1
+      return
+    }
+
+    if (url.origin !== INTERNAL_ORIGIN) return
+    internalHrefCount += 1
+
+    const decodedPath = decodedUrlPart(url.pathname, 'path')
+    if (decodedPath.error !== undefined) {
+      failures.push({ source, href, reason: decodedPath.error })
+      return
+    }
+
+    const target = targetFile(decodedPath.value, distFiles)
+    if (target === null) {
+      failures.push({ source, href, reason: `target ${decodedPath.value} does not exist` })
+      return
+    }
+
+    const anchor = anchorFrom(url)
+    if (anchor.error !== undefined) {
+      failures.push({ source, href, reason: anchor.error })
+      return
+    }
+
+    if (anchor.value !== null && !idsByPath.get(anchorPage(target))?.has(anchor.value)) {
+      failures.push({
+        source,
+        href,
+        reason: `id ${JSON.stringify(anchor.value)} does not exist in ${anchorPage(target)}`
+      })
+    }
+  }
 
   for (const [source, html] of htmlByPath) {
     const hrefs = new Set(
       [...extractAttributeValues(html, 'href'), ...extractIslandHrefs(html, source)].map(href => href.trim())
     )
-    const base = `${INTERNAL_ORIGIN}${toPagePath(source)}`
+    for (const href of hrefs) checkHref(source, href)
+  }
 
-    for (const href of hrefs) {
-      if (!isInternalHref(href)) continue
+  for (const [source, text] of textByPath) {
+    for (const href of new Set(extractTextLinks(text, siteOrigin))) checkHref(source, href)
+  }
 
-      let url
-      try {
-        url = new URL(href, base)
-      } catch {
-        failures.push({ source, href, reason: 'target is not a valid URL' })
-        internalHrefCount += 1
-        continue
-      }
-
-      if (url.origin !== INTERNAL_ORIGIN) continue
-      internalHrefCount += 1
-
-      const decodedPath = decodedUrlPart(url.pathname, 'path')
-      if (decodedPath.error !== undefined) {
-        failures.push({ source, href, reason: decodedPath.error })
-        continue
-      }
-
-      const target = targetFile(decodedPath.value, distFiles)
-      if (target === null) {
-        failures.push({ source, href, reason: `target ${decodedPath.value} does not exist` })
-        continue
-      }
-
-      const anchor = anchorFrom(url)
-      if (anchor.error !== undefined) {
-        failures.push({ source, href, reason: anchor.error })
-        continue
-      }
-
-      if (anchor.value !== null && !idsByPath.get(target)?.has(anchor.value)) {
-        failures.push({
-          source,
-          href,
-          reason: `id ${JSON.stringify(anchor.value)} does not exist in ${target}`
-        })
-      }
-    }
+  // Every docs page publishes a Markdown version for agents.
+  for (const source of htmlByPath.keys()) {
+    if (!/^[^/]+\/docs\/[^/]+\/index\.html$/.test(source)) continue
+    const markdown = source.replace(/index\.html$/, 'index.md')
+    if (!distFiles.has(markdown)) failures.push({ source, href: markdown, reason: 'the Markdown version is missing' })
   }
 
   if (failures.length > 0) {
@@ -188,7 +237,7 @@ async function main() {
   }
 
   process.stdout.write(
-    `Internal link check passed across ${htmlFiles.length} HTML file(s) and ${internalHrefCount} internal href(s).\n`
+    `Internal link check passed across ${htmlByPath.size} HTML file(s), ${textByPath.size} Markdown or text file(s), and ${internalHrefCount} internal link(s).\n`
   )
 }
 

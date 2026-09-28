@@ -80,6 +80,8 @@ coverage/
 
 # build
 dist/
+# Astro regenerates types and content modules on every dev, build, and check run.
+.astro/
 storybook-static/
 target/
 tmp/

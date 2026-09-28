@@ -1,0 +1,26 @@
+---
+import type { Locale } from '../i18n/config'
+import { t } from '../i18n/utils'
+import { llmsIndexPath } from '../lib/docs-model'
+
+interface Props {
+	lang: Locale
+	/** Site path of the page's Markdown version, when the page has one. */
+	markdownPath?: string
+}
+
+const { lang, markdownPath } = Astro.props
+const index = new URL(llmsIndexPath(lang), Astro.site).href
+const text = markdownPath
+	? t(lang, 'agent.directive.page', { markdown: new URL(markdownPath, Astro.site).href, index })
+	: t(lang, 'agent.directive.site', { index })
+---
+
+{
+	/*
+	 * Tells an agent that reads the page as text where the Markdown version and the index are. It is
+	 * visually hidden but not aria-hidden: text extractors such as Readability drop aria-hidden
+	 * elements, so screen readers also read it.
+	 */
+}
+<p class="sr-only" data-agent-directive>{text}</p>

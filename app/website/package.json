@@ -15,24 +15,28 @@
   "dependencies": {
     "@ankole/uikit": "workspace:*",
     "@astrojs/check": "^0.9.10",
-    "@astrojs/mdx": "^8.0.0",
-    "@astrojs/react": "^6.0.5",
+    "@astrojs/mdx": "^8.0.2",
+    "@astrojs/react": "^7.0.0",
     "@astrojs/sitemap": "^3.7.4",
     "@remixicon/react": "4.9.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.3.1",
-    "intl-messageformat": "^11.2.13",
-    "motion": "^13.2.0",
+    "astro": "^7.3.5",
+    "intl-messageformat": "^12.1.2",
+    "motion": "^13.4.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": ">=0.35.4",
-    "tailwindcss": "^4.3.3"
+    "remark-gfm": "^4.0.1",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "sharp": "^0.35.5",
+    "tailwindcss": "^4.3.3",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
     "typescript": "6.0.3",
-    "vite": "^8.2.2"
+    "vite": "^8.3.1"
   }
 }
