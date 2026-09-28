@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.6-rc.1 (2026-09-28)
+
+- Feishu rich posts now include files from the message's `files` list as
+  downloadable attachments. A Word template sent with text reaches the Agent's
+  inbox through the same path as a standalone file. Files and inline images
+  in the same post are retained, and repeated file references are deduplicated.
+
 ## Version 1.6.5-rc.1 (2026-09-28)
 
 - The website now publishes a Markdown version of each documentation page at `/<locale>/docs/<page>/index.md`, and an `llms.txt` index and an `llms-full.txt` file for each language at `/<locale>/llms.txt` and `/<locale>/llms-full.txt`. `/llms.txt` and `/llms-full.txt` serve English. The Markdown of Quick start and FAQ contains every deployment method, identity provider, and chat channel, not only the selected tab.

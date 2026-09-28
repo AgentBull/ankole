@@ -757,10 +757,18 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp post_resource_attachments(content, message) do
-    content
-    |> post_blocks()
-    |> List.flatten()
-    |> Enum.flat_map(&post_part_attachments(&1, message))
+    inline_attachments =
+      content
+      |> post_blocks()
+      |> List.flatten()
+      |> Enum.flat_map(&post_part_attachments(&1, message))
+
+    file_attachments =
+      content
+      |> fetch_list("files")
+      |> Enum.map(&resource_attachment("file", &1, message))
+
+    inline_attachments ++ file_attachments
   end
 
   defp post_part_attachments(%{"tag" => "img", "image_key" => image_key}, message)

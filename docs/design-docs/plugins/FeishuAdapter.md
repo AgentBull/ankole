@@ -138,7 +138,9 @@ reference. It does this for every matching chat consumer before the first
 download starts. The adapter then downloads the bytes and stores successful
 downloads through WorkerFiles. It submits `complete` or `failed` with the same
 source entry ID. A failed download keeps the provider reference without a local
-file.
+file. Rich posts can carry files in a top-level `files` list beside the text
+and image blocks. The adapter submits these files through the same attachment
+download path, using each file's key and name and the containing message ID.
 
 SignalsGateway assigns the attachment's numeric ID before the download. A
 successful download uses
