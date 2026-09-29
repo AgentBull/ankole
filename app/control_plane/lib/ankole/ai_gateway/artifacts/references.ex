@@ -76,10 +76,10 @@ defmodule Ankole.AIGateway.Artifacts.References do
   end
 
   @doc """
-  Rewrites local image references in `input` and image masks for a native-image
-  dispatch.
+  Rewrites local image references in `input` and image masks for Responses or
+  native image generation.
 
-  A native provider cannot read Ankole artifact ids, so a local `file_` or
+  A provider cannot read Ankole artifact ids, so a local `file_` or
   `ig_` reference in an `input_image` part becomes an inline data URL, and a
   replayed `image_generation_call` gets its stored result back. A reference
   the provider owns (its own file id, an HTTP URL, or a data URL) passes

@@ -302,7 +302,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   end
 
   defp normalize_provider_request(subject_uid, runtime, request) do
-    if Providers.supports_native_image_generation?(runtime) do
+    if Providers.responses_endpoint?(runtime) or
+         Providers.supports_native_image_generation?(runtime) do
       Artifacts.resolve_native_input(subject_uid, request)
     else
       {:ok, request}

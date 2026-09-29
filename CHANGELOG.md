@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.6.11-rc.1 (2026-09-29)
+
+- Conversations can continue after image generation through OpenAI-compatible
+  Responses endpoints. AIGateway restores saved image data before it sends
+  history upstream, including images from existing conversations.
+
 ## Version 1.6.10-rc.1 (2026-09-29)
 
 - OpenAI-compatible Responses requests explicitly disable upstream response

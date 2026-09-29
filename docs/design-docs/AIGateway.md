@@ -1225,8 +1225,13 @@ path does not resolve or validate a configured fallback, so a stale fallback
 cannot block an ordinary conversation. If neither native nor fallback execution
 is available, request preparation returns an explicit unsupported-value error.
 AIGateway never adds an image tool that the caller did not declare. Before a
-native dispatch, it inlines local input-image and mask references because the
-Provider cannot read Ankole artifact IDs.
+Responses request or native image dispatch, it inlines local input-image and
+mask references because the Provider cannot read Ankole artifact IDs. It also
+restores each stored `image_generation_call.result` from its Artifact. This
+applies to compatible Responses endpoints regardless of their image-generation
+capability: a proxy can return images and remove item IDs on later requests.
+Message history keeps the image reference; only the outgoing request contains
+the restored image bytes. These references share the 100 MiB request limit.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
