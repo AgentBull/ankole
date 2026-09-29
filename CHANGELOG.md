@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.9-rc.1 (2026-09-29)
+
+- Background Job details and attempt history show stored model failures even
+  when no tool ran and the Job is queued for retry or has been stopped.
+- The Feishu approvals Skill stays in the requesting user's main conversation.
+  Receipt analysis and expense preparation can still run in background Jobs.
+
 ## Version 1.6.8-rc.1 (2026-09-29)
 
 - Background Agent Jobs on different Workers no longer share mutable Plugin

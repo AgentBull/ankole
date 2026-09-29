@@ -89,7 +89,8 @@ const ExecutionSchema = z.object({
     .object({
       runtime_turn_id: z.string(),
       kind: z.string(),
-      status: z.enum(['in_progress', 'completed', 'failed', 'interrupted'])
+      status: z.enum(['in_progress', 'completed', 'failed', 'interrupted']),
+      error: z.record(z.string(), z.unknown())
     })
     .optional(),
   threads: z.object({
@@ -242,7 +243,7 @@ export function createShowBackgroundJobDetailsTool(
         progress: execution.progress,
         usage: execution.usage ?? null,
         updated_at: execution.updated_at,
-        error: modelVisibleJobError(error),
+        error: modelVisibleJobError(error) ?? modelVisibleJobError(execution.current?.error),
         attempt_history: response.attemptHistory.map(entry => ({
           attempt: entry.attempt,
           turn_statuses: entry.turnStatuses,
@@ -346,9 +347,10 @@ type ModelVisibleJobError = {
 function modelVisibleJobError(error: Record<string, unknown> | null | undefined): ModelVisibleJobError | null {
   if (!error) return null
 
+  const summary = typeof error.summary === 'string' && error.summary !== '' ? error.summary : error.message
   const projected: ModelVisibleJobError = {
     ...(typeof error.code === 'string' ? { code: removeInternalUUIDs(error.code) } : {}),
-    ...(typeof error.summary === 'string' ? { summary: removeInternalUUIDs(error.summary) } : {}),
+    ...(typeof summary === 'string' && summary !== '' ? { summary: removeInternalUUIDs(summary) } : {}),
     ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
     ...(typeof error.codex_turn_status === 'string' ? { codex_turn_status: error.codex_turn_status } : {})
   }

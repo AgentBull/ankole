@@ -108,6 +108,16 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, _brainstorming} = Library.skill_view(agent.uid, "brainstorming")
   end
 
+  test "the enabled Lark Plugin declares approvals as a main-runtime Skill" do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, _plugin} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
+
+    assert {:ok, %{"skills" => runtime_skills}} = Library.runtime_catalog_for_agent(agent.uid)
+
+    approvals = Enum.find(runtime_skills, &(&1["skill_name"] == "lark-approvals"))
+    assert approvals["metadata"]["ankole-runtime"] == "main"
+  end
+
   test "new agents are seeded with soul, mission, and design library entries" do
     %{principal: agent} = agent_fixture()
 

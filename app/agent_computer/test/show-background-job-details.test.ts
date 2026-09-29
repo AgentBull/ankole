@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { jsonBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 import { createShowBackgroundJobDetailsTool } from '../src/tools/background-agent-job/show-background-job-details'
@@ -176,6 +176,7 @@ describe('@ankole/agent-computer show background job details tool', () => {
     expect(result.details.current_turn_status).toBeNull()
     expect(result.details.result_ref).toBeNull()
     expect(result.details.usage).toBeNull()
+    expect(result.details.error).toBeNull()
     expect(result.details.threads).toEqual({ total: 0, child: 0 })
     expect(result.details.turns).toEqual({ lead: 0, child: 0, active: 0 })
     expect(result.details.progress).toEqual({
@@ -186,6 +187,77 @@ describe('@ankole/agent-computer show background job details tool', () => {
       files_changed: [],
       active_items: []
     })
+  })
+
+  for (const status of ['queued', 'stopped'] as const) {
+    it(`reports the current Turn failure when a ${status} job has no terminal error`, async () => {
+      const failedResponse = response()
+      failedResponse.status = status
+      failedResponse.resultRef = undefined
+      failedResponse.errorJson = new Uint8Array()
+      const execution = jsonObjectFromBytes(failedResponse.executionJson, 'execution')!
+      delete execution.usage
+      failedResponse.executionJson = jsonBytes({
+        ...execution,
+        current: {
+          runtime_turn_id: '019f0000-0000-7000-8000-000000000010',
+          kind: 'agent',
+          status: 'failed',
+          error: {
+            message: 'Request 019f0000-0000-7000-8000-000000000003 failed before model output.',
+            codexErrorInfo: 'internalServerError',
+            additionalDetails: 'internal diagnostics'
+          }
+        },
+        threads: { total: 1, child: 0 },
+        turns: { lead: 1, child: 0, compaction: 0, active: 0 },
+        progress: {
+          completed_items: 0,
+          tool_calls: 0,
+          tools_used: [],
+          tool_execution_mechanisms: [],
+          files_changed: [],
+          active_items: []
+        },
+        trajectory_page: { format: 'ankole_chatml', version: 1, messages: [] }
+      })
+      const tool = createShowBackgroundJobDetailsTool({
+        turnStart: turnStartForTest(),
+        rpc: (async () => failedResponse) as RPCRequester
+      })
+
+      const result = await tool.execute('call-show-failed', { job_id: jobID }, abortSignal())
+      if ('result' in result.details) throw new Error('expected execution details')
+
+      expect(result.details.status).toBe(status)
+      expect(result.details.current_turn_status).toBe('failed')
+      expect(result.details.progress.tool_calls).toBe(0)
+      expect(result.details.error).toEqual({ summary: 'Request [internal-id] failed before model output.' })
+      expect(JSON.stringify(result.details)).not.toContain('internal diagnostics')
+      expect(JSON.stringify(result.details)).not.toContain('019f0000')
+
+      failedResponse.errorJson = response().errorJson
+      const withJobError = await tool.execute('call-show-terminal-error', { job_id: jobID }, abortSignal())
+      if ('result' in withJobError.details) throw new Error('expected execution details')
+      expect(withJobError.details.error?.code).toBe('codex_no_progress')
+      expect(withJobError.details.error?.summary).toBe('Codex request [internal-id] made no observable progress.')
+    })
+  }
+
+  it('does not report an earlier attempt failure as the current error after recovery', async () => {
+    const recoveredResponse = response()
+    recoveredResponse.errorJson = jsonBytes({})
+    const tool = createShowBackgroundJobDetailsTool({
+      turnStart: turnStartForTest(),
+      rpc: (async () => recoveredResponse) as RPCRequester
+    })
+
+    const result = await tool.execute('call-show-recovered', { job_id: jobID }, abortSignal())
+    if ('result' in result.details) throw new Error('expected execution details')
+
+    expect(result.details.current_turn_status).toBe('completed')
+    expect(result.details.attempt_history[0]?.summary).toContain('exited with code 143')
+    expect(result.details.error).toBeNull()
   })
 
   it('keeps paged reads possible when the result lists many long artifact paths', async () => {
@@ -422,7 +494,8 @@ function response(outputText = 'complete') {
       current: {
         runtime_turn_id: '019f0000-0000-7000-8000-000000000010',
         kind: 'compaction',
-        status: 'completed'
+        status: 'completed',
+        error: {}
       },
       lead_turn_number: 2,
       threads: { total: 2, child: 1 },

@@ -1,8 +1,9 @@
 ---
 name: lark-approvals
-version: 1.2.0
+version: 1.2.1
 description: "Feishu approvals: query and act on pending/done approval tasks and instances; search/initiate native approvals; archive invoices/receipts and submit confirmed reimbursements. Non-approval to-dos go to lark-oa."
 default_enabled: true
+ankole-runtime: main
 category: productivity
 tags: [lark, feishu, approval, workflow]
 metadata:
@@ -19,6 +20,8 @@ metadata:
 **CRITICAL — 开始前 MUST 先读取 [`references/user-runtime.md`](references/user-runtime.md)。**
 
 Ankole 是一名数字同事服务多个用户，不是只服务一个人的个人数字助理。每次操作只使用当前 Turn 发起人的独立 user profile。不得把一个用户的 profile、审批列表、人员 ID 或提交上下文复用给另一个用户。
+
+本 Skill 仅供主会话使用。审批查询、账号检查、附件上传和审批提交都必须由当前人类用户发起的主会话执行。可以把票据解压、识别、汇率换算和费用明细整理交给后台任务，再由主会话接收结果并继续审批流程。不得让后台任务加载本 Skill 或调用审批 wrapper。
 
 所有命令都必须调用下面的 wrapper：
 

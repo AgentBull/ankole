@@ -50,7 +50,11 @@ attempt history, the current Turn status, thread and Turn counts, aggregate
 progress, latest usage, the execution update time, a current error summary, and
 `recent_trajectory`. Turn counts use runtime thread ownership and do not expose
 the stored Turn kind. The error projection keeps only `code`, `summary`,
-`retryable`, and `codex_turn_status`. It replaces UUID-shaped tokens in system
+`retryable`, and `codex_turn_status`. It uses the Job error when available;
+otherwise, it uses the current Turn error from the current attempt. A stored
+Codex `message` supplies the summary when no `summary` exists. Attempt history
+uses the same message source for failed Turns, even when no tool ran or assistant
+text was produced. The projection replaces UUID-shaped tokens in system
 failure diagnostics with `[internal-id]`. It does not rewrite successful results
 or assistant content.
 Aggregate progress keeps `tool_execution_mechanisms` for calls whose execution

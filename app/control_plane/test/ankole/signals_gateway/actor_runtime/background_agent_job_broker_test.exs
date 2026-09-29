@@ -741,6 +741,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert rpc_error(invalid_cursor_response)["code"] ==
              "invalid_background_agent_job_trajectory_cursor"
+
+    error = %{"message" => "model request failed", "codexErrorInfo" => "internalServerError"}
+
+    assert {:ok, failed_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "turn-failed",
+                 "background_agent_job.turn.upsert",
+                 %{
+                   turn_upsert_request(job_id)
+                   | runtime_turn_id: "turn-2",
+                     status: "failed",
+                     completed_at: DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
+                     turn_items_json: Torque.encode!([]),
+                     error_json: Torque.encode!(error)
+                 },
+                 turn: job_turn
+               ),
+               route
+             )
+
+    assert rpc_response_payload!(
+             failed_response,
+             FabricProto.BackgroundAgentJobTurnUpsertResponse
+           ).turn.status ==
+             "failed"
+
+    assert {:ok, failure_details} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "job-failure-details",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{job_id: job_id},
+                 turn: parent_turn
+               ),
+               route
+             )
+
+    payload = job_payload(failure_details)
+    assert payload.error_json == ""
+    assert Torque.decode!(payload.execution_json)["current"]["error"] == error
   end
 
   defp start_parent_turn!(agent_uid, route) do

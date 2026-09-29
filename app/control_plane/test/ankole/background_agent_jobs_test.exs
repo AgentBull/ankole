@@ -1918,7 +1918,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert execution.current == %{
              runtime_turn_id: "turn-lead-2",
              kind: "agent",
-             status: "in_progress"
+             status: "in_progress",
+             error: %{}
            }
 
     assert execution.lead_turn_number == 2
@@ -2528,6 +2529,51 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert [%{attempt: 1, summary: "Authoritative lead report."}] =
              Turns.attempt_history(job)
+  end
+
+  test "a failure before tool execution remains visible during retry and in attempt history" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "failed-before-tools")
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 1, runtime_thread_id: "thread-lead"])
+
+    job = Repo.get!(Job, job.id)
+
+    error = %{
+      "message" => "request 019f0000-0000-7000-8000-000000000099 failed before model output",
+      "codexErrorInfo" => "internalServerError"
+    }
+
+    insert_custom_turn!(job, %{
+      runtime_turn_id: "turn-failed",
+      status: "failed",
+      error: error
+    })
+
+    assert {:ok, %{job: %{status: "queued", error: %{}}, execution: execution}} =
+             BackgroundAgentJobs.get_job_summary_for_agent(job.id, agent.uid)
+
+    assert execution.current.status == "failed"
+    assert execution.current.error == error
+    assert execution.progress.tool_calls == 0
+    assert execution.trajectory_page.messages == []
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 2])
+
+    assert {:ok, %{execution: next_execution, attempt_history: history}} =
+             BackgroundAgentJobs.get_job_summary_for_agent(job.id, agent.uid)
+
+    refute Map.has_key?(next_execution, :current)
+
+    assert [
+             %{
+               attempt: 1,
+               turn_statuses: ["failed"],
+               summary: "request [internal-id] failed before model output"
+             }
+           ] = history
   end
 
   test "attempt history reports the durable failure before the last assistant text" do

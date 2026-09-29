@@ -788,7 +788,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     %{
       runtime_turn_id: turn.runtime_turn_id,
       kind: turn.kind,
-      status: turn.status
+      status: turn.status,
+      error: turn.error
     }
   end
 
@@ -1039,7 +1040,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> Enum.find_value(fn
         %Turn{status: status, error: error}
         when status in ["failed", "interrupted"] and is_map(error) ->
-          Enum.find_value(["summary", "code"], fn key ->
+          Enum.find_value(["summary", "message", "code"], fn key ->
             case Map.get(error, key) do
               value when is_binary(value) and value != "" ->
                 value

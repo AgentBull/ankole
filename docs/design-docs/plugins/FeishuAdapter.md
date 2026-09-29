@@ -379,6 +379,10 @@ logout use a file lock in the Agent Computer's shared Lark CLI configuration
 directory. Approval reads, approval file uploads, and approval writes do not use
 this lock, so different user profiles can run in parallel. A scheduled or
 otherwise unattended Turn has no human profile and cannot use this Skill.
+The Skill declares `ankole-runtime: main`, so background Jobs do not receive it.
+The main Agent can delegate receipt extraction, currency conversion, and expense
+data preparation to a background Job. Approval queries, account checks, uploads,
+and submissions stay in the human-initiated main Turn.
 
 ## Import People and Departments
 
