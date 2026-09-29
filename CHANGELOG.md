@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.6.10-rc.1 (2026-09-29)
+
+- OpenAI-compatible Responses requests explicitly disable upstream response
+  storage, so Codex endpoints no longer reject them with "Store must be set to
+  false". Ankole continues to store stateful conversations locally.
+
 ## Version 1.6.9-rc.1 (2026-09-29)
 
 - Background Job details and attempt history show stored model failures even

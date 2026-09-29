@@ -544,6 +544,11 @@ The retrieve endpoint does not return those identifiers.
 
 Stateful execution requires WebSocket `response.create` with `store=true`.
 
+The caller's `store` flag controls storage in Ankole. AIGateway consumes this
+flag before provider dispatch. The OpenAI, Azure OpenAI, and OpenAI-compatible
+Responses adapters set the upstream `store` field to `false` independently.
+Local conversation storage does not depend on upstream response storage.
+
 Stateful history replays as Responses items. A stateful request must resolve to
 a provider wire that replays those items without loss: `openai_responses` or
 `openai_chat_completions`. AIGateway rejects other wires at turn start with

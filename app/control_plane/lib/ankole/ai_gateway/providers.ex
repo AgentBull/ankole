@@ -555,7 +555,7 @@ defmodule Ankole.AIGateway.Providers do
            request: request
          } = ctx
        )
-       when provider_kind in ["openai", "azure_openai"] and
+       when provider_kind in ["openai", "azure_openai", "openai_compatible"] and
               is_map(request) do
     if responses_endpoint?(ctx) do
       %{ctx | request: Map.put(request, "store", false)}

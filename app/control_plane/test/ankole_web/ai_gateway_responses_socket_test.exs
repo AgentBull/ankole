@@ -1056,68 +1056,74 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert by_id["second"]["status"] == "ok"
   end
 
-  test "response.create store true without previous_response_id or conversation creates a managed durable conversation" do
-    %{principal: agent} = agent_fixture()
+  for provider_kind <- ~w(openai openai_compatible) do
+    @tag provider_kind: provider_kind
+    test "#{provider_kind} response.create store true creates a managed durable conversation", %{
+      provider_kind: provider_kind
+    } do
+      %{principal: agent} = agent_fixture()
 
-    server =
-      start_supervised!(
-        {Bandit,
-         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
-         scheme: :http,
-         ip: {127, 0, 0, 1},
-         port: 0}
-      )
+      server =
+        start_supervised!(
+          {Bandit,
+           plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+           scheme: :http,
+           ip: {127, 0, 0, 1},
+           port: 0}
+        )
 
-    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openai-native-socket-codex-store",
-               provider_kind: "openai",
-               base_url: "http://127.0.0.1:#{port}/v1",
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
-               },
-               connection_options: %{
-                 "upstream_transport" => "websocket"
-               }
-             })
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: "#{provider_kind}-native-socket-store",
+                 provider_kind: provider_kind,
+                 base_url: "http://127.0.0.1:#{port}/v1",
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+                 },
+                 connection_options: %{
+                   "endpoint_kind" => "responses",
+                   "upstream_transport" => "websocket"
+                 }
+               })
 
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-native-socket-codex-store",
-               model: "gpt-main"
-             })
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                 provider_id: "#{provider_kind}-native-socket-store",
+                 model: "gpt-main"
+               })
 
-    request =
-      Ankole.JSON.encode!(%{
-        "type" => "response.create",
-        "model" => "primary",
-        "input" => [text_message("user", "hello")],
-        "store" => true
-      })
+      request =
+        Ankole.JSON.encode!(%{
+          "type" => "response.create",
+          "model" => "primary",
+          "input" => [text_message("user", "hello")],
+          "store" => true
+        })
 
-    assert {:ok, %{active_stream: active} = state} =
-             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
-               subject_uid: agent.uid,
-               subject_type: "agent"
-             })
+      assert {:ok, %{active_stream: active} = state} =
+               AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+                 subject_uid: agent.uid,
+                 subject_type: "agent"
+               })
 
-    assert_receive {:native_socket_upstream_request, upstream_request}
-    assert upstream_request["type"] == "response.create"
-    assert upstream_request["store"] == false
-    refute Map.has_key?(upstream_request, "conversation")
-    refute Map.has_key?(upstream_request, "previous_response_id")
+      assert_receive {:native_socket_upstream_request, upstream_request}
+      assert upstream_request["type"] == "response.create"
+      assert upstream_request["store"] == false
+      refute Map.has_key?(upstream_request, "conversation")
+      refute Map.has_key?(upstream_request, "previous_response_id")
 
-    message = Repo.get_by!(Message, subject_uid: agent.uid, status: "generating")
-    conversation = Repo.get!(Conversation, message.conversation_id)
+      message = Repo.get_by!(Message, subject_uid: agent.uid, status: "generating")
+      conversation = Repo.get!(Conversation, message.conversation_id)
 
-    assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
-    refute Map.has_key?(message.metadata, "actor_event_id")
-    assert message.content == [text_message("user", "hello")]
+      assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
+      refute Map.has_key?(message.metadata, "actor_event_id")
+      assert message.content == [text_message("user", "hello")]
 
-    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
-    assert active.ref == state.active_stream.ref
+      _ = AIGateway.cancel_response_stream(state.active_stream.stream)
+      assert active.ref == state.active_stream.ref
+    end
   end
 
   # The production frame shape: Codex names the connection anchor and sends only

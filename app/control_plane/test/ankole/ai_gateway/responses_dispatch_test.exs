@@ -164,6 +164,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, request}
+    assert request.body["store"] == false
     assert request.body["tools"] == []
 
     # The default connection does not declare official OpenAI tool support, so
