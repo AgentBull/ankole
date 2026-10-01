@@ -64,7 +64,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 
 ## WebSocket 上的有状态响应
 
-有状态响应走的是升级为 WebSocket 的 `GET /responses`。升级时把连接交给 `AIGatewayResponsesSocket`，带上主体身份、300 秒空闲超时、压缩，以及 128 MiB 的帧上限。在这条传输上，调用才可以设 `store: true`，并用 `previous_response_id` 或 `conversation` 续接一段已有的会话。
+有状态响应走的是升级为 WebSocket 的 `GET /responses`。升级时把连接交给 `AIGatewayResponsesSocket`，带上主体身份、30 分钟空闲超时、压缩，以及 128 MiB 的帧上限。客户端在等待响应时不发送任何帧，所以空闲超时也是单次响应的最长时间，它与上游模型的首字节和空闲预算一致。在这条传输上，调用才可以设 `store: true`，并用 `previous_response_id` 或 `conversation` 续接一段已有的会话。
 
 持久的生命周期就在这里。一个被存储的响应会得到形如 `resp_{uuid}` 的 ID。后续回合用 `previous_response_id` 引用它；一段被存储的会话用 `conversation` 引用。续接规则、持久历史、压缩、响应投影和恢复都归控制面管，没有一件是调用方要操心的。
 

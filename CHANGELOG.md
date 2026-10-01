@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 1.6.13-rc.1 (2026-10-01)
+
+- Model responses over the AIGateway Responses WebSocket are no longer cut
+  after 5 minutes. The socket idle timeout counted only client frames, and
+  Codex sends none while it waits for a response, so every response that took
+  longer than 5 minutes failed and was retried. The socket now allows the
+  30-minute upstream model budget.
+
 ## Version 1.6.12-rc.1 (2026-10-01)
 
 - A Background Agent Job now fails with the path of the Plugin marketplace

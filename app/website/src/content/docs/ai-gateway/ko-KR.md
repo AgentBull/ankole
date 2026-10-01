@@ -64,7 +64,7 @@ stateless HTTP와 SSE는 한 가지 엄격한 규칙을 공유합니다. statefu
 
 ## WebSocket의 stateful 응답
 
-stateful 응답은 WebSocket으로 업그레이드된 `GET /responses`에 있습니다. 업그레이드는 subject의 identity, 300초의 idle timeout, 압축, 128 MiB 프레임 상한과 함께 연결을 `AIGatewayResponsesSocket`에 넘깁니다. 이 transport에서는 호출이 `store: true`를 설정하고 `previous_response_id` 또는 `conversation`으로 기존 대화를 이어갈 수 있습니다.
+stateful 응답은 WebSocket으로 업그레이드된 `GET /responses`에 있습니다. 업그레이드는 subject의 identity, 30분의 idle timeout, 압축, 128 MiB 프레임 상한과 함께 연결을 `AIGatewayResponsesSocket`에 넘깁니다. 클라이언트는 응답을 기다리는 동안 프레임을 보내지 않으므로 idle timeout은 응답 하나에 허용되는 최장 시간이기도 하며, 상위 모델의 first-byte 및 idle 예산과 같습니다. 이 transport에서는 호출이 `store: true`를 설정하고 `previous_response_id` 또는 `conversation`으로 기존 대화를 이어갈 수 있습니다.
 
 내구성 있는 수명 주기가 여기에 있습니다. 저장된 응답은 `resp_{uuid}` 형태의 id를 받습니다. 이후 턴은 `previous_response_id`로 그것을 참조하고, 저장된 대화는 `conversation`으로 참조합니다. 연속 규칙, 내구성 있는 기록, compaction, 응답 projection, 복구는 모두 컨트롤 플레인이 소유하며, 어느 것도 호출자의 책임이 아닙니다.
 

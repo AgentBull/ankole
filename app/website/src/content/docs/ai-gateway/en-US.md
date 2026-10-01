@@ -64,7 +64,7 @@ Stateless HTTP and SSE share one hard rule: they reject the stateful fields `pre
 
 ## Stateful responses over WebSocket
 
-Stateful responses live on `GET /responses` upgraded to WebSocket. The upgrade hands the connection to `AIGatewayResponsesSocket` with the subject's identity, a 300-second idle timeout, compression, and a 128 MiB frame ceiling. Over this transport a call may set `store: true` and continue an existing conversation with `previous_response_id` or `conversation`.
+Stateful responses live on `GET /responses` upgraded to WebSocket. The upgrade hands the connection to `AIGatewayResponsesSocket` with the subject's identity, a 30-minute idle timeout, compression, and a 128 MiB frame ceiling. The client sends no frame while it waits for a response, so the idle timeout is also the longest time one response can take; it matches the upstream model first-byte and idle budget. Over this transport a call may set `store: true` and continue an existing conversation with `previous_response_id` or `conversation`.
 
 This is where the durable lifecycle lives. A stored response gets an id of the form `resp_{uuid}`. Subsequent turns reference it with `previous_response_id`; a stored conversation is referenced by `conversation`. The control plane owns the continuation rules, the durable history, compaction, response projection, and recovery — none of that is the caller's job.
 

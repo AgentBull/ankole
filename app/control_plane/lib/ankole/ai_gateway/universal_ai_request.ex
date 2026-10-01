@@ -46,6 +46,12 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
         }
 
   @doc """
+  Returns the first-byte and idle budget of one model request, in milliseconds.
+  """
+  @spec model_request_timeout_ms() :: pos_integer()
+  def model_request_timeout_ms, do: @model_request_timeout_ms
+
+  @doc """
   Builds a provider-owned request builder for one upstream endpoint.
 
   Provider modules use this helper to state only the endpoint, upstream shape,

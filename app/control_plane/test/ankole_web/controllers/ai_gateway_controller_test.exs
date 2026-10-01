@@ -2189,7 +2189,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert subject_uid == agent.uid
     assert subject_type == "agent"
-    assert opts[:timeout] == 300_000
+    # A long model response sends no client frame, so the socket must allow
+    # the full 30-minute upstream model budget.
+    assert opts[:timeout] == 1_800_000
   end
 
   test "responses WebSocket freezes the decoded Codex binding in connection state", %{conn: conn} do
