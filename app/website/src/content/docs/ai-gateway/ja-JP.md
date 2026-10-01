@@ -64,7 +64,7 @@ stateless な HTTP と SSE は 1 つの厳格な規則を共有します。state
 
 ## WebSocket 上の stateful response
 
-stateful な response は、WebSocket にアップグレードされた `GET /responses` 上にあります。アップグレードは、主体の identity、300 秒の idle timeout、圧縮、128 MiB の frame 上限を備えて、接続を `AIGatewayResponsesSocket` に渡します。この transport 上では、呼び出しは `store: true` を設定でき、`previous_response_id` または `conversation` で既存の会話を継続できます。
+stateful な response は、WebSocket にアップグレードされた `GET /responses` 上にあります。アップグレードは、主体の identity、30 分の idle timeout、圧縮、128 MiB の frame 上限を備えて、接続を `AIGatewayResponsesSocket` に渡します。クライアントは response を待つ間 frame を送らないため、idle timeout は 1 回の response にかけられる最長時間でもあり、上流モデルの first-byte と idle の予算に合わせています。この transport 上では、呼び出しは `store: true` を設定でき、`previous_response_id` または `conversation` で既存の会話を継続できます。
 
 durable な lifecycle はここにあります。保存された response は `resp_{uuid}` の形式の id を得ます。以降の turn は `previous_response_id` でそれを参照します。保存された会話は `conversation` で参照されます。継続の規則、durable な履歴、compaction、response の projection、復旧はすべて control plane が所有し、どれも呼び出し元の仕事ではありません。
 

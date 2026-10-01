@@ -7,6 +7,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
 
   alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.RequestContext
+  alias Ankole.AIGateway.UniversalAIRequest
 
   def responses(conn, _params) do
     with :ok <- WebSockAdapter.UpgradeValidation.validate_upgrade(conn),
@@ -25,7 +26,10 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
       |> WebSockAdapter.upgrade(
         AnkoleWeb.AIGatewayResponsesSocket,
         socket_state,
-        timeout: 300_000,
+        # The idle timeout counts only client frames, and Codex sends none
+        # while it waits for a response. It therefore limits one complete
+        # response and must not end it before the upstream model budget.
+        timeout: UniversalAIRequest.model_request_timeout_ms(),
         compress: true,
         max_frame_size: 128 * 1024 * 1024,
         validate_utf8: true,
