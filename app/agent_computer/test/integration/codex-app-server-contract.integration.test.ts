@@ -653,6 +653,76 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   }, 90_000)
 
+  it('names a same-name Plugin marketplace that an older Worker left in HOME', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-agent-plugin-shadow-'))
+    const libraryRoot = join(root, 'library')
+    const agentHome = join(root, 'agent-home')
+    const codexHome = join(root, 'codex-home')
+    const legacyMarketplacePath = join(agentHome, '.agents', 'plugins', 'marketplace.json')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      createAgentPluginFixture(libraryRoot, 'alpha', 'ALPHA_SELECTED_BODY', false)
+      // The layout that Workers before 1.6.8-rc.1 wrote to the Agent Home.
+      createAgentPluginFixture(
+        join(agentHome, 'runtime-materials', 'agent-plugins', 'plugins'),
+        'alpha',
+        'ALPHA_LEGACY_BODY',
+        false
+      )
+      mkdirSync(join(agentHome, '.agents', 'plugins'), { recursive: true })
+      writeFileSync(
+        legacyMarketplacePath,
+        JSON.stringify({
+          name: 'ankole-agent-runtime',
+          plugins: [
+            {
+              name: 'alpha',
+              source: { source: 'local', path: './runtime-materials/agent-plugins/plugins/alpha' },
+              policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+              category: 'Developer Tools'
+            }
+          ]
+        })
+      )
+      mkdirSync(codexHome, { recursive: true })
+      const prepared = prepareAgentPlugins({
+        projectRoot: join(agentHome, 'jobs', 'alpha'),
+        agentPlugins: [
+          create(AgentPluginCatalogEntrySchema, {
+            id: 'alpha',
+            description: 'alpha Plugin',
+            skills: [{ catalogName: 'alpha-skill' }]
+          })
+        ],
+        codexHome,
+        libraryRoot,
+        initializeProject: false
+      })
+      resetCodexAgentRuntimeConfig(codexHome, 'http://127.0.0.1:9/v1')
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+      client = new CodexAppServerClient({
+        cwd: agentHome,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: agentHome,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        }
+      })
+      await client.initialize()
+
+      await expect(new AgentCodexRuntime('agent-1', client).ensureAgentPlugins(prepared)).rejects.toThrow(
+        `Codex also discovers the ankole-agent-runtime Plugin marketplace at ${legacyMarketplacePath}.`
+      )
+      expect(existsSync(legacyMarketplacePath)).toBe(true)
+    } finally {
+      await client?.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 90_000)
+
   it('starts the same Agent on two Worker processes through Plugin install and the first Turn', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-plugin-worker-processes-'))
     const requests: JSONObject[] = []
