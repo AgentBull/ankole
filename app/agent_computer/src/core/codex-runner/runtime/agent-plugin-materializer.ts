@@ -415,9 +415,18 @@ async function assertInstalledPluginState(
   enabled: boolean
 ): Promise<void> {
   const response = asObject(await client.request('plugin/installed', { cwds: [prepared.marketplaceRoot] }))
-  const marketplace = arrayOfObjects(response.marketplaces).find(
+  const sameName = arrayOfObjects(response.marketplaces).filter(
     candidate => candidate.name === prepared.marketplaceName
   )
+  // Codex also discovers `$HOME/.agents/plugins`. A marketplace with the same
+  // name there takes over the Plugin IDs, so Codex would read shared files.
+  const shadowing = sameName.map(candidate => candidate.path).filter(path => path !== prepared.marketplacePath)
+  if (shadowing.length > 0) {
+    throw new Error(
+      `Codex also discovers the ${prepared.marketplaceName} Plugin marketplace at ${shadowing.join(', ')}. Workers before 1.6.8-rc.1 left it in the Agent Home; an operator must remove it and the runtime-materials/agent-plugins directory of that Agent Home.`
+    )
+  }
+  const marketplace = sameName.find(candidate => candidate.path === prepared.marketplacePath)
   const installedPlugins = arrayOfObjects(marketplace?.plugins)
   for (const agentPlugin of prepared.agentPlugins) {
     const observation = installedPlugins.find(candidate => candidate.name === agentPlugin.manifestName)

@@ -224,93 +224,12 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
   })
 
   it('serializes official Plugin installation, Hook trust, and global disable before any Job thread', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-runtime-plugins-'))
-    const libraryRoot = join(root, 'library')
-    const agentHome = join(root, 'agent-home')
-    const pluginRoot = join(libraryRoot, 'alpha')
-    mkdirSync(join(pluginRoot, '.codex-plugin'), { recursive: true })
-    mkdirSync(join(pluginRoot, 'skills', 'alpha-skill'), { recursive: true })
-    mkdirSync(join(pluginRoot, 'hooks'), { recursive: true })
-    writeFileSync(
-      join(pluginRoot, '.codex-plugin', 'plugin.json'),
-      JSON.stringify({ name: 'alpha', version: '1.0.0', description: 'alpha Plugin', skills: './skills/' })
-    )
-    writeFileSync(
-      join(pluginRoot, 'skills', 'alpha-skill', 'SKILL.md'),
-      '---\nname: alpha-skill\ndescription: alpha Skill\n---\n'
-    )
-    writeFileSync(
-      join(pluginRoot, 'hooks', 'hooks.json'),
-      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '/bin/true' }] }] } })
-    )
-    const prepared = prepareAgentPlugins({
-      projectRoot: join(agentHome, 'jobs', '1000'),
-      agentPlugins: [
-        create(AgentPluginCatalogEntrySchema, {
-          id: 'alpha',
-          description: 'alpha Plugin',
-          skills: [{ catalogName: 'alpha-skill' }]
-        })
-      ],
-      codexHome: join(root, 'codex-home'),
-      libraryRoot,
-      initializeProject: false
-    })
-    const calls: string[] = []
-    let installed = false
-    let enabled = false
-    let hookTrusted = false
-    const fakeClient = {
-      async request(method: string, params: Record<string, any>) {
-        if (method === 'config/batchWrite') {
-          const keyPath = params.edits[0].keyPath as string
-          calls.push(`config:${keyPath}`)
-          if (keyPath === 'hooks.state') hookTrusted = true
-          if (keyPath === 'plugins') enabled = false
-          return {}
-        }
-        calls.push(method)
-        if (method === 'plugin/install') {
-          installed = true
-          enabled = true
-          return {}
-        }
-        if (method === 'plugin/installed') {
-          return {
-            marketplaces: [
-              {
-                name: 'ankole-agent-runtime',
-                plugins: [{ name: 'alpha', installed, enabled }]
-              }
-            ]
-          }
-        }
-        if (method === 'hooks/list') {
-          return {
-            data: [
-              {
-                cwd: prepared.marketplaceRoot,
-                hooks: [
-                  {
-                    pluginId: 'alpha@ankole-agent-runtime',
-                    key: 'alpha-session-start',
-                    currentHash: 'alpha-hook-hash',
-                    trustStatus: hookTrusted ? 'trusted' : 'untrusted'
-                  }
-                ]
-              }
-            ]
-          }
-        }
-        return {}
-      },
-      async closeAndWait() {}
-    } as unknown as CodexAppServerClient
-    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const fixture = createPluginRuntimeFixture()
+    const runtime = new AgentCodexRuntime('agent-1', fixture.client)
 
     try {
-      await Promise.all([runtime.ensureAgentPlugins(prepared), runtime.ensureAgentPlugins(prepared)])
-      expect(calls).toEqual([
+      await Promise.all([runtime.ensureAgentPlugins(fixture.prepared), runtime.ensureAgentPlugins(fixture.prepared)])
+      expect(fixture.calls).toEqual([
         'config:features.plugins',
         'plugin/install',
         'plugin/installed',
@@ -321,10 +240,126 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
         'plugin/installed'
       ])
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      fixture.cleanup()
+    }
+  })
+
+  it('names a same-name Plugin marketplace that an older Worker left in the Agent Home', async () => {
+    const fixture = createPluginRuntimeFixture({ shadowingMarketplace: true })
+    const runtime = new AgentCodexRuntime('agent-1', fixture.client)
+
+    try {
+      await expect(runtime.ensureAgentPlugins(fixture.prepared)).rejects.toThrow(
+        `Codex also discovers the ankole-agent-runtime Plugin marketplace at ${fixture.shadowingMarketplacePath}.`
+      )
+      expect(fixture.calls).toEqual(['config:features.plugins', 'plugin/install', 'plugin/installed'])
+    } finally {
+      fixture.cleanup()
     }
   })
 })
+
+/**
+ * Builds one Plugin package and a fake app-server. With a shadowing
+ * marketplace, plugin/installed lists the HOME marketplace first, as Codex
+ * does when an older Worker left one in the Agent Home.
+ */
+function createPluginRuntimeFixture(options: { shadowingMarketplace?: boolean } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'ankole-agent-runtime-plugins-'))
+  const libraryRoot = join(root, 'library')
+  const agentHome = join(root, 'agent-home')
+  const shadowingMarketplacePath = join(agentHome, '.agents', 'plugins', 'marketplace.json')
+  const pluginRoot = join(libraryRoot, 'alpha')
+  mkdirSync(join(pluginRoot, '.codex-plugin'), { recursive: true })
+  mkdirSync(join(pluginRoot, 'skills', 'alpha-skill'), { recursive: true })
+  mkdirSync(join(pluginRoot, 'hooks'), { recursive: true })
+  writeFileSync(
+    join(pluginRoot, '.codex-plugin', 'plugin.json'),
+    JSON.stringify({ name: 'alpha', version: '1.0.0', description: 'alpha Plugin', skills: './skills/' })
+  )
+  writeFileSync(
+    join(pluginRoot, 'skills', 'alpha-skill', 'SKILL.md'),
+    '---\nname: alpha-skill\ndescription: alpha Skill\n---\n'
+  )
+  writeFileSync(
+    join(pluginRoot, 'hooks', 'hooks.json'),
+    JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '/bin/true' }] }] } })
+  )
+  const prepared = prepareAgentPlugins({
+    projectRoot: join(agentHome, 'jobs', '1000'),
+    agentPlugins: [
+      create(AgentPluginCatalogEntrySchema, {
+        id: 'alpha',
+        description: 'alpha Plugin',
+        skills: [{ catalogName: 'alpha-skill' }]
+      })
+    ],
+    codexHome: join(root, 'codex-home'),
+    libraryRoot,
+    initializeProject: false
+  })
+  const calls: string[] = []
+  let installed = false
+  let enabled = false
+  let hookTrusted = false
+  const client = {
+    async request(method: string, params: Record<string, any>) {
+      if (method === 'config/batchWrite') {
+        const keyPath = params.edits[0].keyPath as string
+        calls.push(`config:${keyPath}`)
+        if (keyPath === 'hooks.state') hookTrusted = true
+        if (keyPath === 'plugins') enabled = false
+        return {}
+      }
+      calls.push(method)
+      if (method === 'plugin/install') {
+        installed = true
+        enabled = true
+        return {}
+      }
+      if (method === 'plugin/installed') {
+        const current = {
+          name: 'ankole-agent-runtime',
+          path: prepared.marketplacePath,
+          plugins: options.shadowingMarketplace ? [] : [{ name: 'alpha', installed, enabled }]
+        }
+        if (!options.shadowingMarketplace) return { marketplaces: [current] }
+        const shadowing = {
+          name: 'ankole-agent-runtime',
+          path: shadowingMarketplacePath,
+          plugins: [{ name: 'alpha', installed, enabled }]
+        }
+        return { marketplaces: [shadowing, current] }
+      }
+      if (method === 'hooks/list') {
+        return {
+          data: [
+            {
+              cwd: prepared.marketplaceRoot,
+              hooks: [
+                {
+                  pluginId: 'alpha@ankole-agent-runtime',
+                  key: 'alpha-session-start',
+                  currentHash: 'alpha-hook-hash',
+                  trustStatus: hookTrusted ? 'trusted' : 'untrusted'
+                }
+              ]
+            }
+          ]
+        }
+      }
+      return {}
+    },
+    async closeAndWait() {}
+  } as unknown as CodexAppServerClient
+  return {
+    prepared,
+    client,
+    calls,
+    shadowingMarketplacePath,
+    cleanup: () => rmSync(root, { recursive: true, force: true })
+  }
+}
 
 describe('@ankole/agent-computer Agent Codex thread router', () => {
   it('keeps a bounded redacted stderr diagnostic for unscoped runtime failures', () => {

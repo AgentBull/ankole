@@ -417,8 +417,17 @@ The Bubblewrap runtime mounts both paths and keeps the Codex Home writable.
 Plugin packages and their local marketplace are rebuildable Codex runtime
 files. Both live under the Worker-local Codex Home. They must not use the
 shared Agent Home: one Worker's startup cleanup could delete another Worker's
-active staging directory. Older shared Plugin caches are no longer read or
-written; they can be removed after all Workers have upgraded.
+active staging directory.
+
+Workers before 1.6.8-rc.1 wrote the marketplace and package copies to the
+Agent Home. Codex still discovers `$HOME/.agents/plugins/marketplace.json`.
+A leftover marketplace with the same name takes over the Plugin IDs, so Codex
+would read the shared copies. Workers do not change these shared files. The
+install check selects the Worker marketplace by its path and fails with the
+path of each leftover marketplace. After all Workers run 1.6.8-rc.1 or later,
+an operator must remove `.agents/plugins/marketplace.json` and
+`runtime-materials/agent-plugins` from each Agent Home. Other
+`runtime-materials` entries, such as Lark credentials, stay in place.
 
 Each `(Agent, Worker)` pair owns one active Codex app-server process through
 `AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
