@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 1.6.12-rc.1 (2026-10-01)
+
+- A Background Agent Job now fails with the path of the Plugin marketplace
+  that a Worker before 1.6.8-rc.1 left in the Agent Home, instead of a
+  "Codex Agent Plugin state mismatch" with no cause. The Plugin install check
+  selects the Worker marketplace by its path. Required operator action: remove
+  `.agents/plugins/marketplace.json` and `runtime-materials/agent-plugins` from
+  each Agent Home. Until then, Background Agent Jobs fail for every Agent that
+  still has these files, including Agents whose Jobs passed the old check.
+
 ## Version 1.6.11-rc.1 (2026-09-29)
 
 - Conversations can continue after image generation through OpenAI-compatible
