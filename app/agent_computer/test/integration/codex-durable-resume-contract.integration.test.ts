@@ -1,8 +1,8 @@
 import { sleep } from '../support/llm'
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   CODEX_OPT_OUT_NOTIFICATION_METHODS,
@@ -434,7 +434,198 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 30_000)
+
+  it('resumes the same thread from rollout segments reassembled in an empty Codex Home', async () => {
+    const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
+    const root = mkdtempSync(join(sharedRoot, 'ankole-codex-restored-rollout-'))
+    const workspace = join(root, 'workspace')
+    // A replacement Worker uses the same Codex Home path for the same Agent.
+    // The rollout records skill roots under that path; a different path makes
+    // Codex add a new skills message to the model input.
+    const codexHome = join(root, 'codex-home')
+    const requests: JSONObject[] = []
+    const toolCalls: DynamicToolCallParams[] = []
+    const provider = createFakeResponsesProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('fake Responses provider did not bind a TCP port')
+    let firstClient: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      resetCodexHome(codexHome, provider.port)
+
+      const firstNotifications: JSONRPCMessage[] = []
+      firstClient = codexClient({ workspace, codexHome, notifications: firstNotifications, toolCalls })
+      await firstClient.initialize()
+      const started = (await firstClient.request('thread/start', {
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        threadSource: 'ankole',
+        developerInstructions: 'For marker prompts, call ankole_echo exactly once before replying.',
+        dynamicTools: [echoToolSpec()]
+      } satisfies ThreadStartParams)) as ThreadStartResponse
+      const threadID = started.thread.id
+
+      const firstTurn = (await firstClient.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('FIRST_DYNAMIC'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => turnCompleted(firstNotifications, firstTurn.turn.id, 'completed'))
+
+      const interruptedTurn = (await firstClient.request('turn/start', {
+        ['threadId']: threadID,
+        input: textInput('WAIT_UNTIL_INTERRUPTED'),
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => requestContains(requests, 'WAIT_UNTIL_INTERRUPTED'))
+      await firstClient.request('turn/interrupt', { ['threadId']: threadID, ['turnId']: interruptedTurn.turn.id })
+      await waitFor(() => turnCompleted(firstNotifications, interruptedTurn.turn.id, 'interrupted'))
+      await firstClient.close()
+      firstClient = undefined
+      await sleep(200)
+
+      if (!started.thread.path) throw new Error('Codex did not report the rollout path')
+      const rolloutRelativePath = relative(codexHome, started.thread.path)
+      const rollout = readFileSync(started.thread.path)
+      expect(rollout.at(-1)).toBe(0x0a)
+      const lines = rollout.toString('utf8').trimEnd().split('\n')
+      const interruptedInputLine = lines.findIndex(line => line.includes('WAIT_UNTIL_INTERRUPTED'))
+      expect(interruptedInputLine).toBeGreaterThan(0)
+
+      const baseline = await resumeAndRunAfterResume({ workspace, codexHome, threadID, requests, toolCalls })
+
+      // A replacement Worker starts with an empty Codex Home. Only the rollout
+      // comes back, as segments cut at line boundaries.
+      resetCodexHome(codexHome, provider.port)
+      const reassembled = Buffer.concat(lineSegments(rollout, 3))
+      expect(reassembled.equals(rollout)).toBe(true)
+      writeRollout(codexHome, rolloutRelativePath, reassembled)
+      expect(recursiveFiles(codexHome).filter(path => path.includes('.sqlite'))).toEqual([])
+      const restored = await resumeAndRunAfterResume({ workspace, codexHome, threadID, requests, toolCalls })
+
+      // A segment store that lags the local file returns a shorter prefix. This
+      // prefix ends after the interrupted turn recorded its user message.
+      resetCodexHome(codexHome, provider.port)
+      writeRollout(
+        codexHome,
+        rolloutRelativePath,
+        Buffer.from(`${lines.slice(0, interruptedInputLine + 1).join('\n')}\n`)
+      )
+      const prefix = await resumeAndRunAfterResume({ workspace, codexHome, threadID, requests, toolCalls })
+
+      const rolloutText = rollout.toString('utf8')
+      expect(modelVisibleRequest(restored[0], rolloutText)).toEqual(modelVisibleRequest(baseline[0], rolloutText))
+      expect(modelVisibleRequest(restored[1], rolloutText)).toEqual(modelVisibleRequest(baseline[1], rolloutText))
+      expect(JSON.stringify(restored[0])).toContain('ENCRYPTED_FIRST')
+      expect(JSON.stringify(prefix[0])).toContain('ENCRYPTED_FIRST')
+      expect(prefix[0]?.prompt_cache_key).toBe(threadID)
+      expect(toolCalls.map(call => call.callId)).toEqual(['call_first', 'call_resume', 'call_resume', 'call_resume'])
+    } finally {
+      await firstClient?.close()
+      await provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
+
+async function resumeAndRunAfterResume(input: {
+  workspace: string
+  codexHome: string
+  threadID: string
+  requests: JSONObject[]
+  toolCalls: DynamicToolCallParams[]
+}): Promise<JSONObject[]> {
+  const firstRequest = input.requests.length
+  const notifications: JSONRPCMessage[] = []
+  const client = codexClient({
+    workspace: input.workspace,
+    codexHome: input.codexHome,
+    notifications,
+    toolCalls: input.toolCalls
+  })
+  try {
+    await client.initialize()
+    const resumed = (await client.request('thread/resume', {
+      ['threadId']: input.threadID,
+      cwd: input.workspace,
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+      developerInstructions: 'For marker prompts, call ankole_echo exactly once before replying.'
+    } satisfies ThreadResumeParams)) as ThreadResumeResponse
+    expect(resumed.thread.id).toBe(input.threadID)
+
+    const turn = (await client.request('turn/start', {
+      ['threadId']: input.threadID,
+      input: textInput('AFTER_RESUME'),
+      cwd: input.workspace,
+      approvalPolicy: 'never',
+      sandboxPolicy: { type: 'dangerFullAccess' }
+    } satisfies TurnStartParams)) as TurnStartResponse
+    await waitFor(() => turnCompleted(notifications, turn.turn.id, 'completed'))
+    return input.requests.slice(firstRequest)
+  } finally {
+    await client.close()
+  }
+}
+
+function echoToolSpec(): NonNullable<ThreadStartParams['dynamicTools']>[number] {
+  return {
+    type: 'function',
+    name: 'ankole_echo',
+    description: 'Echo one marker through Ankole.',
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+      additionalProperties: false
+    }
+  }
+}
+
+function lineSegments(bytes: Buffer, count: number): Buffer[] {
+  const lineEnds: number[] = []
+  for (let index = 0; index < bytes.length; index++) if (bytes[index] === 0x0a) lineEnds.push(index + 1)
+  const cuts = Array.from(
+    { length: count - 1 },
+    (_, index) => lineEnds[Math.floor(((index + 1) * lineEnds.length) / count)]!
+  )
+  const bounds = [0, ...cuts, bytes.length]
+  return bounds.slice(1).map((end, index) => bytes.subarray(bounds[index], end))
+}
+
+function writeRollout(codexHome: string, relativePath: string, bytes: Buffer): void {
+  const path = join(codexHome, relativePath)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, bytes)
+}
+
+function resetCodexHome(codexHome: string, port: number): void {
+  rmSync(codexHome, { recursive: true, force: true })
+  mkdirSync(codexHome, { recursive: true })
+  writeCodexConfig(codexHome, port)
+}
+
+// Codex creates the IDs of new-turn items and the per-turn client metadata
+// while the turn runs, so those values differ between any two runs. An ID that
+// the restored rollout already holds must match exactly.
+function modelVisibleRequest(request: JSONObject | undefined, rolloutText: string): Record<string, unknown> {
+  if (!request) throw new Error('missing provider request')
+  const { client_metadata: _clientMetadata, ...body } = request
+  const input = Array.isArray(body.input) ? body.input : []
+  return {
+    ...body,
+    input: input.map(item => {
+      if (!isObject(item) || typeof item.id !== 'string' || rolloutText.includes(item.id)) return item
+      const { id: _id, ...newItem } = item
+      return newItem
+    })
+  }
+}
 
 function codexClient(input: {
   workspace: string

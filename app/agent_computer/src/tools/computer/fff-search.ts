@@ -131,8 +131,8 @@ export class FffSearchRuntime {
     return id
   }
 
-  getGrepCursor(id: string): GrepCursorState | undefined {
-    return this.grepCursors.get(id)
+  getGrepCursor(id: string, agentHome: string): GrepCursorState | undefined {
+    return cursorForAgentHome(this.grepCursors.get(id), agentHome)
   }
 
   storeFindCursor(state: FindCursorState): string {
@@ -142,8 +142,8 @@ export class FffSearchRuntime {
     return id
   }
 
-  getFindCursor(id: string): FindCursorState | undefined {
-    return this.findCursors.get(id)
+  getFindCursor(id: string, agentHome: string): FindCursorState | undefined {
+    return cursorForAgentHome(this.findCursors.get(id), agentHome)
   }
 
   destroyAll(): void {
@@ -198,6 +198,21 @@ export class FffSearchRuntime {
 
 /** The process-wide runtime shared across turns so warm indexes survive. */
 export const fffSearchRuntime = new FffSearchRuntime()
+
+/**
+ * One Worker serves many Agents, and cursor IDs are sequential. Thus a model
+ * can send a cursor ID from the search of a different Agent. The stored root
+ * is a realpath in the Agent Home that made the cursor, and Agent Homes do not
+ * overlap. A cursor with a root outside the Agent Home of the caller is
+ * therefore the same as an unknown cursor.
+ */
+function cursorForAgentHome<State extends { root: string }>(
+  state: State | undefined,
+  agentHome: string
+): State | undefined {
+  if (!state) return undefined
+  return pathIsWithin(realpathSync(resolve(agentHome)), state.root) ? state : undefined
+}
 
 function trimOldest(map: Map<string, unknown>): void {
   while (map.size > MAX_CURSORS) {

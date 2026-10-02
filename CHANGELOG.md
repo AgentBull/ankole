@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 1.6.15-rc.1 (2026-10-02)
+
+- The `grep` and `find` tools continue a paged search only for the Agent whose
+  search made the cursor. Before, an Agent on a shared Worker could send a
+  cursor from the search of a different Agent and get the next page of matches
+  from that Agent Home. Now that cursor gets the same "Cursor expired" result as
+  an unknown cursor.
+- The Codex resume contract test checks that the pinned Codex resumes a thread
+  from its rollout file alone, reassembled from segments in an empty Codex Home.
+- Control-plane dependencies and the Turbo build runner are updated.
+
 ## Version 1.6.14-rc.1 (2026-10-02)
 
 - Tool-result recording uses the existing idempotency index. Large message

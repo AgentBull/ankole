@@ -140,7 +140,7 @@ export function createGrepTool(
       const workspaceReal = realpathSync(resolve(context.workspaceRoot))
       const emptyDetails: GrepDetails = { totalMatched: 0, totalFilesSearched: 0 }
 
-      const resumed = params.cursor !== undefined ? runtime.getGrepCursor(params.cursor) : undefined
+      const resumed = params.cursor !== undefined ? runtime.getGrepCursor(params.cursor, context.agentHome) : undefined
       if (params.cursor !== undefined && !resumed) {
         return {
           content: [{ type: 'text', text: 'Cursor expired; rerun the search from the first page.' }],

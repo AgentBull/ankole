@@ -88,7 +88,7 @@ export function createFindTool(
       let pageSize: number
       let offset: number
       if (params.cursor !== undefined) {
-        const state = runtime.getFindCursor(params.cursor)
+        const state = runtime.getFindCursor(params.cursor, context.agentHome)
         if (!state) {
           return {
             content: [{ type: 'text', text: 'Cursor expired; rerun the search from the first page.' }],

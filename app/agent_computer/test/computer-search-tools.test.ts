@@ -273,6 +273,42 @@ describe('find/grep/ls over a real index', () => {
   })
 })
 
+describe('search cursors across Agent Homes', () => {
+  // One runtime for both homes, as one Worker serves several Agents.
+  const runtime = new FffSearchRuntime()
+  afterAll(() => runtime.destroyAll())
+
+  const owner = makeHome()
+  const other = makeHome()
+  const ownerContext = searchContext(owner.agentHome, owner.workspaceRoot)
+  const otherContext = searchContext(other.agentHome, other.workspaceRoot)
+  for (let index = 0; index < 3; index++) {
+    writeFileSync(join(owner.workspaceRoot, `page-${index}.md`), 'cursor marker\n')
+  }
+
+  it('resumes a grep cursor only in the Agent Home that created it', async () => {
+    const ownerGrep = createGrepTool(ownerContext, runtime)
+    const otherGrep = createGrepTool(otherContext, runtime)
+    const cursor = (await ownerGrep.execute('first', { pattern: 'cursor marker', limit: 1 })).details?.cursor
+    expect(cursor).toBeDefined()
+
+    const unknown = await otherGrep.execute('unknown', { cursor: 'g999999' })
+    expect(await otherGrep.execute('foreign', { cursor })).toEqual(unknown)
+    expect(textOf(await ownerGrep.execute('resume', { cursor }))).toContain('page-')
+  })
+
+  it('resumes a find cursor only in the Agent Home that created it', async () => {
+    const ownerFind = createFindTool(ownerContext, runtime)
+    const otherFind = createFindTool(otherContext, runtime)
+    const cursor = (await ownerFind.execute('first', { pattern: 'page', limit: 1 })).details?.cursor
+    expect(cursor).toBeDefined()
+
+    const unknown = await otherFind.execute('unknown', { cursor: 'f999999' })
+    expect(await otherFind.execute('foreign', { cursor })).toEqual(unknown)
+    expect(textOf(await ownerFind.execute('resume', { cursor }))).toContain('page-')
+  })
+})
+
 class BigOutputCommand implements CommandFinished {
   constructor(
     readonly exitCode: number,
