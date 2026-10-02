@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.14-rc.1 (2026-10-02)
+
+- Tool-result recording uses the existing idempotency index. Large message
+  histories no longer cause metadata scans for each tool-result lookup.
+- Agent Computer uses pi 1.0.0, OpenAI SDK 7.27.0, and Protobuf-ES 2.16.0.
+  The generated RuntimeFabric codecs match the new generator version.
+
 ## Version 1.6.13-rc.1 (2026-10-01)
 
 - Model responses over the AIGateway Responses WebSocket are no longer cut

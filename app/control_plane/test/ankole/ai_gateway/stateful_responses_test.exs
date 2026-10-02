@@ -317,8 +317,50 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                journal.id
              ]
 
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:ankole, :repo, :query],
+          fn _event, _measurements, metadata, test_pid ->
+            if self() == test_pid and metadata.source == "ai_gateway_messages" and
+                 String.contains?(metadata.query, "tool_result_idempotency_key") do
+              send(test_pid, {handler_id, metadata.query, metadata.params})
+            end
+          end,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
       assert {:ok, duplicate} = StatefulResponses.record_tool_results(attrs)
       assert duplicate.id == journal.id
+
+      assert_receive {^handler_id, query, params}, 1_000
+      :ok = :telemetry.detach(handler_id)
+
+      # Check index eligibility even when a small test table favors a sequential scan.
+      Repo.query!("SET LOCAL enable_seqscan = off")
+      Repo.query!("SET LOCAL plan_cache_mode = force_generic_plan")
+      Repo.query!("PREPARE tool_result_journal_lookup AS " <> query)
+
+      %{rows: [[[%{"Plan" => plan}]]]} =
+        try do
+          args = Enum.map_join(params, ", ", fn _ -> "NULL" end)
+
+          Repo.query!(
+            "EXPLAIN (FORMAT JSON, COSTS OFF) EXECUTE tool_result_journal_lookup(#{args})"
+          )
+        after
+          Repo.query!("DEALLOCATE tool_result_journal_lookup")
+        end
+
+      assert plan["Index Name"] == "ai_gateway_messages_tool_result_journal_key_index",
+             inspect(plan)
+
+      assert plan["Index Cond"] =~ "tool_result_idempotency_key"
+      assert plan["Index Cond"] =~ "$2"
 
       assert Repo.aggregate(
                from(message in Message,

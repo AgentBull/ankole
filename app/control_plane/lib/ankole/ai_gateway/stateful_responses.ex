@@ -568,9 +568,11 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp fetch_tool_result_journal(repo, subject_uid, idempotency_key) do
+    # PostgreSQL needs this literal predicate to use the journal's partial index.
     case repo.one(
            from(message in Message,
              where: message.subject_uid == ^subject_uid,
+             where: fragment("? \\? 'tool_result_idempotency_key'", message.metadata),
              where:
                fragment(
                  "?->>'tool_result_idempotency_key'",
