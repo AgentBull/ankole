@@ -11,6 +11,7 @@ import {
   skillAvailableInRuntime,
   stripSkillFrontmatter,
   type AnkoleSkillExecutionRuntime,
+  type AnkoleSkillRuntime,
   type SkillFileRoots
 } from './effective-skill'
 
@@ -56,7 +57,8 @@ export function createSkillLoader(opts: CreateSkillLoaderOptions): SkillLoader {
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const skillRoot = skillFilesystemRoot(skill, opts.skillRoots)
-      if (opts.runtime === 'main' && ankoleSkillRuntime(skill) === 'background_job') {
+      const declaredRuntime = ankoleSkillRuntime(skill)
+      if (opts.runtime === 'main' && declaredRuntime === 'background_job') {
         if (filePath !== 'SKILL.md') {
           throw new Error(
             `background-job-only Skill resources are available only inside a background agent job; create one with create_background_job and name ${params.name} in its task`
@@ -81,8 +83,8 @@ export function createSkillLoader(opts: CreateSkillLoaderOptions): SkillLoader {
       const content = await readFile(absolute, 'utf8')
       const rendered =
         filePath === 'SKILL.md'
-          ? renderEffectiveSkill(params.name, skillRoot, content, overlayContent)
-          : wrapSkillContent(params.name, skillLocation(params.name, filePath), skillRoot, content)
+          ? renderEffectiveSkill(params.name, skillRoot, declaredRuntime, content, overlayContent)
+          : wrapSkillContent(params.name, skillLocation(params.name, filePath), skillRoot, declaredRuntime, content)
       opts.onSkillLoaded?.(params.name)
       return {
         content: [{ type: 'text', text: rendered }],
@@ -98,12 +100,18 @@ export function lazySkillNameFromSlug(value: string): string | undefined {
   return name && !name.includes('/') ? name : undefined
 }
 
-function renderEffectiveSkill(name: string, directory: string, content: string, overlayContent: string): string {
+function renderEffectiveSkill(
+  name: string,
+  directory: string,
+  runtime: AnkoleSkillRuntime,
+  content: string,
+  overlayContent: string
+): string {
   const baseContent = stripSkillFrontmatter(content)
   const withOverlay = overlayContent
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
-  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, withOverlay)
+  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, runtime, withOverlay)
 }
 
 function backgroundJobSkillDispatchContent(name: string): string {
@@ -157,9 +165,15 @@ function skillLocation(name: string, filePath: string): string {
   return `skill://enabled/${name}/${filePath}`
 }
 
-function wrapSkillContent(name: string, location: string, directory: string, content: string): string {
+function wrapSkillContent(
+  name: string,
+  location: string,
+  directory: string,
+  runtime: AnkoleSkillRuntime,
+  content: string
+): string {
   return [
-    `<skill name="${escapeAttribute(name)}" location="${escapeAttribute(location)}" directory="${escapeAttribute(directory)}">`,
+    `<skill name="${escapeAttribute(name)}" location="${escapeAttribute(location)}" directory="${escapeAttribute(directory)}" runtime="${runtime}">`,
     '<external_content source="skill">',
     content,
     '</external_content>',

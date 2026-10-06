@@ -70,12 +70,12 @@ Open **Background Agent Jobs**. The board groups Jobs into queued, active, and f
 |---|---|---|
 | `queued` | Accepted and waiting for an available Worker | Usually wait. Check Worker availability if it does not move. |
 | `running` | Work is in progress | Open the Job to inspect the plan and latest progress. |
-| `waiting_on_user` | Waiting for your answer or approval | Reply in the conversation that created the Job. |
+| `waiting_on_user` | Waiting for an answer from the Agent or from you | The Agent answers what it can. Reply in the conversation that created the Job when the Agent asks you. |
 | `succeeded` | Finished | Read the result. If you requested an update, confirm that the original conversation received it. |
 | `failed` | Could not finish | Read the error. Correct the input or configuration, and ask the Agent to create a new Job. |
 | `stopped` | Cancelled | The Job will not continue. |
 
-`waiting_on_user` is not a failure. The Job releases its running capacity and resumes after you reply in the original conversation. Do not answer in an unrelated conversation because the Job cannot associate that reply with its question.
+`waiting_on_user` is not a failure. The Agent answers a Job question itself when it has the answer, and asks you only for a decision, an approval, or information. The Job releases its running capacity and resumes after the answer arrives. When the Agent asks you, reply in the original conversation. Do not answer in an unrelated conversation because the Job cannot associate that reply with its question.
 
 ## Cancel a Job
 
@@ -89,6 +89,6 @@ If you only need to correct the goal, first tell the Agent in the original conve
 
 - **The Job remains `queued`:** confirm that at least one Worker is ready and that other Jobs are not using all available capacity.
 - **It fails as soon as it starts:** check the saved Background Agent Jobs model profile and the selected provider's credential-pool status.
-- **It is `waiting_on_user`, but no question arrived:** check the signal routing rule and Channel Provider for the original conversation.
+- **It is `waiting_on_user`, but no question arrived and the Agent did not answer it:** check the signal routing rule and Channel Provider for the original conversation.
 - **It succeeded but did not return to chat:** first confirm that it was not asked to stay silent. If it was not, open the Job and confirm that it has a result, then check the original conversation's routing rule.
 - **An admitted Job ignores a model-profile change:** the provider binding is fixed at first execution admission. A profile change affects Jobs that have not yet been admitted.

@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 1.6.17-rc.1 (2026-10-07)
+
+- When a Background Agent Job asks a question, the main Agent now answers it
+  from the conversation, a loaded Skill, or its tools when it can, and corrects
+  or stops a Job that cannot do its task as written. It relays to the user only
+  a question that needs the user's decision, approval, or information. Before, the Agent relayed each
+  Job question to the user, including a request for access that no setting
+  gives.
+- The `create_background_job` tool tells the Agent that a Background Agent Job
+  cannot create Jobs or load a Skill that runs only in the main Agent.
+- `skill_view` states the `ankole-runtime` value with the Skill content.
+
 ## Version 1.6.16-rc.1 (2026-10-06)
 
 - A Background Agent Job that tries to load a selected Skill declared
