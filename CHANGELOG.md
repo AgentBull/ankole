@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.6.16-rc.1 (2026-10-06)
+
+- A Background Agent Job that tries to load a selected Skill declared
+  `ankole-runtime: main` now gets "skill is not available in the
+  background_job runtime". Before, the Job reported "skill is not enabled for
+  this turn", and Agents asked users to enable a Skill that a Job cannot load.
+
 ## Version 1.6.15-rc.1 (2026-10-02)
 
 - The `grep` and `find` tools continue a paged search only for the Agent whose

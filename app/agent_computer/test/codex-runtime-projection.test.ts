@@ -13,7 +13,7 @@ import {
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('BackgroundAgentJob runtime projection', () => {
-  it('decodes version 1 and derives the loadable Job Skills from persisted choices and current material', () => {
+  it('decodes version 1 and derives the selected Job Skills from persisted choices and current material', () => {
     const projection = decodeCodexJobRuntimeProjection(
       job({
         version: 1,
@@ -61,9 +61,9 @@ describe('BackgroundAgentJob runtime projection', () => {
       agentPlugins: [currentPlugin]
     }
 
-    // Selected and current, permitted in a Background Job, standalone Skills by
-    // name before Plugin members by catalog name.
-    expect(selectJobSkills(projection, catalog)).toEqual([pdf, zeta, memberA, memberB])
+    // Selected and current, standalone Skills by name before Plugin members by
+    // catalog name. The runtime rule belongs to the Skill consumers.
+    expect(selectJobSkills(projection, catalog)).toEqual([mainOnly, pdf, zeta, memberA, memberB, memberMain])
 
     expect(() =>
       selectJobSkills(projection, { ...catalog, skills: catalog.skills.filter(entry => entry !== memberA) })

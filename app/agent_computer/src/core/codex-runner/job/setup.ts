@@ -27,6 +27,7 @@ import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection, type CodexJobProjection } from './projection'
 import { migrateLegacyCodexJobSkillRoots, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
+import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import { createSkillLoader, type SkillLoader } from '../../../skills/skill-loader'
 import { loadEnabledSkillMCPServers, type MCPServerConfig } from '../../../tools/mcp'
 import { decodeCodexJobRuntimeProjection, projectWorkerEnv, selectJobSkills } from './runtime-projection'
@@ -74,10 +75,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   const agentContext = await resolveAgentConversationContext(turnStart, opts)
   opts.abortSignal?.throwIfAborted()
   const agentPluginCatalog = agentContext.agentPlugins ?? []
-  const loadableSkills = selectJobSkills(runtimeProjection, {
+  const selectedSkills = selectJobSkills(runtimeProjection, {
     skills: agentContext.skills ?? [],
     agentPlugins: agentPluginCatalog
   })
+  // The Skill loader applies the `ankole-runtime` rule itself, as in the main
+  // Agent. It gets every selected Skill so that it rejects a main-only Skill for
+  // its runtime, not as a disabled Skill.
+  const loadableSkills = selectedSkills.filter(skill => skillAvailableInRuntime(skill, 'background_job'))
   const skillRoots = {
     builtinSkillsRoot: opts.builtinSkillsRoot,
     agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
@@ -86,7 +91,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   const loadedSkillNames = new Set<string>()
   const skillLoader = createSkillLoader({
     turn: turnStart.turn,
-    enabledSkills: loadableSkills,
+    enabledSkills: selectedSkills,
     skillRoots,
     rpc: opts.rpc,
     runtime: 'background_job',
