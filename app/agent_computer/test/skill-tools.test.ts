@@ -266,6 +266,28 @@ describe('@ankole/agent-computer skill tools', () => {
     }
   })
 
+  it('Background Job skill_view rejects a main-only Skill for its runtime', async () => {
+    const loader = createSkillLoader({
+      turn: testTurn,
+      enabledSkills: [
+        create(RuntimeSkillSummarySchema, {
+          skillName: 'main-dispatch',
+          sourceKind: 'builtin',
+          relativePath: 'main-dispatch',
+          metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
+        })
+      ],
+      skillRoots: { builtinSkillsRoot: '/nonexistent/library', agentInstalledSkillsRoot: '/nonexistent/installed' },
+      rpc: unusedRPC,
+      runtime: 'background_job'
+    })
+    const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
+
+    await expect(tool.execute('call-main-only', { name: 'main-dispatch' })).rejects.toThrow(
+      'skill is not available in the background_job runtime: main-dispatch'
+    )
+  })
+
   it('skill_view rechecks effective enablement before reading a referenced file mid-turn', async () => {
     const root = join(tmpdir(), `ankole-skill-tools-disable-${Date.now()}-${Math.random()}`)
     const builtinRoot = join(root, 'library')

@@ -2,7 +2,6 @@ import { compareCodePointStrings } from '../../../common/ordering'
 import { isRecord } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
 import type { AgentPluginCatalogEntry, BackgroundAgentJobResponse, RuntimeSkillSummary } from '../../../lanes/rpc_lane'
-import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
 
 /**
@@ -62,19 +61,16 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
 }
 
 /**
- * Derives the Skills one Job run can load: the frozen selections that still
- * exist in the Agent's current catalog and run in a Background Job, in name
- * order. Standalone Skills come first; Agent Plugin Skills follow in the
- * projection's plugin order, sorted by catalog name inside each plugin.
+ * Derives the Job's selected Skills: the frozen selections that still exist in
+ * the Agent's current catalog, in name order. Standalone Skills come first;
+ * Agent Plugin Skills follow in the projection's plugin order, sorted by catalog
+ * name inside each plugin. Consumers apply the `ankole-runtime` rule.
  */
 export function selectJobSkills(
   projection: CodexJobRuntimeProjection,
   catalog: { skills: RuntimeSkillSummary[]; agentPlugins: AgentPluginCatalogEntry[] }
 ): RuntimeSkillSummary[] {
-  return [
-    ...selectedStandaloneSkills(projection, catalog.skills),
-    ...selectedAgentPluginSkills(projection, catalog)
-  ].filter(skill => skillAvailableInRuntime(skill, 'background_job'))
+  return [...selectedStandaloneSkills(projection, catalog.skills), ...selectedAgentPluginSkills(projection, catalog)]
 }
 
 function selectedStandaloneSkills(

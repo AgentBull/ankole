@@ -605,7 +605,8 @@ when a Job initializes its Workspace.
 `SKILL.md` can declare one optional `ankole-runtime` value:
 
 - An absent value or `any` permits the main Agent and Background Agent Jobs.
-- `main` permits only the main Agent. Job selection and preparation skip it.
+- `main` permits only the main Agent. Job preparation leaves it out of the
+  Job's Skill index and MCP configuration.
 - `background_job` permits only Jobs. The main Agent receives Job routing
   guidance instead of the Skill body from `skill_view`.
 
@@ -624,8 +625,9 @@ the frozen Job selection with the Agent's current effective Skills and the
 `ankole-runtime` rule. The Job's Ankole `skill_view` tool reads the selected
 source file through the same confined loader as the main Agent, adds the current
 database lesson to `SKILL.md`, and records the Skill as used. It rejects a
-disabled Skill and any path outside that Skill. Codex native project discovery,
-`.agents/skills`, and `skills/list` do not own Ankole Skills.
+disabled Skill, a selected Skill for another runtime, and any path outside that
+Skill. Codex native project discovery, `.agents/skills`, and `skills/list` do
+not own Ankole Skills.
 
 ## Prepare Agent Plugins for Each Run
 
