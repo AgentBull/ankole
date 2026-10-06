@@ -448,6 +448,7 @@ describe('@ankole/agent-computer background agent job waiting input', () => {
     expect(text).not.toContain('threadId')
     expect(text).not.toContain('turnId')
     expect(text).not.toContain('itemId')
+    expect(text).toContain('send_message_to_background_job')
   })
 })
 

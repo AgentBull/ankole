@@ -44,6 +44,7 @@ export function createCreateBackgroundJobTool(
       'title is only a management label and is not sent to Codex.',
       'task is the work handed off to the background agent to complete.',
       'State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing.',
+      'The background agent cannot create background jobs or load a Skill that has runtime="main". Create each job that the work needs with this tool. Do the steps of a runtime="main" Skill yourself, and give a job only the task that the Skill defines.',
       customModelProfileDescription(customModelProfiles, 'coding'),
       workspaceTemplateDescription(workspaceTemplates)
     ].join(' '),

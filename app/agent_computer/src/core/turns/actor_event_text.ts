@@ -263,11 +263,11 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
 
   const questions = backgroundAgentJobQuestions(data)
   return [
-    'A background agent job is waiting for user input.',
+    'A background agent job is waiting for input.',
     jobID !== undefined ? `Background agent job: ${jobID}` : undefined,
     title ? `Title: ${title}` : undefined,
     questions.length > 0 ? `Questions: ${JSON.stringify(questions)}` : undefined,
-    'Relay each question to the user with the clarify tool, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.'
+    "Its questions are addressed to you. Answer a question yourself with send_message_to_background_job when this conversation, a loaded Skill, or your tools give the answer. If a question shows that the job cannot do its task as written, send it a task that it can do, or stop it and do the work in a way that can succeed. Escalate only a question that needs the user's decision, approval, or information."
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n')

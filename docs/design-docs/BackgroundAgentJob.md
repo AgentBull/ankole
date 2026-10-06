@@ -105,6 +105,11 @@ profile, raw model ID, provider ID, or reasoning effort.
 
 The tool returns only the new `job_id` and its initial `queued` status.
 
+The tool description states the Job's capability boundary. A Job cannot create
+a Job or load a `main` Skill, so the delegating Agent creates every Job that
+the work needs. It does the steps of a `main` Skill itself and gives a Job only
+the task that the Skill defines.
+
 `send_message_to_background_job` sends one message to an existing Job. Its
 input contains only:
 
@@ -624,7 +629,8 @@ Before each run, Agent Computer derives the loadable Skill set by intersecting
 the frozen Job selection with the Agent's current effective Skills and the
 `ankole-runtime` rule. The Job's Ankole `skill_view` tool reads the selected
 source file through the same confined loader as the main Agent, adds the current
-database lesson to `SKILL.md`, and records the Skill as used. It rejects a
+database lesson to `SKILL.md`, and records the Skill as used. A result that
+contains Skill content states the `ankole-runtime` value of the Skill. It rejects a
 disabled Skill, a selected Skill for another runtime, and any path outside that
 Skill. Codex native project discovery, `.agents/skills`, and `skills/list` do
 not own Ankole Skills.
@@ -917,7 +923,12 @@ Background Codex gives child agents `request_parent_input`, not
 `request_user_input` as the internal event code.
 
 The main Agent answers through `send_message_to_background_job`. The message is
-ordinary text. There is no separate answers map.
+ordinary text. There is no separate answers map. The main Agent answers a
+question itself when the conversation, a loaded Skill, or its tools give the
+answer. When a question shows that the Job cannot do its task as written, the
+main Agent sends the Job a task that it can do, or stops the Job and does the
+work in a different way. It relays to the user only a question that needs the
+user's decision, approval, or information.
 
 ## Hand Off a Lifecycle Notification
 

@@ -97,7 +97,7 @@ describe('@ankole/agent-computer skill tools', () => {
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
       expect(text).toContain('# Internal nano-pdf')
       expect(text).not.toContain('# Public nano-pdf')
-      expect(text).toContain(`directory="${join(internalRoot, 'nano-pdf')}"`)
+      expect(text).toContain(`directory="${join(internalRoot, 'nano-pdf')}" runtime="any">`)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -125,7 +125,8 @@ describe('@ankole/agent-computer skill tools', () => {
             skillName: 'nano-pdf',
             sourceKind: 'builtin',
             relativePath: 'nano-pdf',
-            skillRoot: 'library'
+            skillRoot: 'library',
+            metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
           })
         ],
         skillRoots: {
@@ -142,7 +143,7 @@ describe('@ankole/agent-computer skill tools', () => {
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
       expect(text).toContain('# Public nano-pdf')
       expect(text).not.toContain('# Internal nano-pdf')
-      expect(text).toContain(`directory="${join(builtinRoot, 'nano-pdf')}"`)
+      expect(text).toContain(`directory="${join(builtinRoot, 'nano-pdf')}" runtime="main">`)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
