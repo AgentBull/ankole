@@ -111,8 +111,13 @@ It stores these fields:
 
 - A UUIDv7 binding `id`.
 - `principal_uid`.
-- `provider` as the platform-subject namespace, normally an identity-provider
-  `provider_id` such as `lark-main`. The `email` namespace holds mailbox
+- `provider` as the platform-subject namespace. Directory sync writes the
+  identity-provider `provider_id`; a chat binding writes the `provider_id` of
+  the identity provider it references, or adopts the single configured
+  provider of its adapter, so one person resolves to one Principal from both
+  paths (see `Ankole.SignalsGateway.SubjectNamespace`). A binding without a
+  provider, or one that chose the standalone value, writes the adapter
+  default, such as `lark-main`. The `email` namespace holds mailbox
   addresses: a row there says that the Principal owns that address, and the
   Email adapter identifies a sender only through such a row.
 - `external_id` as the provider-scoped subject id.

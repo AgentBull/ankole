@@ -43,7 +43,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
           "appID" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
           "domain" => "feishu",
-          "platformSubjectNamespace" => "lark-main",
           "userName" => "Research Bot"
         }
       })
@@ -296,7 +295,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "config" => %{
                "appID" => "cli_editable",
                "domain" => "feishu",
-               "platformSubjectNamespace" => "namespace-editable",
                "userName" => "Bot editable"
              },
              "stored_secret_paths" => ["appSecret"]
@@ -383,7 +381,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       lark_config("preserved")
       |> Map.merge(%{
         "domain" => "lark",
-        "platformSubjectNamespace" => "preserved-namespace",
         "userName" => "Preserved Bot"
       })
 
@@ -420,9 +417,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert stored_config["appID"] == original_config["appID"]
     assert stored_config["appSecret"] == original_config["appSecret"]
     assert stored_config["domain"] == original_config["domain"]
-
-    assert stored_config["platformSubjectNamespace"] ==
-             original_config["platformSubjectNamespace"]
 
     assert stored_config["userName"] == original_config["userName"]
   end
@@ -899,6 +893,171 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert Enum.map(telegram["fields"], & &1["path"]) == ["botToken"]
   end
 
+  describe "identity provider reference" do
+    setup do
+      save_lark_provider("feishu")
+      :ok
+    end
+
+    test "catalog serves the configured providers and the standalone choice", %{conn: conn} do
+      conn = conn |> bearer_conn() |> get(~p"/api/v1/signal-adapters")
+
+      assert %{"signal_adapters" => adapters} = json_response(conn, 200)
+      lark = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
+      field = Enum.find(lark["fields"], &(&1["path"] == "identityProvider"))
+
+      assert field["type"] == "select"
+      assert field["required"] == false
+      assert Enum.map(field["options"], & &1["value"]) == ["feishu", ":standalone"]
+      refute Map.has_key?(field, "identity_provider_adapter")
+
+      slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
+      refute Enum.any?(slack["fields"], &(&1["path"] == "identityProvider"))
+
+      save_lark_provider("feishu-2")
+      conn = conn |> recycle_api() |> get(~p"/api/v1/signal-adapters")
+      assert %{"signal_adapters" => adapters} = json_response(conn, 200)
+      lark = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
+      field = Enum.find(lark["fields"], &(&1["path"] == "identityProvider"))
+      assert field["required"] == true
+      assert Enum.map(field["options"], & &1["value"]) == ["feishu", "feishu-2", ":standalone"]
+    end
+
+    test "a single provider is adopted when the reference is empty", %{conn: conn} do
+      %{principal: agent} = agent_fixture()
+      config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
+
+      conn =
+        conn
+        |> bearer_conn()
+        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+          "config" => lark_config("adopted")
+        })
+
+      assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+      assert stored_config["identityProvider"] == nil
+      assert LarkConfig.subject_namespace(stored_config) == "feishu"
+    end
+
+    test "an explicit or standalone reference is stored and an unknown one is rejected", %{
+      conn: conn
+    } do
+      %{principal: agent} = agent_fixture()
+      config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
+
+      conn =
+        conn
+        |> bearer_conn()
+        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+          "config" => Map.put(lark_config("unknown"), "identityProvider", "lark-main")
+        })
+
+      assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+      assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
+
+      conn =
+        conn
+        |> recycle_api()
+        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+          "config" => Map.put(lark_config("explicit"), "identityProvider", "feishu")
+        })
+
+      assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+      assert LarkConfig.subject_namespace(stored_config) == "feishu"
+
+      conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+          "target_agent_uid" => agent.uid,
+          "config" => %{"identityProvider" => ":standalone"}
+        })
+
+      assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+      assert LarkConfig.subject_namespace(stored_config) == "lark-main"
+    end
+
+    test "several providers need an explicit reference on config writes only", %{conn: conn} do
+      %{principal: agent} = agent_fixture()
+
+      conn =
+        conn
+        |> bearer_conn()
+        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+          "config" => lark_config("older")
+        })
+
+      assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
+
+      save_lark_provider("feishu-2")
+
+      conn =
+        conn |> recycle_api() |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+
+      assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+
+      # The Console enable action sends an empty config; the binding keeps its reference.
+      conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+          "target_agent_uid" => agent.uid,
+          "config" => %{},
+          "group_message_mode" => "observe_all",
+          "unmatched_sender_policy" => "manual_review"
+        })
+
+      assert %{"signal_binding" => %{"enabled" => true}} = json_response(conn, 200)
+
+      conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+          "target_agent_uid" => agent.uid,
+          "config" => %{"userName" => "Renamed"}
+        })
+
+      assert %{"error" => %{"code" => "validation_failed", "message" => message}} =
+               json_response(conn, 422)
+
+      assert message =~ "identityProvider"
+
+      conn =
+        conn
+        |> recycle_api()
+        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-second", %{
+          "config" => lark_config("second")
+        })
+
+      assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+    end
+  end
+
+  defp save_lark_provider(provider_id) do
+    {:ok, identity_config} =
+      LarkConfig.validate_identity_config(%{
+        "appID" => "cli_#{provider_id}",
+        "appSecret" => "secret"
+      })
+
+    {:ok, ^identity_config} =
+      Ankole.IdentityProviders.Config.save_provider(
+        %{
+          "provider_id" => provider_id,
+          "adapter_id" => "lark",
+          "plugin_id" => "lark-adapter",
+          "config_key" => LarkConfig.identity_config_key(provider_id),
+          "enabled" => true
+        },
+        identity_config
+      )
+
+    :ok
+  end
+
   test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{
     conn: conn
   } do
@@ -977,7 +1136,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     %{
       "appID" => "cli_#{suffix}",
       "appSecret" => "secret-#{suffix}",
-      "platformSubjectNamespace" => "namespace-#{suffix}",
       "userName" => "Bot #{suffix}"
     }
   end

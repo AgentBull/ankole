@@ -111,7 +111,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                Config.validate_chat_config(%{"appID" => @app_id, "appPassword" => "pw"})
 
       assert {:ok, config} = Config.validate_chat_config(chat_config())
-      assert config["platformSubjectNamespace"] == "entra-id-main"
+      assert Config.subject_namespace(config) == "entra-id-main"
       assert Config.bot_token_tenant(config) == @tenant_id
 
       assert {:ok, multi} =

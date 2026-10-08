@@ -377,7 +377,7 @@ export function defaultValue(field: ConfigFieldDefinition): unknown {
   if (field.type === 'boolean') return false
   if (field.type === 'integer') return 0
   if (field.type === 'string_array') return []
-  if (field.type === 'select') return field.options?.[0]?.value ?? ''
+  if (field.type === 'select') return field.required ? '' : (field.options?.[0]?.value ?? '')
   return ''
 }
 

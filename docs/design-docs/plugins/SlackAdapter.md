@@ -40,15 +40,16 @@ The chat configuration contains these fields:
 | --- | --- |
 | `botToken` | Required Bot User OAuth token |
 | `appToken` | Required App-Level token for Socket Mode |
-| `platformSubjectNamespace` | Selects the Principal subject namespace |
+| `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
 The identity configuration contains `clientID`, `clientSecret`, and optional
 `teamID`. It also contains `botToken` and `appToken` for directory work. The
 `oidc.*` and `sync.*` fields control login and directory sync.
 
-One `platformSubjectNamespace` identifies one Slack workspace. Do not change it
-when only the workspace display name changes.
+The referenced Slack identity provider identifies the workspace whose users the
+senders resolve to. A binding without a Slack identity provider, or with the
+standalone choice, uses the `slack-main` namespace.
 
 ## Connect through Socket Mode
 

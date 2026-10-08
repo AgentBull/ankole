@@ -441,6 +441,9 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %{principal: agent} = agent_fixture()
     config_key = Config.binding_config_key(agent.uid, "lark-main")
 
+    # Binding validation reads the identity-provider references before the
+    # write; warm those entries so the injected fault hits the post-commit refresh.
+    assert {:ok, []} = Ankole.IdentityProviders.list_provider_refs("lark")
     assert :ok = AppConfigureCache.fail_next_load_for_test(:injected_binding_refresh_failure)
 
     assert {:ok, %{binding: %Binding{} = binding}} =
@@ -739,7 +742,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
       "appID" => app_id,
       "appSecret" => "app-secret",
       "domain" => "feishu",
-      "platformSubjectNamespace" => "lark-main",
       "userName" => "Lark Bot"
     }
   end

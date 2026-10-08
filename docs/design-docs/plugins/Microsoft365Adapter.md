@@ -61,7 +61,9 @@ later full sync.
 
 The Teams configuration contains `appID`, encrypted `appPassword`,
 `botTenancy`, and optional `tenantID`. It also contains
-`platformSubjectNamespace` and `userName`.
+`identityProvider`, which references the Entra ID identity provider that owns
+the Principal subject namespace (a single provider is adopted by default), and
+`userName`.
 
 The Entra ID configuration contains `tenantID`, `clientID`, and encrypted
 `clientSecret`. The `oidc.*` fields control login. The `sync.*` fields control

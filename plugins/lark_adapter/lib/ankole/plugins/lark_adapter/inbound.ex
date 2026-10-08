@@ -481,7 +481,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                "union_id" => union_id,
                "tenant_key" => event.tenant_key,
                "sender_type" => sender_type,
-               "provider" => Map.get(config, "platformSubjectNamespace", "lark-main")
+               "provider" => Config.subject_namespace(config)
              })
          }}
     end
@@ -1234,7 +1234,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
        ) do
     attrs =
       %{
-        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
+        provider: Config.subject_namespace(config),
         external_id: operator_id,
         external_ids: operator_aliases,
         metadata:

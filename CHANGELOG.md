@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 1.6.18-rc.1 (2026-10-08)
+
+- Enterprise IM signal bindings (Lark, Slack, DingTalk, WeCom, Teams) now
+  reference an identity provider instead of a free-form
+  `platformSubjectNamespace`. A binding adopts the single configured provider
+  of its adapter by default, must choose one when several exist, and can
+  choose a standalone namespace; an unknown reference is rejected. Chat
+  senders and directory users of one organization now resolve to one
+  Principal. Before, a binding kept a default namespace such as `lark-main`
+  while directory sync wrote the provider id, so one person could get two
+  Principals and an addressed message from a synced user was held as an
+  unmapped sender. Enabling a binding keeps its reference, and a binding
+  without any provider keeps the adapter default namespace.
+- A required select without a default value in the Console now starts empty
+  instead of its first option.
+- Sender hydration failures and profiles without email or mobile are now logged
+  as warnings during identity admission.
+
 ## Version 1.6.17-rc.1 (2026-10-07)
 
 - When a Background Agent Job asks a question, the main Agent now answers it

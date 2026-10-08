@@ -114,7 +114,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
              consumer
            ) do
       channel_kind = channel_kind(message)
-      namespace = Map.get(config, "platformSubjectNamespace", "slack-main")
+      namespace = Config.subject_namespace(config)
       signal_channel_id = signal_channel_id(slack_channel_id)
 
       author = %{
@@ -351,7 +351,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp observe_action_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "slack-main"),
+      provider: Config.subject_namespace(config),
       external_id: operator_id
     }
 
@@ -374,7 +374,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp mentions(text, consumer) when is_binary(text) do
-    namespace = Map.get(consumer.config, "platformSubjectNamespace", "slack-main")
+    namespace = Config.subject_namespace(consumer.config)
 
     bot_ids =
       [Map.get(consumer.config, "runtimeBotUserID"), Map.get(consumer.config, "botUserID")]

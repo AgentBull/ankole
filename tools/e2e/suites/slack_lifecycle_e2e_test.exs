@@ -93,7 +93,6 @@ defmodule Ankole.E2E.SlackLifecycleTest do
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
       "botUserID" => "UBOT",
-      "platformSubjectNamespace" => "slack-main",
       "userName" => "Slack"
     }
 

@@ -103,21 +103,33 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     with {:ok, app_id} <- required_string(value, "appID"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
-         {:ok, platform_subject_namespace} <-
-           optional_string(value, "platformSubjectNamespace", "lark-main"),
+         {:ok, identity_provider} <- optional_string(value, "identityProvider", nil),
          {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu") do
       {:ok,
        %{
          "appID" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
-         "platformSubjectNamespace" => platform_subject_namespace,
+         "identityProvider" => identity_provider,
          "userName" => user_name
        }}
     end
   end
 
   def validate_chat_config(_value), do: {:error, :invalid_chat_config}
+
+  @doc """
+  Returns the Principal subject namespace of one chat config. See
+  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  """
+  @spec subject_namespace(map()) :: String.t()
+  def subject_namespace(config) do
+    Ankole.SignalsGateway.SubjectNamespace.resolve(
+      "lark",
+      Map.get(config, "identityProvider"),
+      "lark-main"
+    )
+  end
 
   @doc """
   Validates chat config when it is used as a SignalsGateway binding.

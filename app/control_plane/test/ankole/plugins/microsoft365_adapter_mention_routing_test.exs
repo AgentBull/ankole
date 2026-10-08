@@ -50,8 +50,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterMentionRoutingTest do
       )
 
     Inbound.chat_consumer(context, %{
-      "appID" => "11111111-2222-3333-4444-555555555555",
-      "platformSubjectNamespace" => "entra-id-main"
+      "appID" => "11111111-2222-3333-4444-555555555555"
     })
   end
 

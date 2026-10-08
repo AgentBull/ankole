@@ -919,7 +919,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp namespace(config), do: Map.get(config, "platformSubjectNamespace", "lark-main")
+  defp namespace(config), do: Config.subject_namespace(config)
 
   defp binding_context(%Binding{} = binding, config) do
     AdapterContext.new(

@@ -39,7 +39,7 @@ The chat configuration contains these fields:
 | `robotCode` | Overrides the robot code |
 | `cardTemplateId` | Selects the DingTalk AI card template |
 | `group_message_mode` | Must be `addressed_only` |
-| `platformSubjectNamespace` | Selects the Principal subject namespace |
+| `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
 Identity settings use the same application credentials. `oidc.*` controls

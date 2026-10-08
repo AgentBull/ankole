@@ -1026,7 +1026,7 @@ export const identityTabs = [
         {
           title: 'Use separate apps for identity and chat',
           body: [
-            'You can use one custom app for both roles, but separate apps are better for normal use. Keep sign-in and directory permissions on the IdP app. Keep bot permissions on the chat app. Both apps can use one platformSubjectNamespace for the same organization.'
+            'You can use one custom app for both roles, but separate apps are better for normal use. Keep sign-in and directory permissions on the IdP app. Keep bot permissions on the chat app. Select the IdP record in the chat binding's Identity provider field so both apps map senders to the same accounts.'
           ]
         }
       ]
@@ -1419,12 +1419,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Set the subject namespace',
+          title: 'Reference the identity provider',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'slack-main',
-              description: 'Use one namespace per Slack workspace. Share it with the Slack IdP config when Slack fills both roles.'
+              name: 'identityProvider',
+              value: 'Select the Slack IdP',
+              description: 'A single Slack IdP is adopted by default; choose one when several exist, or choose the standalone namespace. Senders of this binding resolve to the users of that IdP, so one workspace maps to one set of accounts.'
             },
             {
               name: 'userName',
@@ -1436,7 +1436,7 @@ export const channelTabs = [
         {
           title: 'Create a separate Slack IdP app',
           body: [
-            'For normal use, create another Slack app for SSO and directory sync. Keep identity permissions on the IdP app and bot permissions on the chat app. Both records can use one platformSubjectNamespace for the same workspace.'
+            'For normal use, create another Slack app for SSO and directory sync. Keep identity permissions on the IdP app and bot permissions on the chat app. Select that IdP record in the chat binding's Identity provider field.'
           ]
         }
       ]
@@ -1507,12 +1507,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Share the subject namespace when Entra also supplies identity',
+          title: 'Reference the Entra ID provider',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'entra-id-main',
-              description: 'Use the same namespace in the Teams channel and Entra ID provider when they represent the same organization.'
+              name: 'identityProvider',
+              value: 'Select the Entra ID IdP',
+              description: 'A single Entra ID IdP is adopted by default; choose one when several exist. Teams senders then resolve to the same accounts as directory sync and sign-in.'
             },
             {
               name: 'userName',
@@ -1630,16 +1630,16 @@ export const channelTabs = [
         {
           title: 'Create a separate Lark IdP app',
           body: [
-            'For normal use, create another custom app for SSO and directory sync. Keep sign-in and directory permissions on the IdP app and bot permissions on the chat app. Both records can use one platformSubjectNamespace for the same organization.'
+            'For normal use, create another custom app for SSO and directory sync. Keep sign-in and directory permissions on the IdP app and bot permissions on the chat app. Select that IdP record in the chat binding's Identity provider field.'
           ]
         },
         {
           title: 'Set the shared adapter fields',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'lark-main',
-              description: 'Share this value with the Lark IdP config when both records represent the same organization.'
+              name: 'identityProvider',
+              value: 'Select the Lark IdP',
+              description: 'A single Lark IdP is adopted by default; choose one when several exist, or choose the standalone namespace. Senders of this binding resolve to the users that the IdP synced, so one person has one account.'
             },
             {
               name: 'userName',
@@ -1774,9 +1774,9 @@ export const channelTabs = [
           ],
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'dingtalk-main',
-              description: 'Share it with the DingTalk IdP only when both records represent the same organization.'
+              name: 'identityProvider',
+              value: 'Select the DingTalk IdP',
+              description: 'A single DingTalk IdP is adopted by default; choose one when several exist. Senders of this binding resolve to the users of that IdP.'
             }
           ]
         }
@@ -1850,9 +1850,9 @@ export const channelTabs = [
           title: 'Set the identity mapping fields',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'wecom-main',
-              description: 'Share it with the WeCom IdP only when both records represent the same corp.'
+              name: 'identityProvider',
+              value: 'Select the WeCom IdP',
+              description: 'A single WeCom IdP is adopted by default; choose one when several exist. Senders of this binding resolve to the users of that IdP.'
             },
             {
               name: 'userName',
@@ -2385,9 +2385,9 @@ export const signalAdvanced = {
         'The provider must deliver those messages. DingTalk and WeCom support addressed_only only. Slack and Lark need extra events or scopes before they can observe a whole room.'
     },
     {
-      title: 'Treat the namespace as an identity mapping key',
+      title: 'Reference the identity provider from the chat binding',
       body: [
-        'Use one platformSubjectNamespace per provider organization. Reuse it between IdP and Channel Provider records only when both refer to the same organization.'
+        'A chat binding references the IdP record of the same platform in its Identity provider field. A single IdP is adopted by default, several require a choice, and the standalone option keeps the binding in a namespace of its own. The reference makes chat senders and synced directory users one account.'
       ]
     }
   ]

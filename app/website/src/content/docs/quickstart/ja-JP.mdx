@@ -1026,7 +1026,7 @@ export const identityTabs = [
         {
           title: 'identity 用とチャット用に別々のアプリを使用する',
           body: [
-            '1 つのカスタムアプリを両方の役割に使用できますが、通常の運用では別々のアプリの方が優れています。サインインとディレクトリの権限は IdP アプリに置いてください。bot の権限はチャットアプリに置いてください。両方のアプリで、同じ組織のために同じ platformSubjectNamespace を使用できます。'
+            '1 つのカスタムアプリを両方の役割に使用できますが、通常の運用では別々のアプリの方が優れています。サインインとディレクトリの権限は IdP アプリに置いてください。bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択すると、両方のアプリが送信者を同じアカウントにマッピングします。'
           ]
         }
       ]
@@ -1418,12 +1418,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: '主体の namespace を設定する',
+          title: 'identity provider を参照する',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'slack-main',
-              description: 'Slack ワークスペースごとに 1 つの namespace を使用してください。Slack が両方の役割を担う場合は、Slack IdP 設定と共有してください。'
+              name: 'identityProvider',
+              value: 'Slack IdP を選択',
+              description: 'Slack IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要で、独立した namespace を選ぶこともできます。この binding の送信者はその IdP のユーザーとして解決されるため、1 つのワークスペースは 1 組のアカウントに対応します。'
             },
             {
               name: 'userName',
@@ -1435,7 +1435,7 @@ export const channelTabs = [
         {
           title: '別の Slack IdP アプリを作成する',
           body: [
-            '通常の運用では、SSO とディレクトリ同期用に別の Slack app を作成してください。identity の権限は IdP アプリに、bot の権限はチャットアプリに置いてください。両方のレコードで、同じワークスペースのために 1 つの platformSubjectNamespace を使用できます。'
+            '通常の運用では、SSO とディレクトリ同期用に別の Slack app を作成してください。identity の権限は IdP アプリに、bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択してください。'
           ]
         }
       ]
@@ -1506,12 +1506,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Entra が identity も供給する場合に主体の namespace を共有する',
+          title: 'Entra ID provider を参照する',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'entra-id-main',
-              description: 'Teams チャンネルと Entra ID provider が同じ組織を表す場合は、同じ namespace を使用してください。'
+              name: 'identityProvider',
+              value: 'Entra ID IdP を選択',
+              description: 'Entra ID IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。Teams の送信者は、ディレクトリ同期とサインインが使うのと同じアカウントとして解決されます。'
             },
             {
               name: 'userName',
@@ -1629,16 +1629,16 @@ export const channelTabs = [
         {
           title: '別の Lark IdP アプリを作成する',
           body: [
-            '通常の運用では、SSO とディレクトリ同期用に別のカスタムアプリを作成してください。サインインとディレクトリの権限は IdP アプリに、bot の権限はチャットアプリに置いてください。両方のレコードで、同じ組織のために 1 つの platformSubjectNamespace を使用できます。'
+            '通常の運用では、SSO とディレクトリ同期用に別のカスタムアプリを作成してください。サインインとディレクトリの権限は IdP アプリに、bot の権限はチャットアプリに置いてください。チャット binding の「Identity provider」フィールドでその IdP レコードを選択してください。'
           ]
         },
         {
           title: '共有のアダプタフィールドを設定する',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'lark-main',
-              description: '両方のレコードが同じ組織を表す場合は、この値を Lark IdP 設定と共有してください。'
+              name: 'identityProvider',
+              value: 'Lark IdP を選択',
+              description: 'Lark IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要で、独立した namespace を選ぶこともできます。この binding の送信者は IdP が同期したユーザーとして解決されるため、1 人は 1 つのアカウントを持ちます。'
             },
             {
               name: 'userName',
@@ -1773,9 +1773,9 @@ export const channelTabs = [
           ],
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'dingtalk-main',
-              description: '両方のレコードが同じ組織を表す場合のみ、DingTalk IdP と共有してください。'
+              name: 'identityProvider',
+              value: 'DingTalk IdP を選択',
+              description: 'DingTalk IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。この binding の送信者はその IdP のユーザーとして解決されます。'
             }
           ]
         }
@@ -1849,9 +1849,9 @@ export const channelTabs = [
           title: 'identity マッピングのフィールドを設定する',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'wecom-main',
-              description: '両方のレコードが同じ企業を表す場合のみ、WeCom IdP と共有してください。'
+              name: 'identityProvider',
+              value: 'WeCom IdP を選択',
+              description: 'WeCom IdP が 1 つだけならデフォルトで採用されます。複数ある場合は選択が必要です。この binding の送信者はその IdP のユーザーとして解決されます。'
             },
             {
               name: 'userName',
@@ -2384,9 +2384,9 @@ export const signalAdvanced = {
         'provider がそれらのメッセージを配信する必要があります。DingTalk と WeCom は addressed_only のみをサポートします。Slack と Lark は、部屋全体を観察できるようになる前に追加のイベントまたは scope が必要です。'
     },
     {
-      title: 'namespace を identity マッピングのキーとして扱う',
+      title: 'チャット binding から identity provider を参照する',
       body: [
-        'provider 組織ごとに 1 つの platformSubjectNamespace を使用してください。両方が同じ組織を指す場合のみ、IdP と Channel Provider のレコードの間で再利用してください。'
+        'チャット binding は「Identity provider」フィールドで同じプラットフォームの IdP レコードを参照します。IdP が 1 つだけならデフォルトで採用され、複数ある場合は選択が必要で、スタンドアロンの選択肢は binding を独自の namespace に保ちます。この参照により、チャットの送信者と同期されたディレクトリユーザーは 1 つのアカウントになります。'
       ]
     }
   ]

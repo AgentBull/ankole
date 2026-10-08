@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.GroupMessageModes
+  alias Ankole.SignalsGateway.SubjectNamespace
   alias Ankole.SignalsGateway.UnmatchedSenderPolicies
   alias Ankole.SignalsGateway.Utils
 
@@ -35,11 +36,9 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   @spec list_adapters() :: {:ok, [map()]} | {:error, term()}
   def list_adapters do
-    with {:ok, definitions} <- Adapters.list() do
-      {:ok,
-       definitions
-       |> Enum.map(&adapter_catalog/1)
-       |> Enum.sort_by(& &1.adapter_id)}
+    with {:ok, definitions} <- Adapters.list(),
+         {:ok, catalog} <- collect_ok(definitions, &adapter_catalog/1) do
+      {:ok, Enum.sort_by(catalog, & &1.adapter_id)}
     end
   end
 
@@ -51,7 +50,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
          {:ok, definition} <- Adapters.fetch(adapter_id),
          {:ok, config} <- binding_config(attrs),
-         {:ok, normalized_config} <- validate_binding_config(definition, config),
+         {:ok, normalized_config} <- validate_binding_config(definition, config, true),
          {:ok, mode} <- group_message_mode(attrs, GroupMessageModes.default_mode()),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
@@ -233,15 +232,82 @@ defmodule Ankole.SignalsGateway.Bindings do
   def disable_binding(_agent_uid, _binding_name), do: {:error, :binding_not_found}
 
   defp adapter_catalog(%Definition{} = definition) do
-    %{
-      adapter_id: definition.id,
-      adapter_category: definition.adapter_category,
-      plugin_id: definition.plugin_id,
-      display_name: definition.display_name,
-      fields: definition.fields,
-      group_message_mode_field: GroupMessageModes.field(definition.supported_group_message_modes),
-      unmatched_sender_policy_field: UnmatchedSenderPolicies.field()
-    }
+    with {:ok, fields} <- catalog_fields(definition.fields) do
+      {:ok,
+       %{
+         adapter_id: definition.id,
+         adapter_category: definition.adapter_category,
+         plugin_id: definition.plugin_id,
+         display_name: definition.display_name,
+         fields: fields,
+         group_message_mode_field:
+           GroupMessageModes.field(definition.supported_group_message_modes),
+         unmatched_sender_policy_field: UnmatchedSenderPolicies.field()
+       }}
+    end
+  end
+
+  # An identity-provider reference is served as a select over the configured
+  # providers of its adapter plus the standalone choice. It is required only
+  # while several providers exist; a single one is adopted by default. Without
+  # any provider the field is not shown and the adapter default namespace
+  # applies. See `Ankole.SignalsGateway.SubjectNamespace`.
+  defp catalog_fields(fields) do
+    with {:ok, groups} <-
+           collect_ok(fields, fn
+             %{type: "identity_provider"} = field ->
+               with {:ok, provider_ids} <- identity_provider_ids(field) do
+                 {:ok, identity_provider_select(field, provider_ids)}
+               end
+
+             field ->
+               {:ok, [field]}
+           end) do
+      {:ok, List.flatten(groups)}
+    end
+  end
+
+  defp collect_ok(items, fun) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case fun.(item) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp identity_provider_select(_field, []), do: []
+
+  defp identity_provider_select(field, provider_ids) do
+    options =
+      Enum.map(provider_ids, &%{value: &1, label: %{"default" => &1}}) ++
+        [
+          %{
+            value: SubjectNamespace.standalone_reference(),
+            label: %{
+              "default" => "No identity provider (standalone namespace)",
+              "zh-Hans-CN" => "不关联身份源（独立命名空间）"
+            }
+          }
+        ]
+
+    [
+      field
+      |> Map.drop([:identity_provider_adapter])
+      |> Map.merge(%{
+        type: "select",
+        required: length(provider_ids) > 1,
+        options: options
+      })
+    ]
+  end
+
+  defp identity_provider_ids(%{identity_provider_adapter: adapter_id}) do
+    SubjectNamespace.provider_ids(adapter_id)
   end
 
   defp maybe_handle_binding_saved(%Definition{} = definition, %Binding{} = binding, config)
@@ -300,13 +366,52 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp validate_binding_config(%Definition{} = definition, config) do
+  # Enabling or moving a binding sends no config, so it keeps the reference
+  # it has; only a config write must name a provider while several exist.
+  defp validate_binding_config(%Definition{} = definition, config, check_references?) do
+    with {:ok, normalized_config} <- validate_adapter_binding_config(definition, config) do
+      if check_references?,
+        do: validate_identity_provider_references(definition, normalized_config),
+        else: {:ok, normalized_config}
+    end
+  end
+
+  defp validate_adapter_binding_config(%Definition{} = definition, config) do
     case definition.config_module do
       nil ->
         {:ok, config}
 
       module when is_atom(module) ->
         module.validate_binding_config(config)
+    end
+  end
+
+  # The subject namespace of a binding is the identity provider it references,
+  # so chat senders and directory users resolve to one Principal. A missing
+  # reference is ambiguous only while several providers exist; an unknown
+  # reference is rejected so a typo cannot open a namespace of its own.
+  defp validate_identity_provider_references(%Definition{fields: fields}, config) do
+    fields
+    |> Enum.filter(&(&1[:type] == "identity_provider"))
+    |> Enum.reduce_while({:ok, config}, fn field, acc ->
+      case validate_identity_provider_reference(field, Map.get(config, field.path)) do
+        :ok -> {:cont, acc}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_identity_provider_reference(field, value) do
+    with {:ok, provider_ids} <- identity_provider_ids(field) do
+      standalone = SubjectNamespace.standalone_reference()
+
+      cond do
+        is_nil(value) and length(provider_ids) > 1 -> {:error, {:missing, field.path}}
+        is_nil(value) -> :ok
+        value == standalone -> :ok
+        value in provider_ids -> :ok
+        true -> {:error, {:invalid_enum, field.path, provider_ids ++ [standalone]}}
+      end
     end
   end
 
@@ -396,7 +501,8 @@ defmodule Ankole.SignalsGateway.Bindings do
                     merge_binding_config(
                       current_config,
                       ConfigSecrets.preserve(definition.fields, config_patch, current_config)
-                    )
+                    ),
+                    config_patch != %{}
                   ),
                 :ok <-
                   ensure_target_binding_available(

@@ -90,7 +90,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                Config.validate_chat_config(%{"botToken" => "xoxb-ok", "appToken" => "xoxb-wrong"})
 
       assert {:ok, config} = Config.validate_chat_config(chat_config())
-      assert config["platformSubjectNamespace"] == "slack-main"
+      assert Config.subject_namespace(config) == "slack-main"
       assert {"slack", fingerprint} = Config.connection_key(config)
       assert byte_size(fingerprint) == 16
       assert Config.connection_key(config) == Config.connection_key(config)
@@ -890,7 +890,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       %{
         "botToken" => "xoxb-bot",
         "appToken" => "xapp-app",
-        "platformSubjectNamespace" => "slack-main",
         "userName" => "Slack"
       },
       overrides

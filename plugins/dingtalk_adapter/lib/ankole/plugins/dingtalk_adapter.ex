@@ -161,15 +161,14 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         ]
       ),
       field(
-        "platformSubjectNamespace",
-        %{"default" => "Platform subject namespace", "zh-Hans-CN" => "平台主体命名空间"},
+        "identityProvider",
+        %{"default" => "Identity provider", "zh-Hans-CN" => "身份源提供商"},
         %{
-          "default" => "Namespace used when mapping DingTalk users into Ankole subjects.",
-          "zh-Hans-CN" => "映射钉钉用户到 Ankole 主体时使用的命名空间。"
+          "default" => "Identity provider whose users the senders of this binding resolve to. A single provider is adopted by default; choose one when several exist.",
+          "zh-Hans-CN" => "此绑定的发信人解析到哪个身份源的用户。只有一个身份源时默认采用；有多个时必须选择。"
         },
-        :string,
-        default: "dingtalk-main",
-        advanced: true
+        :identity_provider,
+        identity_provider_adapter: "dingtalk"
       ),
       field(
         "userName",

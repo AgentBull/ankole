@@ -43,7 +43,7 @@ A chat adapter receives messages and sends Agent replies. For production use, cr
 
 Telegram, Discord, LINE, and WhatsApp are consumer IMs. Their users have no employee record, so a new sender is mapped to an account under **Identity → Pending mappings** before the Agent serves them; WhatsApp maps a sender by itself when a known account already owns the phone number. An email sender is known only through an explicit email identity binding, which directory sync creates for employees and an administrator creates for everyone else. See [Signal routing rules](../signal-bindings/#choose-what-happens-to-unknown-senders).
 
-After you prepare the external application, open **Console → Signal Routing → New routing rule**. Select the Agent and adapter, and enter the credentials. Use the same `platformSubjectNamespace` for the IdP and chat application only when both applications belong to the same enterprise organization. Do not share a namespace across organizations.
+After you prepare the external application, open **Console → Signal Routing → New routing rule**. Select the Agent and adapter, and enter the credentials. The **Identity provider** field references the IdP of the same platform: a single IdP is adopted by default, several require a choice, and the standalone option keeps a namespace of the binding's own. The reference makes chat senders and synced directory users one account, so select only an IdP that belongs to the same enterprise organization as the chat application.
 
 ## Update a stored credential
 

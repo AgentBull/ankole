@@ -58,9 +58,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   def subscription_state_key(provider_id),
     do: "principals.entra_id.graph_subscriptions.#{provider_id}"
 
-  @spec default_namespace() :: String.t()
-  def default_namespace, do: @default_namespace
-
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}
   def validate_chat_config(value) when is_map(value) do
     with {:ok, app_id} <- required_guid(value, "appID"),
@@ -68,8 +65,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
          {:ok, tenancy} <-
            select(value, "botTenancy", "single_tenant", ["single_tenant", "multi_tenant"]),
          {:ok, tenant_id} <- tenant_for_tenancy(value, tenancy),
-         {:ok, namespace} <-
-           optional_string(value, "platformSubjectNamespace", @default_namespace),
+         {:ok, identity_provider} <- optional_string(value, "identityProvider", nil),
          {:ok, user_name} <- optional_string(value, "userName", "Teams") do
       {:ok,
        %{
@@ -77,7 +73,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
          "appPassword" => app_password,
          "botTenancy" => tenancy,
          "tenantID" => tenant_id,
-         "platformSubjectNamespace" => namespace,
+         "identityProvider" => identity_provider,
          "userName" => user_name
        }}
     end
@@ -190,9 +186,18 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   def bot_token_tenant(%{"botTenancy" => "multi_tenant"}), do: @multi_tenant_bot_token_tenant
   def bot_token_tenant(config), do: Map.fetch!(config, "tenantID")
 
-  @spec namespace(chat_config()) :: String.t()
-  def namespace(config),
-    do: Map.get(config, "platformSubjectNamespace") || @default_namespace
+  @doc """
+  Returns the Principal subject namespace of one chat config. See
+  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  """
+  @spec subject_namespace(chat_config()) :: String.t()
+  def subject_namespace(config) do
+    Ankole.SignalsGateway.SubjectNamespace.resolve(
+      "entra-id",
+      Map.get(config, "identityProvider"),
+      @default_namespace
+    )
+  end
 
   defp valid_subscription_entry?(entry) when is_map(entry) do
     is_binary(MapHelpers.optional_text(entry, "id")) and

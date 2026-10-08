@@ -62,7 +62,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       assert {:ok, config} =
                Config.validate_chat_config(%{"botId" => "bot-1", "secret" => "s"})
 
-      assert config["platformSubjectNamespace"] == "wecom-main"
+      assert Config.subject_namespace(config) == "wecom-main"
       assert config["group_message_mode"] == "addressed_only"
 
       assert {:error, {:missing, "secret"}} = Config.validate_chat_config(%{"botId" => "b"})

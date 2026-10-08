@@ -153,6 +153,7 @@ defmodule Ankole.SignalsGateway.Adapters do
          {:ok, adapter_category} <-
            validate_adapter_category(value(declaration, :adapter_category)),
          :ok <- validate_inbound_adapter(declaration),
+         :ok <- validate_identity_provider_fields(declaration),
          {:ok, outbox_adapter} <- resolve_outbox_adapter(declaration),
          :ok <-
            validate_optional_adapter_module(
@@ -301,6 +302,20 @@ defmodule Ankole.SignalsGateway.Adapters do
       module ->
         {:error, {:invalid_adapter_module, key, module}}
     end
+  end
+
+  # An `identity_provider` field is resolved by the host against the named
+  # identity-provider adapter, so the declaration must carry that id.
+  defp validate_identity_provider_fields(declaration) do
+    declaration
+    |> list_value(:fields)
+    |> Enum.filter(&(is_map(&1) and &1[:type] == "identity_provider"))
+    |> Enum.reduce_while(:ok, fn field, :ok ->
+      case field[:identity_provider_adapter] do
+        adapter_id when is_binary(adapter_id) and adapter_id != "" -> {:cont, :ok}
+        _missing -> {:halt, {:error, {:identity_provider_field_without_adapter, field[:path]}}}
+      end
+    end)
   end
 
   defp list_value(declaration, key) do

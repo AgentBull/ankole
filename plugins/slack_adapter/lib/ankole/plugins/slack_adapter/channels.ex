@@ -550,7 +550,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     )
   end
 
-  defp namespace(config), do: Map.get(config, "platformSubjectNamespace", "slack-main")
+  defp namespace(config), do: Config.subject_namespace(config)
 
   defp runtime_bot_user_id(config),
     do: Map.get(config, "runtimeBotUserID") || Map.get(config, "botUserID")

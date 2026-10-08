@@ -546,8 +546,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
     {:ok, config} =
       %{
         "appID" => "cli_test",
-        "appSecret" => "secret",
-        "platformSubjectNamespace" => "lark-main"
+        "appSecret" => "secret"
       }
       |> Map.merge(overrides)
       |> Config.validate_chat_config()

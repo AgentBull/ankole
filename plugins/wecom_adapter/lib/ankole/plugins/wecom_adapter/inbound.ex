@@ -22,6 +22,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.SignalsGateway.AdapterContext
@@ -324,7 +325,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
            "metadata" =>
              compact_map(%{
                "corp_id" => optional_text(sender(payload), "corpid"),
-               "provider" => Map.get(config, "platformSubjectNamespace", "wecom-main")
+               "provider" => Config.subject_namespace(config)
              })
          }}
 
@@ -337,7 +338,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "wecom-main"),
+      provider: Config.subject_namespace(config),
       external_id: operator_id
     }
 
