@@ -316,13 +316,37 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
            Adapters.fetch(binding.adapter),
          {:ok, config} <- Bindings.stored_binding_config(binding),
          {:ok, extra} when is_map(extra) <- safe_hydrate(module, config, author) do
+      log_hydration_without_contacts(binding, author, extra)
+
       author
       |> put_missing("email", extra["email"])
       |> put_missing("mobile", extra["mobile"])
       |> put_missing("display_name", extra["display_name"])
       |> put_hydrated_subject(extra)
     else
-      _no_hydration -> author
+      {:error, reason} ->
+        Logging.warning(
+          "signals_gateway.identity_admission.hydration_failed",
+          "author hydration failed",
+          %{binding: binding.name, subject: author["platform_subject"], reason: inspect(reason)}
+        )
+
+        author
+
+      _no_hydration ->
+        author
+    end
+  end
+
+  # A profile without email or mobile cannot feed the contact match, which
+  # usually means the chat application lacks the contact read scopes.
+  defp log_hydration_without_contacts(binding, author, extra) do
+    if extra["email"] == nil and extra["mobile"] == nil do
+      Logging.warning(
+        "signals_gateway.identity_admission.hydration_without_contacts",
+        "author hydration returned no email or mobile",
+        %{binding: binding.name, subject: author["platform_subject"]}
+      )
     end
   end
 
@@ -335,14 +359,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
   defp safe_hydrate(module, config, author) do
     module.hydrate_author(config, author)
   catch
-    kind, reason ->
-      Logging.warning(
-        "signals_gateway.identity_admission.hydration_failed",
-        "author hydration raised",
-        %{module: inspect(module), reason: inspect({kind, reason})}
-      )
-
-      {:error, {kind, reason}}
+    kind, reason -> {:error, {:raised, kind, reason}}
   end
 
   defp put_hydrated_subject(author, %{"platform_subject" => subject} = extra)

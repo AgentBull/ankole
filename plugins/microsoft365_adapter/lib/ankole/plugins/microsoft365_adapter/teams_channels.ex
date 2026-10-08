@@ -242,7 +242,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp sync_conversation(context, config, mirror) do
     client = Config.chat_client(config)
 
-    with_conversation_lock(Config.namespace(config), mirror.conversation_id, fn ->
+    with_conversation_lock(Config.subject_namespace(config), mirror.conversation_id, fn ->
       with {:ok, group} <- ensure_conversation_group(context, config, mirror),
            {:ok, members} <- list_members(client, mirror),
            {:ok, uids} <- member_principal_uids(config, members),
@@ -301,7 +301,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       external_id ->
         Principals.upsert_platform_subject_human(
           %{
-            provider: Config.namespace(config),
+            provider: Config.subject_namespace(config),
             external_id: external_id,
             display_name: MapHelpers.optional_text(member, "name"),
             email:
@@ -315,7 +315,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   defp ensure_conversation_group(context, config, mirror) do
     base_conversation_id = Conversations.base_conversation_id(mirror.conversation_id)
-    provider = Config.namespace(config)
+    provider = Config.subject_namespace(config)
 
     group_result =
       case AuthZ.external_group_ids(provider, :im_group, base_conversation_id) do
@@ -584,7 +584,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   defp mark_participant_left(config, conversation_id, %AdapterContext{} = context) do
     base_conversation_id = Conversations.base_conversation_id(conversation_id)
-    provider = Config.namespace(config)
+    provider = Config.subject_namespace(config)
 
     with_conversation_lock(provider, base_conversation_id, fn ->
       case fetch_group(provider, base_conversation_id) do
@@ -621,7 +621,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   defp mark_all_participants_left(config, conversation_id) do
     base_conversation_id = Conversations.base_conversation_id(conversation_id)
-    provider = Config.namespace(config)
+    provider = Config.subject_namespace(config)
 
     with_conversation_lock(provider, base_conversation_id, fn ->
       case fetch_group(provider, base_conversation_id) do

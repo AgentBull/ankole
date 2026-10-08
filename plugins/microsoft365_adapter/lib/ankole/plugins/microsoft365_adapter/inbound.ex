@@ -84,7 +84,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       thread_root = Conversations.thread_root(conversation_id)
       conversation_type = conversation_type(activity)
       external_id = author_external_id(from)
-      namespace = Config.namespace(config)
+      namespace = Config.subject_namespace(config)
 
       author = %{
         "id" => external_id,
@@ -325,7 +325,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     recipient_id =
       activity |> MapHelpers.fetch_map("recipient", %{}) |> MapHelpers.optional_text("id")
 
-    namespace = Config.namespace(consumer.config)
+    namespace = Config.subject_namespace(consumer.config)
 
     activity
     |> MapHelpers.fetch_list("entities")

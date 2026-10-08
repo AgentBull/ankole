@@ -12,7 +12,8 @@ defmodule Ankole.Plugins.SlackAdapter do
     "appToken" =>
       {"App-Level Token",
        "在「Basic Information → App-Level Tokens」中创建，需包含 connections:write 权限并以 xapp- 开头。"},
-    "platformSubjectNamespace" => {"平台主体命名空间", "每个 Slack workspace 使用一个命名空间。"},
+    "identityProvider" =>
+      {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Slack 身份源时默认采用；有多个时必须选择。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
     "clientID" => {"Client ID", "在 Slack 应用「Basic Information → App Credentials」中获取。"},
     "clientSecret" => {"Client Secret", "与 Client ID 位于同一 App Credentials 页面。"},
@@ -120,12 +121,11 @@ defmodule Ankole.Plugins.SlackAdapter do
         encrypted: true
       ),
       field(
-        "platformSubjectNamespace",
-        "Platform subject namespace",
-        "One namespace per Slack workspace.",
-        :string,
-        default: "slack-main",
-        advanced: true
+        "identityProvider",
+        "Identity provider",
+        "Identity provider whose users the senders of this binding resolve to. A single Slack provider is adopted by default; choose one when several exist.",
+        :identity_provider,
+        identity_provider_adapter: "slack"
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
         default: "Slack",

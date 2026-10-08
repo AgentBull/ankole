@@ -67,21 +67,33 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
          {:ok, secret} <- required_string(value, "secret"),
          {:ok, group_message_mode} <-
            enum_string(value, "group_message_mode", @group_message_modes, "addressed_only"),
-         {:ok, platform_subject_namespace} <-
-           optional_string(value, "platformSubjectNamespace", "wecom-main"),
+         {:ok, identity_provider} <- optional_string(value, "identityProvider", nil),
          {:ok, user_name} <- optional_string(value, "userName", "企业微信 / WeCom") do
       {:ok,
        %{
          "botId" => bot_id,
          "secret" => secret,
          "group_message_mode" => group_message_mode,
-         "platformSubjectNamespace" => platform_subject_namespace,
+         "identityProvider" => identity_provider,
          "userName" => user_name
        }}
     end
   end
 
   def validate_chat_config(_value), do: {:error, :invalid_chat_config}
+
+  @doc """
+  Returns the Principal subject namespace of one chat config. See
+  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  """
+  @spec subject_namespace(map()) :: String.t()
+  def subject_namespace(config) do
+    Ankole.SignalsGateway.SubjectNamespace.resolve(
+      "wecom",
+      Map.get(config, "identityProvider"),
+      "wecom-main"
+    )
+  end
 
   @doc """
   Validates chat config when used as a SignalsGateway binding. A binding needs

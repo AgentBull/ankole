@@ -267,8 +267,29 @@ Identification is automatic and best effort. An existing platform-subject
 binding for any candidate id wins, then the owner of the platform-reported
 email, then the owner of the mobile number. When the exact ids miss and the
 adapter declares an `author_hydrator`, the gateway fetches the sender's contact
-profile once to feed the contact match. An identity provider that cannot
-auto-map simply has no matching rows; that case needs no declaration.
+profile once to feed the contact match. A hydration failure, or a profile
+without email and mobile, is logged as a warning and the match continues
+without it. An identity provider that cannot auto-map simply has no matching
+rows; that case needs no declaration.
+
+The platform-subject namespace of a binding is the identity provider it
+references. Enterprise IM adapters declare an `identityProvider` field of type
+`identity_provider` with the identity-provider adapter id; the host owns the
+rule in `Ankole.SignalsGateway.SubjectNamespace`:
+
+- an identity provider id names that provider's namespace;
+- the standalone value `:standalone` keeps the adapter default namespace;
+- no reference adopts the single configured provider of the adapter, so a
+  provider added after the binding takes effect at once; with none or several
+  providers the adapter default applies.
+
+The binding catalog serves the field as a select over the configured
+providers, disabled ones included, plus the standalone choice; it is required
+only while several providers exist and is omitted while none exists. A config
+write rejects a missing reference while several providers exist and rejects an
+unknown reference; enabling or moving a binding sends no config and keeps its
+reference. Identities recorded under the adapter default before a provider
+existed stay in that namespace until an operator binds them.
 
 What an unmatched sender means is the binding's `unmatched_sender_policy`:
 

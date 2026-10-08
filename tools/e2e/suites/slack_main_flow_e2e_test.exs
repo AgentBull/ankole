@@ -22,7 +22,6 @@ defmodule Ankole.E2E.SlackMainFlowTest do
     config = %{
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
-      "platformSubjectNamespace" => "slack-main",
       "userName" => "Slack"
     }
 

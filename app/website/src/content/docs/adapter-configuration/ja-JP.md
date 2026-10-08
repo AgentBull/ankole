@@ -43,7 +43,7 @@ chat アダプターはメッセージを受信し、Agent の返信を送信し
 
 Telegram、Discord、LINE、WhatsApp はコンシューマー向け IM です。そのユーザーには従業員レコードがないため、Agent が応答する前に、新しい送信者を **アイデンティティ → 保留中のマッピング** でアカウントにマッピングします。WhatsApp では、既知のアカウントがすでにその電話番号を所有している場合、送信者は自動的にマッピングされます。メールの送信者は、明示的なメールの identity 紐付けによってのみ既知になります。この紐付けは、社員についてはディレクトリ同期が作成し、それ以外の人については管理者が作成します。[Signal routing ルール](../signal-bindings/) を参照してください。
 
-外部アプリケーションを準備したら、**Console → Signal Routing → New routing rule** を開きます。Agent とアダプターを選択し、credential を入力します。IdP と chat アプリケーションの両方が同じエンタープライズ組織に属する場合にだけ、両者で同じ `platformSubjectNamespace` を使います。組織をまたいで namespace を共有しないでください。
+外部アプリケーションを準備したら、**Console → Signal Routing → New routing rule** を開きます。Agent とアダプターを選択し、credential を入力します。**Identity provider** フィールドは同じプラットフォームの IdP を参照します。IdP が 1 つだけならデフォルトで採用され、複数ある場合は選択が必要で、スタンドアロンの選択肢は binding 独自の namespace を保ちます。この参照によりチャットの送信者と同期されたディレクトリユーザーは 1 つのアカウントになるため、chat アプリケーションと同じエンタープライズ組織に属する IdP だけを選択してください。
 
 ## 保存済み credential を更新する
 

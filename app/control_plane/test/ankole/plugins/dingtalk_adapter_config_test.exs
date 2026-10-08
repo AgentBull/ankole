@@ -12,7 +12,7 @@ defmodule Ankole.Plugins.DingTalkAdapterConfigTest do
 
     assert config["clientId"] == "ding-app"
     assert config["group_message_mode"] == "addressed_only"
-    assert config["platformSubjectNamespace"] == "dingtalk-main"
+    assert Config.subject_namespace(config) == "dingtalk-main"
     assert config["userName"] == "钉钉 / DingTalk"
     assert config["robotCode"] == nil
     assert config["cardTemplateId"] == nil

@@ -41,7 +41,7 @@ The chat configuration contains these fields:
 | `appID` | Required self-built application ID |
 | `appSecret` | Required encrypted application secret |
 | `domain` | Selects `feishu` or `lark` |
-| `platformSubjectNamespace` | Selects the Principal subject namespace |
+| `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
 The SignalsGateway binding, not these AppConfigure settings, selects how the

@@ -170,7 +170,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert chat["domain"] == "feishu"
       refute Map.has_key?(chat, "group_message_mode")
-      assert chat["platformSubjectNamespace"] == "lark-main"
+      assert chat["identityProvider"] == nil
+      assert Config.subject_namespace(chat) == "lark-main"
+      assert Config.subject_namespace(%{"identityProvider" => "feishu"}) == "feishu"
 
       assert {:ok, identity} =
                Config.validate_identity_config(%{
@@ -2265,6 +2267,51 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Enum.uniq(principal_uids) == ["alice.readable@example.com"]
     end
 
+    test "a directory user chats through a binding that references the provider as one Principal" do
+      %{principal: agent} = agent_fixture()
+      identity_config = identity_config()
+
+      assert {:ok, ^identity_config} =
+               Ankole.IdentityProviders.Config.save_provider(
+                 %{
+                   "provider_id" => "feishu",
+                   "adapter_id" => "lark",
+                   "plugin_id" => "lark-adapter",
+                   "config_key" => Config.identity_config_key("feishu"),
+                   "enabled" => true
+                 },
+                 identity_config
+               )
+
+      assert {:ok, observed} =
+               IdentityProvider.upsert_user("feishu", %{
+                 "user_id" => "ou_alice",
+                 "name" => "Alice Directory",
+                 "union_id" => "onion_alice",
+                 "open_id" => "ou_open_alice_directory_app",
+                 "department_ids" => []
+               })
+
+      binding_fixture(agent.uid, "lark", :ignore, unmatched_sender_policy: :manual_review)
+      config = chat_config()
+      assert config["identityProvider"] == nil
+      assert Config.subject_namespace(config) == "feishu"
+
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [consumer])
+
+      assert %Entry{author: %{"principal_uid" => principal_uid}} = Repo.one!(Entry)
+      assert principal_uid == observed.principal.uid
+
+      assert {:ok, %{uid: ^principal_uid}} =
+               Principals.resolve_platform_subject("feishu", "ou_open_alice")
+
+      assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_alice")
+      assert Repo.aggregate(Ankole.Principals.MappingRequest, :count) == 0
+    end
+
     test "user senders without any sender id are ignored with warning" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -3508,8 +3555,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     {:ok, config} =
       %{
         "appID" => "cli_test",
-        "appSecret" => "secret",
-        "platformSubjectNamespace" => "lark-main"
+        "appSecret" => "secret"
       }
       |> Map.merge(overrides)
       |> Config.validate_chat_config()

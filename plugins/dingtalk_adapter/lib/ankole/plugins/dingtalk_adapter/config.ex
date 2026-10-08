@@ -69,8 +69,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
          {:ok, card_template_id} <- optional_string(value, "cardTemplateId", nil),
          {:ok, group_message_mode} <-
            enum_string(value, "group_message_mode", @group_message_modes, "addressed_only"),
-         {:ok, platform_subject_namespace} <-
-           optional_string(value, "platformSubjectNamespace", "dingtalk-main"),
+         {:ok, identity_provider} <- optional_string(value, "identityProvider", nil),
          {:ok, user_name} <- optional_string(value, "userName", "钉钉 / DingTalk") do
       {:ok,
        %{
@@ -79,13 +78,26 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
          "robotCode" => robot_code,
          "cardTemplateId" => card_template_id,
          "group_message_mode" => group_message_mode,
-         "platformSubjectNamespace" => platform_subject_namespace,
+         "identityProvider" => identity_provider,
          "userName" => user_name
        }}
     end
   end
 
   def validate_chat_config(_value), do: {:error, :invalid_chat_config}
+
+  @doc """
+  Returns the Principal subject namespace of one chat config. See
+  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  """
+  @spec subject_namespace(map()) :: String.t()
+  def subject_namespace(config) do
+    Ankole.SignalsGateway.SubjectNamespace.resolve(
+      "dingtalk",
+      Map.get(config, "identityProvider"),
+      "dingtalk-main"
+    )
+  end
 
   @doc """
   Validates chat config when used as a SignalsGateway binding. A binding needs no

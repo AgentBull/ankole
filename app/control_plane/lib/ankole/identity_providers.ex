@@ -109,6 +109,30 @@ defmodule Ankole.IdentityProviders do
   def list_active_provider_refs(_adapter_id), do: {:ok, []}
 
   @doc """
+  Lists every configured provider ref for one adapter, disabled ones included.
+
+  A disabled provider still owns the Principal subject namespace of the
+  bindings that reference it.
+  """
+  @spec list_provider_refs(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_provider_refs(adapter_id) when is_binary(adapter_id) do
+    with {:ok, _adapter} <- fetch_adapter(adapter_id),
+         {:ok, providers} <- Config.active_providers() do
+      refs =
+        providers
+        |> Enum.filter(&(&1["adapter_id"] == adapter_id))
+        |> Enum.map(&provider_ref/1)
+
+      {:ok, refs}
+    else
+      {:error, {:unknown_identity_provider_adapter, ^adapter_id}} -> {:ok, []}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def list_provider_refs(_adapter_id), do: {:ok, []}
+
+  @doc """
   Persists one provider config and marks the connection active.
   """
   @spec save_provider(String.t(), String.t(), map(), boolean(), keyword()) ::

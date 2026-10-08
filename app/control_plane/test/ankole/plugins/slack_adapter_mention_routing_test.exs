@@ -47,8 +47,7 @@ defmodule Ankole.Plugins.SlackAdapterMentionRoutingTest do
       Map.merge(
         %{
           "botToken" => "xoxb-bot",
-          "appToken" => "xapp-app",
-          "platformSubjectNamespace" => "slack-main"
+          "appToken" => "xapp-app"
         },
         overrides
       )

@@ -40,7 +40,7 @@ The chat configuration contains these fields:
 | `botId` | Required AI bot ID |
 | `secret` | Required encrypted long-connection secret |
 | `group_message_mode` | Must be `addressed_only` |
-| `platformSubjectNamespace` | Selects the Principal subject namespace |
+| `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
 A corp super administrator must create the bot. A bot from another creator

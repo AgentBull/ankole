@@ -256,7 +256,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
                "union_id" => optional_text(payload, "senderUnionId"),
                "corp_id" => optional_text(payload, "senderCorpId"),
                "is_admin" => fetch_value(payload, "isAdmin"),
-               "provider" => Map.get(config, "platformSubjectNamespace", "dingtalk-main")
+               "provider" => Config.subject_namespace(config)
              })
          }}
 
@@ -267,7 +267,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "dingtalk-main"),
+      provider: Config.subject_namespace(config),
       external_id: operator_id
     }
 

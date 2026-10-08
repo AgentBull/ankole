@@ -49,14 +49,14 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
          :ok <- token_prefix(bot_token, "xoxb-", "botToken"),
          {:ok, app_token} <- required_string(value, "appToken"),
          :ok <- token_prefix(app_token, "xapp-", "appToken"),
-         {:ok, namespace} <- optional_string(value, "platformSubjectNamespace", "slack-main"),
+         {:ok, identity_provider} <- optional_string(value, "identityProvider", nil),
          {:ok, user_name} <- optional_string(value, "userName", "Slack"),
          {:ok, bot_user_id} <- optional_string(value, "botUserID", nil) do
       {:ok,
        %{
          "botToken" => bot_token,
          "appToken" => app_token,
-         "platformSubjectNamespace" => namespace,
+         "identityProvider" => identity_provider,
          "userName" => user_name,
          "botUserID" => bot_user_id
        }}
@@ -64,6 +64,19 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   end
 
   def validate_chat_config(_value), do: {:error, :invalid_chat_config}
+
+  @doc """
+  Returns the Principal subject namespace of one chat config. See
+  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  """
+  @spec subject_namespace(map()) :: String.t()
+  def subject_namespace(config) do
+    Ankole.SignalsGateway.SubjectNamespace.resolve(
+      "slack",
+      Map.get(config, "identityProvider"),
+      "slack-main"
+    )
+  end
 
   @spec validate_binding_config(term()) :: {:ok, chat_config()} | {:error, term()}
   def validate_binding_config(value), do: validate_chat_config(value)

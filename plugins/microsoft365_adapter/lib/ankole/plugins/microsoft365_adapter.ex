@@ -16,7 +16,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
     "appPassword" => {"应用密码", "Microsoft App 的 client secret。"},
     "botTenancy" => {"应用租户模式", "Azure Bot 应用类型：单租户或多租户。"},
     "tenantID" => {"目录（租户）ID", "在 Entra 应用注册的“概述”页面复制。"},
-    "platformSubjectNamespace" => {"平台主体命名空间", "与 Entra IdP 实例共享的主体命名空间。"},
+    "identityProvider" =>
+      {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Entra ID 身份源时默认采用；有多个时必须选择。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
     "clientID" => {"应用程序（客户端）ID", "在 Entra 应用注册的“概述”页面复制。"},
     "clientSecret" => {"客户端密码值", "创建客户端密码后复制“值”，不要填写“密码 ID”。"},
@@ -153,12 +154,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         []
       ),
       field(
-        "platformSubjectNamespace",
-        "Platform subject namespace",
-        "Subject namespace shared with the Entra ID identity provider instance.",
-        :string,
-        default: Config.default_namespace(),
-        advanced: true
+        "identityProvider",
+        "Identity provider",
+        "Identity provider whose users the senders of this binding resolve to. A single Entra ID provider is adopted by default; choose one when several exist.",
+        :identity_provider,
+        identity_provider_adapter: "entra-id"
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
         default: "Teams",

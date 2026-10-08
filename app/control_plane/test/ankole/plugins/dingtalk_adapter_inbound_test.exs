@@ -14,7 +14,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
         user_name: "钉钉"
       )
 
-    Inbound.chat_consumer(context, %{"platformSubjectNamespace" => "dingtalk-main"})
+    Inbound.chat_consumer(context, %{})
   end
 
   defp event(data) do

@@ -574,7 +574,6 @@ defmodule Ankole.E2E.Harness do
       "appID" => app_id,
       "appSecret" => @app_secret,
       "domain" => "feishu",
-      "platformSubjectNamespace" => "lark-chaos",
       "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot")
     }
 

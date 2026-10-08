@@ -14,7 +14,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
         user_name: "企业微信"
       )
 
-    Inbound.chat_consumer(context, %{"platformSubjectNamespace" => "wecom-main"})
+    Inbound.chat_consumer(context, %{})
   end
 
   defp event(body, req_id \\ "req-1") do

@@ -1015,7 +1015,7 @@ export const identityTabs = [
         {
           title: '身份应用和聊天应用分开',
           body: [
-            '技术上可以复用同一个自建应用，但正式使用时建议分别创建。IdP 应用只保留登录和通讯录权限，聊天应用只保留机器人权限；两者仍可使用同一个 platformSubjectNamespace 关联同一组织。'
+            '技术上可以复用同一个自建应用，但正式使用时建议分别创建。IdP 应用只保留登录和通讯录权限，聊天应用只保留机器人权限；在聊天绑定的「身份源提供商」字段中选择该 IdP，两个应用就会把发信人映射到同一批账号。'
           ]
         }
       ]
@@ -1402,12 +1402,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: '设置平台身份命名空间',
+          title: '关联身份源提供商',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'slack-main',
-              description: '同一个 Slack workspace 只用一个命名空间。Slack 也作为 IdP 时，两处配置填写同一个值。'
+              name: 'identityProvider',
+              value: '选择 Slack IdP',
+              description: '只有一个 Slack IdP 时默认采用；有多个时必须选择，也可选择独立命名空间。此绑定的发信人解析为该 IdP 的用户，一个 workspace 对应一批账号。'
             },
             {
               name: 'userName',
@@ -1419,7 +1419,7 @@ export const channelTabs = [
         {
           title: '另外创建 Slack IdP 应用',
           body: [
-            '正式使用时，建议为 SSO 和通讯录另建一个 Slack app。IdP 应用只授予登录和通讯录权限；聊天应用只授予机器人权限。两处可以填写相同的 platformSubjectNamespace 来关联同一个 workspace。'
+            '正式使用时，建议为 SSO 和通讯录另建一个 Slack app。IdP 应用只授予登录和通讯录权限；聊天应用只授予机器人权限。在聊天绑定的「身份源提供商」字段中选择该 IdP。'
           ]
         }
       ]
@@ -1489,12 +1489,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Teams 与 Entra 共用身份映射',
+          title: '关联 Entra ID 身份源',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'entra-id-main',
-              description: 'Teams 和 Entra IdP 对应同一个组织时，两处配置填写同一个值。'
+              name: 'identityProvider',
+              value: '选择 Entra ID IdP',
+              description: '只有一个 Entra ID IdP 时默认采用；有多个时必须选择。Teams 发信人将解析为通讯录同步和登录使用的同一批账号。'
             },
             {
               name: 'userName',
@@ -1609,16 +1609,16 @@ export const channelTabs = [
         {
           title: '另外创建飞书 IdP 应用',
           body: [
-            '正式使用时，建议为 SSO 和通讯录另建一个自建应用。IdP 应用只保留登录和通讯录权限；聊天应用只保留机器人权限。两处可以填写相同的 platformSubjectNamespace 来关联同一个组织。'
+            '正式使用时，建议为 SSO 和通讯录另建一个自建应用。IdP 应用只保留登录和通讯录权限；聊天应用只保留机器人权限。在聊天绑定的「身份源提供商」字段中选择该 IdP。'
           ]
         },
         {
           title: '设置身份映射字段',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'lark-main',
-              description: '聊天连接和飞书 IdP 对应同一个组织时，两处配置填写同一个值。'
+              name: 'identityProvider',
+              value: '选择飞书 IdP',
+              description: '只有一个飞书 IdP 时默认采用；有多个时必须选择，也可选择独立命名空间。此绑定的发信人解析为该 IdP 同步的用户，一个人只有一个账号。'
             },
             {
               name: 'userName',
@@ -1751,9 +1751,9 @@ export const channelTabs = [
           ],
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'dingtalk-main',
-              description: '聊天连接和钉钉 IdP 对应同一个组织时，两处配置才填写同一个值。'
+              name: 'identityProvider',
+              value: '选择钉钉 IdP',
+              description: '只有一个钉钉 IdP 时默认采用；有多个时必须选择。此绑定的发信人解析为该 IdP 的用户。'
             }
           ]
         }
@@ -1827,9 +1827,9 @@ export const channelTabs = [
           title: '设置身份映射字段',
           fields: [
             {
-              name: 'platformSubjectNamespace',
-              value: 'wecom-main',
-              description: '聊天连接和企业微信 IdP 对应同一家企业时，两处配置填写同一个值。'
+              name: 'identityProvider',
+              value: '选择企业微信 IdP',
+              description: '只有一个企业微信 IdP 时默认采用；有多个时必须选择。此绑定的发信人解析为该 IdP 的用户。'
             },
             {
               name: 'userName',
@@ -2362,9 +2362,9 @@ export const signalAdvanced = {
         '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉和企业微信只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
     },
     {
-      title: '用命名空间区分平台身份',
+      title: '在聊天绑定中关联身份源',
       body: [
-        '同一个平台下，每个企业组织使用一个 platformSubjectNamespace。IdP 和聊天渠道对应同一个组织时，两处配置才填写同一个值。'
+        '聊天绑定在「身份源提供商」字段中引用同一平台的 IdP。只有一个 IdP 时默认采用，有多个时必须选择，「不关联」选项让绑定保留自己的命名空间。该引用让聊天发信人和通讯录同步的用户成为同一个账号。'
       ]
     }
   ]
