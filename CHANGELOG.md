@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.6.19-rc.1 (2026-10-09)
+
+- Fix the website build by escaping apostrophes in the English quickstart.
+
 ## Version 1.6.18-rc.1 (2026-10-08)
 
 - Enterprise IM signal bindings (Lark, Slack, DingTalk, WeCom, Teams) now
