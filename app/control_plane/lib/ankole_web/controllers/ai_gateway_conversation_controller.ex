@@ -20,7 +20,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   alias OpenAPISpex.Schema
 
   tags(["AI Gateway Conversations"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -48,9 +48,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     ],
     responses: [
       ok: {"Conversations", "application/json", AIGatewayConversationListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -59,9 +57,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Conversation", "application/json", AIGatewayConversationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -78,9 +74,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     ],
     responses: [
       ok: {"Messages", "application/json", AIGatewayMessageListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

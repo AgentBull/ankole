@@ -18,6 +18,7 @@ import { clipLinesToBudget } from '../src/tools/computer/format'
 import { createGrepTool } from '../src/tools/computer/grep-tool'
 import { createLsTool } from '../src/tools/computer/ls-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
+import { FakeDrive } from './support/fake-drive'
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
   const part = result.content[0]
@@ -30,10 +31,17 @@ function searchContext(agentHome: string, workspaceRoot: string, computer?: Cont
   return {
     agentHome,
     workspaceRoot,
-    userFilesRoot: join(agentHome, 'user-files'),
-    getComputer: async () => {
-      if (!computer) throw new Error('computer facade is not part of this test')
-      return computer
+    drive: new FakeDrive(agentHome).drive(),
+    computer: computer ?? {
+      runCommand: async () => {
+        throw new Error('computer is not part of this test')
+      },
+      readFileWindow: async () => {
+        throw new Error('computer is not part of this test')
+      },
+      readFileBytes: async () => {
+        throw new Error('computer is not part of this test')
+      }
     }
   }
 }
@@ -245,6 +253,20 @@ describe('find/grep/ls over a real index', () => {
     expect(textOf(result)).toContain('pattern is required')
   })
 
+  it('paginates grep with an opaque cursor', async () => {
+    const pageFiles = (text: string) => text.split('\n').filter(line => line.startsWith('docs/page-'))
+    const first = await grep.execute('t13c', { pattern: 'page', path: 'docs/', limit: 10 })
+    expect(first.details?.cursor).toBeDefined()
+    const seen = new Set(pageFiles(textOf(first)))
+    let cursor = first.details?.cursor
+    while (cursor) {
+      const next = await grep.execute('t13d', { cursor })
+      for (const file of pageFiles(textOf(next))) seen.add(file)
+      cursor = next.details?.cursor
+    }
+    expect(seen.size).toBe(30)
+  })
+
   it('expires unknown grep cursors with a rerun hint', async () => {
     const result = await grep.execute('t13b', { cursor: 'g999999' })
     expect(textOf(result)).toContain('Cursor expired')
@@ -273,42 +295,6 @@ describe('find/grep/ls over a real index', () => {
   })
 })
 
-describe('search cursors across Agent Homes', () => {
-  // One runtime for both homes, as one Worker serves several Agents.
-  const runtime = new FffSearchRuntime()
-  afterAll(() => runtime.destroyAll())
-
-  const owner = makeHome()
-  const other = makeHome()
-  const ownerContext = searchContext(owner.agentHome, owner.workspaceRoot)
-  const otherContext = searchContext(other.agentHome, other.workspaceRoot)
-  for (let index = 0; index < 3; index++) {
-    writeFileSync(join(owner.workspaceRoot, `page-${index}.md`), 'cursor marker\n')
-  }
-
-  it('resumes a grep cursor only in the Agent Home that created it', async () => {
-    const ownerGrep = createGrepTool(ownerContext, runtime)
-    const otherGrep = createGrepTool(otherContext, runtime)
-    const cursor = (await ownerGrep.execute('first', { pattern: 'cursor marker', limit: 1 })).details?.cursor
-    expect(cursor).toBeDefined()
-
-    const unknown = await otherGrep.execute('unknown', { cursor: 'g999999' })
-    expect(await otherGrep.execute('foreign', { cursor })).toEqual(unknown)
-    expect(textOf(await ownerGrep.execute('resume', { cursor }))).toContain('page-')
-  })
-
-  it('resumes a find cursor only in the Agent Home that created it', async () => {
-    const ownerFind = createFindTool(ownerContext, runtime)
-    const otherFind = createFindTool(otherContext, runtime)
-    const cursor = (await ownerFind.execute('first', { pattern: 'page', limit: 1 })).details?.cursor
-    expect(cursor).toBeDefined()
-
-    const unknown = await otherFind.execute('unknown', { cursor: 'f999999' })
-    expect(await otherFind.execute('foreign', { cursor })).toEqual(unknown)
-    expect(textOf(await ownerFind.execute('resume', { cursor }))).toContain('page-')
-  })
-})
-
 class BigOutputCommand implements CommandFinished {
   constructor(
     readonly exitCode: number,
@@ -326,9 +312,8 @@ describe('command output persistence', () => {
   function commandComputer(stdout: string): ContainerComputer {
     return {
       runCommand: async () => new BigOutputCommand(0, stdout),
-      fileSize: async () => null,
       readFileWindow: async () => null,
-      fs: { writeFiles: async () => {} }
+      readFileBytes: async () => null
     }
   }
 
@@ -367,13 +352,12 @@ describe('read_file budget clipping', () => {
     const lines = Array.from({ length: 80 }, () => longLine)
     const computer: ContainerComputer = {
       runCommand: async () => new BigOutputCommand(0, ''),
-      fileSize: async () => null,
       readFileWindow: async (input: { offset: number; limit: number }) => ({
         sniff: Buffer.from(longLine),
         totalLines: lines.length,
         lines: lines.slice(input.offset - 1, input.offset - 1 + input.limit)
       }),
-      fs: { writeFiles: async () => {} }
+      readFileBytes: async () => null
     }
     const { agentHome, workspaceRoot } = makeHome()
     const readFile = createReadFileTool(searchContext(agentHome, workspaceRoot, computer))

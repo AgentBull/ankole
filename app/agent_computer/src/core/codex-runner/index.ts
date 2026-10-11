@@ -1,8 +1,7 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { rpcMethods } from '../../lanes/rpc_lane'
 import { isTerminalBackgroundAgentJobStatus } from '../background-agent-job-documents'
 import { modelIntegerIDFromWire, modelIntegerIDToWire } from '../model-integer-id'
-import type { CodexJobOptions, TurnHandlerResult } from '../turns/turn_options'
+import type { CodexJobOptions } from './options'
 import { prepareCodexJobExecution } from './job/setup'
 import { runCodexJobSession } from './job/session'
 
@@ -11,17 +10,19 @@ import { runCodexJobSession } from './job/session'
  * `job/` owns one Job attempt. `runtime/` owns the Agent-scoped app server that
  * Job attempts can share.
  */
-export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): Promise<TurnHandlerResult> {
+export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): Promise<void> {
   opts.abortSignal?.throwIfAborted()
   const jobID = jobIDFromTurn(turnStart)
-  const job = await opts.rpc(rpcMethods.backgroundAgentJobGet, { jobId: jobID }, { turn: turnStart.turn })
+  const job = await opts.rpc(
+    'background_agent_job.get',
+    { jobId: jobID },
+    { jobTurn: turnStart.turn },
+    { retryOnDisconnect: true }
+  )
   opts.abortSignal?.throwIfAborted()
 
   if (isTerminalBackgroundAgentJobStatus(job.status)) {
-    return {
-      kind: 'noop_completed',
-      reason: `background_agent_job_${job.status}`
-    }
+    return
   }
 
   const prepared = await prepareCodexJobExecution({ turnStart, opts, jobID, job })

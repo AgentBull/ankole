@@ -7,13 +7,13 @@ order: 122
 
 Agent 可以在普通对话中运行命令、读写文件，也可以把需要持续执行的工作交给后台 Agent 任务。两者走不同的运行路径：普通对话使用 Agent Computer Worker 的前台工具，每个后台 Agent 任务则由 CodexRunner 执行。消息里有多少代码，不会触发运行路径切换。
 
-先说明最关键的一点：每条命令都在沙箱里跑。shell 命令跑在 bubblewrap 下，带 `SYS_ADMIN`、不限制的 seccomp、不屏蔽的 `/proc`——这是 worker 的硬性要求，不是运维的选择。agent 在 `/agents` 下的按 agent 文件系统里工作，shell 无法让它逃出这个沙箱。
+先说明最关键的一点：每条命令都在 Agent 自己的电脑上跑。每个 Agent 都有自己的 Worker 容器，容器是唯一的隔离边界。命令以 Worker 的用户身份运行，没有内层沙箱；agent 在 `/workspace` 下自己的 Agent Home 里工作。Agent 可以改动自己的电脑，但不与其他 Agent 共享 Worker、缓存盘或凭据。
 
-## bubblewrap 下的 shell 命令
+## shell 命令
 
-agent 通过 command 工具跑 shell 命令，由 `app/agent_computer/src/tools/computer/command-tool.ts` 和 `bubblewrap.ts` 里的 bubblewrap 沙箱支撑。模型请求的每条命令都跑在 bubblewrap 下，带 `SYS_ADMIN`、不限制的 seccomp 策略、不屏蔽的 `/proc`。不屏蔽的 `/proc` 和 `SYS_ADMIN` 能力是让更深的工具——[浏览器](../browser-automation/) daemon、Jupyter kernel——能在同一个沙箱里跑，而不是逃出沙箱。这套组合是 worker 镜像的硬性要求，见 [快速开始](../quickstart/#deployment)；它不是按 agent 可调的。
+agent 通过 command 工具跑 shell 命令，由 `app/agent_computer/src/tools/computer/command-tool.ts` 支撑。每条命令以 Worker 的用户身份在自己的进程组中运行，使用一个不含 Worker 凭据的全新环境。取消或超时会结束整个进程组；默认前台时限为 180 秒。工作目录必须位于 Agent Home 内。[浏览器](../browser-automation/) daemon、Codex app-server 和 Automation 脚本也以 Worker 的用户身份运行，Worker 不需要额外的内核权限。
 
-实践上意味着：一条 shell 命令能读写 agent 工作区下的文件、跑已装的工具、启动 worker 镜像提供的子进程。它够不到别的 agent 的工作区，也够不到控制面状态。沙箱就是边界。
+命令以 uid 1000 运行，没有 sudo。它可以写 Home、安装用户态包和启动子进程，不能安装系统软件。同一 Agent 的 Session 与 Job 可以看到彼此的文件；实例隔离不同 Agent。Worker 没有数据库连接或对象存储凭据。
 
 ## 文件读取与 apply_patch
 
@@ -26,16 +26,16 @@ Main Agent 通过 AIGateway 把原始 patch 作为 `custom_tool_call` 发送。W
 
 这条共享路径让普通对话和后台 Agent 任务使用同一种编辑协议。patch 无法匹配时，原生工具会失败，并把失败结果返回给模型。快速搜索可以用 shell；文件编辑使用 `apply_patch`。
 
-## /agents 文件系统
+## /workspace 文件系统
 
-agent 读写的一切都在 `/agents` 下，按 agent key 布局。agent 直接看到容器路径——worker 不为模型翻译路径：
+Agent Home 是 `/workspace` 上的持久存储。旧路径 `/agents/<agent_uid>` 链接到这里；路径检查先解析符号链接，再校验 Home 边界。目录结构如下：
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -45,6 +45,10 @@ agent 读写的一切都在 `/agents` 下，按 agent key 布局。agent 直接�
 ```
 
 `SOUL.md`、`MISSION.md` 和 `DESIGN.md` 是 [Agent Library](../agent-library/) 中的长期文档。前两份定义职责与行为，`DESIGN.md` 是视觉内容使用的设计系统。`installed-skills/` 存放 Agent 安装的 Skill。`sessions/` 使用由 PostgreSQL 从 10000 开始分配的稳定数字 ID 保存普通会话工作区，`jobs/` 是后台 Agent 任务的独立工作区。
+
+Home 在删除实例和更换镜像后保留，重建只删除 `/var/cache/ankole` 缓存。Docker 本地卷依赖宿主；Cloudflare 被强制停止时可能丢失最后一次 R2 备份后的写入。各类型的存储限制见 [工作节点](../worker-management/)。
+
+控制面云盘独立保存附件、发布的文件、Skill 和 Automation 脚本。用 `ankole-files` 读写云盘；Job 工作区与 Codex 线程文件留在持久 Home。回合开始前，Worker 将 `installed-skills/` 与云盘同步。
 
 后台 Agent Job 通过 Ankole `skill_view` 加载 Skill，不会把 Skill root 复制到 Job 工作区。
 
@@ -70,7 +74,7 @@ Console 将对应的模型档案显示为**后台 Agent 任务**。它在数据�
 
 ## 下一步
 
-- 跑这些工具、拥有 `/agents` 文件系统的 Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
+- 跑这些工具、拥有 `/workspace` 文件系统的 Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - Jupyter skill 背后的 skill 与启用模型，读 [Agent Library](../agent-library/)。
 - 后台 Agent 任务档案及其内部键 `coding`，读 [后台 Agent 任务](../background-jobs/#选择模型-provider)。
-- worker 镜像要求的沙箱，读 [快速开始](../quickstart/#deployment)。
+- Worker 的信任边界及其加固方法，读 [安全加固](../security-hardening/)。

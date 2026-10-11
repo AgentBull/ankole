@@ -100,7 +100,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
   defp fresh(event), do: Repo.get!(ActorEvent, event.id)
 
-  for operation <- [:open, :update, :finalize] do
+  for operation <- [:update, :finalize] do
     defp unquote(operation)(request) do
       {:ok, adapter} = ReplyPreviewAdapter.from_module(AICard)
       apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
@@ -119,7 +119,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     presentation = working("hello from the agent")
 
     assert {:ok, open_result} =
-             open(%Request{
+             update(%Request{
                actor_event: event,
                presentation: presentation,
                mode: :working
@@ -159,7 +159,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     record_requests(self())
 
     assert {:ok, _open} =
-             open(%Request{
+             update(%Request{
                actor_event: event,
                presentation: working("short"),
                mode: :working
@@ -205,7 +205,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     page_one = String.duplicate("A", 2_000)
 
     assert {:ok, _open} =
-             open(%Request{
+             update(%Request{
                actor_event: event,
                presentation: working(page_one),
                mode: :working

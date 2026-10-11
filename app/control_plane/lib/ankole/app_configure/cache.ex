@@ -12,6 +12,9 @@ defmodule Ankole.AppConfigure.Cache do
   alias Ankole.Repo
 
   @table :ankole_app_configure_cache
+  @topic "app_configure:cache"
+  # Row entries use `{scope, key}` keys, so this atom key cannot collide with them.
+  @refresh_generation :refresh_generation
 
   @type row_state :: {:row, map()} | :absent | {:error, term()}
 
@@ -43,17 +46,26 @@ defmodule Ankole.AppConfigure.Cache do
 
   The read runs in the calling process, so it is re-entrant inside the caller's
   open transaction and the SQL Sandbox serves it from the caller's test
-  connection. The cache process only publishes the result, and it keeps an
-  existing entry instead of the reader's snapshot, so a reader cannot replace a
-  newer refreshed value with an older captured envelope.
+  connection. The cache process then publishes the result only if no refresh
+  started after this load began, and it never replaces an existing entry. A
+  refresh follows a commit, so an earlier load can hold the row from before that
+  commit, and a failed refresh leaves no entry to block it. The caller still
+  gets its own result. A load that begins after a refresh sees that refresh's
+  commit under READ COMMITTED isolation, so it can publish.
   """
   @spec load(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def load(scope, key) do
-    GenServer.call(__MODULE__, {:publish_load, scope, key, read_one(scope, key)})
+    generation = refresh_generation()
+    read_result = read_one(scope, key)
+    GenServer.call(__MODULE__, {:publish_load, scope, key, generation, read_result})
   end
 
   @doc """
   Re-reads one key after a committed write and replaces its projection.
+
+  A refresh first removes the old entry and starts a new refresh generation, so
+  no load that began earlier can publish (see `load/2`). A failed read then
+  leaves the key empty until a later load.
 
   The read runs inside the cache process, so concurrent refreshes serialize and
   each one reads the row state as of its turn; a delayed publisher therefore
@@ -64,6 +76,13 @@ defmodule Ankole.AppConfigure.Cache do
   """
   @spec refresh(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def refresh(scope, key) do
+    Phoenix.PubSub.broadcast_from(
+      Ankole.PubSub,
+      Process.whereis(__MODULE__) || self(),
+      @topic,
+      {:invalidate, scope, key}
+    )
+
     GenServer.call(__MODULE__, {:refresh, scope, key})
   end
 
@@ -76,53 +95,57 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @doc false
-  @spec fail_next_load_for_test(term()) :: :ok
-  def fail_next_load_for_test(reason) do
-    GenServer.call(__MODULE__, {:fail_next_load_for_test, reason})
+  @spec fail_next_refresh_for_test(String.t(), String.t(), term()) :: :ok
+  def fail_next_refresh_for_test(scope, key, reason) when is_binary(scope) and is_binary(key) do
+    GenServer.call(__MODULE__, {:fail_next_refresh_for_test, scope, key, reason})
   end
 
   @impl true
   def init(_opts) do
+    Phoenix.PubSub.subscribe(Ankole.PubSub, @topic)
     :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
+    # A new process starts a new generation, so a load that began before a
+    # restart cannot publish into the new table.
+    new_refresh_generation()
     load_all()
     {:ok, %{}}
   end
 
   @impl true
-  def handle_call(
-        {:publish_load, scope, key, _read_result},
-        _from,
-        %{fail_next_load: reason} = server_state
-      ) do
-    :ets.delete(@table, {scope, key})
-    {:reply, {:error, reason}, Map.delete(server_state, :fail_next_load)}
+  def handle_info({:invalidate, scope, key}, state) do
+    invalidate(scope, key)
+    {:noreply, state}
   end
 
-  def handle_call({:publish_load, scope, key, read_result}, _from, server_state) do
-    case read_result do
-      {:ok, state} -> :ets.insert_new(@table, {{scope, key}, state})
-      {:error, _reason} -> :ok
+  @impl true
+  def handle_call({:publish_load, scope, key, generation, read_result}, _from, server_state) do
+    with {:ok, state} <- read_result,
+         ^generation <- refresh_generation() do
+      :ets.insert_new(@table, {{scope, key}, state})
     end
 
     {:reply, read_result, server_state}
   end
 
-  def handle_call({:refresh, scope, key}, _from, %{fail_next_load: reason} = server_state) do
-    :ets.delete(@table, {scope, key})
-    {:reply, {:error, reason}, Map.delete(server_state, :fail_next_load)}
+  def handle_call({:refresh, scope, key}, _from, server_state)
+      when is_map_key(server_state, {:fail_next_refresh, scope, key}) do
+    {reason, server_state} = Map.pop!(server_state, {:fail_next_refresh, scope, key})
+    invalidate(scope, key)
+    {:reply, {:error, reason}, server_state}
   end
 
   def handle_call({:refresh, scope, key}, {caller, _tag}, server_state) do
     {:reply, load_one(scope, key, caller), server_state}
   end
 
-  def handle_call({:fail_next_load_for_test, reason}, _from, server_state) do
-    {:reply, :ok, Map.put(server_state, :fail_next_load, reason)}
+  def handle_call({:fail_next_refresh_for_test, scope, key, reason}, _from, server_state) do
+    {:reply, :ok, Map.put(server_state, {:fail_next_refresh, scope, key}, reason)}
   end
 
   @impl true
   def handle_call(:clear_for_test, _from, _server_state) do
     :ets.delete_all_objects(@table)
+    new_refresh_generation()
     {:reply, :ok, %{}}
   end
 
@@ -137,7 +160,6 @@ defmodule Ankole.AppConfigure.Cache do
   defp load_all do
     rows = Repo.all(AppConfig)
 
-    :ets.delete_all_objects(@table)
     Enum.each(rows, &write_row/1)
     :ok
   rescue
@@ -153,10 +175,10 @@ defmodule Ankole.AppConfigure.Cache do
       {:error, {:load_failed, Exception.message(error)}}
   end
 
-  # Refresh path: deletes the stale ETS entry before reading PostgreSQL so a
-  # failed or missing row cannot leave an old value behind in the projection.
+  # Refresh path: invalidates the key before reading PostgreSQL so a failed or
+  # missing row cannot leave an old value behind in the projection.
   defp load_one(scope, key, caller) do
-    :ets.delete(@table, {scope, key})
+    invalidate(scope, key)
 
     AppConfig
     |> where([row], row.scope == ^scope and row.key == ^key)
@@ -189,6 +211,24 @@ defmodule Ankole.AppConfigure.Cache do
     error ->
       reason = {:load_failed, scope, key, Exception.message(error)}
       {:error, reason}
+  end
+
+  defp invalidate(scope, key) do
+    new_refresh_generation()
+    :ets.delete(@table, {scope, key})
+  end
+
+  # Runs in the process that called `load/2` and in the cache process. Without
+  # the table, the generation is `nil`, which never matches a started cache.
+  defp refresh_generation do
+    case safe_lookup(@refresh_generation) do
+      [{@refresh_generation, generation}] -> generation
+      _missing -> nil
+    end
+  end
+
+  defp new_refresh_generation do
+    :ets.insert(@table, {@refresh_generation, make_ref()})
   end
 
   defp write_row(%AppConfig{scope: scope, key: key, value: value}) do

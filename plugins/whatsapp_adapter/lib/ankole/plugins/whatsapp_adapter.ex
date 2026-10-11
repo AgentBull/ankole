@@ -37,6 +37,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter do
         display_name: %{"default" => "WhatsApp"},
         config_key_pattern: "signals_gateway.whatsapp.bindings.<id>",
         config_module: Config,
+        application_bindings: :one,
         fields: [
           %{
             path: "appId",

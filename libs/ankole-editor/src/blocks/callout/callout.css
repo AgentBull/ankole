@@ -1,0 +1,28 @@
+:where(.ankole-editor, .ankole-editor-overlay) .callout {
+  position: relative;
+  background: #faf7f0;
+  border: 1px solid #eee6d6;
+  border-radius: 4px;
+  padding: 12px 18px 12px 44px;
+  margin: 18px 0;
+  color: #6f6252;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout::before {
+  content: '◈';
+  position: absolute;
+  left: 18px;
+  top: 12px;
+  line-height: 1.95;
+  color: #b49a6f;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout p {
+  margin: 2px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='warning'] {
+  background: #fff5e6;
+  border-color: #e4c99f;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .callout[data-tone='warning']::before {
+  content: '⚠';
+  color: #c08a2e;
+}

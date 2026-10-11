@@ -5,11 +5,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
 
   import Ecto.Query, warn: false
 
-  alias Ecto.Adapters.SQL
-  alias Ankole.AuthZ.ExternalBinding
-  alias Ankole.AuthZ.Group
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.AuthZ.Store, as: AuthZStore
   alias Ankole.Logging
+  alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -20,10 +19,9 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.IMGroupMembers
-  alias Ankole.SignalsGateway.Projection
+  alias Ankole.SignalsGateway.IMGroupProjection
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
 
@@ -35,7 +33,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       optional_text: 2
     ]
 
-  @im_group_external_kind :im_group
   @default_page_size 50
 
   @bot_added "im.chat.member.bot.added_v1"
@@ -62,64 +59,16 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
   def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, config)
       when is_map(config) do
-    case enqueue_binding_full_sync(agent_uid, binding_name,
+    case ChannelSync.enqueue_binding(
+           Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups,
+           agent_uid,
+           binding_name,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
       {:ok, _job} -> ConnectionReconciler.reconcile_async()
       {:error, _reason} = error -> error
     end
-  end
-
-  @doc false
-  @spec enqueue_full_syncs(keyword()) :: {:ok, map()} | {:error, term()}
-  def enqueue_full_syncs(opts \\ []) do
-    source = Keyword.get(opts, :source, "startup")
-    reason = Keyword.get(opts, :reason, "startup")
-
-    "lark"
-    |> SignalsGateway.list_enabled_bindings(Keyword.take(opts, [:repo]))
-    |> Enum.reduce_while({:ok, %{enqueued: [], skipped: []}}, fn binding, {:ok, acc} ->
-      case enqueue_binding_full_sync(binding.agent_uid, binding.name,
-             reason: reason,
-             source: source
-           ) do
-        {:ok, %Oban.Job{conflict?: true}} ->
-          {:cont, {:ok, %{acc | skipped: [{binding.agent_uid, binding.name} | acc.skipped]}}}
-
-        {:ok, %Oban.Job{} = job} ->
-          {:cont, {:ok, %{acc | enqueued: [job | acc.enqueued]}}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, result} ->
-        {:ok,
-         %{
-           enqueued: Enum.reverse(result.enqueued),
-           skipped: Enum.reverse(result.skipped)
-         }}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  @doc false
-  @spec enqueue_binding_full_sync(String.t(), String.t(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_binding_full_sync(agent_uid, binding_name, opts \\ [])
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    %{
-      "agent_uid" => String.downcase(agent_uid),
-      "binding_name" => binding_name,
-      "reason" => to_string(Keyword.get(opts, :reason, "manual")),
-      "source" => to_string(Keyword.get(opts, :source, "manual"))
-    }
-    |> Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups.new()
-    |> Oban.insert()
   end
 
   @doc false
@@ -144,7 +93,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
         %{channel: %{kind: :im_group}, signal_channel_id: signal_channel_id}
       )
       when is_binary(signal_channel_id) and is_map(config) do
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 
@@ -168,11 +117,16 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   def sync_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, chats} <- list_joined_chats(config),
          context <- binding_context(binding, config),
          {:ok, synced} <- sync_joined_chats(context, config, chats),
-         {:ok, left} <- mark_missing_chats_left(context, config, Enum.map(chats, &chat_id!/1)) do
+         {:ok, left} <-
+           IMGroupProjection.mark_missing_left(
+             namespace(config),
+             Enum.map(chats, &chat_id!/1),
+             context
+           ) do
       {:ok,
        %{
          binding: %{agent_uid: binding.agent_uid, binding_name: binding.name},
@@ -197,15 +151,16 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   def refresh_chat(agent_uid, binding_name, chat_id)
       when is_binary(agent_uid) and is_binary(binding_name) and is_binary(chat_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, chat} <- fetch_chat_info(config, chat_id),
          {:ok, group} <-
-           ensure_lark_im_group(
+           IMGroupProjection.ensure_group(
              namespace(config),
              chat_id,
              chat_attrs(config, chat),
-             context
+             context,
+             group_projection_options(namespace(config), chat_id, chat_attrs(config, chat))
            ),
          {:ok, principal_uids} <- member_principal_uids(config, chat_id),
          # The API snapshot can be older than a just-arrived member event. The
@@ -220,20 +175,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
          removed_memberships: replace.removed_memberships
        }}
     end
-  end
-
-  @doc false
-  @spec ensure_lark_im_group(String.t(), String.t(), map(), AdapterContext.t()) ::
-          {:ok, Group.t()} | {:error, term()}
-  def ensure_lark_im_group(namespace, chat_id, attrs, %AdapterContext{} = context)
-      when is_binary(namespace) and is_binary(chat_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      with :ok <- lock_chat(repo, namespace, chat_id),
-           {:ok, group} <-
-             ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
-        {:ok, group}
-      end
-    end)
   end
 
   @doc false
@@ -271,11 +212,11 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp dispatch_im_event(_consumer, context, config, @bot_deleted, _event, _content, chat_id) do
-    mark_participant_left(namespace(config), chat_id, context)
+    IMGroupProjection.mark_left(namespace(config), chat_id, context)
   end
 
   defp dispatch_im_event(_consumer, _context, config, @chat_disbanded, _event, _content, chat_id) do
-    mark_all_participants_left(namespace(config), chat_id)
+    IMGroupProjection.mark_all_left(namespace(config), chat_id)
   end
 
   defp dispatch_im_event(_consumer, context, config, @chat_updated, _event, _content, chat_id) do
@@ -286,7 +227,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp dispatch_im_event(_consumer, context, config, @user_added, _event, content, chat_id) do
     case member_subject_candidates(content) do
       [_primary | _aliases] ->
-        with {:ok, group} <- fetch_im_group(namespace(config), chat_id),
+        with {:ok, group} <- IMGroupProjection.get_group(namespace(config), chat_id),
              {:ok, observed} <- upsert_member_principal(config, content),
              {:ok, _membership} <-
                Repo.transact(fn repo ->
@@ -366,11 +307,12 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       chat_id = chat_id!(chat)
 
       with {:ok, group} <-
-             ensure_lark_im_group(
+             IMGroupProjection.ensure_group(
                namespace(config),
                chat_id,
                chat_attrs(config, chat),
-               context
+               context,
+               group_projection_options(namespace(config), chat_id, chat_attrs(config, chat))
              ),
            {:ok, principal_uids} <- member_principal_uids(config, chat_id),
            # Writes are serialized per chat, but the provider snapshot can still
@@ -410,6 +352,26 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
+  defp member_principal_uid(config, chat_id, member) do
+    cond do
+      ignored_member?(member) ->
+        {:ok, nil}
+
+      member_subject_candidates(member) == [] ->
+        Logging.warning(
+          "lark_adapter.im_groups.member_missing_platform_subject",
+          "lark adapter skipped IM group member without email or a supported user id",
+          %{chat_id: chat_id, member: inspect(member)}
+        )
+
+        {:ok, nil}
+
+      true ->
+        with {:ok, observed} <- upsert_member_principal(config, member),
+             do: {:ok, observed.principal.uid}
+    end
+  end
+
   defp member_principal_uids(config, chat_id) do
     config
     |> list_members(chat_id)
@@ -417,30 +379,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       {:ok, members} ->
         members
         |> Enum.reduce_while({:ok, []}, fn member, {:ok, acc} ->
-          cond do
-            ignored_member?(member) ->
-              {:cont, {:ok, acc}}
-
-            true ->
-              case member_subject_candidates(member) do
-                [_primary | _aliases] ->
-                  case upsert_member_principal(config, member) do
-                    {:ok, observed} -> {:cont, {:ok, [observed.principal.uid | acc]}}
-                    {:error, reason} -> {:halt, {:error, reason}}
-                  end
-
-                [] ->
-                  Logging.warning(
-                    "lark_adapter.im_groups.member_missing_platform_subject",
-                    "lark adapter skipped IM group member without email or a supported user id",
-                    %{
-                      chat_id: chat_id,
-                      member: inspect(member)
-                    }
-                  )
-
-                  {:cont, {:ok, acc}}
-              end
+          case member_principal_uid(config, chat_id, member) do
+            {:ok, nil} -> {:cont, {:ok, acc}}
+            {:ok, uid} -> {:cont, {:ok, [uid | acc]}}
+            {:error, _reason} = error -> {:halt, error}
           end
         end)
         |> case do
@@ -478,268 +420,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp ensure_lark_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
-    case lock_im_group_by_binding(repo, namespace, chat_id) do
-      {:ok, group} -> update_im_group_in_tx(repo, group, namespace, chat_id, attrs, context)
-      {:error, :not_found} -> create_im_group_in_tx(repo, namespace, chat_id, attrs, context)
-    end
-  end
-
-  defp create_im_group_in_tx(repo, namespace, chat_id, attrs, context) do
-    metadata = BindingMembership.project(%{}, context, :joined)
-
-    with {:ok, group} <-
-           %Group{}
-           |> Group.changeset(%{
-             name: group_name(namespace, chat_id),
-             display_name: group_display_name(attrs, chat_id),
-             domain: :im_group,
-             kind: :static,
-             metadata: metadata
-           })
-           |> repo.insert(),
-         {:ok, _binding} <- upsert_im_binding_in_tx(repo, namespace, chat_id, group.id, attrs),
-         {:ok, _channel} <- maybe_upsert_group_channel(repo, namespace, chat_id, group, attrs) do
-      {:ok, group}
-    end
-  end
-
-  defp update_im_group_in_tx(repo, %Group{} = group, namespace, chat_id, attrs, context) do
-    changes =
-      %{
-        metadata: BindingMembership.project(group.metadata, context, :joined)
-      }
-      |> maybe_put_display_name(attrs, chat_id)
-
-    with {:ok, group} <- group |> Group.changeset(changes) |> repo.update(),
-         {:ok, _binding} <- upsert_im_binding_in_tx(repo, namespace, chat_id, group.id, attrs),
-         {:ok, _channel} <- maybe_upsert_group_channel(repo, namespace, chat_id, group, attrs) do
-      {:ok, group}
-    end
-  end
-
-  defp lock_im_group_by_binding(repo, namespace, chat_id) do
-    query =
-      im_group_by_binding_query(namespace, chat_id)
-      |> lock("FOR UPDATE")
-
-    case repo.one(query) do
-      %Group{} = group -> {:ok, group}
-      nil -> {:error, :not_found}
-    end
-  end
-
-  defp get_im_group_by_binding(repo, namespace, chat_id) do
-    case repo.one(im_group_by_binding_query(namespace, chat_id)) do
-      %Group{} = group -> {:ok, group}
-      nil -> {:error, :not_found}
-    end
-  end
-
-  defp im_group_by_binding_query(namespace, chat_id) do
-    from(binding in ExternalBinding,
-      join: group in Group,
-      on: group.id == binding.group_id,
-      where:
-        binding.provider == ^namespace and binding.external_kind == ^@im_group_external_kind and
-          binding.external_id == ^chat_id,
-      select: group
-    )
-  end
-
-  defp upsert_im_binding_in_tx(repo, namespace, chat_id, group_id, attrs) do
-    %ExternalBinding{}
-    |> ExternalBinding.changeset(%{
-      provider: namespace,
-      external_kind: :im_group,
-      external_id: chat_id,
-      group_id: group_id,
-      metadata:
-        compact_metadata_map(%{
-          "provider" => namespace,
-          "externalKind" => "im_group",
-          "externalID" => chat_id,
-          "name" => optional_text(attrs, "name"),
-          "app_id" => optional_text(attrs, "app_id"),
-          "domain" => optional_text(attrs, "domain"),
-          "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
-        })
-    })
-    |> repo.insert(
-      conflict_target: [:provider, :external_kind, :external_id],
-      on_conflict: {:replace, [:group_id, :metadata, :updated_at]},
-      returning: true
-    )
-  end
-
-  defp maybe_upsert_group_channel(repo, namespace, chat_id, %Group{} = group, attrs) do
-    signal_channel_id = Inbound.signal_channel_id(chat_id)
-
-    case repo.get(Channel, signal_channel_id) do
-      %Channel{principal_group_id: group_id} when is_binary(group_id) ->
-        case group_id == group.id do
-          true ->
-            Projection.upsert_channel(
-              repo,
-              channel_fact(chat_id, group.id, attrs),
-              DateTime.utc_now(:microsecond)
-            )
-
-          false ->
-            log_channel_namespace_conflict(repo, signal_channel_id, namespace, group_id, group.id)
-
-            Projection.upsert_channel(
-              repo,
-              channel_fact(chat_id, nil, attrs),
-              DateTime.utc_now(:microsecond)
-            )
-        end
-
-      _channel ->
-        Projection.upsert_channel(
-          repo,
-          channel_fact(chat_id, group.id, attrs),
-          DateTime.utc_now(:microsecond)
-        )
-    end
-  end
-
-  defp channel_fact(chat_id, principal_group_id, attrs) do
-    %{
-      signal_channel_id: Inbound.signal_channel_id(chat_id),
-      channel_kind: :im_group,
-      reply_mode: :entry,
-      channel_name: optional_text(attrs, "name"),
-      channel_visibility: optional_text(attrs, "visibility"),
-      principal_group_id: principal_group_id,
-      channel_metadata:
-        compact_metadata_map(%{
-          "chat_id" => chat_id,
-          "domain" => optional_text(attrs, "domain"),
-          "app_id" => optional_text(attrs, "app_id")
-        }),
-      channel_raw_payload: fetch_map(attrs, "raw_payload", %{})
-    }
-  end
-
-  defp log_channel_namespace_conflict(
-         repo,
-         signal_channel_id,
-         namespace,
-         existing_group_id,
-         group_id
-       ) do
-    existing_namespace =
-      ExternalBinding
-      |> where([binding], binding.group_id == ^existing_group_id)
-      |> where([binding], binding.external_kind == :im_group)
-      |> select([binding], binding.provider)
-      |> repo.one()
-
-    Logging.warning(
-      "lark_adapter.im_groups.channel_namespace_conflict",
-      "lark adapter skipped IM group channel FK update because another namespace owns it",
-      %{
-        signal_channel_id: signal_channel_id,
-        namespace: namespace,
-        existing_namespace: existing_namespace,
-        existing_group_id: existing_group_id,
-        group_id: group_id
-      }
-    )
-  end
-
-  defp mark_missing_chats_left(%AdapterContext{} = context, config, observed_chat_ids) do
-    observed = MapSet.new(observed_chat_ids)
-    namespace = namespace(config)
-
-    groups =
-      ExternalBinding
-      |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
-      |> where(
-        [binding, group],
-        binding.provider == ^namespace and binding.external_kind == :im_group and
-          group.domain == :im_group
-      )
-      |> select([binding, group], {binding.external_id, group.id, group.metadata})
-      |> Repo.all()
-
-    groups
-    |> Enum.reject(fn {chat_id, _group_id, _metadata} -> MapSet.member?(observed, chat_id) end)
-    |> Enum.filter(fn {_chat_id, _group_id, metadata} ->
-      BindingMembership.joined?(metadata, context)
-    end)
-    |> Enum.reduce_while({:ok, 0}, fn {chat_id, _group_id, _metadata}, {:ok, count} ->
-      case mark_participant_left(namespace, chat_id, context) do
-        {:ok, _result} -> {:cont, {:ok, count + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp mark_participant_left(namespace, chat_id, %AdapterContext{} = context) do
-    Repo.transact(fn repo ->
-      with :ok <- lock_chat(repo, namespace, chat_id),
-           {:ok, group} <- lock_im_group_by_binding(repo, namespace, chat_id),
-           {:ok, group} <-
-             group
-             |> Group.changeset(%{
-               metadata: BindingMembership.project(group.metadata, context, :left)
-             })
-             |> repo.update(),
-           {:ok, cleanup} <- maybe_clear_all_left_members(repo, group) do
-        {:ok, Map.put(cleanup, :group_id, group.id)}
-      else
-        {:error, :not_found} -> {:ok, %{status: :ignored_missing_group}}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
-
-  defp mark_all_participants_left(namespace, chat_id) do
-    Repo.transact(fn repo ->
-      with :ok <- lock_chat(repo, namespace, chat_id),
-           {:ok, group} <- lock_im_group_by_binding(repo, namespace, chat_id),
-           metadata <- BindingMembership.mark_all_left(group.metadata),
-           {:ok, group} <- group |> Group.changeset(%{metadata: metadata}) |> repo.update(),
-           {:ok, cleanup} <- maybe_clear_all_left_members(repo, group) do
-        {:ok, Map.put(cleanup, :group_id, group.id)}
-      else
-        {:error, :not_found} -> {:ok, %{status: :ignored_missing_group}}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
-
-  defp maybe_clear_all_left_members(_repo, %Group{} = group) do
-    if BindingMembership.all_left?(group.metadata) do
-      IMGroupMembers.replace_members(group.id, [])
-      |> case do
-        {:ok, result} -> {:ok, Map.put(result, :status, :all_left_members_cleared)}
-        {:error, _reason} = error -> error
-      end
-    else
-      # A leaving Agent loses its mirrored membership row at once, the same
-      # way a leaving human does.
-      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
-        {:ok, %{status: :participant_marked_left, removed_memberships: delta.removed_memberships}}
-      end
-    end
-  end
-
-  defp group_name(namespace, chat_id), do: "#{namespace}:im_group:#{String.downcase(chat_id)}"
-
-  defp group_display_name(attrs, chat_id) do
-    optional_text(attrs, "name") || "Lark IM Group #{chat_id}"
-  end
-
-  defp maybe_put_display_name(changes, attrs, _chat_id) do
-    case optional_text(attrs, "name") do
-      name when is_binary(name) -> Map.put(changes, :display_name, name)
-      nil -> changes
-    end
-  end
-
   defp chat_attrs(config, chat) do
     %{
       "name" => chat_name(chat),
@@ -756,15 +436,41 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       optional_text(chat, "display_name")
   end
 
-  defp fetch_im_group(namespace, chat_id) do
-    case get_im_group_by_binding(Repo, namespace, chat_id) do
-      {:ok, group} -> {:ok, group}
-      {:error, _reason} = error -> error
-    end
+  defp group_projection_options(namespace, chat_id, attrs) do
+    [
+      default_display_name: "Lark IM Group #{chat_id}",
+      binding_metadata:
+        compact_metadata_map(%{
+          "provider" => namespace,
+          "externalKind" => "im_group",
+          "externalID" => chat_id,
+          "name" => optional_text(attrs, "name"),
+          "app_id" => optional_text(attrs, "app_id"),
+          "domain" => optional_text(attrs, "domain"),
+          "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+        }),
+      channel: %{
+        on_conflict: :keep_existing,
+        fact: %{
+          signal_channel_id: Inbound.signal_channel_id(chat_id),
+          channel_kind: :im_group,
+          reply_mode: :entry,
+          channel_name: optional_text(attrs, "name"),
+          channel_visibility: optional_text(attrs, "visibility"),
+          channel_metadata:
+            compact_metadata_map(%{
+              "chat_id" => chat_id,
+              "domain" => optional_text(attrs, "domain"),
+              "app_id" => optional_text(attrs, "app_id")
+            }),
+          channel_raw_payload: fetch_map(attrs, "raw_payload", %{})
+        }
+      }
+    ]
   end
 
   defp remove_member_from_group(context, config, chat_id, external_ids) do
-    case fetch_im_group(namespace(config), chat_id) do
+    case IMGroupProjection.get_group(namespace(config), chat_id) do
       {:ok, group} ->
         remove_member_from_existing_group(context, config, chat_id, group, external_ids)
 
@@ -955,12 +661,4 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
 
   defp lark_channel_chat_id("lark:" <> encoded), do: URI.decode(encoded)
   defp lark_channel_chat_id(_channel_id), do: nil
-
-  defp lock_chat(repo, namespace, chat_id) do
-    SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [
-      "lark_im_group:#{namespace}:#{chat_id}"
-    ])
-
-    :ok
-  end
 end

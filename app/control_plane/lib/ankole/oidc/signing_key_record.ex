@@ -1,7 +1,7 @@
 defmodule Ankole.OIDC.SigningKeyRecord do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
 
   import Ecto.Changeset
 

@@ -63,7 +63,7 @@ export const commonIssues = [
     cause: '如果 Console 对话也失败，问题通常在所有聊天渠道共用的后半段：LLM Provider、Agent 模型档案或 Worker，而不是某个平台的事件权限。',
     resolution: [
       '确认 LLM Provider 已启用，凭证和模型名称可用。',
-      '确认 Agent 已配置 primary、light 和 heavy，并且至少有一个 Worker 显示为 ready。',
+      '确认 Agent 已配置 primary、light 和 heavy，并且 Console → 工作节点中该 Agent 的 Worker 没有失败原因。',
       '先在 Console 中完成一次真实模型对话；成功后，再回到所选聊天平台的标签页排查消息入口。'
     ],
     links: [
@@ -91,7 +91,7 @@ export const commonIssues = [
     resolution: [
       '先打开这次运行记录，确认任务是否成功，并读取最早的错误。',
       '核对任务指向的 Agent、会话或聊天目标，以及对应的信号路由规则。',
-      '确认 Agent 的模型档案可用，并且至少有一个 Worker 处于就绪状态。'
+      '确认 Agent 的模型档案可用，并且 Console → 工作节点中该 Agent 的 Worker 没有失败原因。'
     ],
     links: [
       { href: '../schedules/', label: '查看计划任务运行记录' },

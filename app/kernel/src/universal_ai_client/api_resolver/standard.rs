@@ -296,6 +296,20 @@ pub(super) fn upstream_body_error_status(status: u16, body: &Value) -> u16 {
         .unwrap_or(502)
 }
 
+pub(super) enum ProviderTerminal {
+    Completed,
+    Incomplete(&'static str),
+    Failed(StreamError),
+}
+
+pub(super) fn provider_terminal_rejected(provider: &str, reason: &str) -> StreamError {
+    StreamError::new(
+        StreamErrorCode::ProviderTerminalRejected,
+        "api_resolver",
+        format!("{provider} rejected the response with terminal reason {reason}"),
+    )
+}
+
 pub(super) fn normalize_input_items(input: &Value) -> Value {
     match input {
         Value::String(text) => json!([{
@@ -619,7 +633,6 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
             .get("input_tokens")
             .or_else(|| usage.get("prompt_tokens"))
             .or_else(|| usage.get("inputTokens"))
-            .or_else(|| usage.get("promptTokenCount"))
             .unwrap_or(&Value::Null),
     )
     .unwrap_or(0);
@@ -628,7 +641,6 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
             .get("output_tokens")
             .or_else(|| usage.get("completion_tokens"))
             .or_else(|| usage.get("outputTokens"))
-            .or_else(|| usage.get("candidatesTokenCount"))
             .unwrap_or(&Value::Null),
     )
     .unwrap_or(0);
@@ -636,23 +648,14 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
         usage
             .get("total_tokens")
             .or_else(|| usage.get("totalTokens"))
-            .or_else(|| usage.get("totalTokenCount"))
             .unwrap_or(&Value::Null),
     )
     .unwrap_or(input_tokens + output_tokens);
-    // Gemini `cachedContentTokenCount` counts tokens that are already part of
-    // `promptTokenCount`, which matches the OpenResponses cached-input shape.
-    let input_details =
-        match integer_value(usage.get("cachedContentTokenCount").unwrap_or(&Value::Null)) {
-            Some(cached_tokens) => json!({ "cached_tokens": cached_tokens }),
-            None => json!({}),
-        };
-
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
-        "input_tokens_details": input_details,
+        "input_tokens_details": {},
         "output_tokens_details": {}
     })
 }

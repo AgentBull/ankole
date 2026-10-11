@@ -26,20 +26,15 @@ defmodule Ankole.Schedule do
   defdelegate create_check_back_later(attrs, opts \\ []), to: Checkbacks
 
   @doc """
-  Replaces one pending checkback while preserving the cancelled event as audit history.
+  Updates one pending checkback in place.
   """
   @spec update_checkback(pos_integer(), map(), keyword()) ::
-          {:ok,
-           %{
-             status: :updated | :already_updated,
-             previous_scheduled_event: ScheduledEvent.t(),
-             scheduled_event: ScheduledEvent.t()
-           }}
+          {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
   defdelegate update_checkback(scheduled_event_id, attrs, opts \\ []), to: Checkbacks
 
   @doc """
-  Creates one recurring cron schedule and arms its first concrete trigger.
+  Creates one recurring cron schedule and schedules its next wakeup.
   """
   @spec create_cron_schedule(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
@@ -47,21 +42,14 @@ defmodule Ankole.Schedule do
   defdelegate create_cron_schedule(attrs, opts \\ []), to: Cron
 
   @doc """
-  Restores the recurring-event invariant for all stored cron schedules.
-  """
-  @spec reconcile_cron_schedules(keyword()) ::
-          {:ok, %{reconciled: non_neg_integer()}} | {:error, term()}
-  defdelegate reconcile_cron_schedules(opts \\ []), to: Cron
-
-  @doc """
-  Updates a cron schedule and re-arms the next active fire.
+  Updates a cron schedule and moves its next wakeup.
   """
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   defdelegate update_cron_schedule(cron_schedule_id, attrs, opts \\ []), to: Cron
 
   @doc """
-  Pauses a cron schedule and cancels pending recurrence fires.
+  Pauses a cron schedule and clears its next fire time.
   """
   @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
@@ -108,6 +96,9 @@ defmodule Ankole.Schedule do
           | {:error, term()}
   defdelegate fire_due_event(scheduled_event_id, opts \\ []), to: Fire
 
+  @doc "Fires the due slot of one recurring cron schedule."
+  defdelegate fire_cron(cron_schedule_id, opts \\ []), to: Fire
+
   @doc """
   Lists cron schedules for an optional agent and optional owner conversation.
   """
@@ -121,6 +112,10 @@ defmodule Ankole.Schedule do
   defdelegate cron_execution_session_id(cron_schedule_id),
     to: Cron,
     as: :execution_session_id
+
+  @doc "Returns the cron schedule whose fires run in this session, or nil."
+  @spec cron_execution_schedule_id(String.t()) :: Ecto.UUID.t() | nil
+  defdelegate cron_execution_schedule_id(session_id), to: Cron, as: :execution_schedule_id
 
   @doc """
   Fetches one cron schedule.
@@ -142,12 +137,11 @@ defmodule Ankole.Schedule do
   defdelegate get_scheduled_event(scheduled_event_id), to: Queries
 
   @doc """
-  Resolves a checkback identifier through any replacement chain.
+  Fetches one checkback.
   """
-  @spec get_current_checkback(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
-  defdelegate get_current_checkback(scheduled_event_id),
-    to: Checkbacks,
-    as: :resolve_current_checkback
+  @spec get_checkback(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
+  defdelegate get_checkback(scheduled_event_id),
+    to: Checkbacks
 
   @doc """
   Lists recent concrete fires for a cron schedule.

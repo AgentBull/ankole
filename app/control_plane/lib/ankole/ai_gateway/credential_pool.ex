@@ -1,17 +1,16 @@
 defmodule Ankole.AIGateway.CredentialPool do
   @moduledoc """
-  Process-local selection, affinity, and health for provider credential pools.
+  Process-local selection and affinity for durable provider credential pools.
 
   PostgreSQL owns credential entries. This process owns only derived runtime
   state. Each stored entry has a health revision, so a result from an old
-  credential cannot change the health or affinity of its replacement. A
-  restart can cause one extra upstream probe but cannot lose an operator
-  credential.
+  credential cannot change the health or affinity of its replacement. ProviderConfigs persists cooldowns. A
+  restart cannot clear a cooldown or lose an operator credential.
   """
 
   use GenServer
 
-  alias Ankole.AIGateway.FailureDiagnostics
+  alias Ankole.AIGateway.{FailureDiagnostics, ProviderConfigs}
 
   @strategies ~w(fill_first round_robin least_used random)
   @affinity_limit 10_000
@@ -62,7 +61,7 @@ defmodule Ankole.AIGateway.CredentialPool do
           integer() | nil,
           map() | list(),
           map() | term()
-        ) :: :ok
+        ) :: :ok | {:error, term()}
   def mark_exhausted(
         provider_row_id,
         %{"id" => credential_id} = credential,
@@ -71,11 +70,28 @@ defmodule Ankole.AIGateway.CredentialPool do
         error \\ %{}
       )
       when is_binary(provider_row_id) and is_binary(credential_id) do
-    GenServer.call(
-      __MODULE__,
-      {:mark_exhausted, provider_row_id, credential_key(credential), provider_status, headers,
-       error}
-    )
+    now = DateTime.utc_now(:millisecond)
+
+    until =
+      DateTime.add(
+        now,
+        cooldown_ms(provider_status, headers, error, DateTime.to_unix(now, :millisecond)),
+        :millisecond
+      )
+
+    reason = %{
+      "status" => "exhausted",
+      "error" => error_projection(error, provider_status),
+      "upstream_error" => upstream_error(error, provider_status)
+    }
+
+    with :ok <-
+           ProviderConfigs.put_credential_cooldown(provider_row_id, credential, until, reason),
+         do:
+           GenServer.call(
+             __MODULE__,
+             {:rate_limits, provider_row_id, credential_key(credential), headers}
+           )
   end
 
   @doc """
@@ -96,12 +112,16 @@ defmodule Ankole.AIGateway.CredentialPool do
   @doc """
   Marks one credential revision terminally unusable.
   """
-  @spec mark_dead(String.t(), entry(), map() | term()) :: :ok
+  @spec mark_dead(String.t(), entry(), map() | term()) :: :ok | {:error, term()}
   def mark_dead(provider_row_id, %{"id" => credential_id} = credential, error \\ %{})
       when is_binary(provider_row_id) and is_binary(credential_id) do
-    GenServer.call(
-      __MODULE__,
-      {:mark_dead, provider_row_id, credential_key(credential), error}
+    reason = %{"status" => "dead", "error" => error_projection(error, 401)}
+
+    ProviderConfigs.put_credential_cooldown(
+      provider_row_id,
+      credential,
+      ~U[9999-12-31 00:00:00Z],
+      reason
     )
   end
 
@@ -113,7 +133,7 @@ defmodule Ankole.AIGateway.CredentialPool do
       when is_binary(provider_row_id) and is_binary(credential_id) do
     GenServer.call(
       __MODULE__,
-      {:observe_success, provider_row_id, credential_key(credential), headers}
+      {:rate_limits, provider_row_id, credential_key(credential), headers}
     )
   end
 
@@ -155,14 +175,14 @@ defmodule Ankole.AIGateway.CredentialPool do
         state
       ) do
     now_ms = System.system_time(:millisecond)
-    provider_state = state |> Map.get(provider_row_id, new_provider_state()) |> expire(now_ms)
+    provider_state = Map.get(state, provider_row_id, new_provider_state())
     excluded_ids = MapSet.new(excluded_ids)
 
     available =
       entries
       |> Enum.with_index()
       |> Enum.filter(fn {entry, _index} ->
-        usable_entry?(entry, provider_state.health, excluded_ids, now_ms)
+        usable_entry?(entry, excluded_ids, now_ms)
       end)
       |> Enum.sort_by(fn {entry, index} -> {priority(entry), index} end)
 
@@ -191,60 +211,7 @@ defmodule Ankole.AIGateway.CredentialPool do
     end
   end
 
-  def handle_call(
-        {:mark_exhausted, provider_row_id, credential_key, provider_status, headers, error},
-        _from,
-        state
-      ) do
-    now_ms = System.system_time(:millisecond)
-    provider_state = Map.get(state, provider_row_id, new_provider_state())
-    until_ms = now_ms + cooldown_ms(provider_status, headers, error, now_ms)
-
-    health =
-      case Map.get(provider_state.health, credential_key) do
-        %{status: :exhausted, retry_at_ms: previous_until} = previous
-        when previous_until > until_ms ->
-          previous
-
-        _previous ->
-          %{
-            status: :exhausted,
-            retry_at_ms: until_ms,
-            error: error_projection(error, provider_status),
-            upstream_error: upstream_error(error, provider_status)
-          }
-      end
-
-    provider_state =
-      provider_state
-      |> put_in(
-        [:health, credential_key],
-        health
-      )
-      |> put_rate_limits(credential_key, headers)
-      |> drop_affinity_for(credential_key)
-
-    {:reply, :ok, Map.put(state, provider_row_id, provider_state)}
-  end
-
-  def handle_call(
-        {:mark_dead, provider_row_id, credential_key, error},
-        _from,
-        state
-      ) do
-    provider_state =
-      state
-      |> Map.get(provider_row_id, new_provider_state())
-      |> put_in(
-        [:health, credential_key],
-        %{status: :dead, error: error_projection(error, 401)}
-      )
-      |> drop_affinity_for(credential_key)
-
-    {:reply, :ok, Map.put(state, provider_row_id, provider_state)}
-  end
-
-  def handle_call({:observe_success, provider_row_id, credential_key, headers}, _from, state) do
+  def handle_call({:rate_limits, provider_row_id, credential_key, headers}, _from, state) do
     provider_state =
       state
       |> Map.get(provider_row_id, new_provider_state())
@@ -273,7 +240,7 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   def handle_call({:statuses, provider_row_id, entries}, _from, state) do
     now_ms = System.system_time(:millisecond)
-    provider_state = state |> Map.get(provider_row_id, new_provider_state()) |> expire(now_ms)
+    provider_state = Map.get(state, provider_row_id, new_provider_state())
 
     statuses =
       Map.new(entries, fn entry ->
@@ -352,15 +319,14 @@ defmodule Ankole.AIGateway.CredentialPool do
     end
   end
 
-  defp usable_entry?(entry, health, excluded_ids, now_ms) do
+  defp usable_entry?(entry, excluded_ids, now_ms) do
     credential_id = Map.get(entry, "id")
-    credential_key = credential_key(entry)
 
     is_binary(credential_id) and credential_id != "" and
       is_nil(Map.get(entry, "disabled_at")) and
       Map.get(entry, "reauth_required") != true and
       not MapSet.member?(excluded_ids, credential_id) and
-      case Map.get(health, credential_key) do
+      case entry_health(entry) do
         %{status: :dead} -> false
         %{status: :exhausted, retry_at_ms: until_ms} when until_ms > now_ms -> false
         _state -> true
@@ -399,13 +365,6 @@ defmodule Ankole.AIGateway.CredentialPool do
     update_in(provider_state, [:counts, credential_id], fn count -> (count || 0) + 1 end)
   end
 
-  defp drop_affinity_for(provider_state, credential_key) do
-    Enum.reduce(provider_state.affinity, provider_state, fn
-      {key, {^credential_key, _recency}}, state -> drop_affinity(state, key)
-      _entry, state -> state
-    end)
-  end
-
   defp drop_affinity(provider_state, affinity_key) do
     case Map.pop(provider_state.affinity, affinity_key) do
       {nil, _affinity} ->
@@ -420,17 +379,27 @@ defmodule Ankole.AIGateway.CredentialPool do
     end
   end
 
-  defp expire(provider_state, now_ms) do
-    health =
-      Map.reject(provider_state.health, fn
-        {_credential_key, %{status: :exhausted, retry_at_ms: until_ms}} ->
-          until_ms <= now_ms
+  defp entry_health(entry) do
+    case entry["cooldown_until"] do
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, datetime, _} ->
+            reason = entry["cooldown_reason"] || %{}
 
-        _entry ->
-          false
-      end)
+            %{
+              status: if(reason["status"] == "dead", do: :dead, else: :exhausted),
+              retry_at_ms: DateTime.to_unix(datetime, :millisecond),
+              error: reason["error"] || %{},
+              upstream_error: reason["upstream_error"]
+            }
 
-    %{provider_state | health: health}
+          _invalid ->
+            nil
+        end
+
+      _missing ->
+        nil
+    end
   end
 
   defp exhausted_details(provider_row_id, entries, provider_state, now_ms) do
@@ -445,7 +414,7 @@ defmodule Ankole.AIGateway.CredentialPool do
       entries
       |> Enum.filter(&(is_nil(&1["disabled_at"]) and &1["reauth_required"] != true))
       |> Enum.flat_map(fn entry ->
-        case Map.get(provider_state.health, credential_key(entry)) do
+        case entry_health(entry) do
           %{status: :exhausted, retry_at_ms: until_ms} = health when until_ms > now_ms -> [health]
           _state -> []
         end
@@ -490,12 +459,12 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp entry_status(
          %{"id" => credential_id} = entry,
-         %{health: health} = provider_state,
+         provider_state,
          now_ms
        ) do
     credential_key = credential_key(entry)
 
-    case Map.get(health, credential_key) do
+    case entry_health(entry) do
       %{status: :dead, error: error} ->
         provider_state
         |> status_metadata(credential_id, credential_key)
@@ -539,26 +508,16 @@ defmodule Ankole.AIGateway.CredentialPool do
 
     %{
       "last_error_code" =>
-        text(Map.get(error, "code") || Map.get(error, :code)) ||
+        text(Map.get(error, "code")) ||
           if(is_integer(provider_status), do: Integer.to_string(provider_status)),
-      "last_error_reason" => text(Map.get(error, "reason") || Map.get(error, :reason)),
-      "last_error_message" => text(Map.get(error, "message") || Map.get(error, :message)),
+      "last_error_reason" => text(Map.get(error, "reason")),
+      "last_error_message" => text(Map.get(error, "message")),
       "provider_status" => provider_status
     }
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp upstream_error(error, provider_status) do
-    classification =
-      FailureDiagnostics.classify({:upstream_response_failed, provider_status, error})
-
-    %{
-      "code" => Map.get(classification, :provider_error_code),
-      "type" => Map.get(classification, :provider_error_type),
-      "message" => Map.get(classification, :provider_message)
-    }
-    |> Map.reject(fn {_key, value} -> is_nil(value) end)
-  end
+  defp upstream_error(error, _provider_status), do: FailureDiagnostics.provider_error(error)
 
   defp reset_at_ms(headers, now_ms) do
     headers
@@ -702,8 +661,8 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp fallback_cooldown_ms(401, _error), do: @unauthorized_cooldown_ms
 
-  defp fallback_cooldown_ms(provider_status, error) do
-    if FailureDiagnostics.quota_exhausted?({:upstream_response_failed, provider_status, error}),
+  defp fallback_cooldown_ms(_provider_status, error) do
+    if FailureDiagnostics.quota_error?(error),
       do: @quota_cooldown_ms,
       else: @rate_limit_cooldown_ms
   end
@@ -715,7 +674,6 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   defp new_provider_state do
     %{
-      health: %{},
       affinity: %{},
       affinity_lru: :gb_trees.empty(),
       counts: %{},

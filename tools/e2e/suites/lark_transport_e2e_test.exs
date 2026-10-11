@@ -15,10 +15,10 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.E2E.WaitHelpers
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
-  alias Ankole.Principals
   alias Ankole.SignalsGateway.OutboxEntry
 
   @moduletag timeout: 60_000
+  @moduletag plugin_transport: true
 
   setup do
     fake_feishu = start_fake_feishu!()

@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
   @moduledoc """
   Graph change-notification receiver behind
-  `/webhooks/v1/entra-id/{provider_id}/directory`.
+  `/webhooks/v1/entra-id/{tenant_id}.{provider_id}/directory`.
 
   Handles the subscription validation handshake (echo `validationToken` as
   text/plain) and basic notifications. Notification authenticity comes from
@@ -11,12 +11,25 @@ defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
   provider re-fetches authoritative objects before writing.
   """
 
-  alias Ankole.{IdentityProviders, Logging}
+  alias Ankole.{IdentityProviders, Logging, Repo, Tenants}
   alias Ankole.Plugins.Microsoft365Adapter.{Config, GraphSubscriptions, IdentityProvider}
   alias Ankole.Plugins.MapHelpers
 
   @spec handle_webhook(map()) :: {:ok, map()} | {:error, term()}
-  def handle_webhook(%{kind: "directory"} = request) do
+  def handle_webhook(%{kind: "directory", instance_id: instance_id} = request) do
+    with [tenant_id, provider_id] <- String.split(instance_id, ".", parts: 2),
+         {:ok, tenant} <- Tenants.get(tenant_id) do
+      Repo.with_tenant(tenant.id, fn ->
+        handle_directory(%{request | instance_id: provider_id})
+      end)
+    else
+      _unknown -> {:ok, %{status: 202, body: %{}}}
+    end
+  end
+
+  def handle_webhook(_request), do: {:ok, %{status: 404, body: %{"error" => "unknown webhook"}}}
+
+  defp handle_directory(request) do
     case MapHelpers.optional_text(request.query_params, "validationToken") do
       token when is_binary(token) ->
         {:ok, %{status: 200, body: token, content_type: "text/plain"}}
@@ -25,8 +38,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
         handle_notifications(request)
     end
   end
-
-  def handle_webhook(_request), do: {:ok, %{status: 404, body: %{"error" => "unknown webhook"}}}
 
   defp handle_notifications(%{instance_id: provider_id} = request) do
     notifications = MapHelpers.fetch_list(request.body_params, "value")

@@ -3,7 +3,7 @@ defmodule Ankole.Principals.ExternalIdentity do
   Durable binding from a provider-scoped external subject to a Principal.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

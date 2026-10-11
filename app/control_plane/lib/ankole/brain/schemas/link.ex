@@ -5,7 +5,7 @@ defmodule Ankole.Brain.Schemas.Link do
   object, claim, or timeline content.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 

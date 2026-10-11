@@ -1,10 +1,8 @@
 import { jsonObject, ms } from '@agentbull/active-support'
-import { lstat, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
 import { errorMessage, toError } from '../../../common/errors'
 import type { AgentLoopLogger } from '../../types'
 import { CodexAppServerClient, CodexAppServerExitError, type JSONRPCMessage } from './app-server-client'
-import type { CodexAppServerSandboxSpec } from './sandbox'
+import type { CodexAppServerSpec } from './app-server-spec'
 import { CODEX_HOME_LOCK_BUSY_EXIT_CODE, codexHomeLockedCommandArgv } from './codex-home-lock'
 import { stringValue } from '../protocol'
 import { installCodexLogs2LowLevelFilter } from './fix-codex-logs2-sqlite-bug'
@@ -31,6 +29,7 @@ const MAX_RUNTIME_STDERR_DIAGNOSTIC_LENGTH = 2_048
 
 /** Job callbacks used by the shared runtime without importing Job lifecycle. */
 export interface AgentCodexRuntimeSession {
+  /** Called once for the root thread and for each child thread the session owns. */
   prepareForRuntimeCleanup(): void
   handleRuntimeNotification(message: JSONRPCMessage): void
   handleRuntimeServerRequest(message: JSONRPCMessage, client: CodexAppServerClient): Promise<void>
@@ -41,16 +40,16 @@ export type AgentCodexRuntimeAcquireInput = {
   agentUID: string
   agentHome: string
   codexHome: string
+  sqliteHome: string
   aiGatewayBaseURL: string
   aiGatewayAPIKey: string
-  sandbox: CodexAppServerSandboxSpec
+  appServer: CodexAppServerSpec
   logger?: AgentLoopLogger
   abortSignal?: AbortSignal
 }
 
 type RuntimeEntry = {
   agentUID: string
-  codexHome: string
   startup: Promise<AgentCodexRuntime>
   runtime?: AgentCodexRuntime
   waiters: number
@@ -75,7 +74,7 @@ export class AgentCodexRuntimeBusyError extends Error {
   readonly retryable = true
 
   constructor(agentUID: string, cause: CodexAppServerExitError) {
-    super(`Another Worker owns the active Codex runtime for Agent ${agentUID}`, { cause })
+    super(`Another process holds the Codex Home lock of Agent ${agentUID}`, { cause })
     this.name = 'AgentCodexRuntimeBusyError'
   }
 }
@@ -97,23 +96,22 @@ export class AgentCodexRuntimeLease {
   }
 }
 
-/** Owns one Agent-scoped app-server entry and leases it to Job sessions. */
+/**
+ * Owns the one app-server of the bound Agent and leases it to Job sessions.
+ * The app-server starts with the first lease and closes after the last one.
+ */
 export class AgentCodexRuntimeManager {
-  private readonly entries = new Map<string, RuntimeEntry>()
+  private entry: RuntimeEntry | undefined
 
   async acquire(input: AgentCodexRuntimeAcquireInput): Promise<AgentCodexRuntimeLease> {
     input.abortSignal?.throwIfAborted()
-    const existing = this.entries.get(input.agentUID)
+    const existing = this.entry
     if (existing?.closing) {
       await waitWithAbort(existing.closing, input.abortSignal)
       return this.acquire(input)
     }
 
     const entry = existing ?? this.createEntry(input)
-    if (entry.codexHome !== input.codexHome) {
-      throw new Error(`Agent ${input.agentUID} Codex Home changed while its runtime was active`)
-    }
-
     entry.waiters += 1
     try {
       const runtime = await waitWithAbort(entry.startup, input.abortSignal)
@@ -133,23 +131,19 @@ export class AgentCodexRuntimeManager {
     if (entry.leases === 0 && entry.waiters === 0) await this.closeUnusedEntry(entry)
   }
 
-  activeRuntimeCount(agentUID?: string): number {
-    if (agentUID) return this.entries.get(agentUID)?.runtime ? 1 : 0
-    return [...this.entries.values()].filter(entry => entry.runtime).length
+  activeRuntimeCount(): number {
+    return this.entry?.runtime ? 1 : 0
   }
 
   private createEntry(input: AgentCodexRuntimeAcquireInput): RuntimeEntry {
     const entry: RuntimeEntry = {
       agentUID: input.agentUID,
-      codexHome: input.codexHome,
       waiters: 0,
       leases: 0,
       startup: this.startRuntime(input, error => this.runtimeExited(entry, error))
     }
-    this.entries.set(input.agentUID, entry)
-    void entry.startup.catch(() => {
-      if (this.entries.get(input.agentUID) === entry) this.entries.delete(input.agentUID)
-    })
+    this.entry = entry
+    void entry.startup.catch(() => this.forget(entry))
     return entry
   }
 
@@ -157,18 +151,16 @@ export class AgentCodexRuntimeManager {
     input: AgentCodexRuntimeAcquireInput,
     onExit: (error: Error) => void
   ): Promise<AgentCodexRuntime> {
-    await removeFormerAgentHomeConfig(input.agentHome)
-
     const runtimeRef: { current?: AgentCodexRuntime } = {}
     const client = new CodexAppServerClient({
-      cwd: input.sandbox.cwd,
+      cwd: input.appServer.cwd,
       env: {
-        ...input.sandbox.env,
+        ...input.appServer.env,
         ...codexAgentRuntimeBootstrapEnv(input.codexHome, input.aiGatewayBaseURL, input.aiGatewayAPIKey)
       },
       commandArgv: codexHomeLockedCommandArgv({
-        codexHome: input.codexHome,
-        commandArgv: input.sandbox.commandArgv,
+        sqliteHome: input.sqliteHome,
+        commandArgv: input.appServer.commandArgv,
         deleteLogsBeforeCommand: true,
         runtimeFiles: {
           configPath: codexAgentRuntimeConfigPath(input.codexHome),
@@ -201,7 +193,7 @@ export class AgentCodexRuntimeManager {
         duration_ms: Date.now() - startedAt,
         process_id: client.processID
       })
-      const status = installCodexLogs2LowLevelFilter(input.codexHome)
+      const status = installCodexLogs2LowLevelFilter(input.sqliteHome)
       input.logger?.info('worker.codex_logs2_filter_ready', 'Codex logs filter is ready', {
         agent_uid: input.agentUID,
         status
@@ -220,7 +212,12 @@ export class AgentCodexRuntimeManager {
 
   private runtimeExited(entry: RuntimeEntry, error: Error): void {
     entry.runtime?.markLost(new AgentCodexRuntimeLostError(entry.agentUID, error))
-    if (this.entries.get(entry.agentUID) === entry) this.entries.delete(entry.agentUID)
+    this.forget(entry)
+  }
+
+  /** Drops an entry that ended, unless a newer one already took its place. */
+  private forget(entry: RuntimeEntry): void {
+    if (this.entry === entry) this.entry = undefined
   }
 
   private async closeUnusedEntry(entry: RuntimeEntry): Promise<void> {
@@ -230,28 +227,10 @@ export class AgentCodexRuntimeManager {
         const runtime = entry.runtime ?? (await entry.startup.catch(() => undefined))
         await runtime?.close()
       } finally {
-        if (this.entries.get(entry.agentUID) === entry) this.entries.delete(entry.agentUID)
+        this.forget(entry)
       }
     })()
     return entry.closing
-  }
-}
-
-async function removeFormerAgentHomeConfig(agentHome: string): Promise<void> {
-  const formerCodexHome = join(agentHome, '.codex')
-
-  try {
-    if (!(await lstat(formerCodexHome)).isDirectory()) return
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
-  }
-
-  const configPath = join(formerCodexHome, 'config.toml')
-  try {
-    if (!(await lstat(configPath)).isDirectory()) await unlink(configPath)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
 }
 
@@ -743,7 +722,7 @@ function childThreadLink(
   return childThreadID ? { parentThreadID: eventThreadID, childThreadID } : undefined
 }
 
-/** Process-wide owner of Agent-scoped Codex app-server entries. */
+/** Process-wide owner of the bound Agent's Codex app-server. */
 export const agentCodexRuntimeManager = new AgentCodexRuntimeManager()
 
 function waitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {

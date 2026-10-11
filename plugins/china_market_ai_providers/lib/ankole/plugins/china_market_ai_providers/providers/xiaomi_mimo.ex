@@ -38,7 +38,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
     setting(:metadata, type: :map, scope: :request)
 
     language_model do
-      upstream(:sse)
       api_resolver(:anthropic_messages)
       prepare(:prepare_language_model)
     end
@@ -97,7 +96,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
   defp custom_base_url?(_base_url), do: true
 
   defp billing_plan(settings) do
-    case settings[:xiaomi_mimo_billing_plan] || settings["xiaomi_mimo_billing_plan"] do
+    case settings[:xiaomi_mimo_billing_plan] do
       value when value in ["token_plan", :token_plan] -> "token_plan"
       _value -> "pay_as_you_go"
     end

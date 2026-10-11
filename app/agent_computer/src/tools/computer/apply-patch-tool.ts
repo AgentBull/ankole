@@ -49,10 +49,11 @@ export function createApplyPatchTool(
     },
     executionMode: 'sequential',
     isReadOnly: false,
+    retrySafe: false,
     isDestructive: true,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.file_update' }),
     async execute(_toolCallID, patch, signal): Promise<AgentToolResult<ApplyPatchDetails>> {
-      const computer = await context.getComputer(signal)
+      const computer = context.computer
       const result = await computer.runCommand({
         cmd: 'apply_patch',
         cwd: context.workspaceRoot,

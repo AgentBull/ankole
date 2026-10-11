@@ -12,8 +12,7 @@ RUN dnf install -y \
     postgresql18-server \
     postgresql18-libs \
     postgresql18-contrib \
-    postgresql18-llvmjit \
-    pg_search_18* \
+    "https://github.com/paradedb/paradedb/releases/download/v0.25.11/pg_search_18-0.25.11-1PARADEDB.el9.$(rpm --eval '%{_arch}').rpm" \
     pgvector_18* \
     nss_wrapper \
   && dnf clean all \

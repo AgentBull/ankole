@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
@@ -9,7 +9,6 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.RuntimeEvents
 
   test "persists a bounded card checkpoint and reuses one pending mutation identity" do
     %{principal: subject} = agent_fixture()
@@ -50,7 +49,12 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
     refute Map.has_key?(stored_checkpoint, "message_id")
 
     assert ReplyPreviewAdapter.adapter_checkpoint(stored_checkpoint)["card_id"] == "card-1"
-    assert updated.reply_preview_cleanup_at == ~U[2026-07-14 02:40:00.000000Z]
+
+    assert_enqueued(
+      worker: Ankole.SignalsGateway.Jobs.ReplyPreviewCleanup,
+      args: %{actor_event_id: event.id, tenant_id: event.tenant_id},
+      scheduled_at: ~U[2026-07-14 02:40:00.000000Z]
+    )
 
     first_uuid = Ecto.UUID.generate()
     retry_uuid = Ecto.UUID.generate()
@@ -85,17 +89,54 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
     assert stored.reply_preview_sequence_high_water == 2
     assert stored.reply_preview_checkpoint["sequence_high_water"] == 2
 
-    channel = RuntimeEvents.reply_preview_checkpoint_channel()
-    assert {^channel, payload} = Actors.reply_preview_runtime_event(stored)
+    assert Repo.get_by!(Oban.Job,
+             worker: "Ankole.SignalsGateway.Jobs.ReplyPreviewCheckpoint",
+             args: %{"actor_event_id" => event.id, "tenant_id" => event.tenant_id}
+           )
 
-    assert payload["actor_event_id"] == event.id
+    cleanup =
+      Repo.get_by!(Oban.Job,
+        worker: "Ankole.SignalsGateway.Jobs.ReplyPreviewCleanup",
+        args: %{"actor_event_id" => event.id, "tenant_id" => event.tenant_id}
+      )
 
-    cleanup_channel = RuntimeEvents.reply_preview_cleanup_channel()
+    assert cleanup.scheduled_at == ~U[2026-07-14 02:40:00.000000Z]
+  end
 
-    assert {^cleanup_channel, cleanup_payload} =
-             Actors.reply_preview_cleanup_runtime_event(stored)
+  test "an old owner cannot checkpoint or record the first provider source" do
+    %{principal: subject} = agent_fixture()
+    binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
-    assert cleanup_payload["due_at"] == "2026-07-14T02:40:00.000000Z"
+    %{actor_event: event} =
+      emit_addressed_actor_event(subject.uid, "mock", group_entry(%{explicit: true}))
+
+    assert {:ok, _} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "owner_generation" => 2,
+               "stream_actor_event_id" => event.id,
+               "presentation_owner" => false,
+               "presentation" => ReplyPresentation.new()
+             })
+
+    stored = Repo.get!(ActorEvent, event.id)
+
+    assert {:error, :stale_reply_preview_owner_generation} =
+             Actors.put_reply_preview_checkpoint(
+               event.id,
+               %{
+                 "owner_generation" => 1,
+                 "stream_actor_event_id" => event.id,
+                 "presentation_owner" => true,
+                 "message_id" => "stale-source",
+                 "presentation" => ReplyPresentation.new()
+               },
+               {"stale-source", "stale-thread"}
+             )
+
+    current = Repo.get!(ActorEvent, event.id)
+    assert current.reply_preview_source_entry_id == nil
+    assert current.provider_thread_id == stored.provider_thread_id
+    assert current.reply_preview_checkpoint == stored.reply_preview_checkpoint
   end
 
   test "owner generation rejects a late working update after a card handoff" do

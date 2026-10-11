@@ -1,9 +1,11 @@
+import { writeFileAtomic } from '../common/atomic-write'
+import { mkdirAgent } from '../common/agent-user'
 import { ms } from '@agentbull/active-support'
 import { compareCodePointStrings } from '../common/ordering'
 import { errorMessage } from '../common/errors'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   BrowserBackendSchema,
@@ -40,13 +42,16 @@ export type RenderedFetchBrowserMaterializeSettings = BrowserMaterializeSettings
   idleTtlMs?: number
 }
 
-export type MaterializedBrowserRuntime = {
+export type BrowserRoute = {
   route: string
   session: string
   socketPath: string
-  materialPath: string
   material: BrowserMaterial
   artifactRoot: string
+}
+
+export type MaterializedBrowserRuntime = BrowserRoute & {
+  materialPath: string
   runnerPath: string
   cleanup(): Promise<void>
 }
@@ -57,12 +62,11 @@ export class BrowserRouteMaterializer {
   readonly runnerPath: string
   readonly localChromiumExecutable: string
 
-  constructor(options: { root: string; socketPath?: string; runnerPath?: string; localChromiumExecutable?: string }) {
+  constructor(options: { root: string; socketPath?: string; runnerPath: string; localChromiumExecutable: string }) {
     this.root = resolve(options.root)
     this.socketPath = options.socketPath ?? '/run/ankole-browser/socket/browser.sock'
-    this.runnerPath = options.runnerPath ?? '/opt/ankole-browser/dist/runner/bootstrap.js'
-    this.localChromiumExecutable =
-      options.localChromiumExecutable ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell'
+    this.runnerPath = options.runnerPath
+    this.localChromiumExecutable = options.localChromiumExecutable
   }
 
   async materializePersistent(input: {
@@ -109,9 +113,7 @@ export class BrowserRouteMaterializer {
     return await this.writeMaterial({ ...materialBase, material_generation: generation }, artifactRoot)
   }
 
-  async materializeEphemeral(input: {
-    settings: RenderedFetchBrowserMaterializeSettings
-  }): Promise<MaterializedBrowserRuntime> {
+  async materializeEphemeral(input: { settings: RenderedFetchBrowserMaterializeSettings }): Promise<BrowserRoute> {
     const backend = this.backend(input.settings.workerEnv)
     const profile = await this.profile(input.settings.workerEnv)
     const route = opaqueRoute()
@@ -134,7 +136,9 @@ export class BrowserRouteMaterializer {
       navigation: { ssrf_filter: input.settings.ssrfFilter, allow_file_urls: false },
       idle_ttl_ms: input.settings.idleTtlMs ?? ms('30m')
     })
-    return await this.writeMaterial(material, artifactRoot)
+    await mkdirAgent(material.data_root)
+    await mkdirAgent(artifactRoot)
+    return { route, session: 'default', socketPath: this.socketPath, material, artifactRoot }
   }
 
   private async writeMaterial(
@@ -142,11 +146,10 @@ export class BrowserRouteMaterializer {
     artifactRoot: string
   ): Promise<MaterializedBrowserRuntime> {
     const material = BrowserMaterialSchema.parse(candidate)
-    await mkdir(material.data_root, { recursive: true })
-    await mkdir(artifactRoot, { recursive: true })
+    await mkdirAgent(material.data_root)
+    await mkdirAgent(artifactRoot)
     const materialPath = join(this.root, 'materials', `${material.route_id}-${crypto.randomUUID()}.json`)
     await atomicJSON(materialPath, material)
-    await chmod(materialPath, 0o600)
     return {
       route: material.route_id,
       session: 'default',
@@ -274,15 +277,8 @@ async function fingerprintDirectory(root: string): Promise<string> {
 }
 
 async function atomicJSON(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${crypto.randomUUID()}.tmp`
-  const file = await open(temporary, 'w', 0o600)
-  try {
-    await file.writeFile(`${JSON.stringify(value, null, 2)}\n`)
-  } finally {
-    await file.close()
-  }
-  await rename(temporary, path)
+  await mkdirAgent(dirname(path))
+  await writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`, 0o600)
 }
 
 function browserArgsFromEnv(value: string | undefined): string[] {

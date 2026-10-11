@@ -5,10 +5,8 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.RunRef
   alias Ankole.SignalsGateway.Webhooks.RPCBroker
-
-  @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
 
   test "create returns the capability once and list and cancel stay inside the turn session" do
     %{principal: agent} = agent_fixture()
@@ -17,11 +15,9 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
     expires_at = DateTime.add(DateTime.utc_now(:second), 1, :day)
 
     request = %FabricProto.WebhookEndpointCreateRequest{
-      token: @token,
       label: "Watch GitHub issues",
       mode: "standing",
-      expires_at: DateTime.to_iso8601(expires_at),
-      reply_route_json: Torque.encode!(reply_route(source))
+      expires_at: DateTime.to_iso8601(expires_at)
     }
 
     assert {:ok,
@@ -35,21 +31,29 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
               }
             }} = RPCBroker.handle_create(turn_ref, request, rpc_ctx("create-1"))
 
-    assert String.ends_with?(callback_url, "/webhooks/v1/event-callbacks/" <> @token)
+    endpoint = Ankole.Repo.get!(Ankole.SignalsGateway.WebhookEndpoint, endpoint_id)
+    assert endpoint.binding_name == source.binding_name
+    assert endpoint.signal_channel_id == source.signal_channel_id
+    assert endpoint.provider_thread_id == source.provider_thread_id
+    assert endpoint.source_entry_id == source.source_entry_id
+    assert callback_url =~ ~r|/webhooks/v1/event-callbacks/wh_[A-Za-z0-9_-]{43}\z|
 
     assert {:ok,
             %{
-              "status" => "already_exists",
+              "status" => "created",
               "webhook_endpoint" => %{
-                "id" => ^endpoint_id,
-                "url" => ^callback_url
+                "id" => second_id,
+                "url" => second_url
               }
             }} = RPCBroker.handle_create(turn_ref, request, rpc_ctx("create-1"))
+
+    refute second_id == endpoint_id
+    refute second_url == callback_url
 
     assert {:ok,
             %{
               "status" => "ok",
-              "webhook_endpoints" => [%{"id" => ^endpoint_id} = listed]
+              "webhook_endpoints" => listed
             }} =
              RPCBroker.handle_list(
                turn_ref,
@@ -57,9 +61,11 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
                rpc_ctx("list-1")
              )
 
-    refute Map.has_key?(listed, "url")
-    refute Map.has_key?(listed, "token")
-    refute Map.has_key?(listed, "token_digest")
+    assert MapSet.new(listed, & &1["id"]) == MapSet.new([endpoint_id, second_id])
+
+    for endpoint <- listed,
+        field <- ["url", "token", "token_digest"],
+        do: refute(Map.has_key?(endpoint, field))
 
     other_session = %{turn_ref | session_id: "another-session"}
 
@@ -84,71 +90,40 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
     refute Map.has_key?(cancelled, "url")
   end
 
-  test "create rejects a route that is not the current durable ActorEvent route" do
-    %{principal: agent} = agent_fixture()
-    source = source_event!(agent.uid)
-
-    request = %FabricProto.WebhookEndpointCreateRequest{
-      token: @token,
-      label: "Wrong route",
-      mode: "one_shot",
-      expires_at:
-        DateTime.utc_now(:microsecond) |> DateTime.add(1, :day) |> DateTime.to_iso8601(),
-      reply_route_json:
-        source
-        |> reply_route()
-        |> Map.put("source_entry_id", "not-current-entry")
-        |> Torque.encode!()
-    }
-
-    assert {:error, %{"code" => "reply_route_not_in_turn"}} =
-             RPCBroker.handle_create(turn_ref(source), request, rpc_ctx("create-wrong-route"))
-  end
-
   defp source_event!(agent_uid) do
     unique = System.unique_integer([:positive])
 
     {:ok, event} =
-      SignalsGateway.append_actor_event(%{
-        agent_uid: agent_uid,
-        binding_name: "github",
-        session_id: "conversation-#{unique}",
-        source_event_id: "source-#{unique}",
-        signal_channel_id: "github:repo:ankole-#{unique}",
-        provider_thread_id: "issue:42",
-        source_entry_id: "comment:7",
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(:microsecond),
-        sender_key: nil,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => "source-#{unique}",
-          "source" => "test://webhook-rpc",
-          "type" => "im.message.addressed",
-          "data" => %{}
-        }
-      })
+      Ankole.Repo.transact(fn repo ->
+        SignalsGateway.append_actor_event_in_tx(repo, %{
+          agent_uid: agent_uid,
+          binding_name: "github",
+          session_id: "conversation-#{unique}",
+          source_event_id: "source-#{unique}",
+          signal_channel_id: "github:repo:ankole-#{unique}",
+          provider_thread_id: "issue:42",
+          source_entry_id: "comment:7",
+          type: "im.message.addressed",
+          available_at: DateTime.utc_now(:microsecond),
+          sender_key: nil,
+          payload: %{
+            "specversion" => "1.0",
+            "id" => "source-#{unique}",
+            "source" => "test://webhook-rpc",
+            "type" => "im.message.addressed",
+            "data" => %{}
+          }
+        })
+      end)
 
     event
   end
 
   defp turn_ref(source) do
-    %TurnRef{
+    %RunRef{
       agent_uid: source.agent_uid,
       session_id: source.session_id,
-      activation_uid: "webhook-rpc-test",
-      actor_epoch: 1,
-      actor_event_id: source.id,
-      revision: 0
-    }
-  end
-
-  defp reply_route(source) do
-    %{
-      "binding_name" => source.binding_name,
-      "signal_channel_id" => source.signal_channel_id,
-      "provider_thread_id" => source.provider_thread_id,
-      "source_entry_id" => source.source_entry_id
+      actor_event_id: source.id
     }
   end
 

@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.WeComAdapter.Config
+
   @moduledoc """
   WeCom identity-provider adapter functions for Principals.
 

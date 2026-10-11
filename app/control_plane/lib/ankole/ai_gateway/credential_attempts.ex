@@ -11,6 +11,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.FailureDiagnostics
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.UniversalAIRequest
@@ -19,19 +20,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   @native_private_keys [:credential_attempt, :hosted_credential_attempt, :tool_loop]
   @default_base_delay_ms 250
   @maximum_delay_ms 4_000
-  @transport_codes ~w(
-    connect_timeout
-    first_byte_timeout
-    idle_timeout
-    request_timeout
-    total_timeout
-    transport_error
-    universal_ai_stream_ready_timeout
-    upstream_connect_failed
-    upstream_read_failed
-    websocket_connect_failed
-    websocket_read_failed
-  )
   @type context :: %{
           required(:runtime) => map(),
           required(:build) => (map(), map() | nil -> {:ok, map()} | {:error, term()}),
@@ -123,44 +111,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
             )
 
             {:ok, response}
-
-          {:error, reason, _context} ->
-            {:error, reason}
-        end
-    end
-  end
-
-  @doc """
-  Opens a streaming request with pool retry.
-
-  The returned context remains attached to the live stream owner so a later
-  pre-output transport failure or Tool Search round can use the same policy.
-  """
-  @spec open(map(), UniversalAIRequest.downstream_kind(), keyword()) ::
-          {:ok, Ankole.Kernel.UniversalAIClient.stream(), map(), context(), map()}
-          | {:error, term()}
-  def open(spec, downstream, opts \\ []) when is_map(spec) do
-    case pop(spec) do
-      {nil, clean_spec} ->
-        clean_spec = native_spec(clean_spec)
-
-        case UniversalAIRequest.open_stream(clean_spec, downstream, native_opts(opts)) do
-          {:ok, stream, meta} -> {:ok, stream, meta, nil, clean_spec}
-          {:error, reason} -> {:error, reason}
-        end
-
-      {context, clean_spec} ->
-        run(
-          context,
-          clean_spec,
-          fn candidate ->
-            UniversalAIRequest.open_stream(candidate, downstream, native_opts(opts))
-          end,
-          opts
-        )
-        |> case do
-          {:ok, {stream, meta}, context, clean_spec} ->
-            {:ok, stream, meta, context, clean_spec}
 
           {:error, reason, _context} ->
             {:error, reason}
@@ -332,9 +282,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     spec = native_spec(spec)
 
     case operation.(spec) do
-      {:ok, stream, meta} ->
-        {:ok, {stream, meta}, context, spec}
-
       {:ok, result} ->
         {:ok, result, context, spec}
 
@@ -441,15 +388,14 @@ defmodule Ankole.AIGateway.CredentialAttempts do
           end
 
         {:error, {:chatgpt_refresh_permanent, _code}} ->
-          rotate(context, reason, failure, opts, mark: :dead)
+          select_next(context, reason, failure, opts)
 
         {:error, {:chatgpt_refresh_transient, 429, _headers, _code} = refresh_reason} ->
-          rotate(
+          select_next(
             context,
             refresh_reason,
             refresh_failure(refresh_reason, failure),
-            opts,
-            mark: :exhausted
+            opts
           )
 
         {:error, refresh_reason} ->
@@ -477,41 +423,53 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   defp rotate(context, original_reason, failure, opts, mark: mark) do
+    case mark_attributed(context, failure, mark) do
+      :ok ->
+        select_next(context, original_reason, failure, opts)
+
+      :unattributed ->
+        recover_unattributed(context, original_reason, opts)
+
+      {:error, reason} ->
+        {:stop, reason, context}
+    end
+  end
+
+  defp select_next(context, original_reason, failure, opts) do
     runtime = context.runtime
     credential_id = Map.get(runtime, "credential_id")
+    attempted_ids = MapSet.put(context.attempted_ids, credential_id)
 
-    if mark_attributed(context, failure, mark) == :ok do
-      attempted_ids = MapSet.put(context.attempted_ids, credential_id)
+    case Resolver.reselect_credential(runtime, exclude: MapSet.to_list(attempted_ids)) do
+      {:ok, next_runtime} ->
+        with {:ok, candidate} <- rebuild(context, next_runtime, context.request) do
+          {:retry,
+           context
+           |> Map.put(:runtime, next_runtime)
+           |> Map.put(:attempted_ids, attempted_ids)
+           |> Map.put(:refresh_used?, false)
+           |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
+        else
+          {:error, reason} -> {:stop, reason, context}
+        end
 
-      case Resolver.reselect_credential(runtime, exclude: MapSet.to_list(attempted_ids)) do
-        {:ok, next_runtime} ->
-          with {:ok, candidate} <- rebuild(context, next_runtime, context.request) do
-            {:retry,
-             context
-             |> Map.put(:runtime, next_runtime)
-             |> Map.put(:attempted_ids, attempted_ids)
-             |> Map.put(:refresh_used?, false)
-             |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
+      {:error, {:credential_pool_exhausted, details}} ->
+        final_reason =
+          if failure.status == 429 do
+            {:credential_pool_exhausted,
+             Map.put(
+               details,
+               "upstream_error",
+               Map.take(failure.error, ~w(code type message))
+             )}
           else
-            {:error, reason} -> {:stop, reason, context}
+            original_reason
           end
 
-        {:error, {:credential_pool_exhausted, details}} ->
-          final_reason =
-            if failure.status == 429 do
-              {:credential_pool_exhausted,
-               Map.put(details, "upstream_error", Map.take(failure.error, ~w(code type message)))}
-            else
-              original_reason
-            end
+        {:stop, final_reason, %{context | attempted_ids: attempted_ids}}
 
-          {:stop, final_reason, %{context | attempted_ids: attempted_ids}}
-
-        {:error, reason} ->
-          {:stop, reason || original_reason, %{context | attempted_ids: attempted_ids}}
-      end
-    else
-      recover_unattributed(context, original_reason, opts)
+      {:error, reason} ->
+        {:stop, reason || original_reason, %{context | attempted_ids: attempted_ids}}
     end
   end
 
@@ -534,8 +492,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
             failure.error
           )
       end
-
-      :ok
     else
       _missing -> :unattributed
     end
@@ -620,10 +576,36 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       }
       |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
-    error = Map.merge(structured_error(reason), provider_error)
-    status = error_status(reason, error)
-    headers = error_headers(reason, error)
-    code = map_text(error, "code")
+    {status, headers, error} =
+      case reason do
+        %ProviderFailure{kind: kind} = failure
+        when kind in [:status_rejected, :invalid_response] ->
+          body = failure.provider_body
+
+          error =
+            case body do
+              %{"error" => %{} = error} -> Map.take(error, ~w(code type reason message))
+              %{} -> Map.take(body, ~w(code type reason message))
+            end
+
+          {failure.provider_status, failure.provider_headers, Map.merge(error, provider_error)}
+
+        %ProviderFailure{} = failure ->
+          error =
+            %{"code" => failure.code, "stage" => failure.stage, "message" => failure.message}
+            |> Map.reject(fn {_key, value} -> is_nil(value) end)
+            |> Map.merge(provider_error)
+
+          {failure.provider_status, failure.provider_headers, error}
+
+        %{} = error ->
+          error = Map.merge(error, provider_error)
+          {Map.get(error, "provider_status"), Map.get(error, "provider_headers") || %{}, error}
+
+        _ ->
+          {nil, %{}, provider_error}
+      end
+
     stage = map_text(error, "stage")
 
     %{
@@ -634,63 +616,8 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       cloudflare_challenge?:
         status == 403 and
           header_value(headers, "cf-mitigated") == "challenge",
-      route_retryable?: status in [502, 503, 504] or transport_failure?(reason, code, stage)
+      route_retryable?: FailureDiagnostics.route_retryable?(reason)
     }
-  end
-
-  defp structured_error({:universal_ai_request_failed, %{} = error}), do: error
-
-  defp structured_error({:upstream_response_failed, _status, body}),
-    do: provider_error(body)
-
-  defp structured_error({:upstream_response_failed, _status, body, _headers}),
-    do: provider_error(body)
-
-  defp structured_error({:invalid_upstream_response, _status, body}),
-    do: provider_error(body)
-
-  defp structured_error(%{} = error), do: error
-  defp structured_error(_reason), do: %{}
-
-  defp provider_error(%{"error" => %{} = error}),
-    do: Map.take(error, ~w(code type reason message))
-
-  defp provider_error(%{} = error), do: Map.take(error, ~w(code type reason message))
-  defp provider_error(_body), do: %{}
-
-  defp error_status({:upstream_response_failed, status, _body}, _error)
-       when is_integer(status),
-       do: status
-
-  defp error_status({:upstream_response_failed, status, _body, _headers}, _error)
-       when is_integer(status),
-       do: status
-
-  defp error_status({:invalid_upstream_response, status, _body}, _error)
-       when is_integer(status),
-       do: status
-
-  defp error_status(_reason, error) do
-    case Map.get(error, "provider_status") || Map.get(error, :provider_status) do
-      status when is_integer(status) -> status
-      _value -> nil
-    end
-  end
-
-  defp error_headers({:upstream_response_failed, _status, _body, headers}, _error),
-    do: headers
-
-  defp error_headers(_reason, error),
-    do: Map.get(error, "provider_headers") || Map.get(error, :provider_headers) || %{}
-
-  defp transport_failure?(reason, code, stage) do
-    code in @transport_codes or stage in ["connect", "read", "open", "transport"] or
-      reason in [
-        :stream_aborted,
-        :universal_ai_stream_ready_timeout,
-        :timeout,
-        {:error, :timeout}
-      ]
   end
 
   defp chatgpt_oauth?(runtime) do
@@ -811,16 +738,16 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   defp cloudflare_challenge_error(failure) do
-    {:universal_ai_request_failed,
-     %{
-       "code" => "chatgpt_cloudflare_challenge",
-       "stage" => "provider_response",
-       "message" =>
-         "ChatGPT rejected this network edge. Check the provider originator and User-Agent overrides or use an allowed egress.",
-       "provider_status" => 403,
-       "provider_headers" => failure.headers,
-       "retryable" => false
-     }}
+    %ProviderFailure{
+      kind: :other,
+      code: "chatgpt_cloudflare_challenge",
+      stage: "provider_response",
+      message:
+        "ChatGPT rejected this network edge. Check the provider originator and User-Agent overrides or use an allowed egress.",
+      provider_status: 403,
+      provider_headers: failure.headers,
+      retryable: false
+    }
   end
 
   defp header_value(headers, target) when is_map(headers) do

@@ -2,33 +2,26 @@ syntax = "proto3";
 
 package ankole.runtime_fabric.v1;
 
+import "ankole/runtime_fabric/v1/rpc.proto";
+
 message ActorKey {
-  string agent_uid = 1;
   string session_id = 2;
 }
 
-message ActorTurnRef {
-  // The control plane checks this fence before accepting worker output. Actor
-  // identity, activation, epoch, and the actor-event id identify the run; revision
-  // is an exact acceptance guard for first delivery and a monotonic guard across
-  // later mailbox/retry updates. One worker execution processes one actor event.
+// The control plane owns admission and epoch. Workers echo this run identity.
+message RunRef {
   ActorKey actor = 1;
-  string activation_uid = 2;
-  uint64 actor_epoch = 3;
-  string actor_event_id = 4;
-  uint32 revision = 5;
+  string actor_event_id = 2;
 }
 
-enum Lane {
-  LANE_UNSPECIFIED = 0;
-  LANE_CONTROL = 1;
-  LANE_TURN = 2;
-  LANE_PROGRESS = 3;
-  LANE_RPC = 4;
+message JobTurnRef {
+  string actor_event_id = 2;
+  uint64 job_id = 3;
+  uint32 attempt = 4;
 }
 
 // Logical stream of one envelope on the Worker Channel. The channel event
-// name carries the same value; ZeroMQ transport ignores it.
+// name carries the same value.
 enum Stream {
   STREAM_UNSPECIFIED = 0;
   STREAM_CONTROL = 1;
@@ -36,43 +29,38 @@ enum Stream {
   STREAM_TELEMETRY = 3;
 }
 
-enum DurabilityClass {
-  DURABILITY_UNSPECIFIED = 0;
-  // CONTROL_* means the control plane owns durable truth, replay, or ephemeral
-  // observability for this message. It is not a separate transport lane.
-  CONTROL_DURABLE = 1;
-  CONTROL_REPLAYABLE = 2;
-  CONTROL_EPHEMERAL = 3;
+// Each host writes CURRENT and rejects an envelope with another version.
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_CURRENT = 9;
 }
 
 message Envelope {
   // Additive fields keep the current version. Changing an existing field's
-  // wire meaning requires another bump so the kernel rejects a mismatched
-  // image before host dispatch.
+  // wire meaning requires another bump so the receiving host rejects a
+  // mismatched image before dispatch.
   uint32 protocol_version = 1;
   string message_id = 2;
-  string correlation_id = 3;
-  Lane lane = 5;
-  // Host wall-clock metadata for logs and metrics; not a replay or ordering
-  // fence.
-  int64 sent_at_unix_ms = 6;
-  DurabilityClass durability = 7;
-  // Channel transport only: per-stream sequence, strictly increasing from 1 per
-  // connection; cumulative acknowledgements refer to it. Zero on ZeroMQ.
+  // Per-stream sequence, strictly increasing from 1 per connection; cumulative
+  // acknowledgements refer to it.
   Stream stream = 4;
   uint64 transport_seq = 8;
   oneof body {
-    // Worker lifecycle messages describe homogeneous computer workers. They do
-    // not negotiate per-worker features.
-    AgentComputerWorkerReady worker_ready = 20;
     AgentComputerWorkerHeartbeat worker_heartbeat = 21;
-    AgentComputerWorkerCapacity worker_capacity = 22;
-    // Turn messages carry the local computer AI loop contract.
+    // Commands and results for Worker execution.
     TurnStart turn_start = 30;
     MailboxUpdated mailbox_updated = 31;
     TurnAccepted turn_accepted = 33;
     TurnControl turn_control = 34;
     WorkerProgress worker_progress = 35;
+    WorkspaceOpen workspace_open = 36;
+    WorkspaceReady workspace_ready = 37;
+    WorkspaceClose workspace_close = 38;
+    ToolCall tool_call = 39;
+    ToolCancel tool_cancel = 40;
+    ToolStatus tool_status = 41;
+    ToolProgress tool_progress = 42;
+    ToolResult tool_result = 43;
     ControlShutdown control_shutdown = 50;
     RPCRequest rpc_request = 70;
     RPCResponse rpc_response = 71;
@@ -80,79 +68,131 @@ message Envelope {
   }
 }
 
-message AgentComputerWorkerReady {
-  string worker_id = 1;
-  // Runtime and version are observability metadata. Scheduling assumes workers
-  // are equivalent because they boot from the same image.
-  string runtime = 2;
-  string version = 3;
-  // Identifies one concrete process lifetime behind the stable worker id.
-  string incarnation_id = 5;
-  uint32 max_turns = 6;
-  uint32 available_turn_slots = 7;
+message FetchRuntimeConfig {
+  bool ssrf_filter = 1;
+  uint32 rendered_fetch_idle_ttl_ms = 2;
+}
+
+enum HostedTool {
+  HOSTED_TOOL_UNSPECIFIED = 0;
+  HOSTED_TOOL_IMAGE_GENERATION = 1;
+  HOSTED_TOOL_WEB_SEARCH = 2;
+  HOSTED_TOOL_BRAIN = 3;
+}
+
+message WorkspaceOpen {
+  RunRef run = 1;
+  uint64 workspace_id = 2;
+  map<string, string> runtime_env = 3;
+  AgentConversationContextResponse agent_context = 4;
+  string binding_name = 5;
+  reserved 6;
+  reserved "fetch_runtime_config_json";
+  FetchRuntimeConfig fetch_runtime_config = 8;
+  uint64 idle_timeout_ms = 7;
+}
+
+message WorkspaceReady {
+  enum Reason {
+    READY = 0;
+    CAPACITY = 1;
+    DRAINING = 2;
+    PREPARATION_FAILED = 3;
+  }
+  RunRef run = 1;
+  string error = 2;
+  Reason reason = 3;
+}
+
+message WorkspaceClose {
+  RunRef run = 1;
+}
+
+message ToolCall {
+  RunRef run = 1;
+  string response_id = 2;
+  string call_id = 3;
+  string namespace = 4;
+  string name = 5;
+  bytes arguments_json = 6;
+  string mode = 7;
+}
+
+message ToolCancel {
+  RunRef run = 1;
+  string response_id = 2;
+  string call_id = 3;
+}
+
+message ToolStatus {
+  RunRef run = 1;
+  string response_id = 2;
+  string call_id = 3;
+  string state = 4;
+}
+
+message ToolProgress {
+  RunRef run = 1;
+  string response_id = 2;
+  string call_id = 3;
+  bytes presentation_json = 4;
+}
+
+message ToolResult {
+  RunRef run = 1;
+  string response_id = 2;
+  string call_id = 3;
+  bytes content_json = 4;
+  bytes details_json = 5;
+  bool is_error = 6;
+  string failure_kind = 7;
+  repeated bytes images = 8;
 }
 
 message AgentComputerWorkerHeartbeat {
-  string worker_id = 1;
-  // Worker-local monotonic timestamp for observability only. It must not be
-  // compared across workers or process restarts.
-  int64 monotonic_ms = 2;
   string incarnation_id = 4;
-  uint32 active_turns = 5;
-  // A heartbeat is a complete worker snapshot so the control plane can rebuild
-  // its UNLOGGED worker registry without restarting the worker process.
-  string runtime = 6;
-  string version = 7;
-  uint32 max_turns = 8;
-  uint32 available_turn_slots = 9;
-}
-
-message AgentComputerWorkerCapacity {
-  string worker_id = 1;
-  uint32 available_turn_slots = 4;
-  string incarnation_id = 5;
-  uint32 max_turns = 6;
-  uint32 active_turns = 7;
+  uint32 active_slots = 5;
+  uint32 max_slots = 8;
+  uint32 available_slots = 9;
+  // Tasks tracked by the Worker, including Jobs and control-plane RPCs.
+  uint32 active_tasks = 10;
+  // Milliseconds since active_tasks last became 0; 0 while it is not 0.
+  uint64 idle_for_ms = 11;
 }
 
 message ActorEventEnvelope {
   // References the durable actor-event row. One worker execution processes
   // exactly one actor_event_id.
   string actor_event_id = 1;
-  uint64 queue_sequence = 2;
   string type = 3;
-  string source_event_id = 4;
-  string source_entry_id = 5;
   bytes payload_json = 6;
   string binding_name = 7;
-  string signal_channel_id = 8;
-  string provider_thread_id = 9;
 }
 
 message TurnStart {
-  // Starts one local computer run for a single actor event.
-  ActorTurnRef turn = 1;
+  // Starts or adopts one Codex Job attempt.
+  JobTurnRef turn = 1;
   ActorEventEnvelope actor_event = 2;
   TurnModelRef model_ref = 3;
   bytes request_context_json = 4;
-  bytes hosted_tools_json = 5;
+  reserved 5, 9;
+  reserved "hosted_tools_json", "fetch_runtime_config_json";
+  repeated HostedTool hosted_tools = 12;
+  FetchRuntimeConfig fetch_runtime_config = 11;
   // Trusted ephemeral facts for this execution. These variables never come
   // from operator WorkerEnv rows and use the ANKOLE_RUNTIME_ namespace.
   map<string, string> runtime_env = 6;
-  // PostgreSQL-owned model-visible directory name under the Agent's sessions tree.
-  uint64 workspace_id = 7;
+  string mode = 8;
+  AgentConversationContextResponse agent_context = 10;
 }
 
 message TurnModelRef {
-  string profile = 1;
   string provider_id = 2;
   string model = 3;
   string provider_kind = 4;
   repeated string input_modalities = 5;
   TurnModelRef vision_fallback_model_ref = 6;
-  // Provider model output-token ceiling for the worker-side defensive clamp.
-  // Absent means the control plane has no limit metadata for this model.
-  optional uint32 max_completion_tokens = 7;
+  reserved 7;
   // Request-scoped provider settings from the resolved profile.
   bytes provider_options_json = 8;
   bool supports_parallel_tool_calls = 9;
@@ -161,30 +201,24 @@ message TurnModelRef {
 
 message MailboxUpdated {
   // Mid-run injections carry exactly one already-journaled actor event.
-  string reason = 1;
-  ActorTurnRef turn = 2;
+  JobTurnRef turn = 2;
   ActorEventEnvelope actor_event = 3;
 }
 
 message TurnAccepted {
-  // Confirms the delivery revision the worker accepted. Terminal commits may
-  // race ahead on the AIGateway path, so acceptance is used to decide which
-  // mid-run mailbox events can be completed with the current turn, not as a
-  // hard prerequisite for the final commit itself.
-  ActorTurnRef turn = 1;
+  // Confirms acceptance or adoption of this Job attempt. The terminal commit
+  // acknowledges consumed mailbox events through applied_actor_event_ids.
+  JobTurnRef turn = 1;
 }
 
 message TurnControl {
-  ActorTurnRef turn = 1;
+  JobTurnRef turn = 1;
   string command = 2;
   bytes payload_json = 3;
 }
 
 message WorkerProgress {
-  ActorTurnRef turn = 1;
-  string kind = 2;
-  string summary = 3;
-  bytes refs_json = 4;
+  JobTurnRef turn = 1;
 }
 
 message ControlShutdown {
@@ -200,9 +234,14 @@ message RPCRequest {
   // registry on both sides. Opaque to the kernel transport.
   bytes payload = 4;
   // Turn fence for turn-scoped methods, checked before payload decode.
-  ActorTurnRef turn = 5;
-  // Trusted subject for worker_agent-scoped methods.
-  string agent_uid = 6;
+  reserved 5;
+  reserved "turn";
+  RunRef run = 7;
+  JobTurnRef job_turn = 8;
+  // A worker_agent method acts for the Agent of the calling connection, so
+  // the frame no longer names one.
+  reserved 6;
+  reserved "agent_uid";
 }
 
 message RPCResponse {
@@ -216,4 +255,5 @@ message RPCError {
   string code = 2;
   string message = 3;
   bytes details_json = 4;
+  bool retryable = 5;
 }

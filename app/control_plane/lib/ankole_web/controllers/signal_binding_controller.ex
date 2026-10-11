@@ -27,18 +27,17 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalDeliveryRequeueResponse
 
   tags(["Signal Bindings"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
-  plug OpenAPISpex.Plug.CastAndValidate,
+  plug(OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
 
   operation(:adapters,
     summary: "List signal adapters available for bindings",
     responses: [
       ok: {"Signal adapters", "application/json", SignalAdapterListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -49,8 +48,7 @@ defmodule AnkoleWeb.SignalBindingController do
     ],
     responses: [
       ok: {"Signal bindings", "application/json", SignalBindingListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -62,10 +60,7 @@ defmodule AnkoleWeb.SignalBindingController do
     ],
     responses: [
       ok: {"Signal binding", "application/json", SignalBindingDetailResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -80,11 +75,7 @@ defmodule AnkoleWeb.SignalBindingController do
       {"Signal binding", "application/json", SignalBindingWriteRequest, required: true},
     responses: [
       ok: {"Signal binding", "application/json", SignalBindingResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope},
-      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -96,9 +87,7 @@ defmodule AnkoleWeb.SignalBindingController do
     ],
     responses: [
       ok: {"Signal binding", "application/json", SignalBindingResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -112,12 +101,7 @@ defmodule AnkoleWeb.SignalBindingController do
       {"Signal binding update", "application/json", SignalBindingUpdateRequest, required: true},
     responses: [
       ok: {"Signal binding", "application/json", SignalBindingResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Target binding conflict", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope},
-      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -131,12 +115,7 @@ defmodule AnkoleWeb.SignalBindingController do
        required: true},
     responses: [
       ok: {"Delivery requeued", "application/json", SignalDeliveryRequeueResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict:
-        {"Delivery is not stopped or cannot be retried", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -147,9 +126,7 @@ defmodule AnkoleWeb.SignalBindingController do
     ],
     responses: [
       ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -163,10 +140,7 @@ defmodule AnkoleWeb.SignalBindingController do
        required: true},
     responses: [
       ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -286,7 +260,7 @@ defmodule AnkoleWeb.SignalBindingController do
            AmbientCuration.put_channel_standing_orders(
              channel_id,
              conn.body_params.orders,
-             conn.assigns.current_principal_uid
+             to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
            ) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
     else
@@ -375,6 +349,34 @@ defmodule AnkoleWeb.SignalBindingController do
       :ok
     end
   end
+
+  defp error(conn, {:platform_application_identity_unavailable, reference}),
+    do:
+      error(
+        conn,
+        422,
+        "platform_application_identity_unavailable",
+        "Could not verify an existing platform application; repair the referenced credentials before retrying",
+        [reference]
+      )
+
+  defp error(conn, :platform_application_identity_unavailable),
+    do:
+      error(
+        conn,
+        422,
+        "platform_application_identity_unavailable",
+        "Could not verify the platform application; check the bot credentials and provider availability"
+      )
+
+  defp error(conn, :platform_app_bound_to_another_tenant),
+    do:
+      error(
+        conn,
+        409,
+        "platform_app_bound_to_another_tenant",
+        "This platform application belongs to another tenant"
+      )
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")

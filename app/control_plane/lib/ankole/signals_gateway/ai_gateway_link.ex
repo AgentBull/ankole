@@ -2,10 +2,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   @moduledoc """
   One-way adapter from SignalsGateway Actor semantics to generic AIGateway data.
 
-  `actor_event_id` is opaque client metadata to AIGateway. This module
-  interprets it when correlating a completed worker turn with its immutable
-  Response chain; `Ankole.SignalsGateway.BrainContext` interprets it for the
-  hosted Brain tool. No other module reads it.
+  `actor_event_id` is opaque client metadata to AIGateway. This module maps
+  Actor inputs to the stored Response chain and signal projections. Conversation
+  Drivers own step progress; BrainContext uses the same input identity for the
+  hosted Brain tool.
   """
 
   import Ecto.Query, warn: false
@@ -18,12 +18,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.RunRef
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Channel
@@ -31,15 +30,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.ReplyAttachment
   alias Ankole.SignalsGateway
-  alias Ankole.WorkerFiles
+  alias Ankole.Files
 
   @max_chain_depth 500
   @scheduled_event_types ~w(check_back_later.wakeup cron.fire)
-  @background_job_lifecycle_event_types ~w(
-    background_agent_job.waiting
-    background_agent_job.completed
-    background_agent_job.failed
-  )
 
   @type turn_chain :: %{
           conversation: Conversation.t(),
@@ -57,13 +51,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         }
 
   @type actor_key :: %{required(:agent_uid) => String.t(), required(:session_id) => String.t()}
-
-  @type generating_turn :: %{
-          required(:response) => Message.t(),
-          required(:response_id) => String.t(),
-          required(:actor_event_id) => String.t(),
-          required(:request_ref_actor_event_ids) => [String.t()]
-        }
 
   @doc false
   @spec ensure_and_lock_conversation_in_tx(
@@ -123,64 +110,22 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
-  @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def record_tool_results(subject_uid, request) when is_map(request) do
-    {complete_actor_event_ids, request} = Map.pop(request, "complete_actor_event_ids", [])
-
-    with {:ok, complete_actor_event_ids} <-
-           normalize_complete_actor_event_ids(complete_actor_event_ids) do
-      case complete_actor_event_ids do
-        [] ->
-          AIGateway.record_tool_results(subject_uid, request)
-
-        ids ->
-          record_tool_results_and_complete_events(subject_uid, request, ids)
-      end
-    end
-  end
-
-  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
-
-  defp record_tool_results_and_complete_events(subject_uid, request, event_ids) do
-    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
-         {:ok, current_event_id} <- current_actor_event_id(request),
-         {:ok, result} <-
-           Repo.transact(fn repo ->
-             record_tool_results_and_complete_events_in_tx(
-               repo,
-               subject_uid,
-               current_event_id,
-               event_ids,
-               request
-             )
-           end) do
-      StatefulResponses.publish_tool_result_events(result.message)
-      {:ok, %{body: result.body}}
-    end
-  end
-
-  defp record_tool_results_and_complete_events_in_tx(
-         repo,
-         subject_uid,
-         current_event_id,
-         event_ids,
-         request
-       ) do
-    with %ActorEvent{} = current_snapshot <- repo.get(ActorEvent, current_event_id),
-         :ok <- validate_current_event_snapshot(current_snapshot, subject_uid),
-         {:ok, target_snapshots} <- target_event_snapshots(repo, event_ids),
-         :ok <- validate_target_event_snapshots(target_snapshots, current_snapshot),
+  def record_tool_results_and_complete_events_in_tx(
+        repo,
+        subject_uid,
+        current_event_id,
+        event_ids,
+        request
+      ) do
+    with %ActorEvent{} = current_event <- repo.get(ActorEvent, current_event_id),
          :ok <-
            Actors.lock_actor_session_in_tx(
              repo,
-             current_snapshot.agent_uid,
-             current_snapshot.session_id
+             current_event.agent_uid,
+             current_event.session_id
            ),
-         %ActorEvent{} = current_event <-
-           Actors.lock_actor_event_in_tx(repo, current_event_id),
-         :ok <- validate_locked_current_event(current_event, current_snapshot),
+         %ActorEvent{} <- Actors.lock_actor_event_in_tx(repo, current_event_id),
          {:ok, target_events} <- lock_target_events(repo, event_ids),
-         :ok <- validate_locked_target_events(repo, target_events, current_event),
          {:ok, journal} <-
            StatefulLifecycle.record_tool_results_in_tx(
              repo,
@@ -188,80 +133,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
              request,
              %{"completed_actor_event_ids" => event_ids}
            ),
-         :ok <- validate_journal_event_ids(journal.message, event_ids),
          :ok <- complete_target_events(repo, target_events, journal.disposition) do
       {:ok, journal}
     else
       nil -> {:error, :actor_event_not_found}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp normalize_complete_actor_event_ids(ids) when is_list(ids) and length(ids) <= 32 do
-    ids
-    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
-      case Ecto.UUID.cast(id) do
-        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
-        :error -> {:halt, {:error, :invalid_complete_actor_event_ids}}
-      end
-    end)
-    |> case do
-      {:ok, normalized} -> {:ok, normalized |> Enum.uniq() |> Enum.sort()}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp normalize_complete_actor_event_ids(_ids),
-    do: {:error, :invalid_complete_actor_event_ids}
-
-  defp current_actor_event_id(%{"metadata" => %{"actor_event_id" => actor_event_id}}) do
-    case Ecto.UUID.cast(actor_event_id) do
-      {:ok, actor_event_id} -> {:ok, actor_event_id}
-      :error -> {:error, :invalid_current_actor_event_id}
-    end
-  end
-
-  defp current_actor_event_id(_request), do: {:error, :invalid_current_actor_event_id}
-
-  defp validate_current_event_snapshot(
-         %ActorEvent{agent_uid: subject_uid, input_state: "open", completed_at: nil},
-         subject_uid
-       ),
-       do: :ok
-
-  defp validate_current_event_snapshot(%ActorEvent{}, _subject_uid),
-    do: {:error, :invalid_current_actor_event}
-
-  defp target_event_snapshots(repo, event_ids) do
-    events =
-      ActorEvent
-      |> where([event], event.id in ^event_ids)
-      |> repo.all()
-
-    if length(events) == length(event_ids),
-      do: {:ok, events},
-      else: {:error, :actor_event_not_found}
-  end
-
-  defp validate_target_event_snapshots(events, current_event) do
-    if Enum.all?(events, fn event ->
-         event.agent_uid == current_event.agent_uid and
-           event.session_id == current_event.session_id and
-           event.type in @background_job_lifecycle_event_types
-       end) do
-      :ok
-    else
-      {:error, :invalid_actor_event_handoff}
-    end
-  end
-
-  defp validate_locked_current_event(current_event, snapshot) do
-    if current_event.agent_uid == snapshot.agent_uid and
-         current_event.session_id == snapshot.session_id and
-         current_event.input_state == "open" and is_nil(current_event.completed_at) do
-      :ok
-    else
-      {:error, :invalid_current_actor_event}
     end
   end
 
@@ -273,93 +149,18 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       else: {:error, :actor_event_not_found}
   end
 
-  defp validate_locked_target_events(repo, events, current_event) do
+  defp complete_target_events(repo, events, :inserted) do
+    now = DateTime.utc_now(:microsecond)
+
     Enum.reduce_while(events, :ok, fn event, :ok ->
-      case validate_locked_target_event(repo, event, current_event) do
-        :ok -> {:cont, :ok}
+      case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now) do
+        {:ok, %ActorEvent{}} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp validate_locked_target_event(repo, event, current_event) do
-    with true <- event.agent_uid == current_event.agent_uid,
-         true <- event.session_id == current_event.session_id,
-         true <- event.input_state == "open",
-         true <- event.type in @background_job_lifecycle_event_types,
-         {:ok, identity} <- lifecycle_event_identity(event),
-         %Job{} = job <- lock_handoff_job(repo, event.agent_uid, identity.job_id),
-         true <- job.owner_session_id == event.session_id,
-         true <- job.attempts == identity.attempt,
-         true <- job.status == identity.status do
-      :ok
-    else
-      _invalid -> {:error, :invalid_actor_event_handoff}
-    end
-  end
-
-  defp lifecycle_event_identity(%ActorEvent{} = event) do
-    data = get_in(event.payload || %{}, ["data"])
-
-    with %{} <- data,
-         job_id when is_integer(job_id) and job_id >= 1000 <- Map.get(data, "job_id"),
-         attempt when is_integer(attempt) and attempt >= 0 <- Map.get(data, "attempts"),
-         status when is_binary(status) <- Map.get(data, "status"),
-         {:ok, expected_type, source_status} <- lifecycle_type_identity(status),
-         true <- event.type == expected_type,
-         true <-
-           event.source_event_id ==
-             "background_agent_job:#{job_id}:#{source_status}:#{attempt}" do
-      {:ok, %{job_id: job_id, attempt: attempt, status: status}}
-    else
-      _invalid -> {:error, :invalid_actor_event_handoff}
-    end
-  end
-
-  defp lifecycle_type_identity("waiting_on_user"),
-    do: {:ok, "background_agent_job.waiting", "waiting"}
-
-  defp lifecycle_type_identity("succeeded"),
-    do: {:ok, "background_agent_job.completed", "succeeded"}
-
-  defp lifecycle_type_identity("failed"),
-    do: {:ok, "background_agent_job.failed", "failed"}
-
-  defp lifecycle_type_identity(_status), do: {:error, :invalid_actor_event_handoff}
-
-  defp lock_handoff_job(repo, agent_uid, job_id) do
-    Job
-    |> where([job], job.id == ^job_id and job.agent_uid == ^agent_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp validate_journal_event_ids(%Message{} = message, event_ids) do
-    if Map.get(message.metadata || %{}, "completed_actor_event_ids") == event_ids,
-      do: :ok,
-      else: {:error, :tool_result_actor_event_ids_mismatch}
-  end
-
-  defp complete_target_events(repo, events, :inserted) do
-    if Enum.all?(events, &is_nil(&1.completed_at)) do
-      now = DateTime.utc_now(:microsecond)
-
-      Enum.reduce_while(events, :ok, fn event, :ok ->
-        case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now) do
-          {:ok, %ActorEvent{}} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-    else
-      {:error, :actor_event_handoff_state_mismatch}
-    end
-  end
-
-  defp complete_target_events(_repo, events, :existing) do
-    if Enum.all?(events, &match?(%DateTime{}, &1.completed_at)),
-      do: :ok,
-      else: {:error, :actor_event_handoff_state_mismatch}
-  end
+  defp complete_target_events(_repo, _events, :existing), do: :ok
 
   # The `signal_channel_id: nil` clause covers a non-channel-triggering event
   # (for example, an internal command). Its conversation has no channel or DM
@@ -368,7 +169,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   defp conversation_origin(_repo, %ActorEvent{signal_channel_id: nil}), do: {:ok, :undeclared}
 
   defp conversation_origin(repo, %ActorEvent{} = actor_event) do
-    case repo.get(Channel, actor_event.signal_channel_id) do
+    case repo.get_by(Channel, id: actor_event.signal_channel_id) do
       %Channel{kind: :im_dm} = channel ->
         with {:ok, peer_uid} <- dm_peer_uid(actor_event, channel) do
           {:ok,
@@ -474,165 +275,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
-  @spec session_has_generating_response?(module(), actor_key()) :: boolean()
-  def session_has_generating_response?(repo, actor_key) do
-    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
-      %Conversation{} = conversation ->
-        case AIGateway.list_conversation_responses_in_tx(
-               repo,
-               actor_key.agent_uid,
-               conversation.id,
-               statuses: ["generating"],
-               lock: true
-             ) do
-          {:ok, responses} -> Enum.any?(responses, &ordinary_response?/1)
-          {:error, _reason} -> false
-        end
-
-      nil ->
-        false
-    end
-  end
-
-  @doc false
-  @spec generating_turn_in_tx(module(), actor_key(), String.t() | nil) ::
-          generating_turn() | nil
-  def generating_turn_in_tx(_repo, _actor_key, actor_event_id)
-      when actor_event_id in [nil, ""],
-      do: nil
-
-  def generating_turn_in_tx(repo, actor_key, actor_event_id) do
-    repo
-    |> generating_responses_for_actor_event_in_tx(actor_key, actor_event_id)
-    |> List.first()
-    |> case do
-      %Message{} = response -> generating_turn(response)
-      nil -> nil
-    end
-  end
-
-  @doc false
-  @spec cancel_generating_turn_in_tx(
-          module(),
-          actor_key(),
-          String.t() | nil,
-          DateTime.t(),
-          term()
-        ) :: {:ok, Message.t() | nil} | {:error, term()}
-  def cancel_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason) do
-    fail_generating_turns_in_tx(
-      repo,
-      actor_key,
-      actor_event_id,
-      now,
-      runtime_error(reason, "actor_runtime_cancel")
-    )
-  end
-
-  @doc false
-  @spec retract_generating_turn_in_tx(
-          module(),
-          actor_key(),
-          String.t() | nil,
-          DateTime.t(),
-          String.t()
-        ) :: {:ok, Message.t() | nil} | {:error, term()}
-  def retract_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason)
-      when is_binary(reason) do
-    responses = generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id)
-
-    responses
-    |> Enum.reduce_while({:ok, []}, fn response, {:ok, retracted} ->
-      case AIGateway.retract_generating_response_in_tx(
-             repo,
-             actor_key.agent_uid,
-             response_id(response),
-             reason,
-             now
-           ) do
-        {:ok, %Message{} = response} -> {:cont, {:ok, [response | retracted]}}
-        {:ok, :already_terminal} -> {:cont, {:ok, retracted}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, retracted} -> {:ok, List.last(retracted)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @doc false
-  @spec turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
-  def turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
-      when is_binary(actor_event_id) do
-    turn_replay_safe_in_tx(
-      repo,
-      actor_key,
-      actor_event_id,
-      ["generating", "complete"],
-      false
-    )
-  end
-
-  @doc false
-  @spec exact_turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
-  def exact_turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
-      when is_binary(actor_event_id) do
-    turn_replay_safe_in_tx(
-      repo,
-      actor_key,
-      actor_event_id,
-      ["generating", "complete", "error"],
-      true
-    )
-  end
-
-  defp turn_replay_safe_in_tx(repo, actor_key, actor_event_id, statuses, exact_actor_event?) do
-    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
-      %Conversation{} = conversation ->
-        case AIGateway.list_conversation_responses_in_tx(
-               repo,
-               actor_key.agent_uid,
-               conversation.id,
-               statuses: statuses,
-               lock: true
-             ) do
-          {:ok, responses} ->
-            responses
-            |> Enum.filter(&(actor_event_id in response_actor_event_ids(&1)))
-            |> Enum.all?(fn response ->
-              response_replay_safe?(response) and
-                (not exact_actor_event? or exact_response_owner?(response, actor_event_id))
-            end)
-
-          {:error, _reason} ->
-            false
-        end
-
-      nil ->
-        true
-    end
-  end
-
-  @doc false
-  @spec fail_generating_turn_in_tx(
-          module(),
-          actor_key(),
-          String.t() | nil,
-          DateTime.t(),
-          term()
-        ) :: {:ok, Message.t() | nil} | {:error, term()}
-  def fail_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason) do
-    fail_generating_turns_in_tx(
-      repo,
-      actor_key,
-      actor_event_id,
-      now,
-      runtime_error(reason, "actor_runtime_cleanup")
-    )
-  end
-
-  @doc false
   @spec publish_failed_response(Message.t() | nil) :: :ok | {:error, term()}
   def publish_failed_response(nil), do: :ok
 
@@ -691,34 +333,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     chain
     |> Enum.take_while(&(response_actor_event_id(&1) == actor_event_id))
     |> Enum.filter(&(ordinary_response?(&1) and &1.status == "complete"))
-  end
-
-  @doc false
-  @spec visible_signal_document_ids(TurnRef.t()) :: [String.t()]
-  def visible_signal_document_ids(%TurnRef{} = turn_ref) do
-    case active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
-      %Conversation{} = conversation ->
-        current_response = current_response(turn_ref, conversation)
-        visible_chain = visible_response_chain(conversation, current_response)
-
-        metadata_responses =
-          [current_response | visible_chain]
-          |> Enum.reject(&is_nil/1)
-          |> Enum.uniq_by(& &1.id)
-
-        actor_event_ids =
-          [
-            turn_ref.actor_event_id
-            | Enum.flat_map(metadata_responses, &response_actor_event_ids/1)
-          ]
-          |> Enum.filter(&valid_uuid?/1)
-          |> Enum.uniq()
-
-        signal_document_ids(visible_chain, actor_event_ids)
-
-      nil ->
-        []
-    end
   end
 
   @doc false
@@ -787,44 +401,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
-  @spec current_response_row_id(TurnRef.t()) :: Ecto.UUID.t() | nil
-  def current_response_row_id(%TurnRef{} = turn_ref) do
-    with %Conversation{} = conversation <-
-           active_conversation(turn_ref.agent_uid, turn_ref.session_id),
-         %Message{id: id} <- current_response(turn_ref, conversation) do
-      id
-    else
-      nil -> nil
-    end
-  end
-
-  @doc false
-  @spec retry_source_in_tx(module(), String.t(), String.t()) ::
-          {:ok, map()} | {:error, :conversation_not_found | :retry_source_not_found}
-  def retry_source_in_tx(repo, subject_uid, conversation_key) do
-    with %Conversation{} = conversation <-
-           active_conversation_for_update(repo, subject_uid, conversation_key),
-         {:ok, responses} <-
-           AIGateway.list_conversation_responses_in_tx(
-             repo,
-             subject_uid,
-             conversation.id,
-             statuses: ["complete", "error"]
-           ) do
-      responses
-      |> Enum.take(@max_chain_depth)
-      |> Enum.find_value(&retry_source_from_response/1)
-      |> case do
-        %{text: text} = source when is_binary(text) and text != "" -> {:ok, source}
-        _missing -> {:error, :retry_source_not_found}
-      end
-    else
-      nil -> {:error, :conversation_not_found}
-      {:error, _reason} -> {:error, :conversation_not_found}
-    end
-  end
-
-  @doc false
   @spec delete_visible_turn_suffix_in_tx(
           module(),
           String.t(),
@@ -883,15 +459,19 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   rows are immutable, while the later Actor transaction owns all fence checks
   and provider-visible side effects.
   """
-  @spec load_turn_completion(TurnRef.t(), String.t()) ::
+  @spec load_turn_completion(RunRef.t(), String.t()) ::
           {:ok, completion()} | {:error, term()}
-  def load_turn_completion(%TurnRef{} = turn_ref, final_response_id) do
+  def load_turn_completion(
+        %{agent_uid: _, session_id: _, actor_event_id: _} = turn_ref,
+        final_response_id
+      ) do
     with {:ok, turn_chain} <- load_turn_chain(turn_ref, final_response_id),
          {:ok, projection} <-
            project_completion(
              turn_ref.agent_uid,
              turn_chain.response_chain,
-             turn_chain.final_response
+             turn_chain.final_response,
+             Ankole.SignalsGateway.ConversationChannel.origin(turn_chain.conversation)
            ) do
       {:ok, Map.merge(turn_chain, projection)}
     end
@@ -905,8 +485,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   A silent completion that adopted a Response validates these facts without a
   reply projection.
   """
-  @spec load_turn_chain(TurnRef.t(), String.t()) :: {:ok, turn_chain()} | {:error, term()}
-  def load_turn_chain(%TurnRef{} = turn_ref, final_response_id)
+  @spec load_turn_chain(RunRef.t(), String.t()) :: {:ok, turn_chain()} | {:error, term()}
+  def load_turn_chain(
+        %{agent_uid: _, session_id: _, actor_event_id: _} = turn_ref,
+        final_response_id
+      )
       when is_binary(final_response_id) do
     with :ok <- validate_response_id(final_response_id),
          {:ok, chain} <-
@@ -932,44 +515,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
-  def load_turn_chain(%TurnRef{}, _final_response_id),
+  def load_turn_chain(%{actor_event_id: _}, _final_response_id),
     do: {:error, :invalid_final_response_id}
-
-  defp generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id) do
-    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
-      %Conversation{} = conversation ->
-        case AIGateway.list_conversation_responses_in_tx(
-               repo,
-               actor_key.agent_uid,
-               conversation.id,
-               statuses: ["generating"],
-               lock: true
-             ) do
-          {:ok, responses} ->
-            Enum.filter(responses, fn response ->
-              ordinary_response?(response) and
-                response_actor_event_id(response) == actor_event_id
-            end)
-
-          {:error, _reason} ->
-            []
-        end
-
-      nil ->
-        []
-    end
-  end
-
-  defp generating_turn(%Message{} = response) do
-    metadata = AIGateway.response_metadata(response)
-
-    %{
-      response: response,
-      response_id: response_id(response),
-      actor_event_id: metadata["actor_event_id"],
-      request_ref_actor_event_ids: request_ref_actor_event_ids(metadata["request_refs"])
-    }
-  end
 
   defp request_ref_actor_event_ids(request_refs) when is_list(request_refs) do
     Enum.flat_map(request_refs, fn
@@ -980,119 +527,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   defp request_ref_actor_event_ids(_request_refs), do: []
-
-  defp fail_generating_turns_in_tx(repo, actor_key, actor_event_id, now, error) do
-    responses = generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id)
-
-    responses
-    |> Enum.reduce_while({:ok, []}, fn response, {:ok, failed} ->
-      case AIGateway.fail_generating_response_in_tx(
-             repo,
-             actor_key.agent_uid,
-             response_id(response),
-             error,
-             now
-           ) do
-        {:ok, %Message{} = response} -> {:cont, {:ok, [response | failed]}}
-        {:ok, :already_terminal} -> {:cont, {:ok, failed}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, failed} -> {:ok, List.last(failed)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp response_replay_safe?(%Message{content: content}) when is_list(content) do
-    Enum.all?(content, fn
-      %{"type" => type} when type in ["message", "reasoning"] -> true
-      %{type: type} when type in ["message", "reasoning"] -> true
-      %{"role" => "user", "content" => _content} -> true
-      %{role: "user", content: _content} -> true
-      _item -> false
-    end)
-  end
-
-  defp response_replay_safe?(%Message{}), do: false
-
-  defp exact_response_owner?(%Message{} = response, actor_event_id) do
-    metadata = AIGateway.response_metadata(response)
-
-    response_actor_event_id(response) == actor_event_id and
-      request_ref_actor_event_ids(metadata["request_refs"]) == []
-  end
-
-  defp runtime_error(reason, stage) do
-    %{
-      "code" => runtime_reason_code(reason),
-      "reason" => inspect(reason),
-      "stage" => stage
-    }
-  end
-
-  defp runtime_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp runtime_reason_code(reason) when is_binary(reason), do: reason
-  defp runtime_reason_code(_reason), do: "actor_runtime_cleanup"
-
-  defp retry_source_from_response(%Message{} = response) do
-    with actor_event_id when is_binary(actor_event_id) <- response_actor_event_id(response),
-         text when is_binary(text) and text != "" <- request_user_text(response.content) do
-      %{
-        actor_event_id: actor_event_id,
-        message_id: response.id,
-        status: response.status,
-        text: text
-      }
-    else
-      _missing -> nil
-    end
-  end
-
-  defp retry_source_from_response(_response), do: nil
-
-  defp request_user_text(content) when is_list(content) do
-    content
-    |> Enum.reverse()
-    |> Enum.find_value(&request_user_item_text/1)
-  end
-
-  defp request_user_text(_content), do: nil
-
-  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
-       when is_list(content),
-       do: message_content_text(content)
-
-  defp request_user_item_text(%{"type" => "message", "role" => "user", "content" => content})
-       when is_binary(content),
-       do: content
-
-  defp request_user_item_text(%{"role" => "user", "content" => content})
-       when is_list(content),
-       do: message_content_text(content)
-
-  defp request_user_item_text(%{"role" => "user", "content" => content})
-       when is_binary(content),
-       do: content
-
-  defp request_user_item_text(_item), do: nil
-
-  defp message_content_text(content) do
-    content
-    |> Enum.map(fn
-      %{"text" => text} when is_binary(text) -> text
-      %{"type" => "text", "text" => text} when is_binary(text) -> text
-      %{"type" => "input_text", "text" => text} when is_binary(text) -> text
-      text when is_binary(text) -> text
-      _part -> nil
-    end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
-    |> case do
-      "" -> nil
-      text -> text
-    end
-  end
 
   defp delete_visible_turn_suffix(repo, %Conversation{} = conversation, actor_event_id, now) do
     with {:ok, responses} <-
@@ -1170,14 +604,19 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
           {:ok, suffix_retraction_noop(reason)}
 
         {:ok, suffix} ->
-          AIGateway.retract_visible_suffix_in_tx(
-            repo,
-            conversation.subject_uid,
-            conversation.id,
-            Enum.map(suffix, &response_id/1),
-            reason: Keyword.get(opts, :reason, "command.retry"),
-            retracted_at: now
-          )
+          if Keyword.get(opts, :preserve_tool_history, false) and
+               not Enum.all?(suffix, &response_replay_safe?/1) do
+            {:ok, %{status: :preserved, preserved_message_ids: Enum.map(suffix, & &1.id)}}
+          else
+            AIGateway.retract_visible_suffix_in_tx(
+              repo,
+              conversation.subject_uid,
+              conversation.id,
+              Enum.map(suffix, &response_id/1),
+              reason: Keyword.get(opts, :reason, "command.retry"),
+              retracted_at: now
+            )
+          end
       end
     end
   end
@@ -1302,36 +741,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     }
   end
 
-  defp current_response(%TurnRef{} = turn_ref, %Conversation{} = conversation) do
-    Message
-    |> where([response], response.subject_uid == ^turn_ref.agent_uid)
-    |> where([response], response.conversation_id == ^conversation.id)
-    |> where([response], response.type == "message")
-    |> where([response], response.status in ["generating", "complete"])
-    |> order_by([response], desc: response.inserted_at, desc: response.id)
-    |> Repo.all()
-    |> Enum.find(&(response_actor_event_id(&1) == turn_ref.actor_event_id))
-  end
-
   defp visible_response_chain(%Conversation{} = conversation, nil),
     do: StatefulResponses.expand_history(conversation.id)
-
-  defp visible_response_chain(
-         %Conversation{} = conversation,
-         %Message{status: "complete"} = response
-       ) do
-    StatefulResponses.expand_history(conversation.id, previous_response_id: response.id)
-  end
-
-  defp visible_response_chain(
-         %Conversation{} = conversation,
-         %Message{status: "generating", previous_message_id: previous_message_id}
-       )
-       when is_binary(previous_message_id) do
-    StatefulResponses.expand_history(conversation.id, previous_response_id: previous_message_id)
-  end
-
-  defp visible_response_chain(%Conversation{}, %Message{status: "generating"}), do: []
 
   defp response_actor_event_ids(%Message{} = response) do
     metadata = AIGateway.response_metadata(response)
@@ -1436,7 +847,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
   defp final_response(_chain, _final_response_id), do: {:error, :final_response_not_found}
 
-  defp validate_conversation(%Conversation{} = conversation, %TurnRef{} = turn_ref) do
+  defp validate_conversation(%Conversation{} = conversation, turn_ref) do
     cond do
       conversation.subject_uid != turn_ref.agent_uid ->
         {:error, :response_subject_mismatch}
@@ -1449,7 +860,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
-  defp turn_response_chain(chain, %TurnRef{} = turn_ref) when is_list(chain) do
+  defp turn_response_chain(chain, turn_ref) when is_list(chain) do
     turn_chain =
       Enum.take_while(chain, fn
         %Message{} = message ->
@@ -1475,7 +886,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
-  defp invalid_chain_row?(%Message{} = message, %TurnRef{} = turn_ref) do
+  defp invalid_chain_row?(%Message{} = message, turn_ref) do
     message.subject_uid != turn_ref.agent_uid or message.status != "complete"
   end
 
@@ -1487,7 +898,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       )
   end
 
-  defp project_completion(subject_uid, turn_chain, final_response) do
+  defp project_completion(subject_uid, turn_chain, final_response, origin) do
     source_items =
       turn_chain
       |> Enum.reverse()
@@ -1499,7 +910,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
          {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items),
          {:ok, generated_image_attachments} <-
-           materialize_generated_images(subject_uid, turn_chain),
+           materialize_generated_images(subject_uid, turn_chain, origin),
          attachments = attachments ++ generated_image_attachments do
       {:ok,
        %{
@@ -1513,7 +924,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   defp message_items(%Message{content: content}) when is_list(content), do: content
   defp message_items(_message), do: []
 
-  defp materialize_generated_images(subject_uid, turn_chain) do
+  defp materialize_generated_images(subject_uid, turn_chain, origin) do
     turn_chain
     |> Enum.reverse()
     |> Enum.flat_map(&generated_image_items/1)
@@ -1522,7 +933,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         if MapSet.member?(seen, image_id) do
           {:cont, {:ok, attachments, seen}}
         else
-          case materialize_generated_image(subject_uid, image_id) do
+          case materialize_generated_image(subject_uid, image_id, origin) do
             {:ok, attachment} ->
               {:cont, {:ok, [attachment | attachments], MapSet.put(seen, image_id)}}
 
@@ -1563,22 +974,20 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
   defp completed_generated_image?(_item), do: false
 
-  defp materialize_generated_image(subject_uid, image_id) do
+  # Retried completions keep the same path in the source channel's directory.
+  defp materialize_generated_image(subject_uid, image_id, origin) do
     with {:ok, %Artifact{} = artifact} <-
            generated_image_artifact(subject_uid, image_id),
          {:ok, extension} <- generated_image_extension(image_id, artifact.mime_type),
-         public_id = Artifacts.public_id(artifact),
-         filename = "#{public_id}.#{extension}",
-         relative_path = "generated-images/#{filename}",
-         :ok <- write_generated_image(subject_uid, image_id, relative_path, artifact.payload) do
+         filename = "#{Artifacts.public_id(artifact)}.#{extension}",
+         {:ok, file} <- store_generated_image(subject_uid, image_id, filename, artifact, origin) do
       {:ok,
        %{
-         "agent_computer_path" =>
-           Ankole.AgentHomePaths.user_files(subject_uid) <> "/#{relative_path}",
-         "user_files_relative_path" => relative_path,
+         "path" => file.path,
+         "blob_ref" => Base.encode16(file.sha256, case: :lower),
          "name" => filename,
          "mime_type" => artifact.mime_type,
-         "size" => byte_size(artifact.payload)
+         "size" => file.size
        }}
     end
   end
@@ -1601,11 +1010,23 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   defp generated_image_extension(image_id, mime_type),
     do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
 
-  defp write_generated_image(agent_uid, image_id, relative_path, payload) do
-    lane_path = Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path)
+  defp store_generated_image(agent_uid, image_id, filename, %Artifact{} = artifact, origin) do
+    channel_id = if origin, do: origin.id
 
-    case WorkerFiles.put("user_files", lane_path, payload) do
-      {:ok, _result} -> :ok
+    with {:ok, %{sha256: sha256}} <- Files.store(artifact.payload),
+         {:ok, %{files: [file]}} <-
+           Files.commit(agent_uid, [
+             %{
+               path:
+                 Files.chat_path(channel_id, Files.content_path("generated", sha256, filename)),
+               sha256: sha256,
+               source: "generated",
+               signal_channel_id: channel_id,
+               content_type: artifact.mime_type
+             }
+           ]) do
+      {:ok, file}
+    else
       {:error, reason} -> {:error, {:generated_image_materialization_failed, image_id, reason}}
     end
   end
@@ -1629,4 +1050,99 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   defp response_id(%Message{id: id}), do: "resp_#{id}"
+
+  defp generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id) do
+    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
+      %Conversation{} = conversation ->
+        case AIGateway.list_conversation_responses_in_tx(
+               repo,
+               actor_key.agent_uid,
+               conversation.id,
+               statuses: ["generating"],
+               lock: true
+             ) do
+          {:ok, responses} ->
+            Enum.filter(responses, fn response ->
+              ordinary_response?(response) and
+                response_actor_event_id(response) == actor_event_id
+            end)
+
+          {:error, _reason} ->
+            []
+        end
+
+      nil ->
+        []
+    end
+  end
+
+  @doc false
+  def retract_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason)
+      when is_binary(reason) do
+    generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id)
+    |> Enum.reduce_while({:ok, []}, fn response, {:ok, retracted} ->
+      case AIGateway.retract_generating_response_in_tx(
+             repo,
+             actor_key.agent_uid,
+             response_id(response),
+             reason,
+             now
+           ) do
+        {:ok, %Message{} = response} -> {:cont, {:ok, [response | retracted]}}
+        {:ok, :already_terminal} -> {:cont, {:ok, retracted}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, retracted} -> {:ok, List.last(retracted)}
+      error -> error
+    end
+  end
+
+  @doc false
+  def exact_turn_retryable_in_tx(repo, actor_key, actor_event_id) do
+    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
+      %Conversation{} = conversation ->
+        case AIGateway.list_conversation_responses_in_tx(
+               repo,
+               actor_key.agent_uid,
+               conversation.id,
+               statuses: ["generating", "complete", "error"],
+               lock: true
+             ) do
+          {:ok, responses} ->
+            responses
+            |> Enum.filter(&(actor_event_id in response_actor_event_ids(&1)))
+            |> Enum.all?(fn response ->
+              exact_response_owner?(response, actor_event_id) and
+                (response.status != "error" or response_replay_safe?(response))
+            end)
+
+          {:error, _} ->
+            false
+        end
+
+      nil ->
+        true
+    end
+  end
+
+  defp response_replay_safe?(%Message{content: content}) when is_list(content) do
+    Enum.all?(content, fn
+      %{"type" => type} when type in ["message", "reasoning"] -> true
+      %{type: type} when type in ["message", "reasoning"] -> true
+      %{"role" => "user", "content" => _} -> true
+      %{role: "user", content: _} -> true
+      _ -> false
+    end)
+  end
+
+  defp response_replay_safe?(%Message{}), do: false
+
+  defp exact_response_owner?(%Message{} = response, actor_event_id) do
+    metadata = AIGateway.response_metadata(response)
+
+    response_actor_event_id(response) == actor_event_id and
+      request_ref_actor_event_ids(metadata["request_refs"]) == []
+  end
 end

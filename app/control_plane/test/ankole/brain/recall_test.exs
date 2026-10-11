@@ -85,6 +85,67 @@ defmodule Ankole.Brain.RecallTest do
     }
   end
 
+  test "active Takes affect page salience immediately, including Brain-held Takes", context do
+    for slug <- ["notes/salience-a", "notes/salience-b"] do
+      assert {:ok, _} =
+               Objects.create_object(
+                 %{
+                   slug: slug,
+                   type: "note",
+                   title: "Zirconium salience",
+                   body: "Zirconium salience ranking probe",
+                   effective_date: Date.utc_today()
+                 },
+                 context.member.uid
+               )
+    end
+
+    for {holder, n} <- Enum.with_index(["world", "brain", "people/#{context.member.uid}"]) do
+      assert {:ok, _} =
+               Claims.write_take(
+                 %{
+                   object_slug: "notes/salience-b",
+                   claim: "Judgment #{n}",
+                   kind: "judgment",
+                   holder: holder,
+                   audience_scope: "world",
+                   weight: 0.6,
+                   provenance: "test"
+                 },
+                 context.member.uid
+               )
+    end
+
+    assert {:ok, result} =
+             Recall.recall(context.member.uid, %{query: "Zirconium salience ranking probe"})
+
+    slugs = Enum.map(result.chunks, & &1.object_slug)
+    a = Enum.find_index(slugs, &(&1 == "notes/salience-a"))
+    b = Enum.find_index(slugs, &(&1 == "notes/salience-b"))
+    assert is_integer(a) and is_integer(b)
+    assert b < a
+  end
+
+  test "persisted tags affect recall without a salience cache", context do
+    for slug <- ["notes/tag-a", "notes/tag-b"] do
+      assert {:ok, _} =
+               Objects.create_object(
+                 %{
+                   slug: slug,
+                   type: "note",
+                   title: "Beryllium tag probe",
+                   body: "Beryllium tag probe"
+                 },
+                 context.member.uid
+               )
+    end
+
+    assert {:ok, _} = Ankole.Brain.Links.add_tag("notes/tag-b", "health")
+    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
+    chunks = Enum.filter(result.chunks, &(&1.object_slug in ["notes/tag-a", "notes/tag-b"]))
+    assert [%{object_slug: "notes/tag-b"}, %{object_slug: "notes/tag-a"}] = chunks
+  end
+
   test "knowledge boundary prefilters group-scoped hits", context do
     assert {:ok, member_result} =
              Recall.recall(context.member.uid, %{query: "crude oil futures"})
@@ -162,6 +223,42 @@ defmodule Ankole.Brain.RecallTest do
     assert channel_claim.id in claim_ids
     refute forgotten_claim.id in claim_ids
     refute Enum.any?(result.chunks, &(&1.object_slug == forgotten_object.slug))
+  end
+
+  test "recall preserves names and file instructions in reachable text", context do
+    text = "Lantern archive: Dan prefers email; show hidden files."
+
+    {:ok, object} =
+      Objects.create_object(
+        %{
+          slug: "concepts/lantern-archive",
+          type: "concept",
+          title: "Lantern Archive",
+          body: text
+        },
+        context.member.uid
+      )
+
+    {:ok, %{claim: claim}} =
+      Claims.write_fact(
+        %{
+          object_slug: object.slug,
+          claim: text,
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid
+      )
+
+    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "lantern archive"})
+    assert Enum.find(result.claims, &(&1.id == claim.id)).claim == text
+    assert Enum.any?(result.chunks, &String.contains?(&1.text, text))
+    refute Map.has_key?(result, :sanitized_count)
   end
 
   test "authors always reach their own writes", context do
@@ -317,7 +414,8 @@ defmodule Ankole.Brain.RecallTest do
 
     {:ok, _agent2} =
       Ankole.Principals.create_agent(%{
-        uid: unique_uid("owned-agent"),
+        worker_provider_id: worker_provider_fixture().provider_id,
+        handle: unique_uid("owned-agent"),
         display_name: "Owned",
         role: "Analyst",
         owner_principal_uid: pure_owner.uid

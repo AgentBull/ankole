@@ -69,7 +69,26 @@ defmodule Ankole.MixProject do
   end
 
   defp releases do
-    [ankole: [steps: [:assemble, &copy_runtime_config_support/1]]]
+    [
+      ankole: [
+        applications: [aws_credentials: :load],
+        steps: [:assemble, &remove_dependency_native_copies/1, &copy_runtime_config_support/1]
+      ]
+    ]
+  end
+
+  # Rustler copies a build artifact of each dependency crate that declares a
+  # cdylib crate type. crc-fast, which the OpenDAL S3 service uses, is one, so
+  # the kernel priv directory gets its rlib as `crc_fast.so`. Nothing loads that
+  # file, so the release does not ship it.
+  defp remove_dependency_native_copies(%Mix.Release{} = release) do
+    release.path
+    |> Path.join("lib/ankole_kernel-*/priv/native/*")
+    |> Path.wildcard()
+    |> Enum.reject(&(Path.basename(&1) == "ankole_kernel.so"))
+    |> Enum.each(&File.rm!/1)
+
+    release
   end
 
   defp copy_runtime_config_support(%Mix.Release{} = release) do
@@ -95,8 +114,10 @@ defmodule Ankole.MixProject do
   defp deps do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
-      {:phoenix, "~> 1.8.13"},
-      {:phoenix_pubsub, "~> 2.1"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      {:phoenix, "~> 1.8.15"},
+      {:phoenix_pubsub, "~> 2.4"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},
@@ -104,26 +125,29 @@ defmodule Ankole.MixProject do
       {:phoenix_live_reload, "~> 1.7.0", only: :dev},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry, "~> 1.7"},
-      {:opentelemetry_exporter, "~> 1.10"},
+      {:opentelemetry_exporter, "~> 1.11"},
       {:req, "~> 0.7"},
+      {:aws_signature, "~> 0.4.3"},
+      {:aws_credentials, "~> 1.1.1", runtime: false},
+      {:kubereq, "~> 0.4.5"},
       {:gen_smtp, "~> 1.3"},
       {:codepagex, "~> 0.1.13"},
       {:mint_web_socket, "~> 1.0"},
-      {:telemetry_metrics, "~> 1.2"},
-      {:localize, "~> 1.2"},
+      {:localize, "~> 1.3"},
       {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:boruta, "2.3.8"},
-      {:toml_elixir, "~> 3.1"},
+      {:toml_elixir, "~> 3.2"},
       {:yaml_elixir, "~> 2.12"},
+      {:ex_json_schema, "~> 0.11"},
       {:pgvector, "~> 0.4"},
-      {:tzdata, "~> 1.1"},
-      {:hackney, "~> 4.7", override: true},
+      {:tzdata, "~> 1.2"},
+      {:hackney, "~> 4.8", override: true},
       {:h2, "~> 0.12", override: true},
-      {:dotenvy, "~> 1.1"},
-      {:torque, "~> 0.2.7"},
-      {:llm_db, "~> 2026.8"},
+      {:dotenvy, "~> 1.2"},
+      {:torque, "~> 0.5.0"},
+      {:llm_db, "~> 2026.10"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:slack_openapi, path: "../../libs/slack_openapi"},
@@ -145,6 +169,12 @@ defmodule Ankole.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
+      "ecto.migrate": [
+        fn args ->
+          Mix.Task.run("loadpaths", args)
+          Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Upgrade202610.migrate/4)
+        end
+      ],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       "e2e.gate": [
@@ -159,6 +189,8 @@ defmodule Ankole.MixProject do
           "../../tools/e2e/suites/dingtalk_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/wecom_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
+          "../../tools/e2e/suites/runtime_fabric_e2e_test.exs " <>
+          "../../tools/e2e/suites/compose_upgrade_e2e_test.exs " <>
           "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
       ],
       "e2e.perf": [
@@ -189,6 +221,7 @@ defmodule Ankole.MixProject do
         "compile --warnings-as-errors --no-all-warnings",
         "deps.unlock --unused",
         "format",
+        "credo --strict",
         "test"
       ]
     ]

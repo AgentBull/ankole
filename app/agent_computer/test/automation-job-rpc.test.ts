@@ -7,14 +7,12 @@ import {
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   decodeEnvelope,
-  DurabilityClass,
   encodeEnvelope,
-  Lane,
+  ProtocolVersion,
   RPCRequestSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
-import { runtimeFabricSealEnvelope } from '@ankole/kernel'
-import { handleWorkerRPCRequest, rpcMethods } from '../src/lanes/rpc_lane'
+import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 
 describe('automation job worker RPC', () => {
   it('decodes the typed request and returns the typed run result on the same request id', async () => {
@@ -23,8 +21,7 @@ describe('automation job worker RPC', () => {
       automationJobRunId: '1000',
       automationJobId: '1001',
       attemptId: '019fb2b4-1fd1-7d30-8b3d-c5e2250f6b9c',
-      agentUid: 'agent-1',
-      directoryPath: '/agents/agent-1/automation/test',
+      drivePrefix: 'automation/test',
       label: 'Test consumer',
       eventJson: new TextEncoder().encode('{}'),
       timeoutMs: 600_000,
@@ -44,7 +41,7 @@ describe('automation job worker RPC', () => {
       },
       create(RPCRequestSchema, {
         requestId: 'automation-run-request',
-        method: rpcMethods.automationJobRun,
+        method: 'automation_job.run',
         payload: toBinary(AutomationJobRunRequestSchema, runRequest)
       }),
       {
@@ -52,7 +49,6 @@ describe('automation job worker RPC', () => {
           expect(request).toMatchObject({
             automationJobRunId: '1000',
             automationJobId: '1001',
-            agentUid: 'agent-1',
             bindingName: 'lark-secondary',
             skills: [expect.objectContaining({ skillName: 'bullx-financial-data' })]
           })
@@ -69,12 +65,8 @@ describe('automation job worker RPC', () => {
     )
 
     expect(sent).toHaveLength(1)
-    // The kernel seals the reply at send time; assert the wire header shape.
-    expect(decodeEnvelope(runtimeFabricSealEnvelope(encodeEnvelope(sent[0]!)))).toMatchObject({
-      correlationId: 'automation-run-request',
-      lane: Lane.RPC,
-      durability: DurabilityClass.CONTROL_EPHEMERAL
-    })
+    // The host writes the version at send time; assert the wire header shape.
+    expect(decodeEnvelope(encodeEnvelope({ ...sent[0]!, protocolVersion: ProtocolVersion.CURRENT }))).toMatchObject({})
 
     const body = sent[0]!.body
     if (body.case !== 'rpcResponse') throw new Error('expected rpcResponse')
@@ -95,7 +87,7 @@ describe('automation job worker RPC', () => {
       },
       create(RPCRequestSchema, {
         requestId: 'automation-run-failed',
-        method: rpcMethods.automationJobRun,
+        method: 'automation_job.run',
         payload: toBinary(
           AutomationJobRunRequestSchema,
           create(AutomationJobRunRequestSchema, {

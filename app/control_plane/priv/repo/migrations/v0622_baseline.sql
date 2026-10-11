@@ -4,13 +4,13 @@ SET LOCAL check_function_bodies = false;
 
 CREATE SCHEMA paradedb;
 
-CREATE EXTENSION IF NOT EXISTS pg_search WITH SCHEMA paradedb;
-
-COMMENT ON EXTENSION pg_search IS 'pg_search: Full text search for PostgreSQL using BM25';
-
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
+
+CREATE EXTENSION IF NOT EXISTS pg_search WITH SCHEMA paradedb;
+
+COMMENT ON EXTENSION pg_search IS 'pg_search: Full text search for PostgreSQL using BM25';
 
 CREATE TYPE public.agent_type AS ENUM (
     'ai_colleague'

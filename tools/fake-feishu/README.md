@@ -46,6 +46,10 @@ conflict codes (300317, 200770, 200740).
 exchange (`send --file/--image`, `download`), chat management, and one-shot
 fault injection (`fault post_message --rate-limited`).
 
+For a local control plane in a container, use `serve --ip 0.0.0.0` and a
+client-reachable base URL, such as `http://host.docker.internal:7788` on
+Docker Desktop. WebSocket discovery uses the host and port of that request.
+
 ## What it simulates
 
 - WS long-connection discovery, PBBP2 frames, ping/pong, event acks.

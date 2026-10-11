@@ -51,7 +51,11 @@ belong to two Agents. The binding save transaction validates both rules.
 ## Connect to DingTalk
 
 `ConnectionReconciler` selects one Stream connection for each application.
-Chat and identity work can share it. `ConnectionSupervisor` runs each connection.
+Chat and identity work can share it. `Ankole.Plugins.ConnectionLifecycle`
+supervises one Stream client for each connection. The client is a temporary
+child. If it exits, `ConnectionLifecycle` restarts that key immediately once,
+then waits 5 seconds and 30 seconds between further attempts. Other connections
+stay connected.
 
 Before each connection, the client gets a new Stream ticket. It handles pings,
 disconnects, events, and callbacks. The Stream client acknowledges an event
@@ -73,9 +77,9 @@ The enterprise `senderStaffId` identifies the sender. The adapter ignores a
 message without that field and never uses an encrypted provider ID as a person.
 
 DingTalk gives attachments short-lived download codes. Before ingress, the
-adapter tries to download each attachment and save it through WorkerFiles. If
-the download or write fails, the adapter logs the failure and emits the message
-without a local file. It never stores the temporary code or URL.
+adapter tries to download each attachment and store it in the file service
+([Files](../Files.md)). If the download or the write fails, the adapter logs
+the failure and emits the message without stored bytes. It never stores the temporary code or URL.
 
 DingTalk does not provide inbound edit, recall, or reaction events for this
 robot callback path.
@@ -89,6 +93,10 @@ card.
 Text uses the DingTalk Markdown subset and can produce several provider
 messages. Supported files use the provider media upload path. An unsupported
 file type fails before the adapter reads its bytes.
+
+Markdown conversion changes prose only. The kernel uses CommonMark source
+positions to protect the original bytes of fenced, indented, and inline code.
+The existing AI Card stream keeps its own rendering and paging rules.
 
 Recall requires the `processQueryKey` from an earlier adapter send. The adapter
 rejects a target without this key.

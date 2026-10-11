@@ -1,166 +1,68 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
-  use Ankole.DataCase, async: false
+  use ExUnit.Case, async: true
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Docker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Spec
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.AgentWorkerSpec
 
-  describe "container_spec/1" do
-    test "describes the shared Agent Computer Docker runtime without inventing worker state" do
-      assert {:ok,
-              %Spec{
-                contract_version: 3,
-                kind: :container,
-                image: "ankole-agent-computer:test",
-                docker: %{
-                  cap_add: ["SYS_ADMIN"],
-                  security_opts: ["seccomp=unconfined", "systempaths=unconfined"],
-                  extra_hosts: []
-                },
-                env: %{},
-                host_setup_dirs: [],
-                mounts: []
-              }} =
-               WorkerBootstrap.container_spec(image: "ankole-agent-computer:test")
-    end
+  describe "agent_worker_spec/5" do
+    test "binds the generation and credential to the Agent's persistent storage" do
+      provider = %Provider{
+        kind: "docker",
+        settings: %{},
+        runtime: %{
+          image: "ankole-agent-computer:2",
+          runtime_fabric_endpoint: "ws://control-plane:4000/runtime-fabric/worker"
+        }
+      }
 
-    test "uses only the release-paired image configured by the control-plane image" do
-      previous = System.get_env("ANKOLE_AGENT_COMPUTER_IMAGE")
+      storage_ref = %{"volume" => "agent-a-home"}
 
-      on_exit(fn ->
-        if previous,
-          do: System.put_env("ANKOLE_AGENT_COMPUTER_IMAGE", previous),
-          else: System.delete_env("ANKOLE_AGENT_COMPUTER_IMAGE")
-      end)
+      spec =
+        WorkerBootstrap.agent_worker_spec(
+          provider,
+          "agent-a",
+          "gen0000001",
+          "token-a",
+          storage_ref
+        )
 
-      System.delete_env("ANKOLE_AGENT_COMPUTER_IMAGE")
-      assert {:error, {:invalid, :image}} = WorkerBootstrap.container_spec()
+      assert %AgentWorkerSpec{
+               agent_uid: "agent-a",
+               generation: "gen0000001",
+               image: "ankole-agent-computer:2",
+               storage_ref: ^storage_ref,
+               env: %{
+                 "WORKER_ID" => "agent-a",
+                 "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
+                   "ws://control-plane:4000/runtime-fabric/worker",
+                 "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => "token-a",
+                 "ANKOLE_WORKER_STORAGE" => "mounted"
+               }
+             } = spec
 
-      revision = String.duplicate("a", 40)
-      image = "ghcr.io/agentbull/ankole-agent-computer-worker:#{revision}"
-      System.put_env("ANKOLE_AGENT_COMPUTER_IMAGE", image)
+      assert map_size(spec.env) == 4
+      refute inspect(spec) =~ "token-a"
 
-      assert {:ok, %Spec{image: ^image}} = WorkerBootstrap.container_spec()
+      assert Enum.sort(WorkerBootstrap.contract_env_names()) ==
+               Enum.sort(~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT
+                 ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY ANKOLE_WORKER_STORAGE
+                 ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE ANKOLE_WORKER_BOOTSTRAP
+                 ANKOLE_WORKER_ADAPTER_URL HOME CODEX_HOME CODEX_SQLITE_HOME))
     end
   end
 
-  describe "worker_spec/1" do
-    test "adds canonical auth, connectivity, and Agent Home guarantees" do
-      agents_root = "/tmp/ankole agents"
-
-      assert {:ok,
-              %Spec{
-                contract_version: 3,
-                kind: :worker,
-                image: "ankole-agent-computer:test",
-                docker: %{
-                  cap_add: ["SYS_ADMIN"],
-                  security_opts: ["seccomp=unconfined", "systempaths=unconfined"],
-                  extra_hosts: [
-                    %{host: "host.docker.internal", address: "host-gateway"}
-                  ]
-                },
-                env: %{
-                  "ANKOLE_AGENTS_ROOT" => "/agents",
-                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
-                    "ws://host.docker.internal:4000/runtime-fabric/worker",
-                  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => "secret with / symbols",
-                  "WORKER_ID" => "worker-a"
-                },
-                host_setup_dirs: ["/tmp/ankole agents"],
-                mounts: [
-                  %{
-                    source: "/tmp/ankole agents",
-                    target: "/agents",
-                    readonly: false
-                  }
-                ]
-              } = spec} =
-               WorkerBootstrap.worker_spec(
-                 endpoint: "ws://host.docker.internal:4000/runtime-fabric/worker",
-                 worker_id: "worker-a",
-                 auth_key: "secret with / symbols",
-                 image: "ankole-agent-computer:test",
-                 agents_root: agents_root
-               )
-
-      assert Docker.argv(spec) == [
-               "run",
-               "--rm",
-               "--cap-add",
-               "SYS_ADMIN",
-               "--security-opt",
-               "seccomp=unconfined",
-               "--security-opt",
-               "systempaths=unconfined",
-               "--add-host",
-               "host.docker.internal=host-gateway",
-               "-e",
-               "ANKOLE_AGENTS_ROOT=/agents",
-               "-e",
-               "ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://host.docker.internal:4000/runtime-fabric/worker",
-               "-e",
-               "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret with / symbols",
-               "-e",
-               "WORKER_ID=worker-a",
-               "--mount",
-               "type=bind,src=/tmp/ankole agents,dst=/agents",
-               "ankole-agent-computer:test"
-             ]
-
-      shell = Docker.shell_command(spec)
-      assert shell =~ "mkdir -p '/tmp/ankole agents'"
-      assert shell =~ "'type=bind,src=/tmp/ankole agents,dst=/agents'"
-
-      assert_raise ArgumentError, ~r/cannot replace canonical environment/, fn ->
-        Docker.argv(spec, additional_env: %{"WORKER_ID" => "adapter-worker"})
-      end
-    end
-
-    test "resolves the persisted AppConfigure auth key when no explicit key is passed" do
-      assert {:ok, auth_key} = WorkerAuthKey.ensure()
-
-      assert {:ok,
-              %Spec{
-                env: %{
-                  "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => "ws://127.0.0.1:4000/runtime-fabric/worker",
-                  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => ^auth_key
-                }
-              }} =
-               WorkerBootstrap.worker_spec(
-                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
-                 worker_id: "worker-app-config",
-                 image: "ankole-agent-computer:test",
-                 agents_root: "/tmp/ankole-agents"
-               )
-    end
-
-    test "rejects invalid or incomplete worker inputs" do
-      assert {:error, {:missing, :agents_root}} =
-               WorkerBootstrap.worker_spec(
-                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
-                 worker_id: "worker-a",
-                 image: "ankole-agent-computer:test",
-                 auth_key: "secret"
-               )
-
-      assert {:error, {:invalid, :auth_key}} =
-               WorkerBootstrap.worker_spec(
-                 endpoint: "ws://127.0.0.1:4000/runtime-fabric/worker",
-                 worker_id: "worker-a",
-                 image: "ankole-agent-computer:test",
-                 auth_key: "",
-                 agents_root: "/tmp/ankole-agents"
-               )
-
-      assert {:error, {:missing, :endpoint}} =
-               WorkerBootstrap.worker_spec(
-                 worker_id: "worker-a",
-                 image: "ankole-agent-computer:test",
-                 auth_key: "secret",
-                 agents_root: "/tmp/ankole-agents"
-               )
+  test "Skill directories use the three Worker library roots" do
+    for {source, kind, expected} <- [
+          {"builtin", "builtin", "/repo/app/library/skills/example"},
+          {"builtin", "internal", "/repo/internals/skills/skills/example"},
+          {"installed", nil, "/workspace/installed-skills/skills/example"}
+        ] do
+      assert WorkerBootstrap.skill_directory(%{
+               "source_kind" => source,
+               "skill_root" => kind,
+               "relative_path" => "skills/example"
+             }) == expected
     end
   end
 end

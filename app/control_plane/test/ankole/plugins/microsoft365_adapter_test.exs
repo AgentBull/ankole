@@ -761,7 +761,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           })
         )
 
-      assert {:ok, %{status: 200}} = TeamsWebhook.handle_webhook(request)
+      assert {:ok, %{status: 200}} =
+               Repo.without_tenant(fn -> TeamsWebhook.handle_webhook(request) end)
 
       assert {:ok, %{status: 401}} =
                TeamsWebhook.handle_webhook(%{
@@ -782,7 +783,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           })
         )
 
-      assert {:ok, %{status: 404}} = TeamsWebhook.handle_webhook(request)
+      assert {:ok, %{status: 404}} =
+               Repo.without_tenant(fn -> TeamsWebhook.handle_webhook(request) end)
     end
 
     test "conversation updates mirror the channel and enqueue refresh" do
@@ -804,7 +806,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:ok, %{status: 200}} = TeamsWebhook.handle_webhook(webhook_request(activity))
 
       signal_channel_id = Conversations.signal_channel_id("19:room@thread.tacv2")
-      assert %Channel{metadata: metadata} = Repo.get(Channel, signal_channel_id)
+      assert %Channel{metadata: metadata} = Repo.get_by(Channel, id: signal_channel_id)
       assert metadata["service_url"] == @service_url
       assert metadata["team_id"] == "team-1"
 
@@ -1030,7 +1032,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
             assert subscription["changeType"] == "updated,deleted"
 
             assert subscription["notificationUrl"] ==
-                     "https://ankole.example.com/webhooks/v1/entra-id/#{provider_id}/directory"
+                     "https://ankole.example.com/webhooks/v1/entra-id/#{Repo.tenant_id!()}.#{provider_id}/directory"
 
             Req.Test.json(conn, %{
               "id" => "sub-#{subscription["resource"]}",
@@ -1070,6 +1072,56 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                GraphSubscriptions.ensure(provider_id, config, now: future)
 
       assert_received {:renewed, "/v1.0/subscriptions/sub-/users"}
+    end
+
+    test "an unexpired legacy subscription is recreated with a tenant-qualified callback URL" do
+      {:ok, config} = Config.validate_identity_config(identity_config())
+      provider_id = "legacy-url"
+
+      assert {:ok, _} =
+               AppConfigure.put_tenant_by_key(Config.subscription_state_key(provider_id), %{
+                 "subscriptions" => [
+                   %{
+                     "id" => "old-users",
+                     "resource" => "/users",
+                     "expiration" => "2099-01-01T00:00:00Z",
+                     "clientState" => "old-state"
+                   }
+                 ]
+               })
+
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+            Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
+
+          conn.method == "DELETE" ->
+            send(parent, {:legacy_deleted, conn.request_path})
+            Plug.Conn.send_resp(conn, 204, "")
+
+          conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            subscription = Torque.decode!(body)
+
+            assert subscription["notificationUrl"] ==
+                     "https://ankole.example.com/webhooks/v1/entra-id/#{Repo.tenant_id!()}.#{provider_id}/directory"
+
+            Req.Test.json(conn, %{
+              "id" => "new-#{subscription["resource"]}",
+              "expirationDateTime" => subscription["expirationDateTime"]
+            })
+
+          conn.method == "PATCH" ->
+            flunk("old URLs must be replaced even when unexpired")
+        end
+      end)
+
+      assert {:ok, %{subscriptions: [users | _]}} = GraphSubscriptions.ensure(provider_id, config)
+      assert_received {:legacy_deleted, "/v1.0/subscriptions/old-users"}
+      assert users["id"] == "new-/users"
+      assert users["notificationUrl"] =~ "#{Repo.tenant_id!()}.#{provider_id}"
     end
 
     test "delete keeps failed subscriptions in local state for retry" do
@@ -1210,19 +1262,58 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     end
   end
 
+  defp dispatch_directory_webhook(request) do
+    conn = Phoenix.ConnTest.build_conn()
+
+    conn = %{
+      conn
+      | body_params: request.body_params,
+        query_params: request.query_params,
+        req_headers: Map.to_list(request.headers)
+    }
+
+    Repo.without_tenant(fn ->
+      AnkoleWeb.SignalWebhookController.handle(conn, %{
+        "handler_id" => request.handler_id,
+        "instance_id" => request.instance_id,
+        "kind" => request.kind
+      })
+    end)
+  end
+
   describe "directory webhook" do
+    test "unknown and malformed tenants are acknowledged without establishing a context" do
+      for instance <- [
+            "legacy-provider",
+            "not-a-uuid.provider",
+            "#{Ecto.UUID.generate()}.provider"
+          ] do
+        assert dispatch_directory_webhook(%{
+                 handler_id: "entra-id",
+                 instance_id: instance,
+                 kind: "directory",
+                 query_params: %{},
+                 body_params: %{},
+                 headers: %{}
+               }).status == 202
+      end
+    end
+
     test "echoes the validation token as text/plain" do
       request = %{
         handler_id: "entra-id",
-        instance_id: "entra-id-main",
+        instance_id: "#{Repo.tenant_id!()}.entra-id-main",
         kind: "directory",
         query_params: %{"validationToken" => "token-123"},
         body_params: %{},
         headers: %{}
       }
 
-      assert {:ok, %{status: 200, body: "token-123", content_type: "text/plain"}} =
-               DirectoryWebhook.handle_webhook(request)
+      conn = dispatch_directory_webhook(request)
+      assert conn.status == 200
+      assert conn.resp_body == "token-123"
+      assert [content_type] = Plug.Conn.get_resp_header(conn, "content-type")
+      assert String.starts_with?(content_type, "text/plain")
     end
 
     test "normalizes notifications and enforces clientState" do
@@ -1277,7 +1368,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       request = %{
         handler_id: "entra-id",
-        instance_id: provider_id,
+        instance_id: "#{Repo.tenant_id!()}.#{provider_id}",
         kind: "directory",
         query_params: %{},
         body_params: %{
@@ -1302,7 +1393,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         headers: %{}
       }
 
-      assert {:ok, %{status: 202}} = DirectoryWebhook.handle_webhook(request)
+      assert dispatch_directory_webhook(request).status == 202
 
       assert {:ok, _uid} =
                Ankole.Principals.resolve_platform_subject_uid(provider_id, "oid-webhook")

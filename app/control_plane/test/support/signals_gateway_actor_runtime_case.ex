@@ -15,16 +15,15 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime
-  alias Ankole.SignalsGateway.ActorTurnCompletion
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Config, as: AgentWorkersConfig
+  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Conversations.{JobTurnRef, Run}
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
@@ -34,8 +33,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
-  @base_time ~U[2026-07-02 01:34:05.000000Z]
-
   using do
     quote do
       use Ankole.DataCase, async: false
@@ -44,11 +41,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2, outbox_adapter: 3]
 
       import Ankole.SignalsGateway.ActorRuntimeCase,
-        except: [
-          use_mock_signal_provider_plugin: 1,
-          wait_for_final_mirror: 1,
-          wait_for_final_mirror: 2
-        ]
+        except: [use_mock_signal_provider_plugin: 1]
 
       import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
@@ -62,9 +55,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       alias Ankole.SignalsGateway.ActorEvent, warn: false
       alias Ankole.SignalsGateway.ActorRuntime, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.RPCLane, warn: false
-      alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery, warn: false
-      alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation, warn: false
-      alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker, warn: false
+      alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap, warn: false
@@ -80,16 +71,77 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       @long_lease_seconds 31_536_000
 
       setup do
+        existing_driver_pids = Ankole.SignalsGateway.ActorRuntimeCase.driver_pids()
+
         existing_preview_pids =
           Ankole.SignalsGateway.ActorRuntimeCase.preview_handler_pids()
 
         on_exit(fn ->
+          Ankole.SignalsGateway.ActorRuntimeCase.stop_new_drivers(existing_driver_pids)
           Ankole.SignalsGateway.ActorRuntimeCase.stop_new_preview_handlers(existing_preview_pids)
         end)
 
         :ok
       end
     end
+  end
+
+  def driver_pids do
+    Ankole.Conversations.Drivers
+    |> DynamicSupervisor.which_children()
+    |> Enum.flat_map(fn {_id, pid, _type, _modules} -> if is_pid(pid), do: [pid], else: [] end)
+    |> MapSet.new()
+  end
+
+  @doc "Registers a passive Driver boundary fake for a domain unit test."
+  def stub_driver(key, owner \\ self()) do
+    pid = spawn(fn -> stub_driver_loop(owner, Process.monitor(owner)) end)
+    :yes = :global.register_name(Ankole.Conversations.Driver.name(key), pid)
+    pid
+  end
+
+  defp stub_driver_loop(owner, monitor) do
+    receive do
+      {:DOWN, ^monitor, :process, ^owner, _reason} ->
+        :ok
+
+      message ->
+        send(owner, message)
+        stub_driver_loop(owner, monitor)
+    end
+  end
+
+  @doc "Installs passive task Drivers before a Workflow unit fixture dispatches."
+  def stub_workflow_drivers(run) do
+    handler = {__MODULE__, :workflow_drivers, run.id}
+    owner = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _, _, metadata, _ ->
+          if String.starts_with?(metadata.query, ~s(INSERT INTO "workflow_agent_calls")) and
+               run.id in metadata.params do
+            {:ok, %{columns: columns, rows: [row]}} = metadata.result
+            call_id = Enum.at(row, Enum.find_index(columns, &(&1 == "id")))
+
+            stub_driver(
+              %{agent_uid: run.agent_uid, session_id: Ankole.Workflow.task_session_id(call_id)},
+              owner
+            )
+          end
+        end,
+        nil
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(handler) end)
+    run
+  end
+
+  def stop_new_drivers(existing_pids) do
+    MapSet.difference(driver_pids(), existing_pids)
+    |> Enum.each(&DynamicSupervisor.terminate_child(Ankole.Conversations.Drivers, &1))
   end
 
   def preview_handler_pids do
@@ -125,147 +177,140 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     :ok
   end
 
+  @doc """
+  Admits the Worker of one Agent on `route`, the way a real Worker does: the
+  row is provisioned as the reconcile job creates it (a generation, its
+  credential digest, this node's image, protocol, and template) and the
+  process joins. `worker_id:` names the Agent; without it the test must have
+  exactly one Agent.
+  """
   def admit_worker(route, overrides \\ %{}) do
-    fields =
-      Map.merge(
-        %{
-          worker_id: "worker-" <> route,
-          incarnation_id: "incarnation-" <> route,
-          runtime: "bun",
-          version: "test",
-          capacity: %{"available_turn_slots" => 4}
-        },
-        overrides
-      )
+    agent_uid = Map.get(overrides, :worker_id) || sole_agent_uid!()
+    capacity = Map.get(overrides, :capacity, %{"available_slots" => 4})
+    load = Map.get(overrides, :load)
+    available_slots = Map.get(capacity, "available_slots", 0)
+    active_slots = if is_map(load), do: Map.get(load, "active_slots", 0), else: 0
+    max_slots = Map.get(capacity, "max_slots", available_slots + active_slots)
+    incarnation_id = Map.get(overrides, :incarnation_id, "incarnation-" <> route)
 
-    {capacity, fields} = Map.pop(fields, :capacity)
-    {load, fields} = Map.pop(fields, :load)
-    capacity = capacity || %{}
-    available_turn_slots = Map.get(capacity, "available_turn_slots", 0)
-    active_turns = if is_map(load), do: Map.get(load, "active_turns", 0), else: 0
-    max_turns = Map.get(capacity, "max_turns", available_turn_slots + active_turns)
+    :ok = provision_worker(agent_uid)
 
-    auth = %{authenticated?: true, transport_route: route}
+    auth = %{
+      transport_route: route,
+      worker_id: agent_uid,
+      generation: Repo.get!(AgentWorker, agent_uid).generation
+    }
 
     admitted =
-      ActorRuntime.admit_worker_ready(
-        struct!(
-          FabricProto.AgentComputerWorkerReady,
-          fields
-          |> Map.put(:max_turns, max_turns)
-          |> Map.put(:available_turn_slots, available_turn_slots)
-        ),
+      ActorRuntime.admit_join(
+        %{
+          incarnation_id: incarnation_id,
+          max_slots: max_slots,
+          available_slots: available_slots
+        },
         auth
       )
 
-    # The ready message carries no load; a worker reports it through the
-    # capacity update that follows admission.
+    # The join carries no load; a Worker reports it in its next heartbeat.
     with {:ok, worker} when load != nil <- admitted do
-      ActorRuntime.handle_worker_capacity(
-        %FabricProto.AgentComputerWorkerCapacity{
-          worker_id: worker.worker_id,
+      ActorRuntime.handle_worker_heartbeat(
+        %FabricProto.AgentComputerWorkerHeartbeat{
           incarnation_id: worker.incarnation_id,
-          max_turns: max_turns,
-          active_turns: active_turns,
-          available_turn_slots: available_turn_slots
+          max_slots: max_slots,
+          active_slots: active_slots,
+          available_slots: available_slots,
+          active_tasks: Map.get(load, "active_tasks", active_slots),
+          idle_for_ms: Map.get(load, "idle_for_ms", 0)
         },
         auth
       )
     end
-  end
-
-  def worker_heartbeat_payload(%AgentComputerWorker{} = worker, overrides \\ %{}) do
-    fields =
-      Map.merge(
-        %{
-          worker_id: worker.worker_id,
-          incarnation_id: worker.incarnation_id,
-          monotonic_ms: 0,
-          runtime: worker.metadata["runtime"],
-          version: worker.version,
-          max_turns: worker.capacity["max_turns"],
-          active_turns: 0
-        },
-        overrides
-      )
-
-    available_turn_slots =
-      Map.get(
-        overrides,
-        :available_turn_slots,
-        fields.max_turns - fields.active_turns
-      )
-
-    struct!(
-      FabricProto.AgentComputerWorkerHeartbeat,
-      Map.put(fields, :available_turn_slots, available_turn_slots)
-    )
   end
 
   @doc """
-  Normalizes a domain or generated turn fence into the proto struct.
+  Gives an Agent's row a generation as `ReconcileJob` creates one, unless the
+  row can already accept a process. Returns the credential of a new
+  generation in the process dictionary of the test as `{:worker_token, uid}`.
   """
-  def turn_proto_ref(%TurnRef{} = turn_ref), do: TurnRef.to_proto(turn_ref)
-  def turn_proto_ref(%FabricProto.ActorTurnRef{} = turn_ref), do: turn_ref
+  def provision_worker(agent_uid) do
+    {:ok, config} = AgentWorkersConfig.fetch()
 
-  def turn_accepted_payload(turn_ref) do
-    %FabricProto.TurnAccepted{turn: turn_proto_ref(turn_ref)}
+    case Repo.get(AgentWorker, agent_uid) do
+      %AgentWorker{state: state} when state in ["starting", "stale", "ready"] ->
+        :ok
+
+      %AgentWorker{} = worker ->
+        {:ok, provider} =
+          Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.load(worker.provider_id)
+
+        generation =
+          "test" <>
+            String.slice(Base.encode16(:crypto.hash(:sha256, agent_uid), case: :lower), 0, 6)
+
+        {:ok, credential} =
+          Ankole.SignalsGateway.ActorRuntime.AgentWorkers.issue_credential(agent_uid, generation)
+
+        {:ok, token} =
+          Ankole.SignalsGateway.ActorRuntime.AgentWorkers.credential(%AgentWorker{
+            agent_uid: agent_uid,
+            generation: generation,
+            token_ciphertext: credential.token_ciphertext
+          })
+
+        Process.put({:worker_token, agent_uid}, token)
+
+        {1, _rows} =
+          Repo.update_all(
+            from(worker in AgentWorker, where: worker.agent_uid == ^agent_uid),
+            set: [
+              state: "starting",
+              generation: generation,
+              token_digest: credential.token_digest,
+              token_ciphertext: credential.token_ciphertext,
+              image: config.image,
+              protocol_version: config.protocol_version,
+              settings_digest: provider.settings_digest,
+              transport_route: nil,
+              drain_reason: nil
+            ]
+          )
+
+        :ok
+
+      nil ->
+        raise ArgumentError,
+              "Agent #{agent_uid} has no Worker row; create it with agent_fixture/1"
+    end
   end
 
-  def domain_turn_ref(%TurnRef{} = turn_ref), do: turn_ref
+  defp sole_agent_uid! do
+    case Repo.all(
+           from principal in Ankole.Principals.Principal,
+             where: principal.type == :agent,
+             select: principal.uid
+         ) do
+      [agent_uid] ->
+        agent_uid
 
-  def domain_turn_ref(%FabricProto.ActorTurnRef{} = turn_ref) do
-    {:ok, turn_ref} = TurnRef.from_proto(turn_ref)
-    turn_ref
+      agents ->
+        raise ArgumentError,
+              "admit_worker/2 needs worker_id: when the test has #{length(agents)} Agents"
+    end
   end
 
-  def commit_turn_completion(turn_ref, final_response_id, outcome \\ "loop_finished") do
-    ActorTurnCompletion.handle(domain_turn_ref(turn_ref), final_response_id, outcome, [])
-  end
+  def turn_proto_ref(%JobTurnRef{} = ref), do: JobTurnRef.to_proto(ref)
+  def turn_proto_ref(%FabricProto.JobTurnRef{} = ref), do: ref
+  def turn_proto_ref(%FabricProto.RunRef{} = ref), do: ref
 
-  def complete_turn_silent(turn_ref, final_response_id \\ nil) do
-    ActorTurnCompletion.handle(domain_turn_ref(turn_ref), final_response_id, "silent", [])
-  end
-
-  def fail_turn(turn_ref, code, message \\ "", details \\ nil) do
-    fail_turn(turn_ref, code, message, details, [])
-  end
-
-  def fail_turn(turn_ref, code, message, details, opts) do
-    ActorRuntime.handle_turn_error(
-      domain_turn_ref(turn_ref),
-      turn_error_reason(code, message, details),
-      opts
+  def commit_turn_completion(%Run{} = run, final_response_id, outcome \\ "loop_finished") do
+    Ankole.Conversations.Run.finalize(
+      %{run | anchor: String.replace_prefix(final_response_id, "resp_", "")},
+      outcome
     )
   end
 
-  def turn_error_reason(code, message \\ "", details \\ nil) do
-    %{
-      "code" => present_text(code) || "worker_turn_error",
-      "message" => present_text(message) || "worker turn failed",
-      "details_json" => details || %{}
-    }
-  end
-
-  def worker_progress_payload(turn_ref, kind, opts \\ []) do
-    %FabricProto.WorkerProgress{
-      turn: turn_proto_ref(turn_ref),
-      kind: kind,
-      summary: Keyword.get(opts, :summary, ""),
-      refs_json:
-        case Keyword.get(opts, :refs) do
-          nil -> ""
-          refs -> Torque.encode!(refs)
-        end
-    }
-  end
-
-  defp present_text(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
+  def complete_turn_silent(%Run{} = run, _final_response_id \\ nil),
+    do: Ankole.Conversations.Run.finalize(run, "silent")
 
   @doc """
   Unwraps one expected body payload from a captured envelope struct.
@@ -279,9 +324,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   def decoded_request_context(%FabricProto.TurnStart{request_context_json: bytes}),
     do: decoded_json_bytes(bytes)
 
-  def decoded_hosted_tools(%FabricProto.TurnStart{hosted_tools_json: bytes}),
-    do: decoded_json_bytes(bytes)
-
   def decoded_json_bytes(bytes) when bytes in [nil, ""], do: nil
   def decoded_json_bytes(bytes) when is_binary(bytes), do: Torque.decode!(bytes)
 
@@ -293,8 +335,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   @doc """
   Builds a worker-originated RPC request frame carrying an encoded payload
-  message. `opts` supply the frame facts: `turn:` (domain or generated fence)
-  for turn-scoped methods, `agent_uid:` for worker_agent methods.
+  message. `turn:` (domain or generated fence) is the frame fact of
+  turn-scoped methods.
   """
   def rpc_request(request_id, method, payload, opts \\ [])
 
@@ -303,13 +345,22 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       request_id: request_id,
       method: method,
       payload: encode_proto!(payload),
-      turn:
-        case Keyword.get(opts, :turn) do
+      run: Keyword.get(opts, :run),
+      job_turn:
+        case Keyword.get(opts, :job_turn) do
           nil -> nil
-          turn -> turn_proto_ref(turn)
-        end,
-      agent_uid: Keyword.get(opts, :agent_uid, "")
+          ref -> turn_proto_ref(ref)
+        end
     }
+  end
+
+  @doc """
+  Handles one RPC as if it arrived on `route` from the Worker of `worker_id`.
+  A test with one Agent may omit `worker_id`.
+  """
+  def handle_rpc(%FabricProto.RPCRequest{} = request, route, worker_id \\ nil) do
+    worker_id = worker_id || sole_agent_uid!()
+    RPCLane.handle_request(request, %{transport_route: route, worker_id: worker_id})
   end
 
   @doc """
@@ -326,14 +377,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   def rpc_response_payload!(envelope, module) do
     {:ok, decoded} = module.decode(envelope_body!(envelope, :rpc_response).payload)
     decoded
-  end
-
-  @doc """
-  Decodes a model-facing passthrough response into its JSON map.
-  """
-  def rpc_passthrough_payload!(envelope) do
-    body = rpc_response_payload!(envelope, FabricProto.JSONPassthroughResponse)
-    decoded_json_bytes(body.body_json) || %{}
   end
 
   def rpc_error_payload!(envelope) do
@@ -385,7 +428,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   @doc false
-  def cache_actor_runtime_models(provider_id) do
+  def cache_actor_runtime_models(provider_id, image_models \\ []) do
     {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
 
     models =
@@ -398,7 +441,9 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
         fn {id, max_completion_tokens} ->
           %{
             "id" => id,
-            "architecture" => %{"input_modalities" => ["text"]},
+            "architecture" => %{
+              "input_modalities" => if(id in image_models, do: ["text", "image"], else: ["text"])
+            },
             "top_provider" => %{"max_completion_tokens" => max_completion_tokens}
           }
         end
@@ -458,9 +503,13 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def emit_entry(agent_uid, binding_name, input, opts) do
-    with {:ok, result} <- Ingress.emit_entry(agent_uid, binding_name, input, opts) do
-      {:ok, maybe_finalize_test_inbound_batch(result)}
-    end
+    # Domain tests admit the input explicitly. Committed-ingress integration
+    # tests exercise driver notification outside this fixture transaction.
+    Repo.transact(fn _repo ->
+      with {:ok, result} <- Ingress.emit_entry(agent_uid, binding_name, input, opts) do
+        {:ok, maybe_finalize_test_inbound_batch(result)}
+      end
+    end)
   end
 
   def group_entry(overrides) do
@@ -481,76 +530,32 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     now = Keyword.fetch!(opts, :now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
-    SignalsGateway.append_actor_event(%{
-      sender_key: agent_uid,
-      agent_uid: agent_uid,
-      binding_name: "control-plane:test",
-      session_id: session_id,
-      source_event_id: source_event_id,
-      type: type,
-      available_at: now,
-      payload: %{
-        "specversion" => "1.0",
-        "id" => source_event_id,
-        "source" => "control-plane://test",
-        "time" => DateTime.to_iso8601(now),
-        "type" => type,
-        "data" => %{
-          "session" => %{
-            "agent_uid" => agent_uid,
-            "session_id" => session_id,
-            "binding_name" => "control-plane:test"
+    Repo.transact(fn repo ->
+      SignalsGateway.append_actor_event_in_tx(repo, %{
+        sender_key: agent_uid,
+        agent_uid: agent_uid,
+        binding_name: "control-plane:test",
+        session_id: session_id,
+        source_event_id: source_event_id,
+        type: type,
+        available_at: now,
+        payload: %{
+          "specversion" => "1.0",
+          "id" => source_event_id,
+          "source" => "control-plane://test",
+          "time" => DateTime.to_iso8601(now),
+          "type" => type,
+          "data" => %{
+            "session" => %{
+              "agent_uid" => agent_uid,
+              "session_id" => session_id,
+              "binding_name" => "control-plane:test"
+            }
           }
         }
-      }
-    })
+      })
+    end)
   end
-
-  def process_ready_events_once(opts \\ []) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    limit = Keyword.get(opts, :limit, 1)
-
-    results =
-      Ankole.SignalsGateway.ActorRuntime.runtime_event_snapshot()
-      |> Enum.filter(&actor_session_ready_due?(&1, now))
-      |> Enum.take(limit)
-      |> Enum.map(fn {_channel, payload} ->
-        Ankole.SignalsGateway.ActorRuntime.process_ready_event_for_actor(
-          %{
-            agent_uid: payload["agent_uid"],
-            session_id: payload["session_id"]
-          },
-          opts
-        )
-      end)
-
-    case results do
-      [] -> {:ok, %{status: :idle}}
-      [result | _rest] -> result
-    end
-  end
-
-  defp actor_session_ready_due?(
-         {channel, %{"agent_uid" => agent_uid, "session_id" => session_id} = payload},
-         now
-       )
-       when is_binary(agent_uid) and is_binary(session_id) do
-    channel == Ankole.RuntimeEvents.actor_session_ready_channel() and
-      due_at?(payload["due_at"], now)
-  end
-
-  defp actor_session_ready_due?(_event, _now), do: false
-
-  defp due_at?(nil, _now), do: true
-
-  defp due_at?(value, now) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      {:error, _reason} -> false
-    end
-  end
-
-  defp due_at?(_value, _now), do: false
 
   def complete_actor_event(agent_uid, binding_name, source_event_id, opts \\ []) do
     completed_at = Keyword.get(opts, :completed_at, DateTime.utc_now(:microsecond))
@@ -595,40 +600,14 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     "local-test-route-" <> Integer.to_string(System.unique_integer([:positive]))
   end
 
-  def unique_process_name(prefix) do
-    :"#{prefix}_#{System.unique_integer([:positive])}"
-  end
-
-  def runtime_fabric_kernel_dir do
-    Path.expand("../../../kernel", __DIR__)
-  end
-
-  def worker_ready_envelope do
-    %FabricProto.Envelope{
-      message_id: "worker-ready-test",
-      lane: :LANE_CONTROL,
-      durability: :CONTROL_EPHEMERAL,
-      body:
-        {:worker_ready,
-         %FabricProto.AgentComputerWorkerReady{
-           worker_id: "worker-a",
-           incarnation_id: "incarnation-worker-a",
-           runtime: "bun",
-           version: "test",
-           max_turns: 1,
-           available_turn_slots: 1
-         }}
-    }
-  end
-
   def wait_for_worker(worker_id, worker_task, attempts \\ 100)
 
   def wait_for_worker(worker_id, worker_task, attempts) when attempts > 0 do
-    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
-      %AgentComputerWorker{} = worker ->
+    case Repo.get(AgentWorker, worker_id) do
+      %AgentWorker{state: "ready"} = worker ->
         worker
 
-      nil ->
+      _not_ready ->
         case Task.yield(worker_task, 0) do
           {:ok, {output, status}} ->
             flunk("runtime fabric worker exited before ready status=#{status}\n#{output}")
@@ -647,68 +626,17 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     flunk("runtime fabric worker #{worker_id} was not admitted")
   end
 
-  def wait_for_attachment_outbox(actor_event_id, attempts \\ 100)
-
-  def wait_for_attachment_outbox(actor_event_id, attempts) when attempts > 0 do
-    case Repo.get_by(OutboxEntry, source_actor_event_id: actor_event_id) do
-      %OutboxEntry{payload: %{"attachments" => [_ | _]}} = outbox ->
-        outbox
-
-      _value ->
-        Process.sleep(10)
-        wait_for_attachment_outbox(actor_event_id, attempts - 1)
-    end
-  end
-
-  def wait_for_attachment_outbox(actor_event_id, 0) do
-    flunk("attachment outbox for actor event #{actor_event_id} was not committed")
-  end
-
-  def wait_for_delivery_state(actor_event_id, state, attempts \\ 100)
-
-  def wait_for_delivery_state(actor_event_id, state, attempts) when attempts > 0 do
-    case Repo.get_by(ActorEventDelivery, actor_event_id: actor_event_id, state: state) do
-      %ActorEventDelivery{} = delivery ->
-        delivery
-
-      nil ->
-        Process.sleep(10)
-        wait_for_delivery_state(actor_event_id, state, attempts - 1)
-    end
-  end
-
-  def wait_for_delivery_state(actor_event_id, state, 0) do
-    flunk("delivery #{actor_event_id} did not reach #{state}")
-  end
-
-  def insert_generating_ai_message_for_actor_event!(%ActorEvent{} = actor_event, opts \\ []) do
-    now = Keyword.get(opts, :now, @base_time)
-    conversation = active_conversation_for_actor_event!(actor_event)
-
-    Repo.insert!(%Message{
-      subject_uid: actor_event.agent_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      status: "generating",
-      content: Keyword.get(opts, :content, []),
-      metadata: %{
-        "request_metadata" =>
-          %{"actor_event_id" => actor_event.id}
-          |> Map.merge(Keyword.get(opts, :metadata, %{}))
-      },
-      inserted_at: now,
-      updated_at: now
-    })
-  end
-
   def start_aigateway_run_for_turn!(turn_ref, opts \\ [])
 
-  def start_aigateway_run_for_turn!(%FabricProto.ActorTurnRef{} = turn_ref, opts) do
-    {:ok, domain_ref} = TurnRef.from_proto(turn_ref)
-    start_aigateway_run_for_turn!(domain_ref, opts)
+  def start_aigateway_run_for_turn!(%FabricProto.RunRef{} = ref, opts) do
+    {:ok, run_ref} = Ankole.Conversations.RunRef.from_proto(ref, sole_agent_uid!())
+    start_aigateway_run_for_turn!(run_ref, opts)
   end
 
-  def start_aigateway_run_for_turn!(%TurnRef{} = turn_ref, opts) do
+  def start_aigateway_run_for_turn!(
+        %{agent_uid: _, session_id: _, actor_event_id: _} = turn_ref,
+        opts
+      ) do
     agent_uid = turn_ref.agent_uid
     session_id = turn_ref.session_id
     actor_event_id = turn_ref.actor_event_id
@@ -802,57 +730,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     flunk("expected final mirror for ai_message_id=#{ai_message_id}")
   end
 
-  defp active_conversation_for_actor_event!(%ActorEvent{} = actor_event) do
-    Conversation
-    |> where([conversation], conversation.subject_uid == ^actor_event.agent_uid)
-    |> where([conversation], conversation.conversation_key == ^actor_event.session_id)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> Repo.one!()
-  end
-
-  def ai_message_for_actor_event!(actor_event_id) do
-    ai_message_for_actor_event(actor_event_id) ||
-      raise "expected ai message for actor_event_id=#{actor_event_id}"
-  end
-
-  def wait_for_ai_message_status(actor_event_id, status, attempts \\ 100)
-
-  def wait_for_ai_message_status(actor_event_id, status, attempts) when attempts > 0 do
-    case ai_message_for_actor_event(actor_event_id) do
-      %Message{status: ^status} = message ->
-        message
-
-      %Message{} ->
-        Process.sleep(10)
-        wait_for_ai_message_status(actor_event_id, status, attempts - 1)
-
-      nil ->
-        Process.sleep(10)
-        wait_for_ai_message_status(actor_event_id, status, attempts - 1)
-    end
-  end
-
-  def wait_for_ai_message_status(actor_event_id, status, 0) do
-    flunk("ai message for actor event #{actor_event_id} did not reach #{status}")
-  end
-
-  defp ai_message_for_actor_event(actor_event_id) do
-    Message
-    |> Repo.all()
-    |> Enum.filter(&(StatefulResponses.response_metadata(&1)["actor_event_id"] == actor_event_id))
-    |> case do
-      [] ->
-        nil
-
-      [message] ->
-        message
-
-      messages ->
-        raise "expected at most one ai message for actor_event_id=#{actor_event_id}, " <>
-                "got #{length(messages)}"
-    end
-  end
-
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     finalize_result =
       Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
@@ -870,13 +747,17 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   defp attach_existing_actor_event_from_batch(%InboundBatch{} = batch, result) do
     case Repo.get(InboundBatch, batch.id) do
-      %InboundBatch{actor_event_id: id} when is_binary(id) and byte_size(id) > 0 ->
-        case Repo.get(ActorEvent, id) do
-          %ActorEvent{} = ae -> Map.put(result, :actor_event, ae)
+      %InboundBatch{} = row ->
+        case Repo.get_by(ActorEvent,
+               agent_uid: row.agent_uid,
+               binding_name: row.binding_name,
+               source_event_id: "inbound-batch:#{row.id}:#{row.batch_revision}"
+             ) do
+          %ActorEvent{} = event -> Map.put(result, :actor_event, event)
           nil -> result
         end
 
-      _ ->
+      nil ->
         result
     end
   end

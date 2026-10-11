@@ -54,7 +54,6 @@ defmodule Ankole.AIGateway.Providers.Claude do
     setting(:contextManagement, type: :map, scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:anthropic_messages)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()

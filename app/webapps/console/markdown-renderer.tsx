@@ -24,7 +24,7 @@ const COMPONENTS: Components = {
   p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-link underline underline-offset-2">
+    <a href={href} target="_blank" rel="noreferrer" className="link">
       {children}
     </a>
   ),
@@ -34,7 +34,7 @@ const COMPONENTS: Components = {
     const href = typeof src === 'string' && src ? src : undefined
     const label = alt?.trim() || href
     return href ? (
-      <a href={href} target="_blank" rel="noreferrer" className="text-link underline underline-offset-2">
+      <a href={href} target="_blank" rel="noreferrer" className="link">
         {label}
       </a>
     ) : (

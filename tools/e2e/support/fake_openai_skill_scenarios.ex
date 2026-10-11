@@ -15,6 +15,18 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
   def tool_call_for(:skill_view_all_tool, 1), do: skill_view_tool_call("jupyter-live-kernel")
   def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("pdf")
 
+  def tool_call_for(:internal_skill_tool, 1), do: skill_view_tool_call("twitterapi-io")
+
+  def tool_call_for(:internal_skill_tool, 2) do
+    %{
+      id: "call_internal_skill_reference",
+      name: "read_file",
+      arguments: %{
+        "path" => "/repo/internals/skills/twitterapi-io/references/write-operations.md"
+      }
+    }
+  end
+
   def tool_call_for(:skill_disabled_tool, 1),
     do: skill_view_tool_call("pdf", "call_lark_chaos_disabled_skill_view")
 

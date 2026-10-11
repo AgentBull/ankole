@@ -1,0 +1,4 @@
+<ambient_route>
+The trusted ambient router selected FOREGROUND_REPLY for this turn.
+Give the room one concise, useful response now. You may do a small bounded lookup, but do not create or respawn background work. If substantial new work is needed, ask whether the Agent should take it on.
+</ambient_route>

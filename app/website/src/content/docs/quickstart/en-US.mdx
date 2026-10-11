@@ -34,7 +34,7 @@ export const deploymentTabs = [
     label: 'Docker Compose',
     badge: 'Single-host recommended',
     summary:
-      'The best starting point for most teams. One Linux, macOS, or Windows host with Docker runs PostgreSQL, the control plane, one Agent Computer Worker, and Caddy HTTPS.',
+      "One host runs PostgreSQL, the control plane, and Caddy. The selected provider creates one Worker per Agent.",
     prerequisites: [
       'A Linux, macOS, or Windows host that can run Linux amd64 or arm64 containers',
       'Docker Engine with the Compose plugin, or Docker Desktop',
@@ -72,11 +72,26 @@ export const deploymentTabs = [
                 "  '# ANKOLE master encryption key' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
-                "  '# Authentication key shared by the ANKOLE control plane and Agent Workers' \\",
-                '  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=$(openssl rand -hex 32)"'
+                "  '# Erlang distribution cookie of the control plane' \\",
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
+        },
+        {
+          title: 'Set the Docker socket group',
+          body: [
+            'The control plane creates the Worker containers through the Docker socket. It runs as an unprivileged user and gets the socket through the group that owns it inside containers.',
+            'On Linux, set ANKOLE_DOCKER_GID in .env to the group ID that this command prints. With Docker Desktop on macOS, set ANKOLE_DOCKER_GID=0. Docker Desktop gives containers a socket of group 0, whatever the host shows. Set ANKOLE_DOCKER_SOCKET only when the socket is not /var/run/docker.sock.'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'stat -c %g /var/run/docker.sock   # Linux'
+            }
+          ],
+          caution:
+            'Access to the Docker socket is equal to root access on the host. Treat the host as a trusted first-party compute boundary.'
         },
         {
           title: 'Set the public host',
@@ -105,7 +120,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Compose waits for PostgreSQL, runs migrations, stores the Worker key, and then starts the control plane, Worker, and Caddy.'
+            "Compose waits for PostgreSQL, completes migrations and the one-time Home migration, then starts the control plane and Caddy."
           ]
         },
         {
@@ -125,18 +140,14 @@ export const deploymentTabs = [
       summary: 'Use these settings before you move the first deployment into production.',
       steps: [
         {
-          title: 'Pin a verified image pair',
+          title: 'Pin a verified image',
           body: [
-            'The control-plane and Worker tags move together after RuntimeFabric verification. For a controlled rollout, pin both images to digests from the same source revision.'
+            'The control-plane image names the Worker image of the same source revision, and the control plane creates every Worker with it. For a controlled rollout, pin the control-plane image to an immutable digest. That digest also fixes the Worker image.'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: 'Control-plane image or immutable digest.'
-            },
-            {
-              name: 'ANKOLE_WORKER_IMAGE',
-              description: 'Worker image or immutable digest from the same verified pair.'
+              description: 'Control-plane image or immutable digest. It also names the Worker image.'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -157,7 +168,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Also snapshot the ankole_agents_data volume. Test the database and Agent Home restore together on a separate host.'
+            "Stop all writers and back up PostgreSQL, ankole_files_data, every persistent Agent Home, and the original ANKOLE_SECRET_BASE. Stopping the control plane alone does not stop Workers. Test the full restore on isolated resources; see the Backup and restore guide."
           ]
         },
         {
@@ -167,14 +178,17 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'docker compose pull',
-                'docker compose down',
+                'docker compose stop',
                 'docker compose up -d --force-recreate',
                 'docker compose ps'
               ].join('\n')
             }
           ],
+          body: [
+            'docker compose stop keeps the ankole_workers network, which the Worker containers still use. Worker containers keep running and connect to the new control plane. The control plane replaces each Worker of an older image when its Agent is idle.'
+          ],
           caution:
-            'docker compose down keeps named volumes. docker compose down -v deletes PostgreSQL, Agent Home, and Caddy data. Do not use -v unless permanent deletion is intended and a tested backup exists.'
+            "docker compose down -v deletes Compose-managed database and file-store volumes. Independent Agent Home volumes have a separate lifecycle. Make a tested full backup before deleting any persistent storage."
         },
         {
           title: 'Use a local-only HTTPS host',
@@ -206,11 +220,11 @@ export const deploymentTabs = [
     label: 'Kubernetes',
     badge: 'Enterprise recommended',
     summary:
-      'Use the Helm chart when you already operate Kubernetes and need cluster scheduling, an HTTPS Ingress, and shared Agent Home storage.',
+      'Use the Helm chart when you already operate Kubernetes and need cluster scheduling and an HTTPS Ingress. The control plane creates one Worker Pod for each Agent, through the Kubernetes API.',
     prerequisites: [
       'Kubernetes 1.27 or later and Helm 3 or later',
       'Linux amd64 or arm64 nodes',
-      'An HTTPS Ingress and ReadWriteMany storage for Agent Home'
+      "An HTTPS Ingress and storage for the shared ReadWriteMany Agent Home claim and ReadWriteOnce cache claims"
     ],
     basic: {
       title: 'Install the Helm chart',
@@ -237,15 +251,15 @@ export const deploymentTabs = [
               code: [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
-                'ANKOLE_WORKER_AUTH_KEY="$(openssl rand -hex 24)"',
+                'RELEASE_COOKIE="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
-                '  --from-literal="ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=${ANKOLE_WORKER_AUTH_KEY}" \\',
+                '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE ANKOLE_WORKER_AUTH_KEY'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
               ].join('\n')
             }
           ]
@@ -269,6 +283,10 @@ export const deploymentTabs = [
                 '    persistence:',
                 '      storageClass: nfs-rwx',
                 '      size: 100Gi',
+                '  cache:',
+                '    type: pvc',
+                '    storageClass: standard',
+                '    size: 20Gi',
                 '',
                 'postgresql:',
                 '  enabled: true',
@@ -317,10 +335,12 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'kubectl -n ankole get pods',
-                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m',
-                'kubectl -n ankole rollout status deployment/ankole-worker --timeout=10m'
+                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m'
               ].join('\n')
             }
+          ],
+          body: [
+            'The installation has no Worker Pod yet. The control plane creates the Worker of an Agent when you create the Agent.'
           ]
         },
         {
@@ -376,15 +396,27 @@ export const deploymentTabs = [
         {
           title: 'Confirm the Worker security profile',
           body: [
-            'Strong bubblewrap isolation needs SYS_ADMIN, an unconfined seccomp profile, and an unmasked /proc. The chart sets them, but the cluster admission policy must allow them.'
+            'Worker Pods need no extra kernel privileges: the container is the isolation boundary of each Agent. The chart gives the control plane a namespace Role that creates and deletes Pods, Secrets, and PVCs, and gives the Worker Pods their own ServiceAccount without permissions.'
+          ],
+          fields: [
+            {
+              name: 'worker.runtimeClassName',
+              description: 'Optional RuntimeClass of the Worker Pods, for example gvisor.'
+            },
+            {
+              name: 'networkPolicy.enabled',
+              value: 'true',
+              description:
+                'Optional. Worker Pods then accept no connection and reach only the control plane, DNS, and public addresses.'
+            }
           ],
           caution:
-            'Treat Worker nodes as a trusted first-party compute boundary. Use a dedicated node pool or an approved equivalent sandbox when cluster policy rejects this profile.'
+            'A Worker container is a trusted, first-party component. The control plane holds a namespace Role that creates Pods and Secrets; protect it as a root-equivalent component.'
         },
         {
           title: 'Pin and upgrade matching images',
           body: [
-            'Pin the control-plane and Worker digests from the same verified source revision. Back up PostgreSQL and Agent Home before helm upgrade.'
+            "Pin the control-plane and Worker images from the same verified revision. Before helm upgrade, back up PostgreSQL, the file store, all persistent Homes, and the original encryption key."
           ],
           caution:
             'A Helm rollback does not reverse a database migration. Restore the database backup when an application rollback also needs an older schema.'
@@ -405,7 +437,7 @@ export const deploymentTabs = [
     value: 'source',
     label: 'Install from source',
     summary:
-      'Use the source path for development, debugging, and local evaluation. It starts PostgreSQL, Phoenix, the Console, frontend assets, and one managed Docker Worker.',
+      "Use the source installation for development. It starts PostgreSQL, Phoenix, the Console, and frontend assets. The control plane creates a Docker Worker for each Agent.",
     prerequisites: [
       'macOS or Linux; use WSL2 on Windows',
       'An account that can install system packages',
@@ -508,7 +540,7 @@ export const deploymentTabs = [
               code: [
                 'bun run services:status',
                 'curl -I http://localhost:4000/',
-                'docker ps --filter name=ankole-dev-agent-computer'
+                'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
             {
@@ -517,6 +549,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
+            'There is no Worker container until you create an Agent. Each Worker container runs the local Agent Computer source in watch mode.',
             'Stop the control plane and Worker with Ctrl+C in the bun dev terminal. Stop PostgreSQL separately when you finish.'
           ]
         },
@@ -1249,7 +1282,7 @@ export const identityTabs = [
 
 export const modelAdvanced = {
   title: 'Optional Agent profiles and Brain maintenance',
-  summary: 'Configure Agent capability profiles only where needed. Brain keeps retrieval models instance-wide.',
+  summary: 'Configure Agent capability profiles only where needed. Brain uses a site embedding model and a tenant rerank model.',
   steps: [
     {
       title: 'Add optional Agent capability profiles',
@@ -1276,21 +1309,21 @@ export const modelAdvanced = {
     {
       title: 'Select the Brain maintainer and retrieval models',
       body: [
-        'Open Console → AppConfigure → Brain. Select an active Agent responsible for Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Disabling it stops model calls and local URL fetching until it is enabled or replaced. Edit its model profiles from the linked Agent page.'
+        'Open Console → AppConfigure → Brain. Select a tenant and an active Agent responsible for its Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Disabling it stops model calls and URL Source fetching until it is enabled or replaced. Edit its model profiles from the linked Agent page.'
       ],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources. Missing web_fetch falls back to local ankole-browser.'
+            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources. A missing web_fetch profile or a failed Provider request makes the Source fetch fail.'
         },
         {
           name: 'brain.embedding_model',
-          description: 'Enables vector retrieval. Select a Provider and model, and enter its embedding dimensions.'
+          description: 'Site setting. Enables vector retrieval. Select a Provider and model, and enter its embedding dimensions.'
         },
         {
           name: 'brain.rerank_model',
-          description: 'Reranks fused search results. Leave it empty to keep the fusion order.'
+          description: 'Tenant setting. Reranks fused search results. Leave it empty to keep the fusion order.'
         }
       ],
       links: [
@@ -2395,16 +2428,18 @@ export const signalAdvanced = {
 
 ## How Ankole is deployed
 
-A private Ankole deployment instance has one control plane and one or more Agent Computer Workers. The control plane owns durable domain state and supervision as the management platform; a Worker provides the execution environment and acts as the Agent's work computer.
+A private Ankole deployment instance has one control plane and one Agent Computer Worker for each Agent. The control plane owns durable domain state and supervision as the management platform; a Worker provides the execution environment and acts as the Agent's own work computer.
 
-One Worker can serve several Agents. In finance or another environment that needs strict isolation, give each Agent a dedicated Worker, just as a work computer can be shared by several interns or assigned to one colleague.
+Agents never share a Worker, just as each colleague has a work computer of their own. The control plane creates the Worker of an Agent when you create the Agent, and it stops, replaces, and deletes the Worker by itself.
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="Even when several Agents share one Worker, each Agent runs in a separate sandbox. The sandbox provides basic process and file-system isolation and reduces interference between Agents. It is a lightweight isolation layer, not an absolute security boundary."
+  text="The container or Pod of a Worker is its only isolation boundary. The Agent's commands, Automation scripts, and browser run in it without an inner sandbox, and the container needs no extra kernel privileges. An Agent can install software on its Worker or even break it, but it cannot act as another Agent. The control plane rebuilds a Worker that does not become ready in time."
 />
 
-Each instance also needs PostgreSQL and persistent disk storage. A single-host deployment can use a local or virtual disk. A Kubernetes deployment needs NFS or another shared volume that supports ReadWriteMany.
+Each deployment needs PostgreSQL, a drive file store, and persistent storage for every Agent Home. The default Kubernetes chart uses a shared ReadWriteMany Home claim and separate ReadWriteOnce cache claims. Home needs a backup; the cache does not.
+
+One site can contain several tenants. Site operators manage the shared infrastructure; each tenant has its own people, Agents, Brain and integrations. The administrator Console defaults to `/site-admin-console`. Set `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (Helm: `controlPlane.siteAdminConsolePath`) before startup to change it. The old `/console` path returns 404.
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2414,7 +2449,8 @@ This page defines the terms used in Ankole user documentation and interfaces. Th
 
 | Canonical term | Meaning | Short form |
 |---|---|---|
-| **Private deployment instance** | One complete Ankole system that an enterprise deploys and manages | Instance |
+| **Site** | One complete Ankole deployment with shared infrastructure and trusted operators | Site |
+| **Tenant** | One organization's people, Agents, Brain, integrations and work inside a site | Tenant |
 | **Principal** | A person, Agent, or system service that can have an identity and permissions in Ankole | Principal |
 | **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
 | **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a mailbox | Platform |
@@ -2451,7 +2487,7 @@ Use Docker Compose for one host or Kubernetes for an enterprise deployment. Inst
 
 ## 2. Set up the identity provider first
 
-Ankole is designed for private deployment inside an enterprise. Each enterprise operates one instance. Inside that instance, Agents, employees, and system services are represented as Principals, and the authorization module manages their permissions.
+Ankole is designed for private deployment inside an enterprise. A site can contain several tenants. Each tenant represents its Agents, employees, and system services as Principals, and AuthZ manages their permissions. Select the target tenant in the Console before configuring its identity provider.
 
 Like Hermes Agent and OpenClaw, Ankole connects to chat channels. It also connects to the enterprise identity source so it can synchronize employees, directory contacts, and the organization structure. Configure an Identity Provider (IdP) before you configure the chat channel.
 
@@ -2485,7 +2521,7 @@ An Agent model profile stores a model reference, so add the LLM Provider first. 
 
 Provider credentials stay encrypted in the control plane. Do not put them in deployment environment files or Agent files.
 
-Open **Agents → New Agent**. Give the Agent a stable UID, a clear display name, and a mission that says what it owns and what counts as an acceptable result.
+Open **Agents → New Agent**. Set the handle, display name, Worker provider, and a mission that states its work and acceptance criteria. Ankole generates the opaque UID.
 
 Then configure its model profiles:
 
@@ -2569,8 +2605,8 @@ Check one boundary at a time, in this order:
 4. The routing rule is enabled and points to the intended Agent.
 5. The Agent has `primary`, `light`, and `heavy` model profiles.
 6. The LLM Provider credential and model selector are valid.
-7. At least one Worker is ready.
+7. The Agent's Worker is Ready under **Console → Workers**. Otherwise, that page shows the reason from the backend.
 
-For Compose, inspect `docker compose logs -f control-plane worker`. For Kubernetes, inspect the control-plane and Worker pod logs. Read only the relevant error; do not print environment variables or secrets.
+For Compose, inspect `docker compose logs -f control-plane`. List the Worker containers with `docker ps -a --filter label=ankole.installation=ankole` and read one with `docker logs CONTAINER_NAME`. For Kubernetes, inspect the control-plane and Worker Pod logs. Read only the relevant error; do not print environment variables or secrets.
 
 Once the reply arrives, continue with [Agents](../agents/), [Signal routing rules](../signal-bindings/), or [Background Agent Jobs](../background-jobs/).

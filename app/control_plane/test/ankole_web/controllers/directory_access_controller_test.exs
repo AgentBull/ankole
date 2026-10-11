@@ -12,7 +12,8 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
 
   test "a directory review exposes missing people, requires an exact snapshot, and records the reviewer",
        %{conn: conn} do
-    {conn, admin_uid} = bearer_conn_with_principal(conn)
+    {conn, admin_uid} = console_conn_with_principal(conn)
+    admin_ref = %{"tenant_id" => Ankole.Repo.tenant_id!(), "uid" => admin_uid}
 
     {:ok, person} =
       Ankole.Plugins.LarkAdapter.IdentityProvider.upsert_user("lark", %{"user_id" => "employee"})
@@ -51,13 +52,13 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
              | confirm_removals: true
            })
            |> json_response(200)
-           |> get_in(["snapshot", "reviewed_by"]) == admin_uid
+           |> get_in(["snapshot", "reviewed_by"]) == admin_ref
 
     assert {:ok, %{status: :disabled}} = Principals.get_principal(person.principal.uid)
   end
 
   test "event review cannot cross providers and keeps the review reason", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     {:ok, event} =
       DirectoryAccess.receive_event("lark", %{

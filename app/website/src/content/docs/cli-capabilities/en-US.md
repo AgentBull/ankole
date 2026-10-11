@@ -33,7 +33,7 @@ Three rules replace tool registration and Skill indexing:
 
 An automation job is a deterministic script that consumes a trigger instead of waking an Agent conversation for every delivery. A checkback, cron schedule, or webhook endpoint can name an `automation_job_id`. A trigger without this field keeps the direct wake behavior.
 
-The Agent creates one directory inside its Agent Home, adds `main.ts`, checks its setup and non-SDK branches by hand, and registers the directory with `create-automation-job-cli`. The Worker resolves the directory and entrypoint through real paths at registration and at every run. It executes the current files with Bun, so an edit takes effect without another registration.
+The Agent creates one directory in its workspace, adds `main.ts`, checks its setup and non-SDK branches by hand, and registers the directory with `create-automation-job-cli`. Registration copies the directory into a new drive folder, `automation/<directory name>-<random suffix>`, and returns that folder as `drive_prefix`. Every run copies what the folder holds at fire time into a fresh run directory and runs `main.ts` there with Bun, so a file that the script writes into its working directory does not survive the run. To change the script, the Agent runs `ankole-files put <dir> <drive_prefix>`; the edit takes effect without another registration.
 
 Each attempt receives the latest Agent WorkerEnv and an invocation-scoped `MCPORTER_CONFIG` generated from the current enabled Skills. The Worker does not predict which server the script will use. The script can call one selected MCP tool with mcporter and stdin JSON. Automation does not read Skill instructions, and it does not use a persistent Agent Home mcporter config.
 

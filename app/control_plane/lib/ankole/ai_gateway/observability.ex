@@ -132,43 +132,32 @@ defmodule Ankole.AIGateway.Observability do
     end)
   end
 
-  @doc """
-  Records one provider-native compact call as its own root generation.
-
-  `fun` always runs exactly once; tracing failure never changes its result.
-  """
-  @spec record_compact(String.t() | nil, map(), map(), (-> term())) :: term()
-  def record_compact(subject_uid, runtime, request, fun) when is_function(fun, 0) do
-    span = safe(nil, fn -> start_compact(subject_uid, runtime, request) end)
-    result = fun.()
-    safe(:ok, fn -> finish_compact(span, result) end)
-    result
-  end
-
   defp do_start_response(subject_uid, request, opts) do
     if provider = RuntimeObservability.provider() do
       request_context = Keyword.get(opts, :request_context) || %{}
       headers = context_headers(opts)
       parent_context = response_parent_context(headers)
 
-      context = %{
-        principal_uid: subject_uid,
-        principal_type: string_value(Keyword.get(opts, :subject_type)),
-        user_id:
-          response_user_id(
-            subject_uid,
-            Keyword.get(opts, :subject_type),
-            request_context,
-            parent_context
-          ),
-        actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
-        session_id: session_id(request, opts),
-        originator: text(Map.get(headers, "originator")),
-        caller: string_value(Keyword.get(opts, :caller)),
-        release: release(),
-        job_id: nil,
-        attempts: nil
-      }
+      context =
+        %{
+          principal_uid: subject_uid,
+          principal_type: string_value(Keyword.get(opts, :subject_type)),
+          user_id:
+            response_user_id(
+              subject_uid,
+              Keyword.get(opts, :subject_type),
+              request_context,
+              parent_context
+            ),
+          actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
+          session_id: session_id(request, opts),
+          originator: text(Map.get(headers, "originator")),
+          caller: string_value(Keyword.get(opts, :caller)),
+          release: release(),
+          job_id: nil,
+          attempts: nil
+        }
+        |> Ankole.Observability.Trace.with_tenant()
 
       trace_attributes =
         context
@@ -261,7 +250,7 @@ defmodule Ankole.AIGateway.Observability do
       :otel_tracer.start_span(
         parent_ctx,
         tracer(),
-        generation_span_name(model),
+        generation_span_name(model, observation.trace_attributes["ankole.ai_gateway.caller"]),
         %{
           attributes: attributes,
           kind: :client
@@ -350,72 +339,6 @@ defmodule Ankole.AIGateway.Observability do
     %{observation | response_span: nil}
   end
 
-  defp start_compact(subject_uid, runtime, request) do
-    if provider = RuntimeObservability.provider() do
-      model = map_value(runtime, "model")
-      {input, truncated?} = encode_content(request)
-
-      context = %{
-        principal_uid: subject_uid,
-        principal_type: nil,
-        user_id: UserID.principal(subject_uid),
-        actor_event_id: nil,
-        session_id: nil,
-        originator: nil,
-        caller: "compaction.upstream",
-        release: release(),
-        job_id: nil,
-        attempts: nil
-      }
-
-      attributes =
-        context
-        |> gateway_trace_attributes()
-        |> Map.merge(provider.trace_attributes(context))
-        |> Map.merge(
-          provider.generation_start_attributes(input, model, nil, provider_name(runtime))
-        )
-        |> put_present("gen_ai.provider.name", provider_name(runtime))
-        |> put_present("gen_ai.request.model", model)
-        |> put_present("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
-        |> maybe_put_true("ankole.observability.input_truncated", truncated?)
-
-      span =
-        :otel_tracer.start_span(Ctx.new(), tracer(), compact_span_name(model), %{
-          attributes: attributes,
-          kind: :client
-        })
-
-      if recording?(span) do
-        %{span: span, provider: provider}
-      end
-    end
-  end
-
-  defp finish_compact(nil, _result), do: :ok
-
-  defp finish_compact(%{span: span, provider: provider}, result) do
-    if recording?(span) do
-      body = response_body(result)
-      {output, truncated?} = encode_content(body)
-
-      attributes =
-        provider.output_attributes(output, :generation)
-        |> Map.merge(usage_attributes(map_value(body, "usage")))
-        |> put_present("gen_ai.response.id", map_value(body, "id"))
-        |> put_present("gen_ai.response.model", map_value(body, "model"))
-        |> maybe_put_true("ankole.observability.output_truncated", truncated?)
-
-      Span.set_attributes(span, attributes)
-      finish_span(span, body)
-    end
-
-    :ok
-  end
-
-  defp compact_span_name(model) when is_binary(model) and model != "", do: "compact #{model}"
-  defp compact_span_name(_model), do: "compact"
-
   defp gateway_trace_attributes(context) do
     context
     |> trace_attributes()
@@ -432,8 +355,16 @@ defmodule Ankole.AIGateway.Observability do
 
   defp context_headers(opts) do
     case Keyword.get(opts, :request_context) do
-      %{"headers" => %{} = headers} -> headers
-      _context -> %{}
+      %{} = context ->
+        headers = Map.get(context, "headers", %{})
+
+        case text(context["traceparent"]) do
+          nil -> headers
+          traceparent -> Map.put(headers, "traceparent", traceparent)
+        end
+
+      _context ->
+        %{}
     end
   end
 
@@ -598,8 +529,10 @@ defmodule Ankole.AIGateway.Observability do
     end
   end
 
-  defp generation_span_name(model) when is_binary(model) and model != "", do: "chat #{model}"
-  defp generation_span_name(_model), do: "chat"
+  defp generation_span_name(model, caller) do
+    prefix = if caller == "compaction.upstream", do: "compact", else: "chat"
+    if is_binary(model) and model != "", do: "#{prefix} #{model}", else: prefix
+  end
 
   defp output_event?(%{"type" => type}) when is_binary(type) do
     String.starts_with?(type, "response.output_") or

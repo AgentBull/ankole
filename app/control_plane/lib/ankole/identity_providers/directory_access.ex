@@ -83,16 +83,20 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
                        )
                    )
                    |> repo.update() do
-              if is_binary(event.reason) do
-                apply_restriction(repo, event)
-              else
-                with {:ok, _} <- Oban.insert(ProcessDirectoryEvent.new(%{"event_id" => event.id})),
-                     do: {:ok, event}
-              end
+              dispatch_directory_event(repo, event)
             end
         end
       end
     end)
+  end
+
+  defp dispatch_directory_event(repo, event) do
+    if is_binary(event.reason) do
+      apply_restriction(repo, event)
+    else
+      with {:ok, _} <- Oban.insert(ProcessDirectoryEvent.new(%{"event_id" => event.id})),
+           do: {:ok, event}
+    end
   end
 
   def process_event(id) do
@@ -183,7 +187,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
            AppConfigure.get_in_tx(repo, Ankole.IdentityProviders.Config.active_definition()),
          %{"enabled" => true, "config_key" => key} <-
            Enum.find(providers, &(&1["provider_id"] == provider_id)),
-         {:ok, ^expected} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
+         {:ok, ^expected} <- AppConfigure.get_tenant_by_key_in_tx(repo, key) do
       :ok
     else
       _ -> {:error, :directory_configuration_changed}
@@ -237,16 +241,20 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
               )
           }
 
-          with {:ok, updated} <- state |> Ecto.Changeset.change(attrs) |> repo.update() do
-            if review, do: log_review(updated)
-            {:ok, updated}
-          end
+          commit_sync_result(repo, state, attrs, review)
         end
       else
         false -> {:ok, :superseded}
         error -> error
       end
     end)
+  end
+
+  defp commit_sync_result(repo, state, attrs, review) do
+    with {:ok, updated} <- state |> Ecto.Changeset.change(attrs) |> repo.update() do
+      if review, do: log_review(updated)
+      {:ok, updated}
+    end
   end
 
   def fail_sync(ticket, reason) do
@@ -300,7 +308,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
     with {:ok, _} <-
            %DirectoryState{}
            |> Ecto.Changeset.change(provider_id: provider_id)
-           |> repo.insert(on_conflict: :nothing, conflict_target: :provider_id) do
+           |> repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :provider_id]) do
       {:ok,
        repo.one!(
          from s in DirectoryState, where: s.provider_id == ^provider_id, lock: "FOR UPDATE"

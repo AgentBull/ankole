@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { requestErrorCode, requestErrorMessage } from './request-errors'
+import { requestErrorCode, requestErrorDetailList, requestErrorDetails, requestErrorMessage } from './request-errors'
+
+test('keeps all YAML validation paths and line numbers', () => {
+  const details = [
+    { path: 'env.HOME', line: 3, message: 'is reserved' },
+    { path: 'unknown', line: 4, message: 'is not allowed' }
+  ]
+  const error = { error: { code: 'invalid_worker_provider', details } }
+  expect(requestErrorDetailList(error)).toEqual(details)
+  expect(requestErrorDetails(error)).toEqual(details[1])
+})
 
 describe('requestErrorCode', () => {
   test('reads the code from the console API error envelope', () => {

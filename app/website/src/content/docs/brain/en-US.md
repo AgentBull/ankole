@@ -9,7 +9,7 @@ Brain is a long-term memory system inspired by GBrain that maintains an up-to-da
 
 Brain does not keep a growing transcript and call it memory. It maintains a current view of people, organizations, events, judgments, and their relationships. New evidence can support an earlier claim, replace it, or expose a contradiction. The evidence and earlier state remain available for review.
 
-All Agents in one Ankole instance use the same knowledge space. Content is not copied into a private database for each Agent. Each memory carries its own audience scope, so shared storage does not mean unrestricted disclosure.
+All Agents in one Ankole tenant use the same knowledge space. Content is not copied into a private database for each Agent. Each memory carries its own audience scope, so shared storage does not mean unrestricted disclosure.
 
 ## What Brain can learn
 
@@ -19,7 +19,7 @@ Knowledge reaches Brain through three current paths:
 | --- | --- | --- |
 | An Agent calls `remember` | One fact or judgment becomes durable immediately | The Agent must file one atomic claim, give its source, and select a valid audience scope |
 | Signals learning processes a conversation | Useful facts, judgments, and open commitments can be learned without an explicit `remember` call | The channel must be a direct message or IM group, and the Brain maintainer Agent must have a usable `light` profile; group learning also needs a synchronized member permission group |
-| An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs use the Agent's `web_fetch` profile or local `ankole-browser` fallback |
+| An operator registers a Source | A file or web page becomes searchable and can produce extracted claims | Claim extraction needs the maintainer Agent's `light` profile; files must be deployment-readable, and files and fetched page text must be valid UTF-8 no larger than 10 MiB; URLs need the Agent's `web_fetch` profile |
 
 Signals learning runs after an eligible channel becomes idle or its conversation ends. It reads the channel message slice, not the Agent's private model transcript. In a direct message, learned content defaults to the other person's scope. In a group, it defaults to the channel member group's scope.
 
@@ -76,7 +76,7 @@ Each protected paragraph, Fact, Take, and Timeline entry uses one audience scope
 
 | Scope | Who can reach it |
 | --- | --- |
-| `world` | Any Principal in the instance |
+| `world` | Any Principal in the tenant |
 | `group:<name>` | Current members of that permission group |
 | `principal:<uid>` | Only that Principal |
 
@@ -91,7 +91,7 @@ Group conversations add a second disclosure check:
 
 Both modes behave the same in a direct message.
 
-A Source or channel records where evidence came from. It does not grant access to the learned knowledge. Set the audience scope on the learned content itself. Page metadata such as slug, title, type, and existence is visible inside the instance; protected page sections and structured claims are filtered.
+A Source or channel records where evidence came from. It does not grant access to the learned knowledge. Set the audience scope on the learned content itself. Page metadata such as slug, title, type, and existence is visible inside the tenant; protected page sections and structured claims are filtered.
 
 An Agent uses its confidentiality guidance to select a scope for an active `remember` call. That classification is a best-effort model judgment. The application enforces the selected scope deterministically, but it cannot prove that the model classified the content correctly. For compliance-grade isolation, restrict who can access the Agent through [Principals and permission groups](../principal-and-groups/) instead of relying only on memory classification.
 
@@ -103,10 +103,9 @@ Dreaming is the scheduled maintenance window for knowledge that needs judgment. 
 - find patterns across pages and write evidence-linked analysis;
 - extract relationships and timeline events;
 - grade due Takes and update calibration summaries;
-- detect possible contradictions;
-- propose schema terms when repeated evidence needs a clearer type.
+- detect possible contradictions.
 
-Dreaming does not silently resolve a contradiction or rewrite its Claims. It records the finding for a person to resolve or dismiss in the Console. Schema suggestions also require approval before they change the instance vocabulary.
+Dreaming does not silently resolve a contradiction or rewrite its Claims. It records the finding for a person to resolve or dismiss in the Console.
 
 Facts lose ranking weight as they age according to their kind. This decay changes recall order, not the stored confidence or history. Explicit forgetting changes the current state: a Fact expires, a Take becomes inactive, or a page becomes soft-deleted. Soft-deleted pages can be restored before the configured purge window ends. Expired and superseded claims remain as audit and calibration history.
 
@@ -116,28 +115,27 @@ Self-healing maintains the searchable projections. It repairs stale chunks and e
 
 The **Brain** area gives operators a result-focused view of the knowledge space:
 
-- **Objects** shows pages, their rendered content, facts, timelines, links, tags, versions, rollback, deletion, and restore actions.
+- **Objects** shows pages, their rendered content, facts, timelines, links, versions, rollback, deletion, and restore actions.
 - **Claims** shows Facts and Takes, their sources and current state, and actions to correct, forget, or resolve them.
 - **Contradictions** holds findings for human review.
-- **Suggestions** holds proposed vocabulary changes for approval or rejection.
 - **Sources** registers files and URLs, starts learning, and archives sources.
 - **Search preview** runs recall as a selected Principal and disclosure mode.
 - **Principal audit** lists knowledge where one Principal is the holder, author, or audience.
 - **Health** shows model readiness, learning backlog, embedding failures, channel prerequisites, and projection status.
 
-Brain settings select the maintainer Agent and keep the two models that belong to the instance knowledge space. Every Brain model call runs as the selected Agent and attributes usage to it. The Agent must remain active. Disabling it makes Brain unhealthy and stops all Brain model calls and local URL fetching until it is enabled or replaced; stored knowledge and pure-text recall remain available.
+Tenant Brain settings select the maintainer Agent and the rerank model. Site settings select the embedding model and its dimensions. Every Brain model call runs as the selected Agent and attributes usage to it. The Agent must remain active. Disabling it makes Brain unhealthy and stops all Brain model calls and URL Source learning until it is enabled or replaced; stored knowledge and pure-text recall remain available.
 
 | Owner and setting | What it enables |
 | --- | --- |
 | Maintainer Agent `light` profile | Signals learning and claim extraction from Sources |
 | Maintainer Agent `heavy` profile | Model-dependent Dreaming phases and `synthesize` |
-| Maintainer Agent `web_fetch` profile | Readable-text extraction for URL Sources; local `ankole-browser` is the fallback |
+| Maintainer Agent `web_fetch` profile | Readable-text extraction for URL Sources; without it, URL Sources are not learned |
 | Brain Embedding model | Vector recall and semantic Fact deduplication |
 | Brain Rerank model | Cross-encoder ordering after retrieval fusion |
 
 A missing optional model narrows the related capability instead of hiding the state. The Health page reports what is unavailable. Disabling Brain removes its tools and context injection and stops its background tasks; stored knowledge stays unchanged.
 
-The `general` schema pack supplies a common vocabulary for every instance. Setup can also add packs for private equity and venture capital, public markets, consumer businesses, legal work, software, and consulting. All Agents share the installed vocabulary. Repeated concepts can become approval-gated schema suggestions instead of uncontrolled new types.
+The `general` schema pack supplies a common vocabulary for every tenant. Setup can also add packs for private equity and venture capital, public markets, consumer businesses, legal work, software, and consulting. All Agents share the installed vocabulary.
 
 ## Current limits
 

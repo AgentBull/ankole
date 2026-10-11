@@ -5,7 +5,7 @@ section: User guide
 order: 22
 ---
 
-Cron、Checkback 和 webhook endpoint 这三种触发器默认唤醒一个 Agent 会话。Automation job 是第二种承接方式：一段由 Agent 编写、放在它自己 Agent Home 里的确定性脚本。触发器绑定到它之后，到点或到件时系统运行脚本，而不是启动一个 Agent 回合。
+Cron、Checkback 和 webhook endpoint 这三种触发器默认唤醒一个 Agent 会话。Automation job 是第二种承接方式：一段由 Agent 编写、保存在它云盘里的确定性脚本。触发器绑定到它之后，到点或到件时系统运行脚本，而不是启动一个 Agent 回合。
 
 脚本自己决定什么值得打扰你：可以静默结束，也可以调用 `emitEvent` 把一个事件发回归属会话，让 Agent 带着脚本准备好的上下文醒来。机械检查由代码值守，模型只留在需要判断的关节处。
 
@@ -24,7 +24,7 @@ Cron、Checkback 和 webhook endpoint 这三种触发器默认唤醒一个 Agent
 其余时间保持安静。收盘后汇报一次当天的检查是否正常。
 ```
 
-Agent 会在自己的 Agent Home 里写脚本、先手工验证，再注册成 automation job，创建 Cron 并绑定给它，最后设置一个收盘对账 Checkback。脚本修改即生效，不需要重新注册：每次运行执行的都是磁盘上的当前文件。
+Agent 会在工作区里写脚本、先手工验证，再注册成 automation job，创建 Cron 并绑定给它，最后设置一个收盘对账 Checkback。注册时脚本目录被复制到 Agent 的云盘。每次运行都把这个云盘文件夹在触发时的内容复制到新的运行目录，所以脚本写在自己旁边的文件不会保留到下一次运行。修改脚本时，Agent 把改好的目录再放回同一个云盘文件夹，不需要重新注册。
 
 ## 运行记录与失败处理
 

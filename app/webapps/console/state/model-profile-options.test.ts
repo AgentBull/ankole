@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+  AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
@@ -24,13 +25,9 @@ function provider(providerID: string, providerKind: string): AIGatewayProviderIt
 function kind(providerKind: string, capabilities: string[]): AIGatewayProviderKindItem {
   return {
     capabilities,
-    capability_specs: [],
-    connection_options: [],
-    credential_options: [],
     default_base_url: null,
     label: { default: providerKind },
     provider_kind: providerKind,
-    runtime_provider_options: [],
     settings: []
   }
 }
@@ -112,49 +109,57 @@ describe('model profile options', () => {
     expect(providersForProfile(providers, [], 'primary')).toEqual([])
   })
 
-  test('turns catalog selectors into provider-local model choices', () => {
-    const catalog = {
-      data: [
-        {
-          id: 'openai-main/gpt-5',
-          name: 'GPT-5',
-          description: 'General model',
-          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-          supported_parameters: ['tools']
-        },
-        {
-          id: 'openai-main/gpt-5-vision',
-          name: 'GPT-5 Vision',
-          architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
-          supported_parameters: ['tools']
-        },
-        {
-          id: 'openrouter-images/openai/gpt-image-2',
-          name: 'GPT Image 2',
-          architecture: { output_modalities: ['image'] },
-          supported_parameters: []
-        },
-        {
-          id: 'openai-main/tts-1',
-          name: 'TTS 1',
-          architecture: { output_modalities: ['audio'] },
-          supported_parameters: []
-        },
-        {
-          id: 'jina-main/jina-embeddings-v3',
-          name: 'Jina Embeddings v3',
-          architecture: { output_modalities: ['embeddings'] },
-          supported_parameters: ['input', 'encoding_format']
-        },
-        {
-          id: 'jina-main/jina-reranker-v2',
-          name: 'Jina Reranker v2',
-          architecture: { output_modalities: ['text'] },
-          supported_parameters: ['query', 'documents', 'top_n']
-        }
-      ]
-    }
-
+  test('filters typed provider-local model choices by capability and image input', () => {
+    const catalog: AIGatewayModelCatalogEntry[] = [
+      {
+        provider_id: 'openai-main',
+        model: 'gpt-5',
+        name: 'GPT-5',
+        description: 'General model',
+        capability: 'llm',
+        image_input: false
+      },
+      {
+        provider_id: 'openai-main',
+        model: 'gpt-5-vision',
+        name: 'GPT-5 Vision',
+        description: '',
+        capability: 'llm',
+        image_input: true
+      },
+      {
+        provider_id: 'openrouter-images',
+        model: 'openai/gpt-image-2',
+        name: 'GPT Image 2',
+        description: '',
+        capability: 'image_generate',
+        image_input: false
+      },
+      {
+        provider_id: 'openai-main',
+        model: 'tts-1',
+        name: 'TTS 1',
+        description: '',
+        capability: 'other',
+        image_input: false
+      },
+      {
+        provider_id: 'jina-main',
+        model: 'jina-embeddings-v3',
+        name: 'Jina Embeddings v3',
+        description: '',
+        capability: 'embedding',
+        image_input: false
+      },
+      {
+        provider_id: 'jina-main',
+        model: 'jina-reranker-v2',
+        name: 'Jina Reranker v2',
+        description: '',
+        capability: 'rerank',
+        image_input: false
+      }
+    ]
     expect(modelOptionsForProfile(catalog, 'openai-main', 'primary')).toEqual([
       { value: 'gpt-5', label: 'GPT-5', description: 'gpt-5' },
       { value: 'gpt-5-vision', label: 'GPT-5 Vision', description: 'gpt-5-vision' }
@@ -168,26 +173,17 @@ describe('model profile options', () => {
     ])
   })
 
-  test('falls back to known provider models when upstream capability metadata is incomplete', () => {
-    const catalog = { data: [{ id: 'custom-main/private-model', name: 'Private model' }] }
-
-    expect(modelOptionsForProfile(catalog, 'custom-main', 'primary')).toEqual([
-      { value: 'private-model', label: 'Private model', description: 'private-model' }
-    ])
-  })
-
   test('shows account models for a ChatGPT subscription provider', () => {
-    const catalog = {
-      data: [
-        {
-          id: 'chatgpt_subscription/gpt-5.6-sol',
-          name: 'GPT-5.6 Sol',
-          description: 'Frontier coding model.',
-          architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
-          supported_parameters: ['tools']
-        }
-      ]
-    }
+    const catalog: AIGatewayModelCatalogEntry[] = [
+      {
+        provider_id: 'chatgpt_subscription',
+        model: 'gpt-5.6-sol',
+        name: 'GPT-5.6 Sol',
+        description: 'Frontier coding model.',
+        capability: 'llm',
+        image_input: true
+      }
+    ]
 
     expect(modelOptionsForProfile(catalog, 'chatgpt_subscription', 'primary')).toEqual([
       {

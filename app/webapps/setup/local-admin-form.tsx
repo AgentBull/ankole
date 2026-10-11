@@ -66,13 +66,13 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
           enabled: true
         }
       )
-      return internalAPIPost<{ returnTo?: string }>('/.internal-apis/setup/local-admin', {
+      return internalAPIPost<{ returnTo: string }>('/.internal-apis/setup/local-admin', {
         display_name: input.displayName.trim() || undefined,
         email: input.email,
         password: input.password
       })
     },
-    onSuccess: result => window.location.assign(result.returnTo ?? '/console')
+    onSuccess: result => window.location.assign(result.returnTo)
   })
 
   return (

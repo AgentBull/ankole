@@ -582,14 +582,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert %{"data" => other_models} = json_response(other_conn, 200)
     refute Enum.any?(other_models, &(&1["id"] == "kimi"))
-
-    admin_conn =
-      build_conn()
-      |> put_req_header("authorization", "Bearer #{admin_access_token()}")
-      |> get(~p"/api/v1/ai-gateway/models", %{"q" => "AGENT_LOCAL_ALIAS_MARKER"})
-
-    assert %{"data" => admin_models} = json_response(admin_conn, 200)
-    refute Enum.any?(admin_models, &(&1["id"] == "kimi"))
   end
 
   test "Codex models manifest keeps the runtime slug on standard Responses", %{
@@ -1167,10 +1159,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -1280,7 +1269,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %{"error" => %{"code" => "invalid_limit"}} = json_response(conn, 400)
   end
 
-  test "models endpoint lists duplicate configured providers and skips admin aliases", %{
+  test "models endpoint lists duplicate configured providers and Agent aliases", %{
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
@@ -1315,61 +1304,18 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert MapSet.member?(agent_selectors, "openai-models-duplicate-a/gpt-4o-mini")
     assert MapSet.member?(agent_selectors, "openai-models-duplicate-b/gpt-4o-mini")
     assert MapSet.member?(agent_selectors, "primary")
-
-    admin_conn =
-      build_conn()
-      |> put_req_header("authorization", "Bearer #{admin_access_token()}")
-      |> get(~p"/api/v1/ai-gateway/models", %{"q" => "gpt-4o-mini"})
-
-    assert %{"data" => admin_models} = json_response(admin_conn, 200)
-    admin_selectors = MapSet.new(admin_models, & &1["id"])
-
-    assert MapSet.member?(admin_selectors, "openai-models-duplicate-a/gpt-4o-mini")
-    assert MapSet.member?(admin_selectors, "openai-models-duplicate-b/gpt-4o-mini")
-    refute MapSet.member?(admin_selectors, "primary")
   end
 
-  test "admin console JWT can access AIGateway with explicit provider model selectors", %{
-    conn: conn
-  } do
-    base_url =
-      start_recording_upstream(self(), fn request ->
-        {:json, 200, chat_completion_fixture(request.body)}
-      end)
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openrouter-admin-access",
-               provider_kind: "openrouter",
-               base_url: base_url,
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
-               },
-               connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
-               }
-             })
-
-    api_key = admin_access_token()
-
+  test "a Console browser cookie cannot authenticate an AIGateway request", %{conn: conn} do
     conn =
       conn
-      |> put_req_header("authorization", "Bearer #{api_key}")
+      |> active_admin_conn()
       |> post(~p"/api/v1/ai-gateway/responses", %{
-        "model" => "openrouter-admin-access/openai/gpt-5.5",
+        "model" => "primary",
         "input" => "hello"
       })
 
-    assert body = json_response(conn, 200)
-    assert body["model"] == "openai/gpt-5.5"
-    assert body["status"] == "completed"
-
-    assert_receive {:gateway_request, request}
-    assert request.path == "chat/completions"
-    assert request.body["model"] == "openai/gpt-5.5"
+    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
   end
 
   test "responses endpoint supports v1 SSE with an agent AIGateway token", %{conn: conn} do
@@ -1389,10 +1335,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -1756,10 +1699,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -1821,10 +1761,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -1898,10 +1835,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -2011,10 +1945,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -2073,10 +2004,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -2127,10 +2055,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -2343,10 +2268,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -2825,7 +2747,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+                 "transport" => %{}
                }
              })
 

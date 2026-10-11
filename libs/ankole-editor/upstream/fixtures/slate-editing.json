@@ -1,0 +1,1170 @@
+[
+  {
+    "id": "slate:packages/slate/test/transforms/delete/emojis/text-end-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word📛"
+      ],
+      "anchor": [
+        0,
+        6
+      ],
+      "focus": [
+        0,
+        6
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/emojis/text-start.tsx:1",
+    "input": {
+      "paragraphs": [
+        "📛word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/point/basic-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two"
+      ],
+      "anchor": [
+        1,
+        0
+      ],
+      "focus": [
+        1,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "onetwo"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/point/basic.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word",
+        "another"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wordanother"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-across-multiple.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two",
+        "three",
+        "four"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        3,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-across.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word",
+        "another"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        1,
+        2
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "woother"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-hanging-multiple.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        2,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "",
+        "three"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-hanging-single.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        1,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "",
+        "two"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-join-edges.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word",
+        "another"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        1,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wordanother"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/block-middle.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "anchor": [
+        1,
+        1
+      ],
+      "focus": [
+        1,
+        2
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "one",
+        "to",
+        "three"
+      ],
+      "anchor": [
+        1,
+        1
+      ],
+      "focus": [
+        1,
+        1
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/character-end.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wor"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/character-middle.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wrd"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/character-start.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "ord"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/selection/word.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/document-end.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/document-start-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/empty-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/empty.tsx:1",
+    "input": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        ""
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/end.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wor"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/first-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "ord"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/first.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "ord"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/last.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wor"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/middle-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wrd"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/middle.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "wod"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "key": "Delete",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/multiple-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "w"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "key": "Backspace",
+    "count": 3
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/multiple.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "d"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "key": "Delete",
+    "count": 3
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/thai-multiple-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "พี่"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "พ"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "key": "Backspace",
+    "count": 2
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/delete/unit-character/thai-reverse.tsx:1",
+    "input": {
+      "paragraphs": [
+        "พี่"
+      ],
+      "anchor": [
+        0,
+        3
+      ],
+      "focus": [
+        0,
+        3
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "พี"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "key": "Backspace",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-across.tsx:1",
+    "input": {
+      "paragraphs": [
+        "first paragraph",
+        "second paragraph"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        1,
+        6
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "a paragraph"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "text": "a",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-end-words.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "word a few words"
+      ],
+      "anchor": [
+        0,
+        16
+      ],
+      "focus": [
+        0,
+        16
+      ]
+    },
+    "text": " a few words",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-end.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        4
+      ],
+      "focus": [
+        0,
+        4
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "worda"
+      ],
+      "anchor": [
+        0,
+        5
+      ],
+      "focus": [
+        0,
+        5
+      ]
+    },
+    "text": "a",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-hanging-across.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two",
+        "three"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        2,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "athree"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "text": "a",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-hanging.tsx:1",
+    "input": {
+      "paragraphs": [
+        "one",
+        "two"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        1,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "a",
+        "two"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "text": "a",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-middle-words.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "w a few words ord"
+      ],
+      "anchor": [
+        0,
+        14
+      ],
+      "focus": [
+        0,
+        14
+      ]
+    },
+    "text": " a few words ",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-middle.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "waord"
+      ],
+      "anchor": [
+        0,
+        2
+      ],
+      "focus": [
+        0,
+        2
+      ]
+    },
+    "text": "a",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-start-words.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "a few wordsword"
+      ],
+      "anchor": [
+        0,
+        11
+      ],
+      "focus": [
+        0,
+        11
+      ]
+    },
+    "text": "a few words",
+    "count": 1
+  },
+  {
+    "id": "slate:packages/slate/test/transforms/insertText/selection/block-start.tsx:1",
+    "input": {
+      "paragraphs": [
+        "word"
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "focus": [
+        0,
+        0
+      ]
+    },
+    "output": {
+      "paragraphs": [
+        "aword"
+      ],
+      "anchor": [
+        0,
+        1
+      ],
+      "focus": [
+        0,
+        1
+      ]
+    },
+    "text": "a",
+    "count": 1
+  }
+]

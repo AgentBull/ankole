@@ -79,6 +79,110 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
     %{"type" => "response.completed", "sequence_number" => seq, "response" => response}
   end
 
+  describe "local failure numbering" do
+    test "the first provider terminal does not consume the local failure number" do
+      {state, _request} =
+        new_state(%{
+          "model" => "test",
+          "input" => [],
+          "tools" => [%{"type" => "programmatic_tool_calling"}]
+        })
+
+      program = %{
+        "type" => "function_call",
+        "id" => "program_item",
+        "name" => "program",
+        "call_id" => "program_call",
+        "status" => "completed",
+        "arguments" => ~s|{"code":"text(1)"}|
+      }
+
+      {state, [created], :continue} =
+        observe!(state, %{
+          "type" => "response.created",
+          "sequence_number" => 0,
+          "response" => %{"id" => "resp_p"}
+        })
+
+      {state, [call], :continue} =
+        observe!(state, %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 1,
+          "output_index" => 0,
+          "item" => program
+        })
+
+      {state, [], {:local, [_job], _context}} = observe!(state, completed_event([program], 2))
+
+      {_state, [failed], _outcome} =
+        State.fail(state, code: "program_runtime_busy", retryable: true)
+
+      assert failed["type"] == "response.failed"
+      assert Enum.map([created, call, failed], & &1["sequence_number"]) == [0, 1, 2]
+    end
+
+    test "a later provider round keeps the local failure after the public search items" do
+      {state, _request} =
+        new_state(%{
+          "model" => "test",
+          "input" => [],
+          "tools" => [
+            deferred_tool("quote", "Quote"),
+            %{"type" => "programmatic_tool_calling"},
+            %{"type" => "tool_search"}
+          ]
+        })
+
+      {state, [created], :continue} =
+        observe!(state, %{
+          "type" => "response.created",
+          "sequence_number" => 0,
+          "response" => %{"id" => "resp_p"}
+        })
+
+      search = search_call_item("search_call", ~s({"paths":["quote"]}))
+
+      {state, [search_call], :continue} =
+        observe!(state, %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 1,
+          "output_index" => 0,
+          "item" => search
+        })
+
+      {state, [search_output], {:round, _request}} = observe!(state, completed_event([search], 2))
+
+      program = %{
+        "type" => "function_call",
+        "id" => "program_item",
+        "name" => "program",
+        "call_id" => "program_call",
+        "status" => "completed",
+        "arguments" => ~s|{"code":"text(1)"}|
+      }
+
+      {state, [call], :continue} =
+        observe!(state, %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 0,
+          "output_index" => 0,
+          "item" => program
+        })
+
+      {state, [], {:local, [_job], _context}} = observe!(state, completed_event([program], 1))
+
+      {_state, [failed], _outcome} =
+        State.fail(state, code: "program_runtime_busy", retryable: true)
+
+      assert failed["type"] == "response.failed"
+
+      assert Enum.map(
+               [created, search_call, search_output, call, failed],
+               & &1["sequence_number"]
+             ) == [0, 1, 2, 3, 4]
+    end
+  end
+
   describe "client mode" do
     test "rewrites the search call and finalizes with codex-shaped items" do
       {state, _provider_request} =

@@ -115,9 +115,13 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
 
     assert CodexModelBinding.apply(request, binding)["parallel_tool_calls"] == false
 
-    assert CodexModelBinding.apply(request, binding, responses_lite?: true)[
-             "parallel_tool_calls"
-           ] == false
+    plain = Map.delete(request, "client_metadata")
+
+    assert CodexModelBinding.apply(plain, binding, %{
+             "headers" => %{"x-openai-internal-codex-responses-lite" => "true"}
+           })["parallel_tool_calls"] == false
+
+    assert CodexModelBinding.apply(plain, binding, %{})["parallel_tool_calls"] == true
   end
 
   test "bound Codex requests drop OpenAI-only replay fields" do

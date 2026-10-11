@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@ankole/uikit'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ankoleWebPrincipalControllerCreateLocalPasswordResetMutation } from '../api/generated/@tanstack/react-query.gen'
@@ -28,13 +28,11 @@ import { MustChangePasswordField } from './principal-create'
  */
 export function LocalPasswordSection({ principal }: { principal: PrincipalItem }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mustChange, setMustChange] = useState(true)
   const reset = useMutation({
-    ...ankoleWebPrincipalControllerCreateLocalPasswordResetMutation(),
+    ...ankoleWebPrincipalControllerCreateLocalPasswordResetMutation()
     // The status badge reflects the new credential as soon as the dialog shows it.
-    onSuccess: () => void queryClient.invalidateQueries()
   })
   const credential = principal.local_credential
   const actionLabel = credential ? t('console.principals.reset_password') : t('console.principals.generate_password')

@@ -18,23 +18,25 @@ defmodule Ankole.BrowserSessions do
   end
 
   def cleanup_expired(now) do
-    {login_transactions, _} =
-      Repo.delete_all(from t in LoginTransaction, where: t.expires_at <= ^now)
+    Repo.across_tenants(fn ->
+      {login_transactions, _} =
+        Repo.delete_all(from t in LoginTransaction, where: t.expires_at <= ^now)
 
-    {browser_sessions, _} =
-      Repo.delete_all(
-        from b in Session,
-          as: :browser,
-          where: b.expires_at <= ^now,
-          where:
-            not exists(
-              from s in Ankole.OIDC.Session,
-                where: s.browser_id == parent_as(:browser).id,
-                select: 1
-            )
-      )
+      {browser_sessions, _} =
+        Repo.delete_all(
+          from b in Session,
+            as: :browser,
+            where: b.expires_at <= ^now,
+            where:
+              not exists(
+                from s in Ankole.OIDC.Session,
+                  where: s.browser_id == parent_as(:browser).id,
+                  select: 1
+              )
+        )
 
-    %{login_transactions: login_transactions, browser_sessions: browser_sessions}
+      %{login_transactions: login_transactions, browser_sessions: browser_sessions}
+    end)
   end
 
   def reference(%Session{id: id, generation: generation}),
@@ -68,7 +70,7 @@ defmodule Ankole.BrowserSessions do
          %{"principal_uid" => uid, "access_version" => version, "expires_at" => expiry} = auth <-
            Map.get(browser, auth_field(purpose)),
          true <- expiry > System.system_time(:second),
-         :ok <- HumanAccess.check(uid, version) do
+         :ok <- Repo.across_tenants(fn -> HumanAccess.check(uid, version) end) do
       Map.merge(auth, %{"browser_id" => browser.id, "browser_generation" => browser.generation})
     else
       _ -> nil
@@ -81,6 +83,7 @@ defmodule Ankole.BrowserSessions do
         %LoginTransaction{}
         |> Ecto.Changeset.change(
           browser_id: browser.id,
+          tenant_id: Repo.tenant_id!(),
           generation: browser.generation,
           purpose: purpose,
           request: request,
@@ -146,6 +149,15 @@ defmodule Ankole.BrowserSessions do
   end
 
   def complete_login(ref, id, auth, before_commit \\ fn -> :ok end) do
+    with {:ok, _browser} <- get(ref),
+         {:ok, transaction} <- login(ref, id) do
+      if transaction.tenant_id == Repo.tenant_id!(),
+        do: complete_tenant_login(ref, id, auth, before_commit),
+        else: {:error, :login_expired}
+    end
+  end
+
+  defp complete_tenant_login(ref, id, auth, before_commit) do
     Repo.transact(fn repo ->
       with {:ok, principal} <- lock_human(repo, auth),
            {:ok, browser} <- fetch_session(repo, ref, true),
@@ -161,7 +173,7 @@ defmodule Ankole.BrowserSessions do
     Repo.transact(fn repo ->
       with {:ok, browser} <- fetch_session(repo, ref, true),
            %{"principal_uid" => uid, "access_version" => version} = auth <- browser.admin_auth,
-           true <- Ankole.AdminAuth.active_human_admin?(uid),
+           true <- Ankole.SiteAdminAuth.active_human_site_admin?(uid),
            :ok <- HumanAccess.check(uid, version) do
         browser |> Ecto.Changeset.change(oauth_auth: auth) |> repo.update()
       else
@@ -173,7 +185,8 @@ defmodule Ankole.BrowserSessions do
   end
 
   def consume_authorization(ref, id, issue) when is_function(issue, 2) do
-    with {:ok, %{authentication: %{} = authentication}} <- login(ref, id) do
+    with {:ok, %{tenant_id: tenant_id, authentication: %{} = authentication}} <- login(ref, id),
+         true <- tenant_id == Repo.tenant_id!() do
       Repo.transact(fn repo ->
         with {:ok, _} <- lock_human(repo, authentication),
              {:ok, browser} <- fetch_session(repo, ref, true),
@@ -182,7 +195,8 @@ defmodule Ankole.BrowserSessions do
              %{"principal_uid" => uid, "access_version" => version} = auth <-
                transaction.authentication,
              :ok <- HumanAccess.check(uid, version),
-             {:ok, _} <- transaction |> Ecto.Changeset.change(status: :consumed) |> repo.update() do
+             {:ok, _} <-
+               transaction |> Ecto.Changeset.change(status: :consumed) |> repo.update() do
           issue.(
             transaction.request,
             Map.merge(auth, %{
@@ -290,7 +304,8 @@ defmodule Ankole.BrowserSessions do
           DateTime.compare(transaction.inserted_at, principal.access_revoked_at) != :gt ->
         {:error, :human_access_revoked}
 
-      transaction.purpose == :console and not Ankole.AdminAuth.active_human_admin?(principal.uid) ->
+      transaction.purpose == :console and
+          not Ankole.SiteAdminAuth.active_human_site_admin?(principal.uid) ->
         {:error, :not_an_admin}
 
       true ->

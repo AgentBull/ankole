@@ -22,7 +22,6 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     setting(:skip_cache, scope: :request)
 
     web_search do
-      upstream(:json)
       api_resolver(:agentbull_web_search)
       prepare(:prepare_web_search)
       timeout_ms(@timeout_ms)

@@ -1,5 +1,10 @@
 Ankole is installed.
 
+The site administration Console is mounted at {{ .Values.controlPlane.siteAdminConsolePath }}.
+Normal users enter through their tenant's OIDC application. The legacy /console
+path returns 404. Change controlPlane.siteAdminConsolePath before starting Pods
+when the site needs a different operator entry point.
+
 {{- if .Values.ingress.enabled }}
 
 Open https://{{ (first .Values.ingress.hosts).host }}/setup
@@ -21,8 +26,19 @@ Check the rollout:
 
   kubectl -n {{ .Release.Namespace }} get pods
   kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "ankole-agent.controlPlaneName" . }}
-  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "ankole-agent.workerName" . }}
 
-The default main-latest image tags move after a verified GitHub image-pair
-publish. Pin both Ankole image digests together before a controlled production
-upgrade.
+The provider seed is in Secret {{ include "ankole-agent.workerProvidersName" . }}.
+It is imported only when the worker_providers table is empty. Manage providers
+and assign each new Agent in the Console.
+{{- if .Values.worker.localPods }}
+
+List local Worker Pods:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l ankole.io/installation={{ include "ankole-agent.workerInstallation" . }},ankole.io/task=worker
+
+Worker Pods have no controller. `kubectl drain --force` permits their eviction;
+keep a positive termination grace period and wait for deletion to complete.
+{{- end }}
+
+Pin the control-plane and Worker image digests from the same release before
+an upgrade. Back up PostgreSQL, Agent Home storage, and the file store.

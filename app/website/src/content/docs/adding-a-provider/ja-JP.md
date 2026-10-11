@@ -24,7 +24,6 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
@@ -86,7 +85,6 @@ setting(:reasoningEffort, type: :select, default: "high",
 
 ```elixir
 language_model do
-  upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
   supports_parallel_tool_calls()
@@ -97,7 +95,7 @@ end
 | フィールド | 意味 |
 |---|---|
 | `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate` のいずれか |
-| `upstream` | wire の形状。`:sse`、`:eventstream`、`:websocket_text`、`:json` |
+| `upstream` | wire の形状。`kind` から決まります。`:language_model` は `:sse`、ほかのすべての kind は `:json` |
 | `api_resolver` | encoding と transport を所有する Rust 側の resolver atom（例: `:openai_responses`） |
 | `prepare` | 準備済み request を構築する Elixir 関数 |
 | `timeout_ms` | 任意の、能力ごとの timeout |

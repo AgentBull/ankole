@@ -14,6 +14,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Markdown do
   Chunks are byte-exact source slices; when a boundary falls inside a code
   fence, only the *display* form closes and reopens the fence
   (`display_chunk/2`), keeping durable source math lossless.
+  Code spans keep the exact source bytes. These rules apply to prose.
   """
 
   # msgParam caps at 15000 bytes; keep a conservative source budget so JSON
@@ -34,10 +35,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Markdown do
   @doc "Degrade standard Markdown into DingTalk's supported subset."
   @spec to_dingtalk(String.t()) :: String.t()
   def to_dingtalk(text) when is_binary(text) do
-    text
-    |> degrade_tables()
-    |> degrade_task_lists()
-    |> strip_html_tags()
+    Ankole.Plugins.MarkdownChunks.rewrite_prose(text, fn source, marker ->
+      source
+      |> degrade_tables()
+      |> degrade_task_lists()
+      |> strip_html_tags(marker)
+    end)
   end
 
   def to_dingtalk(_text), do: ""
@@ -66,7 +69,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Markdown do
     Regex.replace(~r/(^\s*[-*+] )\[[ xX]\]\s+/m, text, "\\1")
   end
 
-  defp strip_html_tags(text) do
-    Regex.replace(~r/<\/?[a-zA-Z][^>]*>/, text, "")
+  defp strip_html_tags(text, marker) do
+    Regex.replace(~r/<\/?[a-zA-Z][^>]*>/, text, fn tag ->
+      if is_binary(marker) do
+        String.duplicate(marker, length(:binary.matches(tag, marker)))
+      else
+        ""
+      end
+    end)
   end
 end

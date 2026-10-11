@@ -20,7 +20,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   alias AnkoleWeb.Schemas.ConsoleAPI.IdentityMappingWriteRequest
 
   tags(["Identity Mappings"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -29,8 +29,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
     summary: "List pending identity mapping requests",
     responses: [
       ok: {"Pending mapping requests", "application/json", IdentityMappingRequestListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -40,10 +39,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
     request_body: {"Bind target", "application/json", IdentityMappingBindRequest, required: true},
     responses: [
       ok: {"Bound identity", "application/json", IdentityMappingResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid bind target", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -52,9 +48,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Dismissed", "application/json", IdentityMappingRequestListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -64,9 +58,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
       {"Identity mapping", "application/json", IdentityMappingWriteRequest, required: true},
     responses: [
       ok: {"Bound identity", "application/json", IdentityMappingResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid mapping", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

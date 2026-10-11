@@ -259,12 +259,15 @@ defmodule Ankole.Workflow.RunServerTest do
     assert_receive {:snapshot_replay, 1, replay_task, []}, 1_000
 
     assert {:ok, %{accepted: true, call: %AgentCall{status: "succeeded"}}} =
-             Workflow.submit_result(
-               running.id,
-               agent.uid,
-               Workflow.task_session_id(running.id),
-               %{"ok" => true, "value" => "finished"}
-             )
+             Ankole.Repo.transact(fn repo ->
+               Workflow.submit_result_in_tx(
+                 repo,
+                 running.id,
+                 agent.uid,
+                 Workflow.task_session_id(running.id),
+                 %{"ok" => true, "value" => "finished"}
+               )
+             end)
 
     send(replay_task, :release)
 
@@ -329,12 +332,15 @@ defmodule Ankole.Workflow.RunServerTest do
       assert run_id == run.id
 
       assert {:ok, %{accepted: true}} =
-               Workflow.submit_result(
-                 running.id,
-                 agent.uid,
-                 Workflow.task_session_id(running.id),
-                 %{"ok" => true, "value" => "terminal"}
-               )
+               Ankole.Repo.transact(fn repo ->
+                 Workflow.submit_result_in_tx(
+                   repo,
+                   running.id,
+                   agent.uid,
+                   Workflow.task_session_id(running.id),
+                   %{"ok" => true, "value" => "terminal"}
+                 )
+               end)
 
       send(replay_task, :release)
 
@@ -395,6 +401,9 @@ defmodule Ankole.Workflow.RunServerTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
 
     first_server = RunServer.whereis(run.id)
+    # Shared Sandbox reads can see an uncommitted task row. The state reply
+    # waits for the replay commit and its dispatch before this crash fixture.
+    assert is_nil(:sys.get_state(first_server).replay)
     monitor = Process.monitor(first_server)
     Process.exit(first_server, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^first_server, :killed}, 1_000
@@ -404,12 +413,15 @@ defmodule Ankole.Workflow.RunServerTest do
              Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
 
     assert {:ok, %{call: %AgentCall{status: "succeeded"}}} =
-             Workflow.submit_result(
-               running.id,
-               agent.uid,
-               Workflow.task_session_id(running.id),
-               %{"ok" => true, "value" => "persisted"}
-             )
+             Ankole.Repo.transact(fn repo ->
+               Workflow.submit_result_in_tx(
+                 repo,
+                 running.id,
+                 agent.uid,
+                 Workflow.task_session_id(running.id),
+                 %{"ok" => true, "value" => "persisted"}
+               )
+             end)
 
     second_runner = queue_runner(self(), [completed_outcome(["rebuilt"])])
     assert :ok = RunServer.poke(run.id, runner: second_runner)
@@ -460,7 +472,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert requeued.error["code"] == "workflow_task_stale"
 
     assert {:ok, %{run: %Run{status: "cancelled"}}} =
-             RunServer.cancel(run.id, agent.uid)
+             cancel_workflow(run.id, agent.uid)
 
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
   end
@@ -530,7 +542,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert %AgentCall{status: "failed", attempts: 3} = Repo.get!(AgentCall, call.id)
   end
 
-  test "cancel terminates an in-flight replay and calls the native cancellation seam" do
+  test "cancel_workflow commits cancellation before stopping an in-flight replay" do
     %{principal: agent} = agent_fixture()
     run = run_fixture(agent.uid)
     true = Process.register(self(), :workflow_run_server_test_runner_owner)
@@ -540,14 +552,14 @@ defmodule Ankole.Workflow.RunServerTest do
     monitor = Process.monitor(task)
 
     assert {:ok, %{run: %Run{status: "cancelled"}}} =
-             RunServer.cancel(run.id, agent.uid)
+             cancel_workflow(run.id, agent.uid)
 
     assert_receive {:blocking_runner_cancelled, "wf-" <> _run_id}, 1_000
     assert_receive {:DOWN, ^monitor, :process, ^task, :killed}, 1_000
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
   end
 
-  test "an unauthorized creating cancel cannot stop an active replay" do
+  test "cancel_workflow from another Agent cannot stop an active replay" do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     run = run_fixture(agent.uid)
@@ -566,7 +578,7 @@ defmodule Ankole.Workflow.RunServerTest do
     replay_monitor = Process.monitor(replay_task)
     server = RunServer.whereis(run.id)
 
-    assert {:error, :workflow_not_found} = RunServer.cancel(run.id, other_agent.uid)
+    assert {:error, :workflow_not_found} = cancel_workflow(run.id, other_agent.uid)
 
     assert Process.alive?(server)
     refute_receive {:DOWN, ^replay_monitor, :process, ^replay_task, _reason}, 50
@@ -576,7 +588,7 @@ defmodule Ankole.Workflow.RunServerTest do
              wait_for(fn -> terminal_run(run.id, "completed") end)
   end
 
-  test "cancel survives a server that completes and stops before the call is handled" do
+  test "a queued replay result cannot revive cancellation committed by the real tool" do
     %{principal: agent} = agent_fixture()
     run = run_fixture(agent.uid)
     parent = self()
@@ -585,7 +597,7 @@ defmodule Ankole.Workflow.RunServerTest do
       send(parent, {:terminal_race_replay_started, self()})
 
       receive do
-        :release -> completed_outcome(["completed before cancel"])
+        :release -> completed_outcome(["late completion"])
       end
     end
 
@@ -607,18 +619,13 @@ defmodule Ankole.Workflow.RunServerTest do
     replay_monitor = Process.monitor(replay_task)
     send(replay_task, :release)
     assert_receive {:DOWN, ^replay_monitor, :process, ^replay_task, :normal}, 1_000
+    assert wait_for(fn -> queued_replay_result?(server) end)
 
-    cancel_task =
-      Task.async(fn -> RunServer.cancel(run.id, agent.uid, runner: runner) end)
-
-    assert wait_for(fn -> replay_and_cancel_call_queued?(server) end)
+    assert {:ok, %{run: %Run{status: "cancelled"}}} = cancel_workflow(run.id, agent.uid)
     :ok = :sys.resume(server)
-
-    assert {:ok, %{run: %Run{status: "completed", result_text: "completed before cancel"}}} =
-             Task.await(cancel_task, 2_000)
-
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
 
+    assert %Run{status: "cancelled", result_text: nil} = Repo.get!(Run, run.id)
     completed_source_event_id = "workflow:#{run.id}:completed"
 
     assert Repo.aggregate(
@@ -626,7 +633,39 @@ defmodule Ankole.Workflow.RunServerTest do
                where: event.source_event_id == ^completed_source_event_id
              ),
              :count
-           ) == 1
+           ) == 0
+  end
+
+  test "cancellation before a replay owner starts cannot enter the runner" do
+    %{principal: agent} = agent_fixture()
+    run = run_fixture(agent.uid)
+    runner = queue_runner(self(), [completed_outcome(["must not run"])])
+
+    assert {:ok, %{run: %Run{status: "cancelled"}}} = cancel_workflow(run.id, agent.uid)
+    assert RunServer.whereis(run.id) == nil
+    assert :ok = RunServer.poke(run.id, runner: runner)
+    wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
+    refute_receive {:program_run, _, _, _, _, _}, 100
+  end
+
+  test "repeat cancellation stops a reconstructed owner without changing terminal facts" do
+    %{principal: agent} = agent_fixture()
+    run = run_fixture(agent.uid)
+    true = Process.register(self(), :workflow_run_server_test_runner_owner)
+
+    assert {:ok, %{run: cancelled}} = cancel_workflow(run.id, agent.uid)
+    assert RunServer.whereis(run.id) == nil
+    assert {:ok, server} = RunServer.ensure_started(run.id, runner: BlockingRunner)
+    monitor = Process.monitor(server)
+
+    assert {:ok, %{run: repeated}} = cancel_workflow(run.id, agent.uid)
+    assert repeated.status == "cancelled"
+    assert repeated.completed_at == cancelled.completed_at
+    assert repeated.cleanup_completed_at == cancelled.cleanup_completed_at
+    assert_receive {:blocking_runner_cancelled, "wf-" <> _}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^server, :normal}, 1_000
+    assert RunServer.whereis(run.id) == nil
+    refute_receive {:blocking_runner_started, _}, 50
   end
 
   test "a stale wake for a missing run stops its temporary server" do
@@ -638,42 +677,52 @@ defmodule Ankole.Workflow.RunServerTest do
     refute_receive {:program_run, _, _, _, _, _}, 100
   end
 
-  test "failed cancel cleans a missing server but drives an authorized durable run" do
+  test "a missing or unauthorized cancel_workflow never creates a replay owner" do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     run = run_fixture(agent.uid)
     missing_run_id = 9_007_199_254_740_001
-    parent = self()
 
-    assert {:error, :workflow_not_found} =
-             RunServer.cancel(missing_run_id, agent.uid)
+    assert {:error, :workflow_not_found} = cancel_workflow(missing_run_id, agent.uid)
+    assert RunServer.whereis(missing_run_id) == nil
+    assert {:error, :workflow_not_found} = cancel_workflow(run.id, other_agent.uid)
+    assert RunServer.whereis(run.id) == nil
+    assert Repo.get!(Run, run.id).status == "running"
+  end
 
-    wait_for(fn -> is_nil(RunServer.whereis(missing_run_id)) end)
+  test "failed terminal cleanup remains recoverable after cancel_workflow stops replay" do
+    %{principal: agent} = agent_fixture()
+    run = run_fixture(agent.uid)
+    true = Process.register(self(), :workflow_run_server_test_runner_owner)
 
-    runner = fn _run_id, _source, _tools, _memo, _options ->
-      send(parent, {:hidden_cancel_replay_started, self()})
+    assert {:ok, %{new_calls: [call]}} =
+             Workflow.commit_replay_pending(run.id, [pending_call(%{"prompt" => "Run."})], 0)
 
-      receive do
-        :release -> completed_outcome(["durable run survived"])
-      end
-    end
+    assert {:ok, %{call: call}} = Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+    run |> Run.changeset(%{reply_route: %{}}) |> Repo.update!()
+    assert :ok = RunServer.poke(run.id, runner: BlockingRunner)
+    assert_receive {:blocking_runner_started, replay_task}, 1_000
+    monitor = Process.monitor(replay_task)
 
-    assert {:error, :workflow_not_found} =
-             RunServer.cancel(run.id, other_agent.uid, runner: runner)
+    assert {:ok,
+            %{run: %Run{status: "cancelled", cleanup_completed_at: nil}, cleanup_errors: [_]}} =
+             cancel_workflow(run.id, agent.uid)
 
-    assert_receive {:hidden_cancel_replay_started, replay_task}, 1_000
-    legitimate_server = RunServer.whereis(run.id)
-    assert Process.alive?(legitimate_server)
-
-    assert {:error, :workflow_not_found} = RunServer.cancel(run.id, other_agent.uid)
-    assert Process.alive?(legitimate_server)
-
-    send(replay_task, :release)
-
-    assert %Run{status: "completed", result_text: "durable run survived"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
-
+    assert_receive {:blocking_runner_cancelled, "wf-" <> _}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^replay_task, :killed}, 1_000
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
+    assert_enqueued(worker: Ankole.Workflow.Jobs.PokeRun, args: %{run_id: run.id})
+
+    Repo.get!(Run, run.id)
+    |> Run.changeset(%{reply_route: %{"binding_name" => "bot"}})
+    |> Repo.update!()
+
+    assert :ok = perform_job(Ankole.Conversations.Reconciler, %{})
+    assert :ok = perform_job(Ankole.Workflow.Jobs.PokeRun, %{run_id: run.id})
+    wait_for(fn -> terminal_run(run.id, "cancelled") end)
+
+    assert Repo.get_by!(ActorEvent, source_event_id: "workflow:call:#{call.id}:stop").type ==
+             "command.stop"
   end
 
   test "cancel is durable before running task stop cleanup" do
@@ -693,7 +742,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert {:ok, %{call: running}} =
              Workflow.claim_task_in_tx(Repo, running.id, agent.uid, 8)
 
-    assert {:ok, result} = Workflow.cancel(run.id, agent.uid)
+    assert {:ok, result} = cancel_workflow(run.id, agent.uid)
     assert result.run.status == "cancelled"
     assert %DateTime{} = result.run.cleanup_completed_at
     assert result.cleanup_errors == []
@@ -713,23 +762,52 @@ defmodule Ankole.Workflow.RunServerTest do
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
   end
 
+  defp cancel_workflow(run_id, agent_uid) do
+    result =
+      Repo.transact(fn repo ->
+        with {:ok, result, after_commit} <-
+               Ankole.Conversations.Tools.Workflow.execute_in_tx(
+                 repo,
+                 %{agent_uid: agent_uid},
+                 %{"name" => "cancel_workflow"},
+                 %{"run_id" => run_id}
+               ) do
+          {:ok, {result, after_commit}}
+        end
+      end)
+
+    case result do
+      {:ok, {tool_result, [after_commit]}} ->
+        assert tool_result.details["status"] == Repo.get!(Run, run_id).status
+        after_commit.()
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp run_fixture(agent_uid) do
-    Repo.insert!(
-      Run.creation_changeset(%Run{}, %{
-        authorization_kind: "service",
-        agent_uid: agent_uid,
-        owner_session_id: "owner-#{System.unique_integer([:positive])}",
-        reply_route: %{"binding_name" => "bot"},
-        source_tool_call_id: "tool-#{System.unique_integer([:positive])}",
-        title: "Workflow",
-        script: "return 'done';",
-        args: %{},
-        status: "running",
-        concurrency: 8,
-        max_agent_calls: 256,
-        error: %{}
-      })
-    )
+    run =
+      Repo.insert!(
+        Run.creation_changeset(%Run{}, %{
+          authorization_kind: "service",
+          agent_uid: agent_uid,
+          owner_session_id: "owner-#{System.unique_integer([:positive])}",
+          reply_route: %{"binding_name" => "bot"},
+          source_tool_call_id: "tool-#{System.unique_integer([:positive])}",
+          title: "Workflow",
+          script: "return 'done';",
+          args: %{},
+          status: "running",
+          concurrency: 8,
+          max_agent_calls: 256,
+          error: %{}
+        })
+      )
+
+    # Replay tests claim task rows themselves. Install the passive Driver
+    # before dispatch so a real admission cannot consume those fixture rows.
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_workflow_drivers(run)
   end
 
   defp queue_runner(parent, outcomes) do
@@ -790,14 +868,10 @@ defmodule Ankole.Workflow.RunServerTest do
   defp queued_call(%AgentCall{status: "queued"} = call), do: call
   defp queued_call(_call), do: nil
 
-  defp replay_and_cancel_call_queued?(server) do
+  defp queued_replay_result?(server) do
     case Process.info(server, :messages) do
-      {:messages, messages} ->
-        Enum.any?(messages, &match?({:workflow_replay_finished, _ref, _result}, &1)) and
-          Enum.any?(messages, &match?({:"$gen_call", _from, {:cancel, _agent_uid}}, &1))
-
-      nil ->
-        false
+      {:messages, messages} -> Enum.any?(messages, &match?({:workflow_replay_finished, _, _}, &1))
+      nil -> false
     end
   end
 

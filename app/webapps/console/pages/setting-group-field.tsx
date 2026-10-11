@@ -21,6 +21,7 @@ export function SettingGroupField({
   saving: boolean
 }) {
   const { t } = useTranslation()
+  if (!item) return null
 
   return (
     <section className="grid gap-3 border-t border-border pt-6 first:border-t-0 first:pt-0">

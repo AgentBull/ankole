@@ -3,7 +3,7 @@ defmodule Ankole.AuthZ.Membership do
   Static Principal membership in an AuthZ group.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

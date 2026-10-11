@@ -16,12 +16,19 @@ defmodule Ankole.Brain.Access do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  defstruct querier_uid: nil, scopes: [], owned_agent_uids: [], owned_holder_slugs: []
+  defstruct querier_uid: nil,
+            querier_ref: nil,
+            scopes: [],
+            owned_agent_uids: [],
+            owned_agent_refs: [],
+            owned_holder_slugs: []
 
   @type t :: %__MODULE__{
           querier_uid: String.t(),
+          querier_ref: Ankole.ActorRef.t(),
           scopes: [String.t()],
           owned_agent_uids: [String.t()],
+          owned_agent_refs: [Ankole.ActorRef.t()],
           owned_holder_slugs: [String.t()]
         }
 
@@ -40,9 +47,11 @@ defmodule Ankole.Brain.Access do
       {:ok,
        %__MODULE__{
          querier_uid: querier_uid,
+         querier_ref: actor_ref(querier_uid),
          scopes: Enum.uniq(scopes ++ Enum.map(owned_agent_uids, &Scope.principal/1)),
          owned_agent_uids: owned_agent_uids,
-         owned_holder_slugs: Enum.map(owned_agent_uids, &("agents/" <> &1))
+         owned_agent_refs: Enum.map(owned_agent_uids, &actor_ref/1),
+         owned_holder_slugs: Enum.map(owned_agent_uids, &Scope.principal_page_slug(:agent, &1))
        }}
     end
   end
@@ -82,39 +91,36 @@ defmodule Ankole.Brain.Access do
   """
   @spec reachable?(t(), %{
           required(:audience_scope) => String.t(),
-          optional(:author_uid) => String.t() | nil,
+          optional(:author) => Ankole.ActorRef.t() | nil,
           optional(:holder) => String.t() | nil
         }) :: boolean()
   def reachable?(%__MODULE__{} = access, row) do
     scope = row.audience_scope
-    author = Map.get(row, :author_uid)
+    author = Map.get(row, :author)
     holder = Map.get(row, :holder)
 
-    scope in access.scopes or author == access.querier_uid or
-      ((author in access.owned_agent_uids or holder in access.owned_holder_slugs) and
+    scope in access.scopes or author == access.querier_ref or
+      ((author in access.owned_agent_refs or holder in access.owned_holder_slugs) and
          not String.starts_with?(scope, "group:"))
   end
 
   @doc """
   Applies the claim knowledge boundary and current-state predicates to a
-  claims query. Claims on soft-deleted Objects and internal terminal claims
-  stay out of every read path; signal-channel claims remain reachable.
+  claims query. Claims on soft-deleted Objects stay out of every read path;
+  signal-channel claims remain reachable.
   """
   @spec filter_claims(Ecto.Query.t(), t()) :: Ecto.Query.t()
   def filter_claims(query, %__MODULE__{} = access) do
-    internal_prefix = Claims.internal_provenance_prefix() <> "%"
-
     query
     |> Claims.filter_live_parents()
     |> where(
       [claim],
       claim.audience_scope in ^access.scopes or
-        claim.author_uid == ^access.querier_uid or
-        ((claim.author_uid in ^access.owned_agent_uids or
+        claim.author == ^access.querier_ref or
+        ((claim.author in ^access.owned_agent_refs or
             claim.holder in ^access.owned_holder_slugs) and
            not like(claim.audience_scope, "group:%"))
     )
-    |> where([claim], not like(claim.provenance, ^internal_prefix))
   end
 
   @doc """
@@ -152,8 +158,8 @@ defmodule Ankole.Brain.Access do
       query,
       [timeline],
       timeline.audience_scope in ^access.scopes or
-        timeline.author_uid == ^access.querier_uid or
-        (timeline.author_uid in ^access.owned_agent_uids and
+        timeline.author == ^access.querier_ref or
+        (timeline.author in ^access.owned_agent_refs and
            not like(timeline.audience_scope, "group:%"))
     )
   end
@@ -235,4 +241,8 @@ defmodule Ankole.Brain.Access do
   end
 
   defp reader_scopes(_open_or_invalid), do: {:ok, []}
+
+  defp actor_ref(uid) do
+    Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: uid})
+  end
 end

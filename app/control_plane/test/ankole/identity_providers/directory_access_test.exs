@@ -1,6 +1,6 @@
 defmodule Ankole.IdentityProviders.DirectoryAccessTest do
   use Ankole.DataCase, async: false
-  alias Ankole.{AuthZ, Principals, Repo}
+  alias Ankole.{Principals, Repo}
   alias Ankole.IdentityProviders.{DirectoryAccess, DirectoryEvent}
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Principals.HumanAccess
@@ -13,7 +13,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccessTest do
         "email" => "person@example.test"
       })
 
-    {:ok, _} = AuthZ.root_init_admin(person.principal.uid)
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(person.principal.uid)
 
     event = %FeishuOpenAPI.Event{
       id: "departure-1",

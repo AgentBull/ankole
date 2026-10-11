@@ -1,4 +1,4 @@
-import { requestSocketLineBridge, type SocketLineBridgeResponse } from '../../core/socket-line-bridge'
+import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import type { WebhookCLICommand } from './webhook-cli-protocol'
 
 /**
@@ -8,12 +8,5 @@ export async function requestWebhookCLI(
   socketPath: string,
   command: WebhookCLICommand
 ): Promise<Record<string, unknown>> {
-  const decoded = await requestSocketLineBridge<SocketLineBridgeResponse>(
-    socketPath,
-    JSON.stringify(command),
-    'webhook CLI bridge returned an invalid response'
-  )
-
-  if (decoded.ok) return decoded.result
-  throw new Error(decoded.error)
+  return requestSocketLineBridge(socketPath, JSON.stringify(command), 'webhook CLI bridge returned an invalid response')
 }

@@ -3,7 +3,7 @@ defmodule Ankole.AuthZ.Group do
   Principal group used by the AuthZ rule engine.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

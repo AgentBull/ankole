@@ -43,7 +43,7 @@ function collectSelectItems<Value>(children: React.ReactNode): ReadonlyArray<{ l
 }
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
-  return <SelectPrimitive.Group data-slot="select-group" className={cn('scroll-my-1.5 p-1.5', className)} {...props} />
+  return <SelectPrimitive.Group data-slot="select-group" className={cn('scroll-my-1', className)} {...props} />
 }
 
 function SelectValue({ children, className, placeholder, ...props }: SelectPrimitive.Value.Props) {
@@ -90,7 +90,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-none border border-transparent border-b-input bg-field px-4 py-0 text-sm leading-5 whitespace-nowrap outline-none focus-visible:border-b-ring disabled:cursor-not-allowed disabled:border-b-transparent disabled:bg-field disabled:text-fg-disabled aria-invalid:border-b-destructive data-invalid:border-b-destructive data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:aria-invalid:border-b-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border border-field-edge border-b-input bg-field px-3 py-0 text-sm leading-5 whitespace-nowrap outline-none transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-background focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:cursor-not-allowed disabled:border-b-transparent disabled:bg-field disabled:text-fg-disabled aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}>
@@ -132,7 +132,7 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-none bg-popover text-popover-foreground shadow-md ring-1 ring-border transition-opacity duration-(--duration-overlay) ease-out data-[align-trigger=true]:transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-opacity duration-(--duration-overlay) ease-out data-[align-trigger=true]:transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}>
@@ -162,7 +162,7 @@ function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) 
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-label"
-      className={cn('px-3 py-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase', className)}
+      className={cn('px-2.5 py-1.5 text-xs text-muted-foreground', className)}
       {...props}
     />
   )
@@ -173,7 +173,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-none py-2 pr-8 pl-4 text-sm leading-5 outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex min-h-8 w-full cursor-pointer items-center gap-2.5 rounded-control py-1.5 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}>
@@ -192,7 +192,7 @@ function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Prop
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"
-      className={cn('pointer-events-none -mx-1.5 my-1.5 h-px bg-border/50', className)}
+      className={cn('pointer-events-none -mx-1 my-1 h-px bg-border/50', className)}
       {...props}
     />
   )
@@ -203,7 +203,7 @@ function SelectScrollUpButton({ className, ...props }: React.ComponentProps<type
     <SelectPrimitive.ScrollUpArrow
       data-slot="select-scroll-up-button"
       className={cn(
-        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>
@@ -217,7 +217,7 @@ function SelectScrollDownButton({ className, ...props }: React.ComponentProps<ty
     <SelectPrimitive.ScrollDownArrow
       data-slot="select-scroll-down-button"
       className={cn(
-        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>

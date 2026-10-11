@@ -45,6 +45,7 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
     schema: LsParams,
     executionMode: 'parallel',
     isReadOnly: true,
+    retrySafe: true,
     isDestructive: false,
     describeActivity: params => {
       const path = compactActivityPath(params.path)

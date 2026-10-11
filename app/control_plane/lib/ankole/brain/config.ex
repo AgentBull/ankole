@@ -1,8 +1,10 @@
 defmodule Ankole.Brain.Config do
+  require Ecto.Query
+
   @moduledoc """
   AppConfigure declarations and typed reads for the `brain.*` key group.
 
-  Embedding and rerank models are instance-global. The Agent selected by
+  The embedding model is site-wide. Each tenant selects its rerank model. The Agent selected by
   `brain.maintainer_agent_uid` is the execution identity and usage owner for
   all Brain model calls. It also supplies `light` for extraction, `heavy` for
   Dreaming, and `web_fetch` for URL Source learning.
@@ -60,7 +62,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @enabled_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: Schema.boolean(),
         default_value: true,
         description:
@@ -69,11 +71,11 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @maintainer_agent_uid_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: optional_non_empty_string_schema(),
         default_value: nil,
         description:
-          "Active Agent responsible for Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Its light profile extracts knowledge, its heavy profile runs Dreaming, and its web_fetch profile fetches URL Sources. Empty or disabled stops Brain model calls and local URL fetching until the Agent is enabled or replaced."
+          "Active Agent responsible for Brain maintenance. All Brain model calls run as this Agent and attribute usage to it. Its light profile extracts knowledge, its heavy profile runs Dreaming, and its web_fetch profile fetches URL Sources. Empty or disabled stops Brain model calls and URL Source fetching until the Agent is enabled or replaced."
       ),
       Definition.new!(
         key: @embedding_model_key,
@@ -82,16 +84,16 @@ defmodule Ankole.Brain.Config do
         schema: model_schema(require_dimensions: true),
         default_value: nil,
         description:
-          "Instance-global embedding model as {provider_id, model, dimensions, provider_options?}. Empty disables vector retrieval projections."
+          "Site-wide embedding model as {provider_id, model, dimensions, provider_options?}. Empty disables vector retrieval projections."
       ),
       Definition.new!(
         key: @rerank_model_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: model_schema(),
         default_value: nil,
         description:
-          "Instance-global rerank model as {provider_id, model, provider_options?}. Empty skips rerank and keeps the fusion order."
+          "Tenant rerank model as {provider_id, model, provider_options?}. Empty skips rerank and keeps the fusion order."
       ),
       Definition.new!(
         key: @search_tokenizer_key,
@@ -105,7 +107,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @chunking_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: chunking_schema(),
         default_value: @chunking_defaults,
         description:
@@ -114,7 +116,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @forgetting_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: forgetting_schema(),
         default_value: @forgetting_defaults,
         description:
@@ -123,7 +125,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @dreaming_task_cron_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: cron_schema(),
         default_value: "0 5 * * *",
         description: "Cron expression for the daily Dreaming maintenance task."
@@ -131,7 +133,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @self_healing_task_cron_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: cron_schema(),
         default_value: "*/15 * * * *",
         description:
@@ -140,7 +142,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @signal_channel_batch_idle_time_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: positive_integer_schema(),
         default_value: 900,
         description:
@@ -149,7 +151,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @skill_learning_enabled_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: Schema.boolean(),
         default_value: true,
         description:
@@ -158,7 +160,7 @@ defmodule Ankole.Brain.Config do
       Definition.new!(
         key: @skill_learning_reflection_threshold_key,
         encrypted: false,
-        scope: :global,
+        scope: :tenant,
         schema: bounded_integer_schema(2),
         default_value: 10,
         description:
@@ -169,11 +171,11 @@ defmodule Ankole.Brain.Config do
 
   @doc "Returns whether BrainV3 is enabled for this instance."
   @spec enabled?() :: boolean()
-  def enabled?, do: get_or_default(@enabled_key, true)
+  def enabled?, do: get_or_default(@enabled_key)
 
   @doc "Returns the Agent responsible for Brain maintenance, or nil."
   @spec maintainer_agent_uid() :: String.t() | nil
-  def maintainer_agent_uid, do: get_or_default(@maintainer_agent_uid_key, nil)
+  def maintainer_agent_uid, do: get_or_default(@maintainer_agent_uid_key)
 
   @doc "Returns the execution identity and usage owner for Brain model calls."
   @spec maintainer_subject_uid() :: {:ok, String.t()} | {:error, term()}
@@ -201,23 +203,40 @@ defmodule Ankole.Brain.Config do
 
   @doc "Returns the configured embedding model map or nil."
   @spec embedding_model() :: map() | nil
-  def embedding_model, do: get_or_default(@embedding_model_key, nil)
+  def embedding_model, do: get_or_default(@embedding_model_key)
 
   @doc "Returns the configured rerank model map or nil."
   @spec rerank_model() :: map() | nil
-  def rerank_model, do: get_or_default(@rerank_model_key, nil)
+  def rerank_model, do: get_or_default(@rerank_model_key)
 
   @doc "Lists stored Brain model settings that reference a Provider."
   @spec model_provider_references(module(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def model_provider_references(repo, provider_id) do
-    Enum.reduce_while([@embedding_model_key, @rerank_model_key], {:ok, []}, fn key, {:ok, refs} ->
-      case AppConfigure.get_global_by_key_in_tx(repo, key) do
-        {:ok, %{"provider_id" => ^provider_id}} -> {:cont, {:ok, refs ++ [key]}}
-        {:ok, _other} -> {:cont, {:ok, refs}}
-        :error -> {:cont, {:ok, refs}}
-        {:error, _reason} = error -> {:halt, error}
+    rows =
+      repo.all(
+        Ecto.Query.from(row in Ankole.AppConfigure.AppConfig,
+          where: row.key in ^[@embedding_model_key, @rerank_model_key]
+        )
+      )
+
+    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, refs} ->
+      with {:ok, definition} <- Ankole.AppConfigure.Registry.require_key(row.key),
+           {:ok, value} <-
+             Ankole.AppConfigure.Codec.load(definition, row.scope, row.key, row.value) do
+        if match?(%{"provider_id" => ^provider_id}, value),
+          do:
+            {:cont,
+             {:ok,
+              [if(row.scope == "global", do: row.key, else: row.scope <> ":" <> row.key) | refs]}},
+          else: {:cont, {:ok, refs}}
+      else
+        error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, refs} -> {:ok, Enum.reverse(refs)}
+      error -> error
+    end
   end
 
   @doc "Returns the maintainer Agent's configured web-fetch profile or nil."
@@ -242,36 +261,36 @@ defmodule Ankole.Brain.Config do
 
   @doc "Returns the deployment-level BM25 tokenizer name."
   @spec search_tokenizer() :: String.t()
-  def search_tokenizer, do: get_or_default(@search_tokenizer_key, "icu")
+  def search_tokenizer, do: get_or_default(@search_tokenizer_key)
 
   @doc "Returns the complete chunking settings map."
   @spec chunking() :: map()
-  def chunking, do: get_or_default(@chunking_key, @chunking_defaults)
+  def chunking, do: get_or_default(@chunking_key)
 
   @doc "Returns the complete forgetting settings map."
   @spec forgetting() :: map()
-  def forgetting, do: get_or_default(@forgetting_key, @forgetting_defaults)
+  def forgetting, do: get_or_default(@forgetting_key)
 
   @doc "Returns the Dreaming task cron expression."
   @spec dreaming_task_cron() :: String.t()
-  def dreaming_task_cron, do: get_or_default(@dreaming_task_cron_key, "0 5 * * *")
+  def dreaming_task_cron, do: get_or_default(@dreaming_task_cron_key)
 
   @doc "Returns the Self-healing task cron expression."
   @spec self_healing_task_cron() :: String.t()
-  def self_healing_task_cron, do: get_or_default(@self_healing_task_cron_key, "*/15 * * * *")
+  def self_healing_task_cron, do: get_or_default(@self_healing_task_cron_key)
 
   @doc "Returns the signal channel batch idle time in seconds."
   @spec signal_channel_batch_idle_time() :: pos_integer()
-  def signal_channel_batch_idle_time, do: get_or_default(@signal_channel_batch_idle_time_key, 900)
+  def signal_channel_batch_idle_time, do: get_or_default(@signal_channel_batch_idle_time_key)
 
   @doc "Returns whether skill-lesson learning is enabled."
   @spec skill_learning_enabled?() :: boolean()
-  def skill_learning_enabled?, do: get_or_default(@skill_learning_enabled_key, true)
+  def skill_learning_enabled?, do: get_or_default(@skill_learning_enabled_key)
 
   @doc "Returns the signal-job count that triggers one skill-lesson reflection."
   @spec skill_learning_reflection_threshold() :: pos_integer()
   def skill_learning_reflection_threshold,
-    do: get_or_default(@skill_learning_reflection_threshold_key, 10)
+    do: get_or_default(@skill_learning_reflection_threshold_key)
 
   @doc "Returns the allowed BM25 tokenizer names."
   @spec search_tokenizers() :: [String.t()]
@@ -305,21 +324,18 @@ defmodule Ankole.Brain.Config do
     end)
   end
 
-  # AppConfigure returns `{:ok, value}` for a stored or default value, bare
-  # `:error` for a key with no value anywhere, and `{:error, reason}` for a
+  # AppConfigure returns `{:ok, value}` for a stored or default value and
+  # `{:error, reason}` for a
   # real failure. AppConfiguration.md forbids treating an invalid row as
   # absent, so an invalid row raises instead of silently running on defaults
   # that contradict the Console-saved value. A `:load_failed` read is a
   # different class — the store is unreachable, not the row invalid — and
-  # serves the default with a warning so memory degrades instead of failing
+  # serves the definition default with a warning so memory degrades instead of failing
   # every caller.
-  defp get_or_default(key, default) do
+  defp get_or_default(key) do
     case AppConfigure.get_by_key(key) do
       {:ok, value} ->
         value
-
-      :error ->
-        default
 
       {:error, {:load_failed, _scope, _key, message}} ->
         Logging.warning(
@@ -328,11 +344,16 @@ defmodule Ankole.Brain.Config do
           %{key: key, reason: message}
         )
 
-        default
+        definition_default(key)
 
       {:error, reason} ->
         raise "invalid stored AppConfigure value for #{key}: #{inspect(reason)}"
     end
+  end
+
+  defp definition_default(key) do
+    %Definition{default_value: value} = Enum.find(definitions(), &(&1.key == key))
+    value
   end
 
   defp maintainer_profile_or_nil(profile) do

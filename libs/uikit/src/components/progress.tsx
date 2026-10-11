@@ -49,7 +49,7 @@ function ProgressIndicator({ className, style, ...props }: ProgressPrimitive.Ind
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
       className={cn(
-        'h-full w-full origin-left bg-primary transition-transform duration-(--duration-dialog) ease-out',
+        'h-full w-full origin-left bg-foreground transition-transform duration-(--duration-dialog) ease-out',
         className
       )}
       style={{ width: '100%', transform: 'scaleX(var(--progress-fraction))', ...style }}

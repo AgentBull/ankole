@@ -1,7 +1,9 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.Conversations.{Admission, Run}
   alias Ankole.Schedule
+  alias Ankole.SignalsGateway.ActorRuntime.SessionReset
   alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
 
   setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
@@ -33,7 +35,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                 due_sessions: 1,
                 actor_events: [reset_event]
               }} =
-               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
+               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
 
       assert DateTime.compare(boundary_at, ~U[2026-06-25 20:30:00Z]) == :eq
       assert reset_event.type == "session.reset_due"
@@ -43,7 +45,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       assert reset_event.payload["data"]["reset"]["boundary_at"] == "2026-06-25T20:30:00Z"
 
       assert {:ok, %{actor_events: [same_reset_event]}} =
-               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:31:00.000000Z])
+               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:31:00.000000Z])
 
       assert same_reset_event.id == reset_event.id
 
@@ -74,7 +76,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       )
 
       assert {:ok, %{due_sessions: 0, actor_events: []}} =
-               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
+               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
     end
 
     test "daily reset never enumerates AIGateway conversations without actor session identity" do
@@ -93,7 +95,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       )
 
       assert {:ok, %{due_sessions: 0, actor_events: []}} =
-               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
+               SessionReset.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
     end
 
     test "EnqueueDailySessionResets Oban job appends due reset actor events" do
@@ -154,7 +156,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                 timezone: "Asia/Shanghai",
                 actor_events: [reset_event]
               }} =
-               ActorRuntime.enqueue_daily_session_resets(
+               SessionReset.enqueue_daily_session_resets(
                  now: ~U[2026-06-25 16:01:00.000000Z],
                  reset_time: ~T[00:00:00]
                )
@@ -169,11 +171,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       %{principal: agent} = agent_fixture()
       %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-rich-provider")
-      route = unique_route()
-
-      :ok = WorkerRoute.register_local_worker(route, self())
-      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: source_event}} =
                emit_entry(
@@ -190,20 +187,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  now: @base_time
                )
 
-      assert {:ok, %{conversation: predecessor_conversation}} =
-               process_ready_events_once(
-                 now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert_receive {:actor_lane, source_envelope}
-      source_turn_ref = turn_start_payload!(source_envelope).turn
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(turn_accepted_payload(source_turn_ref))
+      assert {:ok, source_run} = Admission.admit(key(source_event), source_event, now: @base_time)
+      predecessor_conversation = source_run.conversation
 
       response =
-        complete_aigateway_turn!(source_turn_ref, "",
+        complete_aigateway_turn!(source_run, "",
           request_items: [
             %{
               "type" => "message",
@@ -234,9 +222,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
           ]
         )
 
-      assert {:ok, %{status: :turn_completed, outboxes: %{clarify: clarify_outbox}}} =
+      assert {:ok, %{status: :completed, outboxes: %{clarify: clarify_outbox}}} =
                commit_turn_completion(
-                 source_turn_ref,
+                 source_run,
                  "resp_#{response.id}",
                  "loop_finished"
                )
@@ -299,7 +287,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                 closed_conversation: closed_conversation,
                 conversation: successor_conversation,
                 superseded_reply_interactions: 1
-              }} = process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+              }} =
+               SessionReset.process_due(key(reset_event), reset_event,
+                 now: DateTime.add(@base_time, 4, :second)
+               )
 
       assert closed_conversation.id == predecessor_conversation.id
       assert successor_conversation.id != predecessor_conversation.id
@@ -331,21 +322,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                )
              )
 
-      assert {:ok, %{status: :idle}} =
-               process_ready_events_once(now: DateTime.add(@base_time, 6, :second))
-
-      refute_receive {:actor_lane, _successor_envelope}, 100
+      assert {:ok, :idle} = Run.rebuild(key(reset_event))
     end
 
     test "session reset_due waits for running work and preserves queued cron work" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
-      route = unique_route()
-
-      :ok = WorkerRoute.register_local_worker(route, self())
-      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-
-      assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: first_input}} =
                emit_entry(
@@ -362,20 +344,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  now: @base_time
                )
 
-      assert {:ok, %{conversation: first_conversation}} =
-               process_ready_events_once(
-                 now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert_receive {:actor_lane, first_envelope}
-      first_start = turn_start_payload!(first_envelope)
-      first_turn_ref = first_start.turn
-
-      assert first_start.actor_event.actor_event_id == first_input.id
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_turn_ref))
+      assert {:ok, first_run} = Admission.admit(key(first_input), first_input, now: @base_time)
+      first_conversation = first_run.conversation
+      generating = start_aigateway_run_for_turn!(first_run)
 
       session_id = first_input.session_id
       channel_actor = %{agent_uid: agent.uid, session_id: session_id}
@@ -421,10 +392,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
         session_id: Schedule.cron_execution_session_id(cron_schedule.id)
       }
 
-      [scheduled_cron_event] = Schedule.list_cron_runs(cron_schedule.id, 10)
+      assert Schedule.list_cron_runs(cron_schedule.id, 10) == []
+      assert cron_schedule.next_fire_at == first_cron_slot
 
       assert {:ok, %{actor_event: cron_input}} =
-               Schedule.fire_due_event(scheduled_cron_event.id, now: first_cron_slot)
+               Repo.transact(fn _repo ->
+                 Ankole.Schedule.Fire.fire_cron(cron_schedule.id, now: first_cron_slot)
+               end)
 
       assert cron_input.session_id == execution_actor.session_id
 
@@ -444,51 +418,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert {:ok, %{status: :waiting_for_generation, reason: :session_reset_due}} =
-               ActorRuntime.process_ready_event_for_actor(channel_actor,
-                 now: DateTime.add(@base_time, 3, :second)
-               )
+      refute Ankole.Conversations.Commands.injectable?(reset_event)
+      assert Actors.next_ready_event(agent.uid, session_id).id == first_input.id
 
       assert Repo.get!(ActorEvent, reset_event.id).input_state == "open"
       assert Repo.get!(ActorEvent, later_input.id).input_state == "open"
 
-      # The cron fire runs in its own execution session, so the running
-      # conversation turn and the pending reset do not delay it.
-      assert {:ok,
-              %{
-                actor_event: ^cron_input,
-                conversation: cron_conversation,
-                send_outcome: "sent_or_queued"
-              }} =
-               ActorRuntime.process_ready_event_for_actor(execution_actor,
-                 now: DateTime.add(@base_time, 3, :second),
-                 lease_seconds: @long_lease_seconds
+      assert {:ok, cron_run} =
+               Admission.admit(execution_actor, cron_input,
+                 now: DateTime.add(@base_time, 3, :second)
                )
 
+      cron_conversation = cron_run.conversation
       assert cron_conversation.conversation_key == execution_actor.session_id
       assert cron_conversation.id != first_conversation.id
-      assert_receive {:actor_lane, cron_envelope}
-      cron_start = turn_start_payload!(cron_envelope)
-      cron_turn_ref = cron_start.turn
-      assert cron_start.actor_event.actor_event_id == cron_input.id
-      assert cron_start.actor_event.type == "cron.fire"
-      refute Map.has_key?(decoded_request_context(cron_start), "turn_mode")
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
 
       committed =
         complete_aigateway_turn!(
-          cron_turn_ref,
+          cron_run,
           Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "scheduled work completed"})
         )
 
-      assert {:ok, %{status: :turn_completed}} =
-               commit_turn_completion(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
+      assert {:ok, %{status: :completed}} =
+               commit_turn_completion(cron_run, "resp_#{committed.id}", "loop_finished")
 
       assert %DateTime{} = Repo.get!(ActorEvent, cron_input.id).completed_at
 
-      complete_aigateway_turn!(first_turn_ref, "done", wait_for_mirror: true)
+      completed = complete_aigateway_turn!(first_run, "done", run: generating)
+      assert {:ok, _} = Run.finalize(%{first_run | anchor: completed.id})
 
       assert {:ok,
               %{
@@ -496,7 +453,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                 closed_conversation: closed_conversation,
                 conversation: next_conversation
               }} =
-               ActorRuntime.process_ready_event_for_actor(channel_actor,
+               SessionReset.process_due(channel_actor, reset_event,
                  now: DateTime.add(@base_time, 4, :second)
                )
 
@@ -509,18 +466,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       # The channel reset never touched the execution session's conversation.
       assert Repo.get!(Conversation, cron_conversation.id).ended_at == nil
 
-      assert {:ok, %{conversation: later_conversation}} =
-               ActorRuntime.process_ready_event_for_actor(channel_actor,
-                 now: DateTime.add(@base_time, 6, :second),
-                 lease_seconds: @long_lease_seconds
+      assert {:ok, later_run} =
+               Admission.admit(channel_actor, later_input,
+                 now: DateTime.add(@base_time, 6, :second)
                )
 
-      assert later_conversation.id == next_conversation.id
-      assert_receive {:actor_lane, later_envelope}
-      later_start = turn_start_payload!(later_envelope)
-      assert later_start.actor_event.actor_event_id == later_input.id
+      assert later_run.conversation.id == next_conversation.id
     end
   end
+
+  defp key(event), do: %{agent_uid: event.agent_uid, session_id: event.session_id}
 
   defp clarification_action_input(source_event, principal_uid, card_message_id, source_event_id) do
     %{

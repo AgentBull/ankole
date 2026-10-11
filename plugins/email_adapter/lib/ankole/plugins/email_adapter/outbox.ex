@@ -3,11 +3,12 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.{Repo, WorkerFiles}
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Repo
   alias Ankole.Plugins.EmailAdapter.{Address, Config, ErrorPolicy, Message, Smtp}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{Channel, Entry, OutboxEntry}
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
 
   @attachment_limit_bytes 20 * 1024 * 1024
   @references_limit 20
@@ -15,7 +16,8 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
   @impl true
   def send(%OutboxEntry{} = outbox) do
     result =
-      with {:ok, config} <- config_for_outbox(outbox),
+      with {:ok, config} <- Bindings.outbox_config(outbox, Config),
+           config = Config.runtime(config),
            {:ok, email} <- build(outbox, config) do
         deliver(email, config, outbox)
       end
@@ -196,7 +198,7 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
   end
 
   defp channel(outbox) do
-    case Repo.get(Channel, outbox.signal_channel_id) do
+    case Repo.get_by(Channel, id: outbox.signal_channel_id) do
       %Channel{} = channel -> {:ok, channel}
       nil -> {:error, :signal_channel_not_found}
     end
@@ -275,7 +277,7 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
 
     with :ok <- declared_attachment_budget(declared) do
       declared
-      |> Enum.map(&attachment_content(&1, outbox.agent_uid))
+      |> Enum.map(&attachment_content/1)
       |> MapHelpers.collect_results()
     end
   end
@@ -294,22 +296,15 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
     if total > @attachment_limit_bytes, do: {:error, :attachments_too_large}, else: :ok
   end
 
-  defp attachment_content(attachment, agent_uid) do
-    relative = MapHelpers.optional_text(attachment, "user_files_relative_path")
-    lane_path = if relative, do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-    with path when is_binary(path) <- lane_path,
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", path) do
+  defp attachment_content(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
       {:ok,
        %{
-         name: attachment["name"] || Path.basename(relative),
+         name: attachment["name"] || Path.basename(attachment["path"] || "attachment"),
          mime_type:
            attachment["mime_type"] || attachment["mimetype"] || "application/octet-stream",
          content: content
        }}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
     end
   end
 
@@ -325,14 +320,4 @@ defmodule Ankole.Plugins.EmailAdapter.Outbox do
 
   defp nonempty([]), do: nil
   defp nonempty(list), do: list
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 end

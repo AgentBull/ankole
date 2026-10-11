@@ -16,7 +16,7 @@ defmodule AnkoleWeb.AgentSessionController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["Sessions"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -26,8 +26,7 @@ defmodule AnkoleWeb.AgentSessionController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent sessions", "application/json", AgentSessionListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

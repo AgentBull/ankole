@@ -255,7 +255,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                finalize_due_inbound_batch_events(now: parent_due_at)
 
       assert Enum.all?(finalized_parent_results, &(&1.status == :ignored))
-      assert Enum.all?(Repo.all(InboundBatch), &(&1.outcome == "no_actor_event"))
+      assert Enum.all?(Repo.all(InboundBatch), &(&1.batch_state == "finalized"))
 
       assert [
                %{

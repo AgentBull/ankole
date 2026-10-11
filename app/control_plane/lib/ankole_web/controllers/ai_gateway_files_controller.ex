@@ -66,7 +66,7 @@ defmodule AnkoleWeb.AIGatewayFilesController do
   }
 
   tags(["AIGateway Files"])
-  security([%{"aiGatewayBearer" => []}, %{"consoleBearer" => []}])
+  security([%{"aiGatewayBearer" => []}])
 
   operation(:create,
     summary: "Upload an AIGateway vision file",
@@ -196,7 +196,7 @@ defmodule AnkoleWeb.AIGatewayFilesController do
     end
   end
 
-  defp upload(params) when is_map(params), do: Map.get(params, "file") || Map.get(params, :file)
+  defp upload(params) when is_map(params), do: Map.get(params, "file")
 
   defp error(conn, %OpenAIError{} = error) do
     conn

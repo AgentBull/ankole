@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway.ModelMetadata.Cache do
   use GenServer
 
   @table __MODULE__
+  @topic "ai_gateway:model_metadata:cache"
 
   @type lookup_result :: {:fresh, term()} | {:stale, term()} | :miss
 
@@ -19,6 +20,8 @@ defmodule Ankole.AIGateway.ModelMetadata.Cache do
 
   @impl true
   def init(_opts) do
+    Phoenix.PubSub.subscribe(Ankole.PubSub, @topic)
+
     _table =
       :ets.new(@table, [
         :named_table,
@@ -45,7 +48,20 @@ defmodule Ankole.AIGateway.ModelMetadata.Cache do
 
   @spec put(term(), term(), non_neg_integer()) :: :ok
   def put(key, value, ttl_ms) when is_integer(ttl_ms) and ttl_ms >= 0 do
+    Phoenix.PubSub.broadcast_from(
+      Ankole.PubSub,
+      Process.whereis(__MODULE__) || self(),
+      @topic,
+      {:invalidate, key}
+    )
+
     call({:put, key, value, ttl_ms})
+  end
+
+  @impl true
+  def handle_info({:invalidate, key}, state) do
+    :ets.delete(@table, key)
+    {:noreply, state}
   end
 
   @spec clear_for_test() :: :ok

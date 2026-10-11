@@ -3,12 +3,13 @@ defmodule Ankole.AppConfigure.AppConfig do
   Database row for one scoped AppConfigure value.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
 
   import Ecto.Changeset
 
   @primary_key false
   schema "app_configurations" do
+    field :tenant_id, Ankole.Ecto.UUIDv7
     field :scope, :string
     field :key, :string
     field :value, :map
@@ -36,7 +37,7 @@ defmodule Ankole.AppConfigure.AppConfig do
     row
     |> cast(attrs, [:scope, :key, :value])
     |> validate_required([:scope, :key, :value])
-    |> validate_format(:scope, ~r/\A(?:global|agent:.+)\z/)
+    |> validate_format(:scope, ~r/\A(?:global|tenant:.+|agent:.+)\z/)
     |> validate_change(:value, &validate_envelope/2)
     |> unique_constraint([:scope, :key], name: :app_configurations_scope_key_unique)
     |> check_constraint(:scope, name: :app_configurations_scope_check)

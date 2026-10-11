@@ -18,10 +18,18 @@ defmodule FakeFeishu.StandaloneE2ETest do
 
   test "a WS echo bot answers a CLI-sent message end to end" do
     start_supervised!(
-      {FakeFeishu.Standalone, port: 0, apps: [{"cli_echo", "s", nil}], users: ["Alice"]}
+      {FakeFeishu.Standalone,
+       ip: {0, 0, 0, 0}, port: 0, apps: [{"cli_echo", "s", nil}], users: ["Alice"]}
     )
 
-    base = "http://127.0.0.1:#{standalone_port()}"
+    base = "http://localhost:#{standalone_port()}"
+
+    endpoint =
+      Req.post!(base <> "/callback/ws/endpoint", json: %{AppID: "cli_echo", AppSecret: "s"})
+
+    assert endpoint.body["code"] == 0
+    assert URI.parse(endpoint.body["data"]["URL"]).host == "localhost"
+
     client = FeishuOpenAPI.Client.new("cli_echo", fn -> "s" end, base_url: base)
 
     dispatcher =
@@ -118,6 +126,48 @@ defmodule FakeFeishu.StandaloneE2ETest do
 
     status_output = capture_io(fn -> CLI.main(["--url", base, "status"]) end)
     assert status_output =~ ~s("connections":1)
+  end
+
+  test "a lost send confirmation leaves one visible message when its uuid is retried" do
+    start_supervised!(
+      {FakeFeishu.Standalone,
+       ip: {127, 0, 0, 1}, port: 0, apps: [{"cli_loss", "s", nil}], users: ["Alice"]}
+    )
+
+    base = "http://127.0.0.1:#{standalone_port()}"
+    state = Process.whereis(FakeFeishu.State)
+    token = FakeFeishu.State.issue_token(state, "cli_loss")
+
+    body = %{
+      receive_id: "oc_sim_general",
+      msg_type: "text",
+      content: JSON.encode!(%{text: "accepted once"}),
+      uuid: "lost-confirmation-once"
+    }
+
+    :ok = FakeFeishu.State.fail_next(state, :post_message, :accepted_then_http_500)
+
+    failed =
+      Req.post!(base <> "/open-apis/im/v1/messages",
+        json: body,
+        headers: [{"authorization", "Bearer " <> token}],
+        retry: false
+      )
+
+    assert failed.status == 500
+    [accepted] = FakeFeishu.State.visible_messages(state, "oc_sim_general")
+    assert accepted.text == "accepted once"
+
+    retried =
+      Req.post!(base <> "/open-apis/im/v1/messages",
+        json: body,
+        headers: [{"authorization", "Bearer " <> token}],
+        retry: false
+      )
+
+    assert retried.status == 200
+    assert retried.body["data"]["message_id"] == accepted.id
+    assert FakeFeishu.State.visible_messages(state, "oc_sim_general") == [accepted]
   end
 
   defp standalone_port do

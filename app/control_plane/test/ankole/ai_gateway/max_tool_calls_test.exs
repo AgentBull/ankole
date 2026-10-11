@@ -23,8 +23,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       |> MaxToolCalls.observe_provider_event(output_item_done("function_call", "fc_1", 1))
       |> MaxToolCalls.observe_provider_event(output_item_done("custom_tool_call", "ctc_1", 2))
 
-    refute MaxToolCalls.exhausted?(policy)
-    assert MaxToolCalls.details(policy) == details(1, 0)
+    assert MaxToolCalls.remaining(policy) == 1
+    assert MaxToolCalls.remaining(policy) == 1
   end
 
   test "all current provider built-in call families consume one shared limit" do
@@ -45,17 +45,17 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
         |> MaxToolCalls.new(:anthropic_messages)
         |> MaxToolCalls.observe_provider_event(output_item_done(type, "#{type}-1", 1))
 
-      assert MaxToolCalls.exhausted?(policy), "expected #{type} to consume the limit"
-      assert MaxToolCalls.details(policy)["observed"] == 1
+      assert MaxToolCalls.remaining(policy) == 0, "expected #{type} to consume the limit"
+      assert MaxToolCalls.item_admitted?(policy, %{"type" => type, "id" => "#{type}-1"})
     end
   end
 
   test "zero is exhausted before any built-in effect starts" do
     policy = MaxToolCalls.new(0, :openai_chat_completions)
 
-    assert MaxToolCalls.exhausted?(policy)
     assert MaxToolCalls.remaining(policy) == 0
-    assert MaxToolCalls.details(policy) == details(0, 0)
+    assert MaxToolCalls.remaining(policy) == 0
+    refute MaxToolCalls.item_admitted?(policy, program("blocked", "return 1"))
   end
 
   test "later provider calls in one batch are ignored after the limit fills" do
@@ -67,7 +67,7 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       |> MaxToolCalls.observe_provider_event(output_item_added("web_search_call", "ws_2", 1, 2))
       |> MaxToolCalls.observe_provider_event(output_item_done("web_search_call", "ws_1", 3))
 
-    assert MaxToolCalls.exhausted?(policy)
+    assert MaxToolCalls.remaining(policy) == 0
 
     policy =
       MaxToolCalls.observe_provider_event(
@@ -75,8 +75,9 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
         output_item_done("web_search_call", "ws_2", 4)
       )
 
-    assert MaxToolCalls.exhausted?(policy)
-    assert MaxToolCalls.details(policy) == details(1, 1)
+    assert MaxToolCalls.remaining(policy) == 0
+    assert MaxToolCalls.item_admitted?(policy, %{"type" => "web_search_call", "id" => "ws_1"})
+    refute MaxToolCalls.item_admitted?(policy, %{"type" => "web_search_call", "id" => "ws_2"})
   end
 
   test "duplicate provider lifecycle events remain idempotent" do
@@ -91,8 +92,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       |> MaxToolCalls.observe_provider_event(done)
       |> MaxToolCalls.observe_provider_event(done)
 
-    assert MaxToolCalls.exhausted?(policy)
-    assert MaxToolCalls.details(policy) == details(1, 1)
+    assert MaxToolCalls.remaining(policy) == 0
+    assert MapSet.size(policy.started) == 1
   end
 
   test "output-index admission remaps to the stable provider item id" do
@@ -115,9 +116,9 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       |> MaxToolCalls.observe_provider_event(added)
       |> MaxToolCalls.observe_provider_event(done)
 
-    assert MaxToolCalls.exhausted?(policy)
+    assert MaxToolCalls.remaining(policy) == 0
     assert MapSet.size(policy.started) == 1
-    assert MaxToolCalls.details(policy)["observed"] == 1
+    assert MaxToolCalls.item_admitted?(policy, done["item"])
   end
 
   test "terminal admission gives irreversible provider effects priority over gateway effects" do
@@ -137,8 +138,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
 
     refute MaxToolCalls.item_admitted?(policy, program)
     assert MaxToolCalls.item_admitted?(policy, provider_call)
-    assert MaxToolCalls.exhausted?(policy)
-    assert MaxToolCalls.details(policy) == details(1, 1)
+    assert MaxToolCalls.remaining(policy) == 0
+    assert MapSet.size(policy.started) == 1
   end
 
   test "terminal-only server search admission is idempotent and scoped per provider round" do
@@ -158,12 +159,13 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       |> MaxToolCalls.admit_gateway_items([call], {:provider_round, 0})
       |> MaxToolCalls.admit_gateway_items([call], {:provider_round, 0})
 
-    assert MaxToolCalls.details(policy)["observed"] == 1
+    assert MaxToolCalls.remaining(policy) == 1
+    assert MaxToolCalls.item_admitted?(policy, call, {:provider_round, 0})
 
     policy = MaxToolCalls.admit_gateway_items(policy, [call], {:provider_round, 1})
 
-    assert MaxToolCalls.details(policy)["observed"] == 2
-    assert MaxToolCalls.exhausted?(policy)
+    assert MaxToolCalls.item_admitted?(policy, call, {:provider_round, 1})
+    assert MaxToolCalls.remaining(policy) == 0
   end
 
   test "one admitted gateway effect excludes later calls in the same terminal" do
@@ -175,8 +177,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
 
     assert MaxToolCalls.item_admitted?(policy, first)
     refute MaxToolCalls.item_admitted?(policy, second)
-    assert MaxToolCalls.exhausted?(policy)
-    assert MaxToolCalls.details(policy) == details(1, 1)
+    assert MaxToolCalls.remaining(policy) == 0
+    assert MapSet.size(policy.started) == 1
   end
 
   test "client search is admitted directly and malformed gateway calls do not count" do
@@ -203,11 +205,7 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
     policy = MaxToolCalls.admit_gateway_items(policy, [malformed, valid], :single_response)
 
     assert MaxToolCalls.item_admitted?(policy, valid)
-    assert MaxToolCalls.details(policy) == details(1, 1)
-  end
-
-  defp details(limit, observed) do
-    %{"limit" => limit, "observed" => observed, "overshoot" => 0}
+    assert MapSet.size(policy.started) == 1
   end
 
   defp program(call_id, code) do

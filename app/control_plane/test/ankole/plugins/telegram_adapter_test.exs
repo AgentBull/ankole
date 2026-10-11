@@ -1,6 +1,7 @@
 defmodule Ankole.Plugins.TelegramAdapterTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -12,7 +13,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     Config,
     ConnectionOwner,
     ConnectionReconciler,
-    ConnectionSupervisor,
     Dispatcher,
     ErrorPolicy,
     Inbound,
@@ -26,8 +26,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.WorkerFilesFake
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
@@ -46,6 +44,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   setup do
     Req.Test.set_req_test_to_shared()
     previous = Application.get_env(:ankole, Config)
+
+    Application.put_env(:ankole, Config,
+      client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
+    )
+
+    stub_data_api(fn conn -> Plug.Conn.send_resp(conn, 503, "unconfigured test endpoint") end)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -270,21 +274,34 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       consumer = consumer("owner-agent", "telegram-main")
       config = %{"botToken" => "100:first-secret"}
 
-      assert {:ok, first} = ConnectionSupervisor.ensure_started(config, [consumer])
+      assert {:ok, first} = start_connection_owner(ConnectionReconciler, config, [consumer])
       assert eventually(fn -> ConnectionOwner.status(first).state == :blocked end)
 
       assert %{blocked_reason: :webhook_configured, bot_id: "77", polling?: false} =
                ConnectionOwner.status(first)
 
+      refute owner_serves?(
+               ConnectionReconciler,
+               {"owner-agent", "telegram-main"},
+               %{"botToken" => "200:rotated-secret"},
+               [consumer]
+             )
+
+      assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
+
       assert {:ok, second} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "200:rotated-secret"}, [
-                 consumer
-               ])
+               start_connection_owner(
+                 ConnectionReconciler,
+                 %{"botToken" => "200:rotated-secret"},
+                 [
+                   consumer
+                 ]
+               )
 
       refute second == first
       refute Process.alive?(first)
       assert eventually(fn -> ConnectionOwner.status(second).state == :blocked end)
-      assert :ok = ConnectionSupervisor.stop({"owner-agent", "telegram-main"})
+      assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
     end
 
     test "keeps authentication failures in an operator-visible blocked state" do
@@ -308,7 +325,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       key = {"auth-agent", "telegram-auth"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "707:auth-secret"}, [
+               start_connection_owner(ConnectionReconciler, %{"botToken" => "707:auth-secret"}, [
                  consumer(elem(key, 0), elem(key, 1))
                ])
 
@@ -321,7 +338,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
              } = ConnectionOwner.status(owner)
 
       refute inspect(ConnectionOwner.status(owner)) =~ "auth-secret"
-      assert :ok = ConnectionSupervisor.stop(key)
+      assert :ok = ConnectionReconciler.stop(key)
     end
   end
 
@@ -429,11 +446,24 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "20 MB"
       refute Map.has_key?(attachment, "attachment_id")
-      refute Map.has_key?(attachment, "agent_computer_path")
-      refute Map.has_key?(attachment, "user_files_relative_path")
+      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "path")
+
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "telegram-limit", :ignore, adapter: "telegram")
+      stub_data_api(fn _conn -> flunk("over-limit media must not be downloaded") end)
+
+      assert {:ok, [%{signal_entry: %Entry{attachments: [stored]}}]} =
+               Inbound.handle_message_receive("message", telegram_update(1, message, bot), [
+                 consumer(agent.uid, "telegram-limit")
+               ])
+
+      assert stored["materialization_state"] == attachment["materialization_state"]
+      assert stored["restriction"] == attachment["restriction"]
+      refute Ankole.SignalsGateway.Projection.stored_attachment?(stored)
     end
 
-    test "assigns the durable attachment ID before writing an admitted file to user-files" do
+    test "assigns the durable attachment ID before storing an admitted file" do
       parent = self()
       %{principal: agent} = agent_fixture()
 
@@ -441,7 +471,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         send(parent, {:telegram_request, conn.request_path})
 
         case conn.request_path do
@@ -461,10 +491,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                  "config" => %{"botToken" => "606:media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
-
-      route = "telegram-inbound-attachment-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-      WorkerFilesFake.start!(route, notify: parent)
 
       message =
         private_message(9002, nil)
@@ -492,16 +518,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert_received {:telegram_request, "/file/bot606:media-secret/documents/report.txt"}
       assert is_integer(attachment["attachment_id"])
       assert attachment["materialization_state"] == "complete"
-
-      expected_relative = "inbox/#{attachment["attachment_id"]}/report.txt"
-
-      assert attachment["user_files_relative_path"] == expected_relative
-
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative}"
-
-      expected_lane = "/user_files/#{agent.uid}/user-files/#{expected_relative}"
-      assert_receive {:materialized_attachment_path, ^expected_lane}
+      assert_stored_attachment!(agent.uid, attachment, "attachment", "report.txt")
     end
 
     test "anchors the batch window at the attachment observation, not at the download" do
@@ -527,7 +544,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         )
       end
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         case conn.request_path do
           "/bot606:media-secret/getFile" ->
             send(parent, {:pending_batch, open_batch.()})
@@ -567,7 +584,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert %{"state" => "pending", "observed_at" => observed_at_text} = pending_observation
       {:ok, observed_at, 0} = DateTime.from_iso8601(observed_at_text)
       assert pending_batch.available_at == DateTime.add(observed_at, 4_000, :millisecond)
-      assert pending_batch.hard_cap_at == pending_batch.available_at
 
       assert entry.metadata["attachment_materialization"] == %{
                "state" => "failed",
@@ -576,7 +592,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       settled_batch = open_batch.()
       assert settled_batch.available_at == DateTime.add(observed_at, 1_200, :millisecond)
-      assert is_nil(settled_batch.hard_cap_at)
     end
 
     test "deduplicates an update delivered again before Telegram receives the next offset" do
@@ -848,7 +863,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                })
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  consumer(agent.uid, "telegram-disabled", config)
                ])
 
@@ -861,11 +876,13 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
   describe "actions and outbound" do
     setup do
-      Ankole.PrincipalsFixtures.human_fixture(%{uid: "human-a"})
-      :ok
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      %{human_uid: human.uid}
     end
 
-    test "checkpoints one mutable reply and edits the same Telegram message" do
+    test "checkpoints one mutable reply and edits the same Telegram message", %{
+      human_uid: human_uid
+    } do
       parent = self()
       %{principal: agent} = agent_fixture()
 
@@ -873,7 +890,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         send(parent, {:telegram_request, conn.request_path})
 
         case conn.request_path do
@@ -911,7 +928,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: "human-a", id: "7001"},
+            author: %{principal_uid: human_uid, id: "7001"},
             provider_time: base_time()
           }
         )
@@ -924,7 +941,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         actor_event: event,
         presentation: presentation,
         checkpoint: nil,
-        subject_uid: "human-a",
+        subject_uid: human_uid,
         conversation_id: "conversation-a",
         mode: :working
       }
@@ -951,7 +968,9 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert_received {:telegram_request, "/bot909:preview-secret/editMessageText"}
     end
 
-    test "reposts a deleted checkpointed message with the original reply anchor" do
+    test "reposts a deleted checkpointed message with the original reply anchor", %{
+      human_uid: human_uid
+    } do
       parent = self()
       %{principal: agent} = agent_fixture()
 
@@ -959,7 +978,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         {:ok, raw_body, conn} = Plug.Conn.read_body(conn)
         send(parent, {:telegram_request, conn.request_path, Torque.decode!(raw_body)})
 
@@ -995,7 +1014,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: "human-a", id: "7001"},
+            author: %{principal_uid: human_uid, id: "7001"},
             provider_time: base_time()
           }
         )
@@ -1011,7 +1030,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         presentation:
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer("recovered draft"),
-        subject_uid: "human-a",
+        subject_uid: human_uid,
         conversation_id: "conversation-a",
         mode: :working
       }
@@ -1028,7 +1047,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
              }
     end
 
-    test "uses a sub-64-byte callback token and restores the complete action from a checkpoint" do
+    test "uses a sub-64-byte callback token and restores the complete action from a checkpoint",
+         %{human_uid: human_uid} do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "telegram-action", :ignore, adapter: "telegram")
 
@@ -1043,7 +1063,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: "human-a", id: "7001"},
+            author: %{principal_uid: human_uid, id: "7001"},
             provider_time: base_time()
           }
         )
@@ -1258,7 +1278,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      Req.Test.stub(__MODULE__, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+      stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
                SignalsGateway.put_binding(agent.uid, "telegram", "telegram-unknown", %{
@@ -1285,7 +1305,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         client_opts: [base_url: "https://telegram.test", plug: {Req.Test, __MODULE__}]
       )
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
           0 ->
             Req.Test.json(conn, %{
@@ -1316,6 +1336,26 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       assert Agent.get(attempts, & &1) == 2
     end
+  end
+
+  # Binding saves verify the bot separately from the operation under test.
+  defp stub_data_api(handler) do
+    Req.Test.stub(__MODULE__, fn conn ->
+      if String.ends_with?(conn.request_path, "/getMe") do
+        [_, id] = Regex.run(~r{/bot(\d+):}, conn.request_path)
+
+        Req.Test.json(conn, %{
+          "ok" => true,
+          "result" => %{
+            "id" => String.to_integer(id),
+            "is_bot" => true,
+            "username" => "AnkoleBot"
+          }
+        })
+      else
+        handler.(conn)
+      end
+    end)
   end
 
   defp consumer(agent_uid, binding_name, config \\ %{"botToken" => "test-only-token"}) do
@@ -1367,23 +1407,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       base_url: "https://telegram.test",
       plug: {Req.Test, __MODULE__}
     )
-  end
-
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: "telegram-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
   end
 
   defp assert_utf16_chunks(text, budget) do

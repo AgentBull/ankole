@@ -11,6 +11,7 @@ import { isCICommand } from './commands/is-ci'
 import { isDevCommand } from './commands/is-dev'
 import { localPasswordCommand } from './commands/local-password'
 import { logsCommand } from './commands/logs'
+import { pinBaseImageCommand } from './commands/pin-base-image'
 import { showCommand } from './commands/show'
 import { exitCodeForError, styledError } from './utils'
 
@@ -32,6 +33,7 @@ const app = new Crust('bun kit', { description: 'Ankole Agent repository develop
     envSetupCommand(),
     appDBCommand(),
     agentComputerTestCommand(),
+    pinBaseImageCommand(),
     devCommand(),
     localPasswordCommand(),
     logsCommand(),

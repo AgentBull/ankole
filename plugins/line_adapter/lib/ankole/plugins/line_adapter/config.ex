@@ -1,13 +1,11 @@
 defmodule Ankole.Plugins.LineAdapter.Config do
+  def platform_application(config), do: {:ok, "line:" <> Map.fetch!(config, "channelId")}
   @moduledoc "Validation and runtime helpers for the first-party LINE adapter."
-
-  import Ecto.Query, warn: false
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.Binding
 
   @key_pattern ~r/\Asignals_gateway\.line\.bindings\.[A-Za-z0-9_.:-]+\z/
   @channel_id_pattern ~r/\A[0-9]{1,32}\z/
@@ -32,6 +30,7 @@ defmodule Ankole.Plugins.LineAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.line.bindings.*",
+        console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_binding_config/1),
@@ -75,51 +74,6 @@ defmodule Ankole.Plugins.LineAdapter.Config do
 
   def validate_binding_config(_value), do: {:error, :invalid_line_binding_config}
 
-  # One LINE channel is one Official Account. Two enabled bindings on the same
-  # channel would both answer every message, so the second save is refused.
-  @spec validate_binding_assignment(module(), String.t(), String.t(), t()) ::
-          :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    channel_id = channel_id(config)
-
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "line" and binding.enabled == true and
-        (binding.agent_uid != ^agent_uid or binding.name != ^binding_name)
-    )
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_config_ref_in_tx(repo, binding.config_ref) do
-        {:ok, other} ->
-          if channel_id(other) == channel_id do
-            {:halt, {:error, {:line_channel_already_bound, binding.agent_uid, binding.name}}}
-          else
-            {:cont, :ok}
-          end
-
-        :error ->
-          {:halt, {:error, {:line_binding_config_unavailable, binding.agent_uid, binding.name}}}
-
-        {:error, reason} ->
-          {:halt,
-           {:error, {:line_binding_config_unavailable, binding.agent_uid, binding.name, reason}}}
-      end
-    end)
-  end
-
-  @spec load_config_ref(String.t()) :: {:ok, Runtime.t()} | :error | {:error, term()}
-  def load_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key),
-         {:ok, config} <- validate_binding_config(value) do
-      {:ok, runtime_config(config)}
-    end
-  end
-
-  def load_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
   @spec client(t() | Runtime.t(), keyword()) :: Client.t()
   def client(config, opts \\ []) do
     client_opts =
@@ -149,18 +103,7 @@ defmodule Ankole.Plugins.LineAdapter.Config do
       else: {:error, :invalid_line_channel_id}
   end
 
-  defp load_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_binding_config(value)
-    end
-  end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp runtime_config(config) do
+  def runtime_config(config) do
     %Runtime{
       channel_id: Map.fetch!(config, "channelId"),
       channel_secret: Map.fetch!(config, "channelSecret"),

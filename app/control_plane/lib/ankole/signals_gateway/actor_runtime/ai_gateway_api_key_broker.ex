@@ -2,28 +2,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
   @moduledoc """
   RuntimeFabric broker for agent-scoped AIGateway API keys.
 
-  The key is scoped to the explicit agent uid in the RPC payload. The worker
-  receives no provider credentials through this RPC.
+  The key is scoped to the Agent of the calling Worker's connection. The
+  Worker receives no provider credentials through this RPC.
   """
 
   alias Ankole.Principals
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
   alias Ankole.AIGateway.Tokens
   alias AnkoleWeb.Endpoint
 
   @doc """
   Handles `ai_gateway.api_key_for.create_or_find_by_agent`.
   """
-  @spec handle_request(String.t() | nil, FabricProto.AIGatewayAPIKeyRequest.t(), map()) ::
+  @spec handle_request(String.t(), FabricProto.AIGatewayAPIKeyRequest.t(), map()) ::
           {:ok, FabricProto.AIGatewayAPIKeyResponse.t()} | {:error, map()}
   def handle_request(agent_uid, %FabricProto.AIGatewayAPIKeyRequest{}, ctx) do
     result =
-      with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
-           {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+      with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
+           {:ok, endpoints} <- Providers.connection_endpoints(agent_uid),
            {:ok, token} <- Tokens.mint_for_agent(principal.uid) do
-        {:ok, response(principal.uid, token)}
+        {:ok, response(token, endpoints)}
       end
 
     case result do
@@ -33,18 +34,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
     end
   end
 
-  defp frame_agent_uid(nil), do: {:error, :missing_agent_uid}
-  defp frame_agent_uid(agent_uid), do: Principals.normalize_uid(agent_uid)
-
-  defp response(agent_uid, token) do
+  defp response(token, endpoints) do
     %FabricProto.AIGatewayAPIKeyResponse{
-      agent_uid: agent_uid,
       api_key: token.api_key,
       token_type: token.token_type,
       expires_at: token.expires_at,
       expires_in: token.expires_in,
       scope: token.scope,
-      base_url: base_url()
+      base_url: String.trim_trailing(endpoints["aiGatewayUrl"] || base_url(), "/")
     }
   end
 
@@ -77,7 +74,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
     RPCWire.error_payload(request_id, reason,
       fallback_code: "ai_gateway_api_key_request_failed",
       message_style: :inspect_tuple_reason,
-      details_json: %{"agent_uid" => agent_uid || ""}
+      details_json: %{"agent_uid" => agent_uid}
     )
   end
 end

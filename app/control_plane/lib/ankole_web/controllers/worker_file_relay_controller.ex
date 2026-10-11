@@ -1,10 +1,10 @@
 defmodule AnkoleWeb.WorkerFileRelayController do
   @moduledoc """
-  Internal relay endpoint that Workers call with a one-time signed URL.
+  Internal relay endpoint that Workers call with a one-time URL.
 
-  `pull/2` streams the source of a pending user upload to the Worker. `push/2`
+  `pull/2` streams the source of a pending transfer to the Worker. `push/2`
   receives the Worker's file bytes and hands them, one chunk at a time, to the
-  consumer process that waits inside `Ankole.WorkerFiles.get/3`. The session
+  consumer process that waits inside `Ankole.WorkerFiles.stream/2`. The session
   token in the query string is the only credential; the session itself binds
   the Worker, path, method, byte bound, and expiry.
   """
@@ -23,11 +23,6 @@ defmodule AnkoleWeb.WorkerFileRelayController do
         conn
         |> put_resp_content_type("application/octet-stream")
         |> send_file(200, path)
-
-      {:ok, %{source: {:binary, content}}} ->
-        conn
-        |> put_resp_content_type("application/octet-stream")
-        |> send_resp(200, content)
 
       {:error, reason} ->
         reject(conn, reason)

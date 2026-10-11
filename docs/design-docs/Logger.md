@@ -204,14 +204,18 @@ When no structured reason exists, use an inspected `reason` value. Do not conver
 Run these commands from the repository root:
 
 ```sh
-bun test app/agent_computer/test/logging.test.ts tools/devkit/src/commands/logs.test.ts
+bun run agent-computer:test
+bun test tools/devkit/src/commands/logs.test.ts
 
 cd app/control_plane
 MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test test/ankole/logging/json_formatter_test.exs
 ```
 
-The Bun test verifies severity mapping, labels, reserved fields, errors, and JSON output.
+The Agent Computer suite runs in the Linux Worker image through Devkit and
+includes the logging test. That test verifies severity mapping, labels,
+reserved fields, errors, and JSON output. The Devkit log-display test runs on
+the host.
 
 The Elixir test verifies the formatter, request logger, special fields, labels, and reserved-field protection.
 

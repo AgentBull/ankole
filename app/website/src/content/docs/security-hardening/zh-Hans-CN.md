@@ -5,7 +5,7 @@ section: Guides
 order: 316
 ---
 
-Ankole 已提供主体与 AuthZ、Secret 加密、Worker 沙盒和鉴权入口等安全边界。加固的目标是把这些边界收紧到实际需要的最小范围。本页按优先级说明五类运维加固操作。
+Ankole 已提供主体与 AuthZ、Secret 加密、每个 Agent 一个 Worker 容器和鉴权入口等安全边界。加固的目标是把这些边界收紧到实际需要的最小范围。本页按优先级说明六类运维加固操作。
 
 先说明最关键的一点：Ankole 的模型是*默认最小权限、仅在证据需要时扩展*。下面的每一步都在收窄一项权限、一个 secret 的影响范围、或一条网络路径。如果你发现自己在放宽某一项，问为什么——放宽才是值得审视的动作，不是收窄。
 
@@ -26,8 +26,8 @@ Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”�
 
 - **少查看。** 优先直接输入新值完成轮换，不要为了确认而查看旧值。具体操作见 [环境变量](../worker-env/)。
 - **能按 agent 限定就按 agent。** 一个全局 secret 触达每个 agent；按 agent 的 secret 触达一个。除非 secret 确实共享，优先按 agent 形态。
-- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及少量沙盒关键名称不能在 Console 中设置。不要绕开这项限制。
-- **定期轮换引导 Secret。** `ANKOLE_SECRET_BASE` 和 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` 会派生其他密钥，轮换时需要重启部署。`ANKOLE_SECRET_BASE` 一旦泄露，会影响整个实例。
+- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及 [环境变量](../worker-env/) 列出的其他保留名称不能在 Console 中设置。不要绕开这项限制。
+- **定期轮换引导 Secret。** `ANKOLE_SECRET_BASE` 会派生其他密钥，轮换时需要重启部署。`ANKOLE_SECRET_BASE` 一旦泄露，会影响整个实例。Worker 凭据不是引导 Secret，你也无需设置：控制面为每个 Worker generation 生成随机凭据，用摘要校验身份，并加密保存重复启动同一 generation 所需的重试值。
 
 ## 面 3：SSRF 与模型控制的抓取
 
@@ -52,9 +52,19 @@ Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”�
 Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际需要的。
 
 - **长连接 adapter 只需出站。** Lark、Slack、钉钉开出站 WebSocket/Stream 连接；它们不需要公共入口端点。只用这些就把部署保持私有。
-- **Teams 和 webhook 入口需要公共端点——限定它。** Bot Framework 和 `/webhooks/v1/...` 正门需要可达。用入口把该路径限制到预期 provider（能按源 IP 就按），其余依赖 adapter 自身鉴权（Bot Framework JWT、Graph `clientState`、ZAP/PLAIN worker 认证）。
+- **Teams 和 webhook 入口需要公共端点——限定它。** Bot Framework 和 `/webhooks/v1/...` 正门需要可达。用入口把该路径限制到预期 provider（能按源 IP 就按），其余依赖 adapter 自身鉴权（Bot Framework JWT、Graph `clientState`）。
 - **Webhook 委托 URL 是凭据。** Agent 把检测交给外部系统时，`/webhooks/v1/event-callbacks/*` 必须可达。Ingress、proxy、CDN 和应用日志都要对完整路径脱敏。这个 URL 只授权唤醒，所以 Agent 在执行有后果的动作前必须复核外部系统当前状态。
 - **Console 本身**应在你的管理员网络或 VPN 之后，不对公网开放。bearer 门挡住未授权访问，但没有理由把管理员界面暴露给世界。
+
+## 面 6：Worker 容器与控制面
+
+每个 Agent 都有自己的 Worker 容器或 Pod，Agent 之间从不共享 Worker、缓存盘或凭据。容器是唯一的隔离边界：命令、Codex app-server、Automation 脚本和浏览器都以 Worker 的用户身份运行，没有内层沙箱；这些 Agent 进程以 uid 1000 运行，没有 capabilities 或 sudo。
+
+- 命令以 uid 1000 运行，没有 sudo。Agent 可以在 Home 安装用户软件，不能安装系统软件。同一 Agent 的 Session 共享文件与进程。
+- **Worker 凭据只代表一个 Agent。** Worker 把凭据保存在内存中，并从其命令的环境中移除。其他 Agent 的凭据，或已被替换的 Worker 的凭据，都无法连接。
+- **把控制面当作等同 root 的组件来保护。** 控制面通过 Docker socket，或通过能创建和删除 Pod、Secret 和 PVC 的 namespace Role 创建 Worker。能访问 Docker socket 就等于拥有主机的 root 权限。
+- **在 Kubernetes 上加 gVisor。** 在 Kubernetes provider YAML 中把 `podTemplate.spec.runtimeClassName` 设为集群中的 gVisor RuntimeClass，例如 `gvisor`。实例配置变化后，池中的 Worker 在空闲时替换。Helm 的 `worker.runtimeClassName` 只在首次启动时初始化生成的 provider；导入后在 Console 修改 provider。
+- **限制 Worker 能访问的范围。** 使用 Docker Compose 时，Worker 容器加入 `ankole_workers` 网络：能访问控制面和互联网，不能访问 PostgreSQL。在云虚拟机上，请把实例元数据的 hop limit 设为 1，或对容器屏蔽 `169.254.169.254`。使用 Helm 时，开启 `networkPolicy.enabled` 后，Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址，不能访问 `networkPolicy.workerDeniedCIDRs` 中的私网段和节点元数据地址。同时把节点的实例元数据 hop limit 设为 1。
 
 ## 审计姿态
 
@@ -72,3 +82,4 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 - 权限模型见 [主体与 AuthZ](../principal-authz/)。
 - Agent 使用的凭据，读 [环境变量](../worker-env/)。
 - SSRF 键与引导 secret，读 [环境变量](../environment-variables/)。
+- 运行每个 Agent 命令的 Worker，读 [Agent Computer Worker](../agent-computer-worker/)。

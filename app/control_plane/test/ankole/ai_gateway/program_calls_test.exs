@@ -830,7 +830,15 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
           }
       }
 
-      assert {:ok, restored} = PTC.resume_job(reordered_ptc, resume)
+      history =
+        Ankole.AIGateway.ResponseItems.analyze_history([
+          program_item("prog_token", code, plan.ptc.program.bindings)
+        ])
+
+      assert {:ok, restored_plan} =
+               PTC.build_plan(PTC.new(true), reordered_ptc.program.bindings, history)
+
+      assert [restored] = restored_plan.resumes
 
       assert restored.runtime_bindings == [
                runtime_binding(nil, "market", "market"),
@@ -880,8 +888,20 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       ]
 
       for {invalid_ptc, invalid_round} <- invalid_cases do
-        assert {:error, {:program_fingerprint_mismatch, "prog_token"}} =
-                 PTC.resume_job(invalid_ptc, invalid_round)
+        history =
+          Ankole.AIGateway.ResponseItems.analyze_history([
+            program_item(invalid_round.call_id, invalid_round.code, [], %{
+              "fingerprint" => invalid_round.fingerprint
+            })
+          ])
+
+        assert {:ok, invalid_plan} =
+                 PTC.build_plan(PTC.new(true), invalid_ptc.program.bindings, history)
+
+        assert [%{call_id: "prog_token", preflight_outcome: outcome} = job] = invalid_plan.resumes
+        assert Map.keys(job) |> Enum.sort() == [:call_id, :preflight_outcome]
+        assert outcome.error_code == "program_contract_changed"
+        assert outcome.error =~ "program_fingerprint_mismatch"
       end
     end
 
@@ -959,7 +979,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       root = program_item("prog_1", "text(1)", plan.ptc.program.bindings)
 
       cases = [
-        {[root, root], {:duplicate_program_call_id, "prog_1"}},
+        {[root, root], {:duplicate_history_item, {:program, "prog_1"}}},
         {[
            %{
              "type" => "program_output",
@@ -967,7 +987,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
              "status" => "completed",
              "result" => "x"
            }
-         ], {:orphan_program_output, "missing"}},
+         ], {:orphan_call_output, {:program, "missing"}, "program_output"}},
         {[Map.put(root, "status", "in_progress")], {:incomplete_program, "prog_1"}},
         {[
            root,
@@ -981,7 +1001,8 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
              "output" => "x",
              "caller" => caller("prog_1")
            }
-         ], {:orphan_program_call_output, "prog_1", "missing"}}
+         ],
+         {:orphan_call_output, {:call, {:program, "prog_1"}, "missing"}, "function_call_output"}}
       ]
 
       for {input, expected} <- cases do
@@ -1005,7 +1026,8 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
         }
       ]
 
-      assert {:error, {:invalid_program, {:orphan_program_output, "first"}}} =
+      assert {:error,
+              {:invalid_program, {:orphan_call_output, {:program, "first"}, "program_output"}}} =
                ToolSearch.plan(request([], input))
     end
 

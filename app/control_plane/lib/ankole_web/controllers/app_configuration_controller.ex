@@ -28,7 +28,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["AppConfigure"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   # Casts and validates params/body against the `operation/2` specs below before
   # any action runs; on a schema mismatch it short-circuits with a 422 rendered in
@@ -38,61 +38,53 @@ defmodule AnkoleWeb.AppConfigurationController do
   )
 
   operation(:index,
+    operation_id: "AnkoleWeb.AppConfigurationController.index",
     summary: "List console-visible AppConfigure entries",
     responses: [
       ok: {"AppConfigure entries", "application/json", AppConfigurationListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:show,
+    operation_id: "AnkoleWeb.AppConfigurationController.show",
     summary: "Read one console-visible AppConfigure entry",
     parameters: [key: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Not editable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:update,
+    operation_id: "AnkoleWeb.AppConfigurationController.update",
     summary: "Store one global AppConfigure value",
     parameters: [key: [in: :path, type: :string, required: true]],
     request_body:
       {"AppConfigure update", "application/json", AppConfigurationUpdateRequest, required: true},
     responses: [
       ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:delete,
+    operation_id: "AnkoleWeb.AppConfigurationController.delete",
     summary: "Reset one global AppConfigure value",
     parameters: [key: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Not editable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:decrypt,
+    operation_id: "AnkoleWeb.AppConfigurationController.decrypt",
     summary: "Reveal one encrypted AppConfigure value on demand",
     parameters: [key: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Decrypted value", "application/json", AppConfigurationDecryptionResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Not encrypted", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -104,7 +96,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   """
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
-         {:ok, items} <- AppConfigure.list_console_items() do
+         {:ok, items} <- AppConfigure.list_console_items(:global) do
       json(conn, %{app_configurations: items})
     else
       {:error, reason} -> error(conn, reason)
@@ -117,7 +109,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   def show(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
-         {:ok, item} <- AppConfigure.console_detail_by_key(key) do
+         {:ok, item} <- AppConfigure.console_detail(:global, key) do
       json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
@@ -134,7 +126,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   def update(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
-         {:ok, item} <- AppConfigure.console_update_global_by_key(key, conn.body_params) do
+         {:ok, item} <- AppConfigure.console_update(:global, key, conn.body_params) do
       json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
@@ -150,7 +142,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   def delete(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
-         {:ok, item} <- AppConfigure.console_delete_global_by_key(key) do
+         {:ok, item} <- AppConfigure.console_delete(:global, key) do
       json(conn, %{app_configuration: item})
     else
       {:error, reason} -> error(conn, reason)
@@ -167,7 +159,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   def decrypt(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
-         {:ok, value} <- AppConfigure.console_decrypt_by_key(key) do
+         {:ok, value} <- AppConfigure.console_decrypt(:global, key) do
       json(conn, %{decrypted_value: %{key: key, value: value}})
     else
       {:error, reason} -> error(conn, reason)
@@ -224,5 +216,105 @@ defmodule AnkoleWeb.AppConfigurationController do
 
   defp error(conn, status, code, message, details \\ []) do
     ConsoleErrors.render(conn, status, code, message, details)
+  end
+
+  operation(:index_tenant,
+    operation_id: "AnkoleWeb.AppConfigurationController.index_tenant",
+    summary: "List console-visible AppConfigure entries",
+    responses: [
+      ok: {"AppConfigure entries", "application/json", AppConfigurationListResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def index_tenant(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
+         {:ok, items} <- AppConfigure.list_console_items(:tenant) do
+      json(conn, %{app_configurations: items})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:show_tenant,
+    operation_id: "AnkoleWeb.AppConfigurationController.show_tenant",
+    summary: "Read one console-visible AppConfigure entry",
+    parameters: [key: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def show_tenant(conn, params) do
+    with {:ok, key} <- key_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
+         {:ok, item} <- AppConfigure.console_detail(:tenant, key) do
+      json(conn, %{app_configuration: item})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:update_tenant,
+    operation_id: "AnkoleWeb.AppConfigurationController.update_tenant",
+    summary: "Store one tenant AppConfigure value",
+    parameters: [key: [in: :path, type: :string, required: true]],
+    request_body:
+      {"AppConfigure update", "application/json", AppConfigurationUpdateRequest, required: true},
+    responses: [
+      ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def update_tenant(conn, params) do
+    with {:ok, key} <- key_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
+         {:ok, item} <- AppConfigure.console_update(:tenant, key, conn.body_params) do
+      json(conn, %{app_configuration: item})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:delete_tenant,
+    operation_id: "AnkoleWeb.AppConfigurationController.delete_tenant",
+    summary: "Reset one tenant AppConfigure value",
+    parameters: [key: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def delete_tenant(conn, params) do
+    with {:ok, key} <- key_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
+         {:ok, item} <- AppConfigure.console_delete(:tenant, key) do
+      json(conn, %{app_configuration: item})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:decrypt_tenant,
+    operation_id: "AnkoleWeb.AppConfigurationController.decrypt_tenant",
+    summary: "Reveal one encrypted AppConfigure value on demand",
+    parameters: [key: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Decrypted value", "application/json", AppConfigurationDecryptionResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def decrypt_tenant(conn, params) do
+    with {:ok, key} <- key_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
+         {:ok, value} <- AppConfigure.console_decrypt(:tenant, key) do
+      json(conn, %{decrypted_value: %{key: key, value: value}})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
   end
 end

@@ -10,9 +10,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
   @impl Ankole.SignalsGateway.ReplyPreviewAdapter
-  def open(%Request{} = request), do: deliver(request)
-
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
   def update(%Request{} = request), do: deliver(request)
 
   @impl Ankole.SignalsGateway.ReplyPreviewAdapter

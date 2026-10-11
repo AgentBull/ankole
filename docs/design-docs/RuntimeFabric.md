@@ -6,58 +6,35 @@ that Ankole needs after a restart.
 
 The connection carries two groups of messages:
 
-- Actor messages start, steer, stop, and report non-response terminal states.
+- Execution messages open workspaces, run environment tools, and control Codex Jobs.
 - RPC messages ask another process to read or change Ankole data.
 
 Both groups use the same worker connection and authentication. File bytes do
 not travel on this connection. A worker-file operation is a control-plane RPC
-to the worker, and the worker moves the bytes over HTTP with a one-time signed
-relay URL (see "Read and Change Worker Files").
+to the worker, and the worker moves the bytes over HTTP with a one-time relay
+URL (see "Worker Files").
 
 ## Which Process Stores What
 
 The control plane stores:
 
-- ActorEvents and their delivery records
-- Session activations and turn fences
+- ActorEvents, attempt budgets, and conversation epochs
+- Tool receipts until the Response tape records their results
 - AIGateway conversations and messages
 - Agent documents and enabled capabilities
 - copies of provider messages and provider outbox rows
 - Background Agent Job state
 
-Workers run Agent code and access mounted files. They do not define PostgreSQL
-rules or commit business records.
+Each Agent has one Worker, which the control plane creates, starts, and stops
+(see [AgentWorkers](AgentWorkers.md)). A Worker runs the Agent's code on its
+own persistent Home at `/workspace`. That storage survives instance deletion;
+the separate cache at `/var/cache/ankole` can be rebuilt. The control-plane
+drive stores published files (see [Files](Files.md)). Workers do not define
+PostgreSQL rules or commit business records.
 
 Workers use RPC when they need to read or change stored Ankole data. The control
-plane uses the worker-file RPC methods when it needs a worker file.
-
-All workers in one deployment instance must still see the same Agent Home
-storage.
-Worker-file operations do not replace shared storage.
-
-## Two Transports until Every Worker Switches
-
-The control plane accepts two physical transports at the same time, and each
-worker uses exactly one, selected by the scheme of
-`ANKOLE_RUNTIME_FABRIC_ENDPOINT`:
-
-- `ws://` or `wss://`: the Worker Channel described below. This is the target
-  transport.
-- `tcp://`: the ZeroMQ transport that earlier worker images use. The control
-  plane keeps one Rust-owned `ROUTER` bound at
-  `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT` with ZAP `PLAIN` authentication
-  (`WORKER_ID` as the username, the shared key as the password). The route is
-  the `DEALER` identity, and a send returns `{:ok, :sent_or_queued}` when the
-  socket queued the envelope; there is no acknowledgement. The `stream` and
-  `transport_seq` envelope fields are zero on this transport.
-
-The dual stack is a migration tool. When every worker connects with `ws://`,
-the ROUTER, its port, the ZAP code, and the worker `DEALER` are removed in one
-change. Nothing else depends on them.
-
-The protocol version stays at 5 across the migration. The `stream` and
-`transport_seq` fields are additive, and a published ZeroMQ worker image
-must keep passing the kernel's version check.
+plane uses the worker-file RPC methods to move bytes between a drive and the
+disk of the Worker that needs them.
 
 ## One Phoenix Channel per Worker
 
@@ -66,8 +43,8 @@ Channel on the control plane.
 
 - The control plane serves `AnkoleWeb.RuntimeFabricSocket` at
   `/runtime-fabric/worker`.
-- Each worker joins one channel on the topic `worker/installation/<worker_id>`.
-  The `installation` segment is a fixed namespace; it is not a tenant model.
+- Each Worker joins the topic `worker`. Authentication supplies the Agent
+  and tenant.
 - The channel process is the address of the worker connection. Its
   `connection_id` is the `transport_route` that PostgreSQL stores.
 
@@ -75,12 +52,16 @@ Every connection has three identities:
 
 | Identity | Owner | Changes when |
 | --- | --- | --- |
-| `worker_id` | operator slot | never |
+| `worker_id` | the Agent UID of the Worker | never |
 | `incarnation_id` | worker process | the worker process restarts |
 | `connection_id` | control plane | the WebSocket reconnects |
 
-Actor and RPC messages use Protobuf. The WebSocket carries the existing
-envelope bytes as binary frames. There is no JSON or Base64 wrapper.
+The credential of the current generation proves the `worker_id` (see
+"Authenticate a Worker"). A new generation is a new instance on the same persistent
+Agent Home; it keeps the `worker_id`.
+
+Actor and RPC messages use Protobuf. The WebSocket carries the envelope bytes
+as binary frames. There is no JSON or Base64 wrapper.
 
 Two envelope fields belong to this transport:
 
@@ -99,9 +80,16 @@ the stream; the payload is one envelope:
 
 | Event | Bodies | Reply |
 | --- | --- | --- |
-| `control` | `worker_ready`, `worker_heartbeat`, `worker_capacity`, `control_shutdown` | after the admission handler returns |
-| `durable` | `turn_accepted`, `worker_progress`, RPC requests, RPC responses, RPC errors | after the PostgreSQL transaction commits; an RPC request is answered when its task starts, and its response is the durable answer |
+| `control` | `worker_heartbeat`, `control_shutdown` | after the admission handler returns |
+| `durable` | `workspace_ready`, `tool_status`, `tool_progress`, `tool_result`, `turn_accepted`, `worker_progress`, RPC requests, RPC responses, RPC errors | environment messages after Driver handoff; Job messages after the persisted attempt check; RPC requests after task start, and RPC responses after their handler returns |
 | `telemetry` | `observability.spans.export` requests | after the request enters the bounded telemetry window |
+
+Environment messages enter the Driver mailbox without a second open-input
+query in the Channel. The Driver checks `Fence` when it writes durable facts.
+A message that arrives after input closure cannot change those facts. Job
+acceptance and progress still check the persisted attempt before handoff.
+Transport acknowledgement confirms this handoff; it does not confirm a later
+Driver commit.
 
 The channel answers each event with `ok` or `error`. Every reply, including
 a rejection, carries the stream's cumulative acknowledgement and its
@@ -115,15 +103,18 @@ byte_credit     bytes the control plane can still accept on this stream
 reason          only on error
 ```
 
-The Phoenix reply reference correlates the reply with the push. It is
-transport state only; `message_id`, `correlation_id`, and the RPC
-`request_id` remain the business keys and the idempotency keys.
+The Phoenix reply reference correlates each `ok` or `error` with its push.
+Only that reply confirms the push result. A later cumulative `acked_seq` can
+include a rejected message, so it updates stream accounting and credit without
+confirming another push's success. Callbacks from an old connection cannot
+settle pushes on a new connection. `message_id` and the RPC `request_id` remain
+the business keys and the idempotency keys.
 
 Control-plane-to-worker traffic uses two events:
 
 | Event | Bodies |
 | --- | --- |
-| `command` | `turn_start`, `mailbox_updated`, `turn_control`, RPC requests |
+| `command` | `workspace_open`, `workspace_close`, `tool_call`, `tool_cancel`, `turn_start`, `mailbox_updated`, `turn_control`, RPC requests |
 | `reply` | RPC responses and errors |
 
 Both events share one `transport_seq` per connection with `stream` set to
@@ -145,39 +136,38 @@ is `{:error, :backpressure}`.
 sends to a worker. The route directory is
 `Ankole.SignalsGateway.ActorRuntime.WorkerTracker`, a `Phoenix.Tracker`:
 
-- One topic per worker: `worker/<scope>/<worker_id>`. The `scope` is the
-  fixed namespace `installation`; a future multi-tenant deployment would vary
-  it together with admission, the route fence, and the file roots.
+- One tracker topic per Worker: `worker/<worker_id>`. Authentication reads the
+  Worker row across tenants and gives its tenant to the Channel.
 - The key is the `connection_id`.
-- The metadata holds only stable connection identity: `worker_id`,
-  `incarnation_id`, `connection_id`, `channel_pid`, and `node`. Heartbeat,
-  load, and capacity never enter the tracker.
+- The metadata holds `incarnation_id`. The tracker key already holds the
+  connection ID, and the tracker entry supplies the process and node.
+  Heartbeat, load, and capacity stay on the Worker row.
 - `pool_size` sets the number of tracker shards; per-worker topics spread over
   them with `phash2(topic, pool_size)`. No scheduling path lists a topic.
 
-A send follows these steps:
+A sender reads the route from the Agent's `agent_workers` row at send time.
+Conversation inputs record no Worker route. A reconnected Worker is reached
+on its current connection. A send follows these steps:
 
-1. A route that spoke on the ZeroMQ `ROUTER` goes to that socket.
-2. Otherwise `Phoenix.Tracker.get_by_key/3` with the worker topic and the
-   route.
-3. Compare the entry's `incarnation_id` and `connection_id` with the current
+1. `Phoenix.Tracker.get_by_key/3` with the worker topic and the route.
+2. Compare the tracker key and its `incarnation_id` with the current
    PostgreSQL route fence. A mismatch is `{:error, :stale_route}`.
-4. Call the channel process directly. A process on another node receives the
+3. Call the channel process directly. A process on another node receives the
    call through Distributed Erlang. No worker command uses a PubSub broadcast.
-5. Wait for the worker's cumulative acknowledgement.
-6. A route in neither directory goes to the `ROUTER` when one is bound, so a
-   ZeroMQ worker that reconnected after a control-plane restart is reached
-   before its first lifecycle message registers it here.
-7. An empty directory, a stale entry, or a missing acknowledgement fails only
-   this send. The caller keeps the PostgreSQL delivery and never changes
-   durable state from a directory result.
+4. Wait for the worker's cumulative acknowledgement.
+5. An empty directory, a stale entry, or a missing acknowledgement fails only
+   this send.
 
 `send_mandatory/2` returns `{:ok, :sent_or_queued}` only after the worker
 acknowledged the command. It returns `{:error, :unknown_route}` when no channel
-owns the route, `{:error, :backpressure}` when the connection already holds the
-maximum number of unacknowledged commands, and `{:error, :timeout}` when the
-acknowledgement does not arrive. The caller keeps the PostgreSQL delivery and
-does not change durable state from a routing result.
+owns the route, `{:error, :stale_route}` when the entry does not match the
+route fence, `{:error, :backpressure}` when the connection already holds the
+maximum number of unacknowledged commands, `{:error, :timeout}` when the
+acknowledgement does not arrive, and `{:error, :socket_closed}` when the
+connection ends first. The Driver retains the pending call and probes it on
+the next usable route. The Job owner retains its current attempt for adoption.
+Only `unknown_route` and `socket_closed` mean that the connection is gone;
+they also mark the Worker stale.
 
 The tracker is eventually consistent. It can name a connection that no
 longer exists. That only fails one send attempt; the row locks, the
@@ -204,7 +194,7 @@ and does not block the other streams.
 A `command` connection holds at most 64 unacknowledged commands. One WebSocket
 frame contains at most 16 MiB. A channel process closes its connection when its
 mailbox exceeds 10,000 messages; the worker reconnects, and PostgreSQL
-delivery state drives any repeat.
+conversation tape, receipts, and Job facts drive recovery.
 
 A telemetry drop does not change turn correctness. Telemetry that must not be
 lost needs a durable spool; RuntimeFabric does not provide one.
@@ -215,11 +205,20 @@ The Phoenix client reconnects with capped exponential backoff and joins the
 channel again. The join payload carries the ready fields, so each join is an
 admission. The worker opens its send windows only after the join succeeded.
 
-A reconnect with the same `incarnation_id` receives a new `connection_id`. One
-transaction moves the worker projection, its live assignments, and its live
-deliveries to the new route. Turn fences do not change. When the old channel
-process then closes, it does not mark the worker stale, because the worker's
-current route is no longer that connection.
+A reconnect with the same `incarnation_id` receives a new `connection_id`. The
+join moves the Agent's `agent_workers` row to the new route and closes the old
+connection. Turn fences do not change. When the old channel process then
+closes, it does not mark the worker stale, because the worker's current route
+is no longer that connection.
+
+Before it settles unanswered RPC calls from the closed connection, the Worker
+delivers replies already in its receive queue. A request that has not reached
+the socket can wait for the next join until its original deadline. A sent
+request with no reply fails with `socket_closed`. Its owning caller can repeat
+a safe read after rejoin within the same deadline. The RPC layer does not
+repeat an unknown-result write; that operation may already have completed.
+Domain-specific idempotent completion and abort checks keep their own retry
+rules.
 
 A worker restart creates a new `incarnation_id`. The control plane keeps no
 replay spool across that restart:
@@ -240,270 +239,231 @@ The Bun adapter handles:
 - stream classification and windows
 - acknowledgement of `command` pushes
 - decoding of generated envelopes
-- calls to kernel validation
+- protocol-version checks after decoding
 - worker drain before shutdown
 
 The adapter does not schedule Actors or decide when a turn ends.
 
-## Temporary Routing Tables
+## Routing State
 
-ActorRuntime can rebuild these routing tables after a restart:
+The Agent's `agent_workers` row records its Worker generation and credential.
+It also records the connected process's route, incarnation, capacity, and load.
+These rows are logged: loss of a generation credential would disconnect its
+Worker. RuntimeFabric keeps no delivery or activation table.
 
-- `actor_event_deliveries`
-- `agent_computer_workers`
-- `actor_session_worker_assignments`
-- `actor_session_activations`
+`Conversations.Driver` has one `:global` name per Agent and Session. PostgreSQL
+stores the inbox and Response tape. `actor_session_workspaces.epoch` serializes
+control-plane decisions. Control-plane tool transactions hold a shared row
+lock; admission, round recording, and terminal commits hold an exclusive lock.
+An old Driver cannot commit after a new admission changes the epoch.
 
-These UNLOGGED tables use text states with database checks. Their values describe
-only the current transport state.
-
-Each heartbeat carries the worker's full identity, runtime, version, capacity,
-and load snapshot. An authenticated heartbeat recreates a missing worker row
-after PostgreSQL clears the UNLOGGED registry.
-
-Durable domain tables can still use PostgreSQL enums.
-
-Transactions that need both routing and event locks take the Worker and
-activation before the current ActorEvent, and the ActorEvent before its
-deliveries. Placement and operator Job changes take the existing Session
-assignment advisory lock before the Worker. Steer handling uses this same
-assignment lock without changing placement or capacity, then checks that the
-command is still open after it acquires the routing locks. This order lets a
-Job terminal commit consume an unaccepted steer into one successor without
-deadlocking against that steer's delivery.
-
-WorkerPool owns assignment locks and placement. TurnRef owns Worker identity
-and turn-fence checks. Domain owners retain their terminal transactions.
-Draining Workers can still commit terminal results, and completed ActorEvents
-remain the authority for completion retries after routing state is gone.
+A Worker echoes a `RunRef` for environment work. It does not hold the epoch.
+Results belong to their Response and call IDs and can survive Driver replacement.
+A Codex Job uses `JobTurnRef`; the Job owner checks its persisted attempt.
+`WorkerRouteAuth` also checks that the connection belongs to the named Agent.
+AgentWorkers owns Worker placement and capacity, not conversation progress.
 
 ## Authenticate a Worker
 
-The control plane stores one encrypted AppConfigure key:
-
-```text
-runtime_fabric.worker_auth_key
-```
-
-The control plane creates this key when necessary.
+Every generation of an Agent's Worker has its own random credential, 32 random
+bytes in base64url. The control plane gives it to the instance that it
+creates. The Agent's `agent_workers` row keeps the SHA-256 digest of the
+credential for admission and an encrypted copy for a retry of the same
+generation.
 
 Worker startup requires these values:
 
 ```text
-WORKER_ID=worker-a
+WORKER_ID=<agent_uid>
 ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://control-plane:4000/runtime-fabric/worker
-ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=<worker-auth-key>
+ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=<credential of this generation>
+ANKOLE_WORKER_STORAGE=<mounted | nfs | adapter>
 ```
 
-The worker sends the key as the Phoenix socket auth token in the
-`Sec-WebSocket-Protocol` header. The key never appears in the URL. The socket
-`connect/3` callback compares it with the stored key in constant time and
-rejects the upgrade on a mismatch. The Worker validates the endpoint, copies
-the key into memory, and removes the key from the environment that child
-processes inherit.
+`ANKOLE_WORKER_STORAGE` tells the image entry how it prepares the persistent
+Home before it starts the Worker: the platform mounted it (`mounted`), the
+entry mounts `ANKOLE_WORKER_NFS_SOURCE` (`nfs`), or the entry restores the last
+backup through `ANKOLE_WORKER_ADAPTER_URL` (`adapter`). The Agent Home is always
+`/workspace`, so it is not a startup value (see
+[AgentWorkers](AgentWorkers.md#worker-process)).
 
-All workers can use the same key. Ankole does not store a different key for
-each worker.
+The worker sends the credential as the Phoenix socket auth token in the
+`Sec-WebSocket-Protocol` header. The credential never appears in the URL. The
+socket `connect/3` callback compares its digest with the row in constant time.
+Only a row that is `starting`, `stale`, or `ready` accepts a connection: a row
+that is `absent`, `paused`, `draining`, or `deleting`, and the credential of a
+former generation, cannot connect. The Worker validates the endpoint, copies
+the credential into memory, and removes it from the environment that child
+processes inherit. The socket retains the generation that passed
+authentication.
 
-`worker_id` names a worker slot chosen by the operator. The socket parameters
-carry it, and the channel topic must name the same worker. Each new process
-creates a fresh `incarnation_id`.
+`worker_id` is the Agent UID in the authenticated socket parameters. Each
+new process creates a fresh `incarnation_id`. Message bodies carry no Agent
+identity: both hosts use the Agent of this connection.
 
-The join payload carries the `worker_ready` fields: `worker_id`,
-`incarnation_id`, `runtime`, `version`, `max_turns`, and
-`available_turn_slots`. `join/3` builds the ready message from them, calls
-`WorkerAdmission` with the authenticated route, and registers the connection
-in the tracker. A payload whose `worker_id` differs from the topic or the
-socket fails the join with `identity_mismatch`. A `worker_ready` envelope sent
-after the join is an ordinary lifecycle message.
+The join payload carries `incarnation_id`, `max_slots`, and `available_slots`.
+`join/3` registers the route and calls `WorkerAdmission`: under the Worker row
+lock, it checks the authenticated generation, admission state, and stored
+protocol version, then writes the route, incarnation, capacity, and heartbeat
+time. Join success makes the connection ready. No second ready message is sent.
+A former generation fails with `stale_worker_generation`.
 
-Ready, heartbeat, and capacity messages contain both identifiers. The control
-plane records the authenticated route.
+A heartbeat carries current capacity and load. It renews only a row that is
+`ready` or `draining` on the same route and incarnation. The Channel processes
+its own lifecycle writes in order; RPC and Actor operations use supervised
+tasks. There is no site-wide lifecycle dispatcher process.
 
 On process shutdown, the worker sends `control_shutdown` to the control plane.
 This direction means "the worker process is shutting down." The control plane
-marks the worker, its assignments, and its live activations as `draining`. It
-does not release their turn fences. A draining worker receives no new turns but
-can finish terminal writes and receive RPC responses.
+marks the Agent's Worker as `draining`. A draining Worker accepts no new
+workspace or Codex Job but can finish its work and receive RPC responses.
 
-A new incarnation replaces the old process for the same worker ID. One
-transaction releases the old assignments and invalidates their turn fences.
-
-The control plane rejects delayed messages from the old process.
+A new incarnation replaces the old process. The control plane rejects delayed
+frames from the former route or incarnation and broadcasts the Worker change.
+Drivers probe environment calls on the new process. An unknown unsafe call is
+recorded as interrupted; a retry-safe call can run again. The Job owner handles
+a Codex attempt whose process is gone.
 
 A worker becomes stale after 60 seconds without a valid heartbeat, or when its
-current channel process terminates. Cleanup can remove its routing record after
-3,600 seconds.
-
-A valid worker lifecycle message can make a stale worker active again. It cannot
-restore released assignments or old delivery attempts. A stopped worker cannot
-reactivate itself.
+current channel process terminates. The control plane closes a silent
+connection; a live process connects again and joins. A heartbeat cannot make
+a stale row ready.
 
 This protocol authenticates trusted first-party workers. Database turn fences
 still protect each write. Ankole does not provide public worker admission
 here. TLS termination for `wss://` belongs to the ingress in front of the
 control plane.
 
-## Validate Every Actor and RPC Message
+## Encode and Check Actor and RPC Messages
 
-`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` defines the message
-structure.
-The generated package namespace remains `ankole.runtime_fabric.v1`.
-The envelope header must use the current protocol version owned by the Rust
-kernel.
+`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` declares the message
+structure and current protocol version, 9. The generated package namespace
+remains `ankole.runtime_fabric.v1`.
 
-The runtimes generate codecs from the same file:
+Elixir uses Protox and the Worker uses protobuf-es. Generate committed
+TypeScript output with `bun run gen:proto`. Each host uses its generated enum
+to set the current version on send and reject other versions on receive.
+The Rust kernel does not encode or validate RuntimeFabric envelopes.
 
-- Rust uses `prost-build`.
-- Elixir uses `protox`.
-- TypeScript uses `protoc-gen-es`.
+The host supplies the message ID, transport sequence, stream, and body.
+The authenticated connection supplies Agent identity. Domain consumers check
+Run references, Job attempts, RPC scope, and tool calls against their owning
+state. Database fences and unique constraints retain commit authority.
 
-Generate committed TypeScript output with `bun run gen:proto`.
+`worker_progress` carries the Job attempt reference as a keepalive. RPC
+request and reply matching uses `request_id`. Each RPC method has its own
+protobuf payload; its broker checks execution authority before it applies
+business fields. Host code writes UTF-8 JSON into remaining `*_json` byte
+fields. Empty bytes mean that the value is absent.
 
-The Rust kernel seals every envelope at the send boundary: a host supplies
-only the ids, the send time, and the body, and the kernel writes
-`protocol_version`, lane, and durability from its `BodySpec` table. A host
-cannot choose a wrong header field, because the kernel overwrites all three.
+Golden fixtures live under `app/kernel/proto/golden`. Elixir and TypeScript
+decode the same bytes and check representative typed and JSON RPC payloads.
+These fixtures verify codec agreement; domain tests verify business authority.
 
-The kernel then validates every envelope before sending and after receiving
-it:
+## Execute Environment Tools and Codex Jobs
 
-- `protocol_version` must equal the kernel's current `PROTOCOL_VERSION`.
-- `message_id`, lane, durability, and body must exist.
-- The body fixes its lane and durability class.
-- Turn and RPC envelopes require a correlation ID.
-- An RPC correlation ID must equal its request ID.
-- A turn reference must contain all turn-fence fields.
-- A `turn_control` steer payload must be empty.
-- Worker progress must use an approved progress class.
+The control plane runs the main model loop and Workflow task loops. These loops
+do not request a Worker until an environment tool needs one. Codex Jobs run on
+the Worker's Codex app-server.
 
-Approved worker progress classes are:
+Worker capacity counts open workspaces and running Codex attempts. Join
+reports maximum and available slots. The heartbeat reports those fields plus
+active slots and task load; it is also sent when capacity changes. Multiple
+tool calls in one workspace use one slot.
 
-- `summary`
-- `checkpoint`
-- `reply_presentation`
-- `artifact_ref`
-- `cancellation_observed`
-- `retryable_error`
-- `final_error`
+### Open a Workspace
 
-Host code writes UTF-8 JSON into `*_json` byte fields. Empty bytes mean that the
-value is absent.
+`workspace_open` carries a `RunRef`, the PostgreSQL-owned numeric workspace ID,
+the resolved Agent context, binding, trusted runtime environment, fetch
+configuration as `FetchRuntimeConfig`, and inactivity timeout. `RunRef` contains `session_id` and
+`actor_event_id`; the authenticated connection supplies the Agent.
 
-Each RPC method has its own protobuf payload. The kernel transports those bytes
-without interpreting their business fields.
+The workspace ID names `/workspace/sessions/<workspace-id>` and stays stable
+for one Agent and Session. The Worker prepares the current environment and
+writes SOUL, MISSION, DESIGN, and ConfidentialityPolicy from the current
+context, prepares its Skills, then returns `workspace_ready`. Preparation
+failures return an error. Repeated open
+messages for the same run adopt its existing workspace.
 
-Golden fixtures live under `app/kernel/proto/golden`.
-Rust, Elixir, and TypeScript decode the same fixture bytes.
-RPC fixtures cover the outer frame and representative typed and JSON payloads.
+The control plane resolves Skills and their real paths before it requests a
+Worker. WorkerBootstrap owns these path declarations. The Worker uses the same
+declarations when it prepares the files. A Skill read alone needs no Worker.
 
-## Protocol Lanes and Durability Classes
+### Run and Recover a Tool Call
 
-The Protobuf protocol uses four technical lanes:
+Control-plane tools commit durable effects and receipts in one transaction.
+Before a recovered round dispatches calls, the Driver restores those receipts
+without validating them against the current tool definitions. A committed
+result returns to the tape; a committed wait resumes observation from its
+original start time. Only calls without a receipt require current validation
+and execution. Recording the complete round removes its receipts.
 
-- `LANE_CONTROL` carries worker lifecycle and turn control.
-- `LANE_TURN` carries turn start, mailbox updates, and acceptance.
-- `LANE_PROGRESS` carries progress observations.
-- `LANE_RPC` carries RPC requests and results.
+`tool_call` carries the run, `response_id`, `call_id`, namespace, tool name,
+arguments, and mode `execute` or `probe`. The Worker keeps one call entry per
+Response and call ID. A duplicate execute adopts a running call or returns its
+retained result. It does not run the operation again.
 
-The durability flag tells the control plane what it must store or replay.
-It does not make the worker connection a stored queue.
+A probe of an unknown call returns `unknown` through `tool_status`. A running
+call remains pending until its result is available. A completed call returns
+its retained `tool_result` directly. `content_json` carries text parts. The
+`images` field carries raw image bytes, which the control plane converts for
+the model provider. The result also carries details and error classification. Progress
+uses `tool_progress`. These retained facts live only in the Worker process.
+After process loss, the Driver reruns only a declared retry-safe tool; it writes
+an interrupted result for an unknown unsafe operation.
 
-- `CONTROL_DURABLE` requires a durable control-plane fact.
-- `CONTROL_REPLAYABLE` requires a replayable PostgreSQL fact.
-- `CONTROL_EPHEMERAL` carries live observation only.
+`tool_cancel` aborts the named call. `workspace_close` prevents further calls,
+waits for pending work and result sends to finish, then releases the slot.
+A stale Driver sends no close during takeover or planned control-plane shutdown:
+the new Driver can adopt the work still on the Worker.
 
-## Start and Control Agent Turns
+### Start or Adopt a Codex Attempt
 
-The actor lane carries these common messages:
+`turn_start` is only for a Codex Job. It contains one ActorEvent, a `JobTurnRef`,
+model snapshot, request context, typed `HostedTool` values, trusted environment,
+and the same `FetchRuntimeConfig` as `workspace_open`. A start also carries the
+resolved `AgentConversationContext`. The control plane resolves the current
+context outside the claim transaction. The claim freezes the Job runtime
+projection; that projection selects the Skills from the resolved context. An
+adopt carries no context and does not repeat preparation. `JobTurnRef`
+contains ActorEvent ID, Job ID, and attempt. The connection supplies the Agent
+and the Job ID supplies the Session. The Job owns its project directory. Mode `start` starts the claimed attempt; `adopt` finds the
+same local attempt without starting another Codex turn. If it is absent, the
+Worker aborts that attempt and the Job owner applies its retry policy.
 
-- `worker_ready`
-- `worker_heartbeat`
-- `worker_capacity`
-- `turn_start`
-- `mailbox_updated`
-- `turn_accepted`
-- `turn_control`
-- `worker_progress`
+`turn_accepted` confirms that the attempt is present on the Worker. It does not
+consume input. The Worker starts execution only after the control plane confirms
+that acceptance. If the confirmation is lost, the same local attempt waits for
+rejoin and confirms again through one background task. A repeated `turn_start`
+does not launch another execution. The receive loop stays available for stop,
+drain, and generation changes while confirmation is pending.
 
-Workers finish turns through the `actor_turn.complete`, `actor_turn.noop`, and
-`actor_turn.abort` RPCs. A release runs one matching control-plane and Worker
-image pair; RuntimeFabric does not keep former terminal envelope variants.
+`mailbox_updated` delivers one persisted input in queue order.
+The Worker keeps the ActorEvent IDs that Codex applied. Terminal
+`background_agent_job.status.update` carries those IDs; the control plane closes
+only the trigger and applied inputs in the Job terminal transaction. Inputs
+that arrived after the last applied event remain open for the next attempt.
 
-Worker capacity has one scheduling representation. `worker_ready`,
-`worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
-`available_turn_slots` fields. `worker_heartbeat` and `worker_capacity` also
-carry integer `active_turns` fields.
-The kernel rejects zero maximum capacity, available capacity above the maximum,
-and capacity updates whose active and available values do not equal the maximum.
-The control plane does not derive capacity from load or parse JSON and string
-alternatives.
+`turn_control` interrupts an attempt or withdraws a Skill. A failed Worker
+attempt calls `actor_turn.abort`. Completion and abort use the Job's own
+attempt identity, so Driver replacement cannot reject a still-running Codex
+result. Duplicate terminal writes are idempotent at the Job owner.
 
-### Start a Turn
+### Trusted Runtime Environment
 
-`turn_start` contains one actor event.
-It does not contain an event list.
+The control plane derives `ANKOLE_RUNTIME_` values from the current ActorEvent.
+They are execution facts, separate from operator WorkerEnv settings. An active
+human requester contributes the sender Principal, access version, and derived
+Lark profile. Scheduled and system inputs carry no human requester values.
 
-The message contains these main values:
-
-- An `ActorTurnRef` turn fence.
-- One durable ActorEvent envelope.
-- The PostgreSQL-owned numeric Session workspace ID.
-- The selected model reference.
-- Current request context.
-- Hosted tool configuration.
-- Trusted runtime environment facts for this Turn.
-
-Request context contains current request details, not conversation history.
-AIGateway builds model history for each Response.
-
-TurnStart also projects the current Agent's custom model profile names and
-descriptions. Agent Computer uses this bounded catalog to build the optional
-`create_background_job.model_profile` enum. The control plane validates the
-selected name again when it handles `background_agent_job.create`.
-
-`BackgroundAgentJobCreateRequest.model_profile` carries only that logical
-custom name. An empty value selects `coding`. `BackgroundAgentJobResponse`
-returns the persisted logical name. The Job Turn's model reference carries the
-resolved provider, model, options, reasoning effort, direct input modalities,
-and an optional directly image-capable vision fallback instead of a caller
-supplied raw model.
-
-The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
-It starts at 10000 and stays stable for one `{agent_uid, session_id}` pair.
-The current protocol requires this field so each runtime resolves the same
-directory.
-
-Turn runtime environment names use the `ANKOLE_RUNTIME_` prefix. These values
-are not WorkerEnv configuration. The control plane derives them from the current
-ActorEvent, and Agent Computer can add values that require worker-only bootstrap
-material.
-
-A Turn with an active human requester carries:
-
-```text
-ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL=<principal_uid>
-```
-
-Turns without an active human requester, such as scheduled and system Turns, do
-not carry this value. Agent Computer derives the Lark profile name as:
-
-```text
-ANKOLE_RUNTIME_LARK_PROFILE=ankole-u-<base64url HMAC-SHA256>
-```
-
-The HMAC input is the sender Principal UID. The HMAC key is the RuntimeFabric
-worker authentication key that deployment bootstraps from
-`ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`. The key stays in the trusted worker
-process; only the derived profile enters the Agent shell. A worker authentication
-key rotation changes this profile name and requires Lark user authorization
-again. The bootstrap variable itself is not a Turn environment value. Agent
-Computer rejects it if it appears in the Turn map.
-
-Agent Computer validates the namespace before it injects these values. A
-per-command environment map cannot replace them. Shell code can still change
-its own process environment, so a consumer must also validate the value that it
-uses.
+The Lark profile is `ankole-u-<base64url HMAC-SHA256>`. Its HMAC input is the
+Principal UID for access version 1, otherwise the UID, a NUL byte, and the access
+version. The installation key `runtime_fabric.worker_auth_key` stays on the
+control plane. Key rotation changes every profile and requires Lark user
+authorization again. Worker credentials never enter a command or Codex
+environment. The Worker checks the namespace and rejects a per-command override
+of these facts. Shell code can change its own environment, so a consumer must
+also validate the value it uses.
 
 ### Refresh the Lark Bot Credential
 
@@ -516,7 +476,7 @@ sole Lark binding stays implicit, but an Agent with several Lark bindings gets
 no Lark credential variables when no binding matches the request.
 
 Agent Computer removes the raw token before it builds a shell or Codex thread
-environment. For each active main Turn, Background Agent Job attempt, or
+environment. For each open workspace, Background Agent Job attempt, or
 Automation Job attempt that has a Lark bot token, it writes one private file in
 the Agent Home and refreshes that file every minute through the same WorkerEnv
 RPC. Each successful write uses an atomic rename. Cleanup stops the refresh and
@@ -535,135 +495,14 @@ The control plane remains the credential owner. Agent Computer creates no app
 secret, Job credential, or authoritative token record. The execution file is
 a disposable runtime projection, not a new authorization subject.
 
-### Reject Writes from an Old Turn
-
-Every turn message contains an `ActorTurnRef`. This turn fence identifies the
-current attempt and contains these values:
-
-- `agent_uid`
-- `session_id`
-- `activation_uid`
-- `actor_epoch`
-- `actor_event_id`
-- `revision`
-
-The control plane checks these values before it accepts a worker write. An old
-worker or earlier attempt cannot change a newer turn.
-
-The activation revision `A` is the highest revision that the control plane has
-issued. The Worker revision `R` is the highest revision that the Worker has
-applied. The control plane requires `0 <= R <= A`.
-
-Read and ordinary write RPCs use the current live fence rules. A
-`turn_accepted` message must match one exact revision. A terminal RPC matches
-the static attempt fence and can use an older applied revision `R` when the
-activation already has a newer pending revision `A`.
-
-### Add Input to a Running Turn
-
-`mailbox_updated` contains one journaled actor event.
-It injects a steer command into a running turn.
-
-`sent_or_queued` does not complete the command event. A normal text Turn sends
-`turn_accepted` only after the steer enters model input. A Background Agent Job
-sends it only after Codex accepts `turn/steer`. The accepted revision advances
-`R`. For a reply-eligible text Turn, that exact acceptance also moves the live
-reply preview to the steer event. Before acceptance, the old preview owner
-continues to receive progress from the current model round.
-
-If the Worker finishes first at an older revision, the control plane supersedes
-the newer delivery attempt. Its ActorEvent stays open and gets a new delivery in
-the next Turn.
-
-### Retry a Turn
-
-`turn_control` with `command = "retry"` stops the named local turn. The worker
-ends its loop, releases capacity, and does not call `actor_turn.abort`.
-
-An input supersession uses this control only as a best-effort token stop. The
-control plane first retracts the generating Response and invalidates the
-delivery fence in PostgreSQL. It updates the same ActorEvent with the new
-attachment and does not release that event until attachment materialization
-finishes or reaches its cap. A late worker completion cannot pass the old
-fence.
-
-The control plane does not supersede a turn after it sees a tool call, a tool
-result, or a committed outbox operation. It queues the attachment as a new turn
-because replay could repeat an external write.
-
-### Complete a Turn
-
-The Worker ends an attempt with one of three turn-scoped RPCs:
-
-- `actor_turn.complete` commits a final Response.
-- `actor_turn.noop` commits the applied input prefix without a visible reply.
-- `actor_turn.abort` fails the attempt without consuming any input.
-
-`actor_turn.complete` carries the final Response ID and one outcome.
-
-- `loop_finished` means the worker loop ended normally.
-- `iteration_exhausted` means the local iteration budget ended.
-
-Neither outcome proves the broader user task succeeded.
-
-`actor_turn.noop` records the outcome `silent`. It carries the final Response
-ID when the Worker ran a model loop and adopted a Response, and no ID when the
-turn made no gateway Response. A completed ActorEvent therefore always records
-how the turn ended, and which Response ended it when one exists.
-
-SignalsGateway checks that the Response chain did not change. It then completes
-the main ActorEvent and every input delivery with `revision <= R`, and it stores
-the replies in one transaction. A delivery with `revision > R` stays open.
-Completion is stronger than `turn_accepted`, so it can commit an applied
-delivery that is still `sent`. This removes a race between the actor-lane
-acceptance task and the RPC task.
-
-`actor_turn.noop` consumes the same applied prefix through the same completion
-transaction, without provider-visible output. `actor_turn.abort` validates
-the static attempt fence and `R <= A`, supersedes the attempt deliveries, and
-keeps every ActorEvent open for retry or dead-letter handling. It does not
-depend on the lease still being alive.
-
-The same commit clears the current ActorEvent and briefly keeps the Session on
-the worker for possible follow-up work.
-
-AIGateway completion closes one Response only.
-It does not complete the actor event.
-
-Each RPC response acknowledges its durable terminal operation. The Worker does
-not release its active Turn until it receives this response. If the response is
-lost after commit, the Worker repeats the request. A completion or no-op returns
-`already_completed`, and an abort returns `already_aborted`.
-
-On `SIGTERM` or `SIGINT`, the worker first sends `control_shutdown`, rejects new
-turns, and keeps its RuntimeFabric receive loop open while active tasks wait for
-completion responses. Kubernetes can still end the process at its external
-termination deadline; drain does not claim an unbounded shutdown guarantee.
-
-If a worker disappears before a completion commit, ActorRuntime checks the
-AIGateway output before it makes the ActorEvent ready again. A suffix containing
-only message and reasoning items is replay-safe: ActorRuntime retracts that
-visible suffix, fails any generating Response, and retries the event. A suffix
-that contains a tool call, tool result, or another effect-bearing item is not
-replayed. ActorRuntime dead-letters the event, records a bounded and redacted
-copy of the failure reason on it, and commits a provider-visible failure notice
-for manual recovery. A notice with no route, because its channel takes no
-replies or its route rows are deleted, is logged and skipped. Worker takeover
-never depends on an old event's channel.
-
-A Turn with no reply uses `actor_turn.noop`. Silence alone never completes a
-Turn. A Worker failure uses `actor_turn.abort` and the normal retry path. The
-activation lease remains a process-crash fallback. It is not the normal way to
-finish a Worker attempt.
-
 ## Call Functions in Another Process
 
 The RPC lane uses `rpc_request`, `rpc_response`, and `rpc_error` envelopes.
 Both control plane and worker clients correlate calls by request ID.
 
 `app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto` declares business messages.
-The Bun operation tables own the method names, authorization facts, effects, and
-message-type pairs. `gen-rpc-contract.ts` projects these facts into the committed
+The Bun `rpcOperations` table owns the method names, authorization facts,
+effects, message-type pairs, and handlers. `gen-rpc-contract.ts` projects these facts into the committed
 `rpc_methods.json` file. This file is the cross-language parity artifact. It is
 not a third runtime registry.
 
@@ -675,43 +514,47 @@ Each contract row defines:
 - the request message type
 - the response message type
 
-Elixir keeps an explicit dispatch table because broker functions and generated
-request and response modules are control-plane implementation facts.
-Package-local tests compare the Bun projection and the Elixir table with the
-committed contract. The control plane encodes and decodes all business payloads
+Elixir derives the authorization facts and generated message modules from this
+contract. It keeps only the method-to-broker mapping. A compile-time coverage
+check requires the mapping and contract to contain the same methods. Tests
+exercise the real broker functions and compare the generated contract. The control plane encodes and decodes all business payloads
 in one place. It rejects a broker response struct whose module differs from the
 declared response module. It accepts a plain map only when the declared response
 module is `JSONPassthroughResponse`.
 
-Turn-scoped frames carry `ActorTurnRef` outside the payload.
-Worker-agent frames carry a trusted `agent_uid` outside the payload.
+Turn-scoped frames carry exactly one `RunRef` or `JobTurnRef` outside the
+payload. The connection must belong to that Agent. A worker-agent method takes its
+Agent from the connection: the authenticated `worker_id` is the Agent UID, and
+the frame carries no Agent.
 
 The server authorizes the outer frame before it decodes the business payload.
-The completion effect also accepts an idempotent retry from the same worker and
-activation after the ActorEvent has completed. The payload does not repeat
-identity or request IDs.
+Job lifecycle methods require `JobTurnRef`. The Job owner accepts an idempotent
+terminal retry for the same attempt after the input closes. An ordinary run
+method requires open input. Payloads do not repeat identity or request IDs.
 
 The registry currently contains these method families:
 
-- Agent conversation context with one coherent Agent Plugin and Skill catalog.
-- Actor turn completion.
+- Codex attempt abort and terminal Job status.
 - AIGateway API key resolution.
-- AppConfigure and WorkerEnv resolution.
+- WorkerEnv resolution.
+- Agent drive files: `files.list`, `files.get`, and `files.commit` (see
+  [Files](Files.md)).
 - Automation job management, execution, and event emission.
+- Webhook endpoint creation, cancellation, and listing.
+- Worker observability span export.
 - Best-effort Codex diagnostic log maintenance.
-- Background Agent Job lifecycle and trajectory.
-- Schedule operations.
-- Signal channel ambient judgments and standing orders.
-- Installed Skill observations.
+- Background Agent Job lifecycle and trajectory. Thread files remain in
+  persistent Home; see [Background Agent Job](BackgroundAgentJob.md#persistent-thread-files).
 - Skill overlay resolve: the rendered skill-lesson block for a Skill set.
 
-Schedule RPCs use `JSONPassthroughResponse`. The worker passes
-`body_json` to the model without changing its fields.
+Main-agent tools call their control-plane domain owners directly. They do not
+use a Worker RPC for schedules, channel policy, Workflow, or Job management.
 
 The RPC lane does not carry conversation history or compaction commits.
 AIGateway owns both concerns.
 
-Every `rpc_error.details_json` contains an explicit `retryable` boolean. Domain
+Every `rpc_error` carries an explicit `retryable` boolean. `details_json`
+carries diagnostic facts. Domain
 validation and authorization errors default to false. If a control-plane
 handler crashes or returns an invalid result, the error also contains one
 `failure_id` that matches the control-plane log. Only a `turn_read` handler
@@ -722,68 +565,60 @@ when the error reaches Actor or Background Agent Job recovery.
 
 Worker-originated RPC calls use the normal 300-second timeout. An automation
 job execution is a control-plane-originated RPC. Its timeout is ten minutes
-plus a short transport margin. `codex_logs2.daily_maintenance` is also a
-control-plane-originated RPC. The control plane holds the transaction-scoped
-Agent placement lock during its ten-second RPC budget. The Worker does not wait
-behind Codex Home setup; it returns `skipped_setup_busy` and lets the next daily
-reset try again.
+plus a short transport margin.
 
-## Read and Change Worker Files
+The Worker projects a transport push timeout as `runtime_fabric_timeout` and
+an RPC deadline as `runtime_rpc_timeout`. These codes and `socket_closed` are
+infrastructure interruptions for Job retry accounting. A generic `timeout` or
+an arbitrary retryable domain error does not receive that classification.
 
-The control plane reads and changes worker files through five worker-owned RPC
-methods:
+## Worker Files
 
-- `worker_files.pull`: the worker downloads bytes from a signed relay URL and
-  writes one file.
-- `worker_files.push`: the worker uploads one file to a signed relay URL.
-- `worker_files.list`: directory list, with a `max_entries` bound.
-- `worker_files.move`: same-root move or rename.
-- `worker_files.delete`: file delete, or explicit recursive directory delete.
+The control plane moves file bytes to and from one worker's Agent Home through
+two worker-owned RPC methods:
+
+- `worker_files.pull`: the worker downloads bytes from a relay URL and writes
+  one file.
+- `worker_files.push`: the worker uploads one file to a relay URL. With
+  `bundle_paths`, the worker uploads one bundle of several files under the
+  directory `home_relative_path`: for each path in order, a 4-byte big-endian
+  path length, the UTF-8 path relative to that directory, an 8-byte big-endian
+  content length, and the content.
 
 `rpc.proto` defines the request and response messages. The RPC frame carries
-no turn fence for these methods; the control plane is the caller.
+no turn fence for these methods; the control plane is the caller. The drive
+RPCs of [Files](Files.md) use these transfers: `files.get` pulls a drive file
+into the Agent Home of the worker that called it, and `files.commit` pushes
+files from there.
 
-The control plane exposes these public roots:
-
-- `user_files`
-- `agent_installed_skills`
-- `agent_sessions`
-
-Each path begins with the Agent key and its canonical directory.
-For example:
+Each request names a path inside the Agent Home of the worker that receives
+it, `home_relative_path`, without the Agent UID: the worker's connection
+already names its Agent. For example:
 
 ```text
-/user_files/<agent-key>/user-files/inbox/10000/file.png
+sessions/10000/drive/inbox/0123456789abcdef/file.png
 ```
 
-When an adapter limits a filename to ASCII, it first uses the native AnyAscii
-transliterator and then removes unsafe filename characters. This keeps readable
-Latin filenames instead of replacing each non-ASCII word with underscores.
+The worker refuses a path that leaves its Agent Home and answers with the
+number of bytes that it moved (`size`).
 
-The internal `agent_home_documents` root accepts only these files:
+`Ankole.WorkerFiles` owns transfer bounds and the relay session. Every
+transfer names its Worker: the drive RPCs pass the Worker that called them, so
+the bytes go to the disk of the Worker that asked for them.
 
-- `SOUL.md`
-- `MISSION.md`
-- `DESIGN.md`
-
-The public root API does not expose this internal root.
-The worker never exposes `.codex` state.
-
-`Ankole.WorkerFiles` owns root policy, route selection, transfer bounds, and
-the relay session. It selects any ready worker by default. An operator path can
-pin one worker ID. A pinned operation never falls back to another worker.
-
-One file can contain at most 100 MiB in either direction. A write fails before
-the RPC when the input exceeds this limit. A read fails on the worker before
-the upload when the file exceeds `max_bytes`, and the relay rejects a larger
-request body with `413`.
+One file or one bundle can contain at most 100 MiB in either direction. A
+write fails before the RPC when the input exceeds this limit. A read fails on
+the worker before the upload when the file or bundle exceeds `max_bytes`, and
+the relay rejects a larger request body with `413`. The control plane rejects
+a bundle whose paths are not the requested paths in order.
 
 The worker returns these error codes in `rpc_error.code`:
 
 - `file_not_found`: the source path is absent.
 - `not_regular_file`: the source is not a regular file.
-- `file_changed`: the file changed while the worker uploaded it. The control
-  plane does not accept the uploaded bytes as a successful read.
+- `file_changed`: the file changed while the worker uploaded it, or a bundled
+  file changed its size while the worker wrote the bundle. The control plane
+  does not accept the uploaded bytes as a successful read.
 - `file_too_large`: the file exceeds `max_bytes`.
 - `relay_failed`: the relay URL answered a non-2xx status or the HTTP request
   failed.
@@ -792,36 +627,33 @@ The worker returns these error codes in `rpc_error.code`:
 These codes are the cross-runtime recovery contract. The message is for
 diagnosis only.
 
-`move` must stay inside one worker root. A directory delete requires
-`recursive: true`.
-
 ## Transfer Files Safely
 
 The relay keeps file bytes out of the RuntimeFabric connection and out of
 control-plane memory:
 
-1. The control-plane Pod that serves the user request opens an in-memory relay
+1. The control-plane Pod that serves the drive RPC opens an in-memory relay
    session with a random `transfer_id` and a short expiry.
-2. It sends `worker_files.pull` or `worker_files.push` with a signed URL on
-   its own internal origin.
+2. It sends `worker_files.pull` or `worker_files.push` with a URL on its own
+   internal origin.
 3. The worker sends `GET` (pull) or `PUT` (push) to that URL.
-4. The relay streams the bytes in bounded chunks between the user request and
-   the worker request. It does not buffer a whole file.
-5. The worker answers the RPC with the final size and fingerprint. The
-   control plane then completes the user request.
+4. The relay streams the bytes in bounded chunks between a local file of the
+   control plane and the worker request. It does not buffer a whole file.
+5. The worker answers the RPC with the final size. The control plane then
+   completes the drive RPC.
 
-The signed URL is:
+The URL is:
 
 ```text
-<internal origin>/internal/runtime-fabric/file-relay/<transfer_id>?token=<signature>
+<internal origin>/internal/runtime-fabric/file-relay/<transfer_id>?token=<token>
 ```
 
-The signature is an HMAC-SHA256 over the method, scope, worker ID, incarnation ID,
-transport route, root, relative path, `max_bytes`, expiry, nonce, and
-`transfer_id`, keyed with the global worker authentication key. A URL is valid
-for one request, one method, and one worker connection, and it expires with
-the session. The URL is a bearer credential: neither runtime writes it to a
-log, and Phoenix filters the `token` parameter.
+The token is 32 random bytes. The session and its token exist only in the
+process of the issuing Pod, which compares the request's token with its own
+copy, so the token needs no signature. A URL is valid for one request and one
+method, and it expires with the session. The URL is a bearer credential:
+neither runtime writes it to a log, and Phoenix filters the `token`
+parameter.
 
 The internal origin is the address of the issuing control-plane Pod, not a
 load-balanced Service address, because only that Pod holds the relay session.
@@ -830,12 +662,12 @@ control plane derives `http://<POD_IP>:<PORT>` from the Kubernetes Downward
 API. Workers must be able to reach this origin.
 
 The relay session is supervised memory state with an idle timeout. It is not a
-PostgreSQL row. When the relay Pod, the worker, or the user request fails, the
+PostgreSQL row. When the relay Pod, the worker, or the drive RPC fails, the
 whole operation fails, both sides release their state, and the caller repeats
 the request. There is no resume.
 
-The worker rejects `..` traversal and symlinks that leave an allowed root. All
-public roots stay under `ANKOLE_AGENTS_ROOT`, which defaults to `/agents`.
+The worker rejects `..` traversal and symlinks that leave its Agent Home,
+`/workspace`.
 
 A pull writes to this scratch path and then moves the checked file into place
 with an atomic rename:
@@ -851,41 +683,41 @@ upload.
 The relay does not compress file bytes. The transfer is HTTP inside the
 cluster network, and the bounded chunk size limits memory on each hop.
 
-Push and pull metadata include an XXH3 128-bit fingerprint. This value can show
-that a file changed. It is not a cryptographic digest.
-
 The worker keeps no transfer state after the RPC answers. The filesystem keeps
 the file. PostgreSQL records how Ankole uses it.
 
 ## Move Attachments without an Agent Turn
 
-File operations do not require an Actor turn. An adapter can save an attachment
-even when the message does not wake an Agent.
+File operations do not require an Actor turn or a worker. An adapter can save
+an attachment even when the message does not wake an Agent.
 
-The current inbound path is:
+The inbound path is:
 
 1. A provider adapter receives a resource reference or byte stream.
 2. The control plane assigns a numeric attachment ID and records a pending
    provider observation in PostgreSQL.
-3. The adapter writes bytes through `Ankole.WorkerFiles.put`.
-4. The adapter replaces the pending observation with the real cross-session
-   user-files path or a failed materialization state.
+3. The adapter stores the bytes in the file service with
+   `Ingress.store_attachment/3`.
+4. The adapter replaces the pending observation with `blob_ref` and the drive
+   `path` under `chats/<channel_id>/inbox/`, or with a failed materialization state.
 
-The current path does not ask a worker to fetch an arbitrary provider URL.
+The outbound path is:
 
-The ordinary outbound path is:
-
-1. The worker creates a file under the Agent `user-files` directory.
-2. The model calls `reply_attachment` with that real path.
-3. Agent Computer calls `actor_turn.complete` with the final Response ID.
-4. SignalsGateway validates structured attachment outputs.
-5. The actor completion transaction inserts attachment outbox intents.
-6. The provider adapter reads and uploads the file.
+1. The model saves the deliverable in the drive, then calls `reply_attachment`
+   with `drive_path`.
+2. The control-plane tool owner records the original path and current digest.
+3. The Driver records the structured tool result in the Response tape.
+4. SignalsGateway checks that the drive names each content at its path.
+5. The Run terminal transaction inserts attachment outbox intents. The common
+   Outbox commit check permits a file under `chats/<channel_id>/` only for that
+   destination channel. Paths outside `chats/` are shared.
+6. The provider adapter reads the bytes by `blob_ref` and uploads them.
 7. SignalsGateway records the outbound mirror after success.
 
 Hosted tools make an exception for complete `image_generation_call` items.
-AIGateway owns their artifact bytes. SignalsGateway materializes those bytes
-under `user-files` during turn adoption.
+AIGateway owns their artifact bytes. SignalsGateway stores those bytes under
+`chats/<channel_id>/generated/` in the Agent's drive during turn adoption. Without
+a source channel, it uses the shared `generated/` prefix.
 
 Ankole never searches model prose for file paths. The model must return a
 structured attachment record.
@@ -896,13 +728,13 @@ Agent Plugins and Skills combine filesystem packages with control-plane
 enablement state.
 
 Built-in packages remain on the deployment-instance filesystem.
-Agent-installed Skills remain under the Agent Home `installed-skills` directory.
-
-Before a turn, the worker scans installed Skills and reports the full observed
-set through `skills.installed.replace`. Each observation contains registry
-metadata from `SKILL.md`; it does not contain a content hash or file inventory.
-PostgreSQL stores the current registry set. The worker keeps the files in the
-Agent Home and reads them when it prepares a run.
+Agent-installed Skills live under `skills/` in the Agent's drive. The control
+plane reads the complete manifest set from Files to synchronize the catalog.
+A failed read leaves the catalog unchanged, and manifest updates preserve
+operator enablement overrides. Before a turn or Automation Job run, the
+worker brings the Agent Home `installed-skills` cache in step with that folder
+and stops preparation if the download fails (see [Files](Files.md)). The
+worker reads these files when it prepares a run; it does not replace the catalog.
 
 The worker reads per-Agent skill additions through one RPC method:
 
@@ -917,8 +749,8 @@ for the Skill and lesson rows. A missing, disabled, invalid, or duplicate name
 rejects the whole request. The worker rejects a partial, duplicate, or
 unexpected response instead of materializing a mixed snapshot.
 
-`skill_view` combines `SKILL.md` with the database note. `skill_append` changes
-that note and does not write `AGENT_APPEND.md`.
+`skill_view` combines `SKILL.md` with the lessons in PostgreSQL. Dreaming and
+the Console own lesson writes.
 
 RuntimeFabric returns only Agent Plugins enabled for the requesting Agent.
 A Job resolves that current catalog and its runtime-eligible Skill names on
@@ -933,26 +765,22 @@ One workflow run builds both images from the same 40-character Git revision.
 
 The workflow publishes immutable multi-platform manifests.
 It verifies release revision, protocol version, and architecture labels.
-
 The pair artifact contains digest-pinned image references.
-It also contains two Helm values files with the verified release revision and
-RuntimeFabric protocol version.
 
-The Helm chart lives under `internals/helm-chart/ankole-agent`.
-It requires digest-pinned images, the matching release revision, the protocol
-version, and an explicit rollout phase.
+The control plane creates every Worker from the image in
+`ANKOLE_AGENT_COMPUTER_IMAGE`. A deployment sets it to the Worker digest of the
+same pair and deploys only the control plane. `AgentWorkers` replaces a Worker
+whose protocol version differs from the control plane at once, and a Worker
+whose image or backend template differs when it is idle (see
+[AgentWorkers](AgentWorkers.md)).
 
-Before the `control-plane` phase, the deployment scales the old Worker to zero
-and waits until every old Worker Pod has terminated. That phase keeps worker
-replicas at zero. After it succeeds, the `worker` phase starts the matching
-Worker image. The chart sets the phase replica count, but the deployment
-executor owns the pre-apply wait.
-
-This order can briefly leave no workers during an incompatible protocol upgrade.
-Stored ActorEvents and Jobs continue after matching workers connect.
-
-Rollback uses the previous verified pair in the same two phases.
-Do not roll back only one runtime.
+The first upgrade to conversation drivers requires a maintenance window.
+Stop all old control-plane nodes before the migration. Old Workers use an
+incompatible protocol; their open inputs resume under the new driver and can
+repeat one interrupted operation. Later planned restarts adopt retained
+Worker calls and Codex attempts. The migration removes activation and delivery
+tables. An older image cannot run against this schema. A rollback requires
+the pre-upgrade database and Worker storage backups.
 
 Every control-plane Pod is one named Erlang node. DNSCluster discovers the
 other Pods through a headless Service, the Pods share one release cookie, and
@@ -960,9 +788,14 @@ the distribution port is fixed so a NetworkPolicy can limit it to control-plane
 Pods. Workers never use the distribution ports; they connect to the ClusterIP
 Service for the channel and to the issuing Pod IP for a file relay. A Pod that
 terminates leaves the Service first and then closes its channels, so Workers
-reconnect to a remaining Pod and continue from PostgreSQL delivery state.
+reconnect to a remaining Pod. Drivers rebuild from PostgreSQL and adopt
+retained Worker calls and Codex attempts.
 Distributed Erlang provides process addressing only; it is not a durable
 single-writer guarantee.
+
+The release starts ERTS with a limit of 65,536 ports. This prevents a large
+container file limit from reserving a large port table at startup. An operator
+can override this limit with `ERL_FLAGS`, for example `+Q 1048576`.
 
 ## What RuntimeFabric Does Not Do
 

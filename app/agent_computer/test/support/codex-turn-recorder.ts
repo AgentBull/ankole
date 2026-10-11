@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonFromBytes } from '../../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { ActorTurnRef } from '../../src/lanes/actor_lane'
+import type { JobTurnRef } from '../../src/lanes/actor_lane'
 import type { RPCRequestInit } from '../../src/lanes/rpc_lane'
 import type { ThreadItem } from '../../src/core/codex-runner/generated/protocol/v2/ThreadItem'
 import { BackgroundAgentJobTurnRecorder } from '../../src/core/codex-runner/job/turn-recorder'
@@ -54,12 +54,11 @@ export function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn
   }
 }
 
-export const actorTurn: ActorTurnRef = {
-  actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
-  activation_uid: 'activation-1',
-  actor_epoch: 1,
-  actor_event_id: 'event-1',
-  revision: 0
+export const actorTurn: JobTurnRef = {
+  actor: { session_id: 'job:1000' },
+  job_id: 1000,
+  attempt: 1,
+  actor_event_id: 'event-1'
 }
 
 export function fixture(delayMs = 5, turnTrace?: WorkerTurnTrace) {

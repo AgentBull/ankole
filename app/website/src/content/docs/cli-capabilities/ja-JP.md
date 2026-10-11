@@ -33,7 +33,7 @@ model に見える tool は、すべての Turn で context を消費します�
 
 automation job は、配信のたびに Agent 会話を起こす代わりに、trigger を消費する決定論的な script です。checkback、cron schedule、または webhook endpoint は、`automation_job_id` を指名できます。このフィールドがない trigger は、直接起動の振る舞いを維持します。
 
-Agent は、Agent Home 内にディレクトリを 1 つ作成し、`main.ts` を追加し、セットアップと non-SDK ブランチを手動で確認し、`create-automation-job-cli` でディレクトリを登録します。Worker は、登録時と実行のたびに、実パスでディレクトリとエントリポイントを解決します。現在のファイルを Bun で実行するため、再度登録しなくても編集が反映されます。
+Agent は、ワークスペースにディレクトリを 1 つ作成し、`main.ts` を追加し、セットアップと non-SDK ブランチを手動で確認し、`create-automation-job-cli` でディレクトリを登録します。登録時に、ディレクトリは新しいドライブフォルダー `automation/<ディレクトリ名>-<ランダムなサフィックス>` にコピーされ、そのフォルダーが `drive_prefix` として返されます。各実行は、発火時点でそのフォルダーにある内容を新しい実行ディレクトリにコピーし、そこで `main.ts` を Bun で実行します。そのため、スクリプトが作業ディレクトリに書いたファイルは次の実行まで残りません。スクリプトを変更するときは、Agent が `ankole-files put <dir> <drive_prefix>` を実行します。再度登録しなくても編集が反映されます。
 
 各 attempt は最新の Agent WorkerEnv と、現在有効な Skill から呼び出しスコープで生成された `MCPORTER_CONFIG` を受け取ります。Worker は script がどの server を使うかを予測しません。script は mcporter と stdin JSON で、選択した 1 つの MCP tool を呼び出せます。Automation は Skill 指示を読み取らず、永続的な Agent Home mcporter 設定も使いません。
 

@@ -1,7 +1,8 @@
+import { ActorLabel } from '../actor-label'
 import { Badge, Button, Checkbox, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebDirectoryAccessControllerShowOptions,
@@ -17,13 +18,11 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AccessReviewModel)
-  const queryClient = useQueryClient()
   const directory = useQuery({
     ...ankoleWebDirectoryAccessControllerShowOptions({ path: { provider_id: providerID } }),
     refetchInterval: 15000
   })
   const onSuccess = () => {
-    void queryClient.invalidateQueries()
     model.approvedFingerprint.value = undefined
     toast.success(t('console.human_access.saved'))
   }
@@ -150,7 +149,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
           ) : null}
           {event.review_reason ? (
             <p className="text-xs text-muted-foreground">
-              {event.reviewed_by} · {event.review_reason}
+              <ActorLabel actor={event.reviewed_by} /> · {event.review_reason}
             </p>
           ) : null}
         </div>

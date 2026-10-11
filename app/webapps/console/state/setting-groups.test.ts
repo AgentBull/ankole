@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
-import { groupOverridden, settingGroupID, settingGroupPrefix, settingOwnerRoute, settingRows } from './setting-groups'
+import { settingGroupID, settingGroupPrefix, settingOwnerRoute, settingRows } from './setting-groups'
 
 function item(key: string, overrides: Partial<AppConfigurationItem> = {}): AppConfigurationItem {
   return {
@@ -62,13 +62,6 @@ describe('setting groups', () => {
 
     expect(rows.groups[0]?.items.map(member => member.key)).toEqual(['observability.traces.enabled'])
     expect(rows.managed.map(managed => managed.key)).toEqual(['observability.traces.provider'])
-  })
-
-  test('marks a group overridden when any member carries an installation value', () => {
-    expect(groupOverridden({ id: 'observability', items: [item('observability.traces.enabled')] })).toBe(false)
-    expect(
-      groupOverridden({ id: 'observability', items: [item('observability.traces.enabled', { overridden: true })] })
-    ).toBe(true)
   })
 
   test('sends the identity activation list to the page that writes it', () => {

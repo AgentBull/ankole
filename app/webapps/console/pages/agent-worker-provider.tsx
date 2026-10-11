@@ -1,0 +1,87 @@
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, toast } from '@ankole/uikit'
+import { useMutation } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
+import { ErrorBlock } from '../../common/error-block'
+import { ankoleWebWorkerProviderControllerAssignMutation } from '../api/generated/@tanstack/react-query.gen'
+import type { AgentItem, WorkerProvider } from '../api/generated/types.gen'
+import { FormSection, LabeledField, ReadOnlyValue } from '../console-form'
+
+export function WorkerProviderSelect({
+  providers,
+  value,
+  onChange,
+  ...props
+}: {
+  providers: WorkerProvider[]
+  value: string
+  onChange: (value: string) => void
+  id?: string
+  required?: boolean
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <Select
+      {...props}
+      value={value}
+      onValueChange={next => {
+        if (next) onChange(next)
+      }}>
+      <SelectTrigger aria-label={t('console.worker_providers.provider')} className="w-full">
+        <SelectValue placeholder={t('console.worker_providers.select')} />
+      </SelectTrigger>
+      <SelectContent>
+        {providers.map(provider => (
+          <SelectItem key={provider.provider_id} value={provider.provider_id}>
+            {provider.display_name} ({provider.provider_id})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+export function AgentWorkerProvider({ agent, providers }: { agent: AgentItem; providers: WorkerProvider[] }) {
+  const { t } = useTranslation()
+  const [providerID, setProviderID] = useState('')
+  const assign = useMutation({
+    ...ankoleWebWorkerProviderControllerAssignMutation(),
+    onSuccess: () => {
+      toast.success(t('console.worker_providers.assigned'))
+    }
+  })
+  const assignedID = agent.worker_provider_id ?? assign.data?.provider_id
+  const selected = providers.find(provider => provider.provider_id === assignedID)
+
+  return (
+    <FormSection
+      title={t('console.worker_providers.provider')}
+      description={t(`console.worker_providers.${assignedID ? 'agent_hint' : 'legacy_hint'}`)}>
+      <ErrorBlock error={assign.error} />
+      {assignedID ? (
+        <ReadOnlyValue>
+          <Link className="link" to={`/settings/worker-providers/${encodeURIComponent(assignedID)}`}>
+            {selected ? `${selected.display_name} (${assignedID})` : assignedID}
+          </Link>
+        </ReadOnlyValue>
+      ) : (
+        <>
+          <LabeledField label={t('console.worker_providers.provider')} required>
+            <WorkerProviderSelect providers={providers} value={providerID} onChange={setProviderID} />
+          </LabeledField>
+          <Button
+            className="justify-self-start"
+            type="button"
+            size="sm"
+            disabled={!providerID || assign.isPending}
+            onClick={() => assign.mutate({ path: { agent_uid: agent.uid }, body: { provider_id: providerID } })}>
+            {t('console.worker_providers.assign')}
+          </Button>
+        </>
+      )}
+    </FormSection>
+  )
+}

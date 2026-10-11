@@ -203,16 +203,19 @@ defmodule Ankole.Brain.SkillLessons do
 
     owner_session_id = "brain:skill-lessons:" <> agent_uid
 
-    with {:ok, binding_name} <- agent_binding_name(agent_uid),
+    with {:ok, principal} <- Ankole.Principals.get_principal(agent_uid),
+         {:ok, binding_name} <- agent_binding_name(agent_uid),
          {:ok, skills} <- Library.enabled_skills_for_agent(agent_uid),
          {:ok, active} <- Library.active_skill_lessons(agent_uid),
          {:ok, revoked} <- Library.revoked_skill_lessons(agent_uid),
          task = reflection_task(skills, active, revoked, bundle_sections(bundle)),
-         {:ok, %{job: job}} <-
+         {:ok, %{job: job, dispatch_event: dispatch_event}} <-
            BackgroundAgentJobs.create_with_dispatch(%{
              "agent_uid" => agent_uid,
              "owner_session_id" => owner_session_id,
-             "created_by" => %{"principal_uid" => agent_uid},
+             "created_by" => %{
+               "principal_uid" => to_string(Ankole.ActorRef.from_principal(principal))
+             },
              "source_tool_call_id" => "skill-lessons:" <> Integer.to_string(through_job_id),
              "title" => @reflection_title,
              "task" => task,
@@ -224,6 +227,7 @@ defmodule Ankole.Brain.SkillLessons do
                "human_input_job_ids" => human_input_ids
              }
            }) do
+      Ankole.Conversations.deliver_events([dispatch_event])
       %{status: :reflection_created, job_id: job.id, signal_jobs: length(candidates)}
     else
       {:error, reason} -> %{status: :reflection_failed, error: inspect(reason)}

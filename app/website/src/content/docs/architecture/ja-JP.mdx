@@ -17,7 +17,7 @@ Harness は各行動主体を識別し、アクセス規則を適用し、長時
 
 <DocsArchitectureDiagram lang="ja-JP" />
 
-1 つのプライベートな deployment instance は、1 つの論理 control plane と 1 台以上の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理します。Worker は Agent が実際に働く compute 環境を提供します。
+1 つのプライベートな deployment instance は、1 つの論理 control plane と、Agent ごとに 1 台の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理し、Worker を作成します。各 Worker は、その Agent が実際に働く compute 環境を提供します。
 
 外部の chat、webhook、schedule は SignalsGateway から入ります。Identity Provider が人と組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
 
@@ -35,15 +35,23 @@ OTP の supervision tree は、Agent、connection、Job それぞれに独立し
 
 ### Worker は Agent の仕事用コンピュータです
 
-Agent Computer Worker は model loop、tool、Skill、browser、terminal、file 操作を実行し、automation job の script 実行も行います。Worker は自ら durable な domain state を作りません。control plane から仕事を受け取り、実行結果を control plane にコミットします。
+主 Agent loop は control plane で動作します。環境ツールまたは Codex が必要な時点で Agent Computer Worker を起動します。Worker はツール、Skills、browser、terminal、file 操作、automation script、Codex Job を実行し、control plane が永続結果をコミットします。
 
-1 台の Worker で複数の Agent を扱えますが、各 Agent は依然として独立した軽量 sandbox で実行されます。より強い分離が必要な Agent には、専用の Worker を割り当ててください。
+各 Agent は 1 つの Worker ID を持ち、同時に接続を許可する Worker インスタンスは最大 1 つです。Agent 同士が Worker、キャッシュディスク、credential を共有することはありません。Worker の container または Pod が唯一の分離境界です。Agent のコマンドは内側の sandbox なしで実行され、Agent 自身のコンピュータを変更できます。Kubernetes では、Pod template の runtime class で gVisor を追加できます。
 
-同時実行性を高めたい場合や、セキュリティ要件の異なる仕事を分離したい場合は、Worker を追加します。
+control plane は Agent が選んだ provider で Worker を管理します。Docker、Kubernetes、Cloudflare、Vercel、AWS Lambda MicroVMs、Alibaba Function Compute に対応します。Home は `/workspace` の永続ストレージで、`/var/cache/ankole` は破棄可能なキャッシュです。コマンドは sudo なしの uid 1000 で動作します。
 
-RuntimeFabric は ZeroMQ 経由で control plane と Worker を接続します。wakeup、steering、cancel、進捗、実行結果を運びます。
+RuntimeFabric は Worker ごとに 1 本の Phoenix Channel で control plane と Worker を接続します。wakeup、steering、cancel、進捗、実行結果を運びます。
 
 これは低遅延のライブ channel であり、database ではありません。connection が切れた後の復旧は、依然として PostgreSQL の state を使います。
+
+### Worker pool がプラットフォームと設定を選ぶ
+
+オペレーターは **Settings → Worker providers** で Worker pool を設定します。1 つの provider は site 全体の pool で、プラットフォームの種類、YAML 設定、暗号化したプラットフォーム認証情報を持ちます。複数 Agent が同じ pool を使っても、各 Agent のコンピュータと永続 Home は専用です。種類やインスタンス仕様が異なる場合は別の pool を使います。
+
+Agent 作成時に pool を選ぶか、site の既定 pool を使います。その選択は後から変更できません。control plane は必要時に Worker を起動し、アイドル時に解放または休止します。古いインスタンスは Home を保持して置換し、キャッシュは別途再構築できます。[Worker pool](../worker-management/) を参照してください。
+
+環境 workspace と Codex turn の容量は Worker ごとに制限します。主会話と Workflow のモデル呼び出しは control plane で実行し、この容量を使いません。pool の追加は配置先の選択肢を増やしますが、既存 Agent の作業を共有コンピュータ間で移動しません。
 
 ## 1 つの message が再開可能な仕事になるまで
 
@@ -67,7 +75,7 @@ script は機械的な検査を静かに完了し、実行のたびに検査可�
 
 各 active session は、アドレス指定可能な Virtual Actor です。mailbox、lifecycle、recovery position を持ちます。新しい message や schedule で wake でき、実行中に追加の input、cancel、人による介入を受け取ることもできます。
 
-Actor Runtime はこの長時間の work identity を所有します。各 turn に対して新しい activation と fence を生成します。Worker がコミットできるのは、現在自分が所有する turn だけです。古い Worker は、復旧や retry の後に新しい結果を上書きできません。
+会話 Driver は長時間の作業を所有します。PostgreSQL の epoch が Driver の書き込みを保護し、永続 Response チェーンが完了したステップを保持します。Worker の結果は RunRef または JobTurnRef の操作識別子で受け入れ、新 Driver が進行中の作業を引き継げます。
 
 stream された content は進捗です。事実となるのは、control plane が確認して保存した message、tool の結果、state の遷移だけです。これにより「interface には作業中と表示されている」ことと「仕事が完了している」ことが区別されます。
 
@@ -77,7 +85,7 @@ Brain はチャットの抜粋を詰め込んだベクトルデータベース�
 
 知識は、Agent との会話、対象となるグループ内で誰も Agent に宛てなかったメッセージ、登録済みのファイルまたは URL Source から得られます。
 
-1 つのインスタンスに属するすべての Agent が、同じ知識空間を使います。保護された本文、Claim、Timeline イベントは、`world`、権限グループ、または 1 つの Principal の開示範囲を持ちます。Source と Channel は出所を記録しますが、学習した知識へのアクセス権を付与しません。
+同じテナントの Agent が知識空間を共有し、テナント間の知識空間は分離されます。保護された本文、Claim、Timeline イベントは、`world`、権限グループ、または 1 つの Principal の開示範囲を持ちます。Source と Channel は出所を記録しますが、学習した知識へのアクセス権を付与しません。
 
 ターンの間、統合された想起が現在の仕事に必要な長期コンテキストを供給します。オフラインの Dreaming は新しい証拠を整理し、パターンを見つけ、以前の予測を採点し、確認が必要な矛盾を示します。
 
@@ -91,13 +99,13 @@ Brain はチャットの抜粋を詰め込んだベクトルデータベース�
 
 メイン Agent は、調査、データ分析、file 作業、code 変更、Deep Research を Background Agent Job に委任できます。メイン session は利用可能なまま、ユーザーとの会話を続けられます。
 
-control plane が Job lifecycle を保存し、Worker が Job を実行します。その Worker が停止しても、システムは Job を再ディスパッチし、durable な state から続行できます。process の終了で Job 全体が消えることはありません。
+control plane は Job の lifecycle を保存します。インスタンス置換後は永続 Home の workspace と Codex スレッドから再開します。PostgreSQL は受け付けた作業と復旧状態を保持します。
 
 メイン Agent と Job は通信を続けられます。Job は input を求めたり、失敗や最終結果を返したり、要求されれば沈黙を保ったりできます。人を待つ間は実行 slot を解放し、回答が届いてから再開します。
 
 Deep Research はこの architecture の高度な利用法です。Agent Plugin が workspace template を提供し、Skill が調査方法を提供し、Background Agent Job が durable な実行を提供します。
 
-Agent Home は調査資料と成果物を保持します。
+Job の workspace は永続 Home に残ります。Worker の外で使う調査資料と成果物は、Agent がコントロールプレーンのドライブに公開します。
 
 [Background Agent Jobs](../background-jobs/) と [Deep Research](../deep-research-job/) を参照してください。
 
@@ -105,7 +113,7 @@ Agent Home は調査資料と成果物を保持します。
 
 AIGateway は model の能力を Agent の実行から分離します。メイン Agent、Job、Brain、外部 API client は、LLM、embedding、rerank、画像、Web Search、Web Fetch Provider に対して同じ境界を使います。
 
-Agent の model profile は Agent 実行用の model を選択します。Brain は AppConfigure のインスタンス全体に適用する 5 つの model 設定を使います。control plane は Provider の credential を暗号化して保存し、AIGateway は上流への request でそれらを使用します。
+Agent の model profile が実行モデルを選択します。各テナントが選ぶ Brain maintainer Agent の `light`、`heavy`、`web_fetch` profile が Brain の作業を担当します。サイトの AppConfigure が embedding モデルを、テナントの AppConfigure が rerank モデルを選択します。control plane は Provider credential を暗号化して保存し、AIGateway が上流への request に使用します。
 
 Agent と Worker が受け取るのは、使用できる model の選択と呼び出し結果だけです。
 
@@ -137,19 +145,19 @@ Skill は、ある種の仕事のやり方を説明し、メイン Agent また�
 
 PostgreSQL は、identity、access、configuration、message、session、Job、memory、delivery state、audit 記録などの durable な domain 事実を保存します。システムが結果をコミットしたかどうかの判断には、これらの記録を使います。
 
-Agent Home は workspace の file、tool の出力、最終成果物を保存します。シングルホストの deployment ではローカルまたは仮想ディスクを使用できます。複数の Worker を持つ Kubernetes deployment には、`ReadWriteMany` をサポートする NFS などの共有 volume が必要です。
+control plane のファイルストアは添付ファイル、公開ファイル、Skill、Automation スクリプトを保持します。永続 Home は workspace、ユーザーパッケージ、Codex スレッドを別に保持します。PostgreSQL、ファイルストア、全 Home、元の暗号化キーを一緒にバックアップします。
 
-RuntimeFabric、Worker の process state、stream preview は再構築できます。これらはライブ実行を支えますが、PostgreSQL や Agent Home の代わりにはなりません。
+RuntimeFabric、Worker プロセス、ストリーム表示、`/var/cache/ankole` は再作成できます。永続 Home はインスタンス削除後も残し、ストレージバックアップが必要です。[バックアップとリストア](../backup-and-restore/)を参照してください。
 
 ## 3 つの deployment 形態
 
 | 形態 | control plane と Worker | 永続化 |
 | --- | --- | --- |
-| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane と 1 台の Worker を実行 | PostgreSQL と Agent Home はホスト上の persistent volume を使用 |
-| **Kubernetes · エンタープライズ deployment 向け推奨** | 1 つの control plane が 1 つ以上の Worker Pod に接続し、node またはセキュリティ要件に応じて schedule | PostgreSQL に加えて、共有の `ReadWriteMany` Agent Home storage |
-| **ソースインストール** | 開発環境が control plane と Worker を別々に実行 | 開発用に構成された PostgreSQL とローカル workspace |
+| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane を実行し、control plane が Agent ごとに Docker socket を通じて 1 台の Worker container を作成 | PostgreSQL、ファイルストア、Agent ごとの専用永続 Home volume |
+| **Kubernetes · エンタープライズ deployment 向け推奨** | 1 つの control plane が、Agent ごとに Kubernetes API を通じて 1 つの Worker Pod を作成 | PostgreSQL、ファイルストア、Home PVC または共有ストレージ。キャッシュは別 volume |
+| **ソースインストール** | `bun dev` が control plane を実行し、control plane が Agent ごとに Docker の Worker container を作成。container はローカルの Agent Computer ソースを watch モードで実行 | PostgreSQL、`var/ankole-dev/files`、専用 Docker 永続 Home volume |
 
-論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、Worker を水平に追加できます。完全な手順は [クイックスタート](../quickstart/#deployment) を参照してください。
+論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、control plane が各 Agent に専用の Worker を用意します。完全な手順は [クイックスタート](../quickstart/#deployment) を参照してください。
 
 ## 5 つの技術的判断
 
@@ -157,8 +165,8 @@ RuntimeFabric、Worker の process state、stream preview は再構築できま�
 | --- | --- |
 | **Virtual Actor が AI の仕事を担う** | 各 session に address、mailbox、lifecycle、recovery position を与える |
 | **OTP supervision tree が failure domain を定義する** | instance 全体を失敗させずに、1 つの Agent または connection の branch を復旧する |
-| **ZeroMQ がライブ制御を運ぶ** | Agent の実行中に wakeup、steering、進捗、backpressure を運ぶ |
-| **Agent Computer Worker が実行を提供する** | model loop、tool、file、terminal、sandbox を workspace の近くに置く |
+| **Phoenix Channel がライブ制御を運ぶ** | Agent の実行中に wakeup、steering、進捗、backpressure を運ぶ |
+| **Agent Computer Worker が実行を提供する** | 各 Agent に、tool、file、terminal、browser、Codex のための専用コンピュータを与える |
 | **PostgreSQL の ledger が事実を保存する** | message、Job、memory、決定、コミット済み操作を再開可能かつ audit 可能にする |
 
 これらの判断は 1 つの結果を支えます。Agent は数時間働き、実行中に新しい情報を受け取り、独立して失敗と復旧を行い、コミットされた各 action の痕跡を残せます。

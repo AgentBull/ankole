@@ -1,7 +1,7 @@
 //! WHATWG URL facts for the shared web URL policy.
 //!
 //! AIGateway `web_fetch` validation, Brain source fetches, the Lark image
-//! resolver, and the Agent Computer web guard all consume these facts, and
+//! resolver consume these facts, and
 //! the BEAM callers share the allow/deny mechanics through
 //! `Ankole.Kernel.validate_web_url/3`. The `ankole-browser` navigation guard
 //! cannot link the native module, so it mirrors `classify_ipv4` and

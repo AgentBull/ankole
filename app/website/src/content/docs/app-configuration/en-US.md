@@ -13,7 +13,7 @@ LLM Providers, Identity Providers, chat channels, and environment variables have
 
 AppConfigure settings are stored in PostgreSQL. They control Ankole product behavior while the instance runs. Most changes apply to later work and do not require a new deployment.
 
-[Deployment environment variables](../environment-variables/) start the control plane, PostgreSQL, and Workers. Restart the affected process after you change one.
+[Deployment environment variables](../environment-variables/) start the control plane and PostgreSQL and configure the Worker backend. Restart the affected process after you change one.
 
 Use [Agent environment variables](../worker-env/) when a Skill, command-line tool, or MCP service needs a custom value such as an API key.
 
@@ -31,15 +31,9 @@ The key is the stable name of the setting. Its description explains what it cont
 
 ## Understand scope and source
 
-The AppConfigure page changes instance overrides. A key marked **Instance or Agent** also lets its owning feature store an override for one Agent, but this page does not select or edit an Agent.
+Settings have **Site** or **Tenant** scope. Site keys control shared infrastructure. Tenant keys control the selected tenant's behavior. The Console shows site defaults and tenant overrides separately; Agent overrides are not supported.
 
-When Ankole resolves one of these settings for an Agent, it uses this order:
-
-1. the current Agent override;
-2. the instance override;
-3. the default declared by the installed version.
-
-The AppConfigure list shows an instance override or the version default. **Reset to default** removes the instance override. All Agents without their own override then use the version default.
+A site key resolves its stored value, then the version default. A tenant key resolves the tenant override, then a site default for that key, then the version default. **Reset to default** removes the override at the selected scope. The source column shows which value applies.
 
 ## Change a setting
 
@@ -54,7 +48,7 @@ Most changes apply to later work. If the page says that a change applies at the 
 
 ## Reset a setting
 
-When you no longer need a custom value, open the setting and select **Reset to default**. This removes the stored override and makes Ankole use the default declared by the installed version.
+When you no longer need a custom value, open the setting and select **Reset to default**. This removes the override at the selected scope and makes Ankole use the default declared by the installed version.
 
 Resetting is different from entering the current default as a custom value. A reset follows a changed default in a later version. A stored custom value does not.
 
@@ -66,38 +60,38 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `ai_agent.max_iterations` | Instance or Agent | Maximum model iterations for one Agent turn |
-| `ai_agent.max_output_tokens` | Instance or Agent | Output-token cap for one model response |
-| `ai_agent.inactivity_timeout_ms` | Instance or Agent | Time to wait for an inactive model or Provider before ending the turn |
-| `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
-| `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
+| `ai_agent.max_iterations` | Tenant | Maximum model iterations for one Agent turn |
+| `ai_agent.max_output_tokens` | Tenant | Output-token cap for one model response |
+| `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
+| `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
+| `ai_agent.library.skill_defaults` | Tenant | Default enablement for Skills |
 
 ### Workflows
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `workflow.max_concurrency_per_run` | Instance | Maximum task concurrency that one Workflow can request; default `8`, valid range `1`–`32` |
-| `workflow.max_running_per_agent` | Instance | Maximum running Workflow tasks across one Agent's runs; default `8`, valid range `1`–`64` |
-| `workflow.max_agent_calls_per_run` | Instance | Maximum subagent calls that one Workflow can create; default `256`, valid range `1`–`1,024` |
+| `workflow.max_concurrency_per_run` | Tenant | Maximum task concurrency that one Workflow can request; default `8`, valid range `1`–`32` |
+| `workflow.max_running_per_agent` | Tenant | Maximum running Workflow tasks across one Agent's runs; default `8`, valid range `1`–`64` |
+| `workflow.max_agent_calls_per_run` | Tenant | Maximum subagent calls that one Workflow can create; default `32`, valid range `1`–`1,024` |
 
-These limits apply to later Workflow work. A run can request a lower concurrency or call limit, but it cannot raise the instance limit. Read [Workflows](../workflows/) for task behavior and other size boundaries.
+These limits apply to later Workflow work. A run can request a lower concurrency or call limit, but it cannot raise the tenant limit. Read [Workflows](../workflows/) for task behavior and other size boundaries.
 
 ### Brain
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `brain.enabled` | Instance | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
-| `brain.maintainer_agent_uid` | Instance | Active Agent responsible for Brain maintenance; all Brain model calls run as this Agent and attribute usage to it; disabling it stops those calls and local URL fetching until it is enabled or replaced; edit its `light`, `heavy`, and `web_fetch` profiles on the Agent page |
-| `brain.embedding_model` | Instance | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
-| `brain.rerank_model` | Instance | Provider and model for reranking search results; an empty value keeps the fusion order |
-| `brain.search_tokenizer` | Instance | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
-| `brain.chunking` | Instance | Source chunk size, overlap, and input limits |
-| `brain.forgetting` | Instance | Knowledge-decay half-lives and the soft-delete purge interval |
-| `brain.dreaming_task_cron` | Instance | Schedule for regular knowledge consolidation |
-| `brain.self_healing_task_cron` | Instance | Schedule for rebuilding stale chunk, embedding, and search-index projections |
-| `brain.signal_channel_batch_idle_time` | Instance | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
-| `brain.skill_learning_enabled` | Instance | Enable Skill lesson learning and delivery; when disabled, stored lessons remain but are not supplied |
-| `brain.skill_learning_reflection_threshold` | Instance | Unconsumed Signal Jobs one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
+| `brain.enabled` | Tenant | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
+| `brain.maintainer_agent_uid` | Tenant | Active Agent responsible for Brain maintenance; all Brain model calls run as this Agent and attribute usage to it; disabling it stops those calls and URL Source fetching until it is enabled or replaced; edit its `light`, `heavy`, and `web_fetch` profiles on the Agent page |
+| `brain.embedding_model` | Site | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
+| `brain.rerank_model` | Tenant | Provider and model for reranking search results; an empty value keeps the fusion order |
+| `brain.search_tokenizer` | Site | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
+| `brain.chunking` | Tenant | Source chunk size, overlap, and input limits |
+| `brain.forgetting` | Tenant | Knowledge-decay half-lives and the soft-delete purge interval |
+| `brain.dreaming_task_cron` | Tenant | Schedule for regular knowledge consolidation |
+| `brain.self_healing_task_cron` | Tenant | Schedule for rebuilding stale chunk, embedding, and search-index projections |
+| `brain.signal_channel_batch_idle_time` | Tenant | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
+| `brain.skill_learning_enabled` | Tenant | Enable Skill lesson learning and delivery; when disabled, stored lessons remain but are not supplied |
+| `brain.skill_learning_reflection_threshold` | Tenant | Unconsumed Signal Jobs one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
 
 Read [Brain](../brain/) for its knowledge behavior and model requirements. Read [Skill lessons](../skill-lessons/) for the lessons that Brain supplies with Skills.
 
@@ -105,41 +99,43 @@ Read [Brain](../brain/) for its knowledge behavior and model requirements. Read 
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `ai_gateway.compaction` | Instance | Automatic conversation-history compaction policy |
-| `observability.traces.enabled` | Instance | Whether process-wide OpenTelemetry export starts on the next control-plane boot |
-| `observability.traces.provider` | Instance | Semantic projection for `langfuse`, `langsmith`, or generic `opentelemetry` traces |
-| `observability.traces.otlp_endpoint` | Instance | Base OTLP/HTTP endpoint for optional traces |
-| `observability.traces.otlp_headers` | Instance | Encrypted authentication headers for optional traces |
+| `ai_gateway.compaction` | Site | Automatic conversation-history compaction policy |
+| `observability.traces.enabled` | Site | Whether process-wide OpenTelemetry export starts on the next control-plane boot |
+| `observability.traces.provider` | Site | Semantic projection for `langfuse`, `langsmith`, or generic `opentelemetry` traces |
+| `observability.traces.otlp_endpoint` | Site | Base OTLP/HTTP endpoint for optional traces |
+| `observability.traces.otlp_headers` | Site | Encrypted authentication headers for optional traces |
 
 See [LLM observability](../llm-observability/) for Langfuse, LangSmith, VictoriaTraces, and other OTLP/HTTP receivers.
 
-### Identity, Plugins, and instance defaults
+### Identity, Plugins, and tenant defaults
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `principals.identity_providers.active` | Instance, read-only | Identity sources available for administrator sign-in; managed on the Identity Provider page |
-| `principals.identity_providers.directory_full_sync_interval_hours` | Instance | Full organization-directory synchronization interval |
-| `plugins.enabled_ids` | Instance | Control Plane Plugins to enable at the next start |
-| `system.timezone` | Instance | Default time zone for schedules and other control-plane features |
-| `i18n.default_locale` | Instance | Default language for the Ankole interface |
+| `principals.identity_providers.active` | Tenant, read-only | Identity sources available for administrator sign-in; managed on the Identity Provider page |
+| `principals.identity_providers.directory_full_sync_interval_minutes` | Tenant | Full organization-directory synchronization interval |
+| `plugins.enabled_ids` | Site | Control Plane Plugins to enable at the next start |
+| `system.timezone` | Tenant | Default time zone for schedules and other control-plane features |
+| `i18n.default_locale` | Tenant | Default language for the Ankole interface |
 
 ### Workers, web reading, and security
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `runtime_fabric.worker_auth_key` | Instance, read-only | Authentication key between the control plane and Workers; generated and maintained by the system |
-| `agent_computer.background_agent_job.max_turns_per_worker` | Instance | Maximum concurrent Background Agent Job turns on each Worker |
-| `worker.rendered_fetch_idle_ttl_ms` | Instance or Agent | Idle lifetime for the built-in `web_fetch` rendered fallback |
-| `security.ssrf_filter` | Instance or Agent | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |
+| `runtime_fabric.worker_auth_key` | Site, read-only | Installation key that the control plane generates at first start; it names Lark profiles, and it is not a Worker credential |
+| `agent_computer.worker.ready_timeout` | Site | Seconds that a Worker may stay not ready before it is rebuilt with a new cache disk; default `600` (10 minutes) |
+| `worker.rendered_fetch_idle_ttl_ms` | Tenant | Idle lifetime for the built-in `web_fetch` rendered fallback |
+| `security.ssrf_filter` | Site | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |
 
 Cloud metadata addresses are rejected even when this setting is off.
+
+`agent_computer.worker.ready_timeout` controls recovery of observed unready instances. Set idle release in provider YAML with `idleReleaseAfter`. See [Workers](../worker-management/).
 
 ### First-run state
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `setup.bootstrap_activation_code` | Instance, read-only | Temporary activation code for the first-run setup page |
-| `setup.completed` | Instance, read-only | Whether this instance has completed first-run setup |
+| `setup.bootstrap_activation_code` | Site, read-only | Temporary activation code for the first-run setup page |
+| `setup.completed` | Site, read-only | Whether this instance has completed first-run setup |
 
 The first-run setup flow owns these keys. To read the activation code, run `kit show bootstrap-activation-code`. Do not edit these keys on the AppConfigure page.
 

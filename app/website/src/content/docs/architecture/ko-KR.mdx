@@ -17,7 +17,7 @@ Agent는 몇 시간 동안 작업하고, 공유 Company Brain을 사용하고, �
 
 <DocsArchitectureDiagram lang="ko-KR" />
 
-하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고 Agent Computer Worker가 한 대 이상 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리합니다. Worker는 Agent가 일하는 컴퓨팅 환경을 제공합니다.
+하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고, Agent마다 Agent Computer Worker가 한 대씩 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리하며 Worker를 만듭니다. 각 Worker는 자신의 Agent가 일하는 컴퓨팅 환경을 제공합니다.
 
 외부 채팅, webhook, 스케줄은 SignalsGateway를 통해 들어옵니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
 
@@ -35,15 +35,23 @@ OTP 감독 트리는 Agent, 연결, Job에 별도의 장애 도메인을 제공�
 
 ### Worker는 Agent의 작업용 컴퓨터입니다
 
-Agent Computer Worker는 모델 루프, tool, Skill, 브라우저, 터미널, 파일 작업을 실행하고 automation job 스크립트 실행도 수행합니다. 스스로 내구성 있는 도메인 상태를 만들지 않습니다. 컨트롤 플레인에서 작업을 받아 실행 결과를 다시 커밋합니다.
+주 Agent loop는 control plane에서 실행됩니다. 환경 도구나 Codex가 필요할 때 Agent Computer Worker를 시작합니다. Worker는 도구, Skills, 브라우저, 터미널, 파일 작업, automation script와 Codex Job을 실행하고 control plane이 영구 결과를 커밋합니다.
 
-Worker 하나가 여러 Agent를 서빙할 수 있으며, 각 Agent는 여전히 별도의 경량 sandbox에서 실행됩니다. 더 강한 격리가 필요하면 Agent에 전용 Worker를 주십시오.
+각 Agent에는 Worker ID가 하나 있으며 동시에 승인하는 Worker 인스턴스는 최대 하나입니다. Agent끼리 Worker, 캐시 디스크, credential을 공유하지 않습니다. Worker 컨테이너 또는 Pod가 유일한 격리 경계입니다. Agent의 명령은 내부 sandbox 없이 실행되며 Agent 자신의 컴퓨터를 바꿀 수 있습니다. Kubernetes에서는 Pod 템플릿의 runtime class로 gVisor를 추가할 수 있습니다.
 
-더 많은 동시성을 원하거나 보안 요구 사항이 다른 작업을 분리하려면 Worker를 추가하십시오.
+control plane은 Agent가 선택한 provider로 Worker를 관리합니다. Docker, Kubernetes, Cloudflare, Vercel, AWS Lambda MicroVMs, Alibaba Function Compute를 지원합니다. Home은 `/workspace`의 영구 스토리지이며 `/var/cache/ankole`은 버릴 수 있는 캐시입니다. 명령은 sudo 없이 uid 1000으로 실행됩니다.
 
-RuntimeFabric은 ZeroMQ로 컨트롤 플레인과 Worker를 연결합니다. 웨이크업, 스티어링, 취소, 진행 상황, 실행 결과를 전달합니다.
+RuntimeFabric은 Worker마다 하나인 Phoenix Channel로 컨트롤 플레인과 Worker를 연결합니다. 웨이크업, 스티어링, 취소, 진행 상황, 실행 결과를 전달합니다.
 
 지연 시간이 낮은 실시간 channel이지 데이터베이스가 아닙니다. 연결이 실패한 후에도 복구는 PostgreSQL 상태를 사용합니다.
+
+### Worker pool은 플랫폼과 설정을 선택합니다
+
+운영자는 **Settings → Worker providers**에서 Worker pool을 설정합니다. provider 하나는 site 수준의 pool이며 플랫폼 유형, YAML 설정과 암호화한 플랫폼 자격 증명을 가집니다. 여러 Agent가 같은 pool을 사용해도 각 Agent의 컴퓨터와 영구 Home은 전용입니다. 유형이나 인스턴스 사양이 다르면 별도 pool을 사용합니다.
+
+Agent 생성 시 pool을 선택하거나 site의 기본 pool을 사용합니다. 이후 이 선택은 유지됩니다. control plane은 필요할 때 Worker를 시작하고 유휴 시 해제하거나 일시 중지합니다. 오래된 인스턴스는 Home을 유지하며 교체하고 캐시는 별도로 재구축할 수 있습니다. [Worker pool](../worker-management/)을 참조하세요.
+
+환경 workspace와 Codex turn의 용량은 Worker마다 제한합니다. 주 대화와 Workflow 모델 호출은 control plane에서 실행되므로 이 용량을 사용하지 않습니다. pool을 추가하면 배치 선택지가 늘어나지만 기존 Agent의 작업을 공유 컴퓨터 사이에서 옮기지는 않습니다.
 
 ## 하나의 메시지가 재개 가능한 작업이 되는 방법
 
@@ -67,7 +75,7 @@ Cron, Checkback, webhook 엔드포인트는 하나의 시스템 안의 세 가�
 
 각 활성 세션은 주소 지정 가능한 Virtual Actor입니다. 메일박스, 수명 주기, 복구 위치를 가집니다. 새 메시지와 스케줄이 그것을 깨울 수 있고, 실행 중에 추가 입력, 취소, 인간의 개입을 받을 수 있습니다.
 
-Actor Runtime은 이 장기 실행 작업의 identity를 소유합니다. 각 턴마다 새 활성화와 펜스를 만듭니다. Worker는 현재 자신이 소유한 턴만 커밋할 수 있습니다. 오래된 Worker는 복구나 재시도 이후 더 새로운 결과를 덮어쓸 수 없습니다.
+대화 Driver가 장기 작업을 소유합니다. PostgreSQL epoch가 Driver 쓰기를 보호하고 영구 Response 체인이 완료된 단계를 보존합니다. Worker 결과는 RunRef 또는 JobTurnRef의 작업 식별자로 수락되므로 새 Driver가 진행 중인 작업을 인계받습니다.
 
 스트리밍 콘텐츠는 진행 상황입니다. 컨트롤 플레인이 확인하고 저장한 메시지, tool 결과, 상태 전환만이 사실입니다. 이렇게 해서 “인터페이스가 작업 진행 중을 보여준다”와 “작업이 완료되었다”가 분리됩니다.
 
@@ -77,7 +85,7 @@ Brain은 채팅 발췌문으로 채워진 벡터 데이터베이스가 아닙니
 
 지식은 Agent와의 대화, 대상 그룹에서 누구도 Agent를 지칭하지 않은 메시지, 등록된 파일 또는 URL Source에서 올 수 있습니다.
 
-하나의 인스턴스에 있는 모든 Agent가 같은 지식 공간을 사용합니다. 보호된 본문, Claim, Timeline 이벤트는 `world`, 권한 그룹 또는 하나의 Principal 공개 범위를 가집니다. Source와 Channel은 출처를 기록하지만 학습한 지식에 대한 접근 권한을 부여하지 않습니다.
+같은 테넌트의 Agent가 지식 공간을 공유하며 테넌트 간 지식 공간은 분리됩니다. 보호된 본문, Claim, Timeline 이벤트는 `world`, 권한 그룹 또는 하나의 Principal 공개 범위를 가집니다. Source와 Channel은 출처를 기록하지만 학습한 지식에 대한 접근 권한을 부여하지 않습니다.
 
 턴 동안 통합 회상이 현재 작업에 필요한 장기 컨텍스트를 제공합니다. 오프라인 Dreaming은 새 증거를 정리하고, 패턴을 찾고, 이전 예측을 채점하고, 검토가 필요한 충돌을 표시합니다.
 
@@ -91,13 +99,13 @@ Brain은 채팅 발췌문으로 채워진 벡터 데이터베이스가 아닙니
 
 메인 Agent는 조사, 데이터 분석, 파일 작업, 코드 변경, Deep Research를 Background Agent Job에 위임할 수 있습니다. 메인 세션은 계속 사용 가능하며 사용자와 대화를 이어갈 수 있습니다.
 
-컨트롤 플레인이 Job 수명 주기를 저장하고 Worker가 Job을 실행합니다. 그 Worker가 중지되면 시스템은 Job을 다시 디스패치하고 내구성 있는 상태에서 계속할 수 있습니다. 프로세스 종료가 전체 Job을 삭제하지는 않습니다.
+control plane은 Job 수명 주기를 저장합니다. 인스턴스를 교체하면 영구 Home의 작업 공간과 Codex 스레드에서 재개합니다. PostgreSQL은 접수한 작업과 복구 상태를 보존합니다.
 
 메인 Agent와 Job은 계속 통신할 수 있습니다. Job은 입력을 요청하거나, 실패와 최종 결과를 반환하거나, 요청되면 침묵할 수 있습니다. 사람을 기다릴 때는 실행 슬롯을 해제하고 답이 도착하면 재개합니다.
 
 Deep Research는 이 아키텍처의 고급 용도입니다. Agent Plugin이 workspace 템플릿을 제공하고, Skill이 연구 방법을 제공하며, Background Agent Job이 내구성 있는 실행을 제공합니다.
 
-Agent Home은 연구 자료와 산출물을 보관합니다.
+Job workspace는 영속 Home에 남습니다. Worker 밖에서 사용할 연구 자료와 산출물은 Agent가 control plane 드라이브에 게시합니다.
 
 [Background Agent Jobs](../background-jobs/)와 [Deep Research](../deep-research-job/)를 참조하십시오.
 
@@ -105,7 +113,7 @@ Agent Home은 연구 자료와 산출물을 보관합니다.
 
 AIGateway는 모델 capability와 Agent 실행을 분리합니다. 메인 Agent, Job, Brain, 외부 API 클라이언트가 LLM, embedding, rerank, 이미지, Web Search, Web Fetch Provider에 같은 경계를 사용합니다.
 
-Agent 모델 profile은 Agent 실행에 사용할 모델을 선택합니다. Brain은 AppConfigure의 인스턴스 전체에 적용되는 다섯 가지 모델 설정을 사용합니다. 컨트롤 플레인은 Provider credential을 암호화된 형태로 저장하고 AIGateway가 업스트림 요청에 사용합니다.
+Agent model profile이 실행 모델을 선택합니다. 각 테넌트가 선택한 Brain maintainer Agent의 `light`, `heavy`, `web_fetch` profile이 Brain 작업을 담당합니다. 사이트 AppConfigure가 embedding 모델을 선택하고 테넌트 AppConfigure가 rerank 모델을 선택합니다. 컨트롤 플레인은 Provider credential을 암호화해 저장하고 AIGateway가 업스트림 요청에 사용합니다.
 
 Agent와 Worker는 사용할 수 있는 모델 선택과 호출 결과만 받습니다.
 
@@ -137,19 +145,19 @@ Skill은 어떤 유형의 작업을 수행하는 방법을 설명하며 메인 A
 
 PostgreSQL은 identity, 접근, 구성, 메시지, 세션, Job, memory, 전달 상태, audit 기록 같은 내구성 있는 도메인 사실을 저장합니다. 시스템이 결과를 커밋했는지 결정할 때 이 기록들을 사용하십시오.
 
-Agent Home은 workspace 파일, tool 출력, 최종 산출물을 저장합니다. 단일 호스트 deployment는 로컬 또는 가상 디스크를 사용할 수 있습니다. Worker가 여러 대인 Kubernetes deployment는 `ReadWriteMany`를 지원하는 NFS 또는 다른 공유 볼륨이 필요합니다.
+control plane 파일 저장소는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 저장합니다. 영구 Home은 작업 공간, 사용자 패키지, Codex 스레드를 따로 보존합니다. PostgreSQL, 파일 저장소, 모든 Home, 원래 암호화 키를 함께 백업하세요.
 
-RuntimeFabric, Worker 프로세스 상태, 스트림 미리 보기는 다시 구축할 수 있습니다. 실시간 실행을 지원하지만 PostgreSQL이나 Agent Home을 대체하지는 않습니다.
+RuntimeFabric, Worker 프로세스, 스트림 미리 보기, `/var/cache/ankole`은 다시 만들 수 있습니다. 영구 Home은 인스턴스 삭제 후에도 유지해야 하며 스토리지 백업이 필요합니다. [백업 및 복원](../backup-and-restore/)을 참조하세요.
 
 ## 세 가지 deployment 형태
 
 | 형태 | 컨트롤 플레인과 Worker | 영속화 |
 | --- | --- | --- |
-| **Docker Compose · 단일 호스트 권장** | Linux, macOS, Windows 호스트 하나가 컨트롤 플레인과 Worker 하나를 실행 | PostgreSQL과 Agent Home이 호스트의 영구 볼륨 사용 |
-| **Kubernetes · 엔터프라이즈 deployment 권장** | 컨트롤 플레인 하나가 Worker Pod 한 개 이상에 연결되고 노드 또는 보안 요구에 따라 스케줄링 | PostgreSQL과 공유 `ReadWriteMany` Agent Home 스토리지 |
-| **소스 설치** | 개발 환경이 컨트롤 플레인과 Worker를 별도로 실행 | 개발용으로 구성된 PostgreSQL과 로컬 workspace |
+| **Docker Compose · 단일 호스트 권장** | Linux, macOS, Windows 호스트 하나가 컨트롤 플레인을 실행하고, 컨트롤 플레인이 Docker socket을 통해 Agent마다 Worker 컨테이너 하나를 만듦 | PostgreSQL, 파일 저장소, Agent별 전용 영구 Home volume |
+| **Kubernetes · 엔터프라이즈 deployment 권장** | 컨트롤 플레인 하나가 Kubernetes API를 통해 Agent마다 Worker Pod 하나를 만듦 | PostgreSQL, 파일 저장소, Home PVC 또는 공유 스토리지. 캐시 volume은 별도 |
+| **소스 설치** | `bun dev`가 컨트롤 플레인을 실행하고, 컨트롤 플레인이 Agent마다 Docker Worker 컨테이너를 만듦. 컨테이너는 로컬 Agent Computer 소스를 watch 모드로 실행 | PostgreSQL, `var/ankole-dev/files`, 전용 Docker 영구 Home volume |
 
-논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며 Worker를 수평으로 추가할 수 있습니다. 전체 절차는 [빠른 시작](../quickstart/#deployment)을 참조하십시오.
+논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며, 컨트롤 플레인이 각 Agent에 자신의 Worker를 제공합니다. 전체 절차는 [빠른 시작](../quickstart/#deployment)을 참조하십시오.
 
 ## 다섯 가지 기술적 결정
 
@@ -157,8 +165,8 @@ RuntimeFabric, Worker 프로세스 상태, 스트림 미리 보기는 다시 구
 | --- | --- |
 | **Virtual Actor가 AI 작업을 담당** | 각 세션에 주소, 메일박스, 수명 주기, 복구 위치를 제공 |
 | **OTP 감독 트리가 장애 도메인을 정의** | 전체 인스턴스를 실패시키지 않고 Agent 또는 연결 브랜치 하나를 복구 |
-| **ZeroMQ가 실시간 제어를 전달** | Agent 실행 중 웨이크업, 스티어링, 진행, 백프레셔를 전달 |
-| **Agent Computer Worker가 실행을 제공** | 모델 루프, tool, 파일, 터미널, sandbox를 workspace 가까이 유지 |
+| **Phoenix Channel이 실시간 제어를 전달** | Agent 실행 중 웨이크업, 스티어링, 진행, 백프레셔를 전달 |
+| **Agent Computer Worker가 실행을 제공** | 각 Agent에게 tool, 파일, 터미널, 브라우저, Codex를 위한 자신의 컴퓨터를 제공 |
 | **PostgreSQL 원장이 사실을 저장** | 메시지, Job, memory, 결정, 커밋된 작업을 재개 가능하고 감사 가능하게 만듦 |
 
 이 결정들은 하나의 결과를 지원합니다. Agent가 몇 시간 동안 일하고, 실행 중에 새 정보를 받고, 독립적으로 실패하고 복구하며, 각 커밋된 작업에 추적을 남길 수 있습니다.

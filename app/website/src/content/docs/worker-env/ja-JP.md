@@ -9,24 +9,25 @@ Agent は、コマンドの実行、MCP サーバーの呼び出し、Agent Comp
 
 credential を Skill、Agent ドキュメント、チャットメッセージに入れないでください。
 
-Agent と、Agent が起動するプログラムは、これらの変数を読み取れます。Agent が使う必要がある credential だけを保存してください。LLM Providers、identity provider、chat channel の credential は、それぞれの Console ページで設定してください。
+Agent と、Agent が起動するプログラムは、これらの変数を読み取れます。Agent が実行する各コマンドは、これらの値を含む新しい環境で始まり、Worker プロセスの環境を継承しません。Agent が使う必要がある credential だけを保存してください。LLM Providers、identity provider、chat channel の credential は、それぞれの Console ページで設定してください。
 
 ## 先にスコープを選ぶ
 
 | 誰が変数を必要とするか | どこに設定するか | スコープ |
 |---|---|---|
-| すべての Agent | **Console → Environment variables** | 既定で全 Agent が利用可能 |
-| 1 つの Agent | **Console → Agents → Agent を選択 → Environment variables** | その Agent のみが利用可能。同名の値はグローバル値を上書き |
+| site 全体の Agent | **Console → Environment variables → New site variable** | site デフォルト |
+| 1 つの tenant の Agent | **Console → tenant を選択 → Environment variables → New tenant variable** | この tenant で site 値を override |
+| 1 つの Agent | **Console → Agents → Agent を選択 → Environment variables** | その Agent で tenant と site の値を override |
 
-Agent の値をクリアすると、同名のグローバル値が再び有効になります。グローバル値が存在しない場合、Agent は変数を受け取らなくなります。
+Agent override、tenant 値、site デフォルトの順で解決します。override をクリアすると次に利用可能な値を使用します。どの scope にも値がない場合、変数を渡しません。
 
-## すべての Agent に変数を追加する
+## site または tenant の変数を追加する
 
-1. **Console → Environment variables** を開き、**New variable** を選択します。
+1. **Console → Environment variables** を開き、tenant を選択します。必要な scope の **New site variable** または **New tenant variable** を選びます。
 2. 名前を入力します。英字、数字、アンダースコアを含められますが、数字で始めることはできません。例えば `MY_API_KEY` のようにします。
 3. 値を入力します。API key、token、パスワードなど、機密性の高い値では **Store as secret** をオンにしたままにします。
 4. オプションで、その変数を使う tool またはサービスを示すメモを追加します。このメモは Agent には渡りません。
-5. 変数を保存します。次の Agent Turn から利用可能になります。
+5. 変数を保存します。
 
 runtime は `PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`WORKER_ID`、`DATABASE_URL`、`CODEX_UNSAFE_ALLOW_NO_SANDBOX`、および `ANKOLE_` で始まる名前を予約しています。これらの名前はここでは設定できません。
 
@@ -37,16 +38,11 @@ runtime は `PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`
 3. 変数を追加するか、既存の変数で **Override** を選択します。
 4. 値を入力して保存します。
 
-このセクションには、既定値、グローバル値、この Agent の値が表示されます。**Source** 列は、どの値が有効かを示します。**Clear** を選択すると、Agent の値を削除し、グローバル値または既定値に戻します。
+このセクションは site、tenant、Agent の値を表示します。**Source** 列は有効な値の出所を示します。**Clear** は Agent override だけを削除し、tenant または site 値に戻します。
 
 ## 変数のタイプを理解する
 
-| タイプ | 意味 | 可能な操作 |
-|---|---|---|
-| Custom | 管理者が Console で追加した変数 | 編集または削除 |
-| Declared | Ankole または有効な plugin が提供する変数 | 値の編集、または既定値へのリセット |
-
-declared 変数の名前とデータ形式は固定されています。値がなく既定値もない変数は **Unset** として表示されます。
+WorkerEnv エントリはすべて運用者が追加した custom 値です。Ankole と Plugin は WorkerEnv を介して AppConfigure key を export しません。runtime の予約変数と binding credential は各 domain が管理します。
 
 ## 値の暗号化、表示、ローテーション
 
@@ -58,13 +54,13 @@ declared 変数の名前とデータ形式は固定されています。値が�
 
 ## 変更が有効になるタイミング
 
-変更は、既に開始された実行を変更しません。新しい値は、Agent の次の Turn、後の Background Agent Job 実行、後の Automation Job の試行で利用可能になります。
+変更は後続の Worker 作業に適用します。環境を取得済みの実行や workspace は以前の値を保持します。主モデル推論は control plane で実行し、WorkerEnv をそのプロセス環境として受け取りません。
 
 Agent が期待する値を受け取らない場合、次の項目を順番に確認してください。
 
-1. 名前が、Skill、スクリプト、または `bearer_token_env_var` 宣言の名前と完全に一致していること。名前は大文字と小文字を区別します。
-2. Agent が同名の値を持っているかどうか。Agent の値はグローバル値を上書きします。
-3. 変数が **Unset** と表示されていないこと。
-4. 変更後に新しい Agent Turn が開始されたこと。
+1. 名前が Skill、スクリプト、`bearer_token_env_var` 宣言と完全に一致すること。大文字と小文字を区別します。
+2. site デフォルトより先に Agent と tenant の override を確認すること。
+3. いずれかの scope に値が存在すること。
+4. 変更後に新しい Worker 作業を開始すること。既存 workspace は取得済みの環境を保持します。
 
 MCP ベースの Skill では、`bearer_token_env_var` に環境変数名だけを入れます。token はここに保存します。宣言契約は [MCP](../mcp/) を参照してください。

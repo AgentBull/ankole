@@ -105,6 +105,11 @@ The adapter sends only operations already stored in the outbox. It can post,
 reply, edit, delete, send a divider, or render an Adaptive Card. It cannot send
 files or reactions.
 
+Markdown conversion changes prose only. The kernel uses CommonMark source
+positions to protect the original bytes of fenced, indented, and inline code.
+The adapter converts the full text once before the existing 12,000-grapheme
+paging step. Live preview timing and message IDs keep their existing rules.
+
 Bot Framework has no read-back API for this path. The adapter does not claim
 reconciliation. SignalsGateway can resend an uncertain visible final reply
 inside its remaining attempt budget and marks that reply as a possible

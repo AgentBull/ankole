@@ -17,7 +17,7 @@ defmodule AnkoleWeb.OIDCClientController do
   alias AnkoleWeb.Schemas.ConsoleAPI.OIDCClientUpdateRequest
 
   tags(["OIDC Clients"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenApiSpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -26,8 +26,7 @@ defmodule AnkoleWeb.OIDCClientController do
     summary: "List OIDC Clients",
     responses: [
       ok: {"OIDC Clients", "application/json", OIDCClientListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -36,9 +35,7 @@ defmodule AnkoleWeb.OIDCClientController do
     request_body: {"OIDC Client", "application/json", OIDCClientCreateRequest, required: true},
     responses: [
       created: {"OIDC Client and one-time secret", "application/json", OIDCClientSecretResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid OIDC Client", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -47,9 +44,7 @@ defmodule AnkoleWeb.OIDCClientController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"OIDC Client", "application/json", OIDCClientResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -60,10 +55,7 @@ defmodule AnkoleWeb.OIDCClientController do
       {"OIDC Client fields", "application/json", OIDCClientUpdateRequest, required: true},
     responses: [
       ok: {"OIDC Client", "application/json", OIDCClientResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid OIDC Client", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -72,9 +64,7 @@ defmodule AnkoleWeb.OIDCClientController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Deleted OIDC Client", "application/json", OIDCClientResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -83,10 +73,7 @@ defmodule AnkoleWeb.OIDCClientController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"OIDC Client and one-time secret", "application/json", OIDCClientSecretResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Public Client", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

@@ -2,53 +2,48 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct AWSBedrockConverseState {
     inner: ChatState,
+    // ConverseStream sends `metadata`, with the token usage, after
+    // `messageStop`. The response finishes with this stop reason when the
+    // stream closes.
+    stop_reason: Option<String>,
 }
 
 impl AWSBedrockConverseState {
     pub(super) fn new(model: String) -> Self {
         Self {
             inner: ChatState::new(model),
+            stop_reason: None,
         }
     }
 
-    fn ingest(&mut self, context: &ResponseContext, value: Value) -> Vec<Value> {
+    // Reads one `ConverseStreamOutput` event in the `{event_type: payload}`
+    // shape of the AWS SDK union. `messageStart` only starts the response, and
+    // `ChatState::finish` closes the text block that `contentBlockStop` ends.
+    // `contentBlockStart` starts only toolUse, toolResult, and image blocks,
+    // which this resolver does not support.
+    fn ingest(&mut self, context: &ResponseContext, event: Value) -> Vec<Value> {
         let mut events = self.inner.ensure_response_started(context);
 
-        if let Some(usage) = value
-            .get("metadata")
-            .and_then(|metadata| metadata.get("usage"))
-        {
-            self.inner.set_usage(normalize_provider_token_usage(usage));
-        }
-
-        if let Some(text) = value
+        if let Some(text) = event
             .pointer("/contentBlockDelta/delta/text")
             .and_then(Value::as_str)
-            .or_else(|| value.pointer("/delta/text").and_then(Value::as_str))
         {
             events.extend(self.inner.text_delta(text));
         }
 
-        if let Some(message_stop) = value.get("messageStop") {
+        if let Some(message_stop) = event.get("messageStop") {
             let stop_reason = message_stop
                 .get("stopReason")
                 .and_then(Value::as_str)
                 .unwrap_or("end_turn");
-            events.extend(self.stop_reason(context, stop_reason));
+            self.stop_reason = Some(stop_reason.to_string());
+        }
+
+        if let Some(usage) = event.pointer("/metadata/usage") {
+            self.inner.set_usage(normalize_provider_token_usage(usage));
         }
 
         events
-    }
-
-    fn stop_reason(&mut self, context: &ResponseContext, reason: &str) -> Vec<Value> {
-        match bedrock_terminal(reason) {
-            ProviderTerminal::Completed => self.inner.finish(context, "completed", None),
-            ProviderTerminal::Incomplete(incomplete_reason) => {
-                self.inner
-                    .finish(context, "incomplete", Some(incomplete_reason))
-            }
-            ProviderTerminal::Failed(error) => self.inner.fail(context, &error),
-        }
     }
 
     fn finish(
@@ -75,7 +70,16 @@ impl APIProtocol for AWSBedrockConverseState {
     }
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
-        Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")))
+        let Some(stop_reason) = self.stop_reason.take() else {
+            return Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")));
+        };
+        Ok(match bedrock_terminal(&stop_reason) {
+            ProviderTerminal::Completed => self.finish(context, "completed", None),
+            ProviderTerminal::Incomplete(reason) => {
+                self.finish(context, "incomplete", Some(reason))
+            }
+            ProviderTerminal::Failed(error) => self.fail(context, &error),
+        })
     }
 
     fn on_transport_error(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
@@ -98,13 +102,28 @@ impl APIProtocol for AWSBedrockConverseState {
         )
     }
 
+    // ConverseStream sends a modeled exception as an eventstream frame after the
+    // HTTP 200 response has started. These are the `httpError` statuses that the
+    // Bedrock Runtime model declares for the exception members of
+    // `ConverseStreamOutput`.
+    fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
+        match exception_type {
+            "internalServerException" => Some(500),
+            "modelStreamErrorException" => Some(424),
+            "serviceUnavailableException" => Some(503),
+            "throttlingException" => Some(429),
+            "validationException" => Some(400),
+            _exception_type => None,
+        }
+    }
+
     fn is_terminal(&self) -> bool {
         self.inner.is_terminal()
     }
 }
 
 // Parses the official non-streaming Converse body, which shares no shape with
-// the eventstream frames `ingest` reads. `toolUse` blocks stay unsupported on
+// the stream events that `ingest` reads. `toolUse` blocks stay unsupported on
 // both paths.
 fn aws_bedrock_converse_body_to_response(
     context: &ResponseContext,

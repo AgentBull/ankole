@@ -53,9 +53,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   @thought_lease_seconds 9 * 60
 
   @impl true
-  def open(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
-
-  @impl true
   def update(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
 
   @impl true
@@ -268,6 +265,14 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     end)
   end
 
+  # Finalize seals the tail into its finished form, except awaiting_input,
+  # which keeps the stream open so the turn can continue after the answer; the
+  # age axis still seals it if the wait outlives the page deadline.
+  defp page_sealed?(page, prior, tail?, final?, state),
+    do:
+      page.seal_now? or (page.frozen? and prior_sealed?(prior)) or not tail? or
+        (final? and state != "awaiting_input")
+
   defp reconcile_pages(client, req_id, event, presentation, pages, checkpoint, final?, repaint?) do
     ledger = ledger_by_index(checkpoint)
     last_index = pages |> List.last() |> Map.fetch!(:index)
@@ -280,25 +285,16 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
       tail? = page.index == last_index
       prior = Map.get(ledger, page.index)
 
-      # Finalize seals the tail into its finished form, except awaiting_input,
-      # which keeps the stream open so the turn can continue after the answer;
-      # the age axis still seals it if the wait outlives the page deadline.
-      seal? =
-        page.seal_now? or (page.frozen? and prior_sealed?(prior)) or not tail? or
-          (final? and state != "awaiting_input")
+      seal? = page_sealed?(page, prior, tail?, final?, state)
 
       display = Markdown.display_chunk(page.source, fence_open?)
       content = render_page_content(presentation, display, tail?, seal?, final?, page)
 
       write_action =
-        cond do
-          prior_sealed?(prior) -> :skip
-          seal? -> :write
-          not tail? -> :write
-          repaint? or final? -> :write
-          throttled?(checkpoint, now) -> :skip
-          true -> :write
-        end
+        if prior_sealed?(prior) or
+             (tail? and not (seal? or repaint? or final?) and throttled?(checkpoint, now)),
+           do: :skip,
+           else: :write
 
       write =
         case write_action do

@@ -10,7 +10,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.SignalsGateway.Binding
 
   setup do
@@ -26,7 +26,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   end
 
   test "admin sees incomplete deployment instance facts", %{conn: conn} do
-    conn = bearer_conn(conn) |> get(~p"/api/v1/console-readiness")
+    conn = console_conn(conn) |> get(~p"/api/v1/console-readiness")
 
     assert %{
              "ready" => false,
@@ -45,6 +45,8 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   end
 
   test "readiness follows the active owner of a deployment instance signal route", %{conn: conn} do
+    Ankole.AgentWorkerDockerHTTP.install()
+    worker_provider_fixture(%{is_default: true})
     provider_id = "readiness-#{System.unique_integer([:positive])}"
 
     assert {:ok, _provider} =
@@ -66,11 +68,11 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
                })
     end
 
-    insert_ready_worker!()
+    mark_worker_ready!(agent.uid)
     %{principal: route_agent} = agent_fixture(%{display_name: "Route Agent"})
     insert_signal_binding!(route_agent.uid)
 
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     agent_uid = agent.uid
 
     assert %{
@@ -92,7 +94,8 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
              "signal_route" => %{"complete" => true}
            } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
 
-    assert {:ok, _principal} = Ankole.Principals.disable_principal(route_agent.uid)
+    assert {:ok, _principal} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(route_agent.uid)
 
     assert %{
              "ready" => false,
@@ -102,28 +105,14 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
            } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
   end
 
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     conn = get(conn, ~p"/api/v1/console-readiness")
     assert json_response(conn, 401)
   end
 
-  defp insert_ready_worker! do
-    now = DateTime.utc_now(:microsecond)
-
-    %AgentComputerWorker{
-      worker_id: "readiness-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{"available_turn_slots" => 1, "max_turns" => 1},
-      load: %{"active_turns" => 0},
-      transport_route: "readiness-route-#{System.unique_integer([:positive])}",
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    }
-    |> Ecto.Changeset.change()
-    |> Repo.insert!()
+  defp mark_worker_ready!(agent_uid) do
+    route = "readiness-route-#{System.unique_integer([:positive])}"
+    {:ok, _worker} = ActorRuntimeCase.admit_worker(route, %{worker_id: agent_uid})
   end
 
   defp insert_signal_binding!(agent_uid) do
@@ -132,7 +121,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
       agent_uid: agent_uid,
       name: "readiness",
       adapter: "lark",
-      config_ref: "signals_gateway.lark.bindings.readiness",
+      config_ref: "app-config://signals_gateway.lark.bindings.readiness",
       filters: %{},
       enabled: true
     })

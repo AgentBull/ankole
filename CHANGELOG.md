@@ -1,5 +1,637 @@
 # Changelog
 
+## Version 2.0.0-alpha.1 (2026-10-09)
+
+- Keep conversation files under stable `chats/<channel>/` drive directories.
+  Accept only `drive_path` for `reply_attachment`, and reject attachment delivery
+  to another channel at Outbox commit. Give main Agents and Background Jobs
+  their workspace and drive rules. Move received files with known provenance
+  out of shared `inbox/`; report files that need operator placement.
+- Keep Worker credentials in root processes. Run model commands, Codex, MCP,
+  browsers, and Automation as uid 1000 with no new privileges. Give Agent files
+  and sockets to that user. Kubernetes Worker and storage helper Pods require
+  baseline Pod Security and only six capabilities.
+- Reject a new Worker incarnation while the current connection has a fresh
+  heartbeat. Default idle release to 15 minutes for all providers; keep
+  explicit `never` settings and memory-pause generation semantics.
+- Show Agent computer acquisition phases and limit each wait to 60 seconds.
+  Continue with safe tool errors, renew demand after temporary failures,
+  prepare provider images in the background, and request a Worker when the
+  model starts a Worker tool call.
+- Let Lambda Agents start in parallel. Commit the first create timestamp,
+  check possible orphan VMs only on retries, and resolve VM ownership across
+  tenants while retaining the existing orphan cleanup delay.
+- Close used workspaces in the background so the next input can start without
+  a close receipt. Pure questions send no workspace messages. Log workspace
+  preparation time for operator measurement.
+- Use persisted Agent fixtures and seeded model metadata in Worker control
+  tests. Give the Oban tenancy probe its own queue.
+- Enforce tenant ownership on Oban-tagged business queries and struct/batch
+  writes. Discover lost wakeups globally, then recover each item in its tenant.
+  Track reviewed SQL and cross-tenant query entry points in the tenancy checks.
+- Run the temporary tenant and binding data upgrade through Mix and Release.
+  Re-encrypt old identity-provider configurations for their tenant, split shared
+  Slack/Teams binding keys, and fill platform application metadata. Permit Ecto
+  to record schema migration versions without a tenant context.
+- Format Worker and Console sources to pass the workspace quality checks.
+- Keep webhook and automation creation in Jobs. Resolve their durable recipient
+  from the stored Job or Workflow owner for creation, queries, cancellation,
+  and later delivery. Reject missing owners before creation and preserve legacy
+  records whose owner cannot be proved.
+- Renew a Workflow task's watchdog only when its current attempt commits a new
+  round. Keep cancellation, reclaim, replay, and rollback checks. Let CardKit
+  save the sent checkpoint and first source through the existing transaction;
+  a source conflict still preserves recovery without sending again.
+- Reuse successful Brain grades while the model and grading input stay the same.
+  Store the input hash on the Claim, recheck input before commit, and retain
+  failure retries, manual resolution, and calibration. Allow bare `DAN` text in
+  Skill lessons while keeping the explicit phrase rules.
+- Correct Turbo source inputs and Web asset cache outputs. Align CI Bun with
+  the workspace, remove obsolete lint exclusions and hook documentation, and
+  share the final-mirror test wait. Keep local file import and clarify its path
+  placeholder.
+- Restore missing Outbox dispatch jobs through the existing minute Reconciler.
+  Preserve active-job backoff, delivery attempt limits, and operator recovery
+  states when a job is discarded or pruned.
+- Fix JSON type checks in the Codex protocol and durable resume tests.
+- Explain a reply stop when referenced context is withdrawn. Keep source
+  withdrawal checks and committed tool effects; send the notice through the
+  existing terminal transaction and Outbox.
+- Keep the Worker alive when turn acceptance is delayed or rejected. Confirm
+  the same attempt before execution, and recover safe RPC reads within their
+  original deadlines. Do not replay writes with unknown results.
+- Preserve original Markdown code bytes in DingTalk, WeCom, and Teams text
+  conversion. Use native source ranges and remove JSON transfer and duplicate
+  code slices. Keep preview timing and the existing paging engine.
+- Run Worker unit and portable integration tests on the host. Provide a
+  Linux host suite for the supervisor and managed Codex runtime, and keep only
+  image checks in Docker. Preserve complete UTF-8 CLI responses when socket
+  writes are partial.
+- Recover committed tool results before current validation, and resume waits
+  from their original start times. Driver takeover keeps the stored Job
+  message instead of sending it again.
+- Reject direct tenant joins from site or subquery roots unless all tenants
+  are selected explicitly. Tenant-scoped subqueries remain supported.
+- Require one folder revision across list pages and check downloaded bytes,
+  sizes, and modes against that manifest before execution. Copy each Automation
+  run's installed Skills into its run directory so later cache updates cannot
+  change the running script's dependencies. Apply file mode changes when
+  contents are unchanged.
+- Bound the shared HTTP client cache to 64 entries.
+- Bound password retry keys per tenant and login hashing per node. Keep the
+  five-failure limit and fair admission through caller exits and Guard restarts.
+  Use cookie sessions and CSRF for Console requests, shared mutation errors,
+  typed Actor references, and one HTTP completion log. Keep public API bearer
+  credentials and site Library settings.
+- Use Protox and protobuf-es with a frozen context in the first Job TurnStart.
+  Remove duplicate document hashes and the native Worker codec. Use typed RPC
+  data and compile-time broker checks. Share HTTP/1.1 clients and aws-lc-rs;
+  remove HTTP/3 and alternate encodings. Give provider failures one diagnostic
+  owner, reuse tool descriptors, and settle exhausted Agent quotas in the
+  control plane. Let ChatGPTAuth record refresh-failure health once before
+  credential selection continues. Keep current failure codes, cooldowns,
+  affinity, and retry budgets.
+- Deliver environment tool messages directly to the current Driver. Share
+  Worker atomic writes and Job/Workspace slots; validate WorkerEnv in the
+  control plane. Let images own Skill roots and provider kinds own credentials.
+  Delete Codex logs_2 at a locked cold start, use the browser socket client for
+  cancellable fetch, and generate webhook tokens in the control plane.
+- Keep automatic cron wakeups on their rules and update checkbacks in place.
+  Remove unused database fields, indexes, and helpers. Calculate salience from
+  active Takes and persisted Tags without stored salience caches. Retain Tags,
+  vocabulary promotion decisions, and Library page forking.
+  Reuse binding reads and group projections. Supervise SDK connections directly,
+  recover their start arguments after a reconciler restart, and render each
+  CardKit page once. Skip identity admission for unaddressed ignored group
+  messages and retain their data for later reply references. Preserve attachment
+  download rules. Stop running native Workflow replay after cancellation commits.
+- Store channel extraction watermarks on the Source row. Commit memory writes
+  and watermark changes under the same Source lock. Move existing watermarks
+  before removing internal terminal Claims. Before a rollback to an earlier
+  version, restore the pre-upgrade database backup; the earlier code cannot read
+  the new watermark location and would learn channel history again.
+- Check platform application binding limits in SignalsGateway. Keep existing
+  rejection when an enabled binding's configuration is missing, unreadable, or
+  invalid. Duplicate applications use one rejection reason. Preserve WhatsApp's
+  credential checks and their per-binding error order.
+- Keep usage and rate-limit fields in the Console API when a ChatGPT account
+  needs sign-in again. Use the credential pool's complete status projection so
+  the existing account page and sign-in dialog can render.
+- Deliver card actions, message removal, Job notifications and successor work,
+  Workflow dispatch and attention, ambient handoffs, and Skill reflections
+  after commit. Keep rollback from waking a Driver.
+- Brain read paths preserve stored text after access and disclosure checks.
+  Remove the recall sanitization count. Keep the Skill lesson write gate.
+- Update website docs and the architecture diagram in four languages for
+  Worker pools, per-Agent computers, on-demand lifecycle, Phoenix Channels,
+  and tenant capability defaults.
+- Replace completed Brain body implementation plans with the current syntax
+  and editor contract. Align related docs with tenant settings and identity,
+  control-plane scheduling, Worker MCP execution, and the Docker test workflow.
+- Agents can read the current channel's observed history with
+  `read_channel_history`, and a cron turn can pause its own schedule when its
+  task's stop condition is met. A fact remembered without a holder reaches
+  later conversations, and steering carried into a successor Job is reported
+  as forwarded to it.
+- `read_file` shows PNG, JPEG, GIF, WebP, and BMP files of up to 8 MiB to the
+  model. The control plane converts each tool image like a received chat
+  image, and a text-only model gets the vision fallback description of it, or
+  a notice when no fallback is available.
+- Count main-loop and ambient model use against the Agent token quota, and
+  keep one prompt cache key and credential per conversation. Retry tool calls
+  cut off by the output limit; a Workflow task that ends without a result
+  reports a failure instead of staying running. `send_message` posts its text
+  and each attachment, `/stop` marks the reply card stopped, an early batch
+  wakeup waits for its due time, and URL learning rejects script-only pages.
+- The control plane renders a Job's Skill index, recovery reads recorded tool
+  result fields, and Worker failures carry only the error's own retryable flag,
+  so a lost control-plane connection retries. Remove the Worker LLM error
+  classifier, the unused Job silent-success path, plugin owner configuration
+  handshakes, and duplicate secret sealing and settings flows. A configuration
+  read error now fails instead of using a hard-coded default.
+- `bun run test:integration` runs only the PostgreSQL integration files; Credo
+  and the formatter also check plugin code; `tools/e2e/run --all` runs the
+  real-LLM chaos scenarios when an OpenRouter key is set.
+
+- Classify main conversation failures from AIGateway fields. Persist provider
+  capacity retry counts and deadlines, honor credential-pool recovery times,
+  and keep capacity retries outside the five-failure budget.
+  Defer credential-pool shortages at admission and recover committed capacity
+  failures after a Driver restart.
+- Return an unavailable-computer result after Worker startup failure or timeout.
+  Workspace preparation synchronizes the four Agent documents before tools run.
+  Continued Jobs read their source report through complete UTF-8 result windows.
+- Admit Workers at Channel join. Use connection identity, one heartbeat with
+  capacity, and the existing context projection for Workspace preparation.
+  Remove unused protocol fields, global inbound dispatch, and unused native
+  ObjectStore stat calls.
+- Show inbound file provenance in the Console. Provider APIs return only the
+  fields that the Console uses. Remove unpublished intermediate migrations,
+  obsolete Worker model adapters and parity fixtures, and the prototype workspace.
+- Use the matching Worker image embedded in the control-plane image unless Helm
+  values explicitly override it. Keep image-label checks in CI and set the
+  Worker slot default to 12.
+
+- Import installed Skills, legacy Automation Job scripts, and pending Outbox
+  attachment bytes into each Agent's tenant from the Release and Mix upgrade
+  commands. Retain attachment metadata, attempts, and recovery state. Legacy
+  sends wait for conversion; missing files remain pending and are reported.
+  Repeated imports keep existing drive files and clear copied legacy Job paths.
+- Keep pending Outbox attachments alive after their last drive path is removed.
+  Lock their content references when the intent commits, and release those
+  references only after successful delivery or deletion of the intent.
+- Preserve Agent setting rows and encrypted values during tenant migration.
+  Resolve tenant settings through Agent, tenant, site, and default values, and
+  reject Agent overrides from another tenant.
+- Close Workflow inputs whose sleep or result submission committed before a
+  Driver exit. Recovery preserves the waiting state, attention and free task
+  capacity, including in suspended tenants. It does not start another attempt
+  or model request, and repeated recovery keeps the original completion time.
+- Document live Skill instruction reads, script and MCP updates at the next
+  Turn, and Worker-owned environment Workspace capacity checks.
+- Make `@ankole/block-editor` an internal workspace library in
+  `libs/ankole-editor`, with React, Markdown/XML, and page-session entry
+  points. Hosts compile the source package; the playground has a separate
+  build.
+- Add operator-managed tenants with isolated people, Agents, Brain and work,
+  explicit data selection in the site Console, and site/tenant setting
+  inheritance. WorkerEnv also accepts Agent overrides. New Principal UIDs are opaque; Agent handles remain editable.
+  Suspending a tenant blocks new work while admitted attempts can finish.
+  Deleting a tenant uses Human offboarding across tenants and keeps other
+  tenants' stopped work and original authorizer for manual reauthorization.
+  Credential-bearing platform applications, including Slack, cannot be shared
+  across tenants. Credential identity checks run before database transactions;
+  one tenant's configuration failures do not stop another tenant's maintenance
+  or connection cleanup. Preserve Brain writer scopes and rewrite audience tags
+  in live bodies and snapshots during the administrator-group migration. Back
+  up and stop every old control-plane replica before the migration; existing
+  data enters the default tenant. The Console moves from
+  `/console` to `/site-admin-console`, configurable through
+  `ANKOLE_SITE_ADMIN_CONSOLE_PATH`; the old path returns 404.
+- Start configuration services before release data migrations, and keep
+  retryable SDK delivery errors on the existing Outbox retry schedule.
+- Exercise live DeepSeek over FakeFeishu and real Worker containers through
+  Driver death, tenant suspension, Worker replacement, tenant file isolation,
+  and file delivery after lost send confirmation. A Compose scenario stops
+  every control-plane process and restarts PostgreSQL, then checks automatic
+  recovery, one file effect, and the platform-visible reply and file bytes.
+- Keep pending clarification choices and reply instructions visible when a
+  rich reply degrades to text. Ordinary Lark replies continue the conversation;
+  resolved interactions do not show stale choices again.
+- Use hashcrew 0.3.0 for XXH3-128 fingerprints. Existing fingerprint values
+  and the Bun and Elixir APIs stay the same.
+- Fix kernel builds with Argon2 0.6 and CEL 0.15. Password hashing uses a
+  random salt, and stored CEL conditions keep list and map `contains`, `max`,
+  and `min`.
+- Keep steering input, pending stops, and committed tool effects through
+  conversation recovery. Worker workspaces follow the current run and wait
+  for capacity. Unapplied input after a successful Job creates one successor;
+  stale admission cannot revive the finished Job. Reject newly unauthorized
+  commands without ending work that was already admitted.
+- Restore scheduled and ambient reply instructions, custom `/llm` validation,
+  and Workflow tool limits. Normalize incoming images to bounded WebP inputs
+  and return paged `web_fetch` results from the control plane.
+- Enforce production unused-code checks and selected Credo checks, with
+  cross-language protocol goldens.
+- Run the main Agent loop in the Elixir control plane. Pure questions and
+  control-plane tools need no Worker; environment tools and Codex request the
+  Agent's computer when required. Creating an Agent saves its provider and an
+  absent Worker row, then requests background storage preparation and prewarm.
+  Conversation epochs fence driver writes, and PostgreSQL
+  retains inputs, model history, and tool receipts for recovery. The Reconciler
+  also wakes admitted input after a crash with no new message and restores
+  Workflow runs whose process disappeared. Repeated wakeups during admission
+  still start one run for a `/new` request. Wakeups during finalization wait
+  until the terminal transaction completes.
+- Preserve committed tool records when a user withdraws part of a request or
+  retries a run that has called tools, with or without a reply target. Targeted
+  retries delete the old platform reply and request another answer on the same
+  tape. Failed tool fragments outside visible history require manual recovery.
+  Internal revisions retain the original reply owner. Invalid targeted retries
+  leave the current run active. Repeated
+  failures and crashes end in a dead letter; an invalid final result after
+  repair is terminal. Rejected tool calls still reach the next model turn.
+- Running Jobs and environment commands continue during a short control-plane
+  disconnect. A new driver adopts the same execution without repeating it or
+  using a failure attempt. Each Worker generation saves its selected instance
+  settings; retries and runtime connection addresses keep those values until
+  idle replacement. Worker replacement retains Codex thread files and Agent
+  Home. Job claims and execution failures have separate bounds. Once an old
+  instance is gone, its wait message is cleared so the next environment tool
+  can request a new Worker.
+- Use RuntimeFabric protocol 8 with conversation and Job operation identities.
+  Remove Worker main-loop execution, activation and delivery tables, and the
+  Worker tool-result WebSocket command. The first migration needs a maintenance
+  window: stop the old control plane before migration and replace old Workers.
+  Old in-flight turns can be interrupted once. The migration keeps input and
+  outbox state.
+- Use `pg_search` 0.25.11 to fix invalid CTIDs in Brain BM25 queries. For an
+  existing database, back up the data and stop the control plane, start the new
+  PostgreSQL image, then run `ALTER EXTENSION pg_search UPDATE TO '0.25.11'`
+  before Ankole migrations and a Brain text recall. The image no longer
+  includes the optional LLVM JIT package. PostgreSQL does not use JIT without
+  its provider; no configuration change is required.
+- Control-plane replicas start under high file-descriptor limits with an ERTS
+  port limit of 65,536. Operators can override it through `ERL_FLAGS`.
+- Worker lifecycle handling retains the generation and process identity through
+  pause and resume. It closes the old connection after a confirmed pause,
+  retries a failed resume, and replaces idle instances near their platform
+  lifetime limit. Workers reconnect after an event-loop gap of more than
+  30 seconds and restart the disconnection timer. A Worker that the control
+  plane never admits exits after five minutes, as after a lost connection; a
+  join refused for a stale generation and a stop signal before admission end
+  it at once. The entry supervisor also
+  removes old Agent processes when a platform starts it through a command
+  service and tini is not PID 1. A command entry records its first start so
+  delayed retries cannot start a second Worker after the supervisor exits.
+- Operators configure Worker providers in the Console with YAML and separate
+  encrypted credentials. Each provider defines a Docker, Kubernetes,
+  Cloudflare, Vercel, Lambda MicroVM, or Function Compute pool and its instance size. An Agent
+  selects one provider at creation and keeps it. Compose, Helm, and local development seed providers
+  on the first start. The
+  control plane saves a generation before it creates an instance and retries
+  uncertain requests with that same generation. It calls the platform outside
+  database transactions and records a result only if the Worker row did not
+  change, so a slow provider cannot delay admission, heartbeats, or other
+  Agents. In the Console API, an explicit `null` removes an optional provider
+  credential, and the Console can remove a stored one, for example to return a
+  Lambda provider to the default AWS credential chain. Provider checks name the
+  platform, HTTP status, and error code; YAML errors name the path of a missing
+  key. It waits for old instances to
+  disappear before it replaces them, including during Agent deletion. The
+  Console shows platform errors while it waits. Idle release pauses or deletes the instance, as the provider supports;
+  its persistent storage and cache remain. Docker and Kubernetes default to
+  no idle release. `idleReleaseAfter` belongs to the provider; the installation
+  setting `agent_computer.worker.ready_timeout` limits observed unready instances.
+  Vercel uses a persistent Drive per Agent and requires a target image digest
+  in VCR. Its launch command receives credentials only after the selected
+  session ID commits; extra sessions from repeated creates are removed. A
+  selected session that disappears before its first observation ends its
+  generation. The
+  root entry starts the Worker as uid 1000 without installing sudo. Session
+  stop and Drive lookup use the request headers and ordering required by Vercel.
+- Lambda MicroVM providers build an arm64 image with AWS runtime hooks and
+  mount each Agent's EFS directory through NFS 4.1 before dropping to uid 1000.
+  Run retries keep their token, payload, and image settings; a terminated
+  instance, or an observed instance that is no longer found, releases its
+  reference. Orphan cleanup spares instances that started less than five
+  minutes ago, so a create whose reference is not saved yet keeps its
+  instance. Tagged images isolate providers.
+  Storage deletion uses a stable provider request token and commits after
+  the Agent directory is renamed. Real AWS checks cover image builds, EFS
+  retention through termination and image changes, short memory pause, and
+  storage deletion. The account must reserve memory for deletion helpers;
+  long suspension and platform time limits still need deployment checks.
+  ACS remains unregistered until its default hibernation
+  proves process and memory retention.
+- Function Compute providers use a stable AgenticSpace at the filesystem root
+  with explicit capacity and file-count quotas, or an Agent prefix in OSS.
+  A second-generation template waits for a contract. Only the committed
+  sandbox reference receives it, and the entry consumes it once before it
+  removes sudo and starts the Worker as uid 1000. Every Worker entry first
+  exports the environment that the image recorded at build time, so the sudo
+  start command does not drop tool paths; provider `env` adds variables and
+  cannot change one that the image sets. Storage deletion removes
+  NAS mount records and the AgenticSpace, or uses one selected OSS helper.
+  OSS mount paths retain their leading slash. The entry changes Home ownership
+  only when uid 1000 cannot write to it; writable OSS mounts reject `chown`.
+  Real base-sandbox checks cover envd uploads and OSS retention across sandbox
+  deletion. Worker image capture, AgenticFS, memory pause, and the full cloud
+  lifecycle still need validation.
+- Replace the FOSS design and operator documentation for Worker providers,
+  persistent Home, native Codex resume, and storage backup. Helm mounts
+  bootstrap Secrets as files for provider
+  seed credentials and removes the Cloudflare-specific environment setting.
+- Each Agent has persistent Home storage at `/workspace`, with Codex Home at
+  `/workspace/.codex`. Codex SQLite uses `/var/cache/ankole`; a rebuild removes
+  this cache, and other replacements keep a configured cache volume. A changed
+  Kubernetes cache template replaces the cache PVC before the next instance.
+  Docker uses two local volumes per Agent. Kubernetes uses a PVC per Agent or a
+  directory in a shared PVC, with an optional cache PVC. Compose migrates the
+  Homes of existing Agents from the old `agents_data` volume before the control
+  plane starts; Homes that the old release kept for deleted Agents stay behind.
+  Helm can keep the existing shared Home claim after the documented preparation
+  for its storage type, including NFS with root squash; the import names the
+  Homes of deleted Agents so operators can remove them. `/agents/<agent_uid>`
+  links to `/workspace`, so stored absolute paths still work. Agent deletion waits
+  for all instances to disappear, then deletes storage and the Worker row.
+  Shared-PVC cleanup also waits for its helper Pod to disappear.
+  Compose requires `ANKOLE_DOCKER_GID` for Docker socket access (`0` on Docker
+  Desktop for macOS). Workers use their own network with Internet access.
+  The Helm value `worker.localPods` (default `true`), not the provider seed,
+  controls the Worker owner ConfigMap, ServiceAccount, Role, RoleBinding,
+  NetworkPolicy, and shared Home claim; `false` requires `worker.providers`.
+  The installation label must not change after the first install. Shell
+  scripts check out with LF line endings, also on Windows.
+  The system prompt, Job instructions, `ankole-files --help`, and the Jupyter
+  Skill say that the Agent Home and its workspaces stay across Worker restarts,
+  replacement, and upgrades.
+- The website Quick start tells operators to set `ANKOLE_DOCKER_GID` to the
+  output of `stat -c %g /var/run/docker.sock` on Linux and to `0` with Docker
+  Desktop on macOS, as the Compose guide does.
+- Workers can run on Cloudflare Containers: deploy the adapter Worker in
+  `tools/deploy/cloudflare/agent-workers` with the `linux/amd64` Worker image
+  and an R2 backup bucket, then configure a Cloudflare provider. The adapter
+  backs up `/workspace` before a planned stop and restores it before Worker
+  startup. A container restart that replaces the instance disk restores the
+  latest backup again, and a disk that was not restored never requests a
+  backup. A stop signal before the Worker starts ends the restore and starts no
+  Worker. The adapter's image name must equal the control plane's Worker image
+  reference. PostgreSQL keeps the committed backup reference. A forced platform
+  stop can lose changes since the last backup. This replaces container disk
+  snapshots. The adapter retains finished generation IDs to reject delayed
+  creates, including after Agent deletion; these records contain no credentials
+  or backup data. The control plane, file relay, and AIGateway must be reachable
+  from Cloudflare; this deployment uses one control-plane replica. The image
+  entrypoint prepares the browser socket directory when the platform mounts
+  an empty `/run`, before it changes to uid 1000. Creation requests allow five
+  minutes for a cold image to start; a timeout keeps the same generation.
+- A Worker is its Agent's own computer: commands, Codex, Automation scripts,
+  and the browser run without bubblewrap. Docker Workers need no `SYS_ADMIN`
+  or unconfined seccomp. Processes run as uid 1000 without sudo. Each Worker
+  generation has its own random credential, so a Worker cannot connect as
+  another Agent or after it was replaced. The shared
+  `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` setting,
+  `secrets.workerAuthKey`, and the `bootstrap-worker-auth-key` step are
+  removed; the control plane names Lark profiles, with the same names. A
+  supervisor in the image restarts a crashed Worker process in place, a Worker
+  reconnects at once after a control-plane restart, and a drained Worker
+  always exits. Channel joins also check the generation authenticated by the
+  socket. Workers can read only the rendered-fetch timeout and SSRF setting
+  through AppConfigure; installation credentials remain in the control plane.
+- Each Agent has a drive in the control plane for the files that other people
+  see or receive: received
+  attachments, generated images, sent attachments, installed Skills,
+  Automation Job scripts, and files that it saves with the new `ankole-files`
+  command. A folder path may end with a slash, and `put <file> <folder>/` puts
+  the file into that folder, as `cp` does. The Console Agent page browses,
+  uploads (also whole folders), moves, renames, and deletes drive files without
+  a running Worker; the Workers page no longer browses files. The file service
+  keeps one copy of an attachment for every Agent that receives it; Lark,
+  Slack, Discord, Telegram, WhatsApp, LINE, and email also download it only
+  once. `reply_attachment` pins the file when it runs, so a later change to the
+  local file does not change what is sent, and a reply whose file is missing
+  waits for an operator instead of retrying. The drive rejects a file whose
+  path conflicts with a parent or child file. Valid file-to-folder changes
+  also work in an existing Worker cache. `ankole-files list --after` reads
+  later pages.
+- Operators must set `ANKOLE_FILES_STORE` (`fs` or `s3`) and its settings:
+  Docker Compose adds the `files_data` volume, and the Helm chart adds the
+  `files.*` values. Give an `s3` bucket a lifecycle rule that aborts incomplete
+  multipart uploads. After the upgrade, run the one-time import
+  (`Ankole.Release.import_agent_home/1`, see the deployment guides). It copies
+  installed Skills and Automation Job scripts to the drive and reports every
+  directory or file that it cannot read. Agent Homes from root Workers are
+  readable only by root, so make the old volume readable first; the Compose
+  and Helm guides give the command. Attachments received before the upgrade
+  show as not available.
+- An Automation Job runs a fresh copy of its drive folder on every trigger. To
+  change a script, put the edited directory to the same folder; files that a
+  script writes into its working directory no longer remain between runs.
+  It downloads installed Skills before it reads MCP dependencies, and retries
+  a failed download as an infrastructure failure. An unknown registration
+  result keeps the uploaded scripts and tells the caller to list jobs before
+  retrying. Worker file grants move to the Agent resource `agent:<uid>:files`.
+- The control plane builds the installed Skill catalog directly from the
+  Agent's drive. Manifest updates preserve operator enablement overrides; a
+  failed read leaves the catalog unchanged. Worker cache scans and the
+  `skills.installed.replace` RPC are removed. Concurrent Turns and Automation
+  Jobs now prepare the Worker Skill cache one at a time. A failed preparation
+  does not block the next one. Skill paths use the Worker's saved startup
+  settings, including native Kubernetes container environment values, so the
+  control-plane tool returns the directory that the Worker uses.
+- A Background Agent Job keeps its workspace and native Codex thread files in
+  the Agent's persistent Home. A new Worker resumes the same thread and files;
+  Codex can rebuild SQLite from those files when the cache is lost.
+  Stored turn-item replay remains only for Jobs that had a runtime thread
+  before this migration; a successful runtime-anchor update ends that fallback.
+  Job creation accepts `/workspace` paths.
+- RuntimeFabric has no ZeroMQ transport any more. Workers connect only over
+  the Worker Channel, so `ANKOLE_RUNTIME_FABRIC_ENDPOINT` must be a `ws://` or
+  `wss://` URL. `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT`, the Helm
+  `runtimeFabric.port` and `runtimeFabric.bindEndpoint` values, port 6010, the
+  `kit dev` flags `--fabric-port` and `--worker-transport`,
+  `agent_computer.background_agent_job.max_turns_per_worker`,
+  `worker.replicaCount`, and `ANKOLE_WORKER_ID` are removed. The kernel drops
+  the `zmq` crate and the unused AnyAscii transliteration and adds an OpenDAL
+  object store. The images no longer install libzmq, and the control-plane
+  image runs as uid and gid 10001. A rollback to an earlier release is not
+  supported.
+- Docker Compose needs `RELEASE_COOKIE` in `.env`: generate it with
+  `openssl rand -hex 32` before the upgrade. Compose used the distributed
+  Erlang cookie built into the published image, while EPMD and the
+  distribution port listened on the network that the Workers share; the
+  control plane now binds both to the loopback interface when its node answers
+  at the loopback address. The Helm chart already generates a cookie for each
+  install. Compose upgrades and file-store backups use `docker compose stop`,
+  which keeps the network of the running Workers.
+- The Helm chart's bundled PostgreSQL keeps its database in the directory that
+  `postgresql.pgdata` names, by default `pgdata` on its volume, so it starts on
+  block volumes such as EBS, whose root holds `lost+found`. When you upgrade an
+  installation that kept the database at the volume root, set
+  `postgresql.pgdata=/var/lib/pgsql/18/data`. The migration init container
+  gets the same environment as the control plane.
+- Brain learns a URL source only through the `web_fetch` model profile;
+  without one, the source reports `web_fetch_model_not_configured`. The
+  fallback to a Worker's local browser and its Brain health item are removed.
+- Failure records name the Provider's error code from the Provider body, not
+  the kernel's code for the failure. AIGateway no longer retries a failure that
+  the kernel finds in a provider stream as a provider capacity failure, for
+  example an event that is not valid JSON or a Gemini safety stop. A chat turn
+  then ends with the failure notice after one model call, not after up to 15
+  calls over more than a minute.
+- The kernel keeps the AWS exception type of a Bedrock ConverseStream exception
+  that arrives mid-stream and reports the HTTP status that AWS declares for it.
+  AIGateway then marks a throttling, service-unavailable, or internal-server
+  exception as a retryable provider failure and reports a `validationException`
+  as `invalid_prompt`. The AWS eventstream parser also reads every header value
+  type, including byte arrays, correctly. A ConverseStream response now
+  completes with its stop reason and token usage instead of ending as
+  incomplete: the kernel names each event by its `:event-type` header, as the
+  AWS SDK does.
+- A Claude response that fails after its stream starts now ends as a provider
+  failure with Anthropic's error type and message, and with the HTTP status
+  that Anthropic documents for that type. Before, the kernel dropped the
+  `error` event, so the Worker saw a closed stream and retried at once as a
+  timeout, also after an `invalid_request_error`. Now an `overloaded_error`,
+  `rate_limit_error`, or `api_error` is retried on the provider-capacity
+  schedule, and a `rate_limit_error` puts the credential on cooldown as an HTTP
+  429 does. An `invalid_request_error` ends the turn as `invalid_prompt`.
+- A failed AppConfigure cache refresh can no longer leave the value from before
+  a write in the cache. Before, a cache miss that read the key just before the
+  write could store its older result after the refresh failed, and reads then
+  returned the old value or the default until the next write to the key or a
+  restart.
+- `bin/ankole rpc`, `remote`, `stop`, `restart`, and `pid` work in a running
+  control-plane container or Pod. Before, the client node that these commands
+  start also listened on the fixed distribution port, which the running node
+  already used, so it stopped with `eaddrinuse`. Now only the node that
+  `start`, `start_iex`, `daemon`, or `daemon_iex` starts uses
+  `ANKOLE_DIST_PORT`; clustering is unchanged.
+- Local Worker images build on the Agent OS base with Codex 0.158.0. The new
+  `kit pin-base-image` command pins the base that CI published for the current
+  `Dockerfile.base`, local builds warn while the pinned base has a different
+  `Dockerfile.base`, and `kit agent-computer-test` runs the Worker image
+  directly without compiling the control plane. The development control plane
+  listens on every interface, so Workers on Linux and in the dev container
+  reach it.
+- E2E tests fail when a Worker restarts or is replaced during a test that does
+  not do this on purpose.
+- Control-plane tests no longer call Feishu, the Lark binding and Plugin
+  registry restart tests no longer fail at random, and the AIGateway trace test
+  expects the boolean attributes that OTLP exporter 1.11 sends.
+- The Plugin registry tests reset the global AppConfigure plugin declarations
+  after each test. Test modules that run later, such as the LINE adapter
+  tests, no longer fail with unknown plugin keys.
+- The real-LLM Workflow e2e suite compiles again. Its Brain embedding and
+  rerank test sets the Brain maintainer Agent and sends the rerank request as
+  that Agent, as Recall does.
+- AI provider modules no longer declare `upstream(...)`. The capability kind
+  sets the upstream wire shape: Server-Sent Events for a language model and
+  JSON for every other kind. A Control Plane Plugin that still calls
+  `upstream(...)` must remove the call. The Gemini GenerateContent and OpenAI
+  embeddings resolvers, which no provider used, are removed.
+- A Background Agent Job that was created before 0.59 now resumes with text
+  input only. Ankole no longer fills a missing image-input capability of such a
+  Job from the current model profile.
+- Lark, Slack, DingTalk, WeCom, Discord, Telegram, and Email connections share
+  one reconcile and supervision implementation. A restart now replaces a
+  connection owner that already stopped instead of reporting an error, and the
+  reconciliation warning keeps its event name. Lark reply cards use one update,
+  finalize, and page-seal path for both card transports. The Lark, Slack, and
+  Teams startup channel syncs log `plugins.channel_sync.startup_enqueue_failed`
+  when they cannot enqueue.
+- The repository no longer contains the unused `tools/eval` evaluation
+  framework.
+- The Console and setup pages use the tianbai (甜白) neutral palette: paper and
+  gray layers lean very slightly warm, text leans slightly cool, and contrast
+  stays the same. Every overlay in `@ankole/uikit` uses the alumina ceramic
+  material: menus, select and combobox lists, popovers, hover cards, tooltips,
+  dialogs, sheets, drawers, and toasts. The ceramic lets the color behind it
+  through but flattens its light and shade, so text on it keeps its contrast
+  over any background, at least as well as on Fluent acrylic, while the
+  ceramic is a little less transparent than Fluent acrylic. It has an edge
+  light and a faint grain. Dropdown menus use the slightly more transparent
+  `ceramic-primary` tier. Sheets and drawers float 8px from the window edge,
+  tooltips are light and have no arrow, and the modal scrim is lighter so that
+  the ceramic stays white. The mobile navigation panel now has its intended
+  width of 320px. The material is also available as `--ceramic-*` and
+  `--fog-*` tokens and the `ceramic`, `ceramic-primary`, `ceramic-attention`,
+  and `fog` utilities.
+- Berry in the Console and `@ankole/uikit` marks only the brand and the
+  primary action; it no longer marks a state, because next to red it reads as
+  an error. Interaction states use ink and shape: keyboard focus is a 2px ink
+  ring with a gap, a focused field gets a 2px ink baseline on a paper fill,
+  and checked boxes, radios, switches, active tabs, the current page, the
+  current navigation item, and progress bars are ink. An invalid field gets a
+  2px red baseline. Links are ink with an underline. A table row whose name
+  opens an object now opens it on a click anywhere in the row; the name is
+  underlined while the pointer is over the row. Selected text and selected
+  rows take a pale qingbai glaze instead of solid berry. Status colors keep the
+  common convention, and each status has its own icon: failure is red with a
+  cross, a warning is amber with a triangle, a Background Agent Job that waits
+  for a person is amber with a question mark, success is green, and work in
+  progress is blue. A firing checkback now shows as in progress instead of as
+  a warning. Badges are neutral by default, and the berry badge style and the
+  `--link` token are removed; `--selection` and the `link` utility are new.
+  The ceramic glaze for a decision that waits for a person is amber.
+- The `@ankole/uikit` tokens follow the same color rules everywhere. A card is
+  paper like the page, so a field keeps its gray fill on a card. Placeholder
+  text reaches 4.5:1 against its field in both themes. Every status color has
+  the same three roles: `--destructive`, `--warning`, `--success`, and `--info`
+  color icons, dots, bars, borders, and rings; `--*-foreground` colors status
+  text; and `--*-subtle` is the quiet background of alerts and notice panels.
+  Marks keep 3:1 on paper and on the ceramic. Text keeps 4.5:1 on paper and,
+  on the ceramic, reads at least as well as the same role on Fluent acrylic.
+  Light marks use palette step 60 and light text step 70; dark marks use step
+  50 and dark text step 40, except warning text at step 30. So dark red text
+  is lighter, success marks are darker green, warning bars are darker amber,
+  and `--destructive-foreground` is red text instead of white. A focused
+  destructive menu item is red-60 with white text in both themes, like the
+  destructive button. The Console home page shows failures with a cross and
+  warnings with a triangle. The avatar badge is ink instead of berry. The
+  unused `--error`, `--interactive*`, `--divider*`, `--chart-*`, and
+  `--sidebar-primary*` tokens are removed.
+- The `@ankole/uikit` controls share one grammar. Buttons, fields, selects,
+  input groups, comboboxes, OTP slots, toggles, and tabs are 32px high by
+  default, 28px in toolbars and rows, and 24px inside another control, with a
+  4px radius (3px for keys and for options inside a control). A field is a
+  gray slot with a 3:1 baseline and uses the placeholder color for its
+  placeholder. A normal button is a paper object whose bottom edge is one step
+  darker, and it sinks into a slot when pressed. The only solid buttons are the
+  berry primary action and the red confirmation of an action that cannot be
+  undone. A segmented toggle is a slot that holds the chosen option, menu and
+  list rows are 32px and sit inset in their panel, and labels and titles are
+  no longer uppercase. The `secondary`, `lg`, and `icon-lg` button styles and
+  the `--radius` scale are removed; `--radius-control`, `--radius-mini`, and
+  the `--field-*` and `--control-*` tokens are new. The close button of a
+  dialog footer and the selected prefix filter on the Brain objects page are
+  now outline buttons, and the buttons on the website landing page are 32px
+  high instead of 44px.
+- The Console page is a sheet of paper on a gray ground, as in the design
+  language: the header and the navigation sit on the ground without divider
+  lines, and the page content sits on a sheet with a 10px radius and a hairline
+  edge. Panels on the sheet stay square. Table rows and header rows are 32px
+  high instead of 48px, and header cells use small gray text over a darker
+  line instead of a filled band. `--ground` and `--radius-panel` are new.
+- The Automation Job and Background Agent Job detail panels in the Console
+  fill the window up to their maximum width. Before, they used 75% of the
+  window width, also on narrow screens. The `@ankole/uikit` `Command`
+  component highlights only the selected item; before, every item had the
+  selection background.
+- The README in English, Chinese, Japanese, and Korean opens with a poster
+  that plays the two-minute introduction film on X, then says what Ankole
+  does and gives a group-chat example. It lists the supported chat, sign-in, model,
+  and Worker platforms, gives a Docker Compose quick start, and links the
+  documentation site, the known limits, and GitHub Discussions. The repository
+  map and the development commands are in `CONTRIBUTING.md`.
+- The website homepage uses the wording of the README in all four languages.
+  Six everyday requests replace the decision-work examples and follow the
+  title directly. The Harness section starts with the problem (a model with a
+  prompt starts every task from zero). The Chinese, Japanese, and Korean
+  titles no longer say "enterprise" and break into two lines. The page
+  description and `llms.txt` use the same wording.
+
 ## Version 1.6.19-rc.1 (2026-10-09)
 
 - Fix the website build by escaping apostrophes in the English quickstart.

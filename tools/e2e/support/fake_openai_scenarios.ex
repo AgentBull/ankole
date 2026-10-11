@@ -8,8 +8,21 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   """
 
   alias Ankole.E2E.FakeOpenAISkillScenarios
+  alias Ankole.E2E.FakeOpenAIJobScenarios
+  alias Ankole.E2E.FakeOpenAIWebhookScenarios
+  alias Ankole.E2E.FakeOpenAILongLivedOwnerScenarios
 
   @trigger_markers [
+    "CHAOS_B07_CREATE",
+    "CHAOS_B07_JOB",
+    "CHAOS_B07_WAKE",
+    "CHAOS_Q03_TRANSPORT",
+    "CHAOS_WEBHOOK_CLI",
+    "COMPOSE_UPGRADE_READ",
+    "CHAOS_JOB_CREATE",
+    "CHAOS_JOB_REPLY",
+    "CHAOS_JOB_WORK",
+    "CHAOS_JOB_FINISH",
     "CHAOS_WF_KILL_TASK",
     "CHAOS_WF_KILL_RUN",
     "CHAOS_WF_KILL_START",
@@ -19,11 +32,13 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     "CHAOS_FOLLOWUP_SECOND_OK",
     "CHAOS_FOLLOWUP_SLOW",
     "CHAOS_FOLLOWUP_RECALL_SLOW",
+    "CHAOS_LONG_TURN",
     "CHAOS_DM_ISOLATION_SEED",
     "CHAOS_GROUP_ISOLATION_CHECK",
     "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
     "CHAOS_REPLY_ATTACHMENT",
     "CHAOS_TODO_TOOL",
+    "CHAOS_INTERNAL_SKILL",
     "CHAOS_SKILL_VIEW_ALL",
     "CHAOS_SKILL_VIEW",
     "CHAOS_SKILL_DISABLED",
@@ -55,7 +70,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   """
   @spec classify(map()) :: atom()
   def classify(request) do
-    # The worker sends full conversation history on tool-loop turns. Matching
+    # AIGateway sends the complete conversation history on tool-loop turns. Matching
     # the whole request first would let an older chaos marker decide a newer
     # turn, so fallback classification uses the last trigger marker in message
     # order instead of "does the whole request contain X?" checks.
@@ -73,6 +88,21 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     prompt_trigger = latest_request_trigger_text(prompt)
 
     cond do
+      String.contains?(prompt, "CHAOS_Q03_TRANSPORT") ->
+        :q03_transport
+
+      String.contains?(prompt, "CHAOS_WEBHOOK_CLI") ->
+        :webhook_cli
+
+      String.contains?(prompt, "COMPOSE_UPGRADE_READ") ->
+        :compose_upgrade_read
+
+      owner_kind = FakeOpenAILongLivedOwnerScenarios.classify(request, prompt) ->
+        owner_kind
+
+      job_kind = FakeOpenAIJobScenarios.classify(request, prompt) ->
+        job_kind
+
       compaction_request?(request_text) ->
         :compaction_summary
 
@@ -109,6 +139,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_FOLLOWUP_RECALL_SLOW") ->
         :followup_recall_slow
 
+      String.contains?(prompt, "CHAOS_LONG_TURN") ->
+        :long_turn
+
       String.contains?(prompt, "CHAOS_DM_ISOLATION_SEED") ->
         :dm_isolation_seed
 
@@ -126,6 +159,9 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       String.contains?(prompt, "CHAOS_TODO_TOOL") ->
         :todo_tool
+
+      String.contains?(prompt, "CHAOS_INTERNAL_SKILL") ->
+        :internal_skill_tool
 
       String.contains?(prompt, "CHAOS_SKILL_VIEW_ALL") ->
         :skill_view_all_tool
@@ -237,6 +273,34 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           | {:completion, String.t(), keyword()}
   def action_for(kind, count, request \\ %{}) do
     cond do
+      kind in [:b07_create, :b07_job, :b07_notice, :b07_wake] ->
+        FakeOpenAILongLivedOwnerScenarios.action_for(kind, count)
+
+      kind == :webhook_cli ->
+        FakeOpenAIWebhookScenarios.action_for(count)
+
+      kind == :compose_upgrade_read and count == 1 ->
+        {:tool_call,
+         %{
+           id: "call_compose_upgrade_read",
+           name: "command",
+           arguments: %{
+             "command" =>
+               "printf x >> /workspace/sessions/unfinished/read-count; " <>
+                 "echo $$ > /workspace/sessions/unfinished/read.pid; " <>
+                 "while [ ! -e /workspace/sessions/unfinished/allow-read ]; do sleep 0.1; done; " <>
+                 "cat /workspace/sessions/unfinished/keep",
+             "timeout" => 180
+           }
+         }}
+
+      kind == :compose_upgrade_read ->
+        {:completion,
+         Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "COMPOSE_UPGRADE_OK"}), []}
+
+      kind in [:job_create, :job_reply, :job_work, :job_finish, :job_notice, :job_reconnect] ->
+        FakeOpenAIJobScenarios.action_for(kind, count, request)
+
       kind == :direct and count == 1 ->
         :rate_limit
 
@@ -249,8 +313,18 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       kind in [:followup_slow, :followup_recall_slow] ->
         {:delayed_completion, reply_for(kind), 1_500}
 
-      # The delay keeps the Workflow task turn provably in flight so a chaos
-      # scenario can kill the worker mid-turn before submit_result commits.
+      kind == :long_turn and count == 1 ->
+        {:tool_call,
+         %{
+           id: "call_image_change_command",
+           name: "command",
+           arguments: %{
+             "command" => "touch /workspace/image-command-started; sleep 10; printf ready",
+             "timeout" => 30
+           }
+         }}
+
+      # Keep the control-plane task request live when the test kills its Worker.
       kind == :workflow_kill_task ->
         {:delayed_tool_call, tool_call_for(:workflow_kill_task_submit), 1_500}
 
@@ -331,7 +405,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     [
       {:reply_attachment, "call_lark_chaos_reply_attachment_command"},
       {:reply_attachment, "call_lark_chaos_reply_attachment"},
-      {:reply_attachment, "~/user-files/reports/chaos-report.txt"},
+      {:reply_attachment, "reports/chaos-report.txt"},
       {:reply_attachment, "chaos-report.txt"},
       {:checkback_tool, "call_lark_chaos_checkback"},
       {:checkback_tool, "lark-chaos-checkback-1"},
@@ -408,10 +482,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:followup_recall_slow), do: "CHAOS_FOLLOWUP_RECALL_FIRST_OK"
   defp reply_for(:followup_slow), do: "CHAOS_FOLLOWUP_FIRST_OK"
   defp reply_for(:group_isolation_check), do: "CHAOS_GROUP_ISOLATION_OK"
+  defp reply_for(:long_turn), do: "CHAOS_LONG_TURN_OK"
   defp reply_for(:idle_steer), do: "CHAOS_IDLE_STEER_OK"
   defp reply_for(:new_after), do: "CHAOS_NEW_AFTER_OK"
   defp reply_for(:old_recall), do: "CHAOS_OLD_RECALL_OK"
   defp reply_for(:patch_tool), do: "CHAOS_PATCH_TOOL_OK"
+  defp reply_for(:q03_transport), do: "CHAOS_Q03_TRANSPORT_OK"
   defp reply_for(:read_file_tool), do: "CHAOS_READ_FILE_OK"
   defp reply_for(:recalled_followup), do: "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"
   defp reply_for(:reply_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
@@ -420,6 +496,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:skill_disabled_tool), do: "CHAOS_SKILL_DISABLED_OK"
   defp reply_for(:skill_view_all_tool), do: "CHAOS_SKILL_VIEW_ALL_OK"
   defp reply_for(:skill_view_tool), do: "CHAOS_SKILL_VIEW_OK"
+  defp reply_for(:internal_skill_tool), do: "CHAOS_INTERNAL_SKILL_OK"
   defp reply_for(:steer_tool), do: "CHAOS_STEERED_OK"
   defp reply_for(:steered_reply), do: "CHAOS_STEERED_OK"
   defp reply_for(:todo_tool), do: "CHAOS_TODO_OK"
@@ -439,19 +516,44 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
               :skill_view_tool,
               :skill_view_all_tool,
               :skill_disabled_tool,
+              :internal_skill_tool,
               :installed_skill_tool,
               :installed_skill_deleted_tool
             ],
        do: FakeOpenAISkillScenarios.tool_call_for(kind, count)
 
   defp tool_call_for(:read_file_tool, 1), do: tool_call_for(:read_file_command)
+
+  defp tool_call_for(:q03_transport, 1) do
+    %{
+      id: "call_q03_command",
+      name: "command",
+      arguments: %{
+        "command" =>
+          "printf x >> /workspace/q03-call-count; " <>
+            "while [ ! -f /workspace/q03-call-release ]; do sleep 0.1; done; " <>
+            "printf Q03_TOOL_DONE",
+        "timeout" => 90
+      }
+    }
+  end
+
+  defp tool_call_for(:q03_transport, 2) do
+    %{
+      id: "call_q03_image",
+      name: "read_file",
+      arguments: %{"path" => "/workspace/q03-image.png"}
+    }
+  end
+
   defp tool_call_for(:cron_invalid_result, 1), do: tool_call_for(:read_file_command)
   defp tool_call_for(:read_file_tool, 2), do: tool_call_for(:read_file_tool)
   defp tool_call_for(:patch_tool, 1), do: tool_call_for(:patch_command)
   defp tool_call_for(:patch_tool, 2), do: tool_call_for(:patch_tool)
   defp tool_call_for(:patch_tool, 3), do: tool_call_for(:patch_read_file_tool)
   defp tool_call_for(:workspace_write_tool, 1), do: tool_call_for(:workspace_write_command)
-  defp tool_call_for(:workspace_read_tool, 1), do: tool_call_for(:workspace_read_file_tool)
+  defp tool_call_for(:workspace_read_tool, 1), do: tool_call_for(:workspace_get_command)
+  defp tool_call_for(:workspace_read_tool, 2), do: tool_call_for(:workspace_read_file_tool)
 
   defp tool_call_for(kind, 1) when kind in [:checkback_tool, :cron_tool, :steer_tool],
     do: tool_call_for(kind)
@@ -488,7 +590,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "action" => "create",
         "reason" => "Lark chaos checkback",
         "check" => "Confirm CHAOS_CHECKBACK_WAKE_OK",
-        "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}}
+        "schedule" => %{"after" => %{"value" => 5, "unit" => "second"}}
       }
     }
   end
@@ -496,7 +598,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(:cron_tool) do
     anchor_at =
       DateTime.utc_now()
-      |> DateTime.add(10, :minute)
+      |> DateTime.add(30, :second)
       |> DateTime.truncate(:second)
       |> DateTime.to_iso8601()
 
@@ -529,7 +631,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p ~/user-files/reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > ~/user-files/reports/chaos-report.txt",
+          "mkdir -p reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > reports/chaos-report.txt",
         "timeout" => 5
       }
     }
@@ -540,7 +642,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_reply_attachment",
       name: "reply_attachment",
       arguments: %{
-        "path" => "~/user-files/reports/chaos-report.txt",
+        "path" => "reports/chaos-report.txt",
         "name" => "chaos-report.txt",
         "mimeType" => "text/plain"
       }
@@ -583,7 +685,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p ~/user-files/chaos && printf 'CHAOS_READ_FILE_CONTENT\\n' > ~/user-files/chaos/read-file.txt",
+          "mkdir -p chaos && printf 'CHAOS_READ_FILE_CONTENT\\n' > chaos/read-file.txt",
         "timeout" => 5
       }
     }
@@ -594,7 +696,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_read_file",
       name: "read_file",
       arguments: %{
-        "path" => "~/user-files/chaos/read-file.txt",
+        "path" => "chaos/read-file.txt",
         "offset" => 1,
         "limit" => 20
       }
@@ -642,9 +744,17 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p ~/user-files/chaos && printf 'CHAOS_WORKSPACE_PERSISTED\\n' > ~/user-files/chaos/persisted.txt",
+          "mkdir -p chaos && printf 'CHAOS_WORKSPACE_PERSISTED\\n' > chaos/persisted.txt && printf 'CHAOS_WORKSPACE_SECOND\\n' > chaos/second.txt && ankole-files put chaos chaos",
         "timeout" => 5
       }
+    }
+  end
+
+  defp tool_call_for(:workspace_get_command) do
+    %{
+      id: "call_lark_chaos_workspace_get",
+      name: "command",
+      arguments: %{"command" => "ankole-files get chaos/persisted.txt", "timeout" => 30}
     }
   end
 
@@ -653,7 +763,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_workspace_read",
       name: "read_file",
       arguments: %{
-        "path" => "~/user-files/chaos/persisted.txt",
+        "path" => "drive/chaos/persisted.txt",
         "offset" => 1,
         "limit" => 20
       }

@@ -19,17 +19,17 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
     :ok
   end
 
-  test "requests without a bearer token are rejected", %{conn: conn} do
+  test "requests without a browser session are rejected", %{conn: conn} do
     conn =
       conn
       |> put_req_header("content-type", "application/json")
       |> get(~p"/api/v1/principal-groups")
 
-    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
   test "group lifecycle: create, list with counts, show, update, delete", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     name = "workspace_admins_#{System.unique_integer([:positive])}"
 
     conn =
@@ -62,7 +62,7 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
     listed = Enum.find(groups, &(&1["name"] == name))
     assert listed["member_count"] == 1
     assert listed["grant_count"] == 1
-    assert Enum.any?(groups, &(&1["name"] == "admin" and &1["built_in"]))
+    assert Enum.any?(groups, &(&1["name"] == "siteadmin" and &1["built_in"]))
 
     conn = conn |> recycle_api() |> get(~p"/api/v1/principal-groups/#{name}")
     assert %{"principal_group" => fetched} = json_response(conn, 200)
@@ -94,7 +94,7 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
   end
 
   test "create validates kind shape and name uniqueness", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       conn
@@ -126,7 +126,7 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
       conn
       |> recycle_api()
       |> post(~p"/api/v1/principal-groups", %{
-        "name" => "admin",
+        "name" => "siteadmin",
         "display_name" => "Duplicate Admin"
       })
 
@@ -137,9 +137,9 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
   end
 
   test "built-in groups reject delete and keep their computed condition", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
-    conn = conn |> recycle_api() |> delete(~p"/api/v1/principal-groups/admin")
+    conn = conn |> recycle_api() |> delete(~p"/api/v1/principal-groups/siteadmin")
     assert %{"error" => %{"code" => "built_in_group"}} = json_response(conn, 409)
 
     conn =
@@ -158,7 +158,7 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
   test "static membership roundtrip and computed or directory groups reject manual edits", %{
     conn: conn
   } do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     name = "readers_#{System.unique_integer([:positive])}"
     assert {:ok, _group} = AuthZ.create_principal_group(%{name: name, display_name: "Readers"})
 
@@ -223,19 +223,19 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
   end
 
   test "removing the last active human admin is rejected", %{conn: conn} do
-    conn = bearer_conn(conn)
-    assert {:ok, [%{principal: admin}]} = AuthZ.list_group_members("admin")
+    conn = console_conn(conn)
+    assert {:ok, [%{principal: admin}]} = AuthZ.list_group_members("siteadmin")
 
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/principal-groups/admin/members/#{admin.uid}")
+      |> delete(~p"/api/v1/principal-groups/siteadmin/members/#{admin.uid}")
 
     assert %{"error" => %{"code" => "last_admin_member"}} = json_response(conn, 409)
   end
 
   test "computed group members are evaluated and preview validates conditions", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     %{principal: human} =
       human_fixture(%{uid: unique_uid("computed-member"), display_name: "Computed Member"})
@@ -275,7 +275,7 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
   end
 
   test "group grants are listed for the group detail page", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     name = "grantees_#{System.unique_integer([:positive])}"
     assert {:ok, _group} = AuthZ.create_principal_group(%{name: name, display_name: "Grantees"})
 

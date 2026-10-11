@@ -27,14 +27,15 @@ defmodule AnkoleWeb.APISpec do
         version: "2026-09-04"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
-      # The documented bearer schemes mirror the Console and AIGateway plugs;
-      # `aiGatewayBearer` accepts Agent and authorized OIDC Human tokens.
+      # Console requests use browser sessions. AIGateway uses Agent and OIDC Human tokens.
       components: %Components{
         securitySchemes: %{
-          "consoleBearer" => %SecurityScheme{
-            type: "http",
-            scheme: "bearer",
-            bearerFormat: "JWT"
+          "consoleSession" => %SecurityScheme{
+            type: "apiKey",
+            in: "cookie",
+            name: "_ankole_key",
+            description:
+              "Browser session cookie. Requests other than GET and HEAD also send the x-csrf-token header from the console shell."
           },
           "aiGatewayBearer" => %SecurityScheme{
             type: "http",
@@ -78,7 +79,7 @@ defmodule AnkoleWeb.APISpec do
         },
         %Tag{
           name: "AIGateway",
-          description: "Agent, Console, and OIDC Human AI provider gateway"
+          description: "Agent and OIDC Human AI provider gateway"
         },
         %Tag{
           name: "AI Gateway Conversations",

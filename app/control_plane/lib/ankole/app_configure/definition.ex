@@ -14,7 +14,6 @@ defmodule Ankole.AppConfigure.Definition do
     :generator,
     :scope,
     :encrypted,
-    :worker_env_name,
     console_writable: true,
     default?: false
   ]
@@ -27,12 +26,9 @@ defmodule Ankole.AppConfigure.Definition do
           default_value: term(),
           description: String.t() | nil,
           generator: (-> term()) | nil,
-          scope: :scoped | :global,
-          console_writable: boolean(),
-          worker_env_name: String.t() | nil
+          scope: :tenant | :global,
+          console_writable: boolean()
         }
-
-  @worker_env_name_format ~r/^[A-Za-z_][A-Za-z0-9_]*$/
 
   @doc """
   Builds an exact key definition without registering it.
@@ -51,8 +47,7 @@ defmodule Ankole.AppConfigure.Definition do
          {:ok, description} <- fetch_optional_string(attrs, :description),
          {:ok, generator} <- fetch_optional_generator(attrs),
          {:ok, scope} <- fetch_scope(attrs),
-         {:ok, console_writable} <- fetch_console_writable(attrs),
-         {:ok, worker_env_name} <- fetch_optional_worker_env_name(attrs) do
+         {:ok, console_writable} <- fetch_console_writable(attrs) do
       {:ok,
        %__MODULE__{
          key: key,
@@ -63,8 +58,7 @@ defmodule Ankole.AppConfigure.Definition do
          description: description,
          generator: generator,
          scope: scope,
-         console_writable: console_writable,
-         worker_env_name: worker_env_name
+         console_writable: console_writable
        }}
     end
   end
@@ -171,10 +165,10 @@ defmodule Ankole.AppConfigure.Definition do
   defp fetch_scope(attrs) do
     case Map.fetch(attrs, :scope) do
       {:ok, :global} -> {:ok, :global}
-      {:ok, :scoped} -> {:ok, :scoped}
-      {:ok, nil} -> {:ok, :scoped}
+      {:ok, :tenant} -> {:ok, :tenant}
+      {:ok, nil} -> {:ok, :global}
       {:ok, _scope} -> {:error, :invalid_scope}
-      :error -> {:ok, :scoped}
+      :error -> {:ok, :global}
     end
   end
 
@@ -183,29 +177,6 @@ defmodule Ankole.AppConfigure.Definition do
       {:ok, value} when is_boolean(value) -> {:ok, value}
       {:ok, _value} -> {:error, {:invalid_boolean, :console_writable}}
       :error -> {:ok, true}
-    end
-  end
-
-  # Marks the key's resolved value for export into Agent Computer shells. Only
-  # the POSIX name syntax is checked here; worker-side naming policy (reserved
-  # names, merge order) is owned by the WorkerEnv subsystem.
-  defp fetch_optional_worker_env_name(attrs) do
-    case Map.fetch(attrs, :worker_env_name) do
-      :error ->
-        {:ok, nil}
-
-      {:ok, nil} ->
-        {:ok, nil}
-
-      {:ok, name} when is_binary(name) ->
-        if Regex.match?(@worker_env_name_format, name) do
-          {:ok, name}
-        else
-          {:error, {:invalid_worker_env_name, name}}
-        end
-
-      {:ok, name} ->
-        {:error, {:invalid_worker_env_name, name}}
     end
   end
 end

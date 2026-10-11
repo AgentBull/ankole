@@ -26,14 +26,13 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiChatQuoteLine, RiLoaderLine, RiMore2Fill } from '@remixicon/react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import {
   ankoleWebBrainControllerForgetClaimMutation,
   ankoleWebBrainControllerListClaimsOptions,
-  ankoleWebBrainControllerListClaimsQueryKey,
   ankoleWebBrainControllerResolveTakeMutation,
   ankoleWebBrainControllerSupersedeClaimMutation
 } from '../../api/generated/@tanstack/react-query.gen'
@@ -49,7 +48,6 @@ type ResolutionQuality = (typeof RESOLUTION_QUALITIES)[number]
 
 export function BrainClaimsPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   // Search and the slug filter query the server, so both commit on the shared
   // debounce instead of issuing one request per keystroke.
   const [query, setQuery] = useState('')
@@ -72,8 +70,6 @@ export function BrainClaimsPage() {
   })
   const rows = claims.data?.claims ?? []
 
-  const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListClaimsQueryKey() })
   const [supersedeClaim, setSupersedeClaim] = useState<BrainClaim>()
   const [forgetClaim, setForgetClaim] = useState<BrainClaim>()
   const [resolveClaim, setResolveClaim] = useState<BrainClaim>()
@@ -166,7 +162,7 @@ export function BrainClaimsPage() {
               <TableCell className="font-mono text-xs">{claim.holder ?? '—'}</TableCell>
               <TableCell className="font-mono text-xs">
                 {claim.object_slug ? (
-                  <Link className="text-link hover:underline" to={brainObjectPath(claim.object_slug)}>
+                  <Link className="link" to={brainObjectPath(claim.object_slug)}>
                     {claim.object_slug}
                   </Link>
                 ) : (
@@ -211,9 +207,9 @@ export function BrainClaimsPage() {
         })}
       </ResourceListPage>
 
-      <SupersedeClaimDialog claim={supersedeClaim} onClose={() => setSupersedeClaim(undefined)} onDone={invalidate} />
-      <ForgetClaimDialog claim={forgetClaim} onClose={() => setForgetClaim(undefined)} onDone={invalidate} />
-      <ResolveTakeDialog claim={resolveClaim} onClose={() => setResolveClaim(undefined)} onDone={invalidate} />
+      <SupersedeClaimDialog claim={supersedeClaim} onClose={() => setSupersedeClaim(undefined)} />
+      <ForgetClaimDialog claim={forgetClaim} onClose={() => setForgetClaim(undefined)} />
+      <ResolveTakeDialog claim={resolveClaim} onClose={() => setResolveClaim(undefined)} />
     </>
   )
 }
@@ -239,15 +235,7 @@ export function ClaimStateBadge({ claim }: { claim: BrainClaim }) {
   )
 }
 
-function SupersedeClaimDialog({
-  claim,
-  onClose,
-  onDone
-}: {
-  claim?: BrainClaim
-  onClose: () => void
-  onDone: () => void
-}) {
+function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: () => void }) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [seededFor, setSeededFor] = useState<string>()
@@ -260,7 +248,6 @@ function SupersedeClaimDialog({
     ...ankoleWebBrainControllerSupersedeClaimMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.supersede_done'))
-      onDone()
       onClose()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -295,15 +282,7 @@ function SupersedeClaimDialog({
   )
 }
 
-function ForgetClaimDialog({
-  claim,
-  onClose,
-  onDone
-}: {
-  claim?: BrainClaim
-  onClose: () => void
-  onDone: () => void
-}) {
+function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: () => void }) {
   const { t } = useTranslation()
   const [reason, setReason] = useState('')
   const [seededFor, setSeededFor] = useState<string>()
@@ -317,7 +296,6 @@ function ForgetClaimDialog({
     ...ankoleWebBrainControllerForgetClaimMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.forget_claim_done'))
-      onDone()
       onClose()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -353,15 +331,7 @@ function ForgetClaimDialog({
   )
 }
 
-function ResolveTakeDialog({
-  claim,
-  onClose,
-  onDone
-}: {
-  claim?: BrainClaim
-  onClose: () => void
-  onDone: () => void
-}) {
+function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: () => void }) {
   const { t } = useTranslation()
   const [quality, setQuality] = useState<ResolutionQuality>('correct')
   const [outcome, setOutcome] = useState(true)
@@ -380,7 +350,6 @@ function ResolveTakeDialog({
     ...ankoleWebBrainControllerResolveTakeMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.resolve_done'))
-      onDone()
       onClose()
     },
     onError: error => toast.error(requestErrorMessage(error))

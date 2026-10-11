@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
-import type { ActorTurnRef } from '../../../lanes/actor_lane'
-import { rpcMethods, type RPCRequester } from '../../../lanes/rpc_lane'
+import type { JobTurnRef } from '../../../lanes/actor_lane'
+import { type RPCRequester } from '../../../lanes/rpc_lane'
 import { normalizedCollaborationToolName, stringValue } from '../protocol'
 
 /**
@@ -9,15 +9,16 @@ import { normalizedCollaborationToolName, stringValue } from '../protocol'
  * The conversion is intentionally lossy. It omits reasoning and maps each tool
  * call to a name, arguments, and output. Codex compacts long replay input.
  */
-export async function fetchReplayTurnItems(
-  rpc: RPCRequester,
-  turn: ActorTurnRef,
-  jobID: string
-): Promise<JSONObject[]> {
+export async function fetchReplayTurnItems(rpc: RPCRequester, turn: JobTurnRef, jobID: string): Promise<JSONObject[]> {
   const items: JSONObject[] = []
   let cursor = ''
   do {
-    const response = await rpc(rpcMethods.backgroundAgentJobTurnItemsList, { jobId: jobID, cursor }, { turn })
+    const response = await rpc(
+      'background_agent_job.turn_items.list',
+      { jobId: jobID, cursor },
+      { jobTurn: turn },
+      { retryOnDisconnect: true }
+    )
     for (const entry of response.items) items.push(parseItemJSON(entry.itemJson))
     cursor = response.nextCursor
   } while (cursor)

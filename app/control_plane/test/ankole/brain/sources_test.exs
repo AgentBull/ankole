@@ -3,7 +3,31 @@ defmodule Ankole.Brain.SourcesTest do
 
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Source
   alias Ankole.Repo
+
+  test "recording an extraction watermark keeps Source list ordering" do
+    assert {:ok, source} =
+             Sources.create(%{kind: "signal_channel", upstream_id: "channel-1", name: "Channel"})
+
+    boundary = {~U[2026-08-20 10:00:00.123456Z], "message-9"}
+    assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
+    current = Repo.get!(Source, source.id)
+    assert Sources.extraction_watermark(current) == boundary
+    assert current.updated_at == source.updated_at
+  end
+
+  test "a channel watermark is absent until a Source records its complete boundary" do
+    assert Sources.channel_extraction_watermark("channel-1") == nil
+
+    assert {:ok, source} =
+             Sources.create(%{kind: "signal_channel", upstream_id: "channel-1", name: "Channel"})
+
+    assert Sources.channel_extraction_watermark("channel-1") == nil
+    boundary = {~U[2026-08-20 10:00:00.123456Z], "message-9"}
+    assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
+    assert Sources.channel_extraction_watermark("channel-1") == boundary
+  end
 
   test "strict creation rejects a duplicate while idempotent registration reuses it" do
     attrs = %{
@@ -66,7 +90,6 @@ defmodule Ankole.Brain.SourcesTest do
         title: "Source archive",
         body: "Managed body",
         meta: %{},
-        emotional_weight: 0.0,
         managed_by_source_id: library_source.id,
         created_at: now,
         updated_at: now

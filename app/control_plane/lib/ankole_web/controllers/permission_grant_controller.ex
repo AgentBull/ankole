@@ -18,7 +18,7 @@ defmodule AnkoleWeb.PermissionGrantController do
   alias AnkoleWeb.Schemas.ConsoleAPI.PermissionGrantUpdateRequest
 
   tags(["AuthZ"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -29,10 +29,7 @@ defmodule AnkoleWeb.PermissionGrantController do
       {"Permission grant", "application/json", PermissionGrantCreateRequest, required: true},
     responses: [
       ok: {"Permission grant", "application/json", PermissionGrantResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Owner not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid grant", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -41,9 +38,7 @@ defmodule AnkoleWeb.PermissionGrantController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Permission grant", "application/json", PermissionGrantResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -54,10 +49,7 @@ defmodule AnkoleWeb.PermissionGrantController do
       {"Permission grant", "application/json", PermissionGrantUpdateRequest, required: true},
     responses: [
       ok: {"Permission grant", "application/json", PermissionGrantResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid grant", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -66,9 +58,7 @@ defmodule AnkoleWeb.PermissionGrantController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Permission grant", "application/json", PermissionGrantResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

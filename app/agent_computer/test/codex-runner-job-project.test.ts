@@ -6,28 +6,27 @@ import { codexJobProjectLocation, prepareCodexJobProject } from '../src/core/cod
 
 describe('@ankole/agent-computer Codex Job workspace', () => {
   it('uses one stable real path as host path, cwd, and model-visible path', () => {
-    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-job-'))
+    const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-job-'))
     try {
-      const location = codexJobProjectLocation(agentsRoot, 'agent-1', '1000')
+      const location = codexJobProjectLocation(agentHomeRoot, '1000')
       const project = prepareCodexJobProject({ jobProjectRoot: location.hostPath })
-      expect(project.root).toBe(join(agentsRoot, 'agent-1', 'jobs', '1000'))
+      expect(project.root).toBe(join(agentHomeRoot, 'jobs', '1000'))
       expect(existsSync(join(project.root, 'temp'))).toBeTrue()
-      expect(location.agentHome).toBe(join(agentsRoot, 'agent-1'))
+      expect(location.agentHome).toBe(agentHomeRoot)
     } finally {
-      rmSync(agentsRoot, { recursive: true, force: true })
+      rmSync(agentHomeRoot, { recursive: true, force: true })
     }
   })
 
   it('rejects unsafe IDs, Git workspaces, and symbolic-link workspace roots', () => {
-    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-job-boundary-'))
-    const gitRoot = join(agentsRoot, 'git-job')
+    const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-job-boundary-'))
+    const gitRoot = join(agentHomeRoot, 'git-job')
     mkdirSync(join(gitRoot, '.git'), { recursive: true })
     try {
-      expect(() => codexJobProjectLocation(agentsRoot, 'agent-1', '../escape')).toThrow('canonical decimal integer')
-      expect(() => codexJobProjectLocation(agentsRoot, 'Agent 1', '1000')).toThrow('Agent UID must match')
+      expect(() => codexJobProjectLocation(agentHomeRoot, '../escape')).toThrow('canonical decimal integer')
       expect(() => prepareCodexJobProject({ jobProjectRoot: gitRoot })).toThrow('must remain non-Git')
     } finally {
-      rmSync(agentsRoot, { recursive: true, force: true })
+      rmSync(agentHomeRoot, { recursive: true, force: true })
     }
   })
 })

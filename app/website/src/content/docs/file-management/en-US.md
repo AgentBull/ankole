@@ -1,68 +1,63 @@
 ---
 title: File management
-description: Upload reference material, download Agent artifacts, and manage durable Agent files in the Console.
+description: Upload reference material, download Agent artifacts, and manage an Agent's drive in the Console.
 section: User guide
 order: 31
 ---
 
-**You typically do not need the file browser described on this page. Send files directly to the Agent in chat to create, read, modify, organize, or transfer files. Use the Console file browser only to recover undelivered artifacts, inspect intermediate outputs, or organize directories manually.**
+**You typically do not need the file browser described on this page. Send files directly to the Agent in chat to create, read, modify, organize, or transfer files. Use the Console file browser only to recover undelivered artifacts, inspect saved outputs, or organize folders manually.**
 
-Agents read source material and save work and artifacts in durable Worker storage. The Console lets you upload references, download reports, images, or data files, and rename or remove material that is no longer needed.
+Each Agent has a control-plane drive for attachments, images, published files, installed Skills, and Automation scripts. The Console can upload, download, move, and delete these files even while no Worker runs. Session and Job workspaces live in persistent Home and are not drive folders.
 
 ## Find an Agent's files
 
-1. Open **Workers** in the Console.
-2. Select a ready Worker and then **Browse files**.
-3. Select the Agent.
-4. Select the file root:
+1. Open **Agents** in the Console and open the Agent.
+2. Under **Drive**, select **Browse files**.
 
-| Root | Contents | Common actions |
-|---|---|---|
-| **User files** | References, templates, and input files that a person provided | Upload, download, rename, or remove |
-| **Agent sessions** | Work files from Agent conversations | Download artifacts and remove old files when needed |
-| **Agent installed skills** | Skill files that the Agent can currently read | Confirm synchronization; normally do not edit them here |
-
-The list opens through one Worker, but all Workers in a production deployment must share durable Agent storage. Docker Compose uses a local persistent volume. Kubernetes uses a shared volume that several nodes can read and write.
-
-If Workers show different files, repair the storage mounts instead of uploading duplicate copies.
+| Folder | Contents |
+|---|---|
+| `inbox/` | Attachments that people sent the Agent |
+| `generated/` | Images that the Agent generated |
+| `sent/` | Files that the Agent attached to replies |
+| `skills/` | The Agent's installed Skills, one folder per Skill |
+| `automation/` | Automation Job scripts |
+| Other folders | Files that the Agent or a person saved |
 
 ## Upload reference material
 
-1. Open **User files**.
-2. Open the target directory, or enter a subdirectory during upload.
-3. Select **Upload** and add the file.
-4. In chat, tell the Agent the file name, directory, and task.
+1. Open the target folder, or enter a folder during upload.
+2. Select **Upload** and add the file. A file that already exists at the same path is replaced.
+3. In chat, tell the Agent the drive path and the task.
 
-An upload creates missing subdirectories. Use stable names such as `customer-research/2026-q3-interviews.pdf`. Do not put every file at the root, and avoid names such as `final-v2-new.pdf` that do not identify the content.
+Folders in the path are created on upload. Use stable names such as `customer-research/2026-q3-interviews.pdf`. Do not put every file at the root, and avoid names such as `final-v2-new.pdf` that do not identify the content.
 
-Uploading makes the file readable. It does not start work. Tell the Agent to use it in chat. To turn the material into durable knowledge, submit it through **Learn source**.
+Uploading makes the file available to the Agent. It does not start work. Tell the Agent to use it in chat. To turn the material into durable knowledge, submit it through **Learn source**.
 
 ## Download Agent artifacts
 
-After an Agent creates a file in a conversation, find it under **Agent sessions** and download it. For a large directory, first open the relevant conversation path and then search by name or kind.
+The drive holds the files that the Agent saved and the files that it attached to replies (under `sent/`). A file that the Agent only wrote into its conversation workspace is not in the drive; ask the Agent to save it.
 
-If the attachment arrived in chat, download it there. Use the Console to recover an artifact that was not delivered, inspect intermediate files, or organize results that must be retained.
+If the attachment arrived in chat, download it there. Use the Console to recover an artifact that was not delivered, inspect saved outputs, or organize results that must be retained.
 
-## Rename and remove
+## Move and delete
 
-Use the action menu for a file to rename or remove it. Rename does not change the file contents.
+Use the action menu for a file or folder to move, rename, or delete it. A move does not change the file contents.
 
-Removal is permanent and has no trash. Removing a directory also removes its children. Confirm that no active Agent work uses the files.
+Deletion is permanent and has no trash. Deleting a folder deletes every file in it. Confirm that no active Agent work uses the files.
 
 Download important material first, or confirm that it is included in a [backup](../backup-and-restore/).
 
-Do not edit files under **Agent installed skills**. Manage Skill enablement in the [Agent Library](../skills/). Change Skill content at its source and synchronize it again.
+Files under `skills/` are the installed Skills. A change there changes the Skill for the next turn. Manage Skill enablement in the [Agent Library](../skills/).
 
 ## What remains after a restart
 
-User files, Agent session files, and installed Skills live on persistent storage and remain after a Worker restart. Worker temporary directories are outside this view and can disappear after a restart.
+The drive and persistent Home survive Worker instance replacement. Files that an Agent only writes to its workspace stay in Home; publish them to the drive to make them available in the Console. See [Workers](../worker-management/) for storage limits.
 
-The Agent's `MISSION`, `SOUL`, and `DESIGN` documents are managed in the Agent editor. They are projected to the Worker but must not be changed through the file browser. See [Agents](../agents/) for those documents.
+The Agent's `MISSION`, `SOUL`, and `DESIGN` documents are managed in the Agent editor. They are projected to the Worker and are not drive files. See [Agents](../agents/) for those documents.
 
 ## Common problems
 
-- **The list is empty:** confirm the Worker, Agent, and file root, and check that the Worker is ready.
-- **The Agent cannot find an uploaded file:** confirm that the file is in that Agent's **User files**, and include the exact relative path in your message.
-- **Only some Workers show the file:** confirm that every Worker mounts the same persistent volume.
-- **A generated artifact is missing:** confirm that the Job finished and inspect the correct conversation directory.
-- **The list is truncated:** open a more specific subdirectory and search again.
+- **The Agent cannot find an uploaded file:** include the exact drive path in your message. The Agent fetches it with `ankole-files get`.
+- **A generated artifact is missing:** ask the Agent to save it to its drive, or confirm that the Job finished.
+- **An upload fails with a size error:** one file can have at most 100 MiB.
+- **An attachment shows as not available:** it arrived before the drive existed or its download failed. Ask the sender to send it again.

@@ -1,7 +1,7 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 // The transliteration table is ~0.5 MB, so it loads on demand: the editor
-// preloads it on initialize, and UID derivation upgrades from the ASCII-only
+// preloads it on initialize, and handle derivation upgrades from the ASCII-only
 // fallback as soon as the table lands.
 type Transliterate = (value: string) => string
 
@@ -18,35 +18,39 @@ export function preloadTransliteration(): Promise<void> {
 export type AgentMemoryDisclosureMode = 'strict' | 'relaxed'
 
 export type AgentEditorDraft = {
-  uid: string
+  handle: string
   displayName: string
   avatarURL: string
   role: string
   ownerPrincipalUID: string
+  workerProviderID: string
   groupMemoryDisclosureMode: AgentMemoryDisclosureMode
 }
 
 export type AgentEditorDraftError =
   | 'display_name_required'
-  | 'uid_invalid'
-  | 'uid_required'
+  | 'handle_invalid'
+  | 'handle_required'
   | 'role_required'
   | 'owner_required'
+  | 'worker_provider_required'
 
 // Shared with the editor's `pattern` attribute, so the browser reports the
 // same rule the model enforces. HTML patterns imply the ^…$ anchors and
 // compile with the `v` flag, which requires the escaped hyphen in the class.
-export const agentUIDInputPattern = '[a-z0-9][a-z0-9._\\-]{0,95}'
-const agentUIDPattern = new RegExp(`^(?:${agentUIDInputPattern})$`)
+export const agentHandleInputPattern = '[a-z0-9][a-z0-9._\\-]{0,95}'
+const agentHandlePattern = new RegExp(`^(?:${agentHandleInputPattern})$`)
 
-export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_invalid' | 'uid_required'> | undefined {
-  const normalizedUID = uid.trim()
-  if (!normalizedUID) return 'uid_required'
-  if (!agentUIDPattern.test(normalizedUID)) return 'uid_invalid'
+export function agentHandleError(
+  handle: string
+): Extract<AgentEditorDraftError, 'handle_invalid' | 'handle_required'> | undefined {
+  const normalizedHandle = handle.trim()
+  if (!normalizedHandle) return 'handle_required'
+  if (!agentHandlePattern.test(normalizedHandle)) return 'handle_invalid'
   return undefined
 }
 
-export function agentUIDFromDisplayName(displayName: string): string {
+export function agentHandleFromDisplayName(displayName: string): string {
   return (transliterate?.(displayName) ?? displayName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -57,11 +61,12 @@ export function agentUIDFromDisplayName(displayName: string): string {
 
 export const AgentEditorModel = createModel(() => {
   const sourceKey = signal<string>()
-  const uid = signal('')
+  const handle = signal('')
   const displayName = signal('')
   const avatarURL = signal('')
   const role = signal('')
   const ownerPrincipalUID = signal('')
+  const workerProviderID = signal('')
   const groupMemoryDisclosureMode = signal<AgentMemoryDisclosureMode>('strict')
   const initialDraft = signal<AgentEditorDraft>()
   const validationError = signal<AgentEditorDraftError>()
@@ -69,23 +74,25 @@ export const AgentEditorModel = createModel(() => {
     const initial = initialDraft.value
     return Boolean(
       initial &&
-      (uid.value !== initial.uid ||
+      (handle.value !== initial.handle ||
         displayName.value !== initial.displayName ||
         avatarURL.value !== initial.avatarURL ||
         role.value !== initial.role ||
         ownerPrincipalUID.value !== initial.ownerPrincipalUID ||
+        workerProviderID.value !== initial.workerProviderID ||
         groupMemoryDisclosureMode.value !== initial.groupMemoryDisclosureMode)
     )
   })
-  let uidManuallyEdited = false
+  let handleManuallyEdited = false
 
   return {
     sourceKey,
-    uid,
+    handle,
     displayName,
     avatarURL,
     role,
     ownerPrincipalUID,
+    workerProviderID,
     groupMemoryDisclosureMode,
     dirty,
     validationError,
@@ -94,15 +101,16 @@ export const AgentEditorModel = createModel(() => {
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
         sourceKey.value = nextSourceKey
-        uid.value = draft.uid
+        handle.value = draft.handle
         displayName.value = draft.displayName
         avatarURL.value = draft.avatarURL
         role.value = draft.role
         ownerPrincipalUID.value = draft.ownerPrincipalUID
+        workerProviderID.value = draft.workerProviderID
         groupMemoryDisclosureMode.value = draft.groupMemoryDisclosureMode
         initialDraft.value = { ...draft }
         validationError.value = undefined
-        uidManuallyEdited = false
+        handleManuallyEdited = false
       })
     },
     clearValidation() {
@@ -112,51 +120,51 @@ export const AgentEditorModel = createModel(() => {
       initialDraft.value = draft
         ? { ...draft }
         : {
-            uid: uid.value,
+            handle: handle.value,
             displayName: displayName.value,
             avatarURL: avatarURL.value,
             role: role.value,
             ownerPrincipalUID: ownerPrincipalUID.value,
+            workerProviderID: workerProviderID.value,
             groupMemoryDisclosureMode: groupMemoryDisclosureMode.value
           }
     },
-    setDisplayName(value: string, deriveUID: boolean) {
+    setDisplayName(value: string, deriveHandle: boolean) {
       batch(() => {
         displayName.value = value
-        if (deriveUID && !uidManuallyEdited) {
-          uid.value = agentUIDFromDisplayName(value)
+        if (deriveHandle && !handleManuallyEdited) {
+          handle.value = agentHandleFromDisplayName(value)
           // Before the table lands, non-Latin input derives an empty or
-          // partial UID; re-derive from the current name once it loads.
+          // partial handle; re-derive from the current name once it loads.
           if (!transliterate) {
             void preloadTransliteration().then(() => {
-              if (!uidManuallyEdited) uid.value = agentUIDFromDisplayName(displayName.value)
+              if (!handleManuallyEdited) handle.value = agentHandleFromDisplayName(displayName.value)
             })
           }
         }
         if (
           validationError.value === 'display_name_required' ||
-          validationError.value === 'uid_required' ||
-          validationError.value === 'uid_invalid'
+          validationError.value === 'handle_required' ||
+          validationError.value === 'handle_invalid'
         ) {
           validationError.value = undefined
         }
       })
     },
-    setUID(value: string) {
-      uidManuallyEdited = true
-      uid.value = value.toLowerCase()
-      if (validationError.value === 'uid_required' || validationError.value === 'uid_invalid') {
+    setHandle(value: string) {
+      handleManuallyEdited = true
+      handle.value = value.toLowerCase()
+      if (validationError.value === 'handle_required' || validationError.value === 'handle_invalid') {
         validationError.value = undefined
       }
     },
     draftError(mode: 'new' | 'edit'): AgentEditorDraftError | undefined {
       if (!displayName.value.trim()) return 'display_name_required'
-      if (mode === 'new') {
-        const uidError = agentUIDError(uid.value)
-        if (uidError) return uidError
-      }
+      const handleError = agentHandleError(handle.value)
+      if (handleError) return handleError
       if (!role.value.trim()) return 'role_required'
       if (!ownerPrincipalUID.value.trim()) return 'owner_required'
+      if (mode === 'new' && !workerProviderID.value) return 'worker_provider_required'
       return undefined
     }
   }

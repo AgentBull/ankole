@@ -27,7 +27,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
   defstruct [
     :key,
     :secret_fingerprint,
-    :consumer_fingerprint,
     :consumer_count,
     :config,
     :dispatcher,
@@ -40,7 +39,15 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
     config = Keyword.fetch!(opts, :config)
     key = Config.connection_key(config)
 
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {@registry, key}})
+    GenServer.start_link(__MODULE__, opts,
+      name:
+        {:via, Registry,
+         {@registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(
+            Keyword.fetch!(opts, :config),
+            Keyword.fetch!(opts, :consumers)
+          )}}
+    )
   end
 
   def child_spec(opts) do
@@ -52,11 +59,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
       type: :worker,
       restart: :permanent
     }
-  end
-
-  @spec ensure_consumers(GenServer.server(), map(), [map()]) :: {:ok, pid()} | {:error, term()}
-  def ensure_consumers(server, config, consumers) do
-    GenServer.call(server, {:ensure_consumers, config, consumers})
   end
 
   @spec status(GenServer.server()) :: map()
@@ -107,13 +109,13 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
     Process.flag(:trap_exit, true)
 
     config = Keyword.fetch!(opts, :config)
-    consumers = Keyword.get(opts, :consumers, [])
+    consumers = Keyword.fetch!(opts, :consumers)
+    Ankole.Repo.put_tenant_id(Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers))
     dispatcher = Dispatcher.build(consumers)
 
     state = %__MODULE__{
       key: Config.connection_key(config),
       secret_fingerprint: Config.secret_fingerprint(config),
-      consumer_fingerprint: consumer_fingerprint(consumers),
       consumer_count: length(consumers),
       config: config,
       dispatcher: dispatcher
@@ -121,23 +123,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
 
     with {:ok, state} <- start_client(state) do
       {:ok, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:ensure_consumers, config, consumers}, _from, state) do
-    cond do
-      Config.connection_key(config) != state.key ->
-        {:reply, {:error, :connection_key_mismatch}, state}
-
-      Config.secret_fingerprint(config) != state.secret_fingerprint ->
-        {:reply, {:error, :conflicting_bot_secret}, state}
-
-      consumer_fingerprint(consumers) != state.consumer_fingerprint ->
-        {:reply, {:error, :consumer_set_changed}, state}
-
-      true ->
-        {:reply, {:ok, self()}, state}
     end
   end
 
@@ -201,12 +186,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
       {:ok, pid} -> {:ok, %{state | ws_pid: pid}}
       {:error, _reason} = error -> error
     end
-  end
-
-  defp consumer_fingerprint(consumers) do
-    :sha256
-    |> :crypto.hash(:erlang.term_to_binary(consumers))
-    |> Base.encode16(case: :lower)
   end
 
   defp short_fingerprint(value) when is_binary(value) and byte_size(value) >= 8,

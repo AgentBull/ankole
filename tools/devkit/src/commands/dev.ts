@@ -1,12 +1,10 @@
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
-import net from 'node:net'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineCommand } from '@crustjs/core'
 
 import { createLocalAppDatabase, runAppMigrations } from './app-db'
 import { resolveLocalWorkerImage } from '../local-worker-image'
-import { buildDockerRunArgs, renderWorkerBootstrapSpec, type WorkerBootstrapSpec } from '../worker-bootstrap'
 import {
   appRootPath,
   loadAppDevelopmentEnv,
@@ -17,53 +15,61 @@ import {
   startComposeServices
 } from '../utils'
 
-const defaultFabricPort = 6010
 const defaultPhoenixPort = 4000
-const defaultWorkerID = 'local-dev-worker'
-const defaultAgentsRoot = 'var/ankole-dev/agents'
-const defaultContainerName = 'ankole-dev-agent-computer'
-const managedLabel = 'ankole.dev.managed'
-const workerSourceMountTarget = '/repo/app/agent_computer/src'
-const workerInternalSkillsMountTarget = '/repo/internals/skills'
-const workerDevCommand = 'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
+const defaultDockerSocket = '/var/run/docker.sock'
+/** Installation label of the Worker containers that the development control plane creates. */
+export const devInstallation = 'dev'
 
-export type WorkerDockerArgsOptions = {
+export type ControlPlaneEnvOptions = {
+  port: number
+  workerImage: string
   repoRoot: string
-  containerName?: string
 }
 
-export function buildControlPlaneEnv(
-  env: NodeJS.ProcessEnv,
-  opts: { port: number; fabricPort: number }
-): NodeJS.ProcessEnv {
+/**
+ * Environment of the development control plane. It creates the Worker of each
+ * Agent through its selected provider when the Agent is created, and the Worker
+ * runs the mounted source with `bun --watch`.
+ */
+export function buildControlPlaneEnv(env: NodeJS.ProcessEnv, opts: ControlPlaneEnvOptions): NodeJS.ProcessEnv {
   const aiGatewayBaseURL =
     env.ANKOLE_AI_GATEWAY_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
 
-  // The control plane binds both transports: the Worker Channel on the HTTP
-  // port and the ZeroMQ ROUTER for a Worker that has not switched.
   return {
     ...env,
     PORT: String(opts.port),
-    ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: `tcp://127.0.0.1:${opts.fabricPort}`,
     ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: `http://host.docker.internal:${opts.port}`,
-    ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL
+    ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL,
+    ANKOLE_WORKER_PROVIDERS_FILE: path.join(opts.repoRoot, 'var', 'ankole-dev', 'worker-providers.yaml'),
+    ANKOLE_AGENT_COMPUTER_IMAGE: opts.workerImage,
+    ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT: `ws://host.docker.internal:${opts.port}/runtime-fabric/worker`,
+    ANKOLE_WORKER_INSTALLATION: devInstallation
   }
 }
 
-export type WorkerTransport = 'ws' | 'tcp'
-
-export function workerEndpoint(transport: WorkerTransport, port: number, fabricPort: number): string {
-  return transport === 'tcp'
-    ? `tcp://host.docker.internal:${fabricPort}`
-    : `ws://host.docker.internal:${port}/runtime-fabric/worker`
+/** Imported once into an empty provider table. Console owns later changes. */
+export function buildDevWorkerSeed(socket: string): string {
+  return `providers:
+  - provider_id: local
+    kind: docker
+    display_name: Local development
+    is_default: true
+    config: |
+      socket: ${JSON.stringify(socket)}
+      network: bridge
+      idleReleaseAfter: never
+`
 }
 
-export function buildManagedWorkerPsArgs(containerName = defaultContainerName): string[] {
-  return ['ps', '-aq', '--filter', `label=${managedLabel}=true`, '--filter', `name=^/${containerName}$`]
+/** The Unix socket path of a Docker context host, or undefined for another transport. */
+export function parseDockerContextHost(output: string): string | undefined {
+  const host = output.trim()
+  return host.startsWith('unix://') ? host.slice('unix://'.length) : undefined
 }
 
-export function buildManagedWorkerRmArgs(containerIDs: string[]): string[] {
-  return ['rm', '-f', ...containerIDs]
+/** Lists every Worker container of the development installation, stopped ones included. */
+export function buildDevWorkerPsArgs(): string[] {
+  return ['ps', '-aq', '--filter', 'label=ankole.worker=1', '--filter', `label=ankole.installation=${devInstallation}`]
 }
 
 export function parseDockerContainerIDs(output: string): string[] {
@@ -73,83 +79,31 @@ export function parseDockerContainerIDs(output: string): string[] {
     .filter(Boolean)
 }
 
-export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDockerArgsOptions): string[] {
-  const containerName = opts.containerName ?? defaultContainerName
-  const repoRoot = path.resolve(opts.repoRoot)
-  const workerID = spec.env.WORKER_ID
-  if (!workerID) throw new Error('worker bootstrap contract is missing WORKER_ID')
-
-  const internalSkillsRoot = path.join(repoRoot, 'internals', 'skills')
-  const internalSkillsAvailable = existsSync(internalSkillsRoot)
-  const workerSpec = internalSkillsAvailable
-    ? {
-        ...spec,
-        env: {
-          ...spec.env,
-          ANKOLE_INTERNAL_SKILLS_ROOT: workerInternalSkillsMountTarget
-        }
-      }
-    : spec
-
-  return buildDockerRunArgs(workerSpec, {
-    name: containerName,
-    labels: {
-      [managedLabel]: 'true',
-      'ankole.dev.worker_id': workerID
-    },
-    additionalMounts: [
-      {
-        source: path.join(repoRoot, 'app', 'agent_computer', 'src'),
-        target: workerSourceMountTarget,
-        readonly: true
-      },
-      ...(internalSkillsAvailable
-        ? [
-            {
-              source: internalSkillsRoot,
-              target: workerInternalSkillsMountTarget,
-              readonly: true
-            }
-          ]
-        : [])
-    ],
-    command: ['/bin/sh', '-lc', workerDevCommand]
-  })
+// Docker Desktop and Colima do not always provide /var/run/docker.sock; the
+// current context names the socket that the `docker` CLI uses.
+async function dockerSocket(): Promise<string> {
+  const result = await runChildCaptured('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])
+  return (result.status === 0 && parseDockerContextHost(result.stdout)) || defaultDockerSocket
 }
 
-async function cleanupManagedWorker(containerName: string): Promise<void> {
-  const result = await runChildCaptured('docker', buildManagedWorkerPsArgs(containerName))
+// Removes the Worker containers after the control plane stops. The next
+// `kit dev` creates each Worker again when its Agent needs it.
+async function removeDevWorkers(): Promise<void> {
+  const result = await runChildCaptured('docker', buildDevWorkerPsArgs())
   if (result.status !== 0) {
-    throw new Error(`failed to inspect managed dev worker containers: ${result.stderr || result.stdout}`)
+    throw new Error(`failed to list the development Worker containers: ${result.stderr || result.stdout}`)
   }
 
   const containerIDs = parseDockerContainerIDs(result.stdout)
   if (containerIDs.length === 0) return
 
-  const removal = await runChildCaptured('docker', buildManagedWorkerRmArgs(containerIDs))
+  const stop = await runChildCaptured('docker', ['stop', '--time', '60', ...containerIDs])
+  if (stop.status !== 0) {
+    throw new Error(`failed to stop the development Worker containers: ${stop.stderr || stop.stdout}`)
+  }
+  const removal = await runChildCaptured('docker', ['rm', ...containerIDs])
   if (removal.status !== 0) {
-    throw new Error(`failed to remove managed dev worker containers: ${removal.stderr || removal.stdout}`)
-  }
-}
-
-function cleanupManagedWorkerSync(containerName: string): void {
-  const result = spawnSync('docker', buildManagedWorkerPsArgs(containerName), { encoding: 'utf8' })
-  if (result.status !== 0) {
-    throw new Error(`failed to inspect managed dev worker containers: ${result.stderr || result.stdout}`)
-  }
-
-  const containerIDs = parseDockerContainerIDs(result.stdout)
-  if (containerIDs.length === 0) return
-
-  const removal = spawnSync('docker', buildManagedWorkerRmArgs(containerIDs), { encoding: 'utf8' })
-  if (removal.status !== 0) {
-    throw new Error(`failed to remove managed dev worker containers: ${removal.stderr || removal.stdout}`)
-  }
-}
-
-function ensureAgentDirs(spec: WorkerBootstrapSpec): void {
-  for (const dir of spec.host_setup_dirs) {
-    mkdirSync(dir, { recursive: true })
+    throw new Error(`failed to remove the development Worker containers: ${removal.stderr || removal.stdout}`)
   }
 }
 
@@ -170,52 +124,9 @@ function startControlPlane(env: NodeJS.ProcessEnv): ChildProcess {
   })
 }
 
-function startWorker(spec: WorkerBootstrapSpec): ChildProcess {
-  return spawnAttached('worker', 'docker', buildWorkerDockerArgs(spec, { repoRoot: repoRootPath }), {
-    cwd: repoRootPath,
-    detached: process.platform !== 'win32'
-  })
-}
-
-async function waitForTCPPort(host: string, port: number, timeoutMs: number, aborted: () => boolean): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-
-  while (Date.now() < deadline) {
-    if (aborted()) throw new Error(`control plane exited before it listened on ${host}:${port}`)
-    if (await canConnect(host, port)) return
-    await new Promise(resolve => setTimeout(resolve, 250))
-  }
-
-  throw new Error(`timed out waiting for the control plane on ${host}:${port}`)
-}
-
-function canConnect(host: string, port: number): Promise<boolean> {
+function waitForExit(child: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise(resolve => {
-    const socket = net.createConnection({ host, port })
-    socket.setTimeout(500)
-    socket.once('connect', () => {
-      socket.end()
-      resolve(true)
-    })
-    socket.once('timeout', () => {
-      socket.destroy()
-      resolve(false)
-    })
-    socket.once('error', () => resolve(false))
-  })
-}
-
-type ChildExit = {
-  name: string
-  code: number | null
-  signal: NodeJS.Signals | null
-}
-
-function waitForFirstExit(children: Array<{ name: string; child: ChildProcess }>): Promise<ChildExit> {
-  return new Promise(resolve => {
-    for (const entry of children) {
-      entry.child.once('exit', (code, signal) => resolve({ name: entry.name, code, signal }))
-    }
+    child.once('exit', (code, signal) => resolve({ code, signal }))
   })
 }
 
@@ -261,22 +172,11 @@ async function runDev(flags: {
   migrate: boolean
   build: boolean
   port: number
-  'fabric-port': number
-  'worker-transport': string
-  'worker-id': string
   'worker-image'?: string
-  'agents-root': string
 }): Promise<void> {
   const port = flags.port
-  const fabricPort = flags['fabric-port']
-  const workerTransport = flags['worker-transport']
-  if (workerTransport !== 'ws' && workerTransport !== 'tcp') {
-    throw new Error(`--worker-transport must be ws or tcp, got ${workerTransport}`)
-  }
   const workerImage =
     flags['worker-image'] ?? (await resolveLocalWorkerImage({ scope: 'source-mounted', allowBuild: flags.build }))
-  const workerID = flags['worker-id']
-  const agentsRoot = path.resolve(repoRootPath, flags['agents-root'])
   const databaseName = resolveAppDatabaseName()
 
   if (flags.services) {
@@ -286,30 +186,21 @@ async function runDev(flags: {
   await createLocalAppDatabase(databaseName)
   if (flags.migrate) await runAppMigrations()
 
-  const workerSpec = await renderWorkerBootstrapSpec({
-    endpoint: workerEndpoint(workerTransport, port, fabricPort),
-    workerID,
-    image: workerImage,
-    agentsRoot
+  const controlPlaneEnv = buildControlPlaneEnv(loadAppDevelopmentEnv(), {
+    port,
+    workerImage,
+    repoRoot: repoRootPath
   })
-  ensureAgentDirs(workerSpec)
-  await cleanupManagedWorker(defaultContainerName)
-
-  const controlPlaneEnv = buildControlPlaneEnv(loadAppDevelopmentEnv(), { port, fabricPort })
+  const seedPath = controlPlaneEnv.ANKOLE_WORKER_PROVIDERS_FILE!
+  mkdirSync(path.dirname(seedPath), { recursive: true })
+  writeFileSync(seedPath, buildDevWorkerSeed(await dockerSocket()))
   let stopRequested = false
   let controlPlane: ChildProcess | undefined
-  let worker: ChildProcess | undefined
 
   const requestStop = () => {
     if (stopRequested) return
     stopRequested = true
-    try {
-      cleanupManagedWorkerSync(defaultContainerName)
-    } catch (error) {
-      console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`)
-    }
     if (controlPlane) signalChild(controlPlane, 'SIGTERM')
-    if (worker) signalChild(worker, 'SIGTERM')
   }
 
   process.once('SIGINT', requestStop)
@@ -317,33 +208,28 @@ async function runDev(flags: {
 
   try {
     controlPlane = startControlPlane(controlPlaneEnv)
-    await waitForTCPPort('127.0.0.1', port, 30_000, () => controlPlane?.exitCode !== null)
-    worker = startWorker(workerSpec)
-
-    const exit = await waitForFirstExit([
-      { name: 'control-plane', child: controlPlane },
-      { name: 'worker', child: worker }
-    ])
-
+    const exit = await waitForExit(controlPlane)
     if (stopRequested) return
 
     const code = exit.code ?? 1
     if (code !== 0) {
-      throw new Error(`${exit.name} exited with code ${code}${exit.signal ? ` signal ${exit.signal}` : ''}`)
+      throw new Error(`control-plane exited with code ${code}${exit.signal ? ` signal ${exit.signal}` : ''}`)
     }
   } finally {
     process.removeListener('SIGINT', requestStop)
     process.removeListener('SIGTERM', requestStop)
-    await stopChild(worker)
     await stopChild(controlPlane)
-    await cleanupManagedWorker(defaultContainerName)
+    await removeDevWorkers()
   }
 }
 
 export function devCommand() {
   return defineCommand(
     'dev',
-    { description: 'Start local Postgres, Phoenix control plane, and one Docker Agent Computer worker.' },
+    {
+      description:
+        "Start local Postgres and the Phoenix control plane, which runs each Agent's Worker in Docker from the local source."
+    },
     command =>
       command
         .flags(
@@ -372,33 +258,9 @@ export function devCommand() {
             default: defaultPhoenixPort
           },
           {
-            name: 'fabric-port',
-            type: 'number',
-            description: 'ZeroMQ ROUTER bind port on 127.0.0.1 for a Worker that has not switched to the Channel.',
-            default: defaultFabricPort
-          },
-          {
-            name: 'worker-transport',
-            type: 'string',
-            description: 'Worker transport: ws (Worker Channel, default) or tcp (ZeroMQ).',
-            default: 'ws'
-          },
-          {
-            name: 'worker-id',
-            type: 'string',
-            description: 'Agent Computer worker id.',
-            default: defaultWorkerID
-          },
-          {
             name: 'worker-image',
             type: 'string',
             description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
-          },
-          {
-            name: 'agents-root',
-            type: 'string',
-            description: 'Host Agent Home root mounted at /agents in the worker.',
-            default: defaultAgentsRoot
           }
         )
         .action(({ flags }) => runDev(flags))

@@ -7,13 +7,13 @@ defmodule Ankole.AIGateway do
   depending on caller workflow lifecycle semantics.
   """
 
+  alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
-  alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.Attrs
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.Observability
@@ -117,7 +117,7 @@ defmodule Ankole.AIGateway do
   defp output_text(%{"output" => output}) when is_list(output) do
     output
     |> Enum.flat_map(fn
-      %{"content" => content} when is_list(content) -> content
+      %{"type" => "message", "content" => content} when is_list(content) -> content
       _item -> []
     end)
     |> Enum.flat_map(fn
@@ -208,10 +208,10 @@ defmodule Ankole.AIGateway do
 
       {:error, reason}
       when is_map(hosted_attempt) ->
-        handle_hosted_response_failure(prepared_request, hosted_attempt, reason)
+        handle_hosted_response_failure(hosted_attempt, reason)
 
       {:error, reason} when is_map_key(prepared_request, :hosted_tools) ->
-        normalize_hosted_execution_error(prepared_request, reason)
+        normalize_hosted_execution_error(reason)
 
       {:ok, upstream_response} = result when is_map(hosted_attempt) ->
         :ok = ImageGeneration.record_credential_usage(hosted_attempt, upstream_response)
@@ -222,23 +222,22 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  defp handle_hosted_response_failure(prepared_request, hosted_attempt, reason) do
+  defp handle_hosted_response_failure(hosted_attempt, reason) do
     cond do
       ImageGeneration.credential_failure?(reason) ->
         :ok = ImageGeneration.record_credential_failure(hosted_attempt, reason)
-        normalize_hosted_execution_error(prepared_request, reason)
+        normalize_hosted_execution_error(reason)
 
       ImageGeneration.hosted_execution_failure?(reason) ->
-        normalize_hosted_execution_error(prepared_request, reason)
+        normalize_hosted_execution_error(reason)
 
       true ->
         {:error, reason}
     end
   end
 
-  defp normalize_hosted_execution_error(prepared_request, reason) do
+  defp normalize_hosted_execution_error(reason) do
     error = ImageGeneration.normalize_execution_error(reason)
-    HostedToolTelemetry.emit_failure(prepared_request, error)
     {:error, error}
   end
 
@@ -248,31 +247,40 @@ defmodule Ankole.AIGateway do
            Map.fetch!(upstream_response, :body)
          ) do
       {:ok, body} ->
-        HostedToolTelemetry.emit(Map.get(upstream_response, :hosted_tool_metadata))
         {:ok, gateway_response(200, body, runtime)}
 
       {:error, error} ->
-        emit_persistence_failure(prepared_request, upstream_response, error)
+        emit_persistence_failure(runtime, prepared_request, upstream_response, error)
         {:error, error}
     end
   end
 
-  defp emit_persistence_failure(prepared_request, upstream_response, error) do
-    case Map.get(upstream_response, :hosted_tool_metadata) do
-      %{} = metadata ->
-        HostedToolTelemetry.emit_failure(prepared_request, %{
-          "code" => error.code,
-          "status" => error.status,
-          "stage" => "artifact_persistence",
-          "hosted_tool_metadata" =>
-            metadata
-            |> Map.put("result", "failure")
-            |> Map.put("failure_reason", error.code)
-        })
+  defp emit_persistence_failure(runtime, prepared_request, upstream_response, error) do
+    metadata = Map.get(upstream_response, :hosted_tool_metadata) || %{}
 
-      _missing ->
-        HostedToolTelemetry.emit_failure(prepared_request, error)
-    end
+    reason = %{
+      "code" => error.code,
+      "status" => error.status,
+      "stage" => "artifact_persistence",
+      "hosted_tool_metadata" => Map.put(metadata, "failure_reason", error.code)
+    }
+
+    context =
+      Map.merge(ImageGeneration.failure_log_fields(prepared_request, reason), %{
+        capability: runtime["capability"],
+        provider_id: runtime["provider_id"],
+        provider_kind: runtime["provider_kind"],
+        model: runtime["model"],
+        api_resolver: prepared_request.api_resolver,
+        upstream_host: request_upstream_host(prepared_request)
+      })
+
+    FailureDiagnostics.log(
+      "ai_gateway.response_failed",
+      "AIGateway response persistence failed",
+      context,
+      error
+    )
   end
 
   @doc """
@@ -282,14 +290,6 @@ defmodule Ankole.AIGateway do
   def retrieve_response(subject_uid, response_id) do
     StatefulLifecycle.retrieve_response(subject_uid, response_id)
   end
-
-  @doc false
-  @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def record_tool_results(subject_uid, request) when is_map(request) do
-    StatefulLifecycle.record_tool_results(subject_uid, request)
-  end
-
-  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   @doc """
   Reads one stored Response scoped to its owning Principal subject.
@@ -421,12 +421,10 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate reconcile_orphaned_response(response_id, opts \\ []), to: StatefulResponses
+  defdelegate reconcile_orphaned_response_in_tx(repo, response_id, opts), to: StatefulResponses
 
   @doc false
   defdelegate publish_terminal_event(response, event_type, payload), to: StatefulResponses
-
-  @doc false
-  defdelegate runtime_event_snapshot(), to: StatefulResponses
 
   @doc false
   @spec open_sse_stream(String.t(), map(), keyword()) ::
@@ -453,6 +451,20 @@ defmodule Ankole.AIGateway do
   end
 
   def open_sse_stream(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
+
+  @doc """
+  Applies the model's image rule to input items that enter stateful history
+  without a model request, such as images that follow tool results. A model
+  with image input keeps them. For a text-only model, the frozen vision
+  fallback describes them, or a marker states that they are unavailable.
+  """
+  @spec adapt_images(String.t(), [map()], map(), keyword()) :: [map()]
+  def adapt_images(subject_uid, items, vision, opts) do
+    {:ok, %{"input" => items}} =
+      CodexVision.adapt(subject_uid, %{"input" => items, "__ankole_codex_vision" => vision}, opts)
+
+    items
+  end
 
   @doc false
   @spec open_websocket_stream(String.t(), map(), keyword()) ::
@@ -491,6 +503,9 @@ defmodule Ankole.AIGateway do
   @spec read_response_stream(ResponseStream.t(), non_neg_integer()) :: :ok | {:error, term()}
   def read_response_stream(stream, count \\ 1), do: ResponseStream.read(stream, count)
 
+  @doc "Reads the visible Response suffix for one caller-defined run."
+  defdelegate conversation_tail(conversation, actor_event_id), to: StatefulResponses
+
   @doc false
   @spec cancel_response_stream(ResponseStream.t(), String.t()) :: :ok | {:error, term()}
   def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
@@ -510,10 +525,15 @@ defmodule Ankole.AIGateway do
   end
 
   defp log_request_failure(runtime, prepared_request, reason, started_at) do
+    context =
+      if Map.has_key?(prepared_request, :hosted_tools),
+        do: ImageGeneration.failure_log_fields(prepared_request, reason),
+        else: %{}
+
     FailureDiagnostics.log(
       "ai_gateway.request_failed",
       "AIGateway provider request failed",
-      %{
+      Map.merge(context, %{
         capability: runtime["capability"],
         provider_id: runtime["provider_id"],
         provider_kind: runtime["provider_kind"],
@@ -524,7 +544,7 @@ defmodule Ankole.AIGateway do
           System.monotonic_time()
           |> Kernel.-(started_at)
           |> System.convert_time_unit(:native, :millisecond)
-      },
+      }),
       reason
     )
   end
@@ -651,6 +671,38 @@ defmodule Ankole.AIGateway do
   def create_web_search(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
+  Names why one web fetch page has no usable content, or returns nil.
+
+  `script_shell` is a page that serves a script-loading shell instead of its
+  text, and `empty_text` is a fetch that extracted no text. A provider can set
+  `render_warning` itself. An error page has no warning.
+  """
+  @spec web_fetch_render_warning(map()) :: String.t() | nil
+  def web_fetch_render_warning(%{"error" => error}) when error not in [nil, false, ""], do: nil
+
+  def web_fetch_render_warning(%{"render_warning" => warning}) when is_binary(warning),
+    do: warning
+
+  def web_fetch_render_warning(page) do
+    text = page["text"] || ""
+
+    cond do
+      String.trim(text) == "" ->
+        "empty_text"
+
+      byte_size(text) <= 4_000 and
+          Regex.match?(
+            ~r/enable\s+javascript|javascript\s+is\s+(?:required|disabled|not enabled)/i,
+            text
+          ) ->
+        "script_shell"
+
+      true ->
+        nil
+    end
+  end
+
+  @doc """
   Creates normalized web fetch results through a provider-backed AIGateway path.
   """
   @spec create_web_fetch(String.t(), map(), keyword()) ::
@@ -658,8 +710,14 @@ defmodule Ankole.AIGateway do
   def create_web_fetch(subject_uid, request, opts \\ [])
 
   def create_web_fetch(subject_uid, request, opts) when is_map(request) do
+    agent_uid =
+      case Ankole.Principals.get_agent(subject_uid) do
+        {:ok, %{agent: _agent}} -> subject_uid
+        {:error, _reason} -> nil
+      end
+
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_fetch", request),
-         {:ok, ssrf_filter?} <- SSRFFilter.enabled?(subject_uid),
+         {:ok, ssrf_filter?} <- SSRFFilter.enabled?(agent_uid),
          :ok <- validate_web_fetch_request(request, ssrf_filter?),
          request = Attrs.normalize_external_attrs(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do

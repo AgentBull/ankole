@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
   and stored message reads never copy image bytes accidentally.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

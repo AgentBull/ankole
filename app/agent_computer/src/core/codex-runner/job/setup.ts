@@ -1,3 +1,4 @@
+import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { TurnStart } from '../../../lanes/actor_lane'
 import {
   type AIGatewayAPIKeyResponse,
@@ -6,14 +7,14 @@ import {
 } from '../../../lanes/rpc_lane'
 import { materializeCodexConfig } from '../runtime/agent-home-config'
 import { resolveCodexRuntimeConfig } from '../runtime-config'
-import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../runtime/sandbox'
+import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spec'
 import { httpClientFromAIGatewayAPIKey } from '../../ai_gateway_transport'
-import { resolveAgentConversationContext } from '../../turns/turn_context'
-import { resolveRenderedFetchRuntimeConfig } from '../../turns/rendered_fetch_runtime_config'
-import { createTurnWebTools } from '../../turns/turn_web_tools'
+import { materializeAgentLibraryDocuments } from './agent-library-documents'
+import { agentHomePaths } from '../../agent-home-paths'
+import { createTurnWebTools } from '../../web-tools'
 import { createSkillTools } from '../../../tools/library/skill-tools'
 import { prepareExecutionMaterials } from '../../execution/execution-materials'
-import type { CodexJobOptions } from '../../turns/turn_options'
+import type { CodexJobOptions } from '../options'
 import { join } from 'node:path'
 import { prepareAgentPlugins, type PreparedAgentPlugins } from '../runtime/agent-plugin-materializer'
 import type { AgentCodexRuntimeAcquireInput } from '../runtime/agent-runtime-manager'
@@ -30,11 +31,9 @@ import { migrateLegacyCodexJobSkillRoots, readCodexJobGuidance, renderCodexJobAg
 import { skillAvailableInRuntime } from '../../../skills/effective-skill'
 import { createSkillLoader, type SkillLoader } from '../../../skills/skill-loader'
 import { loadEnabledSkillMCPServers, type MCPServerConfig } from '../../../tools/mcp'
-import { decodeCodexJobRuntimeProjection, projectWorkerEnv, selectJobSkills } from './runtime-projection'
+import { decodeCodexJobRuntimeProjection, projectWorkerEnv } from './runtime-projection'
 import { codexJobThreadConfig } from './thread-config'
 import { turnTracePropagationFromTurnStart } from '../../../observability/turn-tracing'
-import { formatSkillsForSystemPrompt, type SkillPromptEntry } from '../../../prompts/skills_prompt'
-import { skillPromptEntryFromRuntime } from '../../../prompts/system_prompt'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -72,13 +71,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   const { turnStart, opts, jobID, job } = input
   opts.abortSignal?.throwIfAborted()
   const runtimeProjection = decodeCodexJobRuntimeProjection(job)
-  const agentContext = await resolveAgentConversationContext(turnStart, opts)
+  if (!turnStart.agent_context) throw new Error('Job preparation requires the Agent context')
+  const agentContext = materializeAgentLibraryDocuments(agentHomePaths(opts.agentHome), turnStart.agent_context)
   opts.abortSignal?.throwIfAborted()
   const agentPluginCatalog = agentContext.agentPlugins ?? []
-  const selectedSkills = selectJobSkills(runtimeProjection, {
-    skills: agentContext.skills ?? [],
-    agentPlugins: agentPluginCatalog
-  })
+  // The control plane selects the Job's Skills from its frozen choices and
+  // renders their index.
+  const selectedSkills = agentContext.skills ?? []
   // The Skill loader applies the `ankole-runtime` rule itself, as in the main
   // Agent. It gets every selected Skill so that it rejects a main-only Skill for
   // its runtime, not as a disabled Skill.
@@ -94,22 +93,19 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     enabledSkills: selectedSkills,
     skillRoots,
     rpc: opts.rpc,
-    runtime: 'background_job',
     onSkillLoaded: name => loadedSkillNames.add(name)
   })
   // The control plane declares the hosted brain tool only while `brain.enabled`
   // is true, so the declaration is the Job's memory switch.
-  const brainEnabled = (turnStart.hosted_tools ?? []).some(tool => tool.type === 'brain')
+  const brainEnabled = (turnStart.hosted_tools ?? []).includes(HostedTool.BRAIN)
   opts.abortSignal?.throwIfAborted()
   const workspaceOwnerJobID = job.workspaceOwnerJobId
   if (!workspaceOwnerJobID) throw new Error('Background agent job is missing its workspace owner')
-  const projectLocation = codexJobProjectLocation(opts.agentsRoot, job.agentUid, workspaceOwnerJobID)
+  const projectLocation = codexJobProjectLocation(opts.agentHome, workspaceOwnerJobID)
   if (job.runtimeThreadId) assertCodexJobProjectResumeState(projectLocation.hostPath)
   const jobProject = prepareCodexJobProject({ jobProjectRoot: projectLocation.hostPath })
   const initializeProject = !job.runtimeThreadId
-  const skillsPrompt = formatSkillsForSystemPrompt(
-    loadableSkills.map(skill => skillPromptEntryFromRuntime(skill, 'background_job')).filter(isSkillPromptEntry)
-  )
+  const skillsPrompt = agentContext.skillsPrompt
   const replaceLegacySkillThread = initializeProject
     ? false
     : migrateLegacyCodexJobSkillRoots({
@@ -124,13 +120,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         mission: agentContext.mission ?? '',
         jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
         skillsPrompt,
+        driveDirectory: agentContext.conversation?.driveDirectory,
         lazySkillRouting: brainEnabled,
         timezone: agentContext.conversation?.timezone
       }).content
     : undefined
   const materialized = materializeCodexConfig({
-    agentsRoot: opts.agentsRoot,
-    agentUID: job.agentUid
+    agentHomeRoot: opts.agentHome
   })
   const preparedAgentPlugins = prepareAgentPlugins({
     projectRoot: projectLocation.hostPath,
@@ -149,13 +145,12 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   opts.abortSignal?.throwIfAborted()
   const runtimeConfig = await resolveCodexRuntimeConfig({
     turnStart,
-    agentUID: job.agentUid,
     requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey
   })
   opts.abortSignal?.throwIfAborted()
   // The hosted tool declaration decides whether Codex asks the Provider to run
   // web search; createTurnWebTools decides whether the Worker exposes the local tool.
-  const hostedWebSearch = (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')
+  const hostedWebSearch = (turnStart.hosted_tools ?? []).includes(HostedTool.WEB_SEARCH)
   materializeCodexJobProjectConfig({
     projectRoot: jobProject.root,
     hostedWebSearch
@@ -168,12 +163,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     options => requestProjectionAIGatewayKey(turnStart, opts, options),
     turnTracePropagation
   )
-  const renderedFetchRuntimeConfig = await resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc)
+  const renderedFetchRuntimeConfig = turnStart.fetch_runtime_config
   opts.abortSignal?.throwIfAborted()
   const bindingName = turnStart.actor_event.binding_name
   let webTools: Awaited<ReturnType<typeof createTurnWebTools>> | undefined
   const materials = await prepareExecutionMaterials({
-    agentUID: job.agentUid,
     agentHome: opts.agentHome,
     rpc: opts.rpc,
     bindingName,
@@ -218,17 +212,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     const projection = buildCodexJobProjection({ tools: [...webTools, ...skillTools] })
     projection.dynamicTools.push(parentInputToolSpec())
 
-    const agentRuntimeSandbox = codexAgentRuntimeSandboxSpec({
-      materialized,
-      ...(opts.browserRuntime
-        ? {
-            browserRuntime: {
-              root: opts.browserRuntime.materializer.root,
-              socketPath: opts.browserRuntime.materializer.socketPath
-            }
-          }
-        : {})
-    })
     const threadEnv = codexJobThreadEnv({
       materialized,
       workerEnv: materials.workerEnv,
@@ -241,15 +224,17 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         agentUID: job.agentUid,
         agentHome: materialized.agentHome,
         codexHome: materialized.codexHome,
+        sqliteHome: materialized.sqliteHome,
         aiGatewayBaseURL: runtimeConfig.aiGatewayKey.baseUrl,
         aiGatewayAPIKey: runtimeConfig.aiGatewayKey.apiKey,
-        sandbox: agentRuntimeSandbox
+        appServer: codexAppServerSpec(materialized)
       },
       threadConfig: codexJobThreadConfig({
         cwd: jobProject.root,
         codexHome: materialized.codexHome,
         env: threadEnv,
         runtime: runtimeConfig,
+        driveDirectory: agentContext.conversation?.driveDirectory,
         turnTracePropagation,
         projectConfig: readCodexJobProjectConfig(jobProject.root)
       }),
@@ -280,9 +265,5 @@ async function requestProjectionAIGatewayKey(
   opts: CodexJobOptions,
   options?: { forceRefresh?: boolean }
 ): Promise<AIGatewayAPIKeyResponse> {
-  return await opts.requestAIGatewayAPIKey(turnStart.turn.actor.agent_uid, options)
-}
-
-function isSkillPromptEntry(entry: SkillPromptEntry | null): entry is SkillPromptEntry {
-  return entry !== null
+  return await opts.requestAIGatewayAPIKey(options)
 }

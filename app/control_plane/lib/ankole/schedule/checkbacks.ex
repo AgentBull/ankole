@@ -5,6 +5,7 @@ defmodule Ankole.Schedule.Checkbacks do
 
   alias Ankole.AutomationJobs
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Normalizer
   alias Ankole.Schedule.Schemas.ScheduledEvent
@@ -35,12 +36,7 @@ defmodule Ankole.Schedule.Checkbacks do
   end
 
   @spec update_checkback(pos_integer(), map(), keyword()) ::
-          {:ok,
-           %{
-             status: :updated | :already_updated,
-             previous_scheduled_event: ScheduledEvent.t(),
-             scheduled_event: ScheduledEvent.t()
-           }}
+          {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
   def update_checkback(scheduled_event_id, attrs, opts \\ [])
       when is_integer(scheduled_event_id) and scheduled_event_id > 0 and is_map(attrs) do
@@ -53,10 +49,29 @@ defmodule Ankole.Schedule.Checkbacks do
                ScheduledEvent,
                scheduled_event_id
              ),
-           {:ok, event} <- resolve_current_checkback_in_tx(repo, scheduled_event_id, true) do
+           {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true) do
         case event do
           %ScheduledEvent{status: "scheduled"} ->
-            maybe_replace_checkback_in_tx(repo, event, scheduled_event_id, attrs, now, opts)
+            with {:ok, updated_attrs} <-
+                   Normalizer.checkback_update_attrs(event, attrs, now, opts),
+                 :ok <-
+                   validate_updated_automation_job(
+                     repo,
+                     attrs,
+                     updated_attrs.automation_job_id,
+                     event.agent_uid,
+                     now
+                   ),
+                 {:ok, event} <- event |> ScheduledEvent.changeset(updated_attrs) |> repo.update(),
+                 :ok <-
+                   Ankole.Job.schedule_in_tx(
+                     repo,
+                     FireScheduledEvent,
+                     %{"scheduled_event_id" => event.id},
+                     event.due_at
+                   ) do
+              {:ok, %{status: :updated, scheduled_event: event}}
+            end
 
           %ScheduledEvent{status: status} ->
             {:error, {:checkback_not_pending, status}}
@@ -71,7 +86,7 @@ defmodule Ankole.Schedule.Checkbacks do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with {:ok, event} <- resolve_current_checkback_in_tx(repo, scheduled_event_id, true) do
+      with {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true) do
         case event do
           %ScheduledEvent{status: "scheduled"} ->
             cancel_locked_checkback(repo, event, now, "user_cancelled")
@@ -86,12 +101,12 @@ defmodule Ankole.Schedule.Checkbacks do
     end)
   end
 
-  @spec resolve_current_checkback(pos_integer()) ::
+  @spec get_checkback(pos_integer()) ::
           {:ok, ScheduledEvent.t()} | {:error, term()}
-  def resolve_current_checkback(scheduled_event_id)
+  def get_checkback(scheduled_event_id)
       when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     Repo.transact(fn repo ->
-      resolve_current_checkback_in_tx(repo, scheduled_event_id, false)
+      fetch_checkback_in_tx(repo, scheduled_event_id, false)
     end)
   end
 
@@ -128,150 +143,42 @@ defmodule Ankole.Schedule.Checkbacks do
     end
   end
 
-  defp replace_checkback_in_tx(repo, event, attrs, now, opts) do
-    with {:ok, replacement_attrs} <-
-           Normalizer.checkback_replacement_attrs(event, attrs, now, opts),
-         :ok <-
-           validate_replacement_automation_job(repo, attrs, replacement_attrs, now),
-         {:ok, %{status: insert_status, scheduled_event: replacement}} <-
-           Store.insert_idempotent_event_and_wake_in_tx(repo, replacement_attrs, opts),
-         :ok <- ensure_replacement_targets(replacement, event),
-         {:ok, cancelled} <-
-           cancel_locked_checkback(repo, event, now, "checkback_replaced", replacement.id) do
-      {:ok,
-       %{
-         status: replacement_status(insert_status),
-         previous_scheduled_event: cancelled,
-         scheduled_event: replacement
-       }}
-    end
-  end
+  # Models can still hold ids cancelled by the replacement implementation.
+  # Remove this clause when no pending checkback has
+  # source_provenance.replaces_scheduled_event_id.
+  defp fetch_checkback_in_tx(repo, id, lock?) do
+    event = if lock?, do: Store.lock_scheduled_event(repo, id), else: repo.get(ScheduledEvent, id)
 
-  defp maybe_replace_checkback_in_tx(
-         repo,
-         event,
-         requested_event_id,
-         attrs,
-         now,
-         opts
-       ) do
-    if event.id != requested_event_id and
-         event.idempotency_key == Attrs.map_text(attrs, "idempotency_key") do
-      {:ok,
-       %{
-         status: :already_updated,
-         previous_scheduled_event: Store.lock_scheduled_event(repo, requested_event_id),
-         scheduled_event: event
-       }}
-    else
-      replace_checkback_in_tx(repo, event, attrs, now, opts)
-    end
-  end
-
-  defp resolve_current_checkback_in_tx(repo, scheduled_event_id, lock?) do
-    case fetch_scheduled_event(repo, scheduled_event_id, lock?) do
-      %ScheduledEvent{kind: "check_back_later"} = event ->
-        follow_checkback_replacement(repo, event, lock?, MapSet.new([event.id]))
-
-      %ScheduledEvent{} ->
-        {:error, :not_checkback}
-
+    case event do
       nil ->
         {:error, :scheduled_event_not_found}
-    end
-  end
 
-  defp follow_checkback_replacement(
-         repo,
-         %ScheduledEvent{status: "cancelled"} = event,
-         lock?,
-         seen
-       ) do
-    replacement_id = get_in(event.last_fire_error || %{}, ["replacement_scheduled_event_id"])
+      %ScheduledEvent{kind: kind} when kind != "check_back_later" ->
+        {:error, :not_checkback}
 
-    case replacement_id do
-      nil ->
+      %ScheduledEvent{status: "cancelled", last_fire_error: %{"reason" => "checkback_replaced"}} ->
+        {:error, :checkback_replaced}
+
+      %ScheduledEvent{} ->
         {:ok, event}
-
-      replacement_id ->
-        with :ok <- reject_replacement_cycle(replacement_id, seen),
-             %ScheduledEvent{kind: "check_back_later"} = replacement <-
-               fetch_scheduled_event(repo, replacement_id, lock?),
-             :ok <- ensure_replacement_targets(replacement, event) do
-          follow_checkback_replacement(
-            repo,
-            replacement,
-            lock?,
-            MapSet.put(seen, replacement.id)
-          )
-        else
-          {:error, _reason} = error -> error
-          _event -> {:error, :checkback_replacement_not_found}
-        end
     end
   end
 
-  defp follow_checkback_replacement(_repo, %ScheduledEvent{} = event, _lock?, _seen),
-    do: {:ok, event}
-
-  defp fetch_scheduled_event(repo, scheduled_event_id, true),
-    do: Store.lock_scheduled_event(repo, scheduled_event_id)
-
-  defp fetch_scheduled_event(repo, scheduled_event_id, false),
-    do: repo.get(ScheduledEvent, scheduled_event_id)
-
-  defp reject_replacement_cycle(replacement_id, seen) do
-    case MapSet.member?(seen, replacement_id) do
-      true -> {:error, :checkback_replacement_cycle}
-      false -> :ok
-    end
-  end
-
-  defp ensure_replacement_targets(replacement, previous) do
-    same_scope =
-      replacement.agent_uid == previous.agent_uid and
-        replacement.session_id == previous.session_id and
-        replacement.kind == previous.kind
-
-    case {get_in(replacement.source_provenance || %{}, ["replaces_scheduled_event_id"]),
-          same_scope} do
-      {previous_id, true} when previous_id == previous.id -> :ok
-      _other -> {:error, :checkback_replacement_idempotency_conflict}
-    end
-  end
-
-  defp cancel_locked_checkback(repo, event, now, reason, replacement_id \\ nil) do
-    last_fire_error = %{"reason" => reason}
-
-    last_fire_error =
-      if replacement_id,
-        do: Map.put(last_fire_error, "replacement_scheduled_event_id", replacement_id),
-        else: last_fire_error
-
+  defp cancel_locked_checkback(repo, event, now, reason) do
     event
     |> ScheduledEvent.changeset(%{
       status: "cancelled",
       cancelled_at: now,
-      last_fire_error: last_fire_error
+      last_fire_error: %{"reason" => reason}
     })
     |> repo.update()
   end
 
-  defp replacement_status(:scheduled), do: :updated
-  defp replacement_status(:already_scheduled), do: :already_updated
-
-  defp validate_replacement_automation_job(repo, requested_attrs, replacement_attrs, now) do
+  defp validate_updated_automation_job(repo, requested_attrs, job_id, agent_uid, now) do
     if Map.has_key?(requested_attrs, "automation_job_id") or
-         Map.has_key?(requested_attrs, :automation_job_id) do
-      AutomationJobs.validate_bindable_in_tx(
-        repo,
-        replacement_attrs.automation_job_id,
-        replacement_attrs.agent_uid,
-        now
-      )
-    else
-      :ok
-    end
+         Map.has_key?(requested_attrs, :automation_job_id),
+       do: AutomationJobs.validate_bindable_in_tx(repo, job_id, agent_uid, now),
+       else: :ok
   end
 
   def stop_human_work_in_tx(repo, uid, version, now) do
@@ -279,7 +186,7 @@ defmodule Ankole.Schedule.Checkbacks do
       from(e in ScheduledEvent,
         where:
           e.human_uid == ^uid and e.human_access_version < ^version and
-            e.status in ["scheduled", "firing"]
+            e.status == "scheduled"
       ),
       set: [
         status: "cancelled",

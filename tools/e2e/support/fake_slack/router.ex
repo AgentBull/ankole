@@ -40,6 +40,15 @@ defmodule Ankole.E2E.FakeSlack.Router do
     end)
   end
 
+  get "/api/bots.info" do
+    with_auth(conn, :bot, fn conn ->
+      case conn.params["bot"] do
+        "BFAKE" -> ok(conn, %{"bot" => %{"id" => "BFAKE", "app_id" => "AFAKE"}})
+        _other -> send_json(conn, 200, %{"ok" => false, "error" => "bot_not_found"})
+      end
+    end)
+  end
+
   post "/api/chat.postMessage" do
     with_auth(conn, :bot, fn conn ->
       {:ok, message} = State.post_message(state(conn), conn.params)

@@ -1,25 +1,37 @@
 // Regression guards for the analyzer parts most likely to silently break on a
-// knip or parser dependency bump: the knip compact-output parser, runtime import
+// knip or parser dependency bump: the Knip JSON parser, runtime import
 // scanner, and Tarjan strongly-connected-component detector.
 
 import { describe, expect, test } from 'bun:test'
 import { collectRuntimeStaticSpecifiers } from './cycles'
 import { collectStronglyConnectedComponents } from './lib/import-cycle-graph'
-import { parseKnipUnusedFiles } from './unused'
+import { parseKnipIssues } from './unused'
 
-describe('parseKnipUnusedFiles', () => {
-  test('extracts repo paths from knip v6 compact --files output', () => {
-    const output = [
-      'app/webapps/common/x.tsx: app/webapps/common/x.tsx',
-      'libs/uikit/src/dead.ts: libs/uikit/src/dead.ts',
-      'node_modules/foo/bar.js: node_modules/foo/bar.js',
-      ''
-    ].join('\n')
-    expect(parseKnipUnusedFiles(output)).toEqual(['app/webapps/common/x.tsx', 'libs/uikit/src/dead.ts'])
+describe('parseKnipIssues', () => {
+  test('keeps function, type, dependency and file findings separate', () => {
+    const report = JSON.stringify({
+      issues: [
+        {
+          file: 'app/example.ts',
+          files: [{ name: 'app/example.ts' }],
+          exports: [{ name: 'deadFunction' }],
+          types: [{ name: 'DeadType' }],
+          dependencies: [{ name: 'unused-package' }]
+        }
+      ]
+    })
+    expect(parseKnipIssues(report)).toEqual([
+      { file: 'app/example.ts', kind: 'dependencies', name: 'unused-package' },
+      { file: 'app/example.ts', kind: 'exports', name: 'deadFunction' },
+      { file: 'app/example.ts', kind: 'files', name: 'app/example.ts' },
+      { file: 'app/example.ts', kind: 'types', name: 'DeadType' }
+    ])
   })
-
-  test('tolerates bare-path lines and dedupes', () => {
-    expect(parseKnipUnusedFiles('tools/devkit/src/a.ts\ntools/devkit/src/a.ts\n')).toEqual(['tools/devkit/src/a.ts'])
+  test('rejects tool errors and incomplete output instead of reporting a clean graph', () => {
+    expect(() => parseKnipIssues('Knip failed')).toThrow()
+    expect(() => parseKnipIssues('{}')).toThrow()
+    expect(() => parseKnipIssues('{"issues":[{"file":"x.ts"}]}')).toThrow()
+    expect(parseKnipIssues('{"issues":[]}')).toEqual([])
   })
 })
 

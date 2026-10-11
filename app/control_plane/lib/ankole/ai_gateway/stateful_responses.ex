@@ -18,8 +18,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
        `commit_complete/3` or `commit_error/4` to write the durable final
        `content` and flip the row to `complete` or `error`.
 
-  The loop itself is driven by the worker (one `response.create` per round);
-  this module does NOT call the provider internally. Each call to
+  The client drives the loop through one `response.create` per round;
+  this module does not call the provider. Each call to
   `start_planned_response_run/1` corresponds to exactly one `response.create`
   and exactly one `ai_gateway_messages` row (see plan §3.9 step 5–10).
   """
@@ -35,7 +35,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
 
   @orphaned_generating_grace_seconds 300
   @history_chain_max_depth 10_000
@@ -77,7 +76,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              | :invalid_conversation
              | :response_run_in_progress
              | :stateful_anchor_conflict}
-  def start_planned_response_run(attrs) when is_map(attrs) do
+  def start_planned_response_run(attrs, opts \\ []) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     conversation_id = conversation_id(attrs)
     previous_response_id = previous_response_id(attrs)
@@ -98,14 +97,16 @@ defmodule Ankole.AIGateway.StatefulResponses do
              expected_previous_response_id
            ) do
       case Repo.transact(fn repo ->
-             admit_planned_response_run(
-               repo,
-               subject_uid,
-               selector,
-               compaction,
-               initial_content,
-               merged_metadata
-             )
+             with :ok <- Keyword.get(opts, :authorize_run_in_tx, fn _repo -> :ok end).(repo) do
+               admit_planned_response_run(
+                 repo,
+                 subject_uid,
+                 selector,
+                 compaction,
+                 initial_content,
+                 merged_metadata
+               )
+             end
            end) do
         {:ok, %Message{} = message} ->
           Events.publish(message, :response_started, %{})
@@ -207,34 +208,13 @@ defmodule Ankole.AIGateway.StatefulResponses do
   provider run. Results that cannot be paired safely are retained in an error
   quarantine row and returned as a structured error.
 
-  This closes the worker crash window after a tool side effect has happened but
-  before the next `response.create` continuation reaches AIGateway. The returned
-  row becomes the next `previous_response_id`; the following provider call can
-  replay the durable client tool output items from the normal message chain.
+  The conversation driver uses the transaction form to record a whole round,
+  consume applied input, and delete its receipts in one commit. The returned
+  row becomes the next `previous_response_id`.
   """
-  @spec record_tool_results(map()) ::
-          {:ok, Message.t()}
-          | {:error,
-             Ecto.Changeset.t()
-             | :invalid_anchor
-             | :invalid_conversation
-             | :invalid_tool_results
-             | {:tool_results_quarantined, map()}}
-  def record_tool_results(attrs) when is_map(attrs) do
-    case do_record_tool_results(Repo, attrs, true) do
-      {:ok, %Message{} = message, _disposition} -> {:ok, message}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @doc false
   @spec record_tool_results_in_tx(module(), map()) ::
           {:ok, Message.t(), :inserted | :existing} | {:error, term()}
   def record_tool_results_in_tx(repo, attrs) when is_map(attrs) do
-    do_record_tool_results(repo, attrs, false)
-  end
-
-  defp do_record_tool_results(repo, attrs, publish?) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
     request_items = Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
@@ -271,8 +251,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
             anchor,
             reconciled_items,
             merged_metadata,
-            idempotency_key,
-            publish?
+            idempotency_key
           )
 
         {:quarantine, reason, details} ->
@@ -502,12 +481,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
          %Message{} = anchor,
          request_items,
          merged_metadata,
-         idempotency_key,
-         publish?
+         idempotency_key
        ) do
     case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
       {:ok, %Message{} = message} ->
-        maybe_publish_tool_result_events(publish?, message, request_items)
         {:ok, message, :existing}
 
       {:error, :invalid_anchor} ->
@@ -516,8 +493,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
           anchor,
           request_items,
           merged_metadata,
-          idempotency_key,
-          publish?
+          idempotency_key
         )
     end
   end
@@ -527,8 +503,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
          %Message{} = anchor,
          request_items,
          merged_metadata,
-         idempotency_key,
-         publish?
+         idempotency_key
        ) do
     changeset =
       %Message{}
@@ -545,7 +520,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     case repo.insert(changeset) do
       {:ok, %Message{} = message} ->
         :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
-        maybe_publish_tool_result_events(publish?, message, request_items)
         {:ok, message, :inserted}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -555,7 +529,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
            ) do
           case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
             {:ok, %Message{} = message} ->
-              maybe_publish_tool_result_events(publish?, message, request_items)
               {:ok, message, :existing}
 
             {:error, _reason} = error ->
@@ -862,11 +835,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     publish_tool_result_events(message, message.content || [])
   end
 
-  defp maybe_publish_tool_result_events(true, message, request_items),
-    do: publish_tool_result_events(message, request_items)
-
-  defp maybe_publish_tool_result_events(false, _message, _request_items), do: :ok
-
   defp validate_tool_result_items(request_items) when is_list(request_items) do
     case Enum.any?(request_items, &tool_call_output_item?/1) do
       true -> :ok
@@ -903,20 +871,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @spec orphaned_generating_cutoff(DateTime.t()) :: DateTime.t()
   def orphaned_generating_cutoff(now),
     do: DateTime.add(now, -orphaned_generating_grace_seconds(), :second)
-
-  @doc false
-  @spec runtime_event_snapshot() :: [{String.t(), map()}]
-  def runtime_event_snapshot do
-    generating_messages_query()
-    |> Repo.all()
-    |> Enum.map(fn message ->
-      {RuntimeEvents.ai_message_deadline_channel(),
-       %{
-         "message_id" => message.id,
-         "orphan_at" => RuntimeEvents.encode_datetime(ai_message_orphan_at(message))
-       }}
-    end)
-  end
 
   @doc """
   Returns whether a generating row has exceeded the orphan grace window.
@@ -1098,45 +1052,48 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @spec reconcile_orphaned_response(binary(), keyword()) ::
           {:ok, :failed | :live | :already_terminal} | {:error, term()}
   def reconcile_orphaned_response(response_id, opts \\ []) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    case Repo.transact(fn repo ->
-           with {:ok, message_id} <- decode_response_id(response_id) do
-             case lock_generating_message_by_id(repo, message_id) do
-               %Message{} = message ->
-                 if generating_message_stale?(message, now) do
-                   error = %{
-                     "code" => "orphaned_generating_response",
-                     "reason" => "response heartbeat expired before a terminal commit",
-                     "stage" => "ai_message_deadline",
-                     "retryable" => true
-                   }
-
-                   with {:ok, %Message{} = failed} <-
-                          fail_generating_response_in_tx(
-                            repo,
-                            message.subject_uid,
-                            message.id,
-                            error,
-                            now
-                          ) do
-                     {:ok, {:failed, failed, error}}
-                   end
-                 else
-                   with :ok <- notify_ai_message_deadline(repo, message), do: {:ok, :live}
-                 end
-
-               nil ->
-                 {:ok, :already_terminal}
-             end
-           end
-         end) do
+    case Repo.transact(fn repo -> reconcile_orphaned_response_in_tx(repo, response_id, opts) end) do
       {:ok, {:failed, %Message{} = message, error}} ->
         Events.publish(message, :response_failed, %{error: error})
         {:ok, :failed}
 
       other ->
         other
+    end
+  end
+
+  @doc false
+  def reconcile_orphaned_response_in_tx(repo, response_id, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, message_id} <- decode_response_id(response_id) do
+      case lock_generating_message_by_id(repo, message_id) do
+        %Message{} = message ->
+          if Keyword.get(opts, :force, false) or generating_message_stale?(message, now) do
+            error = %{
+              "code" => "orphaned_generating_response",
+              "reason" => "response heartbeat expired before a terminal commit",
+              "stage" => "ai_message_deadline",
+              "retryable" => true
+            }
+
+            with {:ok, %Message{} = failed} <-
+                   fail_generating_response_in_tx(
+                     repo,
+                     message.subject_uid,
+                     message.id,
+                     error,
+                     now
+                   ) do
+              {:ok, {:failed, failed, error}}
+            end
+          else
+            with :ok <- notify_ai_message_deadline(repo, message), do: {:ok, :live}
+          end
+
+        nil ->
+          {:ok, :already_terminal}
+      end
     end
   end
 
@@ -1325,7 +1282,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   chronological order.
 
   Only `complete` rows enter normal projection. `generating` rows are never
-  projected in v1; a worker loop continuation must reference the previous
+  projected; a client continuation must reference the previous
   round's committed `complete` response.
   """
   @spec expand_history(binary(), keyword()) :: [Message.t()]
@@ -1405,6 +1362,51 @@ defmodule Ankole.AIGateway.StatefulResponses do
     else
       {:error, _reason} -> nil
     end
+  end
+
+  @doc """
+  Reads a caller's visible run suffix.
+
+  Tool-result journals and compaction checkpoints do not end the suffix.
+  The caller metadata remains opaque; only its run identity is compared.
+  """
+  def conversation_tail(%Conversation{} = conversation, actor_event_id) do
+    leaf = latest_visible_leaf(conversation.id)
+    history = if leaf, do: run_message_chain(conversation.id, leaf, actor_event_id), else: []
+
+    rows =
+      history
+      |> Enum.reverse()
+      |> Enum.reduce_while([], fn row, rows ->
+        cond do
+          row.type == "checkpoint" -> {:cont, rows}
+          response_metadata(row)["actor_event_id"] == actor_event_id -> {:cont, [row | rows]}
+          row.metadata["tool_result_journal"] == true -> {:cont, rows}
+          true -> {:halt, rows}
+        end
+      end)
+
+    responses = Enum.reject(rows, &(&1.metadata["tool_result_journal"] == true))
+    latest = List.last(responses)
+
+    recorded_call_ids =
+      rows
+      |> Enum.filter(fn row ->
+        latest && row.metadata["tool_result_journal"] == true &&
+          row.previous_message_id == latest.id
+      end)
+      |> Enum.flat_map(& &1.content)
+      |> Enum.filter(&ResponseItems.output_item?/1)
+      |> Enum.map(fn item -> item[ResponseItems.pair_identity_field(item)] end)
+      |> MapSet.new()
+
+    {:ok,
+     %{
+       rows: rows,
+       responses: responses,
+       recorded_call_ids: recorded_call_ids,
+       leaf: leaf
+     }}
   end
 
   @doc """
@@ -1937,7 +1939,11 @@ defmodule Ankole.AIGateway.StatefulResponses do
     do: terminal_items
 
   defp notify_ai_message_deadline(repo, %Message{} = message) do
-    RuntimeEvents.notify_ai_message_deadline(repo, message, ai_message_orphan_at(message))
+    Ankole.AIGateway.Jobs.ReconcileOrphanedResponse.schedule_in_tx(
+      repo,
+      %{message_id: message.id},
+      ai_message_orphan_at(message)
+    )
   end
 
   defp ai_message_orphan_at(%Message{} = message) do
@@ -1978,6 +1984,32 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
+  defp run_message_chain(conversation_id, anchor_id, actor_event_id) do
+    result =
+      SQL.query!(
+        Repo,
+        """
+        WITH RECURSIVE chain AS (
+          SELECT id, previous_message_id, ARRAY[id] AS path, 1 AS depth
+          FROM ai_gateway_messages
+          WHERE tenant_id = $5::text::uuid AND id = $1::text::uuid AND conversation_id = $2::text::uuid
+            AND (metadata #>> '{request_metadata,actor_event_id}' = $3 OR type = 'checkpoint' OR metadata->>'tool_result_journal' = 'true')
+          UNION ALL
+          SELECT parent.id, parent.previous_message_id, chain.path || parent.id, chain.depth + 1
+          FROM ai_gateway_messages AS parent JOIN chain ON parent.id = chain.previous_message_id
+          WHERE parent.tenant_id = $5::text::uuid AND parent.conversation_id = $2::text::uuid AND NOT parent.id = ANY(chain.path) AND chain.depth < $4
+            AND (parent.metadata #>> '{request_metadata,actor_event_id}' = $3 OR parent.type = 'checkpoint' OR parent.metadata->>'tool_result_journal' = 'true')
+        )
+        SELECT message.* FROM chain JOIN ai_gateway_messages AS message ON message.id = chain.id
+        WHERE message.tenant_id = $5::text::uuid AND message.status = 'complete'
+        ORDER BY chain.depth DESC
+        """,
+        [anchor_id, conversation_id, actor_event_id, @history_chain_max_depth, Repo.tenant_id!()]
+      )
+
+    Enum.map(result.rows, &Repo.load(Message, {result.columns, &1}))
+  end
+
   defp walk_message_chain(conversation_id, anchor_id, stop_at_checkpoint?) do
     Repo
     |> chain_messages(conversation_id, anchor_id)
@@ -2002,7 +2034,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
         WITH RECURSIVE chain AS (
           SELECT id, previous_message_id, ARRAY[id] AS path, 1 AS depth
           FROM ai_gateway_messages
-          WHERE id = $1::text::uuid
+          WHERE tenant_id = $4::text::uuid AND id = $1::text::uuid
             AND conversation_id = $2::text::uuid
 
           UNION ALL
@@ -2013,16 +2045,17 @@ defmodule Ankole.AIGateway.StatefulResponses do
                  chain.depth + 1
           FROM ai_gateway_messages AS parent
           JOIN chain ON parent.id = chain.previous_message_id
-          WHERE parent.conversation_id = $2::text::uuid
+          WHERE parent.tenant_id = $4::text::uuid AND parent.conversation_id = $2::text::uuid
             AND NOT parent.id = ANY(chain.path)
             AND chain.depth < $3
         )
         SELECT message.*
         FROM chain
         JOIN ai_gateway_messages AS message ON message.id = chain.id
+        WHERE message.tenant_id = $4::text::uuid
         ORDER BY chain.depth ASC
         """,
-        [anchor_id, conversation_id, max_depth]
+        [anchor_id, conversation_id, max_depth, Repo.tenant_id!()]
       )
 
     Enum.map(result.rows, &repo.load(Message, {result.columns, &1}))

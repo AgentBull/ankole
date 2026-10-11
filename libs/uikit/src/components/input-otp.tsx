@@ -24,16 +24,7 @@ function InputOTP({
 }
 
 function InputOTPGroup({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot="input-otp-group"
-      className={cn(
-        'flex items-center gap-1 rounded-none has-aria-invalid:border-b-destructive dark:has-aria-invalid:border-b-destructive/50',
-        className
-      )}
-      {...props}
-    />
-  )
+  return <div data-slot="input-otp-group" className={cn('flex items-center gap-1', className)} {...props} />
 }
 
 function InputOTPSlot({
@@ -51,7 +42,7 @@ function InputOTPSlot({
       data-slot="input-otp-slot"
       data-active={isActive}
       className={cn(
-        'relative flex size-10 items-center justify-center border border-transparent border-b-input bg-transparent text-sm transition-[color,border-color] outline-none first:rounded-none last:rounded-none aria-invalid:border-b-destructive data-[active=true]:z-10 data-[active=true]:border-b-ring dark:aria-invalid:border-b-destructive/50',
+        'relative flex size-8 items-center justify-center rounded-control border border-field-edge border-b-input bg-field text-sm transition-[color,border-color,background-color] outline-none aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-background data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)]',
         className
       )}
       {...props}>

@@ -40,29 +40,38 @@ Runs the Ankole end-to-end suites from one entrypoint. Preflight resolves an
 immutable published Worker image when it matches the current inputs, or builds
 a content-addressed local image. It starts the devkit Postgres when the test
 database port is unreachable.
+The gate also pulls the pinned pooled release and builds the current control
+plane for a real Compose upgrade. Set ANKOLE_E2E_CONTROL_PLANE_IMAGE only to
+a locally built image of the current source and resolved Worker image.
 
 Modes:
-  --gate           Transport, main-flow, lifecycle, worker/computer, and
-                   schedule suites (default).
+  --gate           Transport, main-flow, lifecycle, worker/computer, Compose
+                   upgrade, and schedule suites (default).
   --perf           Concurrency/throughput baseline suite.
   --chaos          Chaos suite (worker kill, fabric restart, redelivery,
                    provider-send failures).
   --real-provider  AI Gateway real-provider smoke checks (needs API keys).
   --real-llm       Docker worker + real OpenRouter LLM suite (needs API key).
+                   The chaos and Compose real-LLM scenarios run with --all, or
+                   with --chaos --only=real_llm_chaos and
+                   --gate --only=real_llm_compose_chaos.
   --all            Gate + perf + chaos, then real-provider/real-llm for the
-                   providers whose API keys are present.
+                   providers whose API keys are present. With an OpenRouter
+                   key, the gate and chaos suites also run their real-LLM
+                   scenarios.
 
 Options:
   --providers=...  Provider groups for --real-provider:
                    openrouter,jina,google,available
   --only=VALUE     Forwarded to mix test as --only VALUE (suite modes only).
-  --no-build       Fail instead of building a missing worker image.
+  --no-build       Fail instead of building a Worker or control-plane image.
   --no-services    Fail instead of starting the devkit Postgres.
 
 Examples:
   tools/e2e/run
   tools/e2e/run --all
   tools/e2e/run --chaos
+  tools/e2e/run --gate --only=compose_upgrade
   tools/e2e/run --real-provider --providers=openrouter,jina
 EOF
 }
@@ -162,7 +171,38 @@ if [[ -n "$only_filter" ]]; then
   suite_args+=(--only "$only_filter")
 fi
 
-run_gate() { run_mix e2e.gate "${suite_args[@]:+${suite_args[@]}}"; }
+preflight_compose_upgrade() {
+  if [[ -n "$only_filter" && "$only_filter" != "compose_upgrade" &&
+        "$only_filter" != "real_llm_compose_chaos" ]]; then
+    return
+  fi
+
+  local legacy_revision
+  legacy_revision="$(tr -d '\r\n' < "$ROOT_DIR/tools/e2e/pooled-worker-revision")"
+  for repository in ankole-agent-control-plane ankole-agent-computer-worker; do
+    local image="ghcr.io/agentbull/$repository:$legacy_revision"
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      docker pull "$image"
+    fi
+  done
+
+  if [[ -z "${ANKOLE_E2E_CONTROL_PLANE_IMAGE:-}" ]]; then
+    if [[ "$allow_build" -ne 1 ]]; then
+      echo '[e2e] Compose upgrade needs ANKOLE_E2E_CONTROL_PLANE_IMAGE when --no-build is used.' >&2
+      exit 1
+    fi
+    export ANKOLE_E2E_CONTROL_PLANE_IMAGE=ankole-control-plane:e2e
+    docker build --file "$CONTROL_PLANE_DIR/Dockerfile" \
+      --build-arg "ANKOLE_AGENT_COMPUTER_IMAGE=$WORKER_IMAGE" \
+      --tag "$ANKOLE_E2E_CONTROL_PLANE_IMAGE" "$ROOT_DIR"
+  fi
+  docker image inspect "$ANKOLE_E2E_CONTROL_PLANE_IMAGE" >/dev/null
+}
+
+run_gate() {
+  preflight_compose_upgrade
+  run_mix e2e.gate "${suite_args[@]:+${suite_args[@]}}"
+}
 run_perf() { run_mix e2e.perf "${suite_args[@]:+${suite_args[@]}}"; }
 run_chaos() { run_mix e2e.chaos "${suite_args[@]:+${suite_args[@]}}"; }
 
@@ -213,6 +253,7 @@ case "$mode" in
   all)
     preflight_docker
     preflight_postgres
+    if has_openrouter_key; then export ANKOLE_REAL_LLM_E2E=1; fi
     run_gate
     run_perf
     run_chaos

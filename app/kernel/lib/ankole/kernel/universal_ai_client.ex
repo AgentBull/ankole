@@ -4,7 +4,7 @@ defmodule Ankole.Kernel.UniversalAIClient do
 
   Elixir owns provider selection, auth, endpoint, headers, and transport
   preferences. The native kernel owns model request body encoding, upstream
-  streaming, response normalization, downstream-ready chunk encoding, demand
+  streaming, response normalization, JSON event encoding, demand
   credit, and cancel.
   """
 
@@ -30,9 +30,9 @@ defmodule Ankole.Kernel.UniversalAIClient do
   end
 
   defmodule Chunk do
-    @moduledoc "One downstream-ready payload chunk in stream order."
-    @enforce_keys [:ref, :sequence, :kind, :payload]
-    defstruct [:ref, :sequence, :kind, :payload]
+    @moduledoc "One JSON event in stream order."
+    @enforce_keys [:ref, :sequence, :payload]
+    defstruct [:ref, :sequence, :payload]
   end
 
   defmodule Done do
@@ -77,9 +77,8 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec stream_event(tuple()) :: stream_event()
   def stream_event({:universal_ai_client, ref, :ready, meta}), do: %Ready{ref: ref, meta: meta}
 
-  def stream_event({:universal_ai_client, ref, :chunk, sequence, kind, payload})
-      when kind in [:sse, :websocket_text] do
-    %Chunk{ref: ref, sequence: sequence, kind: kind, payload: payload}
+  def stream_event({:universal_ai_client, ref, :chunk, sequence, payload}) do
+    %Chunk{ref: ref, sequence: sequence, payload: payload}
   end
 
   def stream_event({:universal_ai_client, ref, :done, summary}),
@@ -102,20 +101,8 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec raw_get(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
   def raw_get(request, opts \\ []), do: raw_request("GET", request, opts)
 
-  @spec raw_head(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
-  def raw_head(request, opts \\ []), do: raw_request("HEAD", request, opts)
-
   @spec raw_post(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
   def raw_post(request, opts \\ []), do: raw_request("POST", request, opts)
-
-  @spec raw_put(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
-  def raw_put(request, opts \\ []), do: raw_request("PUT", request, opts)
-
-  @spec raw_patch(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
-  def raw_patch(request, opts \\ []), do: raw_request("PATCH", request, opts)
-
-  @spec raw_delete(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
-  def raw_delete(request, opts \\ []), do: raw_request("DELETE", request, opts)
 
   @spec open(map(), open_opts()) :: {:ok, stream()} | {:error, error()}
   def open(spec, opts \\ []) when is_map(spec) and is_list(opts) do

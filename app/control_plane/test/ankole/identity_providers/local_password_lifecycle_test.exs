@@ -30,7 +30,8 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
                  true
                )
 
-      assert result.principal.uid == email
+      assert {:ok, _} = Ecto.UUID.cast(result.principal.uid)
+      refute result.principal.uid == email
       assert result.human_user.email == email
       assert String.length(result.initial_password) == 16
 

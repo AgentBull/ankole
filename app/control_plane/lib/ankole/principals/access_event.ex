@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.AccessEvent do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -11,7 +11,7 @@ defmodule Ankole.Principals.AccessEvent do
     field :source, :string
     field :action, :string
     field :reason, :string
-    field :actor_uid, Ankole.Ecto.PrincipalKey
+    field :actor, Ankole.Ecto.ActorRef
     field :previous_status, Ecto.Enum, values: [:active, :disabled]
     field :status, Ecto.Enum, values: [:active, :disabled]
     field :access_version, :integer

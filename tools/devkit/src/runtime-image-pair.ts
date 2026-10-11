@@ -1,6 +1,3 @@
-import { dirname } from 'node:path'
-import { mkdir } from 'node:fs/promises'
-
 export const releaseRevisionLabel = 'org.opencontainers.image.revision'
 export const protocolVersionLabel = 'io.ankole.runtime-fabric.protocol-version'
 
@@ -69,22 +66,6 @@ export function runtimeImagePairStatus(input: {
       worker
     }
   }
-}
-
-export function renderRuntimePairHelmValues(pair: RuntimeImagePair, rolloutPhase: 'control-plane' | 'worker'): string {
-  return [
-    'runtimeFabric:',
-    `  releaseRevision: ${JSON.stringify(pair.revision)}`,
-    `  protocolVersion: ${JSON.stringify(pair.runtime_fabric_protocol_version)}`,
-    `  rolloutPhase: ${JSON.stringify(rolloutPhase)}`,
-    'controlPlane:',
-    '  image:',
-    `    name: ${JSON.stringify(pair.control_plane.pinned_ref)}`,
-    'worker:',
-    '  image:',
-    `    name: ${JSON.stringify(pair.worker.pinned_ref)}`,
-    ''
-  ].join('\n')
 }
 
 function verifyRuntimeImage(
@@ -169,9 +150,6 @@ type CliOptions = {
   controlPlaneMetadata: string
   workerRef: string
   workerMetadata: string
-  pairOutput: string
-  controlPlaneValuesOutput: string
-  workerValuesOutput: string
 }
 
 async function runCli(args: string[]): Promise<void> {
@@ -193,12 +171,6 @@ async function runCli(args: string[]): Promise<void> {
   })
 
   if (!status.ready) throw new Error(`runtime image pair is incomplete: ${status.missing.join(', ')}`)
-
-  await Promise.all([
-    writeOutput(options.pairOutput, `${JSON.stringify(status.pair, null, 2)}\n`),
-    writeOutput(options.controlPlaneValuesOutput, renderRuntimePairHelmValues(status.pair, 'control-plane')),
-    writeOutput(options.workerValuesOutput, renderRuntimePairHelmValues(status.pair, 'worker'))
-  ])
 }
 
 function parseCliOptions(args: string[]): CliOptions {
@@ -216,10 +188,7 @@ function parseCliOptions(args: string[]): CliOptions {
     controlPlaneRef: requiredOption(values, 'control-plane-ref'),
     controlPlaneMetadata: requiredOption(values, 'control-plane-metadata'),
     workerRef: requiredOption(values, 'worker-ref'),
-    workerMetadata: requiredOption(values, 'worker-metadata'),
-    pairOutput: requiredOption(values, 'pair-output'),
-    controlPlaneValuesOutput: requiredOption(values, 'control-plane-values-output'),
-    workerValuesOutput: requiredOption(values, 'worker-values-output')
+    workerMetadata: requiredOption(values, 'worker-metadata')
   }
 }
 
@@ -227,11 +196,6 @@ function requiredOption(values: Map<string, string>, key: string): string {
   const value = values.get(key)
   if (!value) throw new Error(`--${key} is required`)
   return value
-}
-
-async function writeOutput(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  await Bun.write(path, content)
 }
 
 if (import.meta.main) {

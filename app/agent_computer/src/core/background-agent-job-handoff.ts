@@ -61,18 +61,6 @@ export function mergeBackgroundAgentJobPathHandoffs(
   })
 }
 
-export function backgroundAgentJobPathHandoff(value: unknown): BackgroundAgentJobPathHandoff | undefined {
-  if (Array.isArray(value)) return boundedBackgroundAgentJobPaths(value)
-  if (!value || typeof value !== 'object') return undefined
-
-  const handoff = value as Record<string, unknown>
-  if (!Array.isArray(handoff.paths)) return undefined
-  return boundedBackgroundAgentJobPaths(handoff.paths, {
-    totalCount: handoff.total_count,
-    truncated: handoff.truncated
-  })
-}
-
 function nonnegativeSafeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }

@@ -5,7 +5,7 @@ defmodule Ankole.Setup.Bootstrap do
 
   use GenServer
 
-  alias Ankole.AuthZ
+  alias Ankole.Tenants
   alias Ankole.Logging
   alias Ankole.Setup.BootstrapActivationCodeText
   alias Ankole.Setup.Config
@@ -27,7 +27,9 @@ defmodule Ankole.Setup.Bootstrap do
   """
   @spec initialize() :: {:ok, result()} | {:error, term()}
   def initialize do
-    with {:ok, completed?} <- Config.completed?() do
+    with {:ok, tenant} <- Tenants.privileged(),
+         :ok <- Tenants.ensure_scaffold(tenant),
+         {:ok, completed?} <- Config.completed?() do
       initialize_for_completion(completed?)
     end
   end
@@ -108,7 +110,6 @@ defmodule Ankole.Setup.Bootstrap do
 
   defp initialize_for_completion(true) do
     with :ok <- Config.delete_bootstrap_activation_code() do
-      ensure_console_admin_grants_once()
       {:ok, %{completed: true, activation_code: nil}}
     end
   end
@@ -118,24 +119,6 @@ defmodule Ankole.Setup.Bootstrap do
 
     with {:ok, ^code} <- Config.put_bootstrap_activation_code(code) do
       {:ok, %{completed: false, activation_code: code}}
-    end
-  end
-
-  defp ensure_console_admin_grants_once do
-    case AuthZ.ensure_console_admin_grants() do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logging.warning(
-          "setup.bootstrap.console_admin_grant_repair_skipped",
-          "console admin grant startup repair skipped",
-          %{
-            reason: inspect(reason)
-          }
-        )
-
-        :ok
     end
   end
 

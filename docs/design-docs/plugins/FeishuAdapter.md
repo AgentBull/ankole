@@ -70,8 +70,11 @@ remains registered for existing `config_ref` values.
 ## Connect to Feishu or Lark
 
 One `domain` and `appID` pair identifies an application. `ConnectionReconciler`
-selects the required pairs, and `ConnectionSupervisor` runs one long connection
-for each pair.
+selects the required pairs, and `Ankole.Plugins.ConnectionLifecycle` supervises
+one WebSocket client for each pair. The client is a temporary child. If it
+exits, `ConnectionLifecycle` restarts that pair immediately once, then waits
+5 seconds and 30 seconds between further attempts. Other connections stay
+connected.
 
 Chat and identity work can share a connection when the pair and secret match.
 Conflicting secrets make that connection unavailable. A restart rebuilds the
@@ -122,9 +125,10 @@ An inbound Turn exposes its canonical Signal channel ID in
 `<agent_environment_info>`. A display name remains a separate optional fact.
 The message webhook does not supply one, so identity admission projects a name
 already synchronized from Contact into the current event. For a group message,
-the Worker renders `speaker` as `name(uid)` and repeats the `uid` when no name
-is known. A Lark human Principal UID can be the normalized email or a fallback
-Lark ID. The Lark Agent Plugin reads the stored provider identity metadata to
+the control-plane prompt renderer writes `speaker` as `name(uid)` and repeats
+the `uid` when no name is known. New Human Principal UIDs are opaque UUIDv7
+values; the normalized email and Lark IDs remain provider-scoped external
+identities. Existing Principal UIDs remain unchanged. The Lark Agent Plugin reads the stored provider identity metadata to
 obtain the `open_id` required by its direct-message shortcut.
 
 Reaction events use the operator `user_id` when it is present. They use the
@@ -135,19 +139,18 @@ The adapter supports text, rich posts, stickers, images, files, audio, media,
 video, locations, shared chats, and shared users. For a provider file, the
 adapter first submits a durable `pending` observation with the provider
 reference. It does this for every matching chat consumer before the first
-download starts. The adapter then downloads the bytes and stores successful
-downloads through WorkerFiles. It submits `complete` or `failed` with the same
-source entry ID. A failed download keeps the provider reference without a local
+download starts. The adapter then downloads the bytes once and stores them in
+the file service ([Files](../Files.md)). It submits `complete` or `failed` with
+the same source entry ID. A failed download keeps the provider reference without a local
 file. Rich posts can carry files in a top-level `files` list beside the text
 and image blocks. The adapter submits these files through the same attachment
 download path, using each file's key and name and the containing message ID.
 
 SignalsGateway assigns the attachment's numeric ID before the download. A
-successful download uses
-`/agents/<agent-key>/user-files/inbox/<attachment-id>/<filename>`. The native
-kernel uses AnyAscii to transliterate the provider filename before the adapter
-restricts it to safe ASCII filename characters. Provider message IDs and file
-keys remain stored adapter details; they do not appear in the filesystem path.
+successful download gets the drive path `inbox/<digest>/<filename>`, where
+`<digest>` is the start of the content SHA-256 and `<filename>` is the provider
+filename. Provider message IDs and file keys remain stored adapter details;
+they do not appear in the drive path.
 
 The pending observation time is the attachment settle anchor. A slow download
 does not move the 1,200 millisecond quiet window. SignalsGateway can wait up to
@@ -170,12 +173,13 @@ not wake the Agent. A card action always wakes the Agent.
 The adapter sends only operations already stored in the outbox. It can post,
 reply, edit, delete, reconcile, change reactions, send dividers, and send cards.
 
-The adapter uploads WorkerFiles before it sends image or file messages. Text
+The adapter uploads the attachment bytes, read from the file service by
+`blob_ref`, before it sends image or file messages. Text
 messages use provider UUIDs derived from outbox idempotency keys. Reconciliation
 checks the recorded provider message ID.
 
 A non-image file of at most 30 MiB uses the native IM file endpoint. A larger
-file within the 100 MiB WorkerFiles contract uses the application cloud-space
+file within the 100 MiB transfer limit uses the application cloud-space
 root. Provider error `234006` also starts this fallback when the local size
 check did not. The adapter prepares one multipart transaction, uploads the
 provider plan in sequence without concurrent parts, and finishes the
@@ -197,12 +201,11 @@ enough cloud-space capacity. If access grant or URL lookup fails after upload
 completion, the adapter tries to delete the unusable file before it returns the
 error.
 
-If a referenced WorkerFiles attachment is missing, not a regular file, larger
-than 100 MiB, or outside the supported attachment contract, the adapter marks
-the durable reply as requiring operator action. SignalsGateway blocks that row
-instead of retrying the same invalid attachment forever. The Worker file
-protocol reports `file_not_found` and `not_regular_file`; the adapter never
-classifies these failures from their human-readable messages. Documented cloud
+If the content of a referenced attachment is gone, larger than 100 MiB, or
+outside the supported attachment contract, the adapter marks the durable reply
+as requiring operator action with a stable code such as
+`attachment_file_missing`. SignalsGateway blocks that row instead of retrying
+the same invalid attachment forever. Documented cloud
 permission, quota, and root-capacity errors also require operator action.
 Invalid multipart plans and invalid provider responses are permanent errors.
 Other provider errors retain their normal outbox retry behavior.
@@ -315,12 +318,12 @@ The Agent Plugin enables Skills. The routing rule (`SignalBinding` in code) supp
 and cannot make a Skill available.
 
 The `lark-approvals` Skill is a separate user path. A Turn from an active human
-Principal receives trusted Turn runtime Principal and access-version values. Agent Computer
-uses those facts and `runtime_fabric.worker_auth_key` to derive an opaque
-Lark CLI profile name. It uses HMAC-SHA256 and does not put the worker key in the
-Agent shell. Version 1 retains the existing Principal-only HMAC input for stored
-profiles. Later versions use the Principal UID, a NUL separator, and the decimal
-access version. The Worker rejects a Human turn without a positive access version.
+Principal receives an opaque Lark CLI profile name that the control plane
+derives with HMAC-SHA256 from `runtime_fabric.worker_auth_key`. Version 1 uses
+the Principal UID. Later access versions use the UID, a NUL separator, and the
+decimal access version. The control plane rejects a Human turn without a
+positive access version. The Worker receives only the prepared profile and
+the active-human marker; it receives no Principal or access-version fields.
 After disablement and reviewed restoration, the new profile requires new app
 registration and user authorization. Old profiles remain on disk for admitted
 attempts, but future turns cannot select them through the trusted wrapper. This

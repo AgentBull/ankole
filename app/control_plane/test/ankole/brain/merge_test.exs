@@ -15,7 +15,6 @@ defmodule Ankole.Brain.MergeTest do
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Brain.Schemas.Source
-  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Timelines
   alias Ankole.Ecto.UUIDv7
@@ -58,6 +57,33 @@ defmodule Ankole.Brain.MergeTest do
   end
 
   describe "run_phase/0" do
+    test "one tenant's recorded pair does not suppress another tenant's same-slug candidates" do
+      seed_pair = fn ->
+        create_page!("companies/acme", "company", "Acme")
+        create_page!("companies/ac-holdings", "company", "Acme Holdings")
+        {:ok, _} = Links.add_alias("companies/acme", "same account")
+        {:ok, _} = Links.add_alias("companies/ac-holdings", "same account")
+      end
+
+      seed_pair.()
+      assert %{suggested: 1} = Merge.run_phase()
+      assert [recorded] = Repo.all(MergeSuggestion)
+
+      other = Ankole.DataCase.create_tenant()
+
+      Repo.with_tenant(other.id, fn ->
+        {:ok, _} = SchemaPacks.install_packs([])
+        seed_pair.()
+        assert %{suggested: 1} = Merge.run_phase()
+        assert [separate] = Repo.all(MergeSuggestion)
+        assert separate.id != recorded.id
+        assert {separate.a_slug, separate.b_slug} == {recorded.a_slug, recorded.b_slug}
+      end)
+
+      assert [retained] = Repo.all(MergeSuggestion)
+      assert retained.id == recorded.id
+    end
+
     test "one shared alias on two live pages of one type yields one pending pair" do
       create_page!("companies/acme", "company", "Acme Corporation")
       create_page!("companies/ac-holdings", "company", "AC Holdings")
@@ -154,12 +180,14 @@ defmodule Ankole.Brain.MergeTest do
       assert %{suggested: 1} = Merge.run_phase()
       assert [suggestion] = Repo.all(MergeSuggestion)
 
-      assert {:ok, %MergeSuggestion{status: "rejected"}} = Merge.reject(suggestion.id, human.uid)
+      assert {:ok, %MergeSuggestion{status: "rejected"}} =
+               Merge.reject(suggestion.id, Ankole.ActorRef.from_principal(human))
 
       assert %{suggested: 0} = Merge.run_phase()
       assert Repo.aggregate(MergeSuggestion, :count) == 1
 
-      assert {:error, :suggestion_not_pending} = Merge.reject(suggestion.id, human.uid)
+      assert {:error, :suggestion_not_pending} =
+               Merge.reject(suggestion.id, Ankole.ActorRef.from_principal(human))
     end
   end
 
@@ -188,9 +216,6 @@ defmodule Ankole.Brain.MergeTest do
           },
           human.uid
         )
-
-      {:ok, _tag} = Links.add_tag(duplicate.slug, "customer")
-      {:ok, _tag} = Links.add_tag(canonical.slug, "customer")
 
       {:ok, _timeline} =
         Timelines.write_timeline(
@@ -230,7 +255,9 @@ defmodule Ankole.Brain.MergeTest do
     test "approval merges every attachment into the canonical page and leaves a redirect",
          %{human: human, canonical: canonical, duplicate: duplicate, suggestion: suggestion} do
       assert {:ok, %{status: :merged} = outcome} =
-               Merge.approve(suggestion.id, human.uid, %{canonical_slug: canonical.slug})
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 canonical_slug: canonical.slug
+               })
 
       assert outcome.canonical_slug == canonical.slug
       assert outcome.merged_slug == duplicate.slug
@@ -245,8 +272,7 @@ defmodule Ankole.Brain.MergeTest do
       assert claim.object_slug == canonical.slug
       assert claim.holder == canonical.slug
 
-      # Tags and aliases land deduplicated on the canonical page.
-      assert Tag |> where([tag], tag.tag == "customer") |> Repo.all() |> length() == 1
+      # Aliases land deduplicated on the canonical page.
 
       alias_norms =
         ObjectAlias
@@ -278,10 +304,13 @@ defmodule Ankole.Brain.MergeTest do
 
     test "approval needs a direction and refuses a duplicate with a written body",
          %{human: human, canonical: canonical, suggestion: suggestion} do
-      assert {:error, :canonical_slug_required} = Merge.approve(suggestion.id, human.uid, %{})
+      assert {:error, :canonical_slug_required} =
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{})
 
       assert {:error, {:canonical_slug_not_in_pair, _slug}} =
-               Merge.approve(suggestion.id, human.uid, %{canonical_slug: "companies/other"})
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 canonical_slug: "companies/other"
+               })
 
       {:ok, _object} =
         Objects.update_object(
@@ -294,7 +323,9 @@ defmodule Ankole.Brain.MergeTest do
         )
 
       assert {:error, {:merge_body_not_blank, "companies/acme-corp"}} =
-               Merge.approve(suggestion.id, human.uid, %{canonical_slug: canonical.slug})
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 canonical_slug: canonical.slug
+               })
 
       # The refused suggestion stays pending for a later approval.
       assert Repo.get!(MergeSuggestion, suggestion.id).status == "pending"
@@ -305,10 +336,14 @@ defmodule Ankole.Brain.MergeTest do
       mark_managed!(canonical)
 
       assert {:error, {:library_managed, "companies/acme"}} =
-               Merge.approve(suggestion.id, human.uid, %{canonical_slug: canonical.slug})
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 canonical_slug: canonical.slug
+               })
 
       assert {:error, {:library_managed, "companies/acme"}} =
-               Merge.approve(suggestion.id, human.uid, %{canonical_slug: duplicate.slug})
+               Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+                 canonical_slug: duplicate.slug
+               })
 
       assert Repo.get!(MergeSuggestion, suggestion.id).status == "pending"
     end
@@ -327,10 +362,14 @@ defmodule Ankole.Brain.MergeTest do
     suggestion = Repo.get_by!(MergeSuggestion, status: "pending")
 
     assert {:error, {:principal_canonical_page, ^canonical_slug}} =
-             Merge.approve(suggestion.id, human.uid, %{canonical_slug: "people/alice-doe"})
+             Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+               canonical_slug: "people/alice-doe"
+             })
 
     assert {:ok, %{status: :merged}} =
-             Merge.approve(suggestion.id, human.uid, %{canonical_slug: canonical_slug})
+             Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
+               canonical_slug: canonical_slug
+             })
 
     assert Repo.get_by(Object, slug: "people/alice-doe") == nil
     assert {:ok, %Object{slug: ^canonical_slug}} = Objects.resolve_slug("people/alice-doe")

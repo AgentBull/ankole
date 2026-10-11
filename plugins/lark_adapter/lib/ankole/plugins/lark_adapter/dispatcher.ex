@@ -93,8 +93,11 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
   end
 
   defp handler(consumers, fun) do
+    tenant_id = Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers)
     # Consumer data is closed over at dispatcher build time so websocket callbacks
     # stay small and do not need to query plugin state for every provider event.
-    fn event_type, %Event{} = event -> fun.(event_type, event, consumers) end
+    fn event_type, %Event{} = event ->
+      Ankole.Tenants.dispatch_inbound(tenant_id, fn -> fun.(event_type, event, consumers) end)
+    end
   end
 end

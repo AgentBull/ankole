@@ -7,11 +7,11 @@ order: 303
 
 Ankole Agent는 Worker가 제공하는 셸 도구를 통해 표준 git 명령을 사용합니다. 같은 도구가 일반 대화와 Background Agent Job에서 모두 사용 가능합니다.
 
-가장 중요한 특성을 먼저 말하면: Agent는 git을 Worker의 **sandbox 안에서**, `/agents/<key>/` 파일시스템을 대상으로 실행합니다. 특별한 git 통합 레이어는 없습니다 — 다른 모든 작업에 사용하는 것과 같은 셸 도구를 사용하며, 파일시스템이 곧 워크스페이스입니다. `design-md` skill과 페르소나가 관례를 담고, 도구가 실행을 담당합니다.
+Agent는 자신의 Worker에서 일반 shell과 파일 도구로 영구 `/workspace`의 git 저장소를 사용합니다. 인스턴스나 이미지를 교체해도 저장소는 유지됩니다.
 
 ## Agent가 git으로 할 수 있는 일
 
-`command` 도구를 통해 Agent는 sandbox가 허용하는 모든 git 명령을 실행합니다:
+`command` 도구를 통해 Agent는 Worker의 사용자로 git 명령을 실행합니다:
 
 ```bash
 git clone https://github.com/your-org/your-repo.git
@@ -20,14 +20,14 @@ git add -A && git commit -m "Fix: resolve the null-pointer case"
 git push origin feature/agent-fix
 ```
 
-Agent는 워크스페이스(`/agents/<key>/jobs/<job-id>/` 또는 `sessions/<id>/` 아래)에 clone하고, 파일 편집 및 patch 도구로 변경하며, 커밋하고, push합니다 — 모두 셸을 통해, 모두 bubblewrap 격리 아래에서 이루어집니다.
+Agent는 워크스페이스(`/workspace/jobs/<job-id>/` 또는 `sessions/<id>/` 아래)에 clone하고, 파일 편집 및 patch 도구로 변경하며, 커밋하고, push합니다 — 모두 셸을 통해 Worker의 사용자로 이루어집니다.
 
 일반 대화 중에 Agent는 포그라운드 셸과 파일 도구를 사용합니다. 작업을 Background Agent Job에 위임하면, Job은 자체 워크스페이스에서 실행되고 결과를 반환하거나 조용히 끝날 수 있습니다. 이 워크플로는 [Background Agent Jobs](../background-jobs/)를 참조하세요.
 
 ## 필요한 것
 
 - **Git 자격 증명.** **Console → Environment variables**에서 SSH 키 또는 PAT를 `GIT_SSH_KEY`나 `GIT_TOKEN` 같은 암호화 변수로 저장하세요. 새 값은 Agent의 다음 턴부터 사용할 수 있습니다. [Environment variables](../worker-env/)를 참조하세요.
-- **Worker에서 접근 가능한 저장소.** Worker는 git 호스트에 네트워크로 접근할 수 있어야 합니다. 프라이빗 네트워크에서는 Worker가 git 서버에 도달할 수 있는지 확인하세요.
+- **Worker에서 접근 가능한 저장소.** Worker는 git 호스트에 네트워크로 접근할 수 있어야 합니다. 프라이빗 네트워크에서는 Worker가 git 서버에 도달할 수 있는지 확인하세요. Docker Compose deployment는 Worker 컨테이너를 `ankole_workers` 네트워크에 두므로, Worker는 control plane과 인터넷에 도달하고 공개 git 호스트에도 도달할 수 있습니다. Helm chart의 `networkPolicy.enabled`를 켜면 Worker Pod는 control plane, DNS, 공개 주소에 도달합니다. private 주소의 git 서버는 그 대역이 `networkPolicy.workerDeniedCIDRs`에 있는 동안 도달할 수 없습니다.
 - **필요할 때의 Background Agent Jobs 모델 프로필.** 기본 fallback으로 시작하기에 충분합니다. Job이 다른 provider나 모델을 필요로 할 때만 이 프로필을 구성하세요.
 
 ## 워크스페이스
@@ -35,14 +35,14 @@ Agent는 워크스페이스(`/agents/<key>/jobs/<job-id>/` 또는 `sessions/<id>
 Git 저장소는 세션별 또는 job별 워크스페이스에 clone됩니다:
 
 ```text
-/agents/<agent-key>/
+/workspace/
 └── jobs/<job-id>/
     └── your-repo/       # cloned here
         ├── .git/
         └── ...           # the working tree
 ```
 
-워크스페이스는 Agent Home 볼륨에 지속되므로, Worker가 재시작되어도 clone은 유실되지 않습니다. 레이아웃은 [File management](../file-management/)를 참조하세요.
+`/workspace`의 저장소는 Worker 교체와 이미지 변경 후에도 유지됩니다. 스토리지 손실에 대비해 원격 저장소나 별도 백업을 사용하세요. `ankole-files put`은 파일을 [Agent 드라이브](../file-management/)에 게시합니다.
 
 ## 작업 예시
 
@@ -63,4 +63,4 @@ git 튜토리얼이 아닙니다 — Agent는 표준 git 명령을 사용합니�
 - 셸 도구는 [Code execution](../code-execution/)을 읽으세요.
 - 백그라운드 실행은 [Background Agent Jobs](../background-jobs/)를 읽으세요.
 - Git 자격 증명은 [Environment variables](../worker-env/)를 읽으세요.
-- 파일시스템 레이아웃은 [File management](../file-management/)를 읽으세요.
+- Agent의 드라이브는 [File management](../file-management/)를 읽으세요.

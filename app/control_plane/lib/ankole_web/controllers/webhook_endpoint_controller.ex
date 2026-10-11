@@ -19,7 +19,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
   @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
 
   tags(["Webhooks"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -29,8 +29,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
     parameters: [agent: [in: :query, type: :string, required: false]],
     responses: [
       ok: {"Webhook endpoints", "application/json", WebhookEndpointListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -47,9 +46,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
         ],
     responses: [
       ok: {"Webhook endpoint", "application/json", WebhookEndpointResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

@@ -34,34 +34,30 @@ import {
   RiResetLeftLine,
   RiSettings3Line
 } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Fragment, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useNavigate, useParams } from 'react-router'
+import { Link, Outlet, useNavigate, useParams, useSearchParams } from 'react-router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAppConfigurationControllerDecryptMutation,
+  ankoleWebAppConfigurationControllerDecryptTenantMutation,
   ankoleWebAppConfigurationControllerDeleteMutation,
+  ankoleWebAppConfigurationControllerDeleteTenantMutation,
   ankoleWebAppConfigurationControllerIndexOptions,
-  ankoleWebAppConfigurationControllerIndexQueryKey,
+  ankoleWebAppConfigurationControllerIndexTenantOptions,
   ankoleWebAppConfigurationControllerShowOptions,
-  ankoleWebAppConfigurationControllerShowQueryKey,
+  ankoleWebAppConfigurationControllerShowTenantOptions,
   ankoleWebAppConfigurationControllerUpdateMutation,
-  ankoleWebControlPlanePluginControllerIndexQueryKey
+  ankoleWebAppConfigurationControllerUpdateTenantMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
 import { EditorNavigationGuard, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
-import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import {
-  groupOverridden,
-  settingGroupPrefix,
-  settingOwnerRoute,
-  settingRows,
-  type SettingGroup
-} from '../state/setting-groups'
+import { ResourceListPage, ResourceSearch } from '../console-list-page'
+import { settingGroupPrefix, settingOwnerRoute, settingRows, type SettingGroup } from '../state/setting-groups'
 import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from '../state/setting-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
@@ -90,6 +86,23 @@ import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
 
+const SETTING_API = {
+  global: {
+    index: ankoleWebAppConfigurationControllerIndexOptions,
+    show: ankoleWebAppConfigurationControllerShowOptions,
+    update: ankoleWebAppConfigurationControllerUpdateMutation,
+    remove: ankoleWebAppConfigurationControllerDeleteMutation,
+    decrypt: ankoleWebAppConfigurationControllerDecryptMutation
+  },
+  tenant: {
+    index: ankoleWebAppConfigurationControllerIndexTenantOptions,
+    show: ankoleWebAppConfigurationControllerShowTenantOptions,
+    update: ankoleWebAppConfigurationControllerUpdateTenantMutation,
+    remove: ankoleWebAppConfigurationControllerDeleteTenantMutation,
+    decrypt: ankoleWebAppConfigurationControllerDecryptTenantMutation
+  }
+} as const
+
 /** Keeps the list mounted while an optional nested key route renders its drawer. */
 export function SettingsPage() {
   return (
@@ -102,15 +115,14 @@ export function SettingsPage() {
 
 function SettingsList() {
   const { t } = useTranslation()
-  const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
+  const globalList = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
+  const tenantList = useQuery(ankoleWebAppConfigurationControllerIndexTenantOptions())
+  const globalItems = new Map((globalList.data?.app_configurations ?? []).map(item => [item.key, item]))
+  const tenantItems = new Map((tenantList.data?.app_configurations ?? []).map(item => [item.key, item]))
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  // Search every word the row renders and keep the internal tokens for
-  // operators who know the registry vocabulary. The guard matters: the
-  // haystack arguments run several translation lookups per row, so only an
-  // active search should pay for them.
-  const allItems = list.data?.app_configurations ?? []
+  const allItems = [...new Map([...tenantItems, ...globalItems]).values()]
   const items = searchQuery
     ? allItems.filter(item =>
         matchesResourceSearch(
@@ -119,35 +131,51 @@ function SettingsList() {
           settingDescription(t, item),
           item.kind,
           t(`console.settings.kind_${item.kind}`),
-          item.source,
-          t(`console.settings.source_${item.source}`),
-          item.encrypted ? 'encrypted' : '',
-          item.encrypted ? t('console.status.encrypted') : '',
-          item.overridden ? 'overridden' : '',
-          item.overridden ? t('console.status.global') : ''
+          ...[globalItems.get(item.key), tenantItems.get(item.key)].flatMap(value =>
+            value
+              ? [
+                  value.source,
+                  t(`console.settings.source_${value.source}`),
+                  value.encrypted ? t('console.status.encrypted') : ''
+                ]
+              : []
+          )
         )
       )
     : allItems
   const rows = settingRows(items)
   const [managedOpen, setManagedOpen] = useState(false)
+  const row = (item: AppConfigurationItem) => (
+    <SettingRow
+      key={`${item.kind}:${item.key}`}
+      item={item}
+      globalItem={globalItems.get(item.key)}
+      tenantItem={tenantItems.get(item.key)}
+    />
+  )
 
   return (
     <ResourceListPage
       title={t('console.settings.title')}
       description={t('console.settings.description')}
+      subNav={
+        <Link className="link text-sm" to="/settings/worker-providers">
+          {t('console.worker_providers.title')}
+        </Link>
+      }
       columns={[
         t('console.settings.key'),
         t('console.settings.kind'),
-        t('console.settings.source'),
-        t('console.settings.state')
+        t('console.settings.scope_global'),
+        t('console.settings.scope_tenant')
       ]}
-      isLoading={list.isLoading}
+      isLoading={globalList.isLoading || tenantList.isLoading}
       isEmpty={items.length === 0}
       count={items.length}
       emptyTitle={t('console.settings.empty_title')}
       emptyIcon={<RiSettings3Line aria-hidden />}
       emptyDescription={t('console.no_settings')}
-      error={list.error}
+      error={globalList.error ?? tenantList.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       toolbar={
@@ -159,11 +187,12 @@ function SettingsList() {
         />
       }>
       {rows.groups.map(group => (
-        <SettingGroupRow key={group.id} group={group} />
+        <Fragment key={group.id}>
+          <SettingGroupRow group={group} tenantItems={tenantItems} />
+          {group.items.map(row)}
+        </Fragment>
       ))}
-      {rows.singles.map(item => (
-        <SettingRow key={`${item.kind}:${item.key}`} item={item} />
-      ))}
+      {rows.singles.map(row)}
       {rows.managed.length > 0 ? (
         <TableRow>
           <TableCell colSpan={5} className="whitespace-normal">
@@ -177,36 +206,59 @@ function SettingsList() {
           </TableCell>
         </TableRow>
       ) : null}
-      {managedOpen ? rows.managed.map(item => <SettingRow key={`${item.kind}:${item.key}`} item={item} />) : null}
+      {managedOpen ? rows.managed.map(row) : null}
     </ResourceListPage>
   )
 }
 
-function SettingRow({ item }: { item: AppConfigurationItem }) {
+function SettingValueCell({ item, scope }: { item?: AppConfigurationItem; scope: 'global' | 'tenant' }) {
+  const { t } = useTranslation()
+  if (!item) return <TableCell className="text-muted-foreground">—</TableCell>
+  const value =
+    item.kind === 'pattern'
+      ? '—'
+      : item.encrypted && item.present
+        ? ENCRYPTED_VALUE_MASK
+        : item.present
+          ? formatJSON(item.value ?? null)
+          : t('console.settings.source_missing')
+  return (
+    <TableCell className="max-w-72 whitespace-normal">
+      <div className="grid gap-1.5">
+        <code className="line-clamp-3 break-all text-xs">{value}</code>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>{t(`console.settings.source_${item.source}`)}</span>
+          {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
+          {item.editable ? (
+            <Link className="link" to={`${encodeURIComponent(item.key)}?scope=${scope}`}>
+              {t('common.edit')}
+            </Link>
+          ) : null}
+        </div>
+      </div>
+    </TableCell>
+  )
+}
+
+function SettingRow({
+  item,
+  globalItem,
+  tenantItem
+}: {
+  item: AppConfigurationItem
+  globalItem?: AppConfigurationItem
+  tenantItem?: AppConfigurationItem
+}) {
   const { t } = useTranslation()
   const description = settingDescription(t, item)
   const ownerRoute = settingOwnerRoute(item.key)
-
   return (
     <TableRow>
       <TableCell className="max-w-[440px] whitespace-normal">
         <div className="grid gap-1.5">
-          {item.editable ? (
-            <Link
-              className="break-all font-mono text-xs text-foreground hover:text-link hover:underline"
-              to={encodeURIComponent(item.key)}>
-              {item.key}
-            </Link>
-          ) : (
-            <span className="break-all font-mono text-xs">{item.key}</span>
-          )}
+          <span className="break-all font-mono text-xs">{item.key}</span>
           {description ? (
             <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</span>
-          ) : null}
-          {!item.editable && !item.encrypted ? (
-            <code className="line-clamp-2 break-all text-xs text-muted-foreground">
-              {formatJSON(item.value ?? null)}
-            </code>
           ) : null}
         </div>
       </TableCell>
@@ -215,58 +267,50 @@ function SettingRow({ item }: { item: AppConfigurationItem }) {
           {t(`console.settings.kind_${item.kind}`)}
         </Badge>
       </TableCell>
-      <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
-      <TableCell>
-        <div className="flex flex-wrap gap-1.5">
-          {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
-          {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
-        </div>
+      <SettingValueCell item={globalItem} scope="global" />
+      <SettingValueCell item={tenantItem} scope="tenant" />
+      <TableCell className="text-right">
+        {ownerRoute ? (
+          <Link className="link text-xs" to={ownerRoute}>
+            {t('console.settings.managed_elsewhere')}
+          </Link>
+        ) : !globalItem?.editable && !tenantItem?.editable ? (
+          <span className="text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+        ) : null}
       </TableCell>
-      {item.editable ? (
-        <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
-      ) : (
-        <TableCell className="text-right">
-          {ownerRoute ? (
-            <Link className="pr-2 text-xs text-foreground underline underline-offset-4" to={ownerRoute}>
-              {t('console.settings.managed_elsewhere')}
-            </Link>
-          ) : (
-            <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
-          )}
-        </TableCell>
-      )}
     </TableRow>
   )
 }
 
-function SettingGroupRow({ group }: { group: SettingGroup }) {
+function SettingGroupRow({
+  group,
+  tenantItems
+}: {
+  group: SettingGroup
+  tenantItems: Map<string, AppConfigurationItem>
+}) {
   const { t } = useTranslation()
-
   return (
-    <TableRow>
-      <TableCell className="max-w-[440px] whitespace-normal">
-        <div className="grid gap-1.5">
-          <Link
-            className="text-sm font-medium text-foreground hover:text-link hover:underline"
-            to={`group/${group.id}`}>
-            {t(`console.settings.group_${group.id}`)}
-          </Link>
-          <span className="text-xs leading-5 text-muted-foreground">
-            {t(`console.settings.group_${group.id}_description`)}
-          </span>
-          <span className="font-mono text-xs text-muted-foreground">
-            {group.items.map(item => item.key).join(' · ')}
-          </span>
+    <TableRow className="bg-muted/30">
+      <TableCell colSpan={2} className="whitespace-normal">
+        <div className="grid gap-1">
+          <span className="text-sm font-medium">{t(`console.settings.group_${group.id}`)}</span>
+          <span className="text-xs text-muted-foreground">{t(`console.settings.group_${group.id}_description`)}</span>
         </div>
       </TableCell>
       <TableCell>
-        <Badge variant="secondary">{t('console.settings.group_kind', { count: group.items.length })}</Badge>
+        <Link className="link text-xs" to={`group/${group.id}?scope=global`}>
+          {t('common.edit')}
+        </Link>
       </TableCell>
-      <TableCell className="text-muted-foreground">—</TableCell>
       <TableCell>
-        {groupOverridden(group) ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
+        {group.items.some(item => tenantItems.get(item.key)?.editable) ? (
+          <Link className="link text-xs" to={`group/${group.id}?scope=tenant`}>
+            {t('common.edit')}
+          </Link>
+        ) : null}
       </TableCell>
-      <RowActions editTo={`group/${group.id}`} editLabel={t('common.edit')} />
+      <TableCell />
     </TableRow>
   )
 }
@@ -276,16 +320,18 @@ export function SettingEditorDrawer() {
   const { t } = useTranslation()
   const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(SettingEditorModel)
   const params = useParams()
+  const [searchParams] = useSearchParams()
+  const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
+  const api = SETTING_API[scope]
   const key = params.key ?? ''
   const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
 
-  const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
+  const list = useQuery(api.index())
   const summary = list.data?.app_configurations.find(item => item.key === key)
   const detail = useQuery({
-    ...ankoleWebAppConfigurationControllerShowOptions({ path: { key } }),
+    ...api.show({ path: { key } }),
     enabled: Boolean(summary?.editable && key)
   })
   const item = detail.data?.app_configuration ?? summary
@@ -299,23 +345,15 @@ export function SettingEditorDrawer() {
           : ''
         : formatJSON(item.value ?? null)
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'setting', key },
+    identity: { resource: 'setting', key, scope },
     source: settingDraft,
     absent: () => requestErrorCode(detail.error) === 'not_found' || (list.isSuccess && !list.isFetching && !item)
   })
   const initialized = draftStatus === 'ready'
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebAppConfigurationControllerShowQueryKey({ path: { key } })
-    })
-    if (key === 'plugins.enabled_ids') {
-      void queryClient.invalidateQueries({ queryKey: ankoleWebControlPlanePluginControllerIndexQueryKey() })
-    }
-  }
   const decrypt = useMutation({
-    ...ankoleWebAppConfigurationControllerDecryptMutation(),
+    meta: { invalidates: false },
+    ...api.decrypt(),
     gcTime: 0,
     onSuccess: response => model.reveal(settingDecryptedDraft(response.decrypted_value.value)),
     onError: error => toast.error(requestErrorMessage(error))
@@ -324,16 +362,16 @@ export function SettingEditorDrawer() {
     toast.success(message)
     model.resetSource()
     decrypt.reset()
-    refresh()
+
     navigate('/settings')
   }
   const update = useMutation({
-    ...ankoleWebAppConfigurationControllerUpdateMutation(),
+    ...api.update(),
     onSuccess: response => finish(t('console.settings.saved', { key: response.app_configuration.key })),
     onError: error => toast.error(requestErrorMessage(error))
   })
   const restoreDefault = useMutation({
-    ...ankoleWebAppConfigurationControllerDeleteMutation(),
+    ...api.remove(),
     onSuccess: () => {
       setRestoreDefaultOpen(false)
       finish(t('console.settings.reset_done', { key }))
@@ -344,7 +382,7 @@ export function SettingEditorDrawer() {
   // The reveal belongs to the setting the drawer edits, so it resets when the
   // route's key changes — not when a background refetch hands the same setting
   // back under a new object identity.
-  useEffect(() => decrypt.reset(), [decrypt.reset, key])
+  useEffect(() => decrypt.reset(), [decrypt.reset, key, scope])
 
   const saving = update.isPending || restoreDefault.isPending
   const requestClose = () => {
@@ -439,6 +477,7 @@ export function SettingEditorDrawer() {
                 </Button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{t(`console.settings.scope_${scope}`)}</Badge>
                 {item ? (
                   <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>
                     {t(`console.settings.kind_${item.kind}`)}
@@ -508,9 +547,11 @@ export function SettingEditorDrawer() {
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
-              {item?.default_present
-                ? t('console.settings.restore_default_description', { key })
-                : t('console.settings.restore_unset_description', { key })}
+              {scope === 'tenant'
+                ? t('console.settings.restore_tenant_description', { key })
+                : item?.default_present
+                  ? t('console.settings.restore_default_description', { key })
+                  : t('console.settings.restore_unset_description', { key })}
               {model.dirty.value ? ` ${t('console.settings.restore_default_dirty_note')}` : null}
             </DialogDescription>
           </DialogHeader>
@@ -545,8 +586,10 @@ export function SettingGroupDrawer() {
   const { t } = useTranslation()
   const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const params = useParams()
+  const [searchParams] = useSearchParams()
+  const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
+  const api = SETTING_API[scope]
   const groupID = params.group ?? ''
   const prefix = settingGroupPrefix(groupID)
   const initializedFor = useRef<string | undefined>(undefined)
@@ -566,11 +609,11 @@ export function SettingGroupDrawer() {
   const [brainModels, setBrainModels] = useState<Record<string, BrainModelDraft>>({})
   const [initialBrainModels, setInitialBrainModels] = useState<Record<string, BrainModelDraft>>({})
 
-  const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
+  const list = useQuery(api.index())
   const items = (list.data?.app_configurations ?? []).filter(
     item => item.editable && prefix !== undefined && item.key.startsWith(prefix)
   )
-  const signature = items.map(item => item.key).join(',')
+  const signature = items.length ? `${scope}:${items.map(item => item.key).join(',')}` : ''
   const visualObservabilityEditor = groupID === 'observability'
   const visualBrainEditor = groupID === 'brain'
   const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
@@ -587,6 +630,8 @@ export function SettingGroupDrawer() {
   useEffect(() => {
     if (!signature || initializedFor.current === signature) return
     initializedFor.current = signature
+    setEditorError(undefined)
+    setRestoreItem(undefined)
     const next = Object.fromEntries(
       items.map(item => [
         item.key,
@@ -607,12 +652,10 @@ export function SettingGroupDrawer() {
     setInitialBrainModels(nextModels)
   }, [items, signature])
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
-  }
-  const update = useMutation(ankoleWebAppConfigurationControllerUpdateMutation())
+  const update = useMutation(api.update())
   const decrypt = useMutation({
-    ...ankoleWebAppConfigurationControllerDecryptMutation(),
+    meta: { invalidates: false },
+    ...api.decrypt(),
     gcTime: 0,
     onSuccess: response => {
       const rows = observabilityHeaderRows(response.decrypted_value.value)
@@ -627,7 +670,7 @@ export function SettingGroupDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const restoreDefault = useMutation({
-    ...ankoleWebAppConfigurationControllerDeleteMutation(),
+    ...api.remove(),
     onSuccess: response => {
       setRestoreItem(undefined)
       // Rebaseline only the restored key from the response. Re-initializing
@@ -650,7 +693,6 @@ export function SettingGroupDrawer() {
         setInitialBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
       }
       toast.success(t('console.settings.reset_done', { key: restoredKey }))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -735,13 +777,13 @@ export function SettingGroupDrawer() {
       } catch (error) {
         setSaving(false)
         setEditorError(t('console.settings.group_save_failed', { key: entry.key, reason: requestErrorMessage(error) }))
-        refresh()
+
         return
       }
     }
 
     toast.success(t('console.settings.group_saved', { count: pending.length }))
-    refresh()
+
     // Navigate while `saving` still reads true, so the draft guard stands down
     // for this save's own exit; the drawer unmounts with the navigation.
     navigate('/settings')
@@ -779,6 +821,9 @@ export function SettingGroupDrawer() {
               {/* A stale or hand-typed group id has no catalog entry; the id
                   itself beats a raw i18n key as the title, and the body below
                   already explains the miss. */}
+              <Badge variant="secondary" className="w-fit">
+                {t(`console.settings.scope_${scope}`)}
+              </Badge>
               <DrawerTitle className="text-lg">
                 {t(`console.settings.group_${groupID}`, { defaultValue: groupID })}
               </DrawerTitle>
@@ -788,7 +833,7 @@ export function SettingGroupDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {list.isLoading ? (
+              {list.isLoading || (Boolean(signature) && initializedFor.current !== signature) ? (
                 <div className="grid gap-4">
                   <Skeleton className="h-24 w-full" />
                   <Skeleton className="h-64 w-full" />
@@ -883,7 +928,7 @@ export function SettingGroupDrawer() {
                 {t('common.cancel')}
               </Button>
               <SaveButton
-                disabled={saving || (!dirty && !formCompleteness.incomplete)}
+                disabled={saving || initializedFor.current !== signature || (!dirty && !formCompleteness.incomplete)}
                 incomplete={formCompleteness.incomplete && !saving}
                 loading={saving}
                 type="submit">
@@ -901,9 +946,11 @@ export function SettingGroupDrawer() {
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
-              {restoreItem?.default_present
-                ? t('console.settings.restore_default_description', { key: restoreItem.key })
-                : t('console.settings.restore_unset_description', { key: restoreItem?.key })}
+              {scope === 'tenant'
+                ? t('console.settings.restore_tenant_description', { key: restoreItem?.key ?? '' })
+                : restoreItem?.default_present
+                  ? t('console.settings.restore_default_description', { key: restoreItem.key })
+                  : t('console.settings.restore_unset_description', { key: restoreItem?.key })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

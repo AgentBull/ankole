@@ -1,3 +1,4 @@
+import { resetCodexAgentRuntimeConfig } from './support/codex-runtime-config'
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
@@ -11,8 +12,7 @@ import {
   codexAIGatewayTokenPath,
   codexConfigCLIOverrides,
   materializeCodexConfig,
-  refreshCodexAgentRuntimeCredential,
-  resetCodexAgentRuntimeConfig
+  refreshCodexAgentRuntimeCredential
 } from '../src/core/codex-runner/runtime/agent-home-config'
 import type { CodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
@@ -42,26 +42,23 @@ function aigatewayRuntime(): CodexRuntimeConfig {
 }
 
 describe('@ankole/agent-computer Codex config', () => {
-  it('shares one AIGateway Codex Home at Agent scope without CODEX_SQLITE_HOME', () => {
-    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-'))
-    const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
-    process.env.ANKOLE_CODEX_STATE_ROOT = join(agentsRoot, 'codex-state')
+  it('keeps Codex Home in Agent Home and SQLite on the separate cache', () => {
+    const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-'))
+    const previousStateRoot = process.env.CODEX_SQLITE_HOME
+    process.env.CODEX_SQLITE_HOME = join(agentHomeRoot, 'codex-sqlite')
     try {
-      const materialized = materializeCodexConfig({
-        agentsRoot,
-        agentUID: 'agent-1'
-      })
+      const materialized = materializeCodexConfig({ agentHomeRoot })
       resetCodexAgentRuntimeConfig(materialized.codexHome, aigatewayRuntime().aiGatewayKey.baseUrl)
       refreshCodexAgentRuntimeCredential(materialized.codexHome, aigatewayRuntime().aiGatewayKey.apiKey)
       const config = TOML.parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<
         string,
         any
       >
-      expect(materialized.agentHome).toBe(join(agentsRoot, 'agent-1'))
-      expect(materialized.codexHome).toBe(join(agentsRoot, 'codex-state', 'agent-1', '.codex'))
+      expect(materialized.agentHome).toBe(agentHomeRoot)
+      expect(materialized.codexHome).toBe(join(agentHomeRoot, '.codex'))
       expect(materialized.env.HOME).toBe(materialized.agentHome)
       expect(materialized.env.CODEX_HOME).toBe(materialized.codexHome)
-      expect(materialized.env.CODEX_SQLITE_HOME).toBeUndefined()
+      expect(materialized.env.CODEX_SQLITE_HOME).toBe(join(agentHomeRoot, 'codex-sqlite'))
       expect(materialized.env.ANKOLE_AIGATEWAY_API_KEY).toBeUndefined()
       expect(materialized.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE).toBe('codex_cli_rs')
       expect(readFileSync(codexAIGatewayTokenPath(materialized.codexHome), 'utf8')).toBe('agent-key\n')
@@ -73,22 +70,18 @@ describe('@ankole/agent-computer Codex config', () => {
         { name: 'skill-installer', enabled: false }
       ])
 
-      const overlappingJob = materializeCodexConfig({
-        agentsRoot,
-        agentUID: 'agent-1'
-      })
+      const overlappingJob = materializeCodexConfig({ agentHomeRoot })
       const anotherAgent = materializeCodexConfig({
-        agentsRoot,
-        agentUID: 'agent-2'
+        agentHomeRoot: join(agentHomeRoot, 'other-worker')
       })
 
       expect(overlappingJob.codexHome).toBe(materialized.codexHome)
-      expect(anotherAgent.codexHome).toBe(join(agentsRoot, 'codex-state', 'agent-2', '.codex'))
+      expect(anotherAgent.codexHome).toBe(join(agentHomeRoot, 'other-worker', '.codex'))
       expect(anotherAgent.codexHome).not.toBe(materialized.codexHome)
     } finally {
-      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
-      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
-      rmSync(agentsRoot, { recursive: true, force: true })
+      if (previousStateRoot === undefined) delete process.env.CODEX_SQLITE_HOME
+      else process.env.CODEX_SQLITE_HOME = previousStateRoot
+      rmSync(agentHomeRoot, { recursive: true, force: true })
     }
   })
 
@@ -197,14 +190,11 @@ describe('@ankole/agent-computer Codex config', () => {
   })
 
   it('keeps shared config model-free and sends each frozen binding through thread config', () => {
-    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-aigateway-'))
-    const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
-    process.env.ANKOLE_CODEX_STATE_ROOT = join(agentsRoot, 'codex-state')
+    const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-aigateway-'))
+    const previousStateRoot = process.env.CODEX_SQLITE_HOME
+    process.env.CODEX_SQLITE_HOME = join(agentHomeRoot, 'codex-sqlite')
     try {
-      const materialized = materializeCodexConfig({
-        agentsRoot,
-        agentUID: 'agent-1'
-      })
+      const materialized = materializeCodexConfig({ agentHomeRoot })
       resetCodexAgentRuntimeConfig(materialized.codexHome, aigatewayRuntime().aiGatewayKey.baseUrl)
       const config = TOML.parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<
         string,
@@ -255,9 +245,9 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(threadConfig.model_reasoning_effort).toBe('xhigh')
       expect(threadConfig.shell_environment_policy).toEqual({ inherit: 'all', set: { JOB: 'one' } })
     } finally {
-      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
-      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
-      rmSync(agentsRoot, { recursive: true, force: true })
+      if (previousStateRoot === undefined) delete process.env.CODEX_SQLITE_HOME
+      else process.env.CODEX_SQLITE_HOME = previousStateRoot
+      rmSync(agentHomeRoot, { recursive: true, force: true })
     }
   })
 })

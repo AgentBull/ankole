@@ -291,7 +291,7 @@ def _server_from_explicit(socket_path: str) -> ServerInfo:
     root_dir = (
         os.environ.get("JUPYTER_NOTEBOOK_DIR")
         or os.environ.get("NOTEBOOK_DIR")
-        or str(Path.home() / "user-files/notebooks")
+        or str(Path.home() / "notebooks")
     )
     return ServerInfo(
         socket_path=socket_path,

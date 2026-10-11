@@ -1,210 +1,359 @@
 defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
   @moduledoc """
-  In-memory attempt limiter for local password sign-in.
+  Tenant-scoped attempt limits and node-wide password verification permits.
 
-  PostgreSQL owns accounts and credentials. This process owns only derived
-  runtime state: recent password attempts per account key. A restart clears the
-  counters and can let one extra burst of attempts through, but it cannot lose
-  an account or a credential, so the state stays in process memory.
+  PostgreSQL owns accounts and credentials. Each tenant has at most 10,000
+  fixed-size account hashes, with five attempts per 30-minute window. Success
+  clears the account history; a newer credential removes older attempts.
+  A restart clears this derived state.
 
-  `register_attempt/2` reserves the attempt before the caller runs the hash
-  verification, in the same serialized GenServer call that enforces the limit.
-  Counting after verification instead would let concurrent requests all pass
-  the limit check first and verify without bound. A successful sign-in clears
-  the account key, so only failed attempts accumulate.
+  A permit reserves an attempt and starts a supervised verification together.
+  Unknown accounts use the same path. Each tenant can queue two requests for
+  at most one second. Tenants receive free permits in round-robin order.
+  Busy responses do not consume an attempt. Caller exit does not release a
+  running verification's permit.
 
-  An account key locks while it holds `@max_attempts` reserved attempts inside
-  `@window_ms`, so at most `@max_attempts` password guesses run per window.
-  The lock ends when the oldest counted attempt ages out, or at once when the
-  caller reports a newer credential through `:not_before_ms`: guesses against
-  a replaced password prove nothing about the new one, and the credential
-  row's `updated_at` is durable, so a rescue reset from another OS process
-  also unlocks the account.
-
-  Account keys are stored as fixed-size hashes. The process admits at most
-  `@max_account_keys` keys. When another new key reaches that full bound, all
-  account keys receive the same temporary lock until one admitted key expires.
-  This fail-closed saturation keeps both memory and password hash work bounded
-  without exposing whether an email address belongs to an account.
+  The supervisor stops all verification tasks before restarting this guard.
+  Thus a restart cannot add new permits while old native calls still run.
   """
 
   use GenServer
 
+  alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Schema
+  alias Ankole.Kernel, as: NativeKernel
+
   @max_attempts 5
   @max_account_keys 10_000
   @window_ms :timer.minutes(30)
+  @wait_ms 1_000
+  @max_waiters 2
+  @concurrency_key "principals.local_password.max_verifications"
 
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, :ok, name: Keyword.get(opts, :name, __MODULE__))
-  end
-
-  @doc """
-  Reserves one password attempt for an account key, or reports the lock.
-
-  `:not_before_ms` drops attempts recorded at or before that time, normally
-  the moment the current credential was written.
-  """
-  @spec register_attempt(String.t(), keyword()) :: :ok | {:locked, pos_integer()}
-  def register_attempt(account_key, opts \\ []) when is_binary(account_key) and is_list(opts) do
-    GenServer.call(
-      __MODULE__,
-      {:register_attempt, account_key_hash(account_key), Keyword.get(opts, :not_before_ms)}
+  @spec concurrency_definition() :: AppConfigure.Definition.t()
+  def concurrency_definition do
+    AppConfigure.define(
+      key: @concurrency_key,
+      scope: :global,
+      encrypted: false,
+      schema: Schema.new(&validate_concurrency/1),
+      default_value: 2,
+      description:
+        "Maximum simultaneous local-password verifications on each control-plane node. Restart the control plane after changing this value."
     )
   end
 
-  @doc """
-  Clears the attempt history for an account key after a successful sign-in.
-  """
-  @spec clear(String.t()) :: :ok
-  def clear(account_key) when is_binary(account_key) do
-    GenServer.call(__MODULE__, {:clear, account_key_hash(account_key)})
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc """
-  Drops all attempt history. Test support only.
-  """
-  @spec reset_for_test() :: :ok
+  @doc "Verifies a password after obtaining a permit and an account attempt."
+  @spec verify_password(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, boolean()} | {:locked, pos_integer()} | {:busy, pos_integer()} | {:error, term()}
+  def verify_password(tenant_id, account_key, password, password_hash, opts \\ []) do
+    request = %{
+      tenant_id: tenant_id,
+      account_key: :crypto.hash(:sha256, account_key),
+      password: password,
+      password_hash: password_hash,
+      not_before_ms: Keyword.get(opts, :not_before_ms),
+      retry_protection?: Keyword.get(opts, :retry_protection?, true),
+      clear_on_match?: Keyword.get(opts, :clear_on_match?, true)
+    }
+
+    GenServer.call(Keyword.get(opts, :server, __MODULE__), {:verify, request}, :infinity)
+  end
+
+  @doc false
   def reset_for_test do
     GenServer.call(__MODULE__, :reset)
   end
 
   @impl true
-  def init(:ok) do
-    schedule_sweep()
-    {:ok, %{attempts_by_account: %{}, saturated_until_ms: nil}}
-  end
+  def init(opts) do
+    max_concurrency =
+      case Keyword.fetch(opts, :max_concurrency) do
+        {:ok, value} ->
+          value
 
-  @impl true
-  def handle_call({:register_attempt, account_key_hash, not_before_ms}, _from, state) do
-    now_ms = now_ms()
-    state = release_expired_saturation(state, now_ms)
+        :error ->
+          {:ok, value} = AppConfigure.get(concurrency_definition())
+          value
+      end
 
-    case state.saturated_until_ms do
-      saturated_until_ms when is_integer(saturated_until_ms) ->
-        {:reply, locked_until(saturated_until_ms, now_ms), state}
+    with {:ok, max_concurrency} <- validate_concurrency(max_concurrency) do
+      Process.send_after(self(), :sweep, @window_ms)
 
-      nil ->
-        register_admitted_attempt(state, account_key_hash, not_before_ms, now_ms)
+      {:ok,
+       %{
+         tenants: %{},
+         saturated: %{},
+         waiting: %{},
+         order: [],
+         running: %{},
+         max_concurrency: max_concurrency,
+         task_supervisor: Keyword.fetch!(opts, :task_supervisor)
+       }}
+    else
+      {:error, reason} -> {:stop, reason}
     end
   end
 
   @impl true
-  def handle_call({:clear, account_key}, _from, state) do
-    attempts_by_account = Map.delete(state.attempts_by_account, account_key)
+  def handle_call({:verify, request}, from, state) do
+    request = Map.merge(request, %{from: from, owner_ref: Process.monitor(elem(from, 0))})
 
-    state =
-      if map_size(attempts_by_account) < @max_account_keys do
-        %{state | attempts_by_account: attempts_by_account, saturated_until_ms: nil}
-      else
-        %{state | attempts_by_account: attempts_by_account}
-      end
-
-    {:reply, :ok, state}
+    if state.order == [] and map_size(state.running) < state.max_concurrency do
+      {:noreply, start_verification(state, request)}
+    else
+      enqueue(state, request)
+    end
   end
 
   @impl true
-  def handle_call(:reset, _from, _state) do
-    {:reply, :ok, %{attempts_by_account: %{}, saturated_until_ms: nil}}
+  def handle_call(:reset, _from, %{running: running, order: []} = state)
+      when map_size(running) == 0 do
+    {:reply, :ok, %{state | tenants: %{}, saturated: %{}}}
+  end
+
+  @impl true
+  def handle_call(:reset, _from, state),
+    do: {:reply, {:error, :verification_in_progress}, state}
+
+  @impl true
+  def handle_info({ref, result}, state) when is_reference(ref) do
+    case Map.fetch(state.running, ref) do
+      {:ok, request} ->
+        state =
+          if result == true and request.clear_on_match?,
+            do: clear_history(state, request.tenant_id, request.account_key),
+            else: state
+
+        reply(request, {:ok, result == true})
+        {:noreply, %{state | running: Map.put(state.running, ref, %{request | from: nil})}}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
+    case Map.pop(state.running, ref) do
+      {nil, _running} ->
+        {:noreply, remove_waiter(state, ref)}
+
+      {request, running} ->
+        if request.from, do: reply(request, {:error, :password_verification_failed})
+        {:noreply, dispatch(%{state | running: running})}
+    end
+  end
+
+  @impl true
+  def handle_info({:wait_expired, ref}, state) do
+    {:noreply, remove_waiter(state, ref, {:busy, 1})}
   end
 
   @impl true
   def handle_info(:sweep, state) do
-    schedule_sweep()
+    Process.send_after(self(), :sweep, @window_ms)
+    now_ms = now_ms()
 
-    attempts_by_account =
-      state.attempts_by_account
-      |> Enum.flat_map(fn {account_key, attempts} ->
-        case prune(attempts, nil) do
-          [] -> []
-          pruned -> [{account_key, pruned}]
+    tenants =
+      state.tenants
+      |> Enum.flat_map(fn {tenant_id, accounts} ->
+        case sweep_accounts(accounts, now_ms) do
+          accounts when map_size(accounts) == 0 -> []
+          accounts -> [{tenant_id, accounts}]
         end
       end)
       |> Map.new()
 
-    saturated_until_ms =
-      if map_size(attempts_by_account) < @max_account_keys,
-        do: nil,
-        else: saturation_end_ms(attempts_by_account)
+    saturated =
+      Map.filter(state.saturated, fn {tenant_id, _until_ms} ->
+        map_size(Map.get(tenants, tenant_id, %{})) >= @max_account_keys
+      end)
 
-    {:noreply,
-     %{attempts_by_account: attempts_by_account, saturated_until_ms: saturated_until_ms}}
+    {:noreply, %{state | tenants: tenants, saturated: saturated}}
   end
 
-  defp schedule_sweep do
-    Process.send_after(self(), :sweep, @window_ms)
-  end
+  @impl true
+  def format_status(status),
+    do: Map.merge(status, %{state: :redacted, message: :redacted, log: []})
 
-  # Attempt lists store newest first; pruning drops entries older than the
-  # window (and older than a replaced credential) and removes the key when
-  # nothing recent remains.
-  defp register_admitted_attempt(state, account_key, not_before_ms, now_ms) do
-    {attempts, attempts_by_account} =
-      current_attempts(state.attempts_by_account, account_key, not_before_ms, now_ms)
+  defp enqueue(state, request) do
+    waiters = Map.get(state.waiting, request.tenant_id, [])
 
-    cond do
-      length(attempts) >= @max_attempts ->
-        # Attempt lists store newest first. The lock ends when the oldest of
-        # the five counted attempts leaves the window.
-        unlock_at_ms = Enum.at(attempts, @max_attempts - 1) + @window_ms
+    if length(waiters) >= @max_waiters do
+      reply(request, {:busy, 1})
+      {:noreply, state}
+    else
+      request =
+        Map.merge(request, %{
+          deadline_ms: System.monotonic_time(:millisecond) + @wait_ms,
+          timer: Process.send_after(self(), {:wait_expired, request.owner_ref}, @wait_ms)
+        })
 
-        {:reply, locked_until(unlock_at_ms, now_ms),
-         %{state | attempts_by_account: attempts_by_account}}
-
-      attempts == [] and map_size(attempts_by_account) >= @max_account_keys ->
-        saturated_until_ms = saturation_end_ms(attempts_by_account)
-
-        {:reply, locked_until(saturated_until_ms, now_ms),
-         %{
-           state
-           | attempts_by_account: attempts_by_account,
-             saturated_until_ms: saturated_until_ms
-         }}
-
-      true ->
-        attempts_by_account = Map.put(attempts_by_account, account_key, [now_ms | attempts])
-        {:reply, :ok, %{state | attempts_by_account: attempts_by_account}}
+      order = if waiters == [], do: state.order ++ [request.tenant_id], else: state.order
+      waiting = Map.put(state.waiting, request.tenant_id, waiters ++ [request])
+      {:noreply, %{state | order: order, waiting: waiting}}
     end
   end
 
-  defp release_expired_saturation(%{saturated_until_ms: nil} = state, _now_ms), do: state
+  defp start_verification(state, request) do
+    case reserve_attempt(state, request) do
+      {:ok, state} ->
+        task =
+          Task.Supervisor.async_nolink(
+            state.task_supervisor,
+            fn ->
+              # A dirty NIF continues after a forced process exit. Trap the
+              # supervisor's shutdown and return before the task can stop.
+              Process.flag(:trap_exit, true)
+              NativeKernel.argon2id_verify(request.password, request.password_hash)
+            end,
+            shutdown: :infinity
+          )
 
-  defp release_expired_saturation(%{saturated_until_ms: until_ms} = state, now_ms)
-       when now_ms < until_ms,
-       do: state
+        request = Map.drop(request, [:password, :password_hash, :timer, :deadline_ms])
+        %{state | running: Map.put(state.running, task.ref, request)}
 
-  defp release_expired_saturation(state, now_ms) do
-    attempts_by_account = sweep_attempts(state.attempts_by_account, now_ms)
-
-    saturated_until_ms =
-      if map_size(attempts_by_account) < @max_account_keys,
-        do: nil,
-        else: saturation_end_ms(attempts_by_account)
-
-    %{attempts_by_account: attempts_by_account, saturated_until_ms: saturated_until_ms}
+      {locked, state} ->
+        reply(request, locked)
+        state
+    end
   end
 
-  defp current_attempts(attempts_by_account, account_key, not_before_ms, now_ms) do
-    attempts =
-      attempts_by_account
-      |> Map.get(account_key, [])
-      |> prune(not_before_ms, now_ms)
+  defp dispatch(%{order: []} = state), do: state
 
-    attempts_by_account =
-      case attempts do
-        [] -> Map.delete(attempts_by_account, account_key)
-        attempts -> Map.put(attempts_by_account, account_key, attempts)
+  defp dispatch(state) when map_size(state.running) >= state.max_concurrency, do: state
+
+  defp dispatch(state) do
+    [tenant_id | rest] = state.order
+    [request | remaining] = Map.fetch!(state.waiting, tenant_id)
+    Process.cancel_timer(request.timer)
+
+    state =
+      case remaining do
+        [] ->
+          %{state | waiting: Map.delete(state.waiting, tenant_id), order: rest}
+
+        _ ->
+          %{
+            state
+            | waiting: Map.put(state.waiting, tenant_id, remaining),
+              order: rest ++ [tenant_id]
+          }
       end
 
-    {attempts, attempts_by_account}
+    state =
+      if System.monotonic_time(:millisecond) >= request.deadline_ms do
+        reply(request, {:busy, 1})
+        state
+      else
+        start_verification(state, request)
+      end
+
+    dispatch(state)
   end
 
-  defp sweep_attempts(attempts_by_account, now_ms) do
-    attempts_by_account
-    |> Enum.flat_map(fn {account_key, attempts} ->
+  defp remove_waiter(state, ref, result \\ nil) do
+    waiting =
+      state.waiting
+      |> Enum.flat_map(fn {tenant_id, requests} ->
+        {removed, remaining} = Enum.split_with(requests, &(&1.owner_ref == ref))
+
+        Enum.each(removed, fn request ->
+          Process.cancel_timer(request.timer)
+          if result, do: reply(request, result)
+        end)
+
+        if remaining == [], do: [], else: [{tenant_id, remaining}]
+      end)
+      |> Map.new()
+
+    %{state | waiting: waiting, order: Enum.filter(state.order, &Map.has_key?(waiting, &1))}
+  end
+
+  defp reserve_attempt(state, %{retry_protection?: false}), do: {:ok, state}
+
+  defp reserve_attempt(state, request) do
+    now_ms = now_ms()
+    accounts = Map.get(state.tenants, request.tenant_id, %{})
+
+    attempts =
+      accounts |> Map.get(request.account_key, []) |> prune(request.not_before_ms, now_ms)
+
+    accounts = if attempts == [], do: Map.delete(accounts, request.account_key), else: accounts
+
+    state =
+      if map_size(accounts) < @max_account_keys,
+        do: put_accounts(state, request.tenant_id, accounts),
+        else: state
+
+    saturated_until_ms = Map.get(state.saturated, request.tenant_id)
+
+    accounts =
+      if saturated_until_ms && saturated_until_ms <= now_ms,
+        do: sweep_accounts(accounts, now_ms),
+        else: accounts
+
+    cond do
+      length(attempts) >= @max_attempts ->
+        {locked_until(List.last(attempts) + @window_ms, now_ms), state}
+
+      map_size(accounts) >= @max_account_keys ->
+        state =
+          if saturated_until_ms <= now_ms do
+            state = %{state | saturated: Map.delete(state.saturated, request.tenant_id)}
+            put_accounts(state, request.tenant_id, accounts)
+          else
+            state
+          end
+
+        {locked_until(Map.fetch!(state.saturated, request.tenant_id), now_ms), state}
+
+      true ->
+        accounts = Map.put(accounts, request.account_key, [now_ms | attempts])
+        {:ok, put_accounts(state, request.tenant_id, accounts)}
+    end
+  end
+
+  defp clear_history(state, tenant_id, account_key) do
+    accounts = state.tenants |> Map.get(tenant_id, %{}) |> Map.delete(account_key)
+    put_accounts(state, tenant_id, accounts)
+  end
+
+  defp put_accounts(state, tenant_id, accounts) do
+    tenants =
+      if map_size(accounts) == 0,
+        do: Map.delete(state.tenants, tenant_id),
+        else: Map.put(state.tenants, tenant_id, accounts)
+
+    saturated =
+      if map_size(accounts) >= @max_account_keys do
+        Map.put_new_lazy(state.saturated, tenant_id, fn ->
+          accounts |> Map.values() |> Enum.map(&(hd(&1) + @window_ms)) |> Enum.min()
+        end)
+      else
+        Map.delete(state.saturated, tenant_id)
+      end
+
+    %{state | tenants: tenants, saturated: saturated}
+  end
+
+  defp reply(request, result) do
+    Process.demonitor(request.owner_ref, [:flush])
+    GenServer.reply(request.from, result)
+  end
+
+  defp sweep_accounts(accounts, now_ms) do
+    accounts
+    |> Enum.flat_map(fn {key, attempts} ->
       case prune(attempts, nil, now_ms) do
         [] -> []
-        pruned -> [{account_key, pruned}]
+        attempts -> [{key, attempts}]
       end
     end)
     |> Map.new()
@@ -215,19 +364,10 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
     Enum.take_while(attempts, &(&1 > cutoff_ms))
   end
 
-  defp prune(attempts, not_before_ms), do: prune(attempts, not_before_ms, now_ms())
+  defp locked_until(unlock_at_ms, now_ms),
+    do: {:locked, max(div(unlock_at_ms - now_ms + 999, 1_000), 1)}
 
-  defp saturation_end_ms(attempts_by_account) do
-    attempts_by_account
-    |> Map.values()
-    |> Enum.map(&(hd(&1) + @window_ms))
-    |> Enum.min()
-  end
-
-  defp locked_until(unlock_at_ms, now_ms) do
-    {:locked, max(div(unlock_at_ms - now_ms + 999, 1_000), 1)}
-  end
-
-  defp account_key_hash(account_key), do: :crypto.hash(:sha256, account_key)
+  defp validate_concurrency(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp validate_concurrency(_value), do: {:error, :expected_positive_integer}
   defp now_ms, do: System.system_time(:millisecond)
 end

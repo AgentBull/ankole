@@ -7,7 +7,7 @@ export type LoginFormError =
   | { kind: 'invalid_credentials' }
   | { kind: 'not_admin' }
   | { kind: 'account_disabled' }
-  | { kind: 'locked'; remainingSeconds: number }
+  | { kind: 'locked' | 'busy'; remainingSeconds: number }
 
 export type RetryDelay = { unit: 'seconds'; seconds: number } | { unit: 'minutes'; minutes: number }
 
@@ -30,9 +30,11 @@ export function classifyLoginError(error: unknown): LoginFormError | undefined {
   if (error.status === 403 && code === 'not_an_admin') return { kind: 'not_admin' }
   if (error.status === 403 && code === 'account_disabled') return { kind: 'account_disabled' }
 
-  if (error.status === 429 && code === 'retry_locked') {
+  if (error.status === 429 && (code === 'retry_locked' || code === 'retry_busy')) {
     const seconds = payloadField(error.payload, 'retryAfterSeconds')
-    if (typeof seconds === 'number' && seconds > 0) return { kind: 'locked', remainingSeconds: Math.ceil(seconds) }
+    if (typeof seconds === 'number' && seconds > 0) {
+      return { kind: code === 'retry_busy' ? 'busy' : 'locked', remainingSeconds: Math.ceil(seconds) }
+    }
   }
 
   return undefined
@@ -40,9 +42,9 @@ export function classifyLoginError(error: unknown): LoginFormError | undefined {
 
 /** Advances the lockout countdown by one second; at zero the form recovers. */
 export function tickLockout(error: LoginFormError | undefined): LoginFormError | undefined {
-  if (error?.kind !== 'locked') return error
+  if (error?.kind !== 'locked' && error?.kind !== 'busy') return error
   if (error.remainingSeconds <= 1) return undefined
-  return { kind: 'locked', remainingSeconds: error.remainingSeconds - 1 }
+  return { ...error, remainingSeconds: error.remainingSeconds - 1 }
 }
 
 export const LoginModel = createModel(() => {
@@ -53,7 +55,7 @@ export const LoginModel = createModel(() => {
   // value, which re-runs the effect. Disposal and recovery clear the timer.
   effect(() => {
     const current = formError.value
-    if (current?.kind !== 'locked') return
+    if (current?.kind !== 'locked' && current?.kind !== 'busy') return
 
     const timer = setTimeout(() => {
       formError.value = tickLockout(current)
@@ -73,7 +75,7 @@ export const LoginModel = createModel(() => {
      * stays: it disables the submit until its countdown reaches zero.
      */
     clearFormError() {
-      if (formError.value?.kind === 'locked') return
+      if (formError.value?.kind === 'locked' || formError.value?.kind === 'busy') return
       formError.value = undefined
     },
     /**

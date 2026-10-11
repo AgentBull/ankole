@@ -14,7 +14,6 @@ defmodule Ankole.Brain.RecallVectorTest do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.SelfHealing
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Principals
   alias Ankole.Repo
 
   @dimensions 8
@@ -131,7 +130,8 @@ defmodule Ankole.Brain.RecallVectorTest do
         "model" => "fake-rerank"
       })
 
-    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer.uid)
+    assert {:ok, %{status: :disabled}} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
 
     assert {:error, :brain_maintainer_agent_disabled} =
              Embeddings.embed_texts(["Cobalt shipment"])

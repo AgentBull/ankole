@@ -135,11 +135,15 @@ defmodule Ankole.Brain.Patterns do
     Enum.reduce_while(patterns, {:ok, []}, fn item, {:ok, acc} ->
       with {:ok, pattern} <- validate_pattern(item, scope, prefix, evidence),
            false <- Enum.any?(acc, &(&1.slug == pattern.slug)) do
-        {:cont, {:ok, acc ++ [pattern]}}
+        {:cont, {:ok, [pattern | acc]}}
       else
         _invalid -> {:halt, {:error, :invalid_pattern_output}}
       end
     end)
+    |> case do
+      {:ok, patterns} -> {:ok, Enum.reverse(patterns)}
+      error -> error
+    end
   end
 
   defp validate_output(_output, _scope, _prefix, _facts), do: {:error, :invalid_pattern_output}

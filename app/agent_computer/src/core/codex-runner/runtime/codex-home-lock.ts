@@ -2,13 +2,13 @@ import { join } from 'node:path'
 
 /** Exit code that reports a live lock owner without changing Codex Home. */
 export const CODEX_HOME_LOCK_BUSY_EXIT_CODE = 75
-/** Cross-process lock held for the lifetime of one Agent app-server. */
+/** Local cache lock held for the lifetime of one Agent app-server. */
 export const CODEX_HOME_RUNTIME_LOCK_NAME = '.ankole-app-server.lock'
 /** Bootstrap config passed only to the lock-owning startup wrapper. */
 export const CODEX_RUNTIME_CONFIG_TOML_ENV = 'ANKOLE_CODEX_RUNTIME_CONFIG_TOML'
 /** Bootstrap token passed only to the lock-owning startup wrapper. */
 export const CODEX_RUNTIME_TOKEN_ENV = 'ANKOLE_CODEX_RUNTIME_TOKEN'
-/** Disposable Codex log database files removed only while the lock is free. */
+/** Codex log database files removed by startup after it takes the lock. */
 export const CODEX_LOGS2_DATABASE_NAMES = [
   'logs_2.sqlite',
   'logs_2.sqlite-wal',
@@ -16,17 +16,17 @@ export const CODEX_LOGS2_DATABASE_NAMES = [
   'logs_2.sqlite-journal'
 ] as const
 
-export function codexHomeRuntimeLockPath(codexHome: string): string {
-  return join(codexHome, CODEX_HOME_RUNTIME_LOCK_NAME)
+export function codexHomeRuntimeLockPath(sqliteHome: string): string {
+  return join(sqliteHome, CODEX_HOME_RUNTIME_LOCK_NAME)
 }
 
 /**
  * Serializes all cross-process changes to one Codex Home.
- * The app-server holds the lock for its lifetime. Maintenance exits with code
- * 75 when another process owns the lock and leaves live files unchanged.
+ * The app-server holds the lock for its lifetime. A second startup exits with
+ * code 75 when another process owns the lock and leaves live files unchanged.
  */
 export function codexHomeLockedCommandArgv(input: {
-  codexHome: string
+  sqliteHome: string
   commandArgv: string[]
   deleteLogsBeforeCommand?: boolean
   runtimeFiles?: {
@@ -34,13 +34,13 @@ export function codexHomeLockedCommandArgv(input: {
     tokenPath: string
   }
 }): string[] {
-  const lockPath = codexHomeRuntimeLockPath(input.codexHome)
+  const lockPath = codexHomeRuntimeLockPath(input.sqliteHome)
   const lockArgv = [flockCommand(), '-n', '-E', String(CODEX_HOME_LOCK_BUSY_EXIT_CODE), '-F', lockPath]
   if (!input.deleteLogsBeforeCommand && !input.runtimeFiles) {
     return [...lockArgv, ...input.commandArgv]
   }
 
-  const databasePaths = CODEX_LOGS2_DATABASE_NAMES.map(name => join(input.codexHome, name))
+  const databasePaths = CODEX_LOGS2_DATABASE_NAMES.map(name => join(input.sqliteHome, name))
   const runtimePaths = input.runtimeFiles ? [input.runtimeFiles.configPath, input.runtimeFiles.tokenPath] : []
   return [
     ...lockArgv,
@@ -51,23 +51,6 @@ export function codexHomeLockedCommandArgv(input: {
     ...runtimePaths,
     ...databasePaths,
     ...input.commandArgv
-  ]
-}
-
-export function codexHomeLockedLogsDeleteArgv(codexHome: string): string[] {
-  const databasePaths = CODEX_LOGS2_DATABASE_NAMES.map(name => join(codexHome, name))
-  return [
-    flockCommand(),
-    '-n',
-    '-E',
-    String(CODEX_HOME_LOCK_BUSY_EXIT_CODE),
-    '-F',
-    codexHomeRuntimeLockPath(codexHome),
-    '/bin/sh',
-    '-c',
-    'for path do if [ -e "$path" ]; then basename "$path"; rm -f -- "$path"; fi; done',
-    'ankole-codex-logs2-reset',
-    ...databasePaths
   ]
 }
 

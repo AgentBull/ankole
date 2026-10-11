@@ -5,10 +5,12 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Repo, SignalsGateway, WorkerFiles}
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.{Logging, Repo}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.{Client, Config, ErrorPolicy, Presentation}
   alias Ankole.SignalsGateway.{Actors, Channel, Entry, OutboxEntry}
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
 
   @divider "────────"
 
@@ -43,7 +45,8 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
   def send(%OutboxEntry{} = outbox) do
     result =
       with {:ok, target} <- Presentation.parse_channel(outbox.signal_channel_id),
-           {:ok, config} <- config_for_outbox(outbox),
+           {:ok, config} <- Bindings.outbox_config(outbox, Config),
+           config = Config.runtime_config(config),
            :ok <- binding_owns_channel(target, config),
            :ok <- customer_service_window_open(outbox, DateTime.utc_now()),
            client <- Config.client(config),
@@ -155,7 +158,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
 
   defp newest_interactive_reply_at(signal_channel_id) do
     with %Channel{metadata: %{"last_interactive_reply_at" => value}} when is_binary(value) <-
-           Repo.get(Channel, signal_channel_id),
+           Repo.get_by(Channel, id: signal_channel_id),
          {:ok, at, _offset} <- DateTime.from_iso8601(value) do
       at
     else
@@ -238,13 +241,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
   defp upload_attachments(%OutboxEntry{} = outbox, phone_number_id, client) do
     outbox.payload
     |> MapHelpers.fetch_list("attachments")
-    |> Enum.map(&upload_attachment(&1, outbox.agent_uid, phone_number_id, client))
+    |> Enum.map(&upload_attachment(&1, phone_number_id, client))
     |> MapHelpers.collect_results()
   end
 
-  defp upload_attachment(attachment, agent_uid, phone_number_id, client) do
+  defp upload_attachment(attachment, phone_number_id, client) do
     with {:ok, kind, mime_type} <- media_kind(attachment),
-         {:ok, content, name} <- attachment_content(attachment, agent_uid),
+         {:ok, content, name} <- attachment_content(attachment),
          :ok <- within_media_limit(kind, byte_size(content)),
          {:ok, media_id} <-
            Client.upload_media(client, phone_number_id, name, mime_type, content) do
@@ -285,16 +288,11 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
 
   defp within_media_limit(_kind, _size), do: :ok
 
-  defp attachment_content(attachment, agent_uid) do
-    relative = MapHelpers.presence(attachment["user_files_relative_path"])
-    lane_path = if relative, do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-    with path when is_binary(path) <- lane_path,
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", path) do
-      {:ok, content, MapHelpers.presence(attachment["name"]) || Path.basename(relative)}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
+  defp attachment_content(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
+      {:ok, content,
+       MapHelpers.presence(attachment["name"]) ||
+         Path.basename(attachment["path"] || "attachment")}
     end
   end
 
@@ -390,16 +388,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Outbox do
   end
 
   defp record_reply_surface(_outbox, _source_entry_id), do: :ok
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

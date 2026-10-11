@@ -1,0 +1,22 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "type-check": {
+      "inputs": ["$TURBO_DEFAULT$"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "env": ["FC_SEED"]
+    },
+    "lint": {
+      "inputs": ["$TURBO_DEFAULT$"]
+    },
+    "fmt:check": {
+      "inputs": ["$TURBO_DEFAULT$"]
+    }
+  }
+}

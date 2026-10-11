@@ -3,11 +3,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.{AdaptiveCard, Config, Conversations}
   alias Ankole.Plugins.Microsoft365Adapter.Markdown
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
   alias MicrosoftOpenAPI.BotConnector
@@ -22,7 +22,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
   @impl true
   def send(%OutboxEntry{} = outbox) do
     with :ok <- reject_outbound_attachments(outbox),
-         {:ok, config} <- config_for_outbox(outbox),
+         {:ok, config} <- Bindings.outbox_config(outbox, Config),
          {:ok, target} <- delivery_target(outbox) do
       send_requests(outbox, config, target)
     end
@@ -44,6 +44,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
     requests =
       outbox.fallback_visible_text
       |> to_string()
+      |> Markdown.from_markdown()
       |> split_text()
       |> Enum.map(fn text ->
         %{
@@ -62,6 +63,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
     requests =
       outbox.fallback_visible_text
       |> to_string()
+      |> Markdown.from_markdown()
       |> split_text()
       |> Enum.with_index(1)
       |> Enum.map(fn
@@ -104,7 +106,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
        %{
          kind: :post,
          conversation_id: request_conversation_id(outbox, target),
-         activity: message_activity("———\n_" <> text <> "_")
+         activity: message_activity(Markdown.from_markdown("———\n_" <> text <> "_"))
        }
      ]}
   end
@@ -226,7 +228,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
     %{
       "type" => "message",
       "textFormat" => "markdown",
-      "text" => Markdown.from_markdown(text)
+      "text" => text
     }
   end
 
@@ -291,16 +293,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
 
   defp truncate(text, size), do: String.slice(text, 0, size)
 
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
   # serviceUrl is only ever learned from inbound traffic (D11); an outbox row
   # whose channel mirror never saw the provider fails loudly instead of
   # guessing a regional connector host.
@@ -309,7 +301,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
   def delivery_target(%OutboxEntry{signal_channel_id: signal_channel_id}) do
     with conversation_id when is_binary(conversation_id) <-
            Conversations.conversation_id_from_signal(signal_channel_id) || :invalid,
-         %Channel{} = channel <- Repo.get(Channel, signal_channel_id) || :missing_channel,
+         %Channel{} = channel <- Repo.get_by(Channel, id: signal_channel_id) || :missing_channel,
          metadata <- channel.metadata || %{},
          service_url when is_binary(service_url) <-
            MapHelpers.optional_text(metadata, "service_url") || :missing_service_url do

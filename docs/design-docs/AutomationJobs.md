@@ -26,7 +26,7 @@ Human work. Independent service definitions keep their own authorization.
 
 - the owning Agent and Session
 - the source ActorEvent and reply route
-- the absolute directory path and label
+- `drive_prefix`, the folder in the Agent's drive that holds the script, and the label
 - `wake_on_failure`
 - an optional expiry time
 - `active`, `cancelled`, or `expired`
@@ -66,18 +66,31 @@ does not change the event.
 
 ## Run the Script
 
-`Ankole.AutomationJobs.Jobs.ExecuteRun` is the Oban wake edge. It claims the run
-under a row lock, increases the attempt count, and gives the attempt a new UUID.
-It then calls one admitted Agent Computer worker through the worker-owned
+`Ankole.AutomationJobs.Jobs.ExecuteRun` is the Oban wake edge. A run waits
+while the Agent's Worker is not ready: the job requests the Worker
+([Agent Workers](AgentWorkers.md)) and snoozes for 10 seconds, which does not
+use an attempt. A run that finished or was cancelled meanwhile ends the job
+without a Worker request. When the Worker is ready, the job claims the run
+under a row lock, increases the attempt count, and gives the attempt a new
+UUID. It then calls the Worker through the worker-owned
 `automation_job.run` RuntimeFabric RPC. Each attempt resolves the Agent's
 current enabled Skills and sends their existing `RuntimeSkillSummary`
 projection with the request. The request does not copy `SKILL.md` or MCP
 connection declarations.
 
-The Worker checks the directory and `main.ts` through `realpath` again. Both
-must stay inside the current Agent Home. The request carries the binding name
+The script lives in the Agent's drive ([Files](Files.md)). The Worker copies
+the `drive_prefix` folder to a fresh run directory,
+`<Agent Home>/.ankole/automation-runs/<attempt UUID>`, and fails the attempt
+when the folder has no `main.ts`. It removes the run directory when the attempt
+ends, so every run sees the script as the drive holds it at fire time, and a
+file that the script writes into its working directory does not survive the
+run. A Worker that ended during a run removes the directories it left when it
+starts again. The request carries the binding name
 from the job's reply route, so the Worker resolves the latest Agent WorkerEnv
-for the same signal route. It resolves the request's Skill summaries through
+for the same signal route. Before it reads Skill MCP declarations, it downloads
+the Agent's installed Skills from the drive. A failed download is an
+infrastructure failure and follows the run's retry policy; a cold cache must
+not silently omit MCP dependencies. It resolves the request's Skill summaries through
 the current builtin,
 internal, and Agent-installed roots. It combines those Skill MCP dependencies
 and writes one `0600` mcporter config with `imports: []`. It injects the path as
@@ -85,8 +98,9 @@ and writes one `0600` mcporter config with `imports: []`. It injects the path as
 not start a server; `main.ts` starts one only when it calls mcporter. Automation
 does not read Skill instructions; `main.ts` contains the selected tool,
 arguments, bounds, and result checks. The Worker does not add turn-local human
-identity or turn CLI sockets. It runs `main.ts` with Bun in the existing
-bubblewrap sandbox, with the job directory as the working directory.
+identity or turn CLI sockets. It runs `main.ts` with Bun as the Worker's user,
+in its own process group, with the run directory as the working directory; the
+run limit ends the whole process group.
 
 The run limit is ten minutes. Runs of one job can overlap. Automation Jobs does
 not add a mutex or a scheduler. The script owns any state and must make a repeat
@@ -117,12 +131,18 @@ tells the Agent to verify consequential facts at an authoritative source.
 ## Separate Script Failure from Worker Failure
 
 A resolved script succeeds. A thrown exception, non-zero exit, or timeout is a
-terminal script result. Oban does not retry that result.
+terminal script result. A folder without `main.ts` or an
+invalid Skill MCP declaration are terminal too. Oban does not retry these
+results.
 
-A missing worker, lost route, RPC error, or invalid worker response is an
-infrastructure failure. The run returns to `queued`, clears its attempt UUID,
-and lets Oban dispatch a new attempt. Oban permits five attempts. The last
-infrastructure failure makes the run `failed`.
+A Worker that is still not ready `agent_computer.worker.ready_timeout` after
+the run became `queued`, a lost route, an RPC error, or an invalid worker
+response is an infrastructure failure. So is a failure of the Worker before
+the script starts: a failed copy of the script folder from the drive, or a
+failed WorkerEnv resolution. The run returns to `queued`, clears its
+attempt UUID, and lets Oban dispatch a new attempt. Oban permits five attempts.
+The last infrastructure failure makes the run `failed`, so a Worker that cannot
+start fails the run instead of keeping it queued.
 
 WorkerAdmission owns worker liveness. When it makes a route unusable or replaces
 its worker incarnation, it also ends pending RPC waits for that route. The Oban
@@ -142,12 +162,31 @@ The Agent uses four turn-local CLI commands:
 - `show-automation-job-cli`
 - `cancel-automation-job-cli`
 
-The create bridge resolves the directory and `main.ts` before it registers the
-job. The list and show commands return only jobs owned by the current Agent
-Session. Cancellation changes queued runs to `cancelled` in the same
-transaction. A running attempt can finish and emit.
+The create bridge checks that the script directory has a regular `main.ts`. It
+copies the directory to a new drive folder,
+`automation/<directory name>-<random suffix>`, and registers the job on that
+folder; a failed registration removes the folder again. The control plane
+rejects a folder without `main.ts`. To change a script, the Agent puts the
+edited directory to the same folder with `ankole-files put`; no new
+registration is needed. All four commands use the same owning Agent and
+long-lived Session. A Job follows its persisted `owner_session_id` and pinned
+`owner_conversation_id`; a Workflow task follows its AgentCall and Run. Every
+link must belong to the calling Agent. An ended context still identifies its
+Session. Creation fails with `long_lived_reply_owner_not_found` if these facts
+do not identify a recipient. The actual calling ActorEvent remains the source
+of authorization and provenance. Cancellation changes queued runs to
+`cancelled` in the same transaction. A running attempt can finish and emit.
 
-The Console API is read-only. It lists jobs across the deployment instance or
+The upgrade moves provable old Job or Workflow task owners to their long-lived
+Session. It keeps resource IDs, scripts, run history, source authorization, and
+webhook tokens. It keeps an unresolved row unchanged and reports its ID. The
+existing Console scope can inspect these rows. Delivery uses the same owner
+resolver until no resource retains a `job:` or `wf_task:` owner. An unresolved
+emission fails explicitly. If a failed run cannot send its failure notice, the
+run retains `long_lived_reply_owner_not_found` in its error instead of sending
+the notice to an ended task.
+
+The Console API is read-only. It lists jobs in the selected tenant or
 filters them by Agent. The list requires `automation_jobs/read`. It reads one
 job and its recent runs through the owning Agent path. The detail read requires
 `agent:<agent_uid>:automation_jobs/read`. It shows the attempt count, terminal

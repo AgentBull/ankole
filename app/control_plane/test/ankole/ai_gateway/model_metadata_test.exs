@@ -9,6 +9,48 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     :ok
   end
 
+  test "capability uses the catalog modalities and parameters" do
+    for {id, outputs, parameters, expected} <- [
+          {"gpt-5", ["text"], ["tools"], "llm"},
+          {"gpt-5-vision", ["text"], ["tools"], "llm"},
+          {"gpt-image-2", ["image"], [], "image_generate"},
+          {"tts-1", ["audio"], [], "other"},
+          {"jina-embeddings-v3", ["embeddings"], ["input", "encoding_format"], "embedding"},
+          {"jina-reranker-v2", ["text"], ["query", "documents", "top_n"], "rerank"}
+        ] do
+      metadata = %{
+        "id" => id,
+        "architecture" => %{
+          "input_modalities" => ["text", "image"],
+          "output_modalities" => outputs
+        },
+        "supported_parameters" => parameters
+      }
+
+      assert ModelMetadata.capability(metadata) == expected
+    end
+  end
+
+  test "capability classifies normalized llm_db catalog entries" do
+    for {kind, model, capability} <- [
+          {"openai", "text-embedding-3-small", "embedding"},
+          {"cohere", "rerank-v3.5", "rerank"},
+          {"openai", "gpt-image-1", "image_generate"}
+        ] do
+      assert {:ok, provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: if(kind == "cohere", do: "cohere", else: "capability-#{model}"),
+                 provider_kind: if(kind == "cohere", do: "openai_compatible", else: kind),
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+                 }
+               })
+
+      assert {:ok, metadata} = ModelMetadata.model_metadata(provider, model)
+      assert ModelMetadata.capability(metadata) == capability
+    end
+  end
+
   test "providers without metadata hook use llm_db by convention" do
     assert {:ok, openai} =
              ProviderConfigs.create_provider(%{

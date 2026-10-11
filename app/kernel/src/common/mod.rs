@@ -1,32 +1,30 @@
-//! Host-neutral kernel primitives shared by N-API and Rustler bindings.
+//! Host-neutral kernel primitives loaded through Rustler.
 
 pub(crate) mod bounded_cache;
 mod crypto;
-mod diff;
 mod encoding;
 mod error;
 mod hash;
 mod ids;
+#[cfg(any(feature = "universal_ai_client", feature = "object_store"))]
+pub(crate) mod io_runtime;
 mod jwt;
 mod password;
 mod phone;
 mod search;
 mod token;
-mod transliteration;
 mod web_url;
 
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
-pub use diff::unified_text_diff;
 pub use encoding::{base64_url_safe_decode, base64_url_safe_encode};
 pub use error::{KernelError, KernelResult};
-pub use hash::{generic_hash, xxh3_128_file_hex, xxh3_128_hex};
+pub use hash::{generic_hash, xxh3_128_hex};
 pub use ids::{gen_uuid, gen_uuid_v7};
 pub use jwt::{jwt_sign, jwt_sign_pem, jwt_verify, jwt_verify_jwk};
 pub use password::{argon2id_hash, argon2id_verify};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::estimate_o200k_base_tokens;
-pub use transliteration::any_ascii;
 pub use web_url::{HostClass, WebURLFacts, web_url_facts};
 
 #[cfg(test)]

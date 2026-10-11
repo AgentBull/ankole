@@ -6,14 +6,17 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Markdown do
   so most Markdown passes through unchanged. Only constructs Teams renders as
   literal text are rewritten into something readable: tables become plain
   lines and horizontal rules become a dashed line.
+  Code spans keep the exact source bytes. These rules apply to prose.
   """
 
   @spec from_markdown(String.t()) :: String.t()
   def from_markdown(text) when is_binary(text) do
-    text
-    |> String.split("\n")
-    |> Enum.map(&rewrite_line/1)
-    |> Enum.join("\n")
+    Ankole.Plugins.MarkdownChunks.rewrite_prose(text, fn source, _marker ->
+      source
+      |> String.split("\n")
+      |> Enum.map(&rewrite_line/1)
+      |> Enum.join("\n")
+    end)
   end
 
   defp rewrite_line(line) do

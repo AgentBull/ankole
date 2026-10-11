@@ -20,7 +20,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.BackgroundAgentJobs.Trajectory
   alias Ankole.BackgroundAgentJobs.TrajectoryReader
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
-  alias Ankole.BackgroundAgentJobs.TurnWatchdog
   alias Ankole.Text
 
   @worker_fields ~w(
@@ -74,8 +73,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     with {:ok, attrs} <- normalize_worker_attrs(attrs, job),
          {turn_items, attrs} <- Map.pop(attrs, "turn_items", []),
          :ok <- validate_attempt(job, attrs),
-         {:ok, turn} <- upsert_in_tx(repo, job, attrs, turn_items),
-         :ok <- TurnWatchdog.notify_deadline_in_tx(repo, job.id) do
+         {:ok, turn} <- upsert_in_tx(repo, job, attrs, turn_items) do
       {:ok, turn}
     end
   end
@@ -245,10 +243,23 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     }
   end
 
+  # A steer that arrived after the last Turn of a succeeded Job continues in the
+  # Job's one successor.
   defp message_without_trajectory(job, command_event) do
     case command_event do
       %ActorEvent{input_state: "dead_letter"} ->
         {:error, :background_agent_job_message_delivery_failed}
+
+      %ActorEvent{completed_at: %DateTime{}} when job.status == "succeeded" ->
+        case Repo.one(
+               from(successor in Job,
+                 where: successor.continued_from_job_id == ^job.id,
+                 select: successor.id
+               )
+             ) do
+          nil -> {:error, :background_agent_job_message_delivery_failed}
+          id -> {:ok, Map.put(pending_message_result(job), :successor_job_id, id)}
+        end
 
       %ActorEvent{completed_at: %DateTime{}} ->
         {:error, :background_agent_job_message_delivery_failed}

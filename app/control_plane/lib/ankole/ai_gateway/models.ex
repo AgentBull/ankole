@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Models do
   @moduledoc """
-  Projects configured AIGateway model bindings as an OpenRouter-style catalog.
+  Projects configured AIGateway model bindings for runtime and Console catalogs.
 
   The catalog lists metadata for every active configured provider row and adds
   agent-local aliases for agent credentials. The response shape follows
@@ -17,8 +17,7 @@ defmodule Ankole.AIGateway.Models do
   Lists model selectors visible to one subject.
 
   Agents see every explicit provider/model selector plus their own aliases.
-  Admin humans see only explicit provider/model selectors because aliases are
-  agent-local names and collide across agents.
+  OIDC Human requests use the Client alias catalog.
   """
   @spec list_models(String.t(), String.t(), map()) :: {:ok, map()}
   def list_models(subject_uid, subject_type, params \\ %{})
@@ -54,13 +53,28 @@ defmodule Ankole.AIGateway.Models do
     explicit_provider_entries() ++ agent_alias_entries(subject_uid)
   end
 
-  defp subject_model_entries(_subject_uid, "admin_human") do
-    explicit_provider_entries()
-  end
-
-  defp subject_model_entries(_subject_uid, "oidc_human"), do: []
-
   defp subject_model_entries(_subject_uid, _subject_type), do: []
+
+  @doc "Lists typed model metadata for Console provider configuration."
+  @spec console_catalog() :: [map()]
+  def console_catalog do
+    Enum.flat_map(ProviderConfigs.list_active_providers(), fn provider ->
+      {:ok, models} = ModelMetadata.list_provider_model_metadata(provider)
+
+      Enum.map(models, fn metadata ->
+        metadata = ModelMetadata.openrouter_entry(metadata, metadata["id"], metadata["id"])
+
+        %{
+          provider_id: provider.provider_id,
+          model: metadata["id"],
+          name: metadata["name"],
+          description: metadata["description"],
+          capability: ModelMetadata.capability(metadata),
+          image_input: "image" in metadata["architecture"]["input_modalities"]
+        }
+      end)
+    end)
+  end
 
   defp explicit_provider_entries do
     ProviderConfigs.list_active_providers()

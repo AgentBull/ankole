@@ -1,7 +1,7 @@
 defmodule Ankole.OIDC.RefreshToken do
   @moduledoc false
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

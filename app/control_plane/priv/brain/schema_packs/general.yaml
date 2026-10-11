@@ -112,7 +112,7 @@ page_types:
 
   - name: note
     # Fallback type: the legal exit when the write path rejects an undeclared
-    # type. Vocabulary terms as tags keep the promotion trail.
+    # type.
     primitive: concept
     slug_prefix: notes/
     extractable: true

@@ -184,7 +184,7 @@ export function ResourceListPage({
           <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
           <Table
             aria-busy={isLoading}
-            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-muted [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
+            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-selection [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-card"
             containerClassName="border border-border bg-card"
             containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
@@ -207,7 +207,7 @@ export function ResourceListPage({
                         </TableCell>
                       ))}
                       <TableCell>
-                        <Skeleton className="ml-auto size-9" />
+                        <Skeleton className="ml-auto size-7" />
                       </TableCell>
                     </TableRow>
                   ))
@@ -248,8 +248,8 @@ export function SubNav({
           to={item.to}
           className={({ isActive }) =>
             cn(
-              'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
+              'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:-outline-offset-2',
+              'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
               (item.active ?? isActive)
                 ? 'font-medium text-foreground after:opacity-100'
                 : 'text-muted-foreground fine-hover:hover:text-foreground'
@@ -472,7 +472,7 @@ export function SearchField({
       {value ? (
         <button
           aria-label={clearLabel ?? t('console.empty.clear_search')}
-          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:-outline-offset-2"
           type="button"
           onClick={() => onChange('')}>
           <RiCloseLine />

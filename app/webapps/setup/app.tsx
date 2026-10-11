@@ -154,16 +154,16 @@ export function SetupApp() {
                     aria-current={itemState === 'current' ? 'step' : undefined}
                     disabled={!navigable}
                     onClick={() => item.id !== 'bootstrap' && setStep(item.id)}
-                    className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default ${
+                    className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm transition-colors focus-visible:-outline-offset-2 disabled:cursor-default ${
                       itemState === 'current'
-                        ? 'border-primary bg-primary/10 text-foreground'
+                        ? 'border-foreground bg-accent text-foreground'
                         : itemState === 'completed' || itemState === 'available'
                           ? 'border-transparent text-foreground'
                           : 'border-transparent text-muted-foreground opacity-55'
                     }`}>
                     <span
                       className={`grid size-7 shrink-0 place-items-center border font-mono text-xs ${
-                        itemState === 'current' ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                        itemState === 'current' ? 'border-foreground bg-foreground text-background' : 'border-border'
                       }`}>
                       {itemState === 'completed' ? (
                         <RiCheckLine aria-hidden />
@@ -286,7 +286,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                 <div className="flex flex-wrap items-center gap-2">
                   <FieldLabel>{t('setup.activation_code')}</FieldLabel>
                   <button
-                    className="text-sm leading-5 text-link underline underline-offset-4 hover:text-link/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="link text-sm leading-5 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={printActivationCode.isPending}
                     onClick={() => printActivationCode.mutate()}
                     type="button">
@@ -476,7 +476,7 @@ function IdentityMethodStep({
               <label
                 key={adapter.adapterID}
                 className={`flex cursor-pointer items-start gap-3 border px-4 py-4 transition-colors ${
-                  selected ? 'border-primary bg-primary/10' : 'border-border/70 bg-card/60'
+                  selected ? 'border-foreground bg-card' : 'border-border/70 bg-card/60'
                 }`}>
                 <RadioGroupItem className="mt-0.5" value={adapter.adapterID} />
                 <span className="grid min-w-0 flex-1 gap-1">
@@ -614,7 +614,7 @@ function SSOIdentityForm({
               {t(oidcCallbackURLHintKey(activeAdapter.adapterID))}
             </FieldDescription>
             <a
-              className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+              className="link inline-flex items-center gap-1 text-sm font-medium"
               href={identityAdapterGuideURL(activeAdapter.adapterID, i18next.language)}
               rel="noopener noreferrer"
               target="_blank">

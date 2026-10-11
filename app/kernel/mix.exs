@@ -19,9 +19,9 @@ defmodule AnkoleKernel.MixProject do
 
   defp deps do
     [
-      {:protox, "~> 2.0"},
+      {:protox, "~> 2.1"},
       {:rustler, "~> 0.38.0", runtime: false},
-      {:torque, "~> 0.2.7"}
+      {:torque, "~> 0.5.0"}
     ]
   end
 end

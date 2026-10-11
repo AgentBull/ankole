@@ -2,7 +2,8 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  Console REST API for the agent computer worker registry.
+  Console REST API for the Worker of each Agent: its lifecycle state, its
+  connection facts, and the latest reason that the backend gave.
   """
 
   use AnkoleWeb, :controller
@@ -15,17 +16,16 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["Workers"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List agent computer workers",
+    summary: "List the Worker of each Agent",
     responses: [
       ok: {"Workers", "application/json", AgentComputerWorkerListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -39,17 +39,17 @@ defmodule AnkoleWeb.AgentComputerWorkerController do
 
   defp worker_json(worker) do
     %{
-      worker_id: worker.worker_id,
-      status: worker.status,
-      version: worker.version,
+      agent_uid: worker.agent_uid,
+      provider_id: worker.provider_id,
+      state: worker.state,
+      generation: worker.generation,
+      image: worker.image,
       capacity: worker.capacity || %{},
       load: worker.load || %{},
       last_worker_heartbeat_at: iso8601(worker.last_worker_heartbeat_at),
-      started_at: iso8601(worker.started_at),
-      stopped_at: iso8601(worker.stopped_at),
-      stop_reason: worker.stop_reason,
-      inserted_at: DateTime.to_iso8601(worker.inserted_at),
-      updated_at: DateTime.to_iso8601(worker.updated_at)
+      state_changed_at: iso8601(worker.state_changed_at),
+      drain_reason: worker.drain_reason,
+      last_error: worker.last_error
     }
   end
 

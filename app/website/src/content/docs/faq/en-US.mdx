@@ -63,12 +63,12 @@ export const commonIssues = [
     cause: 'When the Console path also fails, the shared downstream path is the likely fault: the LLM Provider, Agent model profiles, or Worker, not one platform event permission.',
     resolution: [
       'Confirm that the LLM Provider is enabled and that its credential and model names work.',
-      'Confirm that the Agent has primary, light, and heavy profiles and that at least one Worker is ready.',
+      'Confirm that the Agent has primary, light, and heavy profiles and that Console → Workers shows no failure reason for the Agent\'s Worker.',
       'Complete one real model conversation in the Console, then return to the selected chat-platform tab.'
     ],
     links: [
       { href: '../quickstart/#3-add-an-llm-provider-and-create-an-agent', label: 'Configure the LLM Provider and Agent' },
-      { href: '../worker-management/', label: 'Worker fleet' }
+      { href: '../worker-management/', label: 'Workers' }
     ]
   },
   {
@@ -91,7 +91,7 @@ export const commonIssues = [
     resolution: [
       'Open the run record, confirm its outcome, and read the first error.',
       'Check the target Agent, conversation or chat destination, and its signal routing rule.',
-      'Confirm that the Agent model profiles work and that at least one Worker is ready.'
+      'Confirm that the Agent model profiles work and that Console → Workers shows no failure reason for the Agent\'s Worker.'
     ],
     links: [
       { href: '../schedules/', label: 'Inspect schedule runs' },

@@ -3,9 +3,10 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   Thin execution adapter from AIGateway to the kernel UniversalAIClient.
 
   Provider modules prepare the UniversalAIClient spec. This module only executes
-  it and preserves the HTTP/SSE ready boundary expected by Phoenix callers.
+  it. ResponseStream owns the native ready boundary and receives JSON events.
   """
 
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.RequestContext
   alias Ankole.Kernel.UniversalAIClient
 
@@ -25,11 +26,6 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     provider_options: nil,
     include_model: true
   ]
-
-  @typedoc """
-  Downstream chunk format selected by the caller after the native stream is ready.
-  """
-  @type downstream_kind :: :sse | :websocket_text
 
   @typedoc """
   Provider-owned builder that can be converted into a UniversalAIClient spec.
@@ -77,7 +73,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   Converts the builder into the spec consumed by `UniversalAIClient`.
 
   The resulting spec is intentionally a prepared upstream request. Rust receives
-  URL, method, headers, timeouts, transport preferences, and response context;
+  URL, method, headers, timeouts, proxy setting, and response context;
   it does not look back into provider DSL or construct provider-specific auth.
   """
   @spec to_spec(t()) :: {:ok, map()} | {:error, term()}
@@ -169,13 +165,6 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
       false -> headers ++ [{name, to_string(value)}]
     end
   end
-
-  @doc """
-  Adds or replaces a header from a prepared context setting.
-  """
-  @spec put_setting_header(t(), binary(), atom()) :: t()
-  def put_setting_header(%__MODULE__{} = request, name, key),
-    do: put_header(request, name, setting(request.ctx, key))
 
   @doc """
   Adds a header from a setting only when that header is not already present.
@@ -312,7 +301,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     with {:ok, response} <- UniversalAIClient.model_request(spec) do
       normalize_response(response)
     else
-      {:error, reason} -> {:error, normalize_error_reason(reason)}
+      {:error, reason} -> {:error, ProviderFailure.from_native(reason)}
     end
   end
 
@@ -325,24 +314,22 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   validates and starts the native request, so a GenServer can keep its mailbox
   responsive while the provider connects.
   """
-  @spec start_stream(map() | t(), downstream_kind(), receiver: pid()) ::
+  @spec start_stream(map() | t(), receiver: pid()) ::
           {:ok, UniversalAIClient.stream()} | {:error, term()}
-  def start_stream(spec, downstream, opts \\ [])
+  def start_stream(spec, opts \\ [])
 
-  def start_stream(%__MODULE__{} = request, downstream, opts) do
+  def start_stream(%__MODULE__{} = request, opts) do
     with {:ok, spec} <- to_spec(request) do
-      start_stream(spec, downstream, opts)
+      start_stream(spec, opts)
     end
   end
 
-  def start_stream(spec, downstream, opts)
-      when is_map(spec) and downstream in [:sse, :websocket_text] and is_list(opts) do
+  def start_stream(spec, opts)
+      when is_map(spec) and is_list(opts) do
     receiver = Keyword.get(opts, :receiver, self())
 
     if is_pid(receiver) do
-      spec
-      |> Map.put(:downstream, downstream)
-      |> UniversalAIClient.open(receiver: receiver)
+      UniversalAIClient.open(spec, receiver: receiver)
       |> case do
         {:ok, stream} -> {:ok, stream}
         {:error, reason} -> {:error, normalize_stream_error(reason)}
@@ -352,42 +339,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     end
   end
 
-  def start_stream(_spec, _downstream, _opts),
+  def start_stream(_spec, _opts),
     do: {:error, :invalid_universal_ai_stream_request}
-
-  @doc """
-  Opens a native stream and waits for the `:ready` message before returning.
-
-  Phoenix callers must not commit SSE or WebSocket responses before Rust has
-  connected upstream and selected the downstream chunk mode. Waiting here keeps
-  pre-ready failures representable as ordinary HTTP errors. New stream owners
-  should use `start_stream/3` and observe ready in their own mailbox.
-  """
-  @spec open_stream(map(), downstream_kind(), keyword()) ::
-          {:ok, UniversalAIClient.stream(), map()} | {:error, term()}
-  def open_stream(spec, downstream, opts \\ [])
-
-  def open_stream(%__MODULE__{} = request, downstream, opts) do
-    with {:ok, spec} <- to_spec(request) do
-      open_stream(spec, downstream, opts)
-    end
-  end
-
-  def open_stream(spec, downstream, _opts)
-      when is_map(spec) and downstream in [:sse, :websocket_text] do
-    case start_stream(spec, downstream, receiver: self()) do
-      {:ok, stream} ->
-        case wait_ready(stream, ready_timeout_ms(spec)) do
-          {:ok, meta} -> {:ok, stream, meta}
-          {:error, _reason} = error -> error
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  def open_stream(_spec, _downstream, _opts), do: {:error, :invalid_universal_ai_stream_request}
 
   # Stream requests use the same logical endpoint as HTTP requests, but
   # WebSocket upstreams need the URL scheme converted after base URL and query
@@ -588,30 +541,6 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
 
   defp map_get(_value, _key), do: nil
 
-  # The native task monitors the receiver after open, but this caller still
-  # cancels on ready timeout so an upstream socket is not left alive when the
-  # Phoenix side has already given up.
-  #
-  # This is a selective receive: the patterns must stay raw tuples so messages
-  # for other refs remain queued. `UniversalAIClient.stream_event/1` declares
-  # the same shapes as the typed contract.
-  defp wait_ready(stream, receive_timeout_ms) do
-    receive do
-      {:universal_ai_client, ref, :ready, meta} when ref == stream.ref ->
-        {:ok, meta}
-
-      {:universal_ai_client, ref, :error, error} when ref == stream.ref ->
-        {:error, normalize_stream_error(error)}
-
-      {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
-        {:error, :stream_aborted}
-    after
-      receive_timeout_ms ->
-        _ = UniversalAIClient.cancel(stream)
-        {:error, :universal_ai_stream_ready_timeout}
-    end
-  end
-
   defp normalize_response(%{"status" => status, "body" => body} = response)
        when is_integer(status) do
     {:ok,
@@ -619,8 +548,6 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
        status: status,
        body: body,
        headers: Map.get(response, "headers", []),
-       http_version: Map.get(response, "http_version"),
-       http_negotiation: Map.get(response, "http_negotiation"),
        hosted_tool_metadata: Map.get(response, "hosted_tool_metadata")
      }}
   end
@@ -670,67 +597,5 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   Normalizes one native stream error into the AIGateway error vocabulary.
   """
   @spec normalize_stream_error(term()) :: term()
-  def normalize_stream_error(reason), do: normalize_error_reason(reason)
-
-  # Controllers still speak the older AIGateway error vocabulary. This function
-  # maps structured native errors back to that shape while preserving provider
-  # status and body excerpts for callers that already handle them.
-  defp normalize_error_reason(%{"stage" => stage} = error)
-       when stage in ["hosted_responses", "image_generation"],
-       do: {:universal_ai_request_failed, error}
-
-  defp normalize_error_reason(%{"code" => code, "provider_status" => status} = error)
-       when code in ["provider_status_rejected", "websocket_status_rejected"] and
-              is_integer(status) do
-    body = decoded_provider_excerpt(error)
-
-    case decoded_provider_headers(error) do
-      [] -> {:upstream_response_failed, status, body}
-      headers -> {:upstream_response_failed, status, body, headers}
-    end
-  end
-
-  defp normalize_error_reason(
-         %{"code" => "invalid_upstream_response", "provider_status" => status} = error
-       )
-       when is_integer(status) do
-    {:invalid_upstream_response, status, decoded_provider_body(error)}
-  end
-
-  defp normalize_error_reason(error) when is_map(error), do: {:universal_ai_request_failed, error}
-  defp normalize_error_reason(error), do: {:universal_ai_request_failed, error}
-
-  # Provider body excerpts may already be JSON. Decoding them here keeps
-  # controller errors useful without teaching controllers about native error
-  # fields.
-  defp decoded_provider_body(%{"provider_body_excerpt" => excerpt}) when is_binary(excerpt) do
-    case Ankole.JSON.decode(excerpt) do
-      {:ok, body} -> body
-      {:error, _reason} -> excerpt
-    end
-  end
-
-  defp decoded_provider_body(_error), do: nil
-
-  # Status-rejected errors historically returned a map-like response body.
-  # Wrapping non-object JSON keeps that contract stable for callers.
-  defp decoded_provider_excerpt(%{"provider_body_excerpt" => excerpt}) when is_binary(excerpt) do
-    case Ankole.JSON.decode(excerpt) do
-      {:ok, body} when is_map(body) -> body
-      {:ok, body} -> %{"body" => body}
-      {:error, _reason} -> %{"raw_body" => excerpt}
-    end
-  end
-
-  defp decoded_provider_excerpt(_error), do: %{}
-
-  defp decoded_provider_headers(%{"provider_headers" => headers}) when is_list(headers) do
-    Enum.flat_map(headers, fn
-      [name, value] when is_binary(name) and is_binary(value) -> [{name, value}]
-      {name, value} when is_binary(name) and is_binary(value) -> [{name, value}]
-      _entry -> []
-    end)
-  end
-
-  defp decoded_provider_headers(_error), do: []
+  def normalize_stream_error(reason), do: ProviderFailure.from_native(reason)
 end

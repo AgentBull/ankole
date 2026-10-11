@@ -9,10 +9,6 @@ config :phoenix, :filter_parameters, [
   "state"
 ]
 
-Code.require_file("support/bootstrap.exs", __DIR__)
-
-Ankole.Config.Bootstrap.load_dotenv!(root: Path.expand("..", __DIR__), env: config_env())
-
 config :ankole,
   ecto_repos: [Ankole.Repo],
   generators: [timestamp_type: :utc_datetime]
@@ -95,7 +91,8 @@ config :tzdata, :autoupdate, :disabled
 
 config :ankole, Oban,
   repo: Ankole.Repo,
-  queues: [default: 10],
+  notifier: Oban.Notifiers.PG,
+  queues: [default: 10, agent_workers: 20, conversations: 20, outbox: 20],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
@@ -103,10 +100,15 @@ config :ankole, Oban,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
        {"* * * * *", Ankole.Brain.Jobs.Tick},
+       {"* * * * *", Ankole.Conversations.Reconciler},
        {"*/5 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
-       {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials}
+       {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials},
+       {"23 * * * *", Ankole.Files.Jobs.CollectUnreferenced},
+       {"* * * * *", Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob},
+       {"*/5 * * * *", Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob,
+        args: %{objects: true}}
      ]}
   ]
 

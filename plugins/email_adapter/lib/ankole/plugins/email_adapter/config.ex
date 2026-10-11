@@ -1,13 +1,19 @@
 defmodule Ankole.Plugins.EmailAdapter.Config do
-  @moduledoc "Validation and runtime helpers for the first-party Email adapter."
+  def platform_application(config),
+    do:
+      {:ok,
+       "email:" <>
+         Torque.encode!([
+           String.downcase(Map.fetch!(config, "imapHost")),
+           String.downcase(Map.fetch!(config, "username"))
+         ])}
 
-  import Ecto.Query, warn: false
+  @moduledoc "Validation and runtime helpers for the first-party Email adapter."
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.EmailAdapter.Address
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.Binding
 
   @key_pattern ~r/\Asignals_gateway\.email\.bindings\.[A-Za-z0-9_.:-]+\z/
   @smtp_security_atoms %{"starttls" => :starttls, "tls" => :tls}
@@ -64,6 +70,7 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.email.bindings.*",
+        console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_binding_config/1),
@@ -203,55 +210,6 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
 
   def validate_binding_config(_value), do: {:error, :invalid_email_binding_config}
 
-  @doc """
-  Rejects a mailbox that another enabled Email binding already owns.
-
-  Two owners on one mailbox would race for the same unseen messages, and each
-  would confirm mail that the other never saw.
-  """
-  @spec validate_binding_assignment(module(), String.t(), String.t(), t()) ::
-          :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    fingerprint = mailbox_fingerprint(config)
-
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "email" and binding.enabled == true and
-        (binding.agent_uid != ^agent_uid or binding.name != ^binding_name)
-    )
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_config_ref_in_tx(repo, binding.config_ref) do
-        {:ok, other} ->
-          if mailbox_fingerprint(other) == fingerprint do
-            {:halt, {:error, {:email_mailbox_already_bound, binding.agent_uid, binding.name}}}
-          else
-            {:cont, :ok}
-          end
-
-        :error ->
-          {:halt, {:error, {:email_binding_config_unavailable, binding.agent_uid, binding.name}}}
-
-        {:error, reason} ->
-          {:halt,
-           {:error, {:email_binding_config_unavailable, binding.agent_uid, binding.name, reason}}}
-      end
-    end)
-  end
-
-  @spec load_config_ref(String.t()) :: {:ok, Runtime.t()} | :error | {:error, term()}
-  def load_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key),
-         {:ok, config} <- validate_binding_config(value) do
-      {:ok, runtime(config)}
-    end
-  end
-
-  def load_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
   @spec runtime(t() | Runtime.t()) :: Runtime.t()
   def runtime(%Runtime{} = runtime), do: runtime
 
@@ -279,16 +237,6 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
 
     :sha256
     |> :crypto.hash(:erlang.term_to_binary(Map.from_struct(runtime)))
-    |> Base.encode16(case: :lower)
-  end
-
-  @doc "Fingerprint of the mailbox identity that only one enabled binding may own."
-  @spec mailbox_fingerprint(t() | Runtime.t()) :: String.t()
-  def mailbox_fingerprint(config) do
-    runtime = runtime(config)
-
-    :sha256
-    |> :crypto.hash([String.downcase(runtime.imap_host), 0, String.downcase(runtime.username)])
     |> Base.encode16(case: :lower)
   end
 
@@ -356,17 +304,6 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(key, [])
   end
-
-  defp load_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_binding_config(value)
-    end
-  end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
 
   defp required_address(value, key) do
     with {:ok, raw} <- MapHelpers.required_string(value, key) do

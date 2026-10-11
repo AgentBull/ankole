@@ -3,7 +3,7 @@ defmodule Ankole.Principals.HumanUser do
   Human-specific profile row keyed by `principals.uid`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

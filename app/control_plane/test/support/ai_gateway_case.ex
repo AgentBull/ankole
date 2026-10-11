@@ -3,13 +3,13 @@ defmodule Ankole.AIGatewayCase do
 
   use ExUnit.CaseTemplate
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.Repo
 
   using do
@@ -233,16 +233,6 @@ defmodule Ankole.AIGatewayCase do
   end
 
   @doc false
-  def stream_sse_messages(events, state, handler) do
-    Enum.reduce_while(events, {:ok, state}, fn event, {:ok, state} ->
-      case handler.("data: #{Ankole.JSON.encode!(event)}\n\n", state) do
-        {:cont, state} -> {:cont, {:ok, state}}
-        {:halt, {:error, reason}} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @doc false
   def anthropic_stream_events do
     [
       %{
@@ -382,34 +372,41 @@ defmodule Ankole.AIGatewayCase do
     %{"prompt_tokens" => 5, "completion_tokens" => 7, "total_tokens" => 12}
   end
 
+  @doc """
+  Makes the Agent's Worker row ready on `route`. No Worker process connects
+  in these tests.
+  """
+  def put_ready_worker!(agent_uid, route) do
+    {:ok, credential} =
+      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.issue_credential(agent_uid, "testgen001")
+
+    {1, _rows} =
+      Repo.update_all(
+        from(worker in AgentWorker, where: worker.agent_uid == ^agent_uid),
+        set: [
+          state: "ready",
+          generation: "testgen001",
+          token_digest: credential.token_digest,
+          token_ciphertext: credential.token_ciphertext,
+          instance_seen_at: DateTime.utc_now(:microsecond),
+          image: "test",
+          protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
+          settings_digest: "test",
+          incarnation_id: Ecto.UUID.generate(),
+          transport_route: route,
+          last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
+        ]
+      )
+
+    :ok
+  end
+
   @doc false
   def assign_worker_route(agent_uid, session_id) do
     route = "route-#{System.unique_integer([:positive])}"
-    worker_id = "worker-#{System.unique_integer([:positive])}"
     now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: worker_id,
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
-
-    Repo.insert!(%ActorSessionWorkerAssignment{
-      agent_uid: agent_uid,
-      session_id: session_id,
-      worker_id: worker_id,
-      transport_route: route,
-      status: "assigned",
-      assigned_at: now,
-      metadata: %{}
-    })
+    :ok = put_ready_worker!(agent_uid, route)
+    source = Ankole.WorkFixtures.service_source(agent_uid)
 
     conversation =
       Repo.insert!(%Conversation{
@@ -423,17 +420,23 @@ defmodule Ankole.AIGatewayCase do
 
     actor_event =
       Repo.insert!(
-        ActorEvent.changeset(%ActorEvent{}, %{
-          agent_uid: agent_uid,
-          binding_name: "test",
-          session_id: session_id,
-          source_event_id: "test-turn-#{System.unique_integer([:positive])}",
-          type: "test.turn",
-          available_at: now,
-          queue_sequence: 1,
-          input_state: "open",
-          payload: %{}
-        })
+        ActorEvent.changeset(
+          %ActorEvent{},
+          Map.merge(
+            %{
+              agent_uid: agent_uid,
+              binding_name: "test",
+              session_id: session_id,
+              source_event_id: "test-turn-#{System.unique_integer([:positive])}",
+              type: "test.turn",
+              available_at: now,
+              queue_sequence: 1,
+              input_state: "open",
+              payload: %{}
+            },
+            Ankole.Principals.WorkAccess.fields(source)
+          )
+        )
       )
 
     Repo.insert!(%Message{
@@ -460,33 +463,10 @@ defmodule Ankole.AIGatewayCase do
       updated_at: now
     })
 
-    activation_uid = "activation-#{System.unique_integer([:positive])}"
-
-    Repo.insert!(%ActorSessionActivation{
-      activation_uid: activation_uid,
-      agent_uid: agent_uid,
-      session_id: session_id,
-      actor_epoch: 1,
-      status: "active",
-      controller_node: "test",
-      lease_id: "lease-#{System.unique_integer([:positive])}",
-      lease_expires_at: DateTime.add(now, 60, :second),
-      assigned_worker_id: worker_id,
-      current_actor_event_id: actor_event.id,
-      revision: 0,
-      started_at: now,
-      metadata: %{},
-      inserted_at: now,
-      updated_at: now
-    })
-
     {route,
-     %Ankole.RuntimeFabric.V1.ActorTurnRef{
-       actor: %Ankole.RuntimeFabric.V1.ActorKey{agent_uid: agent_uid, session_id: session_id},
-       activation_uid: activation_uid,
-       actor_epoch: 1,
-       actor_event_id: actor_event.id,
-       revision: 0
+     %Ankole.RuntimeFabric.V1.RunRef{
+       actor: %Ankole.RuntimeFabric.V1.ActorKey{session_id: session_id},
+       actor_event_id: actor_event.id
      }}
   end
 end

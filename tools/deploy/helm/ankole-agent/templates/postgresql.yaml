@@ -23,7 +23,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ include "ankole-agent.serviceAccountName" . }}
+      # PostgreSQL needs no Kubernetes API access; the control-plane
+      # ServiceAccount may create Pods and read Secrets.
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -51,6 +53,8 @@ spec:
               containerPort: {{ .Values.postgresql.port }}
               protocol: TCP
           env:
+            - name: PGDATA
+              value: {{ .Values.postgresql.pgdata | quote }}
             - name: POSTGRES_USER
               value: {{ .Values.postgresql.auth.username | quote }}
             - name: POSTGRES_DB

@@ -1,7 +1,6 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path'
 import { runWorkspaceCommand, runWorkspaceProcess, type CommandFinished, type CommandInput } from './commands'
-
-export type { CommandFinished, CommandInput, CommandOutputMode } from './commands'
+export type { CommandFinished, CommandInput } from './commands'
 
 /** One paginated slice of a text file, read without materializing the file. */
 export interface ReadFileWindow {
@@ -14,18 +13,15 @@ export interface ReadFileWindow {
 
 export interface ContainerComputer {
   runCommand(input: CommandInput): Promise<CommandFinished>
-  /** Size in bytes of a regular file, or `null` when the path does not exist. */
-  fileSize(input: { path: string; cwd?: string }, opts?: { signal?: AbortSignal }): Promise<number | null>
   readFileWindow(
     input: { path: string; cwd?: string; offset: number; limit: number },
     opts?: { signal?: AbortSignal }
   ): Promise<ReadFileWindow | null>
-  fs: {
-    writeFiles(
-      files: Array<{ path: string; content: string | Buffer }>,
-      opts?: { cwd?: string; signal?: AbortSignal }
-    ): Promise<void>
-  }
+  /** Whole content of a regular file up to `maxBytes`, its size when larger, or `null` when it does not exist. */
+  readFileBytes(
+    input: { path: string; cwd?: string; maxBytes: number },
+    opts?: { signal?: AbortSignal }
+  ): Promise<{ bytes: Buffer } | { size: number } | null>
 }
 
 interface ContainerComputerOptions {
@@ -36,24 +32,8 @@ interface ContainerComputerOptions {
 }
 
 // These template strings are standalone `bun -e` programs, not part of this
-// module — they run inside the sandbox with no access to our imports, so
+// module — they run as separate processes with no access to our imports, so
 // they must stay self-contained.
-const FileSizeScript = `
-import { stat } from 'node:fs/promises'
-try {
-  const stats = await stat(process.argv[1])
-  if (!stats.isFile()) {
-    console.error('not a regular file')
-    process.exit(1)
-  }
-  process.stdout.write(String(stats.size))
-} catch (error) {
-  if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') process.exit(44)
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
-}
-`
-
 // Streams the file instead of materializing it: only the requested line window
 // (each line clipped to its first 8 KB, more than the 2000-char render clip can
 // use), the 8 KB binary-sniff prefix, and the total line count come back as JSON.
@@ -116,20 +96,35 @@ try {
 }
 `
 
-const WriteFileScript = `
-import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+// Writes the file to stdout, or only its size when it exceeds the byte limit.
+const ReadFileBytesScript = `
+import { readFile, stat } from 'node:fs/promises'
 const target = process.argv[1]
-await mkdir(dirname(target), { recursive: true })
-await writeFile(target, await Bun.stdin.bytes())
+const maxBytes = Number(process.argv[2])
+try {
+  const stats = await stat(target)
+  if (!stats.isFile()) {
+    console.error('not a regular file')
+    process.exitCode = 1
+  } else if (stats.size > maxBytes) {
+    process.stdout.write(String(stats.size))
+    process.exitCode = 45
+  } else {
+    process.stdout.write(await readFile(target))
+  }
+} catch (error) {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+    process.exitCode = 44
+  } else {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
+}
 `
 
 /**
- * Builds the container Computer facade over the mounted Ankole workspace.
- *
- * The migrated tools were written for a remote `Computer` session. In Ankole
- * the model loop already runs inside Agent Computer, so the same tool contract is satisfied by
- * foreground operations inside the existing bubblewrap filesystem view.
+ * Builds the environment tool executor for one Worker workspace.
+ * File reads use a child process so cancellation can stop blocked reads.
  */
 export function createContainerComputer(
   agentHome: string,
@@ -145,22 +140,6 @@ export function createContainerComputer(
     runCommand(input) {
       return runWorkspaceCommand({ ...input, workerEnv, runtimeEnv }, root, cwd)
     },
-    async fileSize(input, opts) {
-      const target = computerPath(root, cwd, input.path, input.cwd)
-      const result = await runWorkspaceProcess(
-        {
-          commandArgv: [process.execPath, '-e', FileSizeScript, target],
-          workerEnv,
-          runtimeEnv,
-          signal: opts?.signal
-        },
-        root,
-        cwd
-      )
-      if (result.exitCode === 44) return null
-      if (result.exitCode !== 0) throw processError('stat file', target, result)
-      return Number(result.stdout.toString('utf8'))
-    },
     async readFileWindow(input, opts) {
       const target = computerPath(root, cwd, input.path, input.cwd)
       const result = await runWorkspaceProcess(
@@ -173,8 +152,6 @@ export function createContainerComputer(
             String(input.offset),
             String(input.limit)
           ],
-          workerEnv,
-          runtimeEnv,
           signal: opts?.signal
         },
         root,
@@ -189,30 +166,26 @@ export function createContainerComputer(
       }
       return { sniff: Buffer.from(payload.sniff, 'base64'), totalLines: payload.totalLines, lines: payload.lines }
     },
-    fs: {
-      async writeFiles(files, opts) {
-        for (const file of files) {
-          const target = computerPath(root, cwd, file.path, opts?.cwd)
-          const result = await runWorkspaceProcess(
-            {
-              commandArgv: [process.execPath, '-e', WriteFileScript, target],
-              workerEnv,
-              runtimeEnv,
-              stdin: file.content,
-              signal: opts?.signal
-            },
-            root,
-            cwd
-          )
-          if (result.exitCode !== 0) throw processError('write file', target, result)
-        }
-      }
+    async readFileBytes(input, opts) {
+      const target = computerPath(root, cwd, input.path, input.cwd)
+      const result = await runWorkspaceProcess(
+        {
+          commandArgv: [process.execPath, '-e', ReadFileBytesScript, target, String(input.maxBytes)],
+          signal: opts?.signal
+        },
+        root,
+        cwd
+      )
+      if (result.exitCode === 44) return null
+      if (result.exitCode === 45) return { size: Number(result.stdout.toString('utf8')) }
+      if (result.exitCode !== 0) throw processError('read file', target, result)
+      return { bytes: result.stdout }
     }
   }
 }
 
 /**
- * Resolves tool path syntax without deciding which paths the sandbox permits.
+ * Resolves tool path syntax relative to the working directory and the Agent Home.
  */
 function computerPath(agentHome: string, workspaceRoot: string, path: string, cwd?: string): string {
   const base = cwd ? expandComputerPath(agentHome, workspaceRoot, cwd) : workspaceRoot

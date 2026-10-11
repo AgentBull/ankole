@@ -2,10 +2,11 @@ defmodule Ankole.AIAgent.Library do
   @moduledoc """
   Agent library state for AI agents.
 
-  Persona docs and overlays are PG semantic state. Skills themselves are
-  filesystem bundles: builtin skills ship with the app image, and agent-installed
-  skills live under worker-visible storage. `agent_skills` records enablement,
-  registry semantics, and file observations; it is not a file content table.
+  Persona docs and overlays are PG semantic state. Skills themselves are file
+  bundles: builtin skills ship with the app image, and agent-installed skills
+  live in the Agent's drive under `skills/<name>/`, which each Worker
+  materializes into its Agent Home. `agent_skills` records enablement,
+  registry semantics, and manifest hashes; it is not a file content table.
   """
 
   import Ecto.Query, warn: false
@@ -18,6 +19,7 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.AIAgent.Library.SkillLessons
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Ecto.UUIDv7
+  alias Ankole.Files
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -41,15 +43,6 @@ defmodule Ankole.AIAgent.Library do
           files: non_neg_integer()
         }
 
-  @type installed_skill_observation :: %{
-          required(:skill_name) => String.t(),
-          optional(:description) => String.t(),
-          optional(:default_enabled) => boolean(),
-          optional(:tags) => [String.t()],
-          optional(:category) => String.t(),
-          optional(:ankole_runtime) => String.t()
-        }
-
   @doc "Returns the globally unique union of every shipped standalone and Agent Plugin Skill."
   @spec shipped_skill_sources(keyword()) :: {:ok, [map()]} | {:error, term()}
   def shipped_skill_sources(opts \\ []) do
@@ -60,10 +53,10 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
-  Synchronizes builtin skill registry rows for one agent.
+  Synchronizes the Skill catalog from shipped bundles and the Agent's drive.
 
-  Agent-installed rows are preserved. They are refreshed only from explicit
-  worker file observations, not by scanning a control-plane filesystem path.
+  Installed manifests are read while the Agent's drive is locked, like drive
+  mutations. A missing Worker cache cannot change this catalog.
   """
   @spec sync_agent_skills(String.t(), keyword()) :: {:ok, sync_result()} | {:error, term()}
   def sync_agent_skills(agent_uid, opts \\ []) do
@@ -71,51 +64,10 @@ defmodule Ankole.AIAgent.Library do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, sources} <- agent_skill_sources(agent_uid, opts) do
+         {:ok, sources} <- shipped_skill_sources(opts) do
       repo.transact(fn repo -> sync_agent_skills_in_tx(repo, agent_uid, sources, now) end)
     end
   end
-
-  @doc """
-  Replaces the agent-installed skill registry from worker file observations.
-
-  The caller obtains these observations from a worker-local scan. This function
-  deliberately accepts registry metadata, not a filesystem root, so the control
-  plane cannot silently become an NFS scanner.
-  """
-  @spec replace_installed_skill_observations(
-          String.t(),
-          [installed_skill_observation()],
-          keyword()
-        ) ::
-          {:ok, sync_result()} | {:error, term()}
-  def replace_installed_skill_observations(agent_uid, observations, opts \\ [])
-
-  def replace_installed_skill_observations(agent_uid, observations, opts)
-      when is_list(observations) do
-    repo = Keyword.get(opts, :repo, Repo)
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, shipped_sources} <- shipped_skill_sources(opts),
-         {:ok, installed_sources} <- installed_sources_from_observations(observations) do
-      repo.transact(fn repo ->
-        sync_agent_skills_in_tx(
-          repo,
-          agent_uid,
-          %{
-            builtin: shipped_sources,
-            installed: installed_sources,
-            installed_authoritative?: true
-          },
-          now
-        )
-      end)
-    end
-  end
-
-  def replace_installed_skill_observations(_agent_uid, _observations, _opts),
-    do: {:error, :invalid_skill_observations}
 
   @doc """
   Sets or clears one Agent-specific Skill enablement override.
@@ -237,7 +189,7 @@ defmodule Ankole.AIAgent.Library do
     now = DateTime.utc_now(:microsecond)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, sources} <- agent_skill_sources(agent_uid, []),
+         {:ok, sources} <- shipped_skill_sources(),
          {:ok, _soul} <- seed_agent_document_in_tx(repo, agent_uid, "soul"),
          {:ok, _mission} <- seed_agent_document_in_tx(repo, agent_uid, "mission"),
          {:ok, _design} <- seed_agent_document_in_tx(repo, agent_uid, "design"),
@@ -322,21 +274,7 @@ defmodule Ankole.AIAgent.Library do
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
       repo.transact(fn repo ->
         with {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
-          defaults = Keyword.fetch!(opts, :agent_library_defaults)
-          parent_enabled = Keyword.fetch!(opts, :parent_enablement)
-
-          catalog =
-            AgentSkill
-            |> where([skill], skill.agent_uid == ^agent_uid)
-            |> repo.all()
-            |> Map.new(fn skill ->
-              result =
-                if effective_skill_enabled?(skill, defaults, parent_enabled),
-                  do: {:ok, skill},
-                  else: {:error, :skill_not_enabled}
-
-              {skill.skill_name, result}
-            end)
+          catalog = skill_lesson_catalog(repo, agent_uid, opts)
 
           SkillLessons.apply_adds_in_tx(repo, agent_uid, adds, context, now, catalog)
         end
@@ -406,9 +344,9 @@ defmodule Ankole.AIAgent.Library do
 
   Human lessons carry no lease and are never touched by Dreaming.
   """
-  @spec create_skill_lesson(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+  @spec create_skill_lesson(String.t(), String.t(), String.t(), Ankole.ActorRef.t(), keyword()) ::
           {:ok, AgentSkillLesson.t()} | {:error, term()}
-  def create_skill_lesson(agent_uid, skill_name, content, author_uid, opts \\ []) do
+  def create_skill_lesson(agent_uid, skill_name, content, author, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
@@ -417,7 +355,7 @@ defmodule Ankole.AIAgent.Library do
                sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
              {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
              {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-          SkillLessons.create_in_tx(repo, agent_uid, skill_name, content, author_uid)
+          SkillLessons.create_in_tx(repo, agent_uid, skill_name, content, author)
         end
       end)
     end
@@ -508,9 +446,7 @@ defmodule Ankole.AIAgent.Library do
                upsert_agent_document_in_tx(repo, agent_uid, spec, content, %{
                  "source" => "console"
                }) do
-          with :ok <- Ankole.RuntimeEvents.notify_agent_home_projection(repo, agent_uid) do
-            {:ok, agent_document_payload(entry, spec)}
-          end
+          {:ok, agent_document_payload(entry, spec)}
         end
       end)
     end
@@ -593,21 +529,10 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp agent_skill_sources(_agent_uid, opts) do
-    with {:ok, shipped_sources} <- shipped_skill_sources(opts) do
-      {:ok,
-       %{
-         builtin: shipped_sources,
-         installed: [],
-         installed_authoritative?: false
-       }}
-    end
-  end
-
   defp prepare_skill_lesson_write(agent_uid, opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, opts} <- skill_catalog_options(agent_uid, opts),
-         {:ok, sources} <- agent_skill_sources(agent_uid, opts) do
+         {:ok, sources} <- shipped_skill_sources(opts) do
       {:ok, agent_uid, sources, opts}
     end
   end
@@ -631,39 +556,40 @@ defmodule Ankole.AIAgent.Library do
   end
 
   defp sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
-    source_rows =
-      Enum.map(sources.builtin, &source_attrs(&1, "builtin", now)) ++
-        Enum.map(sources.installed, &source_attrs(&1, "installed", now))
+    with :ok <- Files.lock_drive(repo, agent_uid),
+         {:ok, installed} <- SourceReader.read_installed_skill_sources(agent_uid, repo: repo) do
+      source_rows =
+        Enum.map(sources, &source_attrs(&1, "builtin", now)) ++
+          Enum.map(installed, &source_attrs(&1, "installed", now))
 
-    source_names = MapSet.new(source_rows, & &1.skill_name)
+      source_names = Enum.map(source_rows, & &1.skill_name)
 
-    existing_rows =
-      AgentSkill
-      |> where([skill], skill.agent_uid == ^agent_uid)
-      |> repo.all()
+      existing_by_name =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> repo.all()
+        |> Map.new(&{&1.skill_name, &1})
 
-    preserved_installed_rows =
-      if sources.installed_authoritative?,
-        do: [],
-        else: Enum.filter(existing_rows, &(&1.source_kind == "installed"))
+      changed_rows =
+        Enum.reject(source_rows, &source_row_current?(existing_by_name[&1.skill_name], &1))
 
-    existing_by_name = Map.new(existing_rows, &{&1.skill_name, &1})
-
-    changed_rows =
-      Enum.reject(source_rows, &source_row_current?(existing_by_name[&1.skill_name], &1))
-
-    with :ok <- reject_skill_row_conflicts(source_rows ++ preserved_installed_rows),
-         :ok <- upsert_agent_skill_rows(repo, agent_uid, changed_rows, now),
-         {stale_count, _rows} <-
-           stale_agent_skills_query(agent_uid, source_names, sources.installed_authoritative?)
-           |> repo.delete_all() do
-      {:ok,
-       %{
-         changed: changed_rows != [] or stale_count > 0,
-         content_hash: agent_skill_hash(source_rows),
-         skills: length(source_rows),
-         files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
-       }}
+      with :ok <- reject_skill_row_conflicts(source_rows),
+           :ok <- upsert_agent_skill_rows(repo, agent_uid, changed_rows, now),
+           {stale_count, _rows} <-
+             AgentSkill
+             |> where(
+               [skill],
+               skill.agent_uid == ^agent_uid and skill.skill_name not in ^source_names
+             )
+             |> repo.delete_all() do
+        {:ok,
+         %{
+           changed: changed_rows != [] or stale_count > 0,
+           content_hash: agent_skill_hash(source_rows),
+           skills: length(source_rows),
+           files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
+         }}
+      end
     end
   end
 
@@ -676,19 +602,6 @@ defmodule Ankole.AIAgent.Library do
      current.description, current.metadata, current.content_hash} ==
       {row.source_kind, row.agent_plugin_id, row.relative_path, row.default_enabled,
        row.description, row.metadata, row.content_hash}
-  end
-
-  defp stale_agent_skills_query(agent_uid, source_names, true) do
-    AgentSkill
-    |> where([skill], skill.agent_uid == ^agent_uid)
-    |> where([skill], skill.skill_name not in ^MapSet.to_list(source_names))
-  end
-
-  defp stale_agent_skills_query(agent_uid, source_names, false) do
-    AgentSkill
-    |> where([skill], skill.agent_uid == ^agent_uid)
-    |> where([skill], skill.source_kind == "builtin")
-    |> where([skill], skill.skill_name not in ^MapSet.to_list(source_names))
   end
 
   defp source_attrs(source, source_kind, now) do
@@ -772,6 +685,7 @@ defmodule Ankole.AIAgent.Library do
 
   defp agent_skill_entry(%AgentSkill{} = skill, now) do
     %{
+      tenant_id: Repo.tenant_id!(),
       id: UUIDv7.autogenerate(),
       agent_uid: skill.agent_uid,
       skill_name: skill.skill_name,
@@ -1038,152 +952,11 @@ defmodule Ankole.AIAgent.Library do
     SourceReader.read_builtin_skill_file(skill.relative_path, file_path)
   end
 
-  defp read_skill_file(%AgentSkill{source_kind: "installed"} = skill, file_path, opts) do
-    _skill = skill
-    _file_path = file_path
-    _opts = opts
-
-    {:error, :skill_file_not_available_in_control_plane}
-  end
-
-  defp installed_sources_from_observations(observations) do
-    observations
-    |> Enum.map(&installed_source_from_observation/1)
-    |> Ankole.Attrs.collect_results()
-    |> case do
-      {:ok, sources} -> reject_duplicate_observations(sources)
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp installed_source_from_observation(observation) when is_map(observation) do
-    with {:ok, name} <- SourceReader.normalize_skill_name(map_text(observation, :skill_name)),
-         {:ok, description} <- observation_description(observation),
-         {:ok, default_enabled} <- observation_boolean(observation, :default_enabled, true),
-         {:ok, tags} <- observation_tags(observation),
-         {:ok, category} <- observation_optional_text(observation, :category),
-         {:ok, ankole_runtime} <-
-           SourceReader.normalize_ankole_runtime(map_text(observation, :ankole_runtime)) do
-      metadata =
-        %{"tags" => tags}
-        |> put_optional_metadata("category", category)
-        |> put_optional_metadata("ankole-runtime", ankole_runtime)
-
-      source_hash =
-        installed_source_hash(
-          name,
-          description,
-          default_enabled,
-          tags,
-          category,
-          ankole_runtime
-        )
-
-      {:ok,
-       %{
-         name: name,
-         description: description,
-         default_enabled: default_enabled,
-         metadata: metadata,
-         source_hash: source_hash,
-         relative_path: name,
-         files: []
-       }}
-    end
-  end
-
-  defp installed_source_from_observation(_observation), do: {:error, :invalid_skill_observation}
-
-  defp observation_description(observation) do
-    case map_text(observation, :description) do
-      description when is_binary(description) and byte_size(description) > 0 ->
-        {:ok, String.slice(description, 0, 1024)}
-
-      _value ->
-        {:error, :skill_description_missing}
-    end
-  end
-
-  defp observation_boolean(observation, key, default) do
-    case map_value(observation, key) do
-      value when is_boolean(value) -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp observation_tags(observation) do
-    case map_value(observation, :tags) do
-      nil ->
-        {:ok, []}
-
-      tags when is_list(tags) ->
-        tags
-        |> Enum.reduce_while({:ok, []}, fn
-          tag, {:ok, acc} when is_binary(tag) ->
-            case String.trim(tag) do
-              "" -> {:halt, {:error, :invalid_skill_tags}}
-              normalized -> {:cont, {:ok, [normalized | acc]}}
-            end
-
-          _tag, _acc ->
-            {:halt, {:error, :invalid_skill_tags}}
-        end)
-        |> case do
-          {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
-          {:error, _reason} = error -> error
-        end
-
-      _value ->
-        {:error, :invalid_skill_tags}
-    end
-  end
-
-  defp observation_optional_text(observation, key) do
-    case map_value(observation, key) do
-      nil ->
-        {:ok, nil}
-
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:invalid_text, key}}
-          normalized -> {:ok, normalized}
-        end
-
-      _value ->
-        {:error, {:invalid_text, key}}
-    end
-  end
-
-  defp installed_source_hash(
-         name,
-         description,
-         default_enabled,
-         tags,
-         category,
-         ankole_runtime
-       ) do
-    [
-      name,
-      description,
-      to_string(default_enabled),
-      category || "",
-      ankole_runtime || ""
-      | tags
-    ]
-    |> Enum.join(<<0>>)
-    |> SourceReader.hash()
-  end
-
-  defp reject_duplicate_observations(sources) do
-    duplicates =
-      for {name, count} <- Enum.frequencies_by(sources, & &1.name),
-          count > 1,
-          do: name
-
-    case duplicates do
-      [] -> {:ok, sources}
-      _duplicates -> {:error, {:duplicate_skill_name, duplicates}}
+  # An installed Skill lives in the Agent's drive under `skills/<name>/`.
+  defp read_skill_file(%AgentSkill{source_kind: "installed"} = skill, file_path, _opts) do
+    with {:ok, _file, content} <-
+           Ankole.Files.read(skill.agent_uid, "skills/#{skill.relative_path}/#{file_path}") do
+      {:ok, content}
     end
   end
 
@@ -1215,29 +988,6 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp map_text(map, key) do
-    case map_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  defp map_value(map, key) when is_atom(key) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
-
-  defp put_optional_metadata(metadata, _key, nil), do: metadata
-  defp put_optional_metadata(metadata, key, value), do: Map.put(metadata, key, value)
-
   defp active_agent_entry(repo, agent_uid, path) do
     AgentLibraryContainerEntry
     |> where([entry], entry.agent_uid == ^agent_uid)
@@ -1256,7 +1006,7 @@ defmodule Ankole.AIAgent.Library do
         not is_nil(skill) and effective_skill_enabled?(skill, defaults, parent_enabled),
       "content" => lesson.content,
       "author_kind" => lesson.author_kind,
-      "author_uid" => lesson.author_uid,
+      "author" => lesson.author && Map.from_struct(lesson.author),
       "evidence_job_ids" => lesson.evidence_job_ids,
       "checked_release" => lesson.checked_release,
       "review_after" => lesson.review_after && DateTime.to_iso8601(lesson.review_after),
@@ -1304,6 +1054,23 @@ defmodule Ankole.AIAgent.Library do
       "override_enabled" => skill.enabled_override,
       "effective_enabled" => effective
     }
+  end
+
+  defp skill_lesson_catalog(repo, agent_uid, opts) do
+    defaults = Keyword.fetch!(opts, :agent_library_defaults)
+    parent_enabled = Keyword.fetch!(opts, :parent_enablement)
+
+    AgentSkill
+    |> where([skill], skill.agent_uid == ^agent_uid)
+    |> repo.all()
+    |> Map.new(fn skill ->
+      result =
+        if effective_skill_enabled?(skill, defaults, parent_enabled),
+          do: {:ok, skill},
+          else: {:error, :skill_not_enabled}
+
+      {skill.skill_name, result}
+    end)
   end
 
   defp effective_skill_enabled?(%AgentSkill{} = skill, defaults, parent_enabled) do

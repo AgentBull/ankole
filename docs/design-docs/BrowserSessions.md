@@ -17,7 +17,25 @@ Account switching selects a verified identity; it does not introduce another
 contact-matching or account-merging rule. A provider link on a Principal does
 not prove that a particular login used that provider.
 
+## Tenant routing
+
+Browser sessions and their login transactions belong to the site. A login
+transaction records its tenant before credential verification: Console uses the
+privileged tenant, and OAuth uses the validated Client's tenant. Callbacks enter
+that recorded tenant before reading the identity provider or Principal.
+A browser's verified identity can only satisfy a Client in the same tenant.
+
+Browser logout ends every OIDC session associated with that verified browser
+reference, including sessions in other tenants. It does not require a Client ID
+and does not end other browsers. Each tenant's session termination and logout
+notification use the existing OIDC owner in that tenant's context.
+
 ## Durable Session State
+
+Console APIs authenticate with the browser session cookie and CSRF header.
+Each request reads the Console context, Human revocation state, and current
+site administrator membership. `AnkoleWeb.Session.site_admin_session/1` owns
+this check for the shell, API gate, and OIDC session reuse.
 
 Authentication and login continuations use a durable browser session record. The cookie carries an opaque reference
 and generation under the existing AEAD protection. Use the owning context's
@@ -140,7 +158,7 @@ in the same browser without asking users to clear cookies. Keep Principal data,
 identity links, permissions, and work history. Do not convert an old `issued_at`
 into a new authentication event. Normal SSO resumes after fresh authentication.
 
-Do not roll back to cookie-only authentication while issuing credentials that
+Do not roll back to authentication stored only in the cookie while issuing credentials that
 depend on durable revocation. Preserve session termination and pending logout
 delivery records through migration and rollback. Expired records may be removed
 only when their dependent credentials and pending delivery no longer need them.

@@ -14,8 +14,8 @@ use super::client::{Delivery, EventSink, StreamCommand};
 use super::downstream::DownstreamEncoder;
 use super::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use super::spec::{
-    DownstreamKind, HostedImageGenerationSpec, HostedToolsSpec, ModelRequestSpec,
-    PreparedHTTPRequestSpec, RequestLimits, ResponseContext, StreamSpec, UpstreamKind,
+    HostedImageGenerationSpec, HostedToolsSpec, ModelRequestSpec, PreparedHTTPRequestSpec,
+    RequestLimits, ResponseContext, StreamSpec, UpstreamKind,
 };
 
 mod events;
@@ -222,7 +222,7 @@ pub(super) async fn run_hosted_stream(
         }),
     );
     let response_created_at = created_response.get("created_at").cloned();
-    let encoder = DownstreamEncoder::new(spec.downstream);
+    let encoder = DownstreamEncoder;
     let mut delivery = Delivery::new(
         command_rx,
         sink.clone(),
@@ -235,7 +235,6 @@ pub(super) async fn run_hosted_stream(
         "status": 200,
         "headers": [],
         "upstream_kind": "hosted_responses",
-        "downstream_kind": spec.downstream.as_str(),
         "api_resolver": "hosted_responses"
     })));
     let initial_events = vec![
@@ -454,10 +453,7 @@ fn ensure_downstream_event_size(
     encoder: DownstreamEncoder,
     event: &Value,
 ) -> Result<(), StreamError> {
-    let event_limit = match spec.downstream {
-        DownstreamKind::SSE => spec.limits.max_sse_event_bytes,
-        DownstreamKind::WebSocketText => spec.limits.max_websocket_text_bytes,
-    };
+    let event_limit = spec.limits.max_websocket_text_bytes;
     let encoded_bytes = encoder.encode_event(event).bytes.len();
 
     if encoded_bytes <= event_limit && encoded_bytes <= spec.limits.max_pending_bytes {
@@ -1646,21 +1642,7 @@ async fn call_streaming_image(
                 .retry_through_credential_pool());
             }
             None => {
-                for event in parser.finish()? {
-                    if ingest_streaming_image_event(
-                        &mut state,
-                        &event.data,
-                        call.partial_limit,
-                        call.max_image_bytes,
-                        call.public_id,
-                        call.output_index,
-                        call.progress,
-                    )
-                    .await?
-                    {
-                        break;
-                    }
-                }
+                parser.finish()?;
                 break;
             }
         }
@@ -2229,9 +2211,8 @@ mod tests {
                     "idle_ms": 2_000,
                     "total_ms": 5_000
                 },
-                "transport": {"http_versions": ["h1"], "compression": []}
+                "transport": {}
             },
-            "downstream": "sse",
             "response_context": {
                 "model": "main-model",
                 "request": public_request,
@@ -2295,14 +2276,8 @@ mod tests {
         let mut events = Vec::new();
         loop {
             match event_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
-                super::super::StreamEvent::Chunk {
-                    kind: super::super::DownstreamKind::SSE,
-                    bytes,
-                    ..
-                } => {
-                    if let Some(event) = parse_hosted_sse_chunk(&bytes) {
-                        events.push(event);
-                    }
+                super::super::StreamEvent::Chunk { bytes, .. } => {
+                    events.push(sonic_rs::from_slice::<Value>(&bytes).unwrap());
                 }
                 super::super::StreamEvent::Done(summary) => {
                     assert_eq!(summary["reason"], "hosted_completed");
@@ -2423,7 +2398,6 @@ mod tests {
         let spec = json!({
             "api_resolver": "openai_chat_completions",
             "upstream": main_upstream,
-            "downstream": "sse",
             "response_context": {
                 "model": "main-model",
                 "request": public_request,
@@ -2486,14 +2460,8 @@ mod tests {
         let mut public_events = Vec::new();
         let error = loop {
             match event_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
-                super::super::StreamEvent::Chunk {
-                    kind: super::super::DownstreamKind::SSE,
-                    bytes,
-                    ..
-                } => {
-                    if let Some(event) = parse_hosted_sse_chunk(&bytes) {
-                        public_events.push(event);
-                    }
+                super::super::StreamEvent::Chunk { bytes, .. } => {
+                    public_events.push(sonic_rs::from_slice::<Value>(&bytes).unwrap());
                 }
                 super::super::StreamEvent::Error(error) => break error,
                 event => panic!("expected hosted stream chunk or error, got {event:?}"),
@@ -2837,10 +2805,9 @@ mod tests {
             &json!({
                 "api_resolver": "openai_chat_completions",
                 "upstream": upstream,
-                "downstream": "sse",
                 "response_context": {"model": "main-model", "request": {}},
                 "limits": {
-                    "max_sse_event_bytes": 256,
+                    "max_websocket_text_bytes": 256,
                     "max_pending_bytes": 128
                 }
             })
@@ -2853,17 +2820,36 @@ mod tests {
             "response": {"input": "x".repeat(256)}
         });
 
-        let error = ensure_downstream_event_size(
-            &spec,
-            DownstreamEncoder::new(DownstreamKind::SSE),
-            &event,
-        )
-        .unwrap_err();
+        let error = ensure_downstream_event_size(&spec, DownstreamEncoder, &event).unwrap_err();
 
         assert_eq!(error.code, "response_body_too_large");
         assert_eq!(
             to_public_openai_error_json(&error)["code"],
             "response_too_large"
+        );
+    }
+
+    #[test]
+    fn hosted_events_use_the_json_text_limit_and_ignore_the_upstream_sse_limit() {
+        let mut upstream = test_upstream("http://127.0.0.1:1/chat/completions");
+        upstream["kind"] = json!("http_sse");
+        let spec = StreamSpec::from_json(
+            &json!({
+                "api_resolver": "openai_chat_completions", "upstream": upstream,
+                "limits": {"max_sse_event_bytes": 16, "max_websocket_text_bytes": 256,
+                           "max_pending_bytes": 4096}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let small = json!({"type": "response.created", "response": {"input": "x".repeat(32)}});
+        assert!(ensure_downstream_event_size(&spec, DownstreamEncoder, &small).is_ok());
+        let large = json!({"type": "response.created", "response": {"input": "x".repeat(256)}});
+        assert_eq!(
+            ensure_downstream_event_size(&spec, DownstreamEncoder, &large)
+                .unwrap_err()
+                .code,
+            "response_body_too_large"
         );
     }
 
@@ -3209,7 +3195,6 @@ mod tests {
         let spec = json!({
             "api_resolver": "openai_chat_completions",
             "upstream": main_upstream,
-            "downstream": "sse",
             "response_context": {
                 "model": "main-model",
                 "request": public_request,
@@ -3266,9 +3251,7 @@ mod tests {
             .expect("image provider must send a partial image");
 
         handle.read(6).unwrap();
-        let first_events = (0..6)
-            .map(|_| hosted_sse_event(&event_rx).expect("expected hosted SSE event"))
-            .collect::<Vec<_>>();
+        let first_events = (0..6).map(|_| hosted_event(&event_rx)).collect::<Vec<_>>();
         assert_eq!(
             first_events
                 .iter()
@@ -3292,14 +3275,8 @@ mod tests {
         let mut remaining_events = Vec::new();
         loop {
             match event_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
-                super::super::StreamEvent::Chunk {
-                    kind: super::super::DownstreamKind::SSE,
-                    bytes,
-                    ..
-                } => {
-                    if let Some(event) = parse_hosted_sse_chunk(&bytes) {
-                        remaining_events.push(event);
-                    }
+                super::super::StreamEvent::Chunk { bytes, .. } => {
+                    remaining_events.push(sonic_rs::from_slice::<Value>(&bytes).unwrap());
                 }
                 super::super::StreamEvent::Done(summary) => {
                     assert_eq!(summary["reason"], "hosted_completed");
@@ -3577,7 +3554,7 @@ mod tests {
             "url": url,
             "headers": [["content-type", "application/json"]],
             "timeout": {"connect_ms": 2_000, "first_byte_ms": 2_000, "idle_ms": 2_000, "total_ms": 5_000},
-            "transport": {"http_versions": ["h1"], "compression": []}
+            "transport": {}
         })
     }
 
@@ -3629,20 +3606,10 @@ mod tests {
         write!(stream, "{:x}\r\n{}\r\n", body.len(), body).unwrap();
     }
 
-    fn hosted_sse_event(event_rx: &mpsc::Receiver<super::super::StreamEvent>) -> Option<Value> {
+    fn hosted_event(event_rx: &mpsc::Receiver<super::super::StreamEvent>) -> Value {
         match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
-            super::super::StreamEvent::Chunk {
-                kind: super::super::DownstreamKind::SSE,
-                bytes,
-                ..
-            } => parse_hosted_sse_chunk(&bytes),
-            event => panic!("expected hosted SSE chunk, got {event:?}"),
+            super::super::StreamEvent::Chunk { bytes, .. } => sonic_rs::from_slice(&bytes).unwrap(),
+            event => panic!("expected hosted JSON text chunk, got {event:?}"),
         }
-    }
-
-    fn parse_hosted_sse_chunk(bytes: &[u8]) -> Option<Value> {
-        let chunk = String::from_utf8(bytes.to_vec()).unwrap();
-        let data = chunk.lines().find_map(|line| line.strip_prefix("data: "))?;
-        (data != "[DONE]").then(|| sonic_rs::from_str(data).unwrap())
     }
 }

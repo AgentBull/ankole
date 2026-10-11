@@ -1,6 +1,6 @@
 defmodule Ankole.BrowserSessions.Session do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
 

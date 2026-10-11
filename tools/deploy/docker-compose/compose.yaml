@@ -2,17 +2,30 @@ name: ankole
 
 x-control-plane-environment: &control-plane-environment
   ANKOLE_SECRET_BASE: ${ANKOLE_SECRET_BASE:?Set ANKOLE_SECRET_BASE in .env}
+  # Distributed Erlang cookie. Every pull of a published control-plane image
+  # holds the same built-in cookie, so each deployment sets its own.
+  RELEASE_COOKIE: ${RELEASE_COOKIE:?Set RELEASE_COOKIE in .env}
   DATABASE_URL: ecto://ankole:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgresql:5432/ankole
   PHX_SERVER: "true"
   PHX_HOST: ${ANKOLE_HOST:?Set ANKOLE_HOST in .env}
+  ANKOLE_SITE_ADMIN_CONSOLE_PATH: ${ANKOLE_SITE_ADMIN_CONSOLE_PATH:-/site-admin-console}
   PORT: "4000"
   POOL_SIZE: ${ANKOLE_DATABASE_POOL_SIZE:-10}
   ANKOLE_LOG_LEVEL: ${ANKOLE_LOG_LEVEL:-info}
-  ANKOLE_LOG_FORMAT: json
   ANKOLE_LIBRARY_ROOT: /app/app/library
   ANKOLE_AI_GATEWAY_BASE_URL: http://control-plane:4000/api/v1/ai-gateway
-  ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: tcp://0.0.0.0:6010
   ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN: http://control-plane:4000
+  # Agent drives and attachments. The directory is the files_data volume.
+  ANKOLE_FILES_STORE: fs
+  ANKOLE_FILES_FS_ROOT: /var/lib/ankole/files
+  # The control plane creates one Worker container per Agent through the
+  # Docker socket. The image is the Worker of the same release, built into
+  # the control-plane image. Worker containers join the workers network: they
+  # reach the control plane and the internet, but not PostgreSQL, which is
+  # only on the internal backend network.
+  ANKOLE_WORKER_PROVIDERS_FILE: /etc/ankole/worker-providers.yaml
+  ANKOLE_WORKER_INSTALLATION: ${ANKOLE_WORKER_INSTALLATION:-ankole}
+  ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT: ws://control-plane:4000/runtime-fabric/worker
 
 x-logging: &default-logging
   driver: json-file
@@ -63,65 +76,51 @@ services:
     networks:
       - backend
 
-  bootstrap-worker-auth-key:
-    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
-    pull_policy: always
+  migrate-agent-homes:
+    image: docker:29-cli
     restart: "no"
-    command:
-      - /app/bin/bootstrap-worker-auth-key
+    entrypoint: [sh, /migrate-agent-homes.sh]
     environment:
-      <<: *control-plane-environment
-      ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?Set ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY in .env}
+      LEGACY_VOLUME: ${COMPOSE_PROJECT_NAME:-ankole}_agents_data
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-ankole}
+      WORKER_INSTALLATION: ${ANKOLE_WORKER_INSTALLATION:-ankole}
+      WORKER_PROVIDER: docker
+      MIGRATION_IMAGE: docker:29-cli
+    volumes:
+      - ${ANKOLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - ./migrate-agent-homes.sh:/migrate-agent-homes.sh:ro
+    network_mode: none
+    # The migration reads the existing Agents from PostgreSQL.
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgresql:
+        condition: service_healthy
     logging: *default-logging
-    networks:
-      - backend
 
   control-plane:
     image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
     pull_policy: always
     restart: unless-stopped
     environment: *control-plane-environment
+    # The control plane runs as user ankole; this group gives it the Docker
+    # socket, which is equal to root on the host.
+    group_add:
+      - ${ANKOLE_DOCKER_GID:?Set ANKOLE_DOCKER_GID in .env to the group of the Docker socket}
+    volumes:
+      - files_data:/var/lib/ankole/files
+      - ${ANKOLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - ./worker-providers.yaml:/etc/ankole/worker-providers.yaml:ro
     depends_on:
-      bootstrap-worker-auth-key:
+      migrate:
+        condition: service_completed_successfully
+      migrate-agent-homes:
         condition: service_completed_successfully
     expose:
       - "4000"
-      - "6010"
     logging: *default-logging
     networks:
       - backend
       - frontend
-
-  worker:
-    image: ${ANKOLE_WORKER_IMAGE:-ghcr.io/agentbull/ankole-agent-computer-worker:main-latest}
-    pull_policy: always
-    restart: unless-stopped
-    environment:
-      WORKER_ID: ${ANKOLE_WORKER_ID:-worker-local-1}
-      # ws:// selects the Worker Channel; tcp://control-plane:6010 keeps a
-      # Worker image on ZeroMQ until it switches.
-      ANKOLE_RUNTIME_FABRIC_ENDPOINT: ${ANKOLE_RUNTIME_FABRIC_ENDPOINT:-ws://control-plane:4000/runtime-fabric/worker}
-      ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?Set ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY in .env}
-      ANKOLE_AGENTS_ROOT: /agents
-      ANKOLE_MAX_CONCURRENT_TURNS: ${ANKOLE_MAX_CONCURRENT_TURNS:-9}
-      ANKOLE_LOG_LEVEL: ${ANKOLE_LOG_LEVEL:-info}
-      ANKOLE_LOG_FORMAT: json
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - seccomp=unconfined
-      - systempaths=unconfined
-    volumes:
-      - agents_data:/agents
-    depends_on:
-      control-plane:
-        condition: service_started
-    logging: *default-logging
-    networks:
-      - backend
+      - workers
 
   caddy:
     image: caddy:2-alpine
@@ -146,7 +145,7 @@ services:
 
 volumes:
   postgresql_data:
-  agents_data:
+  files_data:
   caddy_data:
   caddy_config:
 
@@ -154,3 +153,4 @@ networks:
   backend:
     internal: true
   frontend:
+  workers:

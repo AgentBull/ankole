@@ -34,12 +34,20 @@ defmodule Ankole.Observability.Trace do
   @spec trace_attributes(Provider.trace_context()) :: map()
   def trace_attributes(context) do
     %{}
+    |> put_present("ankole.tenant.id", Map.get(context, :tenant_id))
+    |> put_present("ankole.tenant.slug", Map.get(context, :tenant_slug))
     |> put_present("ankole.principal.uid", context.principal_uid)
     |> put_present("user.id", context.user_id)
     |> put_present("ankole.principal.type", context.principal_type)
     |> put_present("session.id", context.session_id)
     |> put_present("gen_ai.conversation.id", context.session_id)
     |> put_present("ankole.actor_event.id", context.actor_event_id)
+  end
+
+  @doc "Adds the durable tenant identity when a root span starts."
+  def with_tenant(context) do
+    tenant = Ankole.Repo.get!(Ankole.Tenants.Tenant, Ankole.Repo.tenant_id!())
+    Map.merge(context, %{tenant_id: tenant.id, tenant_slug: tenant.slug})
   end
 
   @doc """

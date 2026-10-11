@@ -1,6 +1,6 @@
-import { recordValue } from '@agentbull/active-support'
 import type { CreatableComboboxOption } from '@ankole/uikit'
 import type {
+  AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
@@ -63,120 +63,41 @@ export function providersWithCapability(
   return providers.filter(provider => capabilitiesByKind.get(provider.provider_kind)?.includes(capability))
 }
 
-/**
- * Extracts known model ids for one configured provider from the OpenRouter-shaped
- * AIGateway catalog. Capability metadata narrows mixed catalogs, while entries
- * with incomplete metadata remain selectable for custom/private providers.
- */
+/** Lists typed catalog models for one provider and model profile. */
 export function modelOptionsForProfile(
-  catalog: unknown,
+  catalog: AIGatewayModelCatalogEntry[],
   providerID: string,
   profile: string
 ): CreatableComboboxOption[] {
-  const capability = profileCapability(profile)
-
-  return modelOptions(catalog, providerID, entry => {
-    const inferred = inferredCapability(entry)
-    const matchesCapability = inferred === capability || inferred === 'unknown'
-    return matchesCapability && (profile !== 'vision_fallback' || supportsImageInput(entry) !== false)
-  })
+  return catalogOptions(
+    catalog,
+    providerID,
+    entry => entry.capability === profileCapability(profile) && (profile !== 'vision_fallback' || entry.image_input)
+  )
 }
 
 export type BrainModelCatalogKind = 'embedding' | 'rerank' | 'llm'
 
-/** Suggests catalog models for one Brain model slot, matched by inferred capability. */
+/** Lists typed catalog models for one Brain model slot. */
 export function modelOptionsForBrainModel(
-  catalog: unknown,
+  catalog: AIGatewayModelCatalogEntry[],
   providerID: string,
   kind: BrainModelCatalogKind
 ): CreatableComboboxOption[] {
-  return modelOptions(catalog, providerID, entry => {
-    const inferred = inferredCapability(entry)
-    return inferred === kind || inferred === 'unknown'
-  })
+  return catalogOptions(catalog, providerID, entry => entry.capability === kind)
 }
 
-function modelOptions(
-  catalog: unknown,
+function catalogOptions(
+  catalog: AIGatewayModelCatalogEntry[],
   providerID: string,
-  visible: (entry: CatalogEntry) => boolean
+  visible: (entry: AIGatewayModelCatalogEntry) => boolean
 ): CreatableComboboxOption[] {
-  if (!providerID) return []
-
-  const prefix = `${providerID}/`
-  const visibleEntries = catalogEntries(catalog).filter(entry => entry.id.startsWith(prefix) && visible(entry))
   const options = new Map<string, CreatableComboboxOption>()
-
-  for (const entry of visibleEntries) {
-    const value = entry.id.slice(prefix.length)
+  for (const entry of catalog.filter(entry => entry.provider_id === providerID && visible(entry))) {
+    const value = entry.model
     if (!value || options.has(value)) continue
-
     const label = entry.name || value
-    options.set(value, {
-      value,
-      label,
-      description: label === value ? entry.description : value
-    })
+    options.set(value, { value, label, description: label === value ? entry.description : value })
   }
-
   return [...options.values()]
-}
-
-type CatalogEntry = {
-  id: string
-  name?: string
-  description?: string
-  architecture?: Record<string, unknown>
-  supportedParameters: string[]
-}
-
-function catalogEntries(catalog: unknown): CatalogEntry[] {
-  const data = recordValue(catalog)?.data
-  if (!Array.isArray(data)) return []
-
-  return data.flatMap(raw => {
-    const entry = recordValue(raw)
-    if (!entry || typeof entry.id !== 'string') return []
-
-    return [
-      {
-        id: entry.id,
-        name: typeof entry.name === 'string' ? entry.name : undefined,
-        description: typeof entry.description === 'string' ? entry.description : undefined,
-        architecture: recordValue(entry.architecture) ?? undefined,
-        supportedParameters: stringArray(entry.supported_parameters)
-      }
-    ]
-  })
-}
-
-type CatalogCapability = ModelProfileCapability | 'embedding' | 'rerank' | 'other' | 'unknown'
-
-function inferredCapability(entry: CatalogEntry): CatalogCapability {
-  const outputModalities = stringArray(entry.architecture?.output_modalities)
-
-  // Embedding and rerank models stay out of every profile list: they fill the
-  // instance-wide Brain model slots, which suggest them by this class.
-  if (outputModalities.includes('embeddings') || entry.supportedParameters.includes('encoding_format')) {
-    return 'embedding'
-  }
-
-  if (entry.supportedParameters.includes('query') && entry.supportedParameters.includes('documents')) {
-    return 'rerank'
-  }
-
-  if (outputModalities.includes('image')) return 'image_generate'
-  if (outputModalities.includes('text')) return 'llm'
-  if (outputModalities.length > 0) return 'other'
-  return 'unknown'
-}
-
-function supportsImageInput(entry: CatalogEntry): boolean | undefined {
-  const inputModalities = stringArray(entry.architecture?.input_modalities)
-  if (inputModalities.length === 0) return undefined
-  return inputModalities.includes('image')
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }

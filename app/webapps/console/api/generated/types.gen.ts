@@ -74,8 +74,6 @@ export type ScheduledEventItem = {
   cron_fire_slot_at: string | null
   cron_schedule_id: string | null
   due_at: string
-  fire_attempts: number
-  fire_claimed_at: string | null
   fired_at: string | null
   id: number
   idempotency_key: string
@@ -87,7 +85,6 @@ export type ScheduledEventItem = {
   last_fire_error: {
     [key: string]: unknown
   }
-  oban_job_id: number | null
   origin_ai_message_id: string | null
   provider_thread_id: string | null
   requested_at: string
@@ -98,7 +95,7 @@ export type ScheduledEventItem = {
   source_provenance: {
     [key: string]: unknown
   }
-  status: 'scheduled' | 'firing' | 'fired' | 'cancelled' | 'failed'
+  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
   timezone: string
   tool_call_id: string | null
   updated_at: string
@@ -168,16 +165,6 @@ export type BrainTakeResolveRequest = {
   resolved_quality: 'correct' | 'incorrect' | 'partial' | 'unresolvable'
   resolved_unit?: string | null
   resolved_value?: number | null
-}
-
-/**
- * WorkerFileListData
- */
-export type WorkerFileListData = {
-  entries: Array<WorkerFileEntry>
-  path: string
-  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-  truncated: boolean
 }
 
 /**
@@ -282,11 +269,26 @@ export type OidcClientSecretResponse = {
 }
 
 /**
+ * WorkerProviderAssignRequest
+ */
+export type WorkerProviderAssignRequest = {
+  provider_id: string
+}
+
+/**
  * BackgroundAgentJobTurnPlanStep
  */
 export type BackgroundAgentJobTurnPlanStep = {
   status: 'pending' | 'in_progress' | 'completed'
   step: string
+}
+
+/**
+ * SiteAdministrationTransferRequest
+ */
+export type SiteAdministrationTransferRequest = {
+  site_admin_uid: string
+  tenant_id: string
 }
 
 /**
@@ -321,6 +323,7 @@ export type AgentUpdateRequest = {
   avatar_url?: string | null
   display_name?: string
   group_memory_disclosure_mode?: 'strict' | 'relaxed'
+  handle?: string
   options?: {
     [key: string]: unknown
   }
@@ -421,16 +424,6 @@ export type AutomationJobRunItem = {
 }
 
 /**
- * WorkerFileEntry
- */
-export type WorkerFileEntry = {
-  kind: 'file' | 'directory' | 'other'
-  modified_unix_ms: number
-  relative_path: string
-  size: number
-}
-
-/**
  * WorkerEnvListResponse
  */
 export type WorkerEnvListResponse = {
@@ -479,17 +472,6 @@ export type AiGatewayConversationListResponse = {
 }
 
 /**
- * WorkerFileDeleteResponse
- */
-export type WorkerFileDeleteResponse = {
-  deleted_file: {
-    deleted: boolean
-    relative_path: string
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-  }
-}
-
-/**
  * IdentityProviderSyncRunItem
  */
 export type IdentityProviderSyncRunItem = {
@@ -511,7 +493,7 @@ export type DirectorySnapshot = {
   provider_id: string
   review_reason: string | null
   reviewed_at: string | null
-  reviewed_by: string | null
+  reviewed_by: ConsoleActorRef | null
   revision: number
   scope_fingerprint: string | null
   snapshot_fingerprint: string | null
@@ -524,6 +506,18 @@ export type DirectorySnapshot = {
 export type ConsoleReadinessProvider = {
   complete: boolean
   provider_id: string | null
+}
+
+/**
+ * AIGatewayModelCatalogEntry
+ */
+export type AiGatewayModelCatalogEntry = {
+  capability: 'llm' | 'embedding' | 'rerank' | 'image_generate' | 'other'
+  description: string
+  image_input: boolean
+  model: string
+  name: string
+  provider_id: string
 }
 
 /**
@@ -714,6 +708,14 @@ export type IdentityProviderListResponse = {
 }
 
 /**
+ * TenantListResponse
+ */
+export type TenantListResponse = {
+  brain_packs: Array<string>
+  tenants: Array<Tenant>
+}
+
+/**
  * LogoutDeliveriesResponse
  */
 export type LogoutDeliveriesResponse = {
@@ -818,6 +820,7 @@ export type PrincipalItem = {
   avatar_url?: string | null
   display_name?: string | null
   email?: string | null
+  handle?: string | null
   has_external_identity: boolean
   inserted_at: string
   local_credential?: PrincipalLocalCredential
@@ -840,6 +843,19 @@ export type AgentLibraryDocumentWriteRequest = {
  */
 export type BrainPromotionResultResponse = {
   result: JsonValue
+}
+
+/**
+ * AgentFileEntry
+ */
+export type AgentFileEntry = {
+  content_type: string
+  path: string
+  signal_channel_id: string | null
+  size: number
+  source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console'
+  source_entry_id: string | null
+  updated_at: string
 }
 
 /**
@@ -915,7 +931,7 @@ export type AiGatewayConversationItem = {
  */
 export type BrainPageFact = {
   audience_scope: string
-  author_uid?: string | null
+  author?: ConsoleActorRef | null
   claim: string
   confidence?: number | null
   expired_at?: string | null
@@ -1068,8 +1084,8 @@ export type BrainDreamResponse = {
  */
 export type AgentSkillLessonItem = {
   agent_plugin_id: string | null
+  author: ConsoleActorRef | null
   author_kind: 'dreaming' | 'human'
-  author_uid: string | null
   checked_release: string | null
   content: string
   created_at: string
@@ -1181,6 +1197,27 @@ export type BackgroundAgentJobListResponse = {
 }
 
 /**
+ * WorkerProvider
+ */
+export type WorkerProvider = {
+  agent_count: number
+  /**
+   * The original YAML, including comments.
+   */
+  config: string
+  /**
+   * Stored credentials are masked.
+   */
+  credentials: {
+    [key: string]: string
+  }
+  display_name: string
+  is_default: boolean
+  kind: string
+  provider_id: string
+}
+
+/**
  * BackgroundAgentJobItem
  */
 export type BackgroundAgentJobItem = {
@@ -1231,7 +1268,6 @@ export type BackgroundAgentJobItem = {
 export type BrainRecallResult = {
   chunks: Array<BrainRecallChunk>
   claims: Array<BrainRecallClaim>
-  sanitized_count: number
 }
 
 /**
@@ -1260,8 +1296,8 @@ export type AppConfigurationItem = {
   pattern?: string | null
   pattern_id?: string | null
   present: boolean
-  scope: 'scoped' | 'global'
-  source: 'default' | 'global' | 'missing' | 'pattern' | 'error'
+  scope: 'global' | 'tenant'
+  source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
   value?: JsonValue
 }
 
@@ -1336,7 +1372,7 @@ export type BackgroundAgentJobListItem = {
 export type WorkerEnvUpdateRequest = {
   description?: string | null
   secret?: boolean
-  value?: JsonValue
+  value?: string
 }
 
 /**
@@ -1367,7 +1403,7 @@ export type AgentLibraryDocumentResponse = {
 export type AccessHistoryItem = {
   access_version: number
   action: string
-  actor_uid: string | null
+  actor: ConsoleActorRef | null
   details: JsonValue
   id: string
   inserted_at: string
@@ -1407,6 +1443,14 @@ export type BackgroundAgentJobTurnProgress = {
 }
 
 /**
+ * AgentFileFolder
+ */
+export type AgentFileFolder = {
+  name: string
+  path: string
+}
+
+/**
  * PrincipalLocalCredential
  */
 export type PrincipalLocalCredential = {
@@ -1435,6 +1479,21 @@ export type ScheduleCronUpdateRequest = {
 }
 
 /**
+ * AgentFileListResponse
+ */
+export type AgentFileListResponse = {
+  file_listing: {
+    files: Array<AgentFileEntry>
+    folders: Array<AgentFileFolder>
+    path: string
+    /**
+     * True when the folder has more folders or files than the listing shows
+     */
+    truncated: boolean
+  }
+}
+
+/**
  * ModelProfilesResponse
  */
 export type ModelProfilesResponse = {
@@ -1442,6 +1501,15 @@ export type ModelProfilesResponse = {
     [key: string]: unknown
   }
   provider_hosted: ProviderHostedCapabilities
+}
+
+/**
+ * TenantCreateRequest
+ */
+export type TenantCreateRequest = {
+  brain_packs?: Array<string>
+  display_name: string
+  slug: string
 }
 
 /**
@@ -1553,23 +1621,19 @@ export type AgentLibrarySkillCapabilityItem = {
 }
 
 /**
- * WorkerFileUploadResponse
- */
-export type WorkerFileUploadResponse = {
-  uploaded_file: {
-    relative_path: string
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-    size: number
-    xxh3_128?: string | null
-  }
-}
-
-/**
  * SignalAdapterFieldRequirement
  */
 export type SignalAdapterFieldRequirement = {
   path: string
   value: JsonValue
+}
+
+/**
+ * ConsoleActorRef
+ */
+export type ConsoleActorRef = {
+  tenant_id: string
+  uid: string
 }
 
 /**
@@ -1608,21 +1672,21 @@ export type BrainObjectShowResponse = {
  * AgentComputerWorkerItem
  */
 export type AgentComputerWorkerItem = {
+  agent_uid: string
   capacity: {
     [key: string]: unknown
   }
-  inserted_at: string
+  drain_reason?: string | null
+  generation?: string | null
+  image?: string | null
+  last_error?: string | null
   last_worker_heartbeat_at?: string | null
   load: {
     [key: string]: unknown
   }
-  started_at?: string | null
-  status: 'ready' | 'stale' | 'draining' | 'stopped'
-  stop_reason?: string | null
-  stopped_at?: string | null
-  updated_at: string
-  version: string
-  worker_id: string
+  provider_id?: string | null
+  state: 'absent' | 'starting' | 'ready' | 'stale' | 'paused' | 'draining' | 'deleting'
+  state_changed_at?: string | null
 }
 
 /**
@@ -1630,9 +1694,10 @@ export type AgentComputerWorkerItem = {
  */
 export type AgentItem = {
   avatar_url?: string | null
-  created_by_principal_uid?: string | null
+  created_by?: ConsoleActorRef | null
   display_name: string
   group_memory_disclosure_mode: 'strict' | 'relaxed'
+  handle: string
   inserted_at: string
   options: {
     [key: string]: unknown
@@ -1643,6 +1708,7 @@ export type AgentItem = {
   type: 'ai_colleague'
   uid: string
   updated_at: string
+  worker_provider_id?: string | null
 }
 
 /**
@@ -1673,6 +1739,18 @@ export type AgentSessionListResponse = {
  */
 export type BrainObjectRestoreRequest = {
   slug: string
+}
+
+/**
+ * WorkerProviderCreateRequest
+ */
+export type WorkerProviderCreateRequest = {
+  config: string
+  credentials?: WorkerProviderCredentialsInput
+  display_name: string
+  is_default?: boolean
+  kind: string
+  provider_id: string
 }
 
 /**
@@ -1740,6 +1818,13 @@ export type IdentityMappingWriteRequest = {
 }
 
 /**
+ * WorkerProviderKindsResponse
+ */
+export type WorkerProviderKindsResponse = {
+  worker_provider_kinds: Array<WorkerProviderKind>
+}
+
+/**
  * ConsoleReadinessAgent
  */
 export type ConsoleReadinessAgent = {
@@ -1783,6 +1868,14 @@ export type ControlPlanePluginListResponse = {
 }
 
 /**
+ * AgentFileUploadRequest
+ */
+export type AgentFileUploadRequest = {
+  file: Blob | File
+  path: string
+}
+
+/**
  * AgentSkillLessonsResponse
  */
 export type AgentSkillLessonsResponse = {
@@ -1814,7 +1907,7 @@ export type DirectoryEventItem = {
   provider_time: string | null
   reason: string | null
   review_reason: string | null
-  reviewed_by: string | null
+  reviewed_by: ConsoleActorRef | null
   status: string
 }
 
@@ -1823,23 +1916,6 @@ export type DirectoryEventItem = {
  */
 export type BrainHealthResponse = {
   health: BrainHealth
-}
-
-/**
- * WorkerFileListResponse
- */
-export type WorkerFileListResponse = {
-  file_listing: WorkerFileListData
-}
-
-/**
- * WorkerFileMoveRequest
- */
-export type WorkerFileMoveRequest = {
-  from_path: string
-  overwrite?: boolean
-  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-  to_path: string
 }
 
 /**
@@ -1913,6 +1989,29 @@ export type ScheduleCronWriteRequest = {
 }
 
 /**
+ * WorkerProviderCredentialsInput
+ *
+ * Text replaces the stored credential. An empty string or an absent key keeps it. Null removes an optional credential.
+ */
+export type WorkerProviderCredentialsInput = {
+  [key: string]: string | null
+}
+
+/**
+ * AIGatewayModelCatalogResponse
+ */
+export type AiGatewayModelCatalogResponse = {
+  models: Array<AiGatewayModelCatalogEntry>
+}
+
+/**
+ * WorkerProviderCheckResponse
+ */
+export type WorkerProviderCheckResponse = {
+  available: boolean
+}
+
+/**
  * WorkerEnvResponse
  */
 export type WorkerEnvResponse = {
@@ -1980,6 +2079,13 @@ export type AiGatewayChatGptLoginResponse = {
 }
 
 /**
+ * AgentFileUploadResponse
+ */
+export type AgentFileUploadResponse = {
+  uploaded_file: AgentFileEntry
+}
+
+/**
  * BrainObjectForkRequest
  */
 export type BrainObjectForkRequest = {
@@ -1990,7 +2096,7 @@ export type BrainObjectForkRequest = {
  * BrainObjectVersion
  */
 export type BrainObjectVersion = {
-  author_uid?: string | null
+  author?: ConsoleActorRef | null
   body: string
   id: string
   meta: {
@@ -2090,7 +2196,7 @@ export type BrainContradictionDecideRequest = {
  */
 export type BrainPageTimeline = {
   audience_scope: string
-  author_uid?: string | null
+  author?: ConsoleActorRef | null
   date: string
   detail?: string | null
   event_object_slug?: string | null
@@ -2107,6 +2213,26 @@ export type TokenQuotaUsage = {
   used_tokens: number
   window_ends_at: string
   window_started_at: string
+}
+
+/**
+ * WorkerProviderListResponse
+ */
+export type WorkerProviderListResponse = {
+  worker_providers: Array<WorkerProvider>
+}
+
+/**
+ * Tenant
+ */
+export type Tenant = {
+  deleting_at: string | null
+  display_name: string
+  id: string
+  inserted_at: string
+  slug: string
+  suspended_at: string | null
+  updated_at: string
 }
 
 /**
@@ -2132,10 +2258,25 @@ export type BrainRecallClaim = {
 }
 
 /**
+ * AgentFileMoveResponse
+ */
+export type AgentFileMoveResponse = {
+  moved_files: number
+}
+
+/**
  * BrainSearchPreviewResponse
  */
 export type BrainSearchPreviewResponse = {
   result: BrainRecallResult
+}
+
+/**
+ * WorkerProviderAssignResponse
+ */
+export type WorkerProviderAssignResponse = {
+  agent_uid: string
+  provider_id: string
 }
 
 /**
@@ -2151,17 +2292,11 @@ export type ControlPlanePluginWriteRequest = {
  */
 export type AiGatewayProviderKindItem = {
   capabilities: Array<string>
-  capability_specs: Array<{
-    [key: string]: unknown
-  }>
-  connection_options: Array<string>
-  credential_options: Array<string>
   default_base_url: string | null
   label: {
     [key: string]: string
   }
   provider_kind: string
-  runtime_provider_options: Array<string>
   settings: Array<AiGatewayProviderSetting>
 }
 
@@ -2191,12 +2326,25 @@ export type DirectoryApproveRequest = {
 }
 
 /**
+ * WorkerProviderKind
+ */
+export type WorkerProviderKind = {
+  credentials: {
+    [key: string]: {
+      required: boolean
+    }
+  }
+  example: string
+  kind: string
+}
+
+/**
  * BrainClaim
  */
 export type BrainClaim = {
   active?: boolean | null
   audience_scope: string
-  author_uid?: string | null
+  author?: ConsoleActorRef | null
   claim: string
   claim_type: 'fact' | 'take'
   confidence?: number | null
@@ -2244,7 +2392,7 @@ export type AutomationJobItem = {
   agent_uid: string
   cancelled_at?: string | null
   created_at: string
-  directory_path: string
+  drive_prefix: string
   expires_at?: string | null
   id: number
   label: string
@@ -2272,7 +2420,7 @@ export type WorkReviewResponse = {
 export type BrainPageTake = {
   active?: boolean | null
   audience_scope: string
-  author_uid?: string | null
+  author?: ConsoleActorRef | null
   claim: string
   graded_at?: string | null
   graded_confidence?: number | null
@@ -2294,16 +2442,12 @@ export type BrainPageTake = {
  * WorkerEnvItem
  */
 export type WorkerEnvItem = {
-  declared_key?: string | null
   description?: string | null
-  editable: boolean
-  error?: string | null
-  kind: 'declared' | 'custom'
   name: string
   present: boolean
   secret: boolean
-  source: 'default' | 'global' | 'agent' | 'missing' | 'error'
-  value?: JsonValue
+  source: 'global' | 'tenant' | 'agent' | 'missing'
+  value?: string
 }
 
 /**
@@ -2326,7 +2470,7 @@ export type BrainObjectRollbackRequest = {
  */
 export type WorkerEnvDecryptionValue = {
   name: string
-  value: JsonValue
+  value: string
 }
 
 /**
@@ -2372,12 +2516,13 @@ export type AgentCreateRequest = {
   avatar_url?: string | null
   display_name: string
   group_memory_disclosure_mode?: 'strict' | 'relaxed'
+  handle: string
   options?: {
     [key: string]: unknown
   }
   owner_principal_uid: string
   role: string
-  uid: string
+  worker_provider_id?: string | null
 }
 
 /**
@@ -2412,7 +2557,6 @@ export type SignalChannelStandingOrdersResponse = {
 export type BrainObjectSummary = {
   deleted_at?: string | null
   effective_date?: string | null
-  emotional_weight?: number | null
   /**
    * True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.
    */
@@ -2473,18 +2617,6 @@ export type AccessReviewPermissions = {
 }
 
 /**
- * WorkerFileMoveResponse
- */
-export type WorkerFileMoveResponse = {
-  moved_file: {
-    from_relative_path: string
-    moved: boolean
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-    to_relative_path: string
-  }
-}
-
-/**
  * SignalDeliveryRequeueRequest
  */
 export type SignalDeliveryRequeueRequest = {
@@ -2524,13 +2656,19 @@ export type ScheduleRunListResponse = {
  */
 export type BrainModelStatus = {
   configured: boolean
-  fallback?: 'ankole_browser'
   model?: string | null
   profile?: string | null
   profile_error?: string | null
   provider_available?: boolean | null
   provider_error?: string | null
   provider_id?: string | null
+}
+
+/**
+ * AgentFileDeleteResponse
+ */
+export type AgentFileDeleteResponse = {
+  deleted_files: number
 }
 
 /**
@@ -2572,6 +2710,7 @@ export type BackgroundAgentJobResponse = {
  * ConsoleApiErrorDetail
  */
 export type ConsoleApiErrorDetail = {
+  line?: number | null
   message: string
   path?: string | null
   [key: string]: unknown
@@ -2594,15 +2733,6 @@ export type SignalChannelStandingOrdersItem = {
   orders?: string | null
   set_by?: string | null
   updated_at?: string | null
-}
-
-/**
- * WorkerFileUploadRequest
- */
-export type WorkerFileUploadRequest = {
-  file: Blob | File
-  path: string
-  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
 }
 
 /**
@@ -2719,10 +2849,27 @@ export type SignalBindingItem = {
 }
 
 /**
+ * WorkerProviderUpdateRequest
+ */
+export type WorkerProviderUpdateRequest = {
+  config?: string
+  credentials?: WorkerProviderCredentialsInput
+  display_name?: string
+  is_default?: boolean
+}
+
+/**
  * AppConfigurationDecryptionResponse
  */
 export type AppConfigurationDecryptionResponse = {
   decrypted_value: AppConfigurationDecryptionValue
+}
+
+/**
+ * TenantResponse
+ */
+export type TenantResponse = {
+  tenant: Tenant
 }
 
 /**
@@ -2807,6 +2954,7 @@ export type PermissionGrantListResponse = {
 export type HumanWorkItem = {
   agent_uid: string
   authorization_kind: string
+  can_reauthorize: boolean
   human_access_version: number | null
   human_uid: string | null
   id: string
@@ -2859,6 +3007,14 @@ export type PermissionGrantCreateRequest = {
    * AuthZ resource glob pattern, for example workspace:**
    */
   resource_pattern: string
+}
+
+/**
+ * TenantUpdateRequest
+ */
+export type TenantUpdateRequest = {
+  display_name?: string
+  slug?: string
 }
 
 /**
@@ -3013,6 +3169,21 @@ export type SignalAdapterPatternValidation = {
   pattern: string
 }
 
+/**
+ * AgentFileMoveRequest
+ */
+export type AgentFileMoveRequest = {
+  from_path: string
+  to_path: string
+}
+
+/**
+ * WorkerProviderResponse
+ */
+export type WorkerProviderResponse = {
+  worker_provider: WorkerProvider
+}
+
 export type AnkoleWebAiGatewayFilesControllerContentData = {
   body?: never
   path: {
@@ -3050,143 +3221,6 @@ export type AnkoleWebAiGatewayFilesControllerContentResponses = {
 export type AnkoleWebAiGatewayFilesControllerContentResponse =
   AnkoleWebAiGatewayFilesControllerContentResponses[keyof AnkoleWebAiGatewayFilesControllerContentResponses]
 
-export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
-  body?: never
-  path: {
-    provider_id: string
-    credential_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteCredentialError =
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors]
-
-export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse =
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses]
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialData = {
-  /**
-   * Credential
-   */
-  body: AiGatewayCredentialWriteRequest
-  path: {
-    provider_id: string
-    credential_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid credential
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialError =
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialErrors]
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialResponse =
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialResponses]
-
-export type AnkoleWebWorkerFileControllerDownloadData = {
-  body?: never
-  path: {
-    worker_id: string
-  }
-  query: {
-    /**
-     * Worker filesystem root
-     */
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-    /**
-     * File path relative to the root
-     */
-    path: string
-  }
-  url: '/api/v1/agent-computer-workers/{worker_id}/files/content'
-}
-
-export type AnkoleWebWorkerFileControllerDownloadErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Worker not ready
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid request
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerFileControllerDownloadError =
-  AnkoleWebWorkerFileControllerDownloadErrors[keyof AnkoleWebWorkerFileControllerDownloadErrors]
-
-export type AnkoleWebWorkerFileControllerDownloadResponses = {
-  /**
-   * File content
-   */
-  200: Blob | File
-}
-
-export type AnkoleWebWorkerFileControllerDownloadResponse =
-  AnkoleWebWorkerFileControllerDownloadResponses[keyof AnkoleWebWorkerFileControllerDownloadResponses]
-
 export type AnkoleWebScheduleControllerPauseCronData = {
   body?: never
   path: {
@@ -3216,13 +3250,9 @@ export type AnkoleWebIdentityProviderControllerIndexData = {
 
 export type AnkoleWebIdentityProviderControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityProviderControllerIndexError =
@@ -3238,87 +3268,6 @@ export type AnkoleWebIdentityProviderControllerIndexResponses = {
 export type AnkoleWebIdentityProviderControllerIndexResponse =
   AnkoleWebIdentityProviderControllerIndexResponses[keyof AnkoleWebIdentityProviderControllerIndexResponses]
 
-export type AnkoleWebControlPlanePluginControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/control-plane-plugins'
-}
-
-export type AnkoleWebControlPlanePluginControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid configuration
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebControlPlanePluginControllerIndexError =
-  AnkoleWebControlPlanePluginControllerIndexErrors[keyof AnkoleWebControlPlanePluginControllerIndexErrors]
-
-export type AnkoleWebControlPlanePluginControllerIndexResponses = {
-  /**
-   * Control Plane Plugins
-   */
-  200: ControlPlanePluginListResponse
-}
-
-export type AnkoleWebControlPlanePluginControllerIndexResponse =
-  AnkoleWebControlPlanePluginControllerIndexResponses[keyof AnkoleWebControlPlanePluginControllerIndexResponses]
-
-export type AnkoleWebControlPlanePluginControllerUpdateData = {
-  /**
-   * Control Plane Plugin configuration
-   */
-  body: ControlPlanePluginWriteRequest
-  path?: never
-  query?: never
-  url: '/api/v1/control-plane-plugins'
-}
-
-export type AnkoleWebControlPlanePluginControllerUpdateErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid configuration
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebControlPlanePluginControllerUpdateError =
-  AnkoleWebControlPlanePluginControllerUpdateErrors[keyof AnkoleWebControlPlanePluginControllerUpdateErrors]
-
-export type AnkoleWebControlPlanePluginControllerUpdateResponses = {
-  /**
-   * Control Plane Plugins
-   */
-  200: ControlPlanePluginListResponse
-}
-
-export type AnkoleWebControlPlanePluginControllerUpdateResponse =
-  AnkoleWebControlPlanePluginControllerUpdateResponses[keyof AnkoleWebControlPlanePluginControllerUpdateResponses]
-
 export type AnkoleWebScheduleControllerCreateCronData = {
   /**
    * Cron schedule
@@ -3333,17 +3282,9 @@ export type AnkoleWebScheduleControllerCreateCronData = {
 
 export type AnkoleWebScheduleControllerCreateCronErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid schedule
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebScheduleControllerCreateCronError =
@@ -3370,17 +3311,9 @@ export type AnkoleWebPrincipalControllerGroupsData = {
 
 export type AnkoleWebPrincipalControllerGroupsErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerGroupsError =
@@ -3395,6 +3328,128 @@ export type AnkoleWebPrincipalControllerGroupsResponses = {
 
 export type AnkoleWebPrincipalControllerGroupsResponse =
   AnkoleWebPrincipalControllerGroupsResponses[keyof AnkoleWebPrincipalControllerGroupsResponses]
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
+  /**
+   * Credential metadata
+   */
+  body: AiGatewayChatGptLoginStartRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login'
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginError =
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/enable'
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderError =
+  AnkoleWebAiGatewayProviderControllerEnableProviderErrors[keyof AnkoleWebAiGatewayProviderControllerEnableProviderErrors]
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderResponse =
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponses[keyof AnkoleWebAiGatewayProviderControllerEnableProviderResponses]
+
+export type AnkoleWebWorkerProviderControllerDeleteData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-providers/{provider_id}'
+}
+
+export type AnkoleWebWorkerProviderControllerDeleteErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerDeleteError =
+  AnkoleWebWorkerProviderControllerDeleteErrors[keyof AnkoleWebWorkerProviderControllerDeleteErrors]
+
+export type AnkoleWebWorkerProviderControllerDeleteResponses = {
+  /**
+   * Deleted
+   */
+  204: void
+}
+
+export type AnkoleWebWorkerProviderControllerDeleteResponse =
+  AnkoleWebWorkerProviderControllerDeleteResponses[keyof AnkoleWebWorkerProviderControllerDeleteResponses]
+
+export type AnkoleWebWorkerProviderControllerUpdateData = {
+  /**
+   * Worker provider
+   */
+  body: WorkerProviderUpdateRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-providers/{provider_id}'
+}
+
+export type AnkoleWebWorkerProviderControllerUpdateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerUpdateError =
+  AnkoleWebWorkerProviderControllerUpdateErrors[keyof AnkoleWebWorkerProviderControllerUpdateErrors]
+
+export type AnkoleWebWorkerProviderControllerUpdateResponses = {
+  /**
+   * Worker provider
+   */
+  200: WorkerProviderResponse
+}
+
+export type AnkoleWebWorkerProviderControllerUpdateResponse =
+  AnkoleWebWorkerProviderControllerUpdateResponses[keyof AnkoleWebWorkerProviderControllerUpdateResponses]
 
 export type AnkoleWebAiGatewayFilesControllerDeleteData = {
   body?: never
@@ -3483,6 +3538,92 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
 
+export type AnkoleWebTenantControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/tenants'
+}
+
+export type AnkoleWebTenantControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerIndexError =
+  AnkoleWebTenantControllerIndexErrors[keyof AnkoleWebTenantControllerIndexErrors]
+
+export type AnkoleWebTenantControllerIndexResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantListResponse
+}
+
+export type AnkoleWebTenantControllerIndexResponse =
+  AnkoleWebTenantControllerIndexResponses[keyof AnkoleWebTenantControllerIndexResponses]
+
+export type AnkoleWebTenantControllerCreateData = {
+  /**
+   * Tenant request
+   */
+  body: TenantCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/site/tenants'
+}
+
+export type AnkoleWebTenantControllerCreateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerCreateError =
+  AnkoleWebTenantControllerCreateErrors[keyof AnkoleWebTenantControllerCreateErrors]
+
+export type AnkoleWebTenantControllerCreateResponses = {
+  /**
+   * Tenant result
+   */
+  201: TenantResponse
+}
+
+export type AnkoleWebTenantControllerCreateResponse =
+  AnkoleWebTenantControllerCreateResponses[keyof AnkoleWebTenantControllerCreateResponses]
+
+export type AnkoleWebWorkerEnvControllerDecryptData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-envs/{name}/decryptions'
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptError =
+  AnkoleWebWorkerEnvControllerDecryptErrors[keyof AnkoleWebWorkerEnvControllerDecryptErrors]
+
+export type AnkoleWebWorkerEnvControllerDecryptResponses = {
+  /**
+   * Decrypted value
+   */
+  200: WorkerEnvDecryptionResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDecryptResponse =
+  AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
+
 export type AnkoleWebBrainControllerListMergeSuggestionsData = {
   body?: never
   path?: never
@@ -3502,36 +3643,32 @@ export type AnkoleWebBrainControllerListMergeSuggestionsResponses = {
 export type AnkoleWebBrainControllerListMergeSuggestionsResponse =
   AnkoleWebBrainControllerListMergeSuggestionsResponses[keyof AnkoleWebBrainControllerListMergeSuggestionsResponses]
 
-export type AnkoleWebAppConfigurationControllerIndexData = {
+export type AnkoleWebAppConfigurationControllerIndexTenantData = {
   body?: never
   path?: never
   query?: never
   url: '/api/v1/app-configurations'
 }
 
-export type AnkoleWebAppConfigurationControllerIndexErrors = {
+export type AnkoleWebAppConfigurationControllerIndexTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAppConfigurationControllerIndexError =
-  AnkoleWebAppConfigurationControllerIndexErrors[keyof AnkoleWebAppConfigurationControllerIndexErrors]
+export type AnkoleWebAppConfigurationControllerIndexTenantError =
+  AnkoleWebAppConfigurationControllerIndexTenantErrors[keyof AnkoleWebAppConfigurationControllerIndexTenantErrors]
 
-export type AnkoleWebAppConfigurationControllerIndexResponses = {
+export type AnkoleWebAppConfigurationControllerIndexTenantResponses = {
   /**
    * AppConfigure entries
    */
   200: AppConfigurationListResponse
 }
 
-export type AnkoleWebAppConfigurationControllerIndexResponse =
-  AnkoleWebAppConfigurationControllerIndexResponses[keyof AnkoleWebAppConfigurationControllerIndexResponses]
+export type AnkoleWebAppConfigurationControllerIndexTenantResponse =
+  AnkoleWebAppConfigurationControllerIndexTenantResponses[keyof AnkoleWebAppConfigurationControllerIndexTenantResponses]
 
 export type AnkoleWebScheduleControllerCancelCheckbackData = {
   body?: never
@@ -3562,13 +3699,9 @@ export type AnkoleWebAuthZGroupControllerIndexData = {
 
 export type AnkoleWebAuthZGroupControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerIndexError =
@@ -3596,17 +3729,9 @@ export type AnkoleWebAuthZGroupControllerCreateData = {
 
 export type AnkoleWebAuthZGroupControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid group
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerCreateError =
@@ -3622,6 +3747,38 @@ export type AnkoleWebAuthZGroupControllerCreateResponses = {
 export type AnkoleWebAuthZGroupControllerCreateResponse =
   AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
 
+export type AnkoleWebAgentFileControllerMoveData = {
+  /**
+   * Move
+   */
+  body: AgentFileMoveRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/file-moves'
+}
+
+export type AnkoleWebAgentFileControllerMoveErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentFileControllerMoveError =
+  AnkoleWebAgentFileControllerMoveErrors[keyof AnkoleWebAgentFileControllerMoveErrors]
+
+export type AnkoleWebAgentFileControllerMoveResponses = {
+  /**
+   * Moved files
+   */
+  200: AgentFileMoveResponse
+}
+
+export type AnkoleWebAgentFileControllerMoveResponse =
+  AnkoleWebAgentFileControllerMoveResponses[keyof AnkoleWebAgentFileControllerMoveResponses]
+
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetData = {
   /**
    * Reset options
@@ -3636,25 +3793,9 @@ export type AnkoleWebPrincipalControllerCreateLocalPasswordResetData = {
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Local sign-in disabled
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid reset
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetError =
@@ -3682,17 +3823,9 @@ export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid condition
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersError =
@@ -3720,13 +3853,9 @@ export type AnkoleWebScheduleControllerIndexCheckbacksData = {
 
 export type AnkoleWebScheduleControllerIndexCheckbacksErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebScheduleControllerIndexCheckbacksError =
@@ -3753,9 +3882,9 @@ export type AnkoleWebAgentControllerResetTokenQuotaData = {
 
 export type AnkoleWebAgentControllerResetTokenQuotaErrors = {
   /**
-   * No token quota to reset
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerResetTokenQuotaError =
@@ -3782,17 +3911,9 @@ export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersData = {
 
 export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersError =
@@ -3822,21 +3943,9 @@ export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersData = {
 
 export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersError =
@@ -3852,6 +3961,33 @@ export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses = 
 export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse =
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses]
 
+export type AnkoleWebAppConfigurationControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/app-configurations'
+}
+
+export type AnkoleWebAppConfigurationControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAppConfigurationControllerIndexError =
+  AnkoleWebAppConfigurationControllerIndexErrors[keyof AnkoleWebAppConfigurationControllerIndexErrors]
+
+export type AnkoleWebAppConfigurationControllerIndexResponses = {
+  /**
+   * AppConfigure entries
+   */
+  200: AppConfigurationListResponse
+}
+
+export type AnkoleWebAppConfigurationControllerIndexResponse =
+  AnkoleWebAppConfigurationControllerIndexResponses[keyof AnkoleWebAppConfigurationControllerIndexResponses]
+
 export type AnkoleWebAiGatewayProviderControllerAddCredentialData = {
   /**
    * Credential
@@ -3861,22 +3997,14 @@ export type AnkoleWebAiGatewayProviderControllerAddCredentialData = {
     provider_id: string
   }
   query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials'
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials'
 }
 
 export type AnkoleWebAiGatewayProviderControllerAddCredentialErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid credential
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAiGatewayProviderControllerAddCredentialError =
@@ -3907,21 +4035,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData 
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideError =
@@ -3981,6 +4097,120 @@ export type AnkoleWebBrainControllerForgetClaimResponses = {
 export type AnkoleWebBrainControllerForgetClaimResponse =
   AnkoleWebBrainControllerForgetClaimResponses[keyof AnkoleWebBrainControllerForgetClaimResponses]
 
+export type AnkoleWebTenantControllerPrivilegedData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/privileged-tenant'
+}
+
+export type AnkoleWebTenantControllerPrivilegedErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerPrivilegedError =
+  AnkoleWebTenantControllerPrivilegedErrors[keyof AnkoleWebTenantControllerPrivilegedErrors]
+
+export type AnkoleWebTenantControllerPrivilegedResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantResponse
+}
+
+export type AnkoleWebTenantControllerPrivilegedResponse =
+  AnkoleWebTenantControllerPrivilegedResponses[keyof AnkoleWebTenantControllerPrivilegedResponses]
+
+export type AnkoleWebTenantControllerTransferData = {
+  /**
+   * Tenant request
+   */
+  body: SiteAdministrationTransferRequest
+  path?: never
+  query?: never
+  url: '/api/v1/site/privileged-tenant'
+}
+
+export type AnkoleWebTenantControllerTransferErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerTransferError =
+  AnkoleWebTenantControllerTransferErrors[keyof AnkoleWebTenantControllerTransferErrors]
+
+export type AnkoleWebTenantControllerTransferResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantResponse
+}
+
+export type AnkoleWebTenantControllerTransferResponse =
+  AnkoleWebTenantControllerTransferResponses[keyof AnkoleWebTenantControllerTransferResponses]
+
+export type AnkoleWebWorkerProviderControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/worker-providers'
+}
+
+export type AnkoleWebWorkerProviderControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerIndexError =
+  AnkoleWebWorkerProviderControllerIndexErrors[keyof AnkoleWebWorkerProviderControllerIndexErrors]
+
+export type AnkoleWebWorkerProviderControllerIndexResponses = {
+  /**
+   * Worker providers
+   */
+  200: WorkerProviderListResponse
+}
+
+export type AnkoleWebWorkerProviderControllerIndexResponse =
+  AnkoleWebWorkerProviderControllerIndexResponses[keyof AnkoleWebWorkerProviderControllerIndexResponses]
+
+export type AnkoleWebWorkerProviderControllerCreateData = {
+  /**
+   * Worker provider
+   */
+  body: WorkerProviderCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/site/worker-providers'
+}
+
+export type AnkoleWebWorkerProviderControllerCreateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerCreateError =
+  AnkoleWebWorkerProviderControllerCreateErrors[keyof AnkoleWebWorkerProviderControllerCreateErrors]
+
+export type AnkoleWebWorkerProviderControllerCreateResponses = {
+  /**
+   * Worker provider
+   */
+  201: WorkerProviderResponse
+}
+
+export type AnkoleWebWorkerProviderControllerCreateResponse =
+  AnkoleWebWorkerProviderControllerCreateResponses[keyof AnkoleWebWorkerProviderControllerCreateResponses]
+
 export type AnkoleWebDirectoryAccessControllerApproveData = {
   /**
    * Snapshot review
@@ -4003,165 +4233,37 @@ export type AnkoleWebDirectoryAccessControllerApproveResponses = {
 export type AnkoleWebDirectoryAccessControllerApproveResponse =
   AnkoleWebDirectoryAccessControllerApproveResponses[keyof AnkoleWebDirectoryAccessControllerApproveResponses]
 
-export type AnkoleWebWorkerFileControllerDeleteData = {
-  body?: never
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData = {
+  /**
+   * Credential strategy
+   */
+  body: AiGatewayCredentialStrategyWriteRequest
   path: {
-    worker_id: string
-  }
-  query: {
-    /**
-     * Worker filesystem root
-     */
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-    /**
-     * Path relative to the root
-     */
-    path: string
-    /**
-     * Required for directories
-     */
-    recursive?: boolean
-  }
-  url: '/api/v1/agent-computer-workers/{worker_id}/files'
-}
-
-export type AnkoleWebWorkerFileControllerDeleteErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Worker not ready
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid request
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerFileControllerDeleteError =
-  AnkoleWebWorkerFileControllerDeleteErrors[keyof AnkoleWebWorkerFileControllerDeleteErrors]
-
-export type AnkoleWebWorkerFileControllerDeleteResponses = {
-  /**
-   * Deleted file
-   */
-  200: WorkerFileDeleteResponse
-}
-
-export type AnkoleWebWorkerFileControllerDeleteResponse =
-  AnkoleWebWorkerFileControllerDeleteResponses[keyof AnkoleWebWorkerFileControllerDeleteResponses]
-
-export type AnkoleWebWorkerFileControllerIndexData = {
-  body?: never
-  path: {
-    worker_id: string
-  }
-  query: {
-    /**
-     * Worker filesystem root
-     */
-    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
-    /**
-     * Directory path relative to the root
-     */
-    path?: string
-  }
-  url: '/api/v1/agent-computer-workers/{worker_id}/files'
-}
-
-export type AnkoleWebWorkerFileControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Worker not ready
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid request
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerFileControllerIndexError =
-  AnkoleWebWorkerFileControllerIndexErrors[keyof AnkoleWebWorkerFileControllerIndexErrors]
-
-export type AnkoleWebWorkerFileControllerIndexResponses = {
-  /**
-   * Files
-   */
-  200: WorkerFileListResponse
-}
-
-export type AnkoleWebWorkerFileControllerIndexResponse =
-  AnkoleWebWorkerFileControllerIndexResponses[keyof AnkoleWebWorkerFileControllerIndexResponses]
-
-export type AnkoleWebWorkerFileControllerUploadData = {
-  /**
-   * multipart form
-   */
-  body: WorkerFileUploadRequest
-  path: {
-    worker_id: string
+    provider_id: string
   }
   query?: never
-  url: '/api/v1/agent-computer-workers/{worker_id}/files'
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/credential-pool/strategy'
 }
 
-export type AnkoleWebWorkerFileControllerUploadErrors = {
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Worker not ready
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid request
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWorkerFileControllerUploadError =
-  AnkoleWebWorkerFileControllerUploadErrors[keyof AnkoleWebWorkerFileControllerUploadErrors]
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError =
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors]
 
-export type AnkoleWebWorkerFileControllerUploadResponses = {
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses = {
   /**
-   * Uploaded file
+   * AIGateway provider
    */
-  200: WorkerFileUploadResponse
+  200: AiGatewayProviderResponse
 }
 
-export type AnkoleWebWorkerFileControllerUploadResponse =
-  AnkoleWebWorkerFileControllerUploadResponses[keyof AnkoleWebWorkerFileControllerUploadResponses]
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse =
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses]
 
 export type AnkoleWebBrainControllerListSuggestionsData = {
   body?: never
@@ -4257,37 +4359,6 @@ export type AnkoleWebHumanAccessControllerRetryCleanupResponses = {
 export type AnkoleWebHumanAccessControllerRetryCleanupResponse =
   AnkoleWebHumanAccessControllerRetryCleanupResponses[keyof AnkoleWebHumanAccessControllerRetryCleanupResponses]
 
-export type AnkoleWebAiGatewayProviderControllerProviderKindsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/ai-gateway/provider-kinds'
-}
-
-export type AnkoleWebAiGatewayProviderControllerProviderKindsErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerProviderKindsError =
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors[keyof AnkoleWebAiGatewayProviderControllerProviderKindsErrors]
-
-export type AnkoleWebAiGatewayProviderControllerProviderKindsResponses = {
-  /**
-   * Provider kinds
-   */
-  200: AiGatewayProviderKindListResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerProviderKindsResponse =
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses[keyof AnkoleWebAiGatewayProviderControllerProviderKindsResponses]
-
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexData = {
   body?: never
   path: {
@@ -4299,21 +4370,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexData = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexError =
@@ -4341,21 +4400,9 @@ export type AnkoleWebAuthZGroupControllerRemoveMemberData = {
 
 export type AnkoleWebAuthZGroupControllerRemoveMemberErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Membership cannot change
-   */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerRemoveMemberError =
@@ -4383,21 +4430,9 @@ export type AnkoleWebAuthZGroupControllerAddMemberData = {
 
 export type AnkoleWebAuthZGroupControllerAddMemberErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Membership cannot change
-   */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerAddMemberError =
@@ -4433,6 +4468,40 @@ export type AnkoleWebBrainControllerForgetObjectResponses = {
 export type AnkoleWebBrainControllerForgetObjectResponse =
   AnkoleWebBrainControllerForgetObjectResponses[keyof AnkoleWebBrainControllerForgetObjectResponses]
 
+export type AnkoleWebAgentFileControllerDownloadData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query: {
+    /**
+     * File path
+     */
+    path: string
+  }
+  url: '/api/v1/agents/{agent_uid}/files/content'
+}
+
+export type AnkoleWebAgentFileControllerDownloadErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentFileControllerDownloadError =
+  AnkoleWebAgentFileControllerDownloadErrors[keyof AnkoleWebAgentFileControllerDownloadErrors]
+
+export type AnkoleWebAgentFileControllerDownloadResponses = {
+  /**
+   * File content
+   */
+  200: Blob | File
+}
+
+export type AnkoleWebAgentFileControllerDownloadResponse =
+  AnkoleWebAgentFileControllerDownloadResponses[keyof AnkoleWebAgentFileControllerDownloadResponses]
+
 export type AnkoleWebWebhookEndpointControllerIndexData = {
   body?: never
   path?: never
@@ -4444,13 +4513,9 @@ export type AnkoleWebWebhookEndpointControllerIndexData = {
 
 export type AnkoleWebWebhookEndpointControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWebhookEndpointControllerIndexError =
@@ -4575,46 +4640,6 @@ export type AnkoleWebAiGatewayFilesControllerCreateResponses = {
 export type AnkoleWebAiGatewayFilesControllerCreateResponse =
   AnkoleWebAiGatewayFilesControllerCreateResponses[keyof AnkoleWebAiGatewayFilesControllerCreateResponses]
 
-export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData = {
-  /**
-   * Credential strategy
-   */
-  body: AiGatewayCredentialStrategyWriteRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/credential-pool/strategy'
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid strategy
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError =
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors]
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse =
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses]
-
 export type AnkoleWebIdentityMappingRequestControllerCreateMappingData = {
   /**
    * Identity mapping
@@ -4627,17 +4652,9 @@ export type AnkoleWebIdentityMappingRequestControllerCreateMappingData = {
 
 export type AnkoleWebIdentityMappingRequestControllerCreateMappingErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid mapping
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityMappingRequestControllerCreateMappingError =
@@ -4652,124 +4669,6 @@ export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponses = {
 
 export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponse =
   AnkoleWebIdentityMappingRequestControllerCreateMappingResponses[keyof AnkoleWebIdentityMappingRequestControllerCreateMappingResponses]
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Provider in use
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderError =
-  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponse =
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderResponses]
-
-export type AnkoleWebAiGatewayProviderControllerShowData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowError =
-  AnkoleWebAiGatewayProviderControllerShowErrors[keyof AnkoleWebAiGatewayProviderControllerShowErrors]
-
-export type AnkoleWebAiGatewayProviderControllerShowResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowResponse =
-  AnkoleWebAiGatewayProviderControllerShowResponses[keyof AnkoleWebAiGatewayProviderControllerShowResponses]
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderData = {
-  /**
-   * AIGateway provider
-   */
-  body: AiGatewayProviderWriteRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid provider
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderError =
-  AnkoleWebAiGatewayProviderControllerPutProviderErrors[keyof AnkoleWebAiGatewayProviderControllerPutProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderResponse =
-  AnkoleWebAiGatewayProviderControllerPutProviderResponses[keyof AnkoleWebAiGatewayProviderControllerPutProviderResponses]
 
 export type AnkoleWebAiGatewayControllerModelsData = {
   body?: never
@@ -4835,6 +4734,67 @@ export type AnkoleWebAiGatewayControllerModelsResponses = {
 export type AnkoleWebAiGatewayControllerModelsResponse =
   AnkoleWebAiGatewayControllerModelsResponses[keyof AnkoleWebAiGatewayControllerModelsResponses]
 
+export type AnkoleWebTenantControllerDeleteData = {
+  body?: never
+  path: {
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v1/site/tenants/{tenant_id}'
+}
+
+export type AnkoleWebTenantControllerDeleteErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerDeleteError =
+  AnkoleWebTenantControllerDeleteErrors[keyof AnkoleWebTenantControllerDeleteErrors]
+
+export type AnkoleWebTenantControllerDeleteResponses = {
+  /**
+   * Tenant result
+   */
+  202: TenantResponse
+}
+
+export type AnkoleWebTenantControllerDeleteResponse =
+  AnkoleWebTenantControllerDeleteResponses[keyof AnkoleWebTenantControllerDeleteResponses]
+
+export type AnkoleWebTenantControllerUpdateData = {
+  /**
+   * Tenant request
+   */
+  body: TenantUpdateRequest
+  path: {
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v1/site/tenants/{tenant_id}'
+}
+
+export type AnkoleWebTenantControllerUpdateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerUpdateError =
+  AnkoleWebTenantControllerUpdateErrors[keyof AnkoleWebTenantControllerUpdateErrors]
+
+export type AnkoleWebTenantControllerUpdateResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantResponse
+}
+
+export type AnkoleWebTenantControllerUpdateResponse =
+  AnkoleWebTenantControllerUpdateResponses[keyof AnkoleWebTenantControllerUpdateResponses]
+
 export type AnkoleWebBrainControllerSearchPreviewData = {
   /**
    * Preview
@@ -4873,17 +4833,9 @@ export type AnkoleWebBackgroundAgentJobControllerIndexData = {
 
 export type AnkoleWebBackgroundAgentJobControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid filters
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerIndexError =
@@ -4913,21 +4865,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillError =
@@ -4957,21 +4897,9 @@ export type AnkoleWebIdentityMappingRequestControllerBindData = {
 
 export type AnkoleWebIdentityMappingRequestControllerBindErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid bind target
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityMappingRequestControllerBindError =
@@ -5043,21 +4971,9 @@ export type AnkoleWebIdentityProviderControllerPutProviderData = {
 
 export type AnkoleWebIdentityProviderControllerPutProviderErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid provider
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityProviderControllerPutProviderError =
@@ -5073,6 +4989,33 @@ export type AnkoleWebIdentityProviderControllerPutProviderResponses = {
 export type AnkoleWebIdentityProviderControllerPutProviderResponse =
   AnkoleWebIdentityProviderControllerPutProviderResponses[keyof AnkoleWebIdentityProviderControllerPutProviderResponses]
 
+export type AnkoleWebWorkerProviderControllerKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/worker-provider-kinds'
+}
+
+export type AnkoleWebWorkerProviderControllerKindsErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerKindsError =
+  AnkoleWebWorkerProviderControllerKindsErrors[keyof AnkoleWebWorkerProviderControllerKindsErrors]
+
+export type AnkoleWebWorkerProviderControllerKindsResponses = {
+  /**
+   * Worker provider kinds
+   */
+  200: WorkerProviderKindsResponse
+}
+
+export type AnkoleWebWorkerProviderControllerKindsResponse =
+  AnkoleWebWorkerProviderControllerKindsResponses[keyof AnkoleWebWorkerProviderControllerKindsResponses]
+
 export type AnkoleWebIdentityMappingRequestControllerIndexData = {
   body?: never
   path?: never
@@ -5082,13 +5025,9 @@ export type AnkoleWebIdentityMappingRequestControllerIndexData = {
 
 export type AnkoleWebIdentityMappingRequestControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityMappingRequestControllerIndexError =
@@ -5115,21 +5054,9 @@ export type AnkoleWebAuthZGroupControllerDeleteData = {
 
 export type AnkoleWebAuthZGroupControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Group cannot be deleted
-   */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerDeleteError =
@@ -5156,17 +5083,9 @@ export type AnkoleWebAuthZGroupControllerShowData = {
 
 export type AnkoleWebAuthZGroupControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerShowError =
@@ -5196,21 +5115,9 @@ export type AnkoleWebAuthZGroupControllerUpdateData = {
 
 export type AnkoleWebAuthZGroupControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid group
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerUpdateError =
@@ -5248,6 +5155,101 @@ export type AnkoleWebBrainControllerUpdateSourceResponses = {
 export type AnkoleWebBrainControllerUpdateSourceResponse =
   AnkoleWebBrainControllerUpdateSourceResponses[keyof AnkoleWebBrainControllerUpdateSourceResponses]
 
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
+  body?: never
+  path: {
+    provider_id: string
+    credential_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialError =
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses]
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialData = {
+  /**
+   * Credential
+   */
+  body: AiGatewayCredentialWriteRequest
+  path: {
+    provider_id: string
+    credential_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialError =
+  AnkoleWebAiGatewayProviderControllerPutCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerPutCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialResponses]
+
+export type AnkoleWebWorkerProviderControllerAssignData = {
+  /**
+   * Provider selection
+   */
+  body: WorkerProviderAssignRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/worker-provider'
+}
+
+export type AnkoleWebWorkerProviderControllerAssignErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerAssignError =
+  AnkoleWebWorkerProviderControllerAssignErrors[keyof AnkoleWebWorkerProviderControllerAssignErrors]
+
+export type AnkoleWebWorkerProviderControllerAssignResponses = {
+  /**
+   * Provider assigned
+   */
+  200: WorkerProviderAssignResponse
+}
+
+export type AnkoleWebWorkerProviderControllerAssignResponse =
+  AnkoleWebWorkerProviderControllerAssignResponses[keyof AnkoleWebWorkerProviderControllerAssignResponses]
+
 export type AnkoleWebAgentControllerDeleteModelProfileData = {
   body?: never
   path: {
@@ -5260,9 +5262,9 @@ export type AnkoleWebAgentControllerDeleteModelProfileData = {
 
 export type AnkoleWebAgentControllerDeleteModelProfileErrors = {
   /**
-   * Profile cannot be cleared
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerDeleteModelProfileError =
@@ -5293,9 +5295,9 @@ export type AnkoleWebAgentControllerPutModelProfileData = {
 
 export type AnkoleWebAgentControllerPutModelProfileErrors = {
   /**
-   * Invalid model profile
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerPutModelProfileError =
@@ -5311,54 +5313,6 @@ export type AnkoleWebAgentControllerPutModelProfileResponses = {
 export type AnkoleWebAgentControllerPutModelProfileResponse =
   AnkoleWebAgentControllerPutModelProfileResponses[keyof AnkoleWebAgentControllerPutModelProfileResponses]
 
-export type AnkoleWebWorkerFileControllerMoveData = {
-  /**
-   * Move
-   */
-  body: WorkerFileMoveRequest
-  path: {
-    worker_id: string
-  }
-  query?: never
-  url: '/api/v1/agent-computer-workers/{worker_id}/file-moves'
-}
-
-export type AnkoleWebWorkerFileControllerMoveErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Worker not ready
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid request
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerFileControllerMoveError =
-  AnkoleWebWorkerFileControllerMoveErrors[keyof AnkoleWebWorkerFileControllerMoveErrors]
-
-export type AnkoleWebWorkerFileControllerMoveResponses = {
-  /**
-   * Moved file
-   */
-  200: WorkerFileMoveResponse
-}
-
-export type AnkoleWebWorkerFileControllerMoveResponse =
-  AnkoleWebWorkerFileControllerMoveResponses[keyof AnkoleWebWorkerFileControllerMoveResponses]
-
 export type AnkoleWebIdentityProviderControllerAdaptersData = {
   body?: never
   path?: never
@@ -5368,13 +5322,9 @@ export type AnkoleWebIdentityProviderControllerAdaptersData = {
 
 export type AnkoleWebIdentityProviderControllerAdaptersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityProviderControllerAdaptersError =
@@ -5438,17 +5388,9 @@ export type AnkoleWebOidcClientControllerDeleteData = {
 
 export type AnkoleWebOidcClientControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerDeleteError =
@@ -5475,17 +5417,9 @@ export type AnkoleWebOidcClientControllerShowData = {
 
 export type AnkoleWebOidcClientControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerShowError =
@@ -5515,21 +5449,9 @@ export type AnkoleWebOidcClientControllerUpdateData = {
 
 export type AnkoleWebOidcClientControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid OIDC Client
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerUpdateError =
@@ -5603,21 +5525,9 @@ export type AnkoleWebBackgroundAgentJobControllerShowData = {
 
 export type AnkoleWebBackgroundAgentJobControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid cursor
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerShowError =
@@ -5644,17 +5554,9 @@ export type AnkoleWebAgentControllerDeleteData = {
 
 export type AnkoleWebAgentControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerDeleteError =
@@ -5681,17 +5583,9 @@ export type AnkoleWebAgentControllerShowData = {
 
 export type AnkoleWebAgentControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerShowError =
@@ -5721,21 +5615,9 @@ export type AnkoleWebAgentControllerUpdateData = {
 
 export type AnkoleWebAgentControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid agent
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerUpdateError =
@@ -5762,21 +5644,9 @@ export type AnkoleWebOidcClientControllerRotateSecretData = {
 
 export type AnkoleWebOidcClientControllerRotateSecretErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Public Client
-   */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerRotateSecretError =
@@ -5792,46 +5662,6 @@ export type AnkoleWebOidcClientControllerRotateSecretResponses = {
 export type AnkoleWebOidcClientControllerRotateSecretResponse =
   AnkoleWebOidcClientControllerRotateSecretResponses[keyof AnkoleWebOidcClientControllerRotateSecretResponses]
 
-export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData = {
-  /**
-   * Browser callback
-   */
-  body: AiGatewayChatGptBrowserLoginRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback'
-}
-
-export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Login failed
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError =
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors]
-
-export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses = {
-  /**
-   * ChatGPT login
-   */
-  200: AiGatewayChatGptLoginResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse =
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses]
-
 export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
   body?: never
   path: {
@@ -5844,21 +5674,9 @@ export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
 
 export type AnkoleWebWorkerEnvControllerDecryptForAgentErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Not encrypted
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWorkerEnvControllerDecryptForAgentError =
@@ -5874,7 +5692,7 @@ export type AnkoleWebWorkerEnvControllerDecryptForAgentResponses = {
 export type AnkoleWebWorkerEnvControllerDecryptForAgentResponse =
   AnkoleWebWorkerEnvControllerDecryptForAgentResponses[keyof AnkoleWebWorkerEnvControllerDecryptForAgentResponses]
 
-export type AnkoleWebWorkerEnvControllerDecryptData = {
+export type AnkoleWebWorkerEnvControllerDecryptTenantData = {
   body?: never
   path: {
     name: string
@@ -5883,37 +5701,25 @@ export type AnkoleWebWorkerEnvControllerDecryptData = {
   url: '/api/v1/worker-envs/{name}/decryptions'
 }
 
-export type AnkoleWebWorkerEnvControllerDecryptErrors = {
+export type AnkoleWebWorkerEnvControllerDecryptTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Not encrypted
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWorkerEnvControllerDecryptError =
-  AnkoleWebWorkerEnvControllerDecryptErrors[keyof AnkoleWebWorkerEnvControllerDecryptErrors]
+export type AnkoleWebWorkerEnvControllerDecryptTenantError =
+  AnkoleWebWorkerEnvControllerDecryptTenantErrors[keyof AnkoleWebWorkerEnvControllerDecryptTenantErrors]
 
-export type AnkoleWebWorkerEnvControllerDecryptResponses = {
+export type AnkoleWebWorkerEnvControllerDecryptTenantResponses = {
   /**
    * Decrypted value
    */
   200: WorkerEnvDecryptionResponse
 }
 
-export type AnkoleWebWorkerEnvControllerDecryptResponse =
-  AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
+export type AnkoleWebWorkerEnvControllerDecryptTenantResponse =
+  AnkoleWebWorkerEnvControllerDecryptTenantResponses[keyof AnkoleWebWorkerEnvControllerDecryptTenantResponses]
 
 export type AnkoleWebIdentityProviderControllerRunSyncData = {
   body?: never
@@ -5926,21 +5732,9 @@ export type AnkoleWebIdentityProviderControllerRunSyncData = {
 
 export type AnkoleWebIdentityProviderControllerRunSyncErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Sync disabled
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityProviderControllerRunSyncError =
@@ -5970,21 +5764,9 @@ export type AnkoleWebAutomationJobControllerShowData = {
 
 export type AnkoleWebAutomationJobControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid job identifier
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAutomationJobControllerShowError =
@@ -6011,13 +5793,9 @@ export type AnkoleWebSignalBindingControllerIndexData = {
 
 export type AnkoleWebSignalBindingControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerIndexError =
@@ -6033,6 +5811,33 @@ export type AnkoleWebSignalBindingControllerIndexResponses = {
 export type AnkoleWebSignalBindingControllerIndexResponse =
   AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
 
+export type AnkoleWebWorkerEnvControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/worker-envs'
+}
+
+export type AnkoleWebWorkerEnvControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerIndexError =
+  AnkoleWebWorkerEnvControllerIndexErrors[keyof AnkoleWebWorkerEnvControllerIndexErrors]
+
+export type AnkoleWebWorkerEnvControllerIndexResponses = {
+  /**
+   * Worker env entries
+   */
+  200: WorkerEnvListResponse
+}
+
+export type AnkoleWebWorkerEnvControllerIndexResponse =
+  AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
+
 export type AnkoleWebAgentSkillLessonControllerRetireData = {
   body?: never
   path: {
@@ -6045,21 +5850,9 @@ export type AnkoleWebAgentSkillLessonControllerRetireData = {
 
 export type AnkoleWebAgentSkillLessonControllerRetireErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid skill lesson
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentSkillLessonControllerRetireError =
@@ -6086,17 +5879,9 @@ export type AnkoleWebPrincipalControllerGrantsData = {
 
 export type AnkoleWebPrincipalControllerGrantsErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerGrantsError =
@@ -6123,17 +5908,9 @@ export type AnkoleWebAiGatewayConversationControllerShowData = {
 
 export type AnkoleWebAiGatewayConversationControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAiGatewayConversationControllerShowError =
@@ -6158,13 +5935,9 @@ export type AnkoleWebAgentControllerIndexData = {
 
 export type AnkoleWebAgentControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerIndexError =
@@ -6192,17 +5965,9 @@ export type AnkoleWebAgentControllerCreateData = {
 
 export type AnkoleWebAgentControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid agent
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerCreateError =
@@ -6217,37 +5982,6 @@ export type AnkoleWebAgentControllerCreateResponses = {
 
 export type AnkoleWebAgentControllerCreateResponse =
   AnkoleWebAgentControllerCreateResponses[keyof AnkoleWebAgentControllerCreateResponses]
-
-export type AnkoleWebAiGatewayProviderControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/ai-gateway/providers'
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexError =
-  AnkoleWebAiGatewayProviderControllerIndexErrors[keyof AnkoleWebAiGatewayProviderControllerIndexErrors]
-
-export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
-  /**
-   * AIGateway providers
-   */
-  200: AiGatewayProviderListResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexResponse =
-  AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
 
 export type AnkoleWebBrainControllerRestoreObjectData = {
   /**
@@ -6285,6 +6019,92 @@ export type AnkoleWebBrainControllerHealthResponses = {
 
 export type AnkoleWebBrainControllerHealthResponse =
   AnkoleWebBrainControllerHealthResponses[keyof AnkoleWebBrainControllerHealthResponses]
+
+export type AnkoleWebControlPlanePluginControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/control-plane-plugins'
+}
+
+export type AnkoleWebControlPlanePluginControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebControlPlanePluginControllerIndexError =
+  AnkoleWebControlPlanePluginControllerIndexErrors[keyof AnkoleWebControlPlanePluginControllerIndexErrors]
+
+export type AnkoleWebControlPlanePluginControllerIndexResponses = {
+  /**
+   * Control Plane Plugins
+   */
+  200: ControlPlanePluginListResponse
+}
+
+export type AnkoleWebControlPlanePluginControllerIndexResponse =
+  AnkoleWebControlPlanePluginControllerIndexResponses[keyof AnkoleWebControlPlanePluginControllerIndexResponses]
+
+export type AnkoleWebControlPlanePluginControllerUpdateData = {
+  /**
+   * Control Plane Plugin configuration
+   */
+  body: ControlPlanePluginWriteRequest
+  path?: never
+  query?: never
+  url: '/api/v1/site/control-plane-plugins'
+}
+
+export type AnkoleWebControlPlanePluginControllerUpdateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebControlPlanePluginControllerUpdateError =
+  AnkoleWebControlPlanePluginControllerUpdateErrors[keyof AnkoleWebControlPlanePluginControllerUpdateErrors]
+
+export type AnkoleWebControlPlanePluginControllerUpdateResponses = {
+  /**
+   * Control Plane Plugins
+   */
+  200: ControlPlanePluginListResponse
+}
+
+export type AnkoleWebControlPlanePluginControllerUpdateResponse =
+  AnkoleWebControlPlanePluginControllerUpdateResponses[keyof AnkoleWebControlPlanePluginControllerUpdateResponses]
+
+export type AnkoleWebWorkerProviderControllerCheckData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-providers/{provider_id}/check'
+}
+
+export type AnkoleWebWorkerProviderControllerCheckErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerProviderControllerCheckError =
+  AnkoleWebWorkerProviderControllerCheckErrors[keyof AnkoleWebWorkerProviderControllerCheckErrors]
+
+export type AnkoleWebWorkerProviderControllerCheckResponses = {
+  /**
+   * Provider available
+   */
+  200: WorkerProviderCheckResponse
+}
+
+export type AnkoleWebWorkerProviderControllerCheckResponse =
+  AnkoleWebWorkerProviderControllerCheckResponses[keyof AnkoleWebWorkerProviderControllerCheckResponses]
 
 export type AnkoleWebScheduleControllerResumeCronData = {
   body?: never
@@ -6335,9 +6155,9 @@ export type AnkoleWebHumanAccessControllerClassifyWorkData = {
 
 export type AnkoleWebHumanAccessControllerClassifyWorkErrors = {
   /**
-   * Review changed
+   * Error
    */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebHumanAccessControllerClassifyWorkError =
@@ -6365,17 +6185,9 @@ export type AnkoleWebAutomationJobControllerIndexData = {
 
 export type AnkoleWebAutomationJobControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid filters
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAutomationJobControllerIndexError =
@@ -6424,9 +6236,9 @@ export type AnkoleWebAgentControllerIndexModelProfilesData = {
 
 export type AnkoleWebAgentControllerIndexModelProfilesErrors = {
   /**
-   * Not found
+   * Error
    */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerIndexModelProfilesError =
@@ -6451,17 +6263,9 @@ export type AnkoleWebSignalBindingControllerAdaptersData = {
 
 export type AnkoleWebSignalBindingControllerAdaptersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Adapter registry unavailable
-   */
-  503: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerAdaptersError =
@@ -6476,6 +6280,38 @@ export type AnkoleWebSignalBindingControllerAdaptersResponses = {
 
 export type AnkoleWebSignalBindingControllerAdaptersResponse =
   AnkoleWebSignalBindingControllerAdaptersResponses[keyof AnkoleWebSignalBindingControllerAdaptersResponses]
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginData = {
+  /**
+   * Login context
+   */
+  body: AiGatewayChatGptLoginPollRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginError =
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
 
 export type AnkoleWebOidcClientControllerLogoutDeliveriesData = {
   body?: never
@@ -6507,13 +6343,9 @@ export type AnkoleWebPrincipalControllerIndexData = {
 
 export type AnkoleWebPrincipalControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerIndexError =
@@ -6541,21 +6373,9 @@ export type AnkoleWebPrincipalControllerCreateData = {
 
 export type AnkoleWebPrincipalControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Local sign-in disabled
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid user
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerCreateError =
@@ -6583,21 +6403,9 @@ export type AnkoleWebPermissionGrantControllerCreateData = {
 
 export type AnkoleWebPermissionGrantControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Owner not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid grant
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPermissionGrantControllerCreateError =
@@ -6625,17 +6433,9 @@ export type AnkoleWebSignalBindingControllerDeleteData = {
 
 export type AnkoleWebSignalBindingControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerDeleteError =
@@ -6663,21 +6463,9 @@ export type AnkoleWebSignalBindingControllerShowData = {
 
 export type AnkoleWebSignalBindingControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Adapter registry unavailable
-   */
-  503: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerShowError =
@@ -6708,29 +6496,9 @@ export type AnkoleWebSignalBindingControllerUpdateBindingData = {
 
 export type AnkoleWebSignalBindingControllerUpdateBindingErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Target binding conflict
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
-  /**
-   * Adapter registry unavailable
-   */
-  503: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerUpdateBindingError =
@@ -6761,9 +6529,9 @@ export type AnkoleWebHumanAccessControllerClearRestrictionData = {
 
 export type AnkoleWebHumanAccessControllerClearRestrictionErrors = {
   /**
-   * Review required
+   * Error
    */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebHumanAccessControllerClearRestrictionError =
@@ -6790,17 +6558,9 @@ export type AnkoleWebAuthZGroupControllerMembersData = {
 
 export type AnkoleWebAuthZGroupControllerMembersErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerMembersError =
@@ -6831,21 +6591,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData =
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideError =
@@ -6860,6 +6608,70 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideRespon
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses]
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData = {
+  /**
+   * Enterprise credential
+   */
+  body: AiGatewayChatGptEnterpriseCredentialRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials'
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError =
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses]
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData = {
+  /**
+   * Browser callback
+   */
+  body: AiGatewayChatGptBrowserLoginRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback'
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError =
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse =
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses]
 
 export type AnkoleWebBrainControllerDreamData = {
   body?: never
@@ -6992,9 +6804,9 @@ export type AnkoleWebHumanAccessControllerShowData = {
 
 export type AnkoleWebHumanAccessControllerShowErrors = {
   /**
-   * Forbidden
+   * Error
    */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebHumanAccessControllerShowError =
@@ -7021,13 +6833,9 @@ export type AnkoleWebScheduleControllerIndexCronData = {
 
 export type AnkoleWebScheduleControllerIndexCronErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebScheduleControllerIndexCronError =
@@ -7054,17 +6862,9 @@ export type AnkoleWebIdentityMappingRequestControllerDeleteData = {
 
 export type AnkoleWebIdentityMappingRequestControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebIdentityMappingRequestControllerDeleteError =
@@ -7079,6 +6879,106 @@ export type AnkoleWebIdentityMappingRequestControllerDeleteResponses = {
 
 export type AnkoleWebIdentityMappingRequestControllerDeleteResponse =
   AnkoleWebIdentityMappingRequestControllerDeleteResponses[keyof AnkoleWebIdentityMappingRequestControllerDeleteResponses]
+
+export type AnkoleWebAgentFileControllerDeleteData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query: {
+    /**
+     * File or folder path
+     */
+    path: string
+  }
+  url: '/api/v1/agents/{agent_uid}/files'
+}
+
+export type AnkoleWebAgentFileControllerDeleteErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentFileControllerDeleteError =
+  AnkoleWebAgentFileControllerDeleteErrors[keyof AnkoleWebAgentFileControllerDeleteErrors]
+
+export type AnkoleWebAgentFileControllerDeleteResponses = {
+  /**
+   * Deleted files
+   */
+  200: AgentFileDeleteResponse
+}
+
+export type AnkoleWebAgentFileControllerDeleteResponse =
+  AnkoleWebAgentFileControllerDeleteResponses[keyof AnkoleWebAgentFileControllerDeleteResponses]
+
+export type AnkoleWebAgentFileControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Folder path; empty lists the drive root
+     */
+    path?: string
+  }
+  url: '/api/v1/agents/{agent_uid}/files'
+}
+
+export type AnkoleWebAgentFileControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentFileControllerIndexError =
+  AnkoleWebAgentFileControllerIndexErrors[keyof AnkoleWebAgentFileControllerIndexErrors]
+
+export type AnkoleWebAgentFileControllerIndexResponses = {
+  /**
+   * Folder listing
+   */
+  200: AgentFileListResponse
+}
+
+export type AnkoleWebAgentFileControllerIndexResponse =
+  AnkoleWebAgentFileControllerIndexResponses[keyof AnkoleWebAgentFileControllerIndexResponses]
+
+export type AnkoleWebAgentFileControllerUploadData = {
+  /**
+   * multipart form
+   */
+  body: AgentFileUploadRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/files'
+}
+
+export type AnkoleWebAgentFileControllerUploadErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentFileControllerUploadError =
+  AnkoleWebAgentFileControllerUploadErrors[keyof AnkoleWebAgentFileControllerUploadErrors]
+
+export type AnkoleWebAgentFileControllerUploadResponses = {
+  /**
+   * Uploaded file
+   */
+  200: AgentFileUploadResponse
+}
+
+export type AnkoleWebAgentFileControllerUploadResponse =
+  AnkoleWebAgentFileControllerUploadResponses[keyof AnkoleWebAgentFileControllerUploadResponses]
 
 export type AnkoleWebSignalBindingControllerPutBindingData = {
   /**
@@ -7096,25 +6996,9 @@ export type AnkoleWebSignalBindingControllerPutBindingData = {
 
 export type AnkoleWebSignalBindingControllerPutBindingErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
-  /**
-   * Adapter registry unavailable
-   */
-  503: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerPutBindingError =
@@ -7162,17 +7046,9 @@ export type AnkoleWebScheduleControllerShowCronData = {
 
 export type AnkoleWebScheduleControllerShowCronErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebScheduleControllerShowCronError =
@@ -7203,21 +7079,9 @@ export type AnkoleWebScheduleControllerUpdateCronData = {
 
 export type AnkoleWebScheduleControllerUpdateCronErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid schedule
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebScheduleControllerUpdateCronError =
@@ -7253,17 +7117,9 @@ export type AnkoleWebAiGatewayConversationControllerIndexData = {
 
 export type AnkoleWebAiGatewayConversationControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid filters
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAiGatewayConversationControllerIndexError =
@@ -7278,6 +7134,96 @@ export type AnkoleWebAiGatewayConversationControllerIndexResponses = {
 
 export type AnkoleWebAiGatewayConversationControllerIndexResponse =
   AnkoleWebAiGatewayConversationControllerIndexResponses[keyof AnkoleWebAiGatewayConversationControllerIndexResponses]
+
+export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteProviderErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteProviderError =
+  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderErrors]
+
+export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponse =
+  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderResponses]
+
+export type AnkoleWebAiGatewayProviderControllerShowData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowError =
+  AnkoleWebAiGatewayProviderControllerShowErrors[keyof AnkoleWebAiGatewayProviderControllerShowErrors]
+
+export type AnkoleWebAiGatewayProviderControllerShowResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowResponse =
+  AnkoleWebAiGatewayProviderControllerShowResponses[keyof AnkoleWebAiGatewayProviderControllerShowResponses]
+
+export type AnkoleWebAiGatewayProviderControllerPutProviderData = {
+  /**
+   * AIGateway provider
+   */
+  body: AiGatewayProviderWriteRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutProviderErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutProviderError =
+  AnkoleWebAiGatewayProviderControllerPutProviderErrors[keyof AnkoleWebAiGatewayProviderControllerPutProviderErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPutProviderResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutProviderResponse =
+  AnkoleWebAiGatewayProviderControllerPutProviderResponses[keyof AnkoleWebAiGatewayProviderControllerPutProviderResponses]
 
 export type AnkoleWebBrainControllerListClaimsData = {
   body?: never
@@ -7312,17 +7258,9 @@ export type AnkoleWebPrincipalControllerShowData = {
 
 export type AnkoleWebPrincipalControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerShowError =
@@ -7352,25 +7290,9 @@ export type AnkoleWebPrincipalControllerUpdateData = {
 
 export type AnkoleWebPrincipalControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Local sign-in disabled
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid change
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPrincipalControllerUpdateError =
@@ -7397,21 +7319,9 @@ export type AnkoleWebAgentSkillLessonControllerIndexData = {
 
 export type AnkoleWebAgentSkillLessonControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid skill lesson
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentSkillLessonControllerIndexError =
@@ -7441,21 +7351,9 @@ export type AnkoleWebAgentSkillLessonControllerCreateData = {
 
 export type AnkoleWebAgentSkillLessonControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid skill lesson
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentSkillLessonControllerCreateError =
@@ -7505,17 +7403,9 @@ export type AnkoleWebWebhookEndpointControllerDeleteData = {
 
 export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWebhookEndpointControllerDeleteError =
@@ -7611,46 +7501,6 @@ export type AnkoleWebBrainControllerListContradictionsResponses = {
 export type AnkoleWebBrainControllerListContradictionsResponse =
   AnkoleWebBrainControllerListContradictionsResponses[keyof AnkoleWebBrainControllerListContradictionsResponses]
 
-export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData = {
-  /**
-   * Enterprise credential
-   */
-  body: AiGatewayChatGptEnterpriseCredentialRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials'
-}
-
-export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid credential
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError =
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors]
-
-export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse =
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses]
-
 export type AnkoleWebBackgroundAgentJobControllerCompleteData = {
   /**
    * Completion result
@@ -7667,21 +7517,9 @@ export type AnkoleWebBackgroundAgentJobControllerCompleteData = {
 
 export type AnkoleWebBackgroundAgentJobControllerCompleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Job already failed or stopped
-   */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerCompleteError =
@@ -7697,7 +7535,7 @@ export type AnkoleWebBackgroundAgentJobControllerCompleteResponses = {
 export type AnkoleWebBackgroundAgentJobControllerCompleteResponse =
   AnkoleWebBackgroundAgentJobControllerCompleteResponses[keyof AnkoleWebBackgroundAgentJobControllerCompleteResponses]
 
-export type AnkoleWebWorkerEnvControllerDeleteData = {
+export type AnkoleWebWorkerEnvControllerDeleteTenantData = {
   body?: never
   path: {
     name: string
@@ -7706,80 +7544,27 @@ export type AnkoleWebWorkerEnvControllerDeleteData = {
   url: '/api/v1/worker-envs/{name}'
 }
 
-export type AnkoleWebWorkerEnvControllerDeleteErrors = {
+export type AnkoleWebWorkerEnvControllerDeleteTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid name
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWorkerEnvControllerDeleteError =
-  AnkoleWebWorkerEnvControllerDeleteErrors[keyof AnkoleWebWorkerEnvControllerDeleteErrors]
+export type AnkoleWebWorkerEnvControllerDeleteTenantError =
+  AnkoleWebWorkerEnvControllerDeleteTenantErrors[keyof AnkoleWebWorkerEnvControllerDeleteTenantErrors]
 
-export type AnkoleWebWorkerEnvControllerDeleteResponses = {
+export type AnkoleWebWorkerEnvControllerDeleteTenantResponses = {
   /**
    * Worker env entry
    */
   200: WorkerEnvResponse
 }
 
-export type AnkoleWebWorkerEnvControllerDeleteResponse =
-  AnkoleWebWorkerEnvControllerDeleteResponses[keyof AnkoleWebWorkerEnvControllerDeleteResponses]
+export type AnkoleWebWorkerEnvControllerDeleteTenantResponse =
+  AnkoleWebWorkerEnvControllerDeleteTenantResponses[keyof AnkoleWebWorkerEnvControllerDeleteTenantResponses]
 
-export type AnkoleWebWorkerEnvControllerShowData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerShowErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid name
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerShowError =
-  AnkoleWebWorkerEnvControllerShowErrors[keyof AnkoleWebWorkerEnvControllerShowErrors]
-
-export type AnkoleWebWorkerEnvControllerShowResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerShowResponse =
-  AnkoleWebWorkerEnvControllerShowResponses[keyof AnkoleWebWorkerEnvControllerShowResponses]
-
-export type AnkoleWebWorkerEnvControllerUpdateData = {
+export type AnkoleWebWorkerEnvControllerUpdateTenantData = {
   /**
    * Worker env update
    */
@@ -7791,73 +7576,52 @@ export type AnkoleWebWorkerEnvControllerUpdateData = {
   url: '/api/v1/worker-envs/{name}'
 }
 
-export type AnkoleWebWorkerEnvControllerUpdateErrors = {
+export type AnkoleWebWorkerEnvControllerUpdateTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWorkerEnvControllerUpdateError =
-  AnkoleWebWorkerEnvControllerUpdateErrors[keyof AnkoleWebWorkerEnvControllerUpdateErrors]
+export type AnkoleWebWorkerEnvControllerUpdateTenantError =
+  AnkoleWebWorkerEnvControllerUpdateTenantErrors[keyof AnkoleWebWorkerEnvControllerUpdateTenantErrors]
 
-export type AnkoleWebWorkerEnvControllerUpdateResponses = {
+export type AnkoleWebWorkerEnvControllerUpdateTenantResponses = {
   /**
    * Worker env entry
    */
   200: WorkerEnvResponse
 }
 
-export type AnkoleWebWorkerEnvControllerUpdateResponse =
-  AnkoleWebWorkerEnvControllerUpdateResponses[keyof AnkoleWebWorkerEnvControllerUpdateResponses]
+export type AnkoleWebWorkerEnvControllerUpdateTenantResponse =
+  AnkoleWebWorkerEnvControllerUpdateTenantResponses[keyof AnkoleWebWorkerEnvControllerUpdateTenantResponses]
 
-export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginData = {
-  /**
-   * Login context
-   */
-  body: AiGatewayChatGptLoginPollRequest
-  path: {
-    provider_id: string
-  }
+export type AnkoleWebAiGatewayProviderControllerModelsData = {
+  body?: never
+  path?: never
   query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/poll'
+  url: '/api/v1/site/ai-gateway/models'
 }
 
-export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors = {
+export type AnkoleWebAiGatewayProviderControllerModelsErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Login failed
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginError =
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors]
+export type AnkoleWebAiGatewayProviderControllerModelsError =
+  AnkoleWebAiGatewayProviderControllerModelsErrors[keyof AnkoleWebAiGatewayProviderControllerModelsErrors]
 
-export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
+export type AnkoleWebAiGatewayProviderControllerModelsResponses = {
   /**
-   * ChatGPT login
+   * Model catalog
    */
-  200: AiGatewayChatGptLoginResponse
+  200: AiGatewayModelCatalogResponse
 }
 
-export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
+export type AnkoleWebAiGatewayProviderControllerModelsResponse =
+  AnkoleWebAiGatewayProviderControllerModelsResponses[keyof AnkoleWebAiGatewayProviderControllerModelsResponses]
 
 export type AnkoleWebAuthControllerDeleteSessionData = {
   body?: never
@@ -7887,9 +7651,9 @@ export type AnkoleWebAgentControllerDeleteTokenQuotaData = {
 
 export type AnkoleWebAgentControllerDeleteTokenQuotaErrors = {
   /**
-   * Unknown agent
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerDeleteTokenQuotaError =
@@ -7916,9 +7680,9 @@ export type AnkoleWebAgentControllerShowTokenQuotaData = {
 
 export type AnkoleWebAgentControllerShowTokenQuotaErrors = {
   /**
-   * Unknown agent
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerShowTokenQuotaError =
@@ -7948,9 +7712,9 @@ export type AnkoleWebAgentControllerPutTokenQuotaData = {
 
 export type AnkoleWebAgentControllerPutTokenQuotaErrors = {
   /**
-   * Invalid token quota
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerPutTokenQuotaError =
@@ -8021,36 +7785,122 @@ export type AnkoleWebBrainControllerObjectVersionsResponses = {
 export type AnkoleWebBrainControllerObjectVersionsResponse =
   AnkoleWebBrainControllerObjectVersionsResponses[keyof AnkoleWebBrainControllerObjectVersionsResponses]
 
-export type AnkoleWebWorkerEnvControllerIndexData = {
+export type AnkoleWebWorkerEnvControllerIndexTenantData = {
   body?: never
   path?: never
   query?: never
   url: '/api/v1/worker-envs'
 }
 
-export type AnkoleWebWorkerEnvControllerIndexErrors = {
+export type AnkoleWebWorkerEnvControllerIndexTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWorkerEnvControllerIndexError =
-  AnkoleWebWorkerEnvControllerIndexErrors[keyof AnkoleWebWorkerEnvControllerIndexErrors]
+export type AnkoleWebWorkerEnvControllerIndexTenantError =
+  AnkoleWebWorkerEnvControllerIndexTenantErrors[keyof AnkoleWebWorkerEnvControllerIndexTenantErrors]
 
-export type AnkoleWebWorkerEnvControllerIndexResponses = {
+export type AnkoleWebWorkerEnvControllerIndexTenantResponses = {
   /**
    * Worker env entries
    */
   200: WorkerEnvListResponse
 }
 
-export type AnkoleWebWorkerEnvControllerIndexResponse =
-  AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
+export type AnkoleWebWorkerEnvControllerIndexTenantResponse =
+  AnkoleWebWorkerEnvControllerIndexTenantResponses[keyof AnkoleWebWorkerEnvControllerIndexTenantResponses]
+
+export type AnkoleWebAppConfigurationControllerDeleteData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v1/site/app-configurations/{key}'
+}
+
+export type AnkoleWebAppConfigurationControllerDeleteErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAppConfigurationControllerDeleteError =
+  AnkoleWebAppConfigurationControllerDeleteErrors[keyof AnkoleWebAppConfigurationControllerDeleteErrors]
+
+export type AnkoleWebAppConfigurationControllerDeleteResponses = {
+  /**
+   * AppConfigure entry
+   */
+  200: AppConfigurationResponse
+}
+
+export type AnkoleWebAppConfigurationControllerDeleteResponse =
+  AnkoleWebAppConfigurationControllerDeleteResponses[keyof AnkoleWebAppConfigurationControllerDeleteResponses]
+
+export type AnkoleWebAppConfigurationControllerShowData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v1/site/app-configurations/{key}'
+}
+
+export type AnkoleWebAppConfigurationControllerShowErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAppConfigurationControllerShowError =
+  AnkoleWebAppConfigurationControllerShowErrors[keyof AnkoleWebAppConfigurationControllerShowErrors]
+
+export type AnkoleWebAppConfigurationControllerShowResponses = {
+  /**
+   * AppConfigure entry
+   */
+  200: AppConfigurationResponse
+}
+
+export type AnkoleWebAppConfigurationControllerShowResponse =
+  AnkoleWebAppConfigurationControllerShowResponses[keyof AnkoleWebAppConfigurationControllerShowResponses]
+
+export type AnkoleWebAppConfigurationControllerUpdateData = {
+  /**
+   * AppConfigure update
+   */
+  body: AppConfigurationUpdateRequest
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v1/site/app-configurations/{key}'
+}
+
+export type AnkoleWebAppConfigurationControllerUpdateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAppConfigurationControllerUpdateError =
+  AnkoleWebAppConfigurationControllerUpdateErrors[keyof AnkoleWebAppConfigurationControllerUpdateErrors]
+
+export type AnkoleWebAppConfigurationControllerUpdateResponses = {
+  /**
+   * AppConfigure entry
+   */
+  200: AppConfigurationResponse
+}
+
+export type AnkoleWebAppConfigurationControllerUpdateResponse =
+  AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
 
 export type AnkoleWebBackgroundAgentJobControllerCancelData = {
   body?: never
@@ -8063,17 +7913,9 @@ export type AnkoleWebBackgroundAgentJobControllerCancelData = {
 
 export type AnkoleWebBackgroundAgentJobControllerCancelErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerCancelError =
@@ -8089,7 +7931,7 @@ export type AnkoleWebBackgroundAgentJobControllerCancelResponses = {
 export type AnkoleWebBackgroundAgentJobControllerCancelResponse =
   AnkoleWebBackgroundAgentJobControllerCancelResponses[keyof AnkoleWebBackgroundAgentJobControllerCancelResponses]
 
-export type AnkoleWebAppConfigurationControllerDecryptData = {
+export type AnkoleWebAppConfigurationControllerDecryptTenantData = {
   body?: never
   path: {
     key: string
@@ -8098,37 +7940,25 @@ export type AnkoleWebAppConfigurationControllerDecryptData = {
   url: '/api/v1/app-configurations/{key}/decryptions'
 }
 
-export type AnkoleWebAppConfigurationControllerDecryptErrors = {
+export type AnkoleWebAppConfigurationControllerDecryptTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Not encrypted
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAppConfigurationControllerDecryptError =
-  AnkoleWebAppConfigurationControllerDecryptErrors[keyof AnkoleWebAppConfigurationControllerDecryptErrors]
+export type AnkoleWebAppConfigurationControllerDecryptTenantError =
+  AnkoleWebAppConfigurationControllerDecryptTenantErrors[keyof AnkoleWebAppConfigurationControllerDecryptTenantErrors]
 
-export type AnkoleWebAppConfigurationControllerDecryptResponses = {
+export type AnkoleWebAppConfigurationControllerDecryptTenantResponses = {
   /**
    * Decrypted value
    */
   200: AppConfigurationDecryptionResponse
 }
 
-export type AnkoleWebAppConfigurationControllerDecryptResponse =
-  AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
+export type AnkoleWebAppConfigurationControllerDecryptTenantResponse =
+  AnkoleWebAppConfigurationControllerDecryptTenantResponses[keyof AnkoleWebAppConfigurationControllerDecryptTenantResponses]
 
 export type AnkoleWebBrainControllerRollbackObjectData = {
   /**
@@ -8216,17 +8046,9 @@ export type AnkoleWebAgentLibraryControllerIndexData = {
 
 export type AnkoleWebAgentLibraryControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryControllerIndexError =
@@ -8251,13 +8073,9 @@ export type AnkoleWebAgentComputerWorkerControllerIndexData = {
 
 export type AnkoleWebAgentComputerWorkerControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentComputerWorkerControllerIndexError =
@@ -8287,9 +8105,9 @@ export type AnkoleWebHumanAccessControllerDisableData = {
 
 export type AnkoleWebHumanAccessControllerDisableErrors = {
   /**
-   * Cannot disable
+   * Error
    */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebHumanAccessControllerDisableError =
@@ -8304,6 +8122,33 @@ export type AnkoleWebHumanAccessControllerDisableResponses = {
 
 export type AnkoleWebHumanAccessControllerDisableResponse =
   AnkoleWebHumanAccessControllerDisableResponses[keyof AnkoleWebHumanAccessControllerDisableResponses]
+
+export type AnkoleWebAiGatewayProviderControllerProviderKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/ai-gateway/provider-kinds'
+}
+
+export type AnkoleWebAiGatewayProviderControllerProviderKindsErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerProviderKindsError =
+  AnkoleWebAiGatewayProviderControllerProviderKindsErrors[keyof AnkoleWebAiGatewayProviderControllerProviderKindsErrors]
+
+export type AnkoleWebAiGatewayProviderControllerProviderKindsResponses = {
+  /**
+   * Provider kinds
+   */
+  200: AiGatewayProviderKindListResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerProviderKindsResponse =
+  AnkoleWebAiGatewayProviderControllerProviderKindsResponses[keyof AnkoleWebAiGatewayProviderControllerProviderKindsResponses]
 
 export type AnkoleWebBrainControllerObjectTypesData = {
   body?: never
@@ -8333,13 +8178,9 @@ export type AnkoleWebAgentSessionControllerIndexData = {
 
 export type AnkoleWebAgentSessionControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentSessionControllerIndexError =
@@ -8366,17 +8207,9 @@ export type AnkoleWebWorkerEnvControllerIndexForAgentData = {
 
 export type AnkoleWebWorkerEnvControllerIndexForAgentErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Agent not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWorkerEnvControllerIndexForAgentError =
@@ -8401,13 +8234,9 @@ export type AnkoleWebBackgroundAgentJobControllerHealthData = {
 
 export type AnkoleWebBackgroundAgentJobControllerHealthErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebBackgroundAgentJobControllerHealthError =
@@ -8422,46 +8251,6 @@ export type AnkoleWebBackgroundAgentJobControllerHealthResponses = {
 
 export type AnkoleWebBackgroundAgentJobControllerHealthResponse =
   AnkoleWebBackgroundAgentJobControllerHealthResponses[keyof AnkoleWebBackgroundAgentJobControllerHealthResponses]
-
-export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
-  /**
-   * Credential metadata
-   */
-  body: AiGatewayChatGptLoginStartRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login'
-}
-
-export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Login failed
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginError =
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors]
-
-export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
-  /**
-   * ChatGPT login
-   */
-  200: AiGatewayChatGptLoginResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
 
 export type AnkoleWebDirectoryAccessControllerReviewEventData = {
   /**
@@ -8500,17 +8289,9 @@ export type AnkoleWebAiGatewayConversationControllerMessagesData = {
 
 export type AnkoleWebAiGatewayConversationControllerMessagesErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid filters
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAiGatewayConversationControllerMessagesError =
@@ -8560,25 +8341,9 @@ export type AnkoleWebAgentLibraryControllerUpdateData = {
 
 export type AnkoleWebAgentLibraryControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Document changed
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid document
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryControllerUpdateError =
@@ -8608,9 +8373,9 @@ export type AnkoleWebAgentControllerPutProviderHostedData = {
 
 export type AnkoleWebAgentControllerPutProviderHostedErrors = {
   /**
-   * Invalid capability
+   * Error
    */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerPutProviderHostedError =
@@ -8645,47 +8410,6 @@ export type AnkoleWebBrainControllerShowObjectResponses = {
 export type AnkoleWebBrainControllerShowObjectResponse =
   AnkoleWebBrainControllerShowObjectResponses[keyof AnkoleWebBrainControllerShowObjectResponses]
 
-export type AnkoleWebAiGatewayProviderControllerEnableProviderData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/providers/{provider_id}/enable'
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid provider configuration
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderError =
-  AnkoleWebAiGatewayProviderControllerEnableProviderErrors[keyof AnkoleWebAiGatewayProviderControllerEnableProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderResponse =
-  AnkoleWebAiGatewayProviderControllerEnableProviderResponses[keyof AnkoleWebAiGatewayProviderControllerEnableProviderResponses]
-
 export type AnkoleWebBrainControllerLearnSourceData = {
   body?: never
   path: {
@@ -8716,17 +8440,9 @@ export type AnkoleWebPermissionGrantControllerDeleteData = {
 
 export type AnkoleWebPermissionGrantControllerDeleteErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPermissionGrantControllerDeleteError =
@@ -8753,17 +8469,9 @@ export type AnkoleWebPermissionGrantControllerShowData = {
 
 export type AnkoleWebPermissionGrantControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPermissionGrantControllerShowError =
@@ -8793,21 +8501,9 @@ export type AnkoleWebPermissionGrantControllerUpdateData = {
 
 export type AnkoleWebPermissionGrantControllerUpdateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid grant
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebPermissionGrantControllerUpdateError =
@@ -8845,7 +8541,65 @@ export type AnkoleWebBrainControllerDecideMergeSuggestionResponses = {
 export type AnkoleWebBrainControllerDecideMergeSuggestionResponse =
   AnkoleWebBrainControllerDecideMergeSuggestionResponses[keyof AnkoleWebBrainControllerDecideMergeSuggestionResponses]
 
-export type AnkoleWebAppConfigurationControllerDeleteData = {
+export type AnkoleWebTenantControllerResumeData = {
+  body?: never
+  path: {
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v1/site/tenants/{tenant_id}/suspension'
+}
+
+export type AnkoleWebTenantControllerResumeErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerResumeError =
+  AnkoleWebTenantControllerResumeErrors[keyof AnkoleWebTenantControllerResumeErrors]
+
+export type AnkoleWebTenantControllerResumeResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantResponse
+}
+
+export type AnkoleWebTenantControllerResumeResponse =
+  AnkoleWebTenantControllerResumeResponses[keyof AnkoleWebTenantControllerResumeResponses]
+
+export type AnkoleWebTenantControllerSuspendData = {
+  body?: never
+  path: {
+    tenant_id: string
+  }
+  query?: never
+  url: '/api/v1/site/tenants/{tenant_id}/suspension'
+}
+
+export type AnkoleWebTenantControllerSuspendErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebTenantControllerSuspendError =
+  AnkoleWebTenantControllerSuspendErrors[keyof AnkoleWebTenantControllerSuspendErrors]
+
+export type AnkoleWebTenantControllerSuspendResponses = {
+  /**
+   * Tenant result
+   */
+  200: TenantResponse
+}
+
+export type AnkoleWebTenantControllerSuspendResponse =
+  AnkoleWebTenantControllerSuspendResponses[keyof AnkoleWebTenantControllerSuspendResponses]
+
+export type AnkoleWebAppConfigurationControllerDeleteTenantData = {
   body?: never
   path: {
     key: string
@@ -8854,39 +8608,27 @@ export type AnkoleWebAppConfigurationControllerDeleteData = {
   url: '/api/v1/app-configurations/{key}'
 }
 
-export type AnkoleWebAppConfigurationControllerDeleteErrors = {
+export type AnkoleWebAppConfigurationControllerDeleteTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Not editable
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAppConfigurationControllerDeleteError =
-  AnkoleWebAppConfigurationControllerDeleteErrors[keyof AnkoleWebAppConfigurationControllerDeleteErrors]
+export type AnkoleWebAppConfigurationControllerDeleteTenantError =
+  AnkoleWebAppConfigurationControllerDeleteTenantErrors[keyof AnkoleWebAppConfigurationControllerDeleteTenantErrors]
 
-export type AnkoleWebAppConfigurationControllerDeleteResponses = {
+export type AnkoleWebAppConfigurationControllerDeleteTenantResponses = {
   /**
    * AppConfigure entry
    */
   200: AppConfigurationResponse
 }
 
-export type AnkoleWebAppConfigurationControllerDeleteResponse =
-  AnkoleWebAppConfigurationControllerDeleteResponses[keyof AnkoleWebAppConfigurationControllerDeleteResponses]
+export type AnkoleWebAppConfigurationControllerDeleteTenantResponse =
+  AnkoleWebAppConfigurationControllerDeleteTenantResponses[keyof AnkoleWebAppConfigurationControllerDeleteTenantResponses]
 
-export type AnkoleWebAppConfigurationControllerShowData = {
+export type AnkoleWebAppConfigurationControllerShowTenantData = {
   body?: never
   path: {
     key: string
@@ -8895,39 +8637,27 @@ export type AnkoleWebAppConfigurationControllerShowData = {
   url: '/api/v1/app-configurations/{key}'
 }
 
-export type AnkoleWebAppConfigurationControllerShowErrors = {
+export type AnkoleWebAppConfigurationControllerShowTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Not editable
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAppConfigurationControllerShowError =
-  AnkoleWebAppConfigurationControllerShowErrors[keyof AnkoleWebAppConfigurationControllerShowErrors]
+export type AnkoleWebAppConfigurationControllerShowTenantError =
+  AnkoleWebAppConfigurationControllerShowTenantErrors[keyof AnkoleWebAppConfigurationControllerShowTenantErrors]
 
-export type AnkoleWebAppConfigurationControllerShowResponses = {
+export type AnkoleWebAppConfigurationControllerShowTenantResponses = {
   /**
    * AppConfigure entry
    */
   200: AppConfigurationResponse
 }
 
-export type AnkoleWebAppConfigurationControllerShowResponse =
-  AnkoleWebAppConfigurationControllerShowResponses[keyof AnkoleWebAppConfigurationControllerShowResponses]
+export type AnkoleWebAppConfigurationControllerShowTenantResponse =
+  AnkoleWebAppConfigurationControllerShowTenantResponses[keyof AnkoleWebAppConfigurationControllerShowTenantResponses]
 
-export type AnkoleWebAppConfigurationControllerUpdateData = {
+export type AnkoleWebAppConfigurationControllerUpdateTenantData = {
   /**
    * AppConfigure update
    */
@@ -8939,37 +8669,25 @@ export type AnkoleWebAppConfigurationControllerUpdateData = {
   url: '/api/v1/app-configurations/{key}'
 }
 
-export type AnkoleWebAppConfigurationControllerUpdateErrors = {
+export type AnkoleWebAppConfigurationControllerUpdateTenantErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAppConfigurationControllerUpdateError =
-  AnkoleWebAppConfigurationControllerUpdateErrors[keyof AnkoleWebAppConfigurationControllerUpdateErrors]
+export type AnkoleWebAppConfigurationControllerUpdateTenantError =
+  AnkoleWebAppConfigurationControllerUpdateTenantErrors[keyof AnkoleWebAppConfigurationControllerUpdateTenantErrors]
 
-export type AnkoleWebAppConfigurationControllerUpdateResponses = {
+export type AnkoleWebAppConfigurationControllerUpdateTenantResponses = {
   /**
    * AppConfigure entry
    */
   200: AppConfigurationResponse
 }
 
-export type AnkoleWebAppConfigurationControllerUpdateResponse =
-  AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
+export type AnkoleWebAppConfigurationControllerUpdateTenantResponse =
+  AnkoleWebAppConfigurationControllerUpdateTenantResponses[keyof AnkoleWebAppConfigurationControllerUpdateTenantResponses]
 
 export type AnkoleWebAgentControllerEnableData = {
   body?: never
@@ -8982,17 +8700,9 @@ export type AnkoleWebAgentControllerEnableData = {
 
 export type AnkoleWebAgentControllerEnableErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentControllerEnableError =
@@ -9067,21 +8777,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData = 
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginError =
@@ -9097,6 +8795,33 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginRespons
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses]
 
+export type AnkoleWebAiGatewayProviderControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/site/ai-gateway/providers'
+}
+
+export type AnkoleWebAiGatewayProviderControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerIndexError =
+  AnkoleWebAiGatewayProviderControllerIndexErrors[keyof AnkoleWebAiGatewayProviderControllerIndexErrors]
+
+export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
+  /**
+   * AIGateway providers
+   */
+  200: AiGatewayProviderListResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerIndexResponse =
+  AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
+
 export type AnkoleWebSignalBindingControllerRequeueDeliveryData = {
   /**
    * Stopped signal delivery
@@ -9111,25 +8836,9 @@ export type AnkoleWebSignalBindingControllerRequeueDeliveryData = {
 
 export type AnkoleWebSignalBindingControllerRequeueDeliveryErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Delivery is not stopped or cannot be retried
-   */
-  409: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebSignalBindingControllerRequeueDeliveryError =
@@ -9145,6 +8854,67 @@ export type AnkoleWebSignalBindingControllerRequeueDeliveryResponses = {
 export type AnkoleWebSignalBindingControllerRequeueDeliveryResponse =
   AnkoleWebSignalBindingControllerRequeueDeliveryResponses[keyof AnkoleWebSignalBindingControllerRequeueDeliveryResponses]
 
+export type AnkoleWebWorkerEnvControllerDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteError =
+  AnkoleWebWorkerEnvControllerDeleteErrors[keyof AnkoleWebWorkerEnvControllerDeleteErrors]
+
+export type AnkoleWebWorkerEnvControllerDeleteResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerDeleteResponse =
+  AnkoleWebWorkerEnvControllerDeleteResponses[keyof AnkoleWebWorkerEnvControllerDeleteResponses]
+
+export type AnkoleWebWorkerEnvControllerUpdateData = {
+  /**
+   * Worker env update
+   */
+  body: WorkerEnvUpdateRequest
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v1/site/worker-envs/{name}'
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateError =
+  AnkoleWebWorkerEnvControllerUpdateErrors[keyof AnkoleWebWorkerEnvControllerUpdateErrors]
+
+export type AnkoleWebWorkerEnvControllerUpdateResponses = {
+  /**
+   * Worker env entry
+   */
+  200: WorkerEnvResponse
+}
+
+export type AnkoleWebWorkerEnvControllerUpdateResponse =
+  AnkoleWebWorkerEnvControllerUpdateResponses[keyof AnkoleWebWorkerEnvControllerUpdateResponses]
+
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData = {
   body?: never
   path?: never
@@ -9154,21 +8924,9 @@ export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid capability
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexError =
@@ -9184,6 +8942,35 @@ export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses = {
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses]
 
+export type AnkoleWebAppConfigurationControllerDecryptData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v1/site/app-configurations/{key}/decryptions'
+}
+
+export type AnkoleWebAppConfigurationControllerDecryptErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAppConfigurationControllerDecryptError =
+  AnkoleWebAppConfigurationControllerDecryptErrors[keyof AnkoleWebAppConfigurationControllerDecryptErrors]
+
+export type AnkoleWebAppConfigurationControllerDecryptResponses = {
+  /**
+   * Decrypted value
+   */
+  200: AppConfigurationDecryptionResponse
+}
+
+export type AnkoleWebAppConfigurationControllerDecryptResponse =
+  AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
+
 export type AnkoleWebHumanAccessControllerRestoreData = {
   /**
    * Approved review
@@ -9198,9 +8985,9 @@ export type AnkoleWebHumanAccessControllerRestoreData = {
 
 export type AnkoleWebHumanAccessControllerRestoreErrors = {
   /**
-   * Review changed
+   * Error
    */
-  409: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebHumanAccessControllerRestoreError =
@@ -9225,13 +9012,9 @@ export type AnkoleWebOidcClientControllerIndexData = {
 
 export type AnkoleWebOidcClientControllerIndexErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerIndexError =
@@ -9259,17 +9042,9 @@ export type AnkoleWebOidcClientControllerCreateData = {
 
 export type AnkoleWebOidcClientControllerCreateErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid OIDC Client
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebOidcClientControllerCreateError =
@@ -9297,21 +9072,9 @@ export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
 
 export type AnkoleWebWorkerEnvControllerDeleteForAgentErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid name
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWorkerEnvControllerDeleteForAgentError =
@@ -9342,21 +9105,9 @@ export type AnkoleWebWorkerEnvControllerUpdateForAgentData = {
 
 export type AnkoleWebWorkerEnvControllerUpdateForAgentErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Agent not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid value
-   */
-  422: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebWorkerEnvControllerUpdateForAgentError =
@@ -9383,17 +9134,9 @@ export type AnkoleWebAuthZGroupControllerGrantsData = {
 
 export type AnkoleWebAuthZGroupControllerGrantsErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAuthZGroupControllerGrantsError =
@@ -9418,13 +9161,9 @@ export type AnkoleWebConsoleReadinessControllerShowData = {
 
 export type AnkoleWebConsoleReadinessControllerShowErrors = {
   /**
-   * Unauthorized
+   * Error
    */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
+  default: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebConsoleReadinessControllerShowError =

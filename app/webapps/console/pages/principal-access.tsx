@@ -1,7 +1,8 @@
+import { ActorLabel } from '../actor-label'
 import { Badge, Button, Checkbox, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebHumanAccessControllerShowOptions,
@@ -19,10 +20,8 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AccessReviewModel)
-  const queryClient = useQueryClient()
   const access = useQuery({ ...ankoleWebHumanAccessControllerShowOptions({ path: { uid } }), refetchInterval: 15000 })
   const onSuccess = () => {
-    void queryClient.invalidateQueries()
     model.confirmed.value = false
     model.approvedFingerprint.value = undefined
     model.identityVerified.value = false
@@ -222,7 +221,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                   </span>
                   <p>{item.reason}</p>
                   <p className="text-xs text-muted-foreground">
-                    {item.actor_uid} · {item.inserted_at}
+                    <ActorLabel actor={item.actor} /> · {item.inserted_at}
                   </p>
                 </div>
               ))}

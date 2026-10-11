@@ -82,9 +82,6 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
   def delete_finalize_result, do: :persistent_term.erase(@finalize_result_key)
 
   @impl true
-  def open(%Request{} = request), do: sync(:open, request, "open")
-
-  @impl true
   def update(%Request{} = request), do: sync(:update, request, "open")
 
   @impl true
@@ -228,13 +225,24 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   end
 
   defp author(event) do
-    if is_nil(fetch(event, :author_principal_uid)) and
-         is_nil(Ankole.Repo.get(Ankole.Principals.Principal, "mock-human")) do
-      Ankole.PrincipalsFixtures.human_fixture(%{uid: "mock-human"})
-    end
+    uid =
+      fetch(event, :author_principal_uid) ||
+        case Ankole.Repo.get_by(Ankole.Principals.HumanUser, email: "mock-sender@example.com") do
+          %{principal_uid: uid} ->
+            uid
+
+          nil ->
+            %{principal: principal} =
+              Ankole.PrincipalsFixtures.human_fixture(%{
+                email: "mock-sender@example.com",
+                display_name: "Mock User"
+              })
+
+            principal.uid
+        end
 
     %{
-      principal_uid: fetch(event, :author_principal_uid) || "mock-human",
+      principal_uid: uid,
       id: fetch(event, :author_id) || "mock-user",
       display_name: fetch(event, :author_display_name) || "Mock User"
     }

@@ -1,72 +1,79 @@
 ---
 title: Workers
-description: Check Agent Computer Worker state, capacity, and heartbeat in the Console, and resolve common failures.
+description: Check each Agent's Worker in the Console, see how the control plane manages it, and resolve common failures.
 section: User guide
 order: 52
 ---
 
-An Agent Computer Worker is the computer where Agents do their work. The control plane owns durable domain state and supervision, managing and assigning work; the Worker runs Agents, tools, and file operations in worker-local state. One deployment instance can connect to one or more Workers.
+Each Agent has its own Worker and persistent Home at `/workspace`. Operators create a Worker provider in the Console with a type, YAML configuration, and separate credentials. Select the provider when creating an Agent; the selection cannot change. Use separate providers for different instance sizes.
+
+## Worker pools
+
+One Worker provider defines one Worker pool: a platform type, YAML configuration, and separately encrypted credentials. Pools belong to the site. Agents in different tenants can select the same pool, while each Agent keeps its own Worker, persistent Home, cache, and Worker credential.
+
+1. Open **Console → Settings → Worker providers** and select **New Worker provider**.
+2. Choose the type and use its YAML example. Set the instance image, size, storage, and connection endpoints that this pool needs.
+3. Enter platform credentials in the separate credential fields, save, and run the availability check.
+4. Set one pool as the default, or select a pool explicitly when creating an Agent. Without either selection, Agent creation fails.
+
+The site has at most one default pool. Changing the default affects later Agent creation; existing Agents keep their selected provider. Create separate pools for different sizes or locations, including multiple pools of the same type. A provider ID, type, storage location, and an Agent's provider binding cannot change after creation. A pool cannot be deleted while an Agent Worker row refers to it.
+
+Pool configuration manages instances through the selected platform. It does not assign one Agent's computer to another Agent. See [Agents](../agents/) for Agent creation and [Agent Computer Worker](../agent-computer-worker/) for execution and recovery.
+
+## One Agent, one Worker
+
+Agent creation saves the provider binding and a Worker row; it does not start an instance. The control plane starts the Worker when an environment tool, Codex Job, or Automation Job needs it. Main conversation and Workflow model calls run in the control plane and can continue without a Worker.
+
+Sessions and Jobs of the same Agent share that Agent's computer, with separate workspaces in Home. An open environment workspace and a running Codex turn each consume one Worker slot. `ANKOLE_MAX_CONCURRENT_SLOTS` sets that Worker's capacity. More pools or Agents do not increase the slots of an existing Agent's Worker or its separate Background Agent Job limit.
 
 ## View Workers
 
-Open **Console → Workers**. Each row shows:
+Open **Console → Workers**. The row shows the Agent, provider, state, load, heartbeat, and latest platform error.
 
-- **State:** whether the Worker can accept new work;
-- **Slots:** the largest number of Agent turns that it can run at the same time;
-- **Active turns:** turns that are running now;
-- **Last heartbeat:** the last time that the control plane received Worker state;
-- **Version:** the Ankole version on the Worker.
+| State | Meaning |
+| --- | --- |
+| `absent` | No instance; the control plane creates one when needed |
+| `starting` | A generation is saved; creation or admission is pending |
+| `ready` | Connected and able to run turns |
+| `stale` | The previous connection is gone |
+| `paused` | The platform retains the process and memory |
+| `draining` | Waiting for release or replacement |
+| `deleting` | Waiting for instances and storage to be removed |
 
-The control plane can assign work while at least one Worker is ready. A Worker with no recent heartbeat usually has a stopped container, a network problem, or an authentication failure between the Worker and control plane.
+A timeout during creation keeps the same generation for retry. An uncertain result can leave an Agent waiting; the control plane does not create a possible second writer. Read **Reason** before changing configuration.
 
-Select **Browse files** to inspect Agent files on that Worker. See [File management](../file-management/) for the procedure.
+## Providers and storage
 
-## If no Worker is ready
+| Type | Persistent Home | Idle operation |
+| --- | --- | --- |
+| Docker | Local volume per Agent | Delete container |
+| Kubernetes | PVC per Agent or directory in a shared PVC | Delete Pod |
+| Cloudflare | R2 directory backup | Back up and delete container |
+| Vercel | Drive per Agent | Delete sandbox |
+| Lambda MicroVMs | Agent directory on EFS | Suspend memory |
+| Function Compute | AgenticSpace or OSS prefix per Agent | Pause memory |
 
-Check these items in order:
+Vercel requires Pro or Enterprise for the 24-hour session limit. For Lambda, reserve memory quota for storage deletion helpers as well as running and suspended Workers. Check the target deployment with the commands in the repository's CONTRIBUTING guide. Function Compute follows the official protocols; its storage, template capture, and memory pause still need checks on an enabled Aliyun account. ACS is not registered because its default memory retention is not confirmed.
 
-1. The Worker container or Pod is running.
-2. Worker logs do not show a control-plane address, authentication, or connection error.
-3. The control plane and Worker use the same `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`.
-4. The Worker can reach the control plane Runtime Fabric address.
-5. The control plane and Worker use compatible Ankole versions.
+Home survives instance deletion and image changes. Codex thread files are in `/workspace/.codex`; SQLite is a cache at `/var/cache/ankole/codex`. A rebuild removes only the cache. A Docker local volume cannot survive loss of its host. Cloudflare can lose writes since the last backup after a forced platform stop. Back up persistent Home and the [Agent drive](../file-management/).
 
-For Docker Compose:
+## Release, replacement, and deletion
 
-```bash
-docker compose ps agent-computer-worker
-docker compose logs agent-computer-worker
-```
+- Set `idleReleaseAfter` in provider YAML. Docker and Kubernetes default to `never`; Cloudflare, Vercel, Lambda, and Function Compute default to `15m`.
+- A memory-capable provider pauses an idle Worker. Other types delete the instance and keep persistent storage and any cache volume.
+- Image or instance-setting changes replace Workers when idle. A protocol change replaces them immediately. Old paused instances are replaced before they resume.
+- `agent_computer.worker.ready_timeout` defaults to 600 seconds. It rebuilds an instance already observed on the platform; it does not settle an uncertain create.
+- Agent deletion waits for instances to disappear, deletes Home and cache, then removes the Worker row. Agent UIDs are generated by the server and are never reused.
 
-For Kubernetes:
+## Diagnose a waiting Worker
 
-```bash
-kubectl -n ankole get pods
-kubectl -n ankole logs deployment/ankole-agent-computer-worker
-```
+Check provider credentials, storage, capacity, and the configured `endpoints`. For Docker, `ANKOLE_DOCKER_GID` must match the container's Docker socket group. For Kubernetes, check the control-plane Role, Pod events, and PVC binding. For Cloudflare, check the adapter image map and token. For Lambda, check image build state, build-role permissions, the VPC connector, and EFS reachability.
 
-The exact resource name depends on the release name. If the command cannot find the object, use `kubectl -n ankole get deployments` to find it.
-
-## If Workers are ready but work stays queued
-
-Compare **Active turns** with **Slots**. If every Worker uses all of its slots, new work waits for capacity.
-
-A short wait is normal. For a persistent queue, first confirm that the LLM Provider is not slow. Then decide whether to add Workers, increase per-Worker capacity, or reduce concurrent work. See [Performance tuning](../performance-tuning/).
-
-## Restart a Worker
-
-Restart a Worker only when it does not respond and its logs show that it cannot recover.
-
-Docker Compose:
+Use provider labels to identify the correct instance. Read its logs before stopping it. A normal Kubernetes deletion must finish; never use zero grace to work around a missing node. With Docker, stop before removal:
 
 ```bash
-docker compose restart agent-computer-worker
+docker stop CONTAINER_NAME
+docker rm CONTAINER_NAME
 ```
 
-Kubernetes:
-
-```bash
-kubectl -n ankole rollout restart deployment/ankole-agent-computer-worker
-```
-
-A restart interrupts turns that run on that Worker. The control plane handles them according to their retry policy. After the restart, check the result under **Console → Conversations** or **Background Agent Jobs**.
+The control plane creates a replacement when needed. Home and cache volumes remain. A stop interrupts running turns, which follow their retry policies. If the Worker is ready but work waits, compare load with its turn slots. `ANKOLE_MAX_CONCURRENT_SLOTS` is an instance environment setting in provider YAML; changing it replaces the idle instance. See [Performance tuning](../performance-tuning/).

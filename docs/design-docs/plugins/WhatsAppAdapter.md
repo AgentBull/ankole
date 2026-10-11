@@ -151,8 +151,8 @@ Principal.
 
 SignalsGateway first commits the admitted message with a pending attachment
 observation inside the webhook request. A supervised task then reads the
-temporary media URL, downloads the bytes, writes them to the Agent's
-`user-files` lane, and updates the same entry. The webhook answer does not wait
+temporary media URL, downloads the bytes, stores them in the file service
+([Files](../Files.md)), and updates the same entry. The webhook answer does not wait
 for the download. If the task cannot start, the webhook fails and Meta delivers
 the message again; the pending observation is already durable, so that
 redelivery fetches the file. An unmatched sender cannot make Ankole download a
@@ -294,7 +294,7 @@ Repository tests cover declaration validation, phone number ownership and
 shared-App credential consistency, subscription verification, signature
 validation, fan-out by phone number ID, redelivery deduplication, message and
 attachment projection, ignored message kinds, identity policies including the
-mobile match, attachment limits and materialization into the user-files lane,
+mobile match, attachment limits and storage in the file service,
 interactive button and list replies with token resolution, outbound request
 construction, media upload, uncertain sends, failure classification, and the
 customer service window check. Real WhatsApp acceptance needs an operator App

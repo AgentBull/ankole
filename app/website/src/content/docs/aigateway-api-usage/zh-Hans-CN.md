@@ -1,13 +1,13 @@
 ---
 title: AIGateway API 使用
-description: 外部调用方如何使用 AIGateway REST API——OpenResponses 兼容端点、agent vs admin token、无状态与有状态调用、完整示例。
+description: 外部调用方如何使用 AIGateway REST API——OpenResponses 兼容端点、Agent and OIDC Human tokens、无状态与有状态调用、完整示例。
 section: Developer guide
 order: 126
 ---
 
 AIGateway 不只是 worker 调用的内部边界；它是一个外部应用、企业系统和 SDK 可以直接调用的 REST API。本页是调用方使用它的实用指南——端点、鉴权、两种调用模式、完整示例。它以实际调用示例补充 [AIGateway](../ai-gateway/) 概念页。
 
-AIGateway API 兼容 OpenResponses，并按主体隔离数据和权限。调用方出示 Bearer Token（Agent 或管理员），发送 OpenResponses 格式的请求，再接收 JSON 响应或数据流。Provider 凭证始终由控制面保存，不会暴露给调用方。
+AIGateway API 兼容 OpenResponses，并按主体隔离数据和权限。调用方出示 Bearer Token（Agent 或 OIDC Human），发送 OpenResponses 格式的请求，再接收 JSON 响应或数据流。Provider 凭证始终由控制面保存，不会暴露给调用方。
 
 ## 鉴权
 
@@ -23,7 +23,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 接受两种 token：
 
 - **Agent token**——范围限定到一个 agent 的模型绑定。集成代表特定 agent 行动时用它。
-- **Admin token**——范围限定到所有 provider。运维侧脚本和 Console 用它。
+- **OIDC 人类 token**——由声明 `ai_gateway.write` 的 OIDC Client 为活跃 Human 签发；请求只能使用该 Client 的模型别名，`subject_type = "oidc_human"`。
+
+获取 OIDC 人类 token：在控制台创建带 `ai_gateway.write` 作用域的 OIDC Client，配置允许的组和模型别名，再通过授权码加 PKCE 登录。需要长期使用时申请 `offline_access`，使用轮换的 Refresh Token。Human 必须属于允许的组，且只能使用 Client 的模型别名，不能使用原始 `provider_id/model` 选择符。
 
 Token 怎样解析为主体，见 [主体与 AuthZ](../principal-authz/)。
 

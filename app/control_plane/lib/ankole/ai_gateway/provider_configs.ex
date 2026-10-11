@@ -239,13 +239,16 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @spec resolve_credential(Provider.t(), map() | keyword()) ::
           {:ok, map()} | {:error, term()}
   def resolve_credential(%Provider{} = provider, ctx \\ %{}) do
-    pool = credential_pool(provider)
-    entries = Map.get(pool, "entries", [])
-    strategy = Map.get(pool, "strategy", "fill_first")
-    affinity_key = context_value(ctx, :affinity_key)
-    excluded = context_value(ctx, :exclude) || []
-
-    resolve_credential(provider, entries, strategy, affinity_key, excluded)
+    with %Provider{} = current <- Repo.get(Provider, provider.id) do
+      pool = credential_pool(current)
+      entries = Map.get(pool, "entries", [])
+      strategy = Map.get(pool, "strategy", "fill_first")
+      affinity_key = context_value(ctx, :affinity_key)
+      excluded = context_value(ctx, :exclude) || []
+      resolve_credential(current, entries, strategy, affinity_key, excluded)
+    else
+      nil -> {:error, :not_found}
+    end
   end
 
   defp resolve_credential(provider, entries, strategy, affinity_key, excluded) do
@@ -268,22 +271,16 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           {:ok, selected}
 
         {:error, {:chatgpt_refresh_permanent, _reason}} ->
-          resolve_credential(
-            provider,
-            entries,
-            strategy,
-            affinity_key,
-            [selection.credential_id | excluded]
-          )
+          resolve_credential(provider, %{
+            affinity_key: affinity_key,
+            exclude: [selection.credential_id | excluded]
+          })
 
         {:error, {:chatgpt_refresh_transient, 429, _headers, _reason}} ->
-          resolve_credential(
-            provider,
-            entries,
-            strategy,
-            affinity_key,
-            [selection.credential_id | excluded]
-          )
+          resolve_credential(provider, %{
+            affinity_key: affinity_key,
+            exclude: [selection.credential_id | excluded]
+          })
 
         {:error, {:chatgpt_refresh_transient, _status, _headers, _reason}} = error ->
           error
@@ -293,6 +290,51 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       end
     end
   end
+
+  @doc "Persists a cooldown only for the attributed credential revision."
+  def put_credential_cooldown(row_id, credential, %DateTime{} = until, reason) do
+    Repo.transact(fn repo ->
+      provider = repo.one(from p in Provider, where: p.id == ^row_id, lock: "FOR UPDATE")
+
+      with %Provider{} = provider <- provider,
+           {:ok, current} <- fetch_credential_entry(provider, credential["id"]),
+           true <- current["health_revision"] == credential["health_revision"] do
+        previous = cooldown_deadline(current)
+
+        if previous && DateTime.compare(previous, until) != :lt do
+          {:ok, :unchanged}
+        else
+          updated =
+            current
+            |> Map.put("cooldown_until", DateTime.to_iso8601(until))
+            |> Map.put("cooldown_reason", reason)
+
+          pool = replace_pool_entry(credential_pool(provider), credential["id"], updated)
+
+          with {:ok, _} <- repo.update(Provider.changeset(provider, %{credential_pool: pool})),
+               do: {:ok, :stored}
+        end
+      else
+        nil -> {:ok, :unchanged}
+        false -> {:ok, :unchanged}
+        {:error, :credential_not_found} -> {:ok, :unchanged}
+        error -> error
+      end
+    end)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp cooldown_deadline(%{"cooldown_until" => value}) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _} -> datetime
+      _invalid -> nil
+    end
+  end
+
+  defp cooldown_deadline(_entry), do: nil
 
   @doc """
   Returns a runtime-safe connection config with one selected credential.
@@ -845,6 +887,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           "encrypted_credential" => ciphertext
         }
         |> maybe_preserve_reauth_metadata(entry, existing, credential_replaced?)
+        |> preserve_cooldown(existing)
 
       {:ok, stored}
     else
@@ -925,6 +968,12 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
+  defp preserve_cooldown(stored, existing) do
+    if existing && stored["health_revision"] == existing["health_revision"],
+      do: Map.merge(stored, Map.take(existing, ~w(cooldown_until cooldown_reason))),
+      else: stored
+  end
+
   defp credential_replaced?(entry) do
     Enum.any?(entry, fn
       {key, value} ->
@@ -935,7 +984,12 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   defp rotate_health_revisions(pool) do
     Map.update!(pool, "entries", fn entries ->
-      Enum.map(entries, &Map.put(&1, "health_revision", health_revision()))
+      Enum.map(
+        entries,
+        &(&1
+          |> Map.put("health_revision", health_revision())
+          |> Map.drop(~w(cooldown_until cooldown_reason)))
+      )
     end)
   end
 
@@ -1097,15 +1151,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           ])
           |> Map.put("credential_present", is_binary(Map.get(entry, "encrypted_credential")))
           |> Map.merge(account_projection)
-          |> Map.merge(projected_status(entry, status))
+          |> Map.merge(status)
         end)
     }
   end
-
-  defp projected_status(%{"reauth_required" => true}, _status),
-    do: %{"status" => "dead", "reauth_required" => true}
-
-  defp projected_status(_entry, status), do: status
 
   defp context_value(ctx, key) when is_list(ctx), do: Keyword.get(ctx, key)
 
@@ -1124,7 +1173,6 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         |> Providers.projection()
         |> Map.take([
           "capabilities",
-          "capability_specs",
           "settings"
         ])
 

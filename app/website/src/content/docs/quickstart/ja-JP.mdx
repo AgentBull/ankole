@@ -34,7 +34,7 @@ export const deploymentTabs = [
     label: 'Docker Compose',
     badge: 'シングルホスト推奨',
     summary:
-      '多くのチームに最適な出発点です。Docker を実行する Linux、macOS、Windows の 1 台のホストで、PostgreSQL、control plane、1 つの Agent Computer Worker、Caddy HTTPS を実行できます。',
+      "1 台のホストで PostgreSQL、control plane、Caddy を実行し、選択した provider が Agent ごとに Worker を作成します。",
     prerequisites: [
       'Linux amd64 または arm64 のコンテナを実行できる Linux、macOS、または Windows ホスト',
       'Compose プラグイン付きの Docker Engine、または Docker Desktop',
@@ -72,11 +72,26 @@ export const deploymentTabs = [
                 "  '# ANKOLE master encryption key' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
-                "  '# Authentication key shared by the ANKOLE control plane and Agent Workers' \\",
-                '  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=$(openssl rand -hex 32)"'
+                "  '# Erlang distribution cookie of the control plane' \\",
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
+        },
+        {
+          title: 'Docker socket のグループを設定する',
+          body: [
+            'control plane は Docker socket を通じて Worker コンテナを作成します。control plane は非特権ユーザーとして実行され、コンテナ内で socket を所有するグループを通じて socket を使用します。',
+            'Linux では、.env の ANKOLE_DOCKER_GID に、このコマンドが出力するグループ ID を設定してください。macOS の Docker Desktop では、ANKOLE_DOCKER_GID=0 を設定してください。Docker Desktop は、ホストの表示に関係なく、グループ 0 の socket をコンテナに渡します。ANKOLE_DOCKER_SOCKET は、socket が /var/run/docker.sock でない場合にのみ設定してください。'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'stat -c %g /var/run/docker.sock   # Linux'
+            }
+          ],
+          caution:
+            'Docker socket へのアクセスは、ホストの root アクセスと同等です。ホストは、信頼できるファーストパーティのコンピュート境界として扱ってください。'
         },
         {
           title: '公開ホストを設定する',
@@ -105,7 +120,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Compose は PostgreSQL を待ち、migration を実行し、Worker key を保存した後、control plane、Worker、Caddy を起動します。'
+            "Compose は PostgreSQL を待ち、データベース移行と一度限りの Home 移行を完了してから control plane と Caddy を起動します。"
           ]
         },
         {
@@ -125,18 +140,14 @@ export const deploymentTabs = [
       summary: '最初のデプロイメントを本番に移す前に、これらの設定を使用してください。',
       steps: [
         {
-          title: '検証済みのイメージペアを固定する',
+          title: '検証済みのイメージを固定する',
           body: [
-            'control-plane と Worker のタグは、RuntimeFabric の検証の後に一緒に移動します。管理された rollout のためには、両方のイメージを同じソースリビジョンの digest に固定してください。'
+            'control plane のイメージは同じソースリビジョンの Worker イメージを指定し、control plane はそのイメージですべての Worker を作成します。管理された rollout のためには、control plane のイメージを不変の digest に固定してください。その digest は Worker イメージも固定します。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: 'control plane のイメージ、または不変の digest。'
-            },
-            {
-              name: 'ANKOLE_WORKER_IMAGE',
-              description: '同じ検証済みペアの Worker イメージ、または不変の digest。'
+              description: 'control plane のイメージ、または不変の digest。Worker イメージも指定します。'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -157,7 +168,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'ankole_agents_data ボリュームのスナップショットも取ってください。データベースと Agent Home の復元を、別のホストで一緒にテストしてください。'
+            "全書き込みを停止し、PostgreSQL、ファイルストア、全 Home、元の ANKOLE_SECRET_BASE を保存します。隔離リソースで完全復元を検証してください。手順はバックアップガイドを参照してください。"
           ]
         },
         {
@@ -167,14 +178,17 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'docker compose pull',
-                'docker compose down',
+                'docker compose stop',
                 'docker compose up -d --force-recreate',
                 'docker compose ps'
               ].join('\n')
             }
           ],
+          body: [
+            'docker compose stop は、Worker コンテナが使い続ける ankole_workers ネットワークを残します。Worker コンテナは実行を続け、新しい control plane に接続します。control plane は、古いイメージの Worker を、その Agent がアイドルのときに置き換えます。'
+          ],
           caution:
-            'docker compose down は名前付きボリュームを保持します。docker compose down -v は PostgreSQL、Agent Home、Caddy のデータを削除します。恒久的な削除を意図していて、テスト済みのバックアップが存在する場合以外は -v を使用しないでください。'
+            "docker compose down -v は Compose 管理のデータベースとファイルストア volume を削除します。独立した Home volume の lifecycle は別です。永続ストレージ削除前に完全バックアップを検証してください。"
         },
         {
           title: 'ローカル専用の HTTPS ホストを使用する',
@@ -206,11 +220,11 @@ export const deploymentTabs = [
     label: 'Kubernetes',
     badge: 'エンタープライズ推奨',
     summary:
-      '既に Kubernetes を運用していて、クラスタスケジューリング、HTTPS Ingress、共有の Agent Home ストレージが必要な場合は、Helm chart を使用してください。',
+      '既に Kubernetes を運用していて、クラスタスケジューリングと HTTPS Ingress が必要な場合は、Helm chart を使用してください。control plane は、Agent ごとに 1 つの Worker Pod を Kubernetes API 経由で作成します。',
     prerequisites: [
       'Kubernetes 1.27 以降と Helm 3 以降',
       'Linux amd64 または arm64 のノード',
-      'Agent Home 用の HTTPS Ingress と ReadWriteMany ストレージ'
+      "HTTPS Ingress と、共有 ReadWriteMany Home PVC および ReadWriteOnce キャッシュ PVC 用のストレージ"
     ],
     basic: {
       title: 'Helm chart をインストールする',
@@ -237,15 +251,15 @@ export const deploymentTabs = [
               code: [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
-                'ANKOLE_WORKER_AUTH_KEY="$(openssl rand -hex 24)"',
+                'RELEASE_COOKIE="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
-                '  --from-literal="ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=${ANKOLE_WORKER_AUTH_KEY}" \\',
+                '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE ANKOLE_WORKER_AUTH_KEY'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
               ].join('\n')
             }
           ]
@@ -269,6 +283,10 @@ export const deploymentTabs = [
                 '    persistence:',
                 '      storageClass: nfs-rwx',
                 '      size: 100Gi',
+                '  cache:',
+                '    type: pvc',
+                '    storageClass: standard',
+                '    size: 20Gi',
                 '',
                 'postgresql:',
                 '  enabled: true',
@@ -317,10 +335,12 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'kubectl -n ankole get pods',
-                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m',
-                'kubectl -n ankole rollout status deployment/ankole-worker --timeout=10m'
+                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m'
               ].join('\n')
             }
+          ],
+          body: [
+            'この時点では Worker Pod はありません。control plane は、Agent の作成時にその Agent の Worker を作成します。'
           ]
         },
         {
@@ -376,15 +396,26 @@ export const deploymentTabs = [
         {
           title: 'Worker のセキュリティプロファイルを確認する',
           body: [
-            '強力な bubblewrap 分離には、SYS_ADMIN、unconfined の seccomp プロファイル、そして unmask された /proc が必要です。chart はこれらを設定しますが、クラスタのアドミッションポリシーがそれらを許可する必要があります。'
+            'Worker Pod に追加のカーネル権限は必要ありません。コンテナが各 Agent の分離境界です。chart は control plane に Pod、Secret、PVC を作成・削除する namespace の Role を与え、Worker Pod には権限を持たない専用の ServiceAccount を与えます。'
+          ],
+          fields: [
+            {
+              name: 'worker.runtimeClassName',
+              description: '任意。Worker Pod の RuntimeClass。例：gvisor。'
+            },
+            {
+              name: 'networkPolicy.enabled',
+              value: 'true',
+              description: '任意。有効にすると、Worker Pod は接続を受け付けず、control plane、DNS、公開アドレスにだけ到達できます。'
+            }
           ],
           caution:
-            'Worker ノードは、信頼できるファーストパーティのコンピュート境界として扱ってください。クラスタポリシーがこのプロファイルを拒否する場合は、専用のノードプール、または承認された同等のサンドボックスを使用してください。'
+            'Worker コンテナは、信頼できるファーストパーティのコンポーネントです。control plane は Pod と Secret を作成できる namespace の Role を持つため、root と同等のコンポーネントとして保護してください。'
         },
         {
           title: '一致するイメージを固定してアップグレードする',
           body: [
-            '同じ検証済みソースリビジョンの control plane と Worker の digest を固定してください。helm upgrade の前に PostgreSQL と Agent Home をバックアップしてください。'
+            "同じ検証済みリビジョンの control plane と Worker イメージを固定します。helm upgrade の前に PostgreSQL、ファイルストア、全 Home、元の暗号化キーを保存します。"
           ],
           caution:
             'Helm の rollback はデータベースの migration を元に戻しません。アプリケーションの rollback が古いスキーマも必要とする場合は、データベースのバックアップを復元してください。'
@@ -405,7 +436,7 @@ export const deploymentTabs = [
     value: 'source',
     label: 'ソースからインストールする',
     summary:
-      '開発、デバッグ、ローカル評価にはソースパスを使用してください。PostgreSQL、Phoenix、Console、フロントエンドアセット、そして管理された Docker Worker を 1 つ起動します。',
+      "ソースからの開発は PostgreSQL、Phoenix、Console、フロントエンドを起動します。control plane が Agent ごとに Docker Worker を作成します。",
     prerequisites: [
       'macOS または Linux。Windows では WSL2 を使用してください',
       'システムパッケージをインストールできるアカウント',
@@ -508,7 +539,7 @@ export const deploymentTabs = [
               code: [
                 'bun run services:status',
                 'curl -I http://localhost:4000/',
-                'docker ps --filter name=ankole-dev-agent-computer'
+                'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
             {
@@ -517,6 +548,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
+            'Agent を作成するまで、Worker コンテナはありません。各 Worker コンテナは、ローカルの Agent Computer ソースを watch モードで実行します。',
             'bun dev ターミナルで Ctrl+C を使い、control plane と Worker を停止してください。終了時に PostgreSQL も別途停止してください。'
           ]
         },
@@ -1249,7 +1281,7 @@ export const identityTabs = [
 
 export const modelAdvanced = {
   title: '任意の Agent profile と Brain メンテナンス',
-  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain は検索モデルだけをインスタンス全体で保持します。',
+  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain はサイト単位の embedding モデルとテナント単位の rerank モデルを使います。',
   steps: [
     {
       title: '任意の Agent 能力 profile を追加する',
@@ -1276,21 +1308,21 @@ export const modelAdvanced = {
     {
       title: 'Brain メンテナンス Agent と検索モデルを選択する',
       body: [
-        'Console → AppConfigure → Brain を開きます。有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。無効にすると、再度有効にするか変更するまで、モデル呼び出しとローカル URL 取得を停止します。リンク先の Agent ページでモデル profile を編集します。'
+        'Console → AppConfigure → Brain を開きます。テナントと、その Brain を管理する有効な Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得を停止します。リンク先の Agent ページでモデル profile を編集します。'
       ],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            '選択した Agent の light profile で知識を抽出し、heavy profile で Dreaming を実行し、web_fetch profile で URL Source を取得します。web_fetch が未設定の場合はローカルの ankole-browser を使います。'
+            '選択した Agent の light profile で知識を抽出し、heavy profile で Dreaming を実行し、web_fetch profile で URL Source を取得します。web_fetch が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。'
         },
         {
           name: 'brain.embedding_model',
-          description: 'ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
+          description: 'サイト単位の設定です。ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
         },
         {
           name: 'brain.rerank_model',
-          description: '融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
+          description: 'テナント単位の設定です。融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
         }
       ],
       links: [
@@ -2394,16 +2426,18 @@ export const signalAdvanced = {
 
 ## Ankole のデプロイ方法
 
-プライベートな Ankole デプロイメントインスタンスには、1 つの control plane と 1 つ以上の Agent Computer Worker があります。control plane は永続的なドメイン状態と監視を所有する管理プラットフォームです。Worker は Agent の実行環境を提供し、Agent の仕事用コンピュータとして機能します。
+プライベートな Ankole デプロイメントインスタンスには、1 つの control plane と、Agent ごとに 1 つの Agent Computer Worker があります。control plane は永続的なドメイン状態と監視を所有する管理プラットフォームです。Worker は Agent の実行環境を提供し、Agent 自身の仕事用コンピュータとして機能します。
 
-1 つの Worker が複数の Agent にサービスを提供できます。金融など厳格な分離が必要な環境では、各 Agent に専用の Worker を割り当ててください。仕事用コンピュータは複数のインターンで共有したり、1 人の同僚に割り当てたりできます。
+Agent が Worker を共有することはありません。同僚がそれぞれ自分の仕事用コンピュータを持つのと同じです。control plane は、Agent の作成時にその Agent の Worker を作成し、停止、置き換え、削除も自動で行います。
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="複数の Agent が 1 つの Worker を共有していても、各 Agent は別々の sandbox で実行されます。sandbox は基本的なプロセスとファイルシステムの分離を提供し、Agent 間の干渉を減らします。これは軽量な分離レイヤーであり、絶対的なセキュリティ境界ではありません。"
+  text="Worker のコンテナまたは Pod が、その唯一の分離境界です。Agent のコマンド、Automation スクリプト、ブラウザは内側の sandbox なしでその中で実行され、コンテナに追加のカーネル権限は必要ありません。Agent は自分の Worker にソフトウェアをインストールしたり、Worker を壊したりできますが、別の Agent として動作することはできません。control plane は、時間内に準備完了にならない Worker を再構築します。"
 />
 
-各インスタンスには PostgreSQL と永続ディスクストレージも必要です。シングルホストのデプロイメントでは、ローカルまたは仮想ディスクを使用できます。Kubernetes のデプロイメントには、ReadWriteMany をサポートする NFS または別の共有ボリュームが必要です。
+各デプロイには PostgreSQL、ドライブのファイルストア、Agent ごとの永続 Home が必要です。既定の Kubernetes chart は共有 ReadWriteMany Home PVC と別の ReadWriteOnce キャッシュ PVC を使います。Home はバックアップが必要で、キャッシュは不要です。
+
+1 つのサイトに複数のテナントを配置できます。サイト管理者が共有基盤を管理し、各テナントは人、Agent、Brain、外部接続を持ちます。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm では `controlPlane.siteAdminConsolePath`）で変更できます。旧 `/console` は 404 を返します。
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2413,7 +2447,8 @@ export const signalAdvanced = {
 
 | 正式用語 | 意味 | 短縮形 |
 |---|---|---|
-| **Private deployment instance** | 企業がデプロイして管理する、1 つの完全な Ankole システム | Instance |
+| **Site** | 共有基盤とサイト管理者を持つ Ankole の完全なデプロイ | Site |
+| **Tenant** | サイト内の組織に属する人、Agent、Brain、外部接続、仕事 | Tenant |
 | **Principal** | Ankole で identity と権限を持つことができる人、Agent、またはシステムサービス | Principal |
 | **Identity Provider (IdP)** | Console の SSO を提供し、社員、連絡先、組織構造を同期する外部の identity ソース | IdP |
 | **Chat platform** | Slack、Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メールボックスなどの外部の会話プラットフォーム | Platform |
@@ -2450,7 +2485,7 @@ export const signalAdvanced = {
 
 ## 2. 最初に identity provider をセットアップする
 
-Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。各エンタープライズは 1 つのインスタンスを運用します。そのインスタンス内では、Agent、社員、システムサービスが Principal として表現され、認可モジュールがそれらの権限を管理します。
+Ankole はエンタープライズ内のプライベートデプロイメント用に設計されています。1 つのサイトに複数のテナントを配置できます。各テナントの Agent、社員、システムサービスは Principal として表現され、AuthZ が権限を管理します。identity provider の設定前に Console で対象テナントを選択してください。
 
 Hermes Agent や OpenClaw と同様に、Ankole はチャットチャンネルに接続します。また、エンタープライズの identity ソースにも接続し、社員、ディレクトリの連絡先、組織構造を同期します。チャットチャンネルを設定する前に、Identity Provider（IdP）を設定してください。
 
@@ -2484,7 +2519,7 @@ Agent のモデルプロファイルはモデル参照を保存するため、�
 
 provider の credential は control plane 内で暗号化されたまま保持されます。デプロイメントの環境ファイルや Agent ファイルに配置しないでください。
 
-**Agents → New Agent** を開いてください。Agent に安定した UID、明確な表示名、そして何を所有し何が許容可能な結果とみなされるかを示す mission を与えてください。
+**Agents → New Agent** を開き、handle、表示名、Worker provider、担当する作業と受入条件を示す mission を設定します。不透明な UID は Ankole が生成します。
 
 次に、そのモデルプロファイルを設定します。
 
@@ -2568,8 +2603,8 @@ bot をテスト用の会話に追加してください。グループチャッ�
 4. routing ルールが有効で、意図する Agent を指している。
 5. Agent が `primary`、`light`、`heavy` のモデルプロファイルを持っている。
 6. LLM Provider の credential とモデルセレクタが有効である。
-7. 少なくとも 1 つの Worker が準備完了である。
+7. Agent の Worker が **Console → Workers** で準備完了である。準備完了でない場合は、そのページにバックエンドからの理由が表示される。
 
-Compose の場合は、`docker compose logs -f control-plane worker` を調べてください。Kubernetes の場合は、control plane と Worker の pod ログを調べてください。関連するエラーのみを読み、環境変数や secret を出力しないでください。
+Compose の場合は、`docker compose logs -f control-plane` を調べてください。`docker ps -a --filter label=ankole.installation=ankole` で Worker コンテナを一覧表示し、`docker logs CONTAINER_NAME` でその 1 つを読みます。Kubernetes の場合は、control plane と Worker の Pod ログを調べてください。関連するエラーのみを読み、環境変数や secret を出力しないでください。
 
 返信を受け取ったら、[Agents](../agents/)、[Signal Routing ルール](../signal-bindings/)、または [Background Agent Jobs](../background-jobs/) に進んでください。

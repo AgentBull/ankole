@@ -4,13 +4,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.AIGateway.Schemas.UsageRecord
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.Conversations.{Admission, CodexJob, Run}
 
   describe "a turn that cannot start" do
     test "an addressed message is completed with a durable quota notice" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
-      assert {:ok, _worker} = admit_worker(unique_route())
       exhaust_quota!(agent.uid, 1_000, 1_500)
 
       assert {:ok, %{actor_event: input}} =
@@ -28,7 +27,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
                 notice_outbox: %OutboxEntry{} = notice,
                 notice_error: nil
               }} =
-               process_ready_events_once(now: DateTime.add(@base_time, 20, :second))
+               Admission.admit(%{agent_uid: agent.uid, session_id: input.session_id}, input,
+                 now: DateTime.add(@base_time, 20, :second)
+               )
 
       assert window.used_tokens == 1_500
       assert window.limit_tokens == 1_000
@@ -45,13 +46,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
              }
 
       assert %ActorEvent{completed_at: %DateTime{}} = Repo.get!(ActorEvent, input.id)
-      refute Repo.get_by(ActorEventDelivery, actor_event_id: input.id)
+      assert Repo.get!(AgentWorker, agent.uid).state == "absent"
     end
 
     test "an ambient message is completed without a notice" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :may_intervene)
-      assert {:ok, _worker} = admit_worker(unique_route())
       exhaust_quota!(agent.uid, 1_000, 1_500)
 
       assert {:ok, %{actor_event: input}} =
@@ -65,11 +65,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
       assert input.type == "im.message.may_intervene"
 
       assert {:ok, %{status: :agent_token_quota_exceeded, notice_outbox: nil, notice_error: nil}} =
-               process_ready_events_once(now: DateTime.add(@base_time, 20, :second))
+               Admission.admit(%{agent_uid: agent.uid, session_id: input.session_id}, input,
+                 now: DateTime.add(@base_time, 20, :second)
+               )
 
       assert %ActorEvent{completed_at: %DateTime{}} = Repo.get!(ActorEvent, input.id)
       refute Repo.get_by(OutboxEntry, source_actor_event_id: input.id)
-      refute Repo.get_by(ActorEventDelivery, actor_event_id: input.id)
+      assert Repo.get!(AgentWorker, agent.uid).state == "absent"
     end
   end
 
@@ -77,11 +79,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
     test "the dead-letter notice states the quota instead of the retry text" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
-      route = unique_route()
-      :ok = WorkerRoute.register_local_worker(route, self())
-      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
-
       put_quota!(agent.uid, 1_000)
 
       assert {:ok, %{actor_event: input}} =
@@ -93,22 +90,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
                )
 
       started_at = DateTime.add(@base_time, 20, :second)
-      assert {:ok, %{turn_ref: _turn_ref}} = process_ready_events_once(now: started_at)
-      assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = turn_start_payload!(envelope).turn
 
-      # The turn started under the limit and its own rounds crossed it.
-      record_usage!(agent.uid, 900, 600)
-
-      assert {:ok, %{status: :turn_dead_lettered, actor_event: dead_lettered}} =
-               fail_turn(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "The Agent has used its token quota for the current period.",
-                 %{"error_code" => "agent_token_quota_exceeded", "retryable" => false},
-                 now: DateTime.add(started_at, 1, :second)
+      assert {:ok, run} =
+               Admission.admit(%{agent_uid: agent.uid, session_id: input.session_id}, input,
+                 now: started_at
                )
 
+      record_usage!(agent.uid, 900, 600)
+
+      assert {:ok, %{status: :completed}} =
+               Run.finalize(run, "dead_letter", %{
+                 "code" => "agent_token_quota_exceeded",
+                 "message" => "The Agent has used its token quota for the current period.",
+                 "retryable" => false
+               })
+
+      dead_lettered = Repo.get!(ActorEvent, input.id)
       assert dead_lettered.id == input.id
       assert Repo.get!(ActorEvent, input.id).input_state == "dead_letter"
 
@@ -141,24 +138,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
       # the dispatch: the first Codex request is what AIGateway rejects.
       exhaust_quota!(agent.uid, 1_000, 1_500)
 
-      assert {:ok, %{send_outcome: "sent_or_queued"}} =
-               ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-                 now: ready_at,
-                 lease_seconds: @long_lease_seconds
-               )
-
+      event = Actors.next_ready_event(agent.uid, actor_key.session_id, ready_at)
+      assert {:ok, run} = Admission.admit(actor_key, event, now: ready_at)
+      assert {:ok, _sent} = CodexJob.start(run)
       assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = turn_start_payload!(envelope).turn
-      failure_time = DateTime.add(ready_at, 1, :second)
+      assert turn_start_payload!(envelope).turn.job_id == job.id
 
-      assert {:ok, %{status: :background_agent_job_failed, actor_event: dead_lettered}} =
-               fail_turn(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "The Agent has used its token quota for the current period.",
-                 %{"error_code" => "agent_token_quota_exceeded", "retryable" => false},
-                 now: failure_time
-               )
+      assert {:ok, dead_lettered} =
+               CodexJob.abort(run.job_ref, agent.uid, %{
+                 "code" => "worker_turn_failed",
+                 "message" => "The Agent has used its token quota for the current period.",
+                 "details_json" => %{
+                   "error_code" => "agent_token_quota_exceeded",
+                   "retryable" => false
+                 }
+               })
 
       assert dead_lettered.input_state == "dead_letter"
 
@@ -176,10 +170,76 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
     end
   end
 
+  for exhausted? <- [true, false] do
+    @exhausted? exhausted?
+    test "a pooled Codex error checks the quota before settlement: exhausted=#{exhausted?}" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      job = create_job!(agent.uid, "pooled-quota")
+      key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+      ready_at = DateTime.add(job.queued_at, 1, :second)
+      put_quota!(agent.uid, 1_000)
+      if @exhausted?, do: record_usage!(agent.uid, 1_500, 0)
+
+      event = Actors.next_ready_event(agent.uid, key.session_id, ready_at)
+      assert {:ok, run} = Admission.admit(key, event, now: ready_at)
+      assert {:ok, _sent} = CodexJob.start(run)
+      assert_receive {:actor_lane, _envelope}, 2_000
+      retry_at = DateTime.add(DateTime.utc_now(:microsecond), 300, :second)
+
+      assert {:ok, event} =
+               CodexJob.abort(run.job_ref, agent.uid, %{
+                 "code" => "worker_turn_failed",
+                 "message" => "You've hit your usage limit.",
+                 "details_json" => %{
+                   "runtime" => "bun",
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(retry_at)
+                 }
+               })
+
+      settled = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+
+      if @exhausted? do
+        assert event.input_state == "dead_letter"
+        assert settled.status == "failed"
+        assert settled.error["code"] == "agent_token_quota_exceeded"
+
+        assert settled.error["summary"] ==
+                 "The Agent has used its token quota for the current period."
+
+        assert settled.error["details"]["error_code"] == "agent_token_quota_exceeded"
+
+        assert Repo.get_by!(ActorEvent,
+                 agent_uid: agent.uid,
+                 session_id: job.owner_session_id,
+                 type: "background_agent_job.failed"
+               )
+      else
+        assert event.input_state == "open"
+        assert event.available_at == retry_at
+        assert settled.status == "queued"
+        assert settled.execution_failures == 0
+
+        refute Repo.get_by(ActorEvent,
+                 agent_uid: agent.uid,
+                 session_id: job.owner_session_id,
+                 type: "background_agent_job.failed"
+               )
+      end
+    end
+  end
+
   defp expected_notice_text(agent_uid, actor_event_id) do
     assert {:ok, %{usage: %{} = window}} = TokenQuota.status(agent_uid)
 
-    Ankole.SignalsGateway.ActorRuntime.TurnStartFailure.token_quota_notice_text(
+    Ankole.Conversations.Notices.token_quota_notice_text(
       window,
       actor_event_id
     )
@@ -213,18 +273,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
-               "agent_uid" => agent_uid,
-               "owner_session_id" => "owner-session-#{suffix}",
-               "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
-               "title" => "Job #{suffix}",
-               "task" => "Complete job #{suffix}.",
-               "reply_route" => %{
-                 "binding_name" => "bot",
-                 "signal_channel_id" => "chat-#{suffix}"
-               }
-             })
+             Repo.transact(fn _repo ->
+               BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+                 "agent_uid" => agent_uid,
+                 "owner_session_id" => "owner-session-#{suffix}",
+                 "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
+                 "title" => "Job #{suffix}",
+                 "task" => "Complete job #{suffix}.",
+                 "reply_route" => %{
+                   "binding_name" => "bot",
+                   "signal_channel_id" => "chat-#{suffix}"
+                 }
+               })
+             end)
 
     job
   end

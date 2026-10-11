@@ -3,18 +3,16 @@ defmodule Ankole.AIGateway.Jobs.CleanupExpiredArtifacts do
   Idempotent hourly cleanup for expired artifacts and failed generated images.
   """
 
-  use Oban.Worker, queue: :default, max_attempts: 3
+  use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
 
   alias Ankole.AIGateway.Artifacts
 
-  @impl Oban.Worker
+  @impl Ankole.Job
   @spec perform(Oban.Job.t()) :: :ok
-  def perform(%Oban.Job{} = job) do
-    metadata = %{worker: __MODULE__, queue: job.queue, job_id: job.id, attempt: job.attempt}
+  def run(job), do: Ankole.Repo.across_tenants(fn -> sweep(job) end)
 
-    :telemetry.span([:ankole, :oban, :job], metadata, fn ->
-      count = Artifacts.cleanup_expired_and_failed()
-      {:ok, Map.merge(metadata, %{result: :ok, deleted_count: count})}
-    end)
+  defp sweep(%Oban.Job{}) do
+    _counts = Artifacts.cleanup_expired_and_failed()
+    :ok
   end
 end

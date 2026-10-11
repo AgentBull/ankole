@@ -1,9 +1,19 @@
 defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   @moduledoc """
-  Oban wake edge that dispatches one durable automation job run to a worker.
+  Oban wake edge that dispatches one durable automation job run to the
+  Worker of the job's Agent.
+
+  The run waits while that Worker is not ready: the job requests the Worker
+  and snoozes, which does not consume an attempt, and the attempt starts when
+  the Worker can take it. A Worker that is still not ready
+  `agent_computer.worker.ready_timeout` after the run became queued counts as
+  one infrastructure failure, so a Worker that cannot start fails the run
+  within the attempt budget. A run that finished or was cancelled meanwhile
+  ends the job without a Worker.
   """
 
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 5,
     unique: [
@@ -15,41 +25,59 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   alias Ankole.AIAgent.Library
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings, as: WorkerSettings
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
+
+  @worker_wait_seconds 10
 
   @run_timeout_ms 600_000
   @rpc_timeout_ms @run_timeout_ms + 10_000
 
-  @impl Oban.Worker
-  @spec perform(Oban.Job.t()) :: :ok | {:cancel, term()} | {:error, term()}
-  def perform(%Oban.Job{} = job) do
-    metadata = %{
-      worker: __MODULE__,
-      queue: job.queue,
-      job_id: job.id,
-      attempt: job.attempt
-    }
-
-    :telemetry.span([:ankole, :oban, :job], metadata, fn ->
-      result = do_perform(job)
-      {result, Map.put(metadata, :result, result_status(result))}
-    end)
+  @impl Ankole.Job
+  @spec perform(Oban.Job.t()) ::
+          :ok | {:cancel, term()} | {:error, term()} | {:snooze, pos_integer()}
+  def run(%Oban.Job{args: %{"automation_job_run_id" => run_id}} = oban_job)
+      when is_integer(run_id) and run_id > 0 do
+    case AutomationJobs.pending_run(run_id) do
+      {:ok, pending} -> start_when_ready(run_id, pending, oban_job)
+      {:error, :automation_job_run_finished} -> :ok
+      {:error, :automation_job_run_not_found} -> {:cancel, :automation_job_run_not_found}
+    end
   end
 
-  defp do_perform(%Oban.Job{
-         args: %{"automation_job_run_id" => run_id},
-         attempt: oban_attempt,
-         max_attempts: max_attempts
-       })
-       when is_integer(run_id) and run_id > 0 do
+  def run(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
+
+  defp start_when_ready(run_id, pending, oban_job) do
+    case AgentWorkers.ready_worker(pending.agent_uid) do
+      {:ok, _worker} = ready ->
+        start_attempt(run_id, ready, oban_job)
+
+      {:error, :agent_worker_unavailable} = unavailable ->
+        :ok = AgentWorkers.request(pending.agent_uid)
+
+        if waited_out?(pending.waiting_since),
+          do: start_attempt(run_id, unavailable, oban_job),
+          else: {:snooze, @worker_wait_seconds}
+    end
+  end
+
+  defp waited_out?(waiting_since) do
+    DateTime.diff(DateTime.utc_now(), waiting_since, :millisecond) >=
+      WorkerSettings.current().ready_timeout_ms
+  end
+
+  defp start_attempt(run_id, worker, oban_job) do
     case AutomationJobs.start_attempt(run_id) do
       {:ok, :noop} ->
         :ok
 
       {:ok, %{automation_job: job, run: run}} ->
-        dispatch_attempt(job, run, oban_attempt, max_attempts)
+        case worker do
+          {:ok, worker} -> dispatch_attempt(worker, job, run, oban_job)
+          {:error, reason} -> handle_infrastructure_failure(run, reason, oban_job)
+        end
 
       {:error, :automation_job_run_not_found} ->
         {:cancel, :automation_job_run_not_found}
@@ -59,15 +87,12 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
     end
   end
 
-  defp do_perform(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
-
-  defp dispatch_attempt(job, run, oban_attempt, max_attempts) do
+  defp dispatch_attempt(worker, job, run, oban_job) do
     with {:ok, skills} <- Library.runtime_skills_for_agent(job.agent_uid),
          request = run_request(job, run, skills),
-         {:ok, route} <- WorkerPool.file_worker_route(),
          {:ok, payload} <-
            WorkerRoute.request_rpc(
-             route,
+             AgentWorkers.target(worker),
              "automation_job.run",
              encode(request),
              timeout_ms: @rpc_timeout_ms,
@@ -86,13 +111,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
            }) do
       :ok
     else
-      {:error, reason} ->
-        handle_infrastructure_failure(
-          run,
-          reason,
-          oban_attempt,
-          max_attempts
-        )
+      {:error, reason} -> handle_infrastructure_failure(run, reason, oban_job)
     end
   end
 
@@ -101,8 +120,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
       automation_job_run_id: Integer.to_string(run.id),
       automation_job_id: Integer.to_string(job.id),
       attempt_id: run.attempt_id,
-      agent_uid: job.agent_uid,
-      directory_path: job.directory_path,
+      drive_prefix: job.drive_prefix,
       label: job.label,
       event_json: Torque.encode!(run.event),
       timeout_ms: @run_timeout_ms,
@@ -111,8 +129,8 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
     }
   end
 
-  defp handle_infrastructure_failure(run, reason, attempt, max_attempts) do
-    disposition = if attempt >= max_attempts, do: :exhausted, else: :retry
+  defp handle_infrastructure_failure(run, reason, %Oban.Job{} = oban_job) do
+    disposition = if oban_job.attempt >= oban_job.max_attempts, do: :exhausted, else: :retry
 
     case AutomationJobs.infrastructure_failure(
            run.id,
@@ -150,8 +168,4 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   end
 
   defp reply_route_text(_route, _key), do: ""
-
-  defp result_status(:ok), do: :ok
-  defp result_status({:cancel, _reason}), do: :cancel
-  defp result_status({:error, _reason}), do: :error
 end

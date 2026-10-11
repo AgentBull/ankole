@@ -11,7 +11,7 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 
 ## 主体：统一的问责身份
 
-人员、Agent 和实例内的系统服务都使用同一种持久主体。`principals` 表以 `uid` 为主键；这个 UID 使用有类型的 `PrincipalKey`，并由 Check 约束保证非空且为小写。每条记录包含类型 `:human`、`:agent` 或 `:system`，以及状态 `:active` 或 `:disabled`。
+人员、Agent 和系统服务共用一种持久、可问责的主体。每个 Principal 只属于一个租户，使用全局唯一的不透明 `uid`。`principals` 记录包含 `:human`、`:agent` 或 `:system` 类型，以及 `:active` 或 `:disabled` 状态。
 
 人员主体对应一条 `HumanUser` 记录和任意数量的 `ExternalIdentity` 记录；Agent 主体对应一条 `Agent` 记录。把它们放在同一张主体表中，意味着系统只有一种问责方式：每个动作都能追溯到一个稳定 UID，审计记录、授权规则和权限组成员关系都引用这个 UID。
 
@@ -32,7 +32,7 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 
 权限组是一组具名主体。把授权规则授予权限组后，不必为每个主体分别创建记录。权限组包含 `domain`（`:operator`、`:directory` 或 `:im_group`）、`kind`（`:static` 或 `:computed`），以及动态组可选的 `computed_condition`。
 
-两个内置 group 随部署预置。`admin` group 是运维者的权限界面。`all_humans` group 带着计算条件 `principal.type == "human" && principal.status == "active"`，所以每个活跃人类都是成员，而不必有人手工维护这份名单。静态成员存放在 `principal_group_memberships` 里；计算式成员针对快照求值。外部目录（一个 IdP、一个 IM 平台）可以通过 external binding 同步进 group，于是运维者可以把 AuthZ 指向它已经信任的那个目录。
+每个租户都有 `all_humans` 组，计算条件为 `principal.type == "human" && principal.status == "active"`。只有一个特权租户拥有管理站点的内置 `siteadmin` 组。Console 选择其他数据租户不会改变操作者身份或授权。静态成员关系保存在 `principal_group_memberships`；计算成员关系由授权快照求值。外部目录通过绑定同步权限组。
 
 ## 一个决定是如何做出的
 
@@ -59,8 +59,8 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 AuthZ 不是 agent 能绕开的一层，因为运行时在关键边界上都会咨询它：
 
 - AIGateway 从一个经验证的 token 解析出每次调用的主体，而该主体的 grant 决定它能触及哪些 model 选择符和 provider。
-- Actor Runtime 使用 Agent 主体拥有的 Activation 为每个回合设置隔离栏；来自其他主体的回复会被拒绝。
-- Console 操作使用已经验证的管理员 Token，管理员主体所在的权限组决定它可以修改什么。
+- 主对话 Driver 提交前检查持久栅栏；Worker 的 Job 操作检查持久 Job attempt 栅栏和认证连接身份。
+- Console 操作使用活跃管理员的浏览器会话与 CSRF 凭据，Principal 当前的组成员资格决定可修改的范围。
 
 模型没有机会自行声明“我有权限”。系统边界会核对主体和授权规则，并落实求值结果。
 
@@ -89,4 +89,4 @@ AuthZ 不是 Prompt 指令，也不是对模型的期望。它核对主体并强
 ## 下一步
 
 - 经过验证的 Token 怎样在 AIGateway 边缘解析成主体，见 [AIGateway API](../ai-gateway/)。
-- Agent 主体的 Activation 怎样为一个回合设置隔离栏，见 [Actor Runtime](../actor-runtime/)。
+- Agent 主体的 Driver fence 怎样为一个回合设置隔离栏，见 [Actor Runtime](../actor-runtime/)。

@@ -54,6 +54,8 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   @spec resolve(checkpoint(), String.t(), map()) :: {:ok, checkpoint()} | :stale
   def resolve(checkpoint, interaction_id, resolution)
       when is_map(checkpoint) and is_binary(interaction_id) and is_map(resolution) do
+    resolution = stringify_keys(resolution)
+
     if interaction_state(checkpoint, interaction_id) == "pending" and
          terminal_state?(resolution) do
       interactions =
@@ -62,7 +64,6 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
         |> Map.put(
           interaction_id,
           resolution
-          |> stringify_keys()
           |> Map.put("interaction_id", interaction_id)
         )
 
@@ -286,7 +287,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   end
 
   defp terminal_state?(%{} = interaction) do
-    state = Map.get(interaction, "state") || Map.get(interaction, :state)
+    state = Map.get(interaction, "state")
     state in @terminal_states
   end
 

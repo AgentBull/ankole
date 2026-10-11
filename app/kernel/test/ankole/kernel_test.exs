@@ -21,13 +21,6 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.generate_key() =~ ~r/\A[0-9a-f]{64}\z/
   end
 
-  test "any_ascii/1 transliterates Unicode and preserves ASCII" do
-    assert NativeKernel.any_ascii("Alpha九宫格因子分域.md") ==
-             "AlphaJiuGongGeYinZiFenYu.md"
-
-    assert NativeKernel.any_ascii("report-2026_07.pdf") == "report-2026_07.pdf"
-  end
-
   test "brain_markdoc_analyze/1 crosses the JSON NIF boundary" do
     body =
       "public\n{% audience scope=\"principal:alice\" %}\n" <>
@@ -56,6 +49,17 @@ defmodule Ankole.KernelTest do
                "{% audience scope=\"principal:alice\" %}\n" <>
                  "~~~markdoc\n{% /audience %}\n~~~\n"
              )
+  end
+
+  test "markdown code ranges keep original UTF-8 bytes across the native boundary" do
+    source = "中文 ``a`b`` and ```unclosed\r\n<div>"
+    assert [{start, length}] = NativeKernel.markdown_code_ranges("中文 ``a`b``")
+    assert binary_part("中文 ``a`b``", start, length) == "``a`b``"
+    assert NativeKernel.markdown_code_ranges("{% audience malformed %}") == []
+
+    assert NativeKernel.markdown_code_ranges(source)
+           |> Enum.map(fn {start, length} -> binary_part(source, start, length) end) ==
+             ["``a`b``"]
   end
 
   test "web_url_facts/1 parses and classifies web URLs" do
@@ -284,25 +288,31 @@ defmodule Ankole.KernelTest do
              NativeKernel.jwt_sign_pem(%{exp: 4_102_444_800}, "not a pem key", %{})
   end
 
+  test "runtime fabric protocol version is the one that sealed envelopes carry" do
+    bytes =
+      RuntimeFabric.seal_and_encode(%V1.Envelope{
+        message_id: "protocol-version",
+        body: {:control_shutdown, %V1.ControlShutdown{reason: "test"}}
+      })
+
+    assert {:ok, %V1.Envelope{protocol_version: version}} = RuntimeFabric.decode_envelope(bytes)
+    assert RuntimeFabric.protocol_version() == version
+  end
+
   test "runtime fabric envelope structs round trip through the generated codec" do
     envelope = %V1.Envelope{
       message_id: "turn-start-1",
-      correlation_id: "corr-1",
-      lane: :LANE_TURN,
-      sent_at_unix_ms: 1_782_300_000_000,
-      durability: :CONTROL_REPLAYABLE,
       body:
         {:turn_start,
          %V1.TurnStart{
-           turn: actor_turn_ref(),
+           mode: "start",
+           turn: job_turn_ref(),
            actor_event: actor_event_envelope(),
-           workspace_id: 10_000,
+           fetch_runtime_config: %V1.FetchRuntimeConfig{ssrf_filter: true},
            model_ref: %V1.TurnModelRef{
-             profile: "chat",
              provider_id: "openrouter-main",
              model: "openai/gpt-5.4-mini",
-             provider_kind: "openrouter",
-             max_completion_tokens: 32_000
+             provider_kind: "openrouter"
            },
            request_context_json: Torque.encode!(%{kind: "schedule", silent_success_allowed: true})
          }}
@@ -314,84 +324,101 @@ defmodule Ankole.KernelTest do
     assert {:ok, ^envelope} = RuntimeFabric.decode_envelope(encoded)
   end
 
-  test "runtime fabric router seals headers and validates body semantics before the socket send" do
-    assert {:ok, router} =
-             RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
-               worker_auth_key: "test-token",
-               poll_interval_ms: 1
-             )
+  test "runtime fabric rejects a mismatched protocol version" do
+    envelope = %V1.Envelope{protocol_version: 5, message_id: "old-version"}
 
-    on_exit(fn -> RuntimeFabric.router_stop(router) end)
+    assert {:error, {:unsupported_protocol_version, 5}} =
+             envelope |> RuntimeFabric.encode_envelope() |> RuntimeFabric.decode_and_validate()
 
-    inline_steer = %V1.Envelope{
-      message_id: "steer-1",
-      correlation_id: "steer-1",
-      lane: :LANE_CONTROL,
-      durability: :CONTROL_DURABLE,
-      body:
-        {:turn_control,
-         %V1.TurnControl{
-           turn: actor_turn_ref(),
-           command: "steer",
-           payload_json: Torque.encode!(%{text: "inline steer is not allowed"})
-         }}
-    }
+    assert {:ok, %{protocol_version: version}} =
+             envelope |> RuntimeFabric.seal_and_encode() |> RuntimeFabric.decode_and_validate()
 
-    assert {:error, reason} =
-             RuntimeFabric.router_send_mandatory(router, "missing-worker", inline_steer)
+    assert version == RuntimeFabric.protocol_version()
+  end
 
-    assert reason =~ "invalid_envelope"
-    assert reason =~ "steer payload must be empty"
+  test "conversation protocol fixtures retain run identity, capacity, probe and adoption" do
+    golden_dir = Path.expand("../../proto/golden", __DIR__)
 
-    # The seal writes lane, durability, and protocol version from the body, so
-    # a host cannot pick a wrong lane. The corrected envelope passes protocol
-    # validation and the send fails later, on the missing route.
-    wrong_lane = %V1.Envelope{
-      message_id: "turn-start-wrong-lane",
-      correlation_id: "turn-start-wrong-lane",
-      lane: :LANE_CONTROL,
-      durability: :CONTROL_EPHEMERAL,
-      body:
-        {:turn_start,
-         %V1.TurnStart{
-           turn: actor_turn_ref(),
-           actor_event: actor_event_envelope(),
-           workspace_id: 10_000
-         }}
-    }
+    for type <- [:workspace_open, :workspace_ready, :tool_call, :tool_status, :tool_result] do
+      bytes = File.read!(Path.join(golden_dir, "#{type}.v9.bin"))
+      assert {:ok, envelope} = RuntimeFabric.decode_envelope(bytes)
+      assert {^type, value} = envelope.body
+      assert value.run.actor_event_id == "input-1"
+      assert value.run.actor.session_id == "job:1000"
+      assert envelope.protocol_version == RuntimeFabric.protocol_version()
 
-    assert {:error, :unknown_route} =
-             RuntimeFabric.router_send_mandatory(router, "missing-worker", wrong_lane)
+      case type do
+        :workspace_ready ->
+          assert value.reason == :CAPACITY
 
-    missing_event = %V1.Envelope{
-      message_id: "mailbox-updated-missing-event",
-      correlation_id: "mailbox-updated-missing-event",
-      lane: :LANE_TURN,
-      durability: :CONTROL_EPHEMERAL,
-      body:
-        {:mailbox_updated,
-         %V1.MailboxUpdated{
-           turn: actor_turn_ref(),
-           reason: "command.steer"
-         }}
-    }
+        :tool_call ->
+          assert value.mode == "probe" and value.response_id == "response-1" and
+                   value.call_id == "call-1"
 
-    assert {:error, reason} =
-             RuntimeFabric.router_send_mandatory(router, "missing-worker", missing_event)
+        :tool_status ->
+          assert value.state == "unknown"
 
-    assert reason =~ "mailbox_updated.actor_event is required"
+        :tool_result ->
+          assert Torque.decode!(value.content_json) == [%{"type" => "text", "text" => "done"}]
+
+          assert value.images == [
+                   File.read!(
+                     Path.expand(
+                       "../../../control_plane/test/fixtures/conversations/rgba.png",
+                       __DIR__
+                     )
+                   )
+                 ]
+
+        :workspace_open ->
+          assert value.workspace_id == 10_000
+          assert value.agent_context.soul == "Agent instructions"
+
+          assert [%V1.RuntimeSkillSummary{skill_name: "design-md", skill_root: "library"}] =
+                   value.agent_context.skills
+      end
+    end
+
+    assert {:ok, %{body: {:turn_start, %{agent_context: context}}}} =
+             RuntimeFabric.decode_envelope(File.read!(Path.join(golden_dir, "turn_start.v9.bin")))
+
+    assert context.conversation.timezone == "Asia/Shanghai"
+    assert context.soul == "Agent instructions" and context.mission == "Mission instructions"
+
+    assert context.design == "Design instructions" and
+             context.confidentiality_policy == "Keep operator facts private"
+
+    assert context.skills_prompt == "    - design-md: Design documents"
+
+    assert [%V1.RuntimeSkillSummary{skill_name: "design-md", metadata_json: metadata}] =
+             context.skills
+
+    assert Torque.decode!(metadata) == %{"ankole-runtime" => "any"}
+
+    assert [
+             %V1.AgentPluginCatalogEntry{
+               id: "research",
+               skills: [%V1.AgentPluginCatalogSkill{catalog_name: "deep-research"}]
+             }
+           ] = context.agent_plugins
+
+    assert {:ok, %{body: {:turn_start, %{mode: "adopt"}}}} =
+             RuntimeFabric.decode_envelope(File.read!(Path.join(golden_dir, "turn_adopt.v9.bin")))
   end
 
   test "runtime fabric golden bytes decode to the same structs across runtimes" do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v5.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v9.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
-    assert turn_start.workspace_id == 10_000
-    assert turn_start.model_ref.max_completion_tokens == 32_000
-    assert turn_start.turn.actor.agent_uid == "agent-1"
+
+    assert turn_start.fetch_runtime_config == %V1.FetchRuntimeConfig{
+             ssrf_filter: true,
+             rendered_fetch_idle_ttl_ms: 60000
+           }
+
     assert turn_start.actor_event.type == "cron.fire"
 
     assert Torque.decode!(turn_start.actor_event.payload_json) == %{
@@ -411,24 +438,15 @@ defmodule Ankole.KernelTest do
              "silent_success_allowed" => true
            }
 
-    assert with_field.protocol_version == 5
-
-    worker_ready =
-      golden_dir |> Path.join("worker_ready.v5.bin") |> File.read!() |> V1.Envelope.decode!()
-
-    assert {:worker_ready,
-            %V1.AgentComputerWorkerReady{
-              worker_id: "worker-golden",
-              max_turns: 1,
-              available_turn_slots: 1
-            }} =
-             worker_ready.body
-
-    assert worker_ready.protocol_version == 5
+    assert with_field.protocol_version == RuntimeFabric.protocol_version()
+    assert turn_start.mode == "start"
+    assert turn_start.turn.job_id == 1000
+    assert turn_start.turn.attempt == 1
+    assert turn_start.turn.actor_event_id == turn_start.actor_event.actor_event_id
 
     overlay_request =
       golden_dir
-      |> Path.join("rpc_skill_overlay_resolve_request.v5.bin")
+      |> Path.join("rpc_skill_overlay_resolve_request.v9.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -443,7 +461,7 @@ defmodule Ankole.KernelTest do
 
     overlay_response =
       golden_dir
-      |> Path.join("rpc_skill_overlay_resolve_response.v5.bin")
+      |> Path.join("rpc_skill_overlay_resolve_response.v9.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -467,47 +485,6 @@ defmodule Ankole.KernelTest do
                }
              ]
            } = V1.SkillOverlayResolveResponse.decode!(overlay_response_frame.payload)
-  end
-
-  test "runtime fabric router maps mandatory unknown routes" do
-    assert {:ok, router} =
-             RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
-               worker_auth_key: "test-token",
-               poll_interval_ms: 1
-             )
-
-    on_exit(fn -> RuntimeFabric.router_stop(router) end)
-
-    assert endpoint = RuntimeFabric.router_endpoint(router)
-    assert endpoint =~ "tcp://"
-
-    assert {:error, :unknown_route} =
-             RuntimeFabric.router_send_mandatory(router, "missing-worker", turn_start_envelope())
-  end
-
-  test "runtime fabric router releases its bind when the BEAM owner dies" do
-    test_pid = self()
-
-    owner_pid =
-      spawn(fn ->
-        {:ok, router} =
-          RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
-            worker_auth_key: "test-token",
-            poll_interval_ms: 1
-          )
-
-        send(test_pid, {:owned_router_started, router, RuntimeFabric.router_endpoint(router)})
-        Process.sleep(:infinity)
-      end)
-
-    owner_monitor = Process.monitor(owner_pid)
-    assert_receive {:owned_router_started, _owned_router, endpoint}, 1_000
-
-    Process.exit(owner_pid, :kill)
-    assert_receive {:DOWN, ^owner_monitor, :process, ^owner_pid, :killed}, 1_000
-
-    assert {:ok, replacement} = start_router_eventually(endpoint, 200)
-    on_exit(fn -> RuntimeFabric.router_stop(replacement) end)
   end
 
   test "authz helpers evaluate snapshots without host database access" do
@@ -655,6 +632,17 @@ defmodule Ankole.KernelTest do
     assert {:error, _reason} = NativeKernel.phone_normalize_e164("13800000000")
   end
 
+  test "XXH3 fingerprints stay stable for empty, binary, and UTF-8 input" do
+    assert NativeKernel.xxh3_128_hex("") == "99aa06d3014798d86001c324468d497f"
+    assert NativeKernel.xxh3_128_hex("记忆系统\0🙂") == "60f01c7f30a1f3580eb5465aa73953b4"
+
+    assert NativeKernel.xxh3_128_hex(String.duplicate("a", 1025)) ==
+             "c91deb339ee4dc16d46a63acfb8da1ea"
+
+    binary = for index <- 0..1023, into: <<>>, do: <<rem(index * 37 + 11, 256)>>
+    assert NativeKernel.xxh3_128_hex(binary) == "02e7aa13471474567df7f049c0c1ad73"
+  end
+
   test "uuid helpers return the expected textual formats" do
     assert NativeKernel.gen_uuid() =~
              ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
@@ -669,16 +657,14 @@ defmodule Ankole.KernelTest do
     assert {:ok,
             %{
               "status" => 200,
-              "body" => %{"ok" => true, "value" => 42},
-              "http_version" => "http/1.1",
-              "http_negotiation" => "h1_only"
+              "body" => %{"ok" => true, "value" => 42}
             }} =
              UniversalAIClient.raw_post(%{
                url: url,
                headers: [{"content-type", "application/json"}],
                body: ~s({"hello":"world"}),
                timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-               transport: %{http_versions: [:h1], compression: []}
+               transport: %{}
              })
 
     assert_receive {:http_json_server_request, request}, 1_000
@@ -703,7 +689,7 @@ defmodule Ankole.KernelTest do
                headers: [{"content-type", "application/json"}],
                body: ~s({"hello":"world"}),
                timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: 80},
-               transport: %{http_versions: [:h1], compression: []}
+               transport: %{}
              })
 
     assert_receive {:http_slow_json_server_request, request}, 1_000
@@ -721,7 +707,7 @@ defmodule Ankole.KernelTest do
                  url: url,
                  headers: [{"content-type", "application/json"}],
                  timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-                 transport: %{http_versions: [:h1], compression: []}
+                 transport: %{}
                },
                response_context: %{model: "test-model", request: %{"input" => "hello"}}
              })
@@ -732,7 +718,7 @@ defmodule Ankole.KernelTest do
     assert request =~ ~s("input":"hello")
   end
 
-  test "universal AI client waits for ready and demand before sending SSE chunks" do
+  test "universal AI client waits for ready and demand before sending JSON events" do
     {:ok, url} =
       start_http_sse_server([
         "event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
@@ -750,36 +736,30 @@ defmodule Ankole.KernelTest do
           headers: [{"content-type", "application/json"}],
           body: ~s({"stream":true}),
           timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-          transport: %{http_versions: [:h1], compression: []}
+          transport: %{}
         },
-        downstream: :sse,
         response_context: %{model: "test-model", request: %{"input" => "hello"}}
       })
 
-    assert_receive {:universal_ai_client, ref, :ready,
-                    %{"downstream_kind" => "sse", "status" => 200}},
+    assert_receive {:universal_ai_client, ref, :ready, %{"status" => 200}},
                    1_000
 
     assert ref == stream.ref
-    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _}, 100
 
     assert :ok = UniversalAIClient.read(stream, 1)
 
-    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :sse, chunk}, 1_000
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, chunk}, 1_000
     assert is_binary(chunk)
-    assert chunk =~ "event: response.created\n"
+    assert Torque.decode!(chunk)["type"] == "response.created"
     assert chunk =~ "\"type\":\"response.created\""
     assert chunk =~ "\"sequence_number\":0"
 
-    refute_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, 2, _}, 100
 
     assert :ok = UniversalAIClient.read(stream, 1)
-    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, done_chunk}, 1_000
-    assert done_chunk =~ "event: response.completed\n"
-
-    assert :ok = UniversalAIClient.read(stream, 1)
-    assert_receive {:universal_ai_client, ^ref, :chunk, 3, :sse, sentinel}, 1_000
-    assert sentinel == "data: [DONE]\n\n"
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, done_chunk}, 1_000
+    assert Torque.decode!(done_chunk)["type"] == "response.completed"
 
     assert_receive {:universal_ai_client, ^ref, :done, %{"reason" => "provider_terminal"}}, 1_000
   end
@@ -803,9 +783,8 @@ defmodule Ankole.KernelTest do
           headers: [{"content-type", "application/json"}],
           body: ~s({"stream":true}),
           timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-          transport: %{http_versions: [:h1], compression: []}
+          transport: %{}
         },
-        downstream: :sse,
         response_context: %{model: "test-model", request: %{}}
       })
 
@@ -819,7 +798,7 @@ defmodule Ankole.KernelTest do
                    1_000
 
     refute_receive {:universal_ai_client, ^ref, :ready, _meta}, 100
-    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _}, 100
   end
 
   test "universal AI client sends protocol error chunk before terminal error after ready" do
@@ -838,25 +817,21 @@ defmodule Ankole.KernelTest do
           headers: [{"content-type", "application/json"}],
           body: ~s({"stream":true}),
           timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-          transport: %{http_versions: [:h1], compression: []}
+          transport: %{}
         },
-        downstream: :sse,
         response_context: %{model: "test-model", request: %{}}
       })
 
     assert_receive {:universal_ai_client, ref, :ready, _meta}, 1_000
-    assert :ok = UniversalAIClient.read(stream, 3)
+    assert :ok = UniversalAIClient.read(stream, 2)
 
-    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :sse, chunk}, 1_000
-    assert chunk =~ "event: error\n"
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, chunk}, 1_000
+    assert Torque.decode!(chunk)["type"] == "error"
     assert chunk =~ "\"code\":\"invalid_provider_event\""
 
-    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, failed}, 1_000
-    assert failed =~ "event: response.failed\n"
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, failed}, 1_000
+    assert Torque.decode!(failed)["type"] == "response.failed"
     assert failed =~ "\"status\":\"failed\""
-
-    assert_receive {:universal_ai_client, ^ref, :chunk, 3, :sse, sentinel}, 1_000
-    assert sentinel == "data: [DONE]\n\n"
 
     assert_receive {:universal_ai_client, ^ref, :error,
                     %{"code" => "invalid_provider_event", "stage" => "api_resolver"}},
@@ -878,9 +853,8 @@ defmodule Ankole.KernelTest do
           headers: [],
           body: nil,
           timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 5_000, total_ms: nil},
-          transport: %{http_versions: [:h1], compression: []}
+          transport: %{}
         },
-        downstream: :sse,
         response_context: %{model: "test-model", request: %{}}
       })
 
@@ -1038,64 +1012,166 @@ defmodule Ankole.KernelTest do
   defp status_reason(429), do: "Too Many Requests"
   defp status_reason(_status), do: "Status"
 
-  defp start_router_eventually(endpoint, attempts) when attempts > 0 do
-    case RuntimeFabric.router_start(endpoint, self(),
-           worker_auth_key: "test-token",
-           poll_interval_ms: 1
-         ) do
-      {:ok, router} ->
-        {:ok, router}
+  @tag :regenerate_golden
+  test "regenerates the control-plane golden envelopes with Protox" do
+    dir = Path.expand("../../proto/golden", __DIR__)
 
-      {:error, _reason} ->
-        receive do
-        after
-          10 -> start_router_eventually(endpoint, attempts - 1)
-        end
+    for {name, envelope} <- control_plane_golden_envelopes() do
+      File.write!(
+        Path.join(dir, "#{name}.v#{RuntimeFabric.protocol_version()}.bin"),
+        RuntimeFabric.seal_and_encode(envelope)
+      )
     end
   end
 
-  defp start_router_eventually(_endpoint, 0), do: {:error, :router_bind_not_released}
+  defp control_plane_golden_envelopes do
+    event = %{
+      actor_event_envelope()
+      | type: "cron.fire",
+        payload_json:
+          Torque.encode!(%{data: %{wake_payload: %{cron_schedule_name: "golden", payload: %{}}}})
+    }
 
-  defp actor_turn_ref do
-    %V1.ActorTurnRef{
-      actor: %V1.ActorKey{
-        agent_uid: "agent-1",
-        session_id: "signal-channel:lark:dm:1"
+    context = %V1.AgentConversationContextResponse{
+      conversation: %V1.ConversationInfo{timezone: "Asia/Shanghai"},
+      soul: "Agent instructions",
+      mission: "Mission instructions",
+      design: "Design instructions",
+      confidentiality_policy: "Keep operator facts private",
+      skills_prompt: "    - design-md: Design documents",
+      skills: [
+        %V1.RuntimeSkillSummary{
+          skill_name: "design-md",
+          description: "Design documents",
+          source_kind: "builtin",
+          skill_root: "library",
+          relative_path: "skills/design-md",
+          metadata_json: Torque.encode!(%{"ankole-runtime" => "any"})
+        }
+      ],
+      agent_plugins: [
+        %V1.AgentPluginCatalogEntry{
+          id: "research",
+          skills: [%V1.AgentPluginCatalogSkill{catalog_name: "deep-research"}]
+        }
+      ]
+    }
+
+    start = %V1.TurnStart{
+      agent_context: context,
+      mode: "start",
+      turn: job_turn_ref(),
+      actor_event: event,
+      model_ref: %V1.TurnModelRef{
+        provider_id: "openrouter-main",
+        model: "openai/gpt-5.4-mini",
+        provider_kind: "openrouter",
+        input_modalities: ["text"]
       },
-      activation_uid: "activation-1",
-      actor_epoch: 1,
-      actor_event_id: "11111111-1111-1111-1111-111111111111",
-      revision: 0
+      request_context_json:
+        Torque.encode!(%{
+          schedule_origin: %{cron_schedule_name: "golden", payload: %{}},
+          silent_success_allowed: true
+        }),
+      hosted_tools: [:HOSTED_TOOL_IMAGE_GENERATION],
+      fetch_runtime_config: %V1.FetchRuntimeConfig{
+        ssrf_filter: true,
+        rendered_fetch_idle_ttl_ms: 60000
+      }
+    }
+
+    run = %V1.RunRef{actor: %V1.ActorKey{session_id: "job:1000"}, actor_event_id: "input-1"}
+
+    overlay = %V1.SkillOverlayResolveResponse{
+      overlays: [
+        %V1.SkillOverlayResponse{
+          skill_name: "pdf",
+          has_overlay: true,
+          text: "Prefer page-by-page verification.",
+          content_hash: "overlay-hash-pdf"
+        },
+        %V1.SkillOverlayResponse{skill_name: "xlsx", content_hash: "overlay-hash-xlsx"}
+      ]
+    }
+
+    {overlay_bytes, _size} = V1.SkillOverlayResolveResponse.encode!(overlay)
+
+    [
+      {"turn_start", %V1.Envelope{message_id: "golden-turn-start-1", body: {:turn_start, start}}},
+      {"turn_adopt",
+       %V1.Envelope{
+         message_id: "golden-turn-start-1",
+         body: {:turn_start, %{start | mode: "adopt"}}
+       }},
+      {"workspace_open",
+       %V1.Envelope{
+         message_id: "workspace_open.v9.bin",
+         body:
+           {:workspace_open,
+            %V1.WorkspaceOpen{
+              run: run,
+              workspace_id: 10000,
+              runtime_env: %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SESSION_ID" => "im:1"},
+              binding_name: "lark",
+              fetch_runtime_config: %V1.FetchRuntimeConfig{
+                ssrf_filter: true,
+                rendered_fetch_idle_ttl_ms: 60000
+              },
+              idle_timeout_ms: 1_800_000,
+              agent_context: %V1.AgentConversationContextResponse{
+                soul: "Agent instructions",
+                skills: [
+                  %V1.RuntimeSkillSummary{
+                    skill_name: "design-md",
+                    source_kind: "builtin",
+                    skill_root: "library",
+                    relative_path: "skills/design-md"
+                  }
+                ]
+              }
+            }}
+       }},
+      {"tool_call",
+       %V1.Envelope{
+         message_id: "tool_call.v9.bin",
+         body:
+           {:tool_call,
+            %V1.ToolCall{
+              run: run,
+              response_id: "response-1",
+              call_id: "call-1",
+              name: "command",
+              arguments_json: Torque.encode!(%{command: "printf done"}),
+              mode: "probe"
+            }}
+       }},
+      {"rpc_skill_overlay_resolve_response",
+       %V1.Envelope{
+         message_id: "golden-rpc-skill-overlay-resolve-response-1",
+         body:
+           {:rpc_response,
+            %V1.RPCResponse{
+              request_id: "golden-rpc-skill-overlay-resolve-1",
+              payload: IO.iodata_to_binary(overlay_bytes)
+            }}
+       }}
+    ]
+  end
+
+  defp job_turn_ref do
+    %V1.JobTurnRef{
+      job_id: 1000,
+      attempt: 1,
+      actor_event_id: "00000000-0000-0000-0000-000000000001"
     }
   end
 
   defp actor_event_envelope do
     %V1.ActorEventEnvelope{
       actor_event_id: "00000000-0000-0000-0000-000000000001",
-      queue_sequence: 1,
       type: "im.message.addressed",
-      source_event_id: "event-1",
-      source_entry_id: "message-1",
       binding_name: "lark",
-      signal_channel_id: "lark:chat:group-a",
-      provider_thread_id: "thread-1",
       payload_json: Torque.encode!(%{text: "PING"})
-    }
-  end
-
-  defp turn_start_envelope do
-    %V1.Envelope{
-      message_id: "turn-start-route-test",
-      correlation_id: "turn-start-route-test",
-      lane: :LANE_TURN,
-      durability: :CONTROL_REPLAYABLE,
-      body:
-        {:turn_start,
-         %V1.TurnStart{
-           turn: actor_turn_ref(),
-           actor_event: actor_event_envelope(),
-           workspace_id: 10_000
-         }}
     }
   end
 end

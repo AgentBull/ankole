@@ -5,17 +5,11 @@ section: Reference
 order: 203
 ---
 
-このページは Console API の REST リファレンスです。認証 gate、`/api/v1` 配下の route、各 route が実行する permission action を解説します。
+Console REST API は browser session cookie を使用します。`RequireSiteAdminSession` は各 request で Console context、Human の失効状態、現在の site administrator membership を確認します。認証に失敗すると `401` を返します。GET と HEAD 以外の request は shell の `x-csrf-token` header が必要です。CSRF 証明がない場合、または無効な場合は `403` を返します。
 
-最も重要な性質を先に述べます。Console API は stateless で bearer 認証を用い、すべての request で呼び出し元が依然として active な管理者であることを再確認します。この仕事を引き受ける session cookie はなく、無効化された管理者は次回のログイン時ではなく即座に機能しなくなります。
+表のパスは `/api/v1` からの相対パスです。site 管理 route は `/site/*` にあり、`:session_api` + `:site_admin` pipeline を使用します。tenant データ route は `:session_api` + `:site_admin` + `:data_context` pipeline と `PutDataContext` を使用します。tenant route では `x-ankole-tenant: <tenant UUID>` でデータの tenant を選択します。ヘッダを省略すると呼び出し元の tenant を使用します。無効、利用不可、または削除中の tenant は `404` と `data_tenant_unavailable` を返します。このヘッダは呼び出し元の identity や site 管理権限を変更せず、site route の scope も選択しません。
 
-`/api/v1` 配下のすべての route は `:console_api` pipeline と `RequireConsoleAccessToken` plug を通ります。plug は次に挙げる 3 つの検査を、すべて必須として独立に実行します。
-
-1. 形式が正しい `Authorization: Bearer` ヘッダ。
-2. 検証に通る console JWT。
-3. JWT が指す Principal が依然として active な管理者であること。
-
-成功時は Principal と claims を conn assigns に保存して、後続の policy 検査に渡します。いずれかの検査が失敗すると `401` で停止します。これは、session と CSRF がブラウザ向け surface に対して行うことを、request 単位・cookie なしで実現したものです。これらの route へのより弱い第二の経路は存在しません。
+公開 `/api/v1/openapi.json`、runtime AI 呼び出し、webhook はそれぞれの認証規則を使用します。
 
 ## configuration の surface
 
@@ -27,19 +21,20 @@ configuration は controller 単位ではなく、「何を構成するか」で
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/ai-gateway/provider-kinds` | この deployment instance が構成できる provider kind を一覧表示 |
-| `GET` | `/ai-gateway/providers` | 構成済みの provider を一覧表示 |
-| `GET` | `/ai-gateway/providers/:provider_id` | 1 つの provider とその credential pool の状態を読み取る |
-| `PUT` | `/ai-gateway/providers/:provider_id` | provider を作成または置換 |
-| `DELETE` | `/ai-gateway/providers/:provider_id` | provider を削除 |
-| `POST` | `/ai-gateway/providers/:provider_id/credentials` | credential pool のメンバーを追加 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを更新または再認証 |
-| `DELETE` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを削除 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credential-pool/strategy` | pool の選択 strategy を設定 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT の device または browser ログインを 1 回開始 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device ログインを 1 回 poll |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | ブラウザ貼り付けの代替経路を完了 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise access token を追加 |
+| `GET` | `/site/ai-gateway/provider-kinds` | この deployment instance が構成できる provider kind を一覧表示 |
+| `GET` | `/site/ai-gateway/models` | Console 設定用に capability 付き provider model を一覧表示 |
+| `GET` | `/site/ai-gateway/providers` | 構成済みの provider を一覧表示 |
+| `GET` | `/site/ai-gateway/providers/:provider_id` | 1 つの provider とその credential pool の状態を読み取る |
+| `PUT` | `/site/ai-gateway/providers/:provider_id` | provider を作成または置換 |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id` | provider を削除 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/credentials` | credential pool のメンバーを追加 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを更新または再認証 |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを削除 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | pool の選択 strategy を設定 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT の device または browser ログインを 1 回開始 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device ログインを 1 回 poll |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | ブラウザ貼り付けの代替経路を完了 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise access token を追加 |
 | `GET` | `/agents/:agent_uid/model-profiles` | agent の model profile を一覧表示 |
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | profile を作成または置換 |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | profile を削除 |
@@ -59,6 +54,20 @@ agent は、運用者が他のすべてを構成する際の単位です。
 | `POST` | `/agents/:agent_uid/enable` | 無効化された agent を再有効化 |
 | `DELETE` | `/agents/:agent_uid` | 有効な agent を無効化し、無効化済みの agent は完全に削除 |
 
+### Worker provider
+
+各 Agent は作成時に Worker provider を選択し、その後は変更できません。Provider の YAML 設定と暗号化された credential は別々に保存します。ライフサイクルとストレージの契約は [Worker 管理](../worker-management/)を参照してください。
+
+| メソッド | パス | 用途 |
+|---|---|---|
+| `GET` | `/site/worker-provider-kinds` | provider kind、YAML の例、credential 要件を一覧表示 |
+| `GET` | `/site/worker-providers` | 設定済み Worker provider を一覧表示 |
+| `POST` | `/site/worker-providers` | Worker provider を作成 |
+| `PATCH` | `/site/worker-providers/:provider_id` | 設定または credential を更新 |
+| `GET` | `/site/worker-providers/:provider_id/check` | 接続と権限を確認 |
+| `DELETE` | `/site/worker-providers/:provider_id` | Agent が使用していない provider を削除 |
+| `PUT` | `/agents/:agent_uid/worker-provider` | 移行後に provider が未設定の Agent に割り当て |
+
 ### signal routing rule
 
 signal routing rule（API schema では `Signal Binding`）は provider adapter を Agent に接続し、共有された仕事が Agent に届くようにします。
@@ -77,13 +86,13 @@ binding を無効にすると、binding を削除せずに、新しい signal �
 
 ### Agent Library の能力
 
-Agent Library は agent ができること、つまり plugin と skill です。Console は 2 つの scope を公開します。1 つはグローバルな既定値、もう 1 つは agent 単位の override です。
+Library のデフォルトは選択した tenant に属します。Agent の override もその tenant 内で適用します。
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/agent-library/capabilities` | グローバルな library 能力を一覧表示 |
-| `PUT` | `/agent-library/agent-plugins/:id` | plugin のグローバルな既定状態を設定 |
-| `PUT` | `/agent-library/skills/:id` | skill のグローバルな既定状態を設定 |
+| `GET` | `/agent-library/capabilities` | tenantな library 能力を一覧表示 |
+| `PUT` | `/agent-library/agent-plugins/:id` | plugin のtenantな既定状態を設定 |
+| `PUT` | `/agent-library/skills/:id` | skill のtenantな既定状態を設定 |
 | `GET` | `/agents/:agent_uid/library-capabilities` | agent の実効能力を一覧表示 |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 1 つの agent に対して plugin を override |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
@@ -93,31 +102,35 @@ Agent Library は agent ができること、つまり plugin と skill です�
 | `POST` | `/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
 | `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
-能力はまずグローバルに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
+能力はまずtenantに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ### 環境変数（WorkerEnv）
 
-Agent Computer Worker は、API key や token などの環境変数を必要とすることがあります。Console はこの機能を **環境変数** と呼びます。API はリソース名として `WorkerEnv` を保持します。
+WorkerEnv は site のデフォルト、tenant の override、Agent への割り当てを持ちます。次の route は metadata を返します。平文の取得は別の audit 対象の復号操作です。
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/worker-envs` | 名前付きの WorkerEnv エントリを一覧表示 |
-| `GET` | `/worker-envs/:name` | 1 つのエントリを読み取る（metadata。plaintext ではない） |
-| `PUT` | `/worker-envs/:name` | エントリを作成または更新 |
-| `DELETE` | `/worker-envs/:name` | エントリを削除 |
-| `GET` | `/agents/:agent_uid/worker-envs` | agent に付与されたエントリを一覧表示 |
-| `PUT` | `/agents/:agent_uid/worker-envs/:name` | agent にエントリを付与 |
-| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | エントリを剥奪 |
-| `POST` | `/worker-envs/:name/decryptions` | 1 つのエントリを復号（audit 対象、特権操作） |
+| `GET` | `/site/worker-envs` | site デフォルトを一覧表示 |
+| `PUT` | `/site/worker-envs/:name` | site デフォルトを設定 |
+| `DELETE` | `/site/worker-envs/:name` | site デフォルトを削除 |
+| `POST` | `/site/worker-envs/:name/decryptions` | site 値を復号 |
+| `GET` | `/worker-envs` | tenant 値を一覧表示 |
+| `PUT` | `/worker-envs/:name` | tenant 値を設定 |
+| `DELETE` | `/worker-envs/:name` | tenant 値を削除 |
+| `POST` | `/worker-envs/:name/decryptions` | tenant 値を復号 |
+| `GET` | `/agents/:agent_uid/worker-envs` | Agent の割り当てを一覧表示 |
+| `PUT` | `/agents/:agent_uid/worker-envs/:name` | Agent に値を割り当てまたは override |
+| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | Agent の割り当てを削除 |
+| `POST` | `/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 値を復号 |
 
-復号は独立した audit 対象の操作です。一覧表示と読み取りは metadata を返し、secret の値は返しません。worker が環境を受け取るのは turn の開始時だけです。変更は次の turn で反映され、実行中の turn には反映されません。
+Agent の割り当ては専用値を使用するか、tenant 値、site デフォルトの順で継承します。Worker の作業開始時に環境を解決します。既存の workspace は作成時の環境を保持します。
 
 ### Control Plane Plugin
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
-| `PUT` | `/control-plane-plugins` | plugin を有効化または無効化 |
+| `GET` | `/site/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
+| `PUT` | `/site/control-plane-plugins` | plugin を有効化または無効化 |
 
 Control Plane Plugin は、signals adapter のように、control plane 自身の動作を変えるファーストパーティ拡張です。
 
@@ -129,25 +142,42 @@ Control Plane Plugin は、signals adapter のように、control plane 自身�
 | `GET` | `/identity-providers` | 構成済みの identity provider を一覧表示 |
 | `PUT` | `/identity-providers/:provider_id` | IdP を作成または置換 |
 | `POST` | `/identity-providers/:provider_id/sync-runs` | IdP から directory group を同期 |
+| `GET` | `/site/app-configurations` | site configuration key を一覧表示 |
+| `PUT` | `/site/app-configurations/:key` | site 値を設定 |
+| `POST` | `/site/app-configurations/:key/decryptions` | site secret を復号 |
 | `GET` | `/app-configurations` | 運用者が管理する configuration key を一覧表示 |
 | `PUT` | `/app-configurations/:key` | configuration の値を設定 |
 | `POST` | `/app-configurations/:key/decryptions` | 1 つの secret configuration 値を復号 |
 
-`AppConfiguration` は運用者が管理する設定、つまり宣言済みの `Ankole.AppConfigure` key のためのものです。bootstrap configuration（process 起動時の事実と credential）は、プロジェクトの境界の要求どおり、環境変数または secret mount に置かれ、ここからは除外されます。
+`AppConfiguration` は宣言済みの運用設定を site または tenant scope で保存します。`/site/app-configurations` は site key、`/app-configurations` は tenant key を管理します。どちらも一覧、単一 key の読み取り、設定、override の削除、audit 対象の復号をサポートします。起動時の credential と事実は環境変数または secret mount に置きます。
+
+### Tenant 管理
+
+| メソッド | パス | 用途 |
+|---|---|---|
+| `GET` | `/site/tenants` | tenant を一覧表示 |
+| `POST` | `/site/tenants` | tenant を作成 |
+| `PATCH` | `/site/tenants/:tenant_id` | tenant を更新 |
+| `DELETE` | `/site/tenants/:tenant_id` | tenant の削除を要求 |
+| `PUT` | `/site/tenants/:tenant_id/suspension` | tenant を停止 |
+| `DELETE` | `/site/tenants/:tenant_id/suspension` | tenant を再開 |
+| `GET` | `/site/privileged-tenant` | privileged tenant を読み取る |
+| `PUT` | `/site/privileged-tenant` | 別の tenant に site 管理を移管 |
 
 ## 読み取り用の surface
 
 configuration に加えて、Console はシステムの残りの部分に対する observability の経路でもあります。既に解説した各 subsystem は、ここに読み取り用の surface を持ちます。
 
-- **処理中の Agent**: `/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはインストール全体で、`agent` フィルターを取ります。
-- **Worker**: `/agent-computer-workers`。worker ごとの file のアップロード、移動、一覧表示。
+- **処理中の Agent**: `/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはtenant 全体で、`agent` フィルターを取ります。
+- **Worker**: `/agent-computer-workers` で各 Agent の Worker 状態を一覧表示します。
+- **Agent drive**: `/agents/:agent_uid/files` でファイルの一覧表示、アップロード、削除、`/agents/:agent_uid/files/content` でダウンロード、`/agents/:agent_uid/file-moves` で移動します。これらのファイルは control plane が管理します。
 - **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。
 - **Principal と AuthZ**: `/principals`、`/principal-groups`、`/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
 
 ## ここに含まれないものについて
 
-`/webhooks/*` と `/api/v1/ai-gateway/*` の route は、意図的に `console_api` の下にありません。webhook の入口は管理者ではなく provider を認証します。AIGateway の runtime API は、ライブな AI 呼び出しのために agent または admin token を検証します。Console は運用者の configuration surface であり、deployment instance の動作を変更するために admin の bearer token を信頼する唯一の surface です。
+`/webhooks/*` は provider を認証します。runtime `/api/v1/ai-gateway/*` は AIGateway 認証を使用し、Console configuration route は本ページの session と CSRF 検査を使用します。
 
 ## 次のステップ
 

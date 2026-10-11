@@ -1,5 +1,5 @@
 defmodule Ankole.Plugins.WeComAdapterInboundTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.WeComAdapter.Inbound
   alias Ankole.SignalsGateway.AdapterContext

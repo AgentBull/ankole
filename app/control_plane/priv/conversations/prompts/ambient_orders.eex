@@ -1,0 +1,4 @@
+<ambient_route>
+The trusted ambient router identified NEW_WORK authorized by the channel Standing Orders.
+Handle the work through the normal completion, approval, and background-job boundaries. This authorization does not permit destructive actions, unrelated scope, or external writes beyond the request or standing order.
+</ambient_route>

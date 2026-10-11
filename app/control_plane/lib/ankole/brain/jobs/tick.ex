@@ -8,32 +8,41 @@ defmodule Ankole.Brain.Jobs.Tick do
   and enqueues the matching task. A disabled Brain schedules nothing.
   """
 
-  use Oban.Worker, queue: :default, max_attempts: 3
+  use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
 
   alias Ankole.Brain.Config
   alias Ankole.SystemConfig
   alias Ankole.TimeZone
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{inserted_at: inserted_at}) do
-    if Config.enabled?() do
-      with {:ok, scheduled_minute} <- local_scheduled_minute(inserted_at),
-           :ok <-
-             enqueue_if_matches(
-               Config.self_healing_task_cron(),
-               scheduled_minute,
-               Ankole.Brain.Jobs.SelfHealing
-             ),
-           :ok <-
-             enqueue_if_matches(
-               Config.dreaming_task_cron(),
-               scheduled_minute,
-               Ankole.Brain.Jobs.Dreaming
-             ) do
+  @impl Ankole.Job
+  def run(job) do
+    {:ok, _indexes} = Ankole.Brain.SearchIndexes.ensure_current()
+
+    Ankole.Tenants.map_active(fn -> run_for_tenant(job) end)
+    |> Ankole.Tenants.fanout_result()
+  end
+
+  defp run_for_tenant(%Oban.Job{inserted_at: inserted_at}) do
+    cond do
+      not Config.enabled?() ->
         :ok
-      end
-    else
-      :ok
+
+      true ->
+        with {:ok, scheduled_minute} <- local_scheduled_minute(inserted_at),
+             :ok <-
+               enqueue_if_matches(
+                 Config.self_healing_task_cron(),
+                 scheduled_minute,
+                 Ankole.Brain.Jobs.SelfHealing
+               ),
+             :ok <-
+               enqueue_if_matches(
+                 Config.dreaming_task_cron(),
+                 scheduled_minute,
+                 Ankole.Brain.Jobs.Dreaming
+               ) do
+          :ok
+        end
     end
   end
 

@@ -1,99 +1,52 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
-  @moduledoc """
-  Builds the canonical Docker launch contract for Agent Computer workers.
+  @moduledoc "The launch contract of one generation of one Agent's Worker."
 
-  The contract owns the shared container security settings and, for real
-  workers, the RuntimeFabric auth, host connectivity, and Agent Home layout.
-  Launch adapters translate the contract and add only their local lifecycle,
-  source-mount, and command differences.
-  """
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.AgentWorkerSpec
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Spec
+  @builtin_skills_root "/repo/app/library"
+  @internal_skills_root "/repo/internals/skills"
+  @installed_skills_root "/workspace/installed-skills"
 
-  @doc """
-  Builds the shared Agent Computer container contract without worker identity.
-
-  Package tests use this contract because they run inside the worker image but
-  do not connect a worker process to RuntimeFabric. Published control-plane
-  images provide their same-revision worker through
-  `ANKOLE_AGENT_COMPUTER_IMAGE`; source callers must pass `:image` explicitly.
-  """
-  @spec container_spec(keyword()) :: {:ok, Spec.t()} | {:error, term()}
-  def container_spec(opts \\ []) do
-    image = Keyword.get(opts, :image) || System.get_env("ANKOLE_AGENT_COMPUTER_IMAGE")
-
-    with {:ok, image} <- non_empty(image, :image) do
-      {:ok,
-       %Spec{
-         contract_version: 3,
-         kind: :container,
-         image: image,
-         docker: %{
-           cap_add: ["SYS_ADMIN"],
-           security_opts: ["seccomp=unconfined", "systempaths=unconfined"],
-           extra_hosts: []
-         },
-         env: %{},
-         host_setup_dirs: [],
-         mounts: []
-       }}
-    end
+  @spec agent_worker_spec(Provider.t(), String.t(), String.t(), String.t(), map() | nil) ::
+          AgentWorkerSpec.t()
+  def agent_worker_spec(provider, agent_uid, generation, token, storage_ref \\ nil) do
+    %AgentWorkerSpec{
+      agent_uid: agent_uid,
+      generation: generation,
+      image: provider.runtime.image,
+      storage_ref: storage_ref,
+      # A provider whose platform needs another launch form projects this one.
+      env: %{
+        "WORKER_ID" => agent_uid,
+        "ANKOLE_RUNTIME_FABRIC_ENDPOINT" =>
+          get_in(provider.settings, ["endpoints", "runtimeFabricUrl"]) ||
+            provider.runtime.runtime_fabric_endpoint,
+        "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => token,
+        "ANKOLE_WORKER_STORAGE" => "mounted"
+      }
+    }
   end
 
-  @doc """
-  Builds the complete Agent Computer worker launch contract.
+  @doc "The Worker image owns this root; development Docker mounts use the same path."
+  def internal_skills_root, do: @internal_skills_root
 
-  By default the global worker auth key is resolved through AppConfigure. E2E
-  routers may pass `:auth_key` explicitly so the same contract constructs both
-  successful and rejected worker credentials.
-  """
-  @spec worker_spec(keyword()) :: {:ok, Spec.t()} | {:error, term()}
-  def worker_spec(opts) do
-    with {:ok, spec} <- container_spec(opts),
-         {:ok, endpoint} <- fetch_required(opts, :endpoint),
-         {:ok, worker_id} <- fetch_required(opts, :worker_id),
-         {:ok, agents_root} <- fetch_required(opts, :agents_root),
-         {:ok, worker_auth_key} <- worker_auth_key(opts) do
-      {:ok,
-       %{
-         spec
-         | kind: :worker,
-           docker: %{
-             spec.docker
-             | extra_hosts: [
-                 %{host: "host.docker.internal", address: "host-gateway"}
-               ]
-           },
-           env: %{
-             "ANKOLE_AGENTS_ROOT" => "/agents",
-             "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => endpoint,
-             "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => worker_auth_key,
-             "WORKER_ID" => worker_id
-           },
-           host_setup_dirs: [agents_root],
-           mounts: [%{source: agents_root, target: "/agents", readonly: false}]
-       }}
-    end
+  @doc "The physical directory of an enabled Skill in the Worker image or installed library."
+  def skill_directory(skill) do
+    root =
+      case {skill["source_kind"], skill["skill_root"]} do
+        {"installed", _} -> @installed_skills_root
+        {"builtin", "internal"} -> @internal_skills_root
+        {"builtin", _} -> @builtin_skills_root
+      end
+
+    Path.join(root, skill["relative_path"])
   end
 
-  defp worker_auth_key(opts) do
-    case Keyword.fetch(opts, :auth_key) do
-      :error -> WorkerAuthKey.ensure()
-      {:ok, auth_key} -> non_empty(auth_key, :auth_key)
-    end
+  @doc "Environment variables owned by the launch contract or the image entrypoint."
+  def contract_env_names do
+    ~w(WORKER_ID ANKOLE_RUNTIME_FABRIC_ENDPOINT ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+      ANKOLE_WORKER_STORAGE ANKOLE_WORKER_TASK ANKOLE_WORKER_NFS_SOURCE
+      ANKOLE_WORKER_ADAPTER_URL ANKOLE_WORKER_BOOTSTRAP HOME CODEX_HOME CODEX_SQLITE_HOME)
   end
-
-  defp fetch_required(opts, key) do
-    opts
-    |> Keyword.get(key)
-    |> non_empty(key, {:missing, key})
-  end
-
-  defp non_empty(value, key, error \\ nil)
-
-  defp non_empty(value, _key, _error) when is_binary(value) and value != "", do: {:ok, value}
-
-  defp non_empty(_value, key, nil), do: {:error, {:invalid, key}}
-  defp non_empty(_value, _key, error), do: {:error, error}
 end

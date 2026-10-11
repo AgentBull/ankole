@@ -1,8 +1,22 @@
 defmodule Ankole.Plugins.TelegramAdapter.Config do
+  def platform_application(config) do
+    case Ankole.Plugins.TelegramAdapter.Client.call(client(config), "getMe") do
+      {:ok, %{"id" => id, "is_bot" => true}} when is_integer(id) and id > 0 ->
+        {:ok, "telegram:" <> Integer.to_string(id)}
+
+      {:error, _} = error ->
+        error
+
+      _ ->
+        {:error, :platform_application_identity_unavailable}
+    end
+  end
+
   @moduledoc "Validation and runtime helpers for the first-party Telegram adapter."
 
   import Ecto.Query, warn: false
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
@@ -27,6 +41,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.telegram.bindings.*",
+        console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_binding_config/1),
@@ -77,7 +92,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
     )
     |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_config_ref_in_tx(repo, binding.config_ref) do
+      case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
         {:ok, other} ->
           if secret_fingerprint(other) == fingerprint do
             {:halt,
@@ -97,17 +112,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
       end
     end)
   end
-
-  @spec load_config_ref(String.t()) :: {:ok, Runtime.t()} | :error | {:error, term()}
-  def load_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key),
-         {:ok, config} <- validate_binding_config(value) do
-      {:ok, runtime_config(config)}
-    end
-  end
-
-  def load_config_ref(_config_ref), do: {:error, :invalid_config_ref}
 
   @spec client(t() | Runtime.t(), keyword()) :: Client.t()
   def client(config, opts \\ []) do
@@ -129,18 +133,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  defp load_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_binding_config(value)
-    end
-  end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp runtime_config(config), do: %Runtime{bot_token: Map.fetch!(config, "botToken")}
+  def runtime_config(config), do: %Runtime{bot_token: Map.fetch!(config, "botToken")}
   defp bot_token(%Runtime{bot_token: token}), do: token
   defp bot_token(config) when is_map(config), do: Map.fetch!(config, "botToken")
 end

@@ -10,7 +10,7 @@ function lesson(overrides: Partial<AgentSkillLessonItem> & Pick<AgentSkillLesson
     effective_enabled: true,
     content: 'State the situation, then the caution.',
     author_kind: 'human',
-    author_uid: null,
+    author: null,
     evidence_job_ids: [],
     checked_release: null,
     review_after: null,

@@ -22,7 +22,7 @@ defmodule AnkoleWeb.AgentLibraryController do
   @document_kinds ~w(mission soul design confidentiality_policy)
 
   tags(["Agents"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -32,9 +32,7 @@ defmodule AnkoleWeb.AgentLibraryController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent library documents", "application/json", AgentLibraryDocumentsResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -53,11 +51,7 @@ defmodule AnkoleWeb.AgentLibraryController do
        required: true},
     responses: [
       ok: {"Agent library document", "application/json", AgentLibraryDocumentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Document changed", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid document", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

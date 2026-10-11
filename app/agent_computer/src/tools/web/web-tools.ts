@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { webURLFacts } from '@ankole/kernel'
 import {
   deepString,
   isRecord,
@@ -255,7 +254,7 @@ function repeatFetchNote(ageMs: number): string {
  * per-URL errors at the request position, so one bad page does not hide
  * successful fetches from the model.
  */
-async function renderedFallbackFetch(
+export async function renderedFallbackFetch(
   urls: string[],
   config: RenderedWebFetchOptions,
   signal?: AbortSignal,
@@ -268,7 +267,6 @@ async function renderedFallbackFetch(
     if (signal?.aborted) throw new Error('web_fetch aborted')
     try {
       if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
-      assertSafeRenderedFetchURL(url, config.ssrfFilter !== false)
       accepted.push({ url, index })
     } catch (error) {
       if (signal?.aborted) throw error
@@ -490,23 +488,12 @@ function renderedFallbackErrorMessage(error: unknown): string {
 }
 
 /**
- * Accepts HTTPS URLs for web_fetch, using the shared kernel URL parser.
+ * Accepts HTTPS URLs for web_fetch.
  */
 function isHTTPSURL(value: string): boolean {
   try {
-    return webURLFacts(value).scheme === 'https'
+    return new URL(value).protocol === 'https:'
   } catch {
     return false
-  }
-}
-
-/**
- * Sanitizes the execution scope into a browser session id.
- */
-function assertSafeRenderedFetchURL(value: string, ssrfFilter: boolean): void {
-  const facts = webURLFacts(value)
-  if (facts.hostClass === 'metadata') throw new Error('blocked rendered fetch to cloud metadata endpoint')
-  if (ssrfFilter && facts.hostClass === 'private') {
-    throw new Error('blocked non-public URL by the security.ssrf_filter policy')
   }
 }

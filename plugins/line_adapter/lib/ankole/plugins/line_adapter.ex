@@ -38,6 +38,7 @@ defmodule Ankole.Plugins.LineAdapter do
         display_name: %{"default" => "LINE"},
         config_key_pattern: "signals_gateway.line.bindings.<id>",
         config_module: Config,
+        application_bindings: :one,
         fields: [
           %{
             path: "channelId",

@@ -3,8 +3,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
+      handle_rpc: 3,
       rpc_request: 3,
-      rpc_request: 4,
       rpc_response_payload!: 2,
       envelope_body_type: 1,
       envelope_body!: 2
@@ -13,17 +13,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
   import Ecto.Query
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AppConfigure.Schema
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar
 
   setup do
     allow_cache_database_access()
-    # Test-registered declared exports must not leak into other modules: the
-    # registry is a global process, and production paths re-register lazily.
     on_exit(fn -> Registry.clear_for_test() end)
     unique = System.unique_integer([:positive])
     {:ok, unique: unique, env_name: "WORKER_ENV_TEST_#{unique}"}
@@ -130,152 +126,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
              WorkerEnv.console_put_global("OK_NAME", %{"value" => 42})
   end
 
-  test "declared definitions export through AppConfigure with agent overrides", %{
-    unique: unique,
-    env_name: env_name
-  } do
-    %{principal: agent} = agent_fixture()
-
-    definition =
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.token",
-        encrypted: true,
-        schema: Schema.string(),
-        description: "Test declared export",
-        worker_env_name: env_name
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
-    refute Map.has_key?(env, env_name)
-
-    assert {:ok, item} = WorkerEnv.console_put_global(env_name, %{"value" => "declared-global"})
-    assert item.kind == "declared"
-    assert item.declared_key == definition.key
-
-    assert {:ok, preserved} = WorkerEnv.console_put_global(env_name, %{})
-    assert preserved.secret == true
-    assert preserved.source == "global"
-    assert {:ok, "declared-global"} = WorkerEnv.console_decrypt_global(env_name)
-
-    assert {:error, :invalid_worker_env_value} =
-             WorkerEnv.console_put_for_agent(agent.uid, env_name, %{})
-
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
-    assert env[env_name] == "declared-global"
-
-    assert {:ok, agent_item} =
-             WorkerEnv.console_put_for_agent(agent.uid, env_name, %{"value" => "declared-agent"})
-
-    assert agent_item.source == "agent"
-
-    assert {:ok, preserved_agent_item} =
-             WorkerEnv.console_put_for_agent(agent.uid, env_name, %{})
-
-    assert preserved_agent_item.source == "agent"
-    assert {:ok, "declared-agent"} = WorkerEnv.console_decrypt_for_agent(agent.uid, env_name)
-
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
-    assert env[env_name] == "declared-agent"
-
-    assert {:ok, "declared-agent"} = WorkerEnv.console_decrypt_for_agent(agent.uid, env_name)
-
-    assert {:ok, _item} = WorkerEnv.console_delete_for_agent(agent.uid, env_name)
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
-    assert env[env_name] == "declared-global"
-  end
-
-  test "declared names cannot collide across definitions or export reserved names", %{
-    unique: unique,
-    env_name: env_name
-  } do
-    definition =
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.first",
-        encrypted: false,
-        schema: Schema.string(),
-        worker_env_name: env_name
-      )
-
-    duplicate =
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.second",
-        encrypted: false,
-        schema: Schema.string(),
-        worker_env_name: env_name
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-
-    assert {:error, {:duplicate_worker_env_name, ^env_name}} =
-             AppConfigure.register_definitions([duplicate])
-
-    assert_raise ArgumentError, ~r/invalid_worker_env_name/, fn ->
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.bad",
-        encrypted: false,
-        schema: Schema.string(),
-        worker_env_name: "not a name"
-      )
-    end
-
-    %{principal: agent} = agent_fixture()
-
-    reserved =
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.reserved",
-        encrypted: false,
-        schema: Schema.string(),
-        default_value: "boom",
-        worker_env_name: "DATABASE_URL"
-      )
-
-    assert :ok = AppConfigure.register_definitions([reserved])
-
-    assert {:error, {:reserved_worker_env_name, "DATABASE_URL"}} =
-             WorkerEnv.effective_env(agent.uid)
-  end
-
-  test "console list and detail carry provenance for both tracks", %{
-    unique: unique,
-    env_name: env_name
-  } do
-    %{principal: agent} = agent_fixture()
-    custom = "CUSTOM_LIST_#{unique}"
-
-    definition =
-      AppConfigure.define(
-        key: "__test.worker_env.#{unique}.listed",
-        encrypted: false,
-        schema: Schema.string(),
-        default_value: "from-default",
-        worker_env_name: env_name
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-
-    assert {:ok, _item} =
-             WorkerEnv.console_put_for_agent(agent.uid, custom, %{"value" => "agent-only"})
-
-    assert {:ok, global_items} = WorkerEnv.console_list_global()
-    declared_item = Enum.find(global_items, &(&1.name == env_name))
-    assert %{kind: "declared", source: "default", value: "from-default"} = declared_item
-    refute Enum.any?(global_items, &(&1.name == custom))
-
-    assert {:ok, agent_items} = WorkerEnv.console_list_for_agent(agent.uid)
-
-    assert %{kind: "custom", source: "agent", value: "agent-only"} =
-             Enum.find(agent_items, &(&1.name == custom))
-
-    assert %{kind: "declared", source: "default"} =
-             Enum.find(agent_items, &(&1.name == env_name))
-
-    assert {:ok, %{source: "agent"}} = WorkerEnv.console_detail_for_agent(agent.uid, custom)
-    assert {:error, :not_found} = WorkerEnv.console_detail_global(custom)
-    assert {:error, :not_found} = WorkerEnv.console_detail_global("MISSING_#{unique}")
-  end
-
   test "deleting the agent tier keeps the global tier effective", %{unique: unique} do
     %{principal: agent} = agent_fixture()
     name = "TIERED_#{unique}"
@@ -312,14 +162,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
              })
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "worker-env-1",
                  "worker_env.resolve",
-                 %FabricProto.WorkerEnvResolveRequest{},
-                 agent_uid: agent.uid
+                 %FabricProto.WorkerEnvResolveRequest{}
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     response = rpc_response_payload!(envelope, FabricProto.WorkerEnvResolveResponse)
@@ -328,31 +178,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
     assert response.vars[secret] == "rpc-secret"
   end
 
-  test "RuntimeFabric worker_env.resolve rejects unknown agents and bad payloads" do
+  test "RuntimeFabric worker_env.resolve rejects an unknown Agent" do
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "worker-env-missing-agent",
                  "worker_env.resolve",
-                 %FabricProto.WorkerEnvResolveRequest{},
-                 agent_uid: "agent-missing"
-               ),
-               "trusted-worker-route"
-             )
-
-    assert envelope_body_type(envelope) == :rpc_error
-
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "worker-env-invalid",
-                 "worker_env.resolve",
                  %FabricProto.WorkerEnvResolveRequest{}
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               "agent-missing"
              )
 
     assert envelope_body_type(envelope) == :rpc_error
-    assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
   end
 end

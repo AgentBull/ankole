@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { chmodSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync } from 'node:fs'
+import { writeFileAtomicSync } from '../../common/atomic-write'
 import { join } from 'node:path'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import type { MCPServerConfig } from './config'
@@ -64,8 +65,7 @@ export function materializeMCPorterConfig(
 ): MaterializedMCPorterConfig {
   const path = join(options.directory ?? WORKER_SHARE_ROOT, `ankole-mcporter-${randomUUID()}.json`)
   try {
-    writeFileSync(path, renderMCPorterConfig(servers), { flag: 'wx', mode: 0o600 })
-    chmodSync(path, 0o600)
+    writeFileAtomicSync(path, renderMCPorterConfig(servers), 0o600)
   } catch (error) {
     rmSync(path, { force: true })
     throw error

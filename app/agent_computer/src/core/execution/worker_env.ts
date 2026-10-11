@@ -1,4 +1,4 @@
-import { rpcMethods, type RPCRequester } from '../../lanes/rpc_lane'
+import { type RPCRequester } from '../../lanes/rpc_lane'
 
 /**
  * Keeps the combined, operator, and binding views returned by the control
@@ -12,22 +12,15 @@ export type ResolvedAgentWorkerEnv = {
 }
 
 export async function resolveAgentWorkerEnvParts(
-  agentUID: string,
   rpc: RPCRequester,
   bindingName?: string
 ): Promise<ResolvedAgentWorkerEnv> {
-  const response = await rpc(rpcMethods.workerEnvResolve, { bindingName: bindingName ?? '' }, { agentUid: agentUID })
+  const response = await rpc('worker_env.resolve', { bindingName: bindingName ?? '' }, undefined, {
+    retryOnDisconnect: true
+  })
   return {
-    vars: stringMap(response.vars),
-    operatorVars: stringMap(response.operatorVars),
-    bindingVars: stringMap(response.bindingVars)
+    vars: response.vars,
+    operatorVars: response.operatorVars,
+    bindingVars: response.bindingVars
   }
-}
-
-function stringMap(value: Record<string, string> | undefined): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const [name, item] of Object.entries(value ?? {})) {
-    if (typeof item === 'string') result[name] = item
-  }
-  return result
 }

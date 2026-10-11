@@ -42,7 +42,7 @@ Set up an agent that analyzes a CSV the team drops in the channel:
 
 1. Confirm `jupyter-live-kernel` skill is enabled (it is by default).
 2. Create the agent, author a `MISSION.md`: "When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."
-3. In the channel, upload a CSV (through the worker-file routes or by providing a URL).
+3. In the channel, attach a CSV, or upload it to the Agent's drive in the Console and give its path.
 4. The agent delegates to a background job, starts the kernel, loads the CSV, inspects iteratively, generates a plot, and reports back.
 
 ## What this guide is not

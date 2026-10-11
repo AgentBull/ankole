@@ -1,7 +1,8 @@
 defmodule Ankole.WorkerFilesTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
   alias Ankole.WorkerFiles
   alias Ankole.WorkerFiles.Relay
   alias Ankole.WorkerFilesFake
@@ -10,81 +11,53 @@ defmodule Ankole.WorkerFilesTest do
     {:ok, route: "worker-files-test-#{System.unique_integer([:positive])}"}
   end
 
-  test "rejects roots outside the declared policy without touching a route" do
-    assert {:error, {:unsupported_file_root, "shared_files"}} =
-             WorkerFiles.get("shared_files", "a.txt")
-
-    assert {:error, {:unsupported_file_root, "shared_files"}} =
-             WorkerFiles.put("shared_files", "a.txt", "hello")
-
-    assert {:error, {:unsupported_file_root, "shared_files"}} =
-             WorkerFiles.list("shared_files", "")
-
-    assert {:error, {:unsupported_file_root, "shared_files"}} =
-             WorkerFiles.delete("shared_files", "a.txt")
-
-    assert {:error, {:unsupported_file_root, "shared_files"}} =
-             WorkerFiles.move("shared_files", "a.txt", "b.txt")
-  end
-
   test "put rejects oversize content before any transfer starts" do
     max_bytes = WorkerFiles.max_transfer_bytes()
     oversize = max_bytes + 1
-    content = :binary.copy(<<0>>, oversize)
+    path = temp_file!(:binary.copy(<<0>>, oversize))
 
     assert {:error, {:file_too_large, ^oversize, ^max_bytes}} =
-             WorkerFiles.put("user_files", "inbox/huge.bin", content)
-
-    path = Path.join(System.tmp_dir!(), "ankole-oversize-#{System.unique_integer([:positive])}")
-    File.write!(path, content)
-    on_exit(fn -> File.rm(path) end)
-
-    assert {:error, {:file_too_large, ^oversize, ^max_bytes}} =
-             WorkerFiles.put("user_files", "inbox/huge.bin", {:file, path})
+             WorkerFiles.put("huge.bin", {:file, path})
   end
 
-  test "put relays binary and file sources through the signed URL", %{route: route} do
-    insert_ready_worker!(route)
+  test "put relays a local file to a path in the Worker's Agent Home", %{route: route} do
+    worker = ready_worker(route)
     fake = WorkerFilesFake.start!(route)
 
-    assert {:ok, %{"relative_path" => "inbox/a.txt", "size" => 11, "xxh3_128" => fingerprint}} =
-             WorkerFiles.put("user_files", "inbox/a.txt", "hello world")
+    assert {:ok, %{"size" => 11}} =
+             WorkerFiles.put("drive/a.txt", {:file, temp_file!("hello world")},
+               worker: AgentWorkers.target(worker)
+             )
 
-    assert is_binary(fingerprint)
-
-    path = Path.join(System.tmp_dir!(), "ankole-put-#{System.unique_integer([:positive])}")
-    File.write!(path, "from a file")
-    on_exit(fn -> File.rm(path) end)
-
-    assert {:ok, %{"relative_path" => "inbox/b.txt", "size" => 11}} =
-             WorkerFiles.put("user_files", "inbox/b.txt", {:file, path})
-
-    assert %{
-             "/user_files/inbox/a.txt" => "hello world",
-             "/user_files/inbox/b.txt" => "from a file"
-           } = WorkerFilesFake.files(fake)
-
-    assert {:ok, %{"content" => "hello world", "size" => 11}} =
-             WorkerFiles.get("user_files", "inbox/a.txt")
+    assert %{"drive/a.txt" => "hello world"} = WorkerFilesFake.files(fake)
   end
 
-  test "stream delivers a multi-chunk file in order", %{route: route} do
-    insert_ready_worker!(route)
+  test "stream delivers a multi-chunk file in order and then ends its relay session", %{
+    route: route
+  } do
+    worker = ready_worker(route)
     content = :crypto.strong_rand_bytes(3 * 1024 * 1024)
-    WorkerFilesFake.start!(route, files: %{"/user_files/inbox/big.bin" => content})
+    WorkerFilesFake.start!(route, files: %{"big.bin" => content})
+    earlier_sessions = relay_sessions()
 
     assert {:ok, %{"size" => size, "body" => body}} =
-             WorkerFiles.stream("user_files", "inbox/big.bin")
+             WorkerFiles.stream("big.bin", worker: AgentWorkers.target(worker))
+
+    # Sessions of earlier tests can still stop in the background. This module
+    # is not async, so the one new session belongs to this transfer.
+    assert [{_transfer_id, session}] = relay_sessions() -- earlier_sessions
+    assert Process.alive?(session)
+    monitor = Process.monitor(session)
 
     assert size == byte_size(content)
     chunks = Enum.to_list(body)
     assert length(chunks) > 1
     assert IO.iodata_to_binary(chunks) == content
-    assert Registry.count(Ankole.WorkerFiles.RelayRegistry) == 0
+    assert_receive {:DOWN, ^monitor, :process, ^session, _reason}, 1_000
   end
 
   test "push relay rejects a body over the byte bound before reading it", %{route: route} do
-    insert_ready_worker!(route)
+    worker = ready_worker(route)
     max_bytes = WorkerFiles.max_transfer_bytes()
 
     WorkerFilesFake.start!(route,
@@ -92,122 +65,169 @@ defmodule Ankole.WorkerFilesTest do
     )
 
     assert {:error, %{"code" => "file_too_large"}} =
-             WorkerFiles.get("user_files", "inbox/huge.bin")
+             WorkerFiles.stream("huge.bin", worker: AgentWorkers.target(worker))
   end
 
   test "push relay refuses a tampered token", %{route: route} do
-    insert_ready_worker!(route)
-    content = "secret bytes"
+    worker = ready_worker(route)
 
     WorkerFilesFake.start!(route,
-      files: %{"/user_files/inbox/a.txt" => content},
+      files: %{"a.txt" => "secret bytes"},
       tamper_token: true
     )
 
     assert {:error, %{"code" => "relay_failed", "message" => message}} =
-             WorkerFiles.get("user_files", "inbox/a.txt")
+             WorkerFiles.stream("a.txt", worker: AgentWorkers.target(worker))
 
     assert message =~ "401"
   end
 
   test "worker errors surface with their code", %{route: route} do
-    insert_ready_worker!(route)
+    worker = ready_worker(route)
     WorkerFilesFake.start!(route)
 
     assert {:error, %{"code" => "file_not_found"}} =
-             WorkerFiles.get("user_files", "inbox/missing.txt")
-
-    assert {:error, %{"code" => "file_not_found"}} =
-             WorkerFiles.delete("user_files", "inbox/missing.txt")
+             WorkerFiles.stream("missing.txt", worker: AgentWorkers.target(worker))
   end
 
-  test "list, move, and delete are worker-owned RPCs", %{route: route} do
-    insert_ready_worker!(route)
+  test "receive_bundle writes each file of one transfer to its own local file", %{
+    route: route
+  } do
+    worker = ready_worker(route)
+    large = :crypto.strong_rand_bytes(3 * 1024 * 1024)
 
-    WorkerFilesFake.start!(route,
-      files: %{"/agent_sessions/agent-1/sessions/session-1/log.txt" => "logs"}
-    )
+    fake =
+      WorkerFilesFake.start!(route,
+        files: %{
+          "jobs/7/a.txt" => "alpha",
+          "jobs/7/sub/large.bin" => large,
+          "jobs/7/empty.txt" => ""
+        }
+      )
 
-    assert {:ok,
-            %{
-              "root" => "agent_sessions",
-              "relative_path" => "agent-1/sessions",
-              "truncated" => false,
-              "entries" => [
-                %{
-                  "relative_path" => "agent-1/sessions/session-1/log.txt",
-                  "kind" => "file",
-                  "size" => 4
-                }
-              ]
-            }} = WorkerFiles.list("agent_sessions", "agent-1/sessions")
+    target_dir =
+      Path.join(System.tmp_dir!(), "ankole-bundle-#{System.unique_integer([:positive])}")
 
-    assert {:ok, %{"moved" => true, "to_relative_path" => "agent-1/sessions/archive/log.txt"}} =
-             WorkerFiles.move(
-               "agent_sessions",
-               "agent-1/sessions/session-1/log.txt",
-               "agent-1/sessions/archive/log.txt"
+    File.mkdir_p!(target_dir)
+    on_exit(fn -> File.rm_rf(target_dir) end)
+
+    assert {:ok, [alpha, large_path, empty]} =
+             WorkerFiles.receive_bundle(
+               "jobs",
+               ["7/a.txt", "7/sub/large.bin", "7/empty.txt"],
+               target_dir,
+               worker: AgentWorkers.target(worker)
              )
 
-    assert {:ok, %{"deleted" => true}} =
-             WorkerFiles.delete("agent_sessions", "agent-1/sessions/archive/log.txt")
+    assert {File.read!(alpha), File.read!(large_path), File.read!(empty)} == {"alpha", large, ""}
 
-    assert {:ok, %{"entries" => []}} = WorkerFiles.list("agent_sessions", "agent-1/sessions")
+    assert WorkerFilesFake.pushes(fake) == [
+             %{
+               home_relative_path: "jobs",
+               bundle_paths: ["7/a.txt", "7/sub/large.bin", "7/empty.txt"]
+             }
+           ]
   end
 
-  test "worker_id pins the route to that worker", %{route: route} do
-    %{worker_id: worker_id} = insert_ready_worker!(route)
-    WorkerFilesFake.start!(route)
+  test "receive_bundle rejects a bundle that does not match the request", %{route: route} do
+    entry = fn path, content ->
+      [<<byte_size(path)::32-big>>, path, <<byte_size(content)::64-big>>, content]
+    end
 
-    assert {:ok, %{"root" => "agent_sessions"}} =
-             WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: worker_id)
+    for {body, reason} <- [
+          {entry.("other.txt", "x"), :unexpected_path},
+          {[entry.("a.txt", "x"), entry.("b.txt", "y")], :unexpected_path},
+          {[<<5::32-big>>, "a.txt", <<10::64-big>>, "short"], :truncated},
+          {[<<0::32-big>>], :path_length}
+        ] do
+      route = "#{route}-#{System.unique_integer([:positive])}"
+      worker = ready_worker(route)
 
-    assert {:error, :worker_not_found} =
-             WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: "missing-worker")
-  end
+      WorkerFilesFake.start!(route,
+        on_bundle: fn _request -> {:ok, IO.iodata_to_binary(body)} end
+      )
 
-  test "Codex state is not exposed as a worker file root" do
-    refute "codex_accounts" in WorkerFiles.roots()
+      target_dir =
+        Path.join(System.tmp_dir!(), "ankole-bundle-#{System.unique_integer([:positive])}")
 
-    assert {:error, {:unsupported_file_root, "codex_accounts"}} =
-             WorkerFiles.get("codex_accounts", "account-1/auth.json")
+      File.mkdir_p!(target_dir)
+      on_exit(fn -> File.rm_rf(target_dir) end)
 
-    assert {:error, {:unsupported_file_root, "codex_accounts"}} =
-             WorkerFiles.delete("codex_accounts", "account-1", recursive: true)
-  end
-
-  test "shared-route operations fail without a ready worker" do
-    assert {:error, :no_worker_available} = WorkerFiles.get("user_files", "inbox/a.txt")
-  end
-
-  test "sanitize_path_segment bounds provider names to one safe segment" do
-    assert WorkerFiles.sanitize_path_segment("report (final).xlsx") == "report_final_.xlsx"
-
-    assert WorkerFiles.sanitize_path_segment(String.duplicate("a", 200)) ==
-             String.duplicate("a", 160)
-
-    sanitized = WorkerFiles.sanitize_path_segment("Q3 报表 (final).xlsx")
-    assert sanitized =~ ~r/^[A-Za-z0-9._-]+$/
-    assert String.length(sanitized) <= 160
-
-    for degenerate <- ["", ".", "..", "///", nil, 42] do
-      assert WorkerFiles.sanitize_path_segment(degenerate) == "attachment"
+      assert {:error, {:invalid_bundle, ^reason}} =
+               WorkerFiles.receive_bundle("jobs", ["a.txt"], target_dir,
+                 worker: AgentWorkers.target(worker)
+               )
     end
   end
 
   describe "relay sessions" do
+    test "use saved generation endpoints even when current provider settings are invalid", %{
+      route: route
+    } do
+      worker = ready_worker(route)
+      alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
+      alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
+      config = "network: bridge\nendpoints:\n  relayOrigin: https://worker-files.example.test/\n"
+      assert {:ok, provider} = Providers.update(worker.provider_id, %{config: config})
+      Ankole.AgentWorkerDockerHTTP.install()
+      assert :ok = Ankole.SignalsGateway.ActorRuntime.AgentWorkers.request(worker.agent_uid)
+
+      assert :ok =
+               perform_job(Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob, %{
+                 "agent_uid" => worker.agent_uid
+               })
+
+      attrs = %{
+        direction: :push,
+        worker: AgentWorkers.target(worker),
+        max_bytes: 10,
+        ttl_ms: 60_000,
+        consumer: self()
+      }
+
+      assert {:ok, session} = Relay.open(attrs)
+
+      assert String.starts_with?(
+               session.url,
+               "https://worker-files.example.test/internal/runtime-fabric/file-relay/"
+             )
+
+      Relay.close(session.transfer_id)
+
+      assert {:ok, _} =
+               Providers.update(worker.provider_id, %{
+                 config:
+                   "network: bridge\nendpoints:\n  relayOrigin: https://next.example.test/\n"
+               })
+
+      assert {:ok, session} = Relay.open(attrs)
+
+      assert String.starts_with?(
+               session.url,
+               "https://worker-files.example.test/internal/runtime-fabric/file-relay/"
+             )
+
+      Relay.close(session.transfer_id)
+
+      Repo.update_all(from(p in Provider, where: p.id == ^provider.id),
+        set: [config: "unknown: true\n"]
+      )
+
+      assert {:ok, session} = Relay.open(attrs)
+      assert String.starts_with?(session.url, "https://worker-files.example.test/")
+      Relay.close(session.transfer_id)
+    end
+
     test "are one-time, method-bound, and expire", %{route: route} do
-      worker = insert_ready_worker!(route)
+      worker = ready_worker(route)
 
       {:ok, %{transfer_id: transfer_id, url: url}} =
         Relay.open(%{
           direction: :pull,
-          worker: worker,
-          root: "user_files",
-          relative_path: "inbox/a.txt",
+          worker: AgentWorkers.target(worker),
           max_bytes: 10,
           ttl_ms: 60_000,
-          source: {:binary, "hello"},
+          source: {:file, "/tmp/a.txt"},
           owner: self()
         })
 
@@ -216,16 +236,14 @@ defmodule Ankole.WorkerFilesTest do
       assert {:error, :invalid_token} = Relay.consume(transfer_id, "GET", token <> "x")
       assert {:error, :invalid_token} = Relay.consume(transfer_id, "GET", nil)
       assert {:error, :method_mismatch} = Relay.consume(transfer_id, "PUT", token)
-      assert {:ok, %{source: {:binary, "hello"}}} = Relay.consume(transfer_id, "GET", token)
+      assert {:ok, %{source: {:file, "/tmp/a.txt"}}} = Relay.consume(transfer_id, "GET", token)
       assert {:error, :consumed} = Relay.consume(transfer_id, "GET", token)
       assert {:error, :not_found} = Relay.consume("missing", "GET", token)
 
       {:ok, %{transfer_id: expired_id, url: expired_url}} =
         Relay.open(%{
           direction: :push,
-          worker: worker,
-          root: "user_files",
-          relative_path: "inbox/b.txt",
+          worker: AgentWorkers.target(worker),
           max_bytes: 10,
           ttl_ms: 0,
           consumer: self(),
@@ -239,29 +257,36 @@ defmodule Ankole.WorkerFilesTest do
     end
 
     test "stop when the owner exits", %{route: route} do
-      worker = insert_ready_worker!(route)
+      worker = ready_worker(route)
       parent = self()
 
       owner =
-        spawn(fn ->
-          {:ok, session} =
-            Relay.open(%{
-              direction: :pull,
-              worker: worker,
-              root: "user_files",
-              relative_path: "inbox/a.txt",
-              max_bytes: 10,
-              ttl_ms: 60_000,
-              source: {:binary, "hello"},
-              owner: self()
-            })
+        spawn(
+          Repo.bind_tenant(fn ->
+            receive do
+              :start -> :ok
+            end
 
-          send(parent, {:opened, session.transfer_id})
+            {:ok, session} =
+              Relay.open(%{
+                direction: :pull,
+                worker: AgentWorkers.target(worker),
+                max_bytes: 10,
+                ttl_ms: 60_000,
+                source: {:file, "/tmp/a.txt"},
+                owner: self()
+              })
 
-          receive do
-            :stop -> :ok
-          end
-        end)
+            send(parent, {:opened, session.transfer_id})
+
+            receive do
+              :stop -> :ok
+            end
+          end)
+        )
+
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), owner)
+      send(owner, :start)
 
       assert_receive {:opened, transfer_id}
       assert [{_pid, _value}] = Registry.lookup(Ankole.WorkerFiles.RelayRegistry, transfer_id)
@@ -271,21 +296,21 @@ defmodule Ankole.WorkerFilesTest do
     end
   end
 
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-    worker_id = "worker-files-worker-#{System.unique_integer([:positive])}"
+  defp relay_sessions do
+    Registry.select(Ankole.WorkerFiles.RelayRegistry, [
+      {{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}
+    ])
+  end
 
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: worker_id,
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
+  defp ready_worker(route) do
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    %{Repo.get!(AgentWorker, agent.uid) | state: "ready", transport_route: route}
+  end
+
+  defp temp_file!(content) do
+    path = Path.join(System.tmp_dir!(), "ankole-put-#{System.unique_integer([:positive])}")
+    File.write!(path, content)
+    on_exit(fn -> File.rm(path) end)
+    path
   end
 end

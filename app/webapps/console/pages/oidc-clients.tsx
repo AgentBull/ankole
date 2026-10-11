@@ -46,13 +46,13 @@ import {
   useComboboxAnchor
 } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebAuthZGroupControllerIndexOptions,
-  ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
+  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebOidcClientControllerCreateMutation,
@@ -81,7 +81,6 @@ type SecretState = { nextPath?: string; value: string }
 
 export function OIDCClientsListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const clients = useQuery(ankoleWebOidcClientControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -102,7 +101,6 @@ export function OIDCClientsListPage() {
     onSuccess: (_response, variables) => {
       const client = clients.data?.oidc_clients.find(item => item.id === variables.path.id)
       toast.success(t('console.oidc_clients.deleted', { name: client?.name ?? variables.path.id }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -140,9 +138,7 @@ export function OIDCClientsListPage() {
       {rows.map(client => (
         <TableRow key={client.id}>
           <TableCell>
-            <Link
-              className="font-medium text-foreground hover:text-link hover:underline"
-              to={encodeURIComponent(client.id)}>
+            <Link data-row-link className="font-medium text-foreground" to={encodeURIComponent(client.id)}>
               {client.name}
             </Link>
           </TableCell>
@@ -185,7 +181,6 @@ export function OIDCClientEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const { clientID } = useParams()
   const mode = clientID ? 'edit' : 'new'
   const model = useModel(OIDCClientEditorModel)
@@ -221,14 +216,13 @@ export function OIDCClientEditorPage() {
     absent: () => mode === 'edit' && requestErrorCode(clientQuery.error) === 'not_found'
   })
   const dirty = model.dirty.value
-  const refresh = () => void queryClient.invalidateQueries()
 
   const createClient = useMutation({
     ...ankoleWebOidcClientControllerCreateMutation(),
     onSuccess: response => {
       const next = draftFromClient(response.oidc_client)
       model.markSaved(next)
-      refresh()
+
       toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
       const nextPath = `/oidc-clients/${encodeURIComponent(response.oidc_client.id)}`
       if (response.client_secret) setSecret({ nextPath, value: response.client_secret })
@@ -240,14 +234,13 @@ export function OIDCClientEditorPage() {
     onSuccess: response => {
       const next = draftFromClient(response.oidc_client)
       model.markSaved(next)
-      refresh()
+
       toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
     }
   })
   const rotateSecret = useMutation({
     ...ankoleWebOidcClientControllerRotateSecretMutation(),
     onSuccess: response => {
-      refresh()
       if (response.client_secret) setSecret({ value: response.client_secret })
       toast.success(t('console.oidc_clients.secret_rotated'))
     },
@@ -256,7 +249,6 @@ export function OIDCClientEditorPage() {
   const removeClient = useMutation({
     ...ankoleWebOidcClientControllerDeleteMutation(),
     onSuccess: response => {
-      refresh()
       toast.success(t('console.oidc_clients.deleted', { name: response.oidc_client.name }))
       navigate('/oidc-clients')
     },
@@ -569,7 +561,7 @@ export function OIDCClientEditorPage() {
                   deleteLabel={t(alias.persisted ? 'common.delete' : 'common.cancel')}
                   providers={providers.data?.ai_gateway_providers ?? []}
                   providerKinds={providerKinds.data?.provider_kinds ?? []}
-                  modelCatalog={modelCatalog.data}
+                  modelCatalog={modelCatalog.data?.models ?? []}
                   onUpdate={patch =>
                     updateModelAlias(alias.key, current => ({
                       ...current,

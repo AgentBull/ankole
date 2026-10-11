@@ -5,18 +5,18 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.I18n
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.DriveUpload
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
   alias Ankole.Repo
-  alias Ankole.WorkerFiles
   alias FeishuOpenAPI.Error
 
   import MapHelpers,
@@ -31,7 +31,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @max_text_message_chars 4_000
   @max_im_file_bytes 30 * 1024 * 1024
   @final_edit_fallback_codes [230_072, 230_075]
-  @unavailable_worker_file_codes ~w(file_not_found not_regular_file)
   @drive_operator_action_codes [
     91_204,
     99_991_672,
@@ -50,6 +49,11 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @max_message_uuid_chars 50
   @message_uuid_prefix "ankole-"
 
+  @impl true
+  defdelegate open_conversation(binding, principal_uid),
+    to: Ankole.SignalsGateway.Projection,
+    as: :existing_direct_conversation
+
   @doc false
   @spec provider_message_uuid(String.t() | nil) :: String.t() | nil
   def provider_message_uuid(nil), do: nil
@@ -67,7 +71,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @impl true
   def send(%OutboxEntry{} = outbox) do
     result =
-      with {:ok, config} <- config_for_outbox(outbox),
+      with {:ok, config} <- Bindings.outbox_config(outbox, Config),
            client <- Config.client(config),
            {:ok, outbox} <- materialize_outbound_attachments(outbox, client),
            {:ok, requests} <- requests_for_outbox(outbox) do
@@ -83,7 +87,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   def reconcile(%OutboxEntry{created_source_entry_id: nil}), do: :unknown
 
   def reconcile(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          client <- Config.client(config) do
       case FeishuOpenAPI.get(client, "im/v1/messages/:message_id",
              path_params: %{message_id: outbox.created_source_entry_id}
@@ -355,8 +359,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     |> compact_map()
   end
 
-  defp raw_payload(result) when is_map(result),
-    do: Map.get(result, :raw_payload) || Map.get(result, "raw_payload") || result
+  defp raw_payload(result) when is_map(result), do: Map.get(result, :raw_payload, result)
 
   defp with_materialized_outbox({:ok, result}, %OutboxEntry{} = outbox)
        when is_map(result) do
@@ -434,12 +437,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp normalize_delivery_error({:error, :outbound_attachment_empty}),
     do: permanent_attachment_error("attachment_empty")
 
-  defp normalize_delivery_error({:error, :outbound_attachment_path_missing}),
-    do: operator_attachment_error("attachment_path_missing")
-
-  defp normalize_delivery_error({:error, :multiple_outbound_attachments_not_supported}),
-    do: operator_attachment_error("multiple_attachments_not_supported")
-
   defp normalize_delivery_error({:error, :outbound_attachment_not_uploaded}),
     do: operator_attachment_error("attachment_not_uploaded")
 
@@ -450,10 +447,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       "max_bytes" => max_bytes
     })
   end
-
-  defp normalize_delivery_error({:error, %{"code" => code}})
-       when code in @unavailable_worker_file_codes,
-       do: operator_attachment_error("attachment_file_missing", %{"worker_file_code" => code})
 
   defp normalize_delivery_error(result), do: result
 
@@ -652,7 +645,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     case fetch_list(outbox.payload, "attachments") do
       [] -> {:ok, text_body(outbox)}
       [attachment] -> attachment_body(attachment)
-      _attachments -> {:error, :multiple_outbound_attachments_not_supported}
     end
   end
 
@@ -686,9 +678,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           outbox = %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}
           {:ok, with_attachment_delivery_text(outbox, attachment)}
         end
-
-      _attachments ->
-        {:error, :multiple_outbound_attachments_not_supported}
     end
   end
 
@@ -700,7 +689,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           {:ok, Map.put(attachment, "provider_image_key", image_key)}
 
         _missing ->
-          upload_worker_image_attachment(attachment, client, outbox.agent_uid)
+          upload_image_attachment(attachment, client)
       end
     else
       cond do
@@ -713,16 +702,14 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           {:ok, Map.put(attachment, "provider_file_key", file_key)}
 
         true ->
-          upload_worker_file_attachment(attachment, client, outbox)
+          upload_file_attachment(attachment, client, outbox)
       end
     end
   end
 
-  defp upload_worker_image_attachment(attachment, client, agent_uid) do
-    with relative_path when is_binary(relative_path) <-
-           attachment_relative_path(attachment, agent_uid),
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path),
-         name <- attachment_name(attachment, relative_path),
+  defp upload_image_attachment(attachment, client) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment),
+         name <- attachment_name(attachment),
          {:ok, %{"data" => data}} <-
            FeishuOpenAPI.upload(client, "im/v1/images",
              fields: [image_type: "message"],
@@ -735,19 +722,15 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
        |> Map.put("provider_image_key", image_key)
        |> Map.put_new("name", name)}
     else
-      nil -> {:error, :outbound_attachment_path_missing}
       {:error, _reason} = error -> error
       _value -> {:error, :outbound_image_upload_failed}
     end
   end
 
-  defp upload_worker_file_attachment(attachment, client, %OutboxEntry{} = outbox) do
-    with relative_path when is_binary(relative_path) <-
-           attachment_relative_path(attachment, outbox.agent_uid),
-         {:ok, %{"content" => content}} <-
-           WorkerFiles.get("user_files", relative_path),
+  defp upload_file_attachment(attachment, client, %OutboxEntry{} = outbox) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment),
          true <- byte_size(content) > 0 || {:error, :outbound_attachment_empty},
-         name <- attachment_name(attachment, relative_path) do
+         name <- attachment_name(attachment) do
       if large_im_file?(byte_size(content)) do
         upload_worker_file_to_drive(
           attachment,
@@ -761,8 +744,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
         upload_worker_file_to_im(attachment, client, outbox, content, name)
       end
     else
-      nil -> {:error, :outbound_attachment_path_missing}
-      false -> {:error, :outbound_attachment_empty}
       {:error, _reason} = error -> error
     end
   end
@@ -829,7 +810,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     do: size > @max_im_file_bytes
 
   defp drive_recipient(%OutboxEntry{} = outbox) do
-    case Repo.get(Channel, outbox.signal_channel_id) do
+    case Repo.get_by(Channel, id: outbox.signal_channel_id) do
       %Channel{kind: :im_group} ->
         {:ok,
          %{
@@ -893,26 +874,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     })
   end
 
-  defp attachment_relative_path(attachment, agent_uid) do
-    case optional_text(attachment, "user_files_relative_path") do
-      relative when is_binary(relative) ->
-        Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-      _missing ->
-        user_files = Ankole.AgentHomePaths.user_files(agent_uid) <> "/"
-
-        case optional_text(attachment, "agent_computer_path") || optional_text(attachment, "path") do
-          ^user_files <> relative ->
-            Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-          _outside ->
-            nil
-        end
-    end
-  end
-
-  defp attachment_name(attachment, relative_path) do
-    optional_text(attachment, "name") || Path.basename(relative_path)
+  defp attachment_name(attachment) do
+    optional_text(attachment, "name") ||
+      Path.basename(optional_text(attachment, "path") || "file")
   end
 
   defp image_attachment?(attachment) do
@@ -947,16 +911,6 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   defp divider_i18n(_payload), do: nil
-
-  defp config_for_outbox(%OutboxEntry{} = outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp chat_id_from_channel("lark:" <> encoded), do: URI.decode(encoded)
   defp chat_id_from_channel(value), do: value

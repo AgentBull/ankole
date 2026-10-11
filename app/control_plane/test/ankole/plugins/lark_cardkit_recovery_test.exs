@@ -27,7 +27,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     alias Ankole.SignalsGateway.ReplyPreviewAdapter
     alias FeishuOpenAPI.Error
 
-    for operation <- [:open, :update, :finalize, :refresh] do
+    for operation <- [:update, :finalize, :refresh] do
       def unquote(operation)(request, opts) do
         run(unquote(operation), request, opts)
       end
@@ -219,7 +219,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     persisted = Repo.get!(ActorEvent, event.id)
     assert persisted.reply_preview_checkpoint["streaming_state"] == "closed"
-    refute persisted.reply_preview_cleanup_at
   end
 
   test "terminal recovery uses the durable outbox presentation instead of the stale checkpoint",
@@ -754,7 +753,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     checkpoint = ReplyPreviewAdapter.adapter_checkpoint(persisted.reply_preview_checkpoint)
     assert "thought" in checkpoint["element_ids"]
     assert is_binary(checkpoint["cleanup_at"])
-    assert %DateTime{} = persisted.reply_preview_cleanup_at
   end
 
   test "initial card send retries only the known card visibility race with the same message UUID",
@@ -783,7 +781,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     assert {:ok, result} =
-             CardKit.open(
+             CardKit.update(
                %Request{
                  actor_event: event,
                  presentation: presentation,
@@ -799,6 +797,56 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:card_send_attempt, first_uuid}
     assert_receive {:card_send_attempt, second_uuid}
     assert first_uuid == second_uuid
+  end
+
+  @tag :cardkit_r03
+  test "a source conflict keeps the sent card checkpoint and its original error on recovery", %{
+    event: event
+  } do
+    presentation = ReplyPresentation.new() |> ReplyPresentation.append_answer("Sent once")
+    requests = :counters.new(2, [])
+
+    request_fun = fn
+      _client, :post, "cardkit/v1/cards", _opts ->
+        :counters.add(requests, 1, 1)
+        {:ok, %{"data" => %{"card_id" => "card-source-conflict"}}}
+
+      _client, :post, "im/v1/messages/:message_id/reply", _opts ->
+        :counters.add(requests, 2, 1)
+        assert :ok = Actors.record_reply_preview_source_entry(event.id, "first-source-wins")
+        {:ok, %{"data" => %{"message_id" => "message-source-conflict"}}}
+
+      _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
+        {:ok, %{"data" => %{}}}
+    end
+
+    request = %Request{
+      actor_event: event,
+      presentation: presentation,
+      subject_uid: event.agent_uid,
+      conversation_id: Ecto.UUID.generate(),
+      mode: :working
+    }
+
+    assert {:error, :reply_preview_source_entry_already_recorded} =
+             CardKit.update(request, client: :recording_client, request_fun: request_fun)
+
+    persisted = Repo.reload!(event)
+    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(persisted.reply_preview_checkpoint)
+    assert persisted.reply_preview_source_entry_id == "first-source-wins"
+    assert checkpoint["card_id"] == "card-source-conflict"
+    assert checkpoint["message_id"] == "message-source-conflict"
+
+    assert {:ok, _result} =
+             CardKit.update(
+               %{request | actor_event: persisted, checkpoint: checkpoint},
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert :counters.get(requests, 1) == 1
+    assert :counters.get(requests, 2) == 1
+    assert Repo.reload!(event).reply_preview_source_entry_id == "first-source-wins"
   end
 
   test "a withdrawn reply target posts the same CardKit reference as a new message", %{
@@ -821,7 +869,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     assert {:ok, result} =
-             CardKit.open(
+             CardKit.update(
                %Request{
                  actor_event: event,
                  presentation: presentation,
@@ -1575,4 +1623,370 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert result.reply_preview_checkpoint["cards"]
            |> Enum.map_join(& &1["answer_source"]) == answer
   end
+
+  test "request bodies and checkpoints match the fixed rendering sequence", %{event: event} do
+    recorder = start_supervised!({Agent, fn -> %{requests: [], card: 0, message: 0} end})
+
+    request_fun = fn _client, method, path, opts ->
+      Agent.get_and_update(recorder, fn state ->
+        recorded = %{
+          "method" => to_string(method),
+          "path" => path,
+          "path_params" => opts[:path_params],
+          "body" => opts[:body]
+        }
+
+        state = %{state | requests: state.requests ++ [recorded]}
+
+        case {method, path} do
+          {:post, "cardkit/v1/cards"} ->
+            index = state.card + 1
+            {{:ok, %{"data" => %{"card_id" => "golden-card-#{index}"}}}, %{state | card: index}}
+
+          {:post, path} when path in ["im/v1/messages", "im/v1/messages/:message_id/reply"] ->
+            index = state.message + 1
+
+            {{:ok, %{"data" => %{"message_id" => "golden-message-#{index}"}}},
+             %{state | message: index}}
+
+          _mutation ->
+            {{:ok, %{"data" => %{}}}, state}
+        end
+      end)
+    end
+
+    outbox = %OutboxEntry{
+      agent_uid: event.agent_uid,
+      binding_name: event.binding_name,
+      outbound_key: "ai-reply:golden",
+      idempotency_key: "ai-reply:golden",
+      operation: :reply,
+      delivery_class: :durable_ai_reply,
+      ai_message_id: "00000000-0000-7000-8000-000000000001"
+    }
+
+    initial = ReplyPresentation.new() |> ReplyPresentation.append_answer("A")
+    prefix = ReplyPresentation.append_answer(initial, "B")
+    rewrite = ReplyPresentation.replace_answer(prefix, "Changed")
+
+    thought =
+      ReplyPresentation.apply_event(rewrite, "reasoning.delta", %{
+        "operation_id" => "reason",
+        "revision" => 4,
+        "text" => "Thinking"
+      })
+
+    metadata =
+      rewrite
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "plan",
+        "revision" => 5,
+        "items" => [%{"id" => "one", "content" => "Step", "status" => "in_progress"}]
+      })
+      |> ReplyPresentation.apply_event("result.table", %{
+        "operation_id" => "result",
+        "revision" => 6,
+        "columns" => [%{"key" => "x", "label" => "X"}],
+        "rows" => [%{"x" => 1}]
+      })
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 7,
+        "prompt" => "Choose",
+        "controls" => [
+          %{
+            "id" => "choice",
+            "type" => "button",
+            "label" => "Yes",
+            "interaction_id" => "golden",
+            "source_actor_event_id" => event.id,
+            "control_id" => "choice",
+            "selected_option_id" => "yes",
+            "option_value" => "yes",
+            "revision" => 7
+          }
+        ]
+      })
+
+    image =
+      ReplyPresentation.append_answer(rewrite, "\n![Image](https://example.test/golden.png)")
+
+    long = ReplyPresentation.append_answer(rewrite, String.duplicate("x", 13_000))
+    inline = ReplyPresentation.append_answer(long, "tail")
+    terminal = ReplyPresentation.terminal(inline, "completed", inline["answer"])
+
+    steps = [
+      {:update, initial, :normal},
+      {:update, prefix, :normal},
+      {:update, rewrite, :normal},
+      {:update, thought, :normal},
+      {:update, rewrite, :expire_thought},
+      {:update, metadata, :normal},
+      {:update, rewrite, :stale_element},
+      {:update, image, :image_ready},
+      {:update, long, :normal},
+      {:refresh, long, :refresh_pending},
+      {:update, inline, :normal},
+      {:finalize, terminal, :normal},
+      {:finalize, terminal, :normal}
+    ]
+
+    {_, _, records} =
+      Enum.reduce(steps, {%{}, nil, []}, fn {operation, presentation, mutation},
+                                            {checkpoint, previous, records} ->
+        checkpoint =
+          case mutation do
+            :expire_thought ->
+              Map.put(checkpoint, "cleanup_at", "2000-01-01T00:00:00.000000Z")
+
+            :stale_element ->
+              checkpoint
+              |> Map.update!("element_ids", &(&1 ++ ["stale_element"]))
+              |> Map.update!("cards", fn cards ->
+                List.update_at(
+                  cards,
+                  -1,
+                  &Map.update!(&1, "element_ids", fn ids -> ids ++ ["stale_element"] end)
+                )
+              end)
+
+            :image_ready ->
+              Map.put(checkpoint, "markdown_images", %{
+                "https://example.test/golden.png" => %{
+                  "status" => "ready",
+                  "image_key" => "golden-image",
+                  "final_url" => "https://example.test/golden.png"
+                }
+              })
+
+            :refresh_pending ->
+              Map.put(checkpoint, "refresh_pending", true)
+
+            :normal ->
+              checkpoint
+          end
+
+        {:ok, _} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+
+        {result, record} =
+          golden_cardkit_step(
+            event,
+            operation,
+            presentation,
+            previous,
+            checkpoint,
+            outbox,
+            recorder,
+            request_fun
+          )
+
+        assert {:ok, delivered} = result
+        checkpoint = delivered.reply_preview_checkpoint
+
+        persisted = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+        assert persisted["schema_version"] == 2
+        assert is_integer(persisted["sequence_high_water"])
+
+        assert persisted
+               |> ReplyPreviewAdapter.adapter_checkpoint()
+               |> Map.drop(["schema_version", "sequence_high_water"]) ==
+                 Map.drop(checkpoint, ["schema_version", "sequence_high_water"])
+
+        {checkpoint, presentation, records ++ [record]}
+      end)
+
+    %{actor_event: action_event} =
+      emit_addressed_actor_event(
+        event.agent_uid,
+        event.binding_name,
+        group_entry(%{
+          source_event_id: unique_uid("golden-actions"),
+          source_entry_id: unique_uid("golden-actions-trigger"),
+          explicit: true
+        })
+      )
+
+    action_presentation =
+      Map.update!(metadata, "actions", fn actions ->
+        Enum.map(actions, &Map.put(&1, "source_actor_event_id", action_event.id))
+      end)
+
+    {result, action_record} =
+      golden_cardkit_step(
+        action_event,
+        :finalize,
+        action_presentation,
+        nil,
+        %{},
+        outbox,
+        recorder,
+        request_fun
+      )
+
+    assert {:ok, _} = result
+
+    %{actor_event: overflow_event} =
+      emit_addressed_actor_event(
+        event.agent_uid,
+        event.binding_name,
+        group_entry(%{
+          source_event_id: unique_uid("golden-overflow"),
+          source_entry_id: unique_uid("golden-overflow-trigger"),
+          explicit: true
+        })
+      )
+
+    oversized =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("e" <> String.duplicate("́", 13_000))
+
+    {result, rejected} =
+      golden_cardkit_step(
+        overflow_event,
+        :update,
+        oversized,
+        nil,
+        %{},
+        outbox,
+        recorder,
+        request_fun
+      )
+
+    assert result == {:error, :cardkit_soft_budget_exceeded}
+
+    {result, fallback} =
+      golden_cardkit_step(
+        overflow_event,
+        :finalize,
+        ReplyPresentation.terminal(oversized, "completed", oversized["answer"]),
+        nil,
+        %{},
+        outbox,
+        recorder,
+        request_fun
+      )
+
+    assert {:ok, _} = result
+
+    records =
+      golden_cardkit_normalize(records ++ [action_record, rejected, fallback], [
+        event,
+        action_event,
+        overflow_event
+      ])
+
+    assert Ankole.JSON.encode!(Enum.at(records, 13)["requests"]) =~ "interactive_container"
+    assert Ankole.JSON.encode!(Enum.at(records, 6)["requests"]) =~ "stale_element"
+
+    assert get_in(Enum.at(records, 7), ["checkpoint", "presentation", "answer"]) =~
+             "https://example.test/golden.png"
+
+    assert get_in(Enum.at(records, 7), ["checkpoint", "answer_content"]) =~ "golden-image"
+    assert Enum.at(records, 12)["requests"] == []
+    path = Path.expand("../../fixtures/lark_cardkit_rendering_golden.json", __DIR__)
+
+    if System.get_env("ANKOLE_RECORD_CARDKIT_GOLDEN") == "1" do
+      File.write!(path, Ankole.JSON.encode!(records))
+    end
+
+    assert records == Ankole.JSON.decode!(File.read!(path))
+  end
+
+  defp golden_cardkit_step(
+         event,
+         operation,
+         presentation,
+         previous,
+         checkpoint,
+         outbox,
+         recorder,
+         request_fun
+       ) do
+    Agent.update(recorder, &%{&1 | requests: []})
+    before = DateTime.utc_now(:microsecond)
+    previous_deadline = checkpoint["stream_deadline_at"]
+
+    result =
+      apply(CardKit, operation, [
+        %Request{
+          actor_event: Repo.get!(ActorEvent, event.id),
+          presentation: presentation,
+          previous_presentation: previous,
+          checkpoint: checkpoint,
+          mode: if(operation == :finalize, do: :terminal, else: :working),
+          outbox: outbox
+        },
+        [client: :recording_client, request_fun: request_fun]
+      ])
+
+    after_time = DateTime.utc_now(:microsecond)
+
+    checkpoint =
+      case result do
+        {:ok, %{reply_preview_checkpoint: value}} -> value
+        _ -> Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+      end
+
+    if is_map(checkpoint) and is_binary(checkpoint["stream_deadline_at"]) do
+      {:ok, deadline, 0} = DateTime.from_iso8601(checkpoint["stream_deadline_at"])
+
+      if operation == :refresh do
+        assert checkpoint["stream_deadline_at"] == previous_deadline
+      else
+        assert DateTime.compare(deadline, DateTime.add(before, 540, :second)) != :lt
+        assert DateTime.compare(deadline, DateTime.add(after_time, 540, :second)) != :gt
+      end
+
+      if is_binary(checkpoint["cleanup_at"]),
+        do: assert(checkpoint["cleanup_at"] == checkpoint["stream_deadline_at"])
+    end
+
+    record = %{
+      "operation" => to_string(operation),
+      "requests" => Agent.get(recorder, & &1.requests),
+      "checkpoint" => checkpoint,
+      "persisted_checkpoint" => Repo.get!(ActorEvent, event.id).reply_preview_checkpoint,
+      "result" =>
+        case result do
+          {:ok, _} -> "ok"
+          {:error, reason} -> inspect(reason)
+        end
+    }
+
+    {result, record}
+  end
+
+  defp golden_cardkit_normalize(value, events) when is_map(value) do
+    Map.new(value, fn {key, child} ->
+      key = to_string(key)
+
+      normalized =
+        cond do
+          key in ["uuid", "message_uuid"] ->
+            "<uuid>"
+
+          key in ["opened_at", "closed_at", "cleanup_at", "stream_deadline_at"] and
+              is_binary(child) ->
+            "<timestamp>"
+
+          true ->
+            golden_cardkit_normalize(child, events)
+        end
+
+      {key, normalized}
+    end)
+  end
+
+  defp golden_cardkit_normalize(value, events) when is_list(value),
+    do: Enum.map(value, &golden_cardkit_normalize(&1, events))
+
+  defp golden_cardkit_normalize(value, events) when is_binary(value) do
+    Enum.reduce(Enum.with_index(events), value, fn {event, index}, value ->
+      value
+      |> String.replace(event.id, "<event-#{index}>")
+      |> String.replace(event.agent_uid, "<agent>")
+      |> String.replace(event.source_entry_id, "<trigger-#{index}>")
+    end)
+  end
+
+  defp golden_cardkit_normalize(value, _events), do: value
 end

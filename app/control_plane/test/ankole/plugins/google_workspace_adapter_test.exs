@@ -389,7 +389,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
                  external_id: "U7000",
-                 uid: "U7000",
                  display_name: "Ada",
                  email: "ada.join@example.com"
                })

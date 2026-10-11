@@ -83,7 +83,7 @@ Three console-scoped routes cover what an operator needs:
 | `GET` | `/background-agent-jobs/:job_id` | Read one job |
 | `POST` | `/background-agent-jobs/:job_id/cancel` | Cancel a job |
 
-Cancellation drives the job to `stopped`; it does not yank a live worker out from under a running turn. The turn finishes or fails on its own, fenced by the same activation and revision checks every worker write goes through.
+Cancellation moves the Job to `stopped` and requests cancellation of its live execution. PostgreSQL Job status, attempt identity, and Turn revision determine whether a later Worker result can be committed.
 
 ## What Background Agent Jobs are not
 

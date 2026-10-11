@@ -27,24 +27,24 @@ defmodule Ankole.I18nTest do
 
   describe "t/3" do
     test "returns the default-locale message" do
-      {:ok, _tag} = I18n.put_locale("en-US")
+      {:ok, _tag} = I18n.put_default_locale("en-US")
       assert I18n.t("test.greeting", %{"name" => "Alice"}) == "Hello, Alice!"
     end
 
-    test "explicit locale option overrides the process locale" do
-      {:ok, _tag} = I18n.put_locale("en-US")
+    test "explicit locale option overrides the tenant locale" do
+      {:ok, _tag} = I18n.put_default_locale("en-US")
 
       assert I18n.t("test.greeting", %{"name" => "Alice"}, locale: "zh-Hans-CN") ==
                "你好，Alice！"
     end
 
     test "scope option prepends to the key" do
-      {:ok, _tag} = I18n.put_locale("en-US")
+      {:ok, _tag} = I18n.put_default_locale("en-US")
       assert I18n.t("greeting", %{"name" => "Bob"}, scope: "test") == "Hello, Bob!"
     end
 
     test "missing key returns the key literal and logs" do
-      {:ok, _tag} = I18n.put_locale("en-US")
+      {:ok, _tag} = I18n.put_default_locale("en-US")
 
       log =
         capture_log([level: :error], fn ->
@@ -84,34 +84,44 @@ defmodule Ankole.I18nTest do
 
   describe "locale lifecycle" do
     test "rejects locales that are not loaded from app/locales" do
-      assert {:error, %ArgumentError{} = error} = I18n.put_locale("fr-FR")
+      assert {:error, %ArgumentError{} = error} = I18n.put_default_locale("fr-FR")
       assert Exception.message(error) =~ "is not loaded"
     end
 
-    test "with_locale/2 applies for one block" do
-      {:ok, _tag} = I18n.put_locale("en-US")
+    test "default translations follow tenant context without changing the shared site default" do
+      {:ok, "zh-Hans-CN"} = I18n.put_default_locale("zh-Hans-CN")
 
-      result =
-        I18n.with_locale("zh-Hans-CN", fn ->
-          I18n.t("test.greeting", %{"name" => "Carol"})
-        end)
+      other =
+        %Ankole.Tenants.Tenant{}
+        |> Ankole.Tenants.Tenant.changeset(%{
+          slug: "locale-#{Ecto.UUID.generate()}",
+          display_name: "Other locale"
+        })
+        |> Repo.insert!()
 
-      assert result == "你好，Carol！"
-      assert I18n.t("test.greeting", %{"name" => "Carol"}) == "Hello, Carol!"
+      assert I18n.t("test.greeting", %{"name" => "Carol"}) == "你好，Carol！"
+
+      Repo.with_tenant(other.id, fn ->
+        assert I18n.t("test.greeting", %{"name" => "Carol"}) == "Hello, Carol!"
+      end)
+
+      assert I18n.t("test.greeting", %{"name" => "Carol"}) == "你好，Carol！"
+      assert Resolver.language_tag_to_locale(I18n.default_locale()) == "en-US"
     end
 
-    test "put_default_locale/1 persists through AppConfigure and reloads Localize" do
+    test "put_default_locale/1 persists in the current tenant without replacing the site value",
+         %{tenant: tenant} do
       assert {:ok, "zh-Hans-CN"} = I18n.put_default_locale("zh-Hans-CN")
-      assert I18n.default_locale() |> Resolver.language_tag_to_locale() == "zh-Hans-CN"
+      assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
 
       assert %AppConfig{value: %{"type" => "plaintext", "value" => "zh-Hans-CN"}} =
                Repo.one!(
                  from row in AppConfig,
-                   where: row.scope == "global" and row.key == "i18n.default_locale"
+                   where: row.tenant_id == ^tenant.id and row.key == "i18n.default_locale"
                )
 
       assert {:ok, "en-US"} = AppConfigure.put_global(Config.default_locale_definition(), "en-US")
-      assert :ok = I18n.reload()
+      assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
     end
 
     test "direct AppConfigure writes are validated when the runtime default is applied" do

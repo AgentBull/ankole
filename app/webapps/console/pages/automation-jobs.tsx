@@ -13,18 +13,19 @@ import { RiCodeSSlashLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import {
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebAutomationJobControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { StatusIndicator } from '../console-form'
+import { StatusIndicator, type StatusTone } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatJSON, resourceID } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
+import { agentFilesPath } from './agent-files'
 
 export function AutomationJobsPage() {
   const { t } = useTranslation()
@@ -62,7 +63,7 @@ export function AutomationJobsPage() {
         job.label,
         job.status,
         job.agent_uid,
-        job.directory_path,
+        job.drive_prefix,
         job.owner_session_id,
         String(job.id)
       )
@@ -88,7 +89,7 @@ export function AutomationJobsPage() {
           t('console.automation_jobs.label'),
           t('console.agents.agent'),
           t('console.session'),
-          t('console.automation_jobs.directory'),
+          t('console.automation_jobs.script_folder'),
           t('console.automation_jobs.failure_wake'),
           t('console.automation_jobs.status'),
           t('console.automation_jobs.created_at')
@@ -129,7 +130,9 @@ export function AutomationJobsPage() {
       </ResourceListPage>
 
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeJob()}>
-        <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
+        <SheetContent
+          closeLabel={t('common.close')}
+          className="data-[side=right]:w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
           <SheetHeader className="gap-3 border-b border-border pb-6">
             <SheetTitle>{detail.data?.automation_job.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
             <SheetDescription>
@@ -191,8 +194,8 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
   return (
     <TableRow>
       <TableCell>
-        <button type="button" className="grid gap-1 text-left" onClick={onOpen}>
-          <span className="font-medium text-foreground hover:text-link hover:underline">{job.label}</span>
+        <button type="button" data-row-link className="grid gap-1 text-left" onClick={onOpen}>
+          <span className="font-medium text-foreground">{job.label}</span>
           <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
         </button>
       </TableCell>
@@ -203,8 +206,8 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
         </span>
       </TableCell>
       <TableCell>
-        <span className="block max-w-80 truncate font-mono text-xs" title={job.directory_path}>
-          {job.directory_path}
+        <span className="block max-w-80 truncate font-mono text-xs" title={job.drive_prefix}>
+          {job.drive_prefix}
         </span>
       </TableCell>
       <TableCell>{job.wake_on_failure ? t('common.boolean_true') : t('common.boolean_false')}</TableCell>
@@ -232,7 +235,14 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
           <span className="text-sm text-muted-foreground">{t('console.automation_jobs.attempt_policy')}</span>
         </div>
         <dl className="grid gap-3 text-sm md:grid-cols-2">
-          <Fact label={t('console.automation_jobs.directory')} value={job.directory_path} mono />
+          <div className="grid min-w-0 gap-1">
+            <dt className="text-xs text-muted-foreground">{t('console.automation_jobs.script_folder')}</dt>
+            <dd className="break-all font-mono text-xs">
+              <Link to={agentFilesPath(job.agent_uid, job.drive_prefix)} className="link">
+                {job.drive_prefix}
+              </Link>
+            </dd>
+          </div>
           <Fact
             label={t('console.automation_jobs.failure_wake')}
             value={job.wake_on_failure ? t('common.boolean_true') : t('common.boolean_false')}
@@ -282,7 +292,7 @@ function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
         <span>{formatConsoleDate(run.finished_at)}</span>
         {run.exit_code == null ? null : <span>{t('console.automation_jobs.exit_code', { code: run.exit_code })}</span>}
       </div>
-      {run.error ? <p className="break-words text-sm text-destructive">{run.error}</p> : null}
+      {run.error ? <p className="break-words text-sm text-destructive-foreground">{run.error}</p> : null}
       {run.stdout ? <RunLog label="stdout" value={run.stdout} /> : null}
       {run.stderr ? <RunLog label="stderr" value={run.stderr} /> : null}
     </article>
@@ -309,7 +319,7 @@ function Fact({ label, value, mono = false }: { label: string; value: string; mo
   )
 }
 
-function jobStatusTone(status: AutomationJobItem['status']): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {
+function jobStatusTone(status: AutomationJobItem['status']): StatusTone {
   switch (status) {
     case 'active':
       return 'positive'
@@ -320,7 +330,7 @@ function jobStatusTone(status: AutomationJobItem['status']): 'danger' | 'info' |
   }
 }
 
-function runStatusTone(status: AutomationJobRunItem['status']): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {
+function runStatusTone(status: AutomationJobRunItem['status']): StatusTone {
   switch (status) {
     case 'queued':
       return 'neutral'

@@ -13,7 +13,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress
-  alias Ankole.WorkerFiles
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
 
@@ -24,7 +23,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       fetch_list: 2,
       fetch_map: 3,
       fetch_value: 2,
-      put_present: 3,
       optional_text: 2
     ]
 
@@ -236,9 +234,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     prepared
     |> Enum.reduce_while({:ok, []}, fn
       %{consumer: consumer, input: input, observed_at: observed_at} = item, {:ok, items} ->
-        if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments) do
+        if Ingress.attachments_need_bytes?(input.attachments) do
           input
-          |> put_attachment_materialization("pending", observed_at)
+          |> update_in(
+            [:metadata],
+            &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+          )
           |> emit_normalized_message(consumer, false)
           |> case do
             {:ok, result} ->
@@ -284,10 +285,22 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
        }) do
     with {:ok, attachments} <-
            maybe_materialize_attachments(input.attachments, message, consumer) do
-      input
-      |> Map.put(:attachments, attachments)
-      |> put_materialization_result(consumer, observed_at)
-      |> emit_normalized_message(consumer, true)
+      input = Map.put(input, :attachments, attachments)
+
+      input =
+        if attachments == [],
+          do: input,
+          else:
+            update_in(
+              input.metadata,
+              &Ingress.put_attachment_materialization(
+                &1,
+                Ingress.materialization_state(attachments),
+                observed_at
+              )
+            )
+
+      emit_normalized_message(input, consumer, true)
     end
   end
 
@@ -988,40 +1001,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp maybe_backfill_attachments([], _text, _mentions, _author, _channel, _time, _consumer),
     do: []
 
-  defp maybe_materialize_attachments(attachments, message, consumer) do
-    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, attachments),
-      do: materialize_lark_attachments(attachments, message, consumer),
-      else: {:ok, attachments}
-  end
-
-  defp put_materialization_result(%{attachments: []} = input, _consumer, _observed_at), do: input
-
-  defp put_materialization_result(input, consumer, observed_at) do
-    state =
-      if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments),
-        do: "failed",
-        else: "complete"
-
-    put_attachment_materialization(input, state, observed_at)
-  end
-
-  defp put_attachment_materialization(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialize_lark_attachments(attachments, _message, %{
-         config: config,
-         context: %{agent_uid: agent_uid}
-       }) do
+  defp maybe_materialize_attachments(attachments, _message, %{config: config}) do
     client = Config.client(config)
 
-    {:ok, Enum.map(attachments, &materialize_lark_attachment(&1, client, agent_uid))}
+    {:ok, Ingress.materialize_attachments(attachments, "lark", &download_attachment(&1, client))}
   end
 
-  defp materialize_lark_attachment(%{} = attachment, client, agent_uid) do
+  defp download_attachment(attachment, client) do
     with source_message_id when is_binary(source_message_id) <- attachment["source_message_id"],
          file_key when is_binary(file_key) <- attachment["file_key"],
          download_type when is_binary(download_type) <- attachment["download_type"],
@@ -1029,59 +1015,26 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
            FeishuOpenAPI.download(client, "im/v1/messages/:message_id/resources/:file_key",
              path_params: %{message_id: source_message_id, file_key: file_key},
              query: [type: download_type]
-           ),
-         relative_path <- materialized_relative_path(attachment, download),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
-      )
-      |> Map.put("user_files_relative_path", relative_path)
-      |> put_present("xxh3_128", result["xxh3_128"])
-      |> put_present("size", result["size"])
-    else
-      reason ->
-        Logging.warning(
-          "lark_adapter.attachment.materialization_skipped",
-          "lark attachment materialization skipped",
-          %{
-            provider_ref: attachment["provider_ref"],
-            source_message_id: attachment["source_message_id"],
-            file_key: attachment["file_key"],
-            reason: inspect(reason)
-          }
-        )
-
-        attachment
+           ) do
+      {:ok,
+       %{
+         body: download.body,
+         filename: download.filename,
+         content_type: header_content_type(download.headers),
+         put: %{}
+       }}
     end
-  rescue
-    error ->
-      Logging.warning(
-        "lark_adapter.attachment.materialization_failed",
-        "lark attachment materialization failed",
-        %{
-          provider_ref: attachment["provider_ref"],
-          error: Exception.message(error)
-        }
-      )
-
-      attachment
   end
 
-  defp materialized_relative_path(attachment, download) do
-    filename =
-      download.filename ||
-        attachment["name"] ||
-        "attachment"
-
-    Path.join([
-      "inbox",
-      Integer.to_string(attachment["attachment_id"]),
-      WorkerFiles.sanitize_path_segment(filename)
-    ])
+  defp header_content_type(headers) when is_map(headers) do
+    case Map.get(headers, "content-type") do
+      [value | _rest] when is_binary(value) -> value |> String.split(";") |> hd() |> String.trim()
+      value when is_binary(value) -> value |> String.split(";") |> hd() |> String.trim()
+      _missing -> nil
+    end
   end
+
+  defp header_content_type(_headers), do: nil
 
   defp recent_attachment_intent?(text) when is_binary(text) do
     # Lark sends attachment-only messages separately from the later textual

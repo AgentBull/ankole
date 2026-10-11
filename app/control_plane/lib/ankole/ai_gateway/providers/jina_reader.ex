@@ -28,7 +28,6 @@ defmodule Ankole.AIGateway.Providers.JinaReader do
     setting(:maxTokens, scope: :request)
 
     web_fetch do
-      upstream(:json)
       api_resolver(:jina_reader_web_fetch)
       prepare(:prepare_web_fetch)
       timeout_ms(@timeout_ms)

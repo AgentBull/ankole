@@ -33,18 +33,7 @@ defmodule Ankole.Brain.Claims do
   # mechanical garbage.
   @claim_max_chars 2_000
 
-  # Internal terminal claims (extraction watermarks) use this provenance
-  # prefix; every recall, BM25, and vector candidate path excludes it.
-  @internal_provenance_prefix "ankole-brain-internal:"
-
-  @extraction_complete "EXTRACTION_COMPLETE"
-  @extraction_not_applicable "EXTRACTION_NOT_APPLICABLE"
-
   @type writer :: String.t() | :system
-
-  @doc "Reserved provenance prefix of internal terminal claims."
-  @spec internal_provenance_prefix() :: String.t()
-  def internal_provenance_prefix, do: @internal_provenance_prefix
 
   @doc """
   Keeps claims attached to a live Object or a signal channel. A missing Object
@@ -56,7 +45,7 @@ defmodule Ankole.Brain.Claims do
     query
     |> join(:left, [claim], object in Object,
       as: :claim_parent_object,
-      on: object.slug == claim.object_slug
+      on: object.tenant_id == claim.tenant_id and object.slug == claim.object_slug
     )
     |> where(
       [claim, claim_parent_object: object],
@@ -67,8 +56,7 @@ defmodule Ankole.Brain.Claims do
 
   @doc """
   Narrows a Claim query to current external facts: `claim_type` fact, not
-  expired, not superseded, attached to a live Object or a signal channel, and
-  provenance outside the internal prefix that extraction terminals use.
+  expired, not superseded, and attached to a live Object or a signal channel.
   """
   @spec current_external_facts(Ecto.Queryable.t()) :: Ecto.Query.t()
   def current_external_facts(query) do
@@ -76,7 +64,6 @@ defmodule Ankole.Brain.Claims do
     |> filter_live_parents()
     |> where([claim], claim.claim_type == "fact")
     |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
-    |> exclude_internal_provenance()
   end
 
   @doc "Closed kind whitelist for facts."
@@ -89,7 +76,6 @@ defmodule Ankole.Brain.Claims do
     limit = Keyword.fetch!(opts, :limit)
 
     Claim
-    |> exclude_internal_provenance()
     |> maybe_console_object(Keyword.get(opts, :object_slug))
     |> maybe_console_type(Keyword.get(opts, :claim_type))
     |> maybe_console_status(Keyword.get(opts, :status))
@@ -104,14 +90,21 @@ defmodule Ankole.Brain.Claims do
   def list_for_principal_audit(principal_uid, opts)
       when is_binary(principal_uid) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
-    holder_slugs = ["people/#{principal_uid}", "agents/#{principal_uid}"]
+
+    holder_slugs = [
+      Scope.principal_page_slug(:human, principal_uid),
+      Scope.principal_page_slug(:agent, principal_uid)
+    ]
+
     scope = "principal:#{principal_uid}"
 
+    principal_ref =
+      Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: principal_uid})
+
     Claim
-    |> exclude_internal_provenance()
     |> where(
       [claim],
-      claim.holder in ^holder_slugs or claim.author_uid == ^principal_uid or
+      claim.holder in ^holder_slugs or claim.author == ^principal_ref or
         claim.audience_scope == ^scope
     )
     |> order_by([claim], desc: claim.created_at)
@@ -186,7 +179,7 @@ defmodule Ankole.Brain.Claims do
 
       claim = %Claim{
         id: UUIDv7.autogenerate(),
-        author_uid: author_uid(writer, opts),
+        author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
         claim_type: "take",
         object_slug: attrs[:object_slug],
         signal_gateway_channel_id: attrs[:signal_gateway_channel_id],
@@ -250,14 +243,20 @@ defmodule Ankole.Brain.Claims do
                      write_fact(replacement, writer,
                        repo: repo,
                        dedup: false,
-                       embedding: prepared
+                       embedding: prepared,
+                       author: Keyword.get(opts, :author)
                      ) do
                 {:ok, claim}
               end
 
             "take" ->
               replacement = Map.put_new(replacement, :weight, old.weight)
-              write_take(replacement, writer, repo: repo, embedding: prepared)
+
+              write_take(replacement, writer,
+                repo: repo,
+                embedding: prepared,
+                author: Keyword.get(opts, :author)
+              )
           end
 
         with {:ok, claim} <- result,
@@ -354,66 +353,6 @@ defmodule Ankole.Brain.Claims do
   end
 
   @doc """
-  Writes the internal terminal claim for one extraction slice. The claim is
-  channel-parented, low notability, and uses the reserved provenance prefix
-  so it never enters recall; `provenance_session` carries the slice version
-  token that makes reruns idempotent.
-
-  `boundary` is the `(first_seen_at, source_entry_id)` of the last covered
-  entry in slice order: `valid_from` stores the arrival time and `context`
-  the entry id, and together they are the next slice's watermark. A unique
-  index on `(channel, provenance_session)` for internal terminals makes a
-  concurrent rerun of the same slice fail its commit instead of
-  double-writing memory.
-  """
-  @spec write_extraction_terminal(String.t(), String.t(), :complete | :not_applicable, keyword()) ::
-          {:ok, Claim.t()} | {:error, term()}
-  def write_extraction_terminal(channel_id, version_token, outcome, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-    {boundary_at, boundary_entry_id} = Keyword.fetch!(opts, :boundary)
-
-    text =
-      case outcome do
-        :complete -> @extraction_complete
-        :not_applicable -> @extraction_not_applicable
-      end
-
-    claim = %Claim{
-      id: UUIDv7.autogenerate(),
-      claim_type: "fact",
-      signal_gateway_channel_id: channel_id,
-      claim: text,
-      kind: "event",
-      holder: "brain",
-      audience_scope: "world",
-      notability: "low",
-      confidence: 1.0,
-      valid_from: usec(boundary_at),
-      context: boundary_entry_id,
-      provenance: @internal_provenance_prefix <> "extraction",
-      provenance_session: version_token
-    }
-
-    repo.insert(claim)
-  end
-
-  @doc """
-  Returns the terminal claim of one slice version token, when present.
-  """
-  @spec extraction_terminal(String.t(), String.t(), keyword()) :: Claim.t() | nil
-  def extraction_terminal(channel_id, version_token, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    Claim
-    |> where([claim], claim.signal_gateway_channel_id == ^channel_id)
-    |> where([claim], claim.provenance_session == ^version_token)
-    |> where([claim], like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
-    |> where([claim], is_nil(claim.expired_at))
-    |> limit(1)
-    |> repo.one()
-  end
-
-  @doc """
   Validates that a weight or confidence value sits on the 0.05 grid inside
   0..1. The grid rejects false precision from model output.
   """
@@ -429,10 +368,6 @@ defmodule Ankole.Brain.Claims do
   end
 
   def validate_grid_value(_value, field), do: {:error, {:missing_number, field}}
-
-  defp exclude_internal_provenance(query) do
-    where(query, [claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
-  end
 
   @doc """
   Snaps a model-produced number onto the 0.05 grid inside 0..1.
@@ -662,7 +597,7 @@ defmodule Ankole.Brain.Claims do
           [claim],
           ilike(claim.claim, ^pattern) or ilike(claim.kind, ^pattern) or
             ilike(claim.holder, ^pattern) or ilike(claim.object_slug, ^pattern) or
-            ilike(claim.author_uid, ^pattern)
+            ilike(type(claim.author, :string), ^pattern)
         )
     end
   end
@@ -681,7 +616,7 @@ defmodule Ankole.Brain.Claims do
 
     claim = %Claim{
       id: UUIDv7.autogenerate(),
-      author_uid: author_uid(writer, opts),
+      author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
       claim_type: "fact",
       object_slug: attrs[:object_slug],
       signal_gateway_channel_id: attrs[:signal_gateway_channel_id],
@@ -814,9 +749,7 @@ defmodule Ankole.Brain.Claims do
 
   defp validate_required_provenance(provenance)
        when is_binary(provenance) and provenance != "" do
-    if String.starts_with?(provenance, @internal_provenance_prefix),
-      do: {:error, :reserved_provenance_prefix},
-      else: :ok
+    :ok
   end
 
   defp validate_required_provenance(_provenance), do: {:error, :missing_provenance}
@@ -850,7 +783,7 @@ defmodule Ankole.Brain.Claims do
 
       writer_uid when is_binary(writer_uid) ->
         if Scope.satisfied_by?(claim.audience_scope, writer_uid) or
-             claim.author_uid == writer_uid,
+             claim.author == Ankole.ActorRef.from_writer(writer_uid, Repo.tenant_id!(), []),
            do: :ok,
            else: {:error, :writer_not_in_claim_scope}
     end
@@ -877,7 +810,4 @@ defmodule Ankole.Brain.Claims do
       nil -> {:error, :not_found}
     end
   end
-
-  defp author_uid(:system, opts), do: Keyword.get(opts, :author_uid)
-  defp author_uid(writer, _opts) when is_binary(writer), do: writer
 end

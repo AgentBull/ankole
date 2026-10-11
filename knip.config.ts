@@ -1,63 +1,77 @@
 // Knip configuration for the Ankole bun-workspaces monorepo.
 // Consumed by `bun kit analyze unused` (devkit tools/devkit/src/commands/analyze).
 //
-// Entry points declared here are treated as USED, so the unused-files gate only
-// flags genuinely unreferenced files. Tolerated-unused residue (with owner/reason)
+// Production entries include CLI and build scripts invoked outside the import
+// graph. Tests do not keep production functions alive. Tolerated-unused files
 // lives in UNUSED_ALLOWLIST in tools/devkit/src/commands/analyze/config.ts.
 
 import type { KnipConfig } from 'knip'
 
 const config: KnipConfig = {
+  // An export with an internal production caller is live code.
+  ignoreExportsUsedInFile: true,
   // Mix-only packages have package.json files for workspace scripts, but no TS
   // graph for Knip to analyze.
   ignoreWorkspaces: ['app/control_plane', 'libs/feishu_openapi'],
   workspaces: {
+    '.': {
+      entry: [
+        'tools/deploy/kubernetes/update-schema.ts!',
+        'app/library/agent-plugins/lark/skills/lark-approvals/scripts/profile-setup.ts!'
+      ]
+    },
     'app/ankole-browser': {
-      entry: ['src/cli/main.ts', 'src/daemon/main.ts', 'src/runner/bootstrap.ts', 'test/**/*.ts'],
-      project: ['src/**/*.ts', 'test/**/*.ts']
+      entry: ['src/cli/main.ts!', 'src/daemon/main.ts!', 'src/runner/bootstrap.ts!'],
+      project: ['src/**/*.ts!', '!src/**/*.test.ts!']
     },
     'app/agent_computer': {
-      entry: ['src/main.ts', 'src/automation-jobs/sdk.ts', 'test/**/*.ts'],
-      project: ['src/**/*.ts', 'test/**/*.ts'],
-      // The vendored AI SDK is intentionally excluded from current unused-file
-      // gates. Its slimming is tracked separately and should not mask app-owned
-      // dead code.
-      ignore: ['src/ai-gateway-client/**']
+      entry: [
+        'src/main.ts!',
+        'src/worker/function-compute-bootstrap.ts!',
+        'src/worker/lambda-hooks.ts!',
+        'src/automation-jobs/sdk.ts!',
+        'scripts/*.ts',
+        'src/cli/**/*-cli.ts!'
+      ],
+      project: ['src/**/*.ts!', '!src/**/*.test.ts!']
     },
-    'app/kernel': {
-      entry: ['test/**/*.ts'],
-      project: ['test/**/*.ts']
+    'app/website': {
+      entry: ['astro.config.mjs!', 'scripts/*.mjs!']
+    },
+    'tools/deploy/cloudflare/agent-workers': {
+      entry: ['scripts/deploy.ts!']
     },
     'app/webapps': {
-      entry: ['entrypoints/*.tsx', 'openapi-ts.config.ts', 'vite.config.ts'],
+      entry: ['entrypoints/*.tsx!', 'openapi-ts.config.ts!', 'vite.config.ts!'],
       project: [
-        'auth/**/*.{ts,tsx}',
-        'common/**/*.{ts,tsx}',
-        'console/**/*.{ts,tsx}',
-        'entrypoints/**/*.{ts,tsx}',
-        'setup/**/*.{ts,tsx}',
-        '*.ts'
+        'auth/**/*.{ts,tsx}!',
+        'common/**/*.{ts,tsx}!',
+        'console/**/*.{ts,tsx}!',
+        'entrypoints/**/*.{ts,tsx}!',
+        'setup/**/*.{ts,tsx}!',
+        '*.ts!'
       ]
     },
     'libs/uikit': {
-      entry: ['src/index.ts'],
-      project: ['src/**/*.{ts,tsx}'],
+      entry: ['src/index.ts!'],
+      project: ['src/**/*.{ts,tsx}!'],
       ignore: ['src/stories/**']
     },
     'tools/devkit': {
-      entry: ['src/main.ts', 'src/schematics/**/index.ts'],
-      project: ['src/**/*.ts']
+      entry: ['src/main.ts!', 'src/schematics/**/index.ts!', 'src/changelog-release.ts!', 'src/runtime-image-pair.ts!'],
+      project: ['src/**/*.ts!', '!src/**/*.test.ts!']
     }
   },
   // Generated trees are checked through their source schema/codegen workflows,
   // not app-owned dead-code analysis. var/ holds runtime volumes, not source.
   ignore: [
     '**/*.d.ts',
+    '**/test/**',
+    '**/*.test.ts',
     '**/.astro/**',
     '**/generated/**',
     'var/**',
-    'internals/skills/**',
-    'app/agent_computer/src/ai-gateway-client/**'
+    'internals/skills/**'
   ],
   ignoreBinaries: ['cargo', 'napi']
 }

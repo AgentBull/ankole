@@ -59,6 +59,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           path: %Schema{type: :string, nullable: true},
+          line: %Schema{type: :integer, nullable: true},
           message: %Schema{type: :string}
         },
         required: [:message],
@@ -83,6 +84,25 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           details: %Schema{type: :array, items: ErrorDetail, nullable: true}
         },
         required: [:code, :message],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ActorRef do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleActorRef",
+        type: :object,
+        properties: %{
+          tenant_id: %Schema{type: :string, format: :uuid},
+          uid: %Schema{type: :string}
+        },
+        required: [:tenant_id, :uid],
         additionalProperties: false
       },
       struct?: false
@@ -330,6 +350,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           uid: %Schema{type: :string},
+          handle: %Schema{type: :string},
+          worker_provider_id: %Schema{type: :string, nullable: true},
           status: %Schema{type: :string, enum: ["active", "disabled"]},
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
@@ -338,12 +360,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           options: %Schema{type: :object, additionalProperties: true},
           owner_principal_uid: %Schema{type: :string},
           group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]},
-          created_by_principal_uid: %Schema{type: :string, nullable: true},
+          created_by: %Schema{allOf: [ActorRef], nullable: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
         },
         required: [
           :uid,
+          :handle,
           :status,
           :display_name,
           :type,
@@ -396,6 +419,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           display_name: %Schema{type: :string, nullable: true},
           avatar_url: %Schema{type: :string, nullable: true},
           email: %Schema{type: :string, nullable: true},
+          handle: %Schema{type: :string, nullable: true},
           has_external_identity: %Schema{type: :boolean},
           local_credential: PrincipalLocalCredential,
           inserted_at: %Schema{type: :string},
@@ -916,7 +940,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentCreateRequest",
         type: :object,
         properties: %{
-          uid: %Schema{type: :string},
+          handle: %Schema{type: :string},
+          worker_provider_id: %Schema{type: :string, nullable: true},
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
@@ -924,7 +949,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           owner_principal_uid: %Schema{type: :string},
           group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]}
         },
-        required: [:uid, :display_name, :role, :owner_principal_uid],
+        required: [:handle, :display_name, :role, :owner_principal_uid],
         additionalProperties: false
       },
       struct?: false
@@ -941,6 +966,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentUpdateRequest",
         type: :object,
         properties: %{
+          handle: %Schema{type: :string},
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
@@ -1072,7 +1098,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           effective_enabled: %Schema{type: :boolean},
           content: %Schema{type: :string},
           author_kind: %Schema{type: :string, enum: ["dreaming", "human"]},
-          author_uid: %Schema{type: :string, nullable: true},
+          author: %Schema{allOf: [ActorRef], nullable: true},
           evidence_job_ids: %Schema{type: :array, items: %Schema{type: :integer}},
           checked_release: %Schema{type: :string, nullable: true},
           review_after: %Schema{type: :string, format: :"date-time", nullable: true},
@@ -1092,7 +1118,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :effective_enabled,
           :content,
           :author_kind,
-          :author_uid,
+          :author,
           :evidence_job_ids,
           :checked_release,
           :review_after,
@@ -1361,14 +1387,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           pattern_id: %Schema{type: :string, nullable: true},
           description: %Schema{type: :string, nullable: true},
           encrypted: %Schema{type: :boolean},
-          scope: %Schema{type: :string, enum: ["scoped", "global"]},
+          scope: %Schema{type: :string, enum: ["global", "tenant"]},
           editable: %Schema{type: :boolean},
           default_present: %Schema{type: :boolean},
           overridden: %Schema{type: :boolean},
           present: %Schema{type: :boolean},
           source: %Schema{
             type: :string,
-            enum: ["default", "global", "missing", "pattern", "error"]
+            enum: ["tenant", "global", "default", "pattern", "missing", "error"]
           },
           value: JSONValue,
           error: %Schema{type: :string, nullable: true}
@@ -1492,31 +1518,23 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     require OpenAPISpex
 
-    # One Agent Computer shell variable as the console sees it. `kind` says
-    # which track owns the name: a `declared` AppConfigure definition (with
-    # `declared_key` pointing at the configuration key) or a `custom` operator
-    # row. `source` names the tier the effective value comes from, and secret
-    # values omit `value` — the decryption endpoint reveals them.
+    # Secret values omit `value`; the decryption endpoint reveals them.
     OpenAPISpex.schema(
       %{
         title: "WorkerEnvItem",
         type: :object,
         properties: %{
           name: %Schema{type: :string},
-          kind: %Schema{type: :string, enum: ["declared", "custom"]},
           secret: %Schema{type: :boolean},
           description: %Schema{type: :string, nullable: true},
-          declared_key: %Schema{type: :string, nullable: true},
           present: %Schema{type: :boolean},
           source: %Schema{
             type: :string,
-            enum: ["default", "global", "agent", "missing", "error"]
+            enum: ["global", "tenant", "agent", "missing"]
           },
-          editable: %Schema{type: :boolean},
-          value: JSONValue,
-          error: %Schema{type: :string, nullable: true}
+          value: %Schema{type: :string}
         },
-        required: [:name, :kind, :secret, :present, :source, :editable],
+        required: [:name, :secret, :present, :source],
         additionalProperties: false
       },
       struct?: false
@@ -1566,16 +1584,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     require OpenAPISpex
 
-    # `value` must be a string for custom variables; declared variables accept
-    # whatever JSON their AppConfigure schema validates. Existing encrypted
-    # values may omit `value` to preserve the stored secret. `secret` only
-    # applies to custom variables and keeps its stored state when omitted.
+    # Existing encrypted values may omit `value` to preserve the stored secret.
     OpenAPISpex.schema(
       %{
         title: "WorkerEnvUpdateRequest",
         type: :object,
         properties: %{
-          value: JSONValue,
+          value: %Schema{type: :string},
           secret: %Schema{type: :boolean},
           description: %Schema{type: :string, nullable: true}
         },
@@ -1596,7 +1611,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           name: %Schema{type: :string},
-          value: JSONValue
+          value: %Schema{type: :string}
         },
         required: [:name, :value],
         additionalProperties: false
@@ -2604,7 +2619,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           kind: %Schema{type: :string, enum: ["check_back_later", "cron_fire"]},
           status: %Schema{
             type: :string,
-            enum: ["scheduled", "firing", "fired", "cancelled", "failed"]
+            enum: ["scheduled", "fired", "cancelled", "failed"]
           },
           agent_uid: %Schema{type: :string},
           session_id: %Schema{type: :string},
@@ -2630,10 +2645,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             description:
               "Input of the wake turn. A checkback carries `reason`, `check`, and `context_summary`; a cron fire carries `trigger` and the frozen schedule facts."
           },
-          oban_job_id: %Schema{type: :integer, nullable: true},
           actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
-          fire_attempts: %Schema{type: :integer},
-          fire_claimed_at: %Schema{type: :string, format: :"date-time", nullable: true},
           fired_at: %Schema{type: :string, format: :"date-time", nullable: true},
           cancelled_at: %Schema{type: :string, format: :"date-time", nullable: true},
           last_fire_error: %Schema{
@@ -2668,10 +2680,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :source_entry_id,
           :source_provenance,
           :wake_payload,
-          :oban_job_id,
           :actor_event_id,
-          :fire_attempts,
-          :fire_claimed_at,
           :fired_at,
           :cancelled_at,
           :last_fire_error,
@@ -2969,7 +2978,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           source_entry_id: %Schema{type: :string, nullable: true},
           source_provenance: JSONValue,
           reply_route: JSONValue,
-          directory_path: %Schema{type: :string},
+          drive_prefix: %Schema{type: :string},
           label: %Schema{type: :string},
           wake_on_failure: %Schema{type: :boolean},
           status: %Schema{type: :string, enum: ["active", "cancelled", "expired"]},
@@ -2985,7 +2994,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :owner_session_id,
           :source_provenance,
           :reply_route,
-          :directory_path,
+          :drive_prefix,
           :label,
           :wake_on_failure,
           :status,
@@ -3149,6 +3158,45 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           entries: %Schema{type: :array, items: AIGatewayCredentialPoolEntry}
         },
         required: [:strategy, :entries],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayModelCatalogEntry do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayModelCatalogEntry",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          model: %Schema{type: :string},
+          name: %Schema{type: :string},
+          description: %Schema{type: :string},
+          capability: %Schema{type: :string, enum: ~w(llm embedding rerank image_generate other)},
+          image_input: %Schema{type: :boolean}
+        },
+        required: [:provider_id, :model, :name, :description, :capability, :image_input],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayModelCatalogResponse do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayModelCatalogResponse",
+        type: :object,
+        properties: %{models: %Schema{type: :array, items: AIGatewayModelCatalogEntry}},
+        required: [:models],
         additionalProperties: false
       },
       struct?: false
@@ -3437,25 +3485,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           settings: %Schema{
             type: :array,
             items: Setting
-          },
-          capability_specs: %Schema{
-            type: :array,
-            items: %Schema{type: :object, additionalProperties: true}
-          },
-          connection_options: %Schema{type: :array, items: %Schema{type: :string}},
-          credential_options: %Schema{type: :array, items: %Schema{type: :string}},
-          runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}}
+          }
         },
         required: [
           :provider_kind,
           :label,
           :capabilities,
           :default_base_url,
-          :settings,
-          :capability_specs,
-          :connection_options,
-          :credential_options,
-          :runtime_provider_options
+          :settings
         ],
         additionalProperties: false
       },
@@ -3699,30 +3736,22 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentComputerWorkerItem",
         type: :object,
         properties: %{
-          worker_id: %Schema{type: :string},
-          status: %Schema{
+          agent_uid: %Schema{type: :string},
+          provider_id: %Schema{type: :string, nullable: true},
+          state: %Schema{
             type: :string,
-            enum: ["ready", "stale", "draining", "stopped"]
+            enum: ["absent", "starting", "ready", "stale", "paused", "draining", "deleting"]
           },
-          version: %Schema{type: :string},
+          generation: %Schema{type: :string, nullable: true},
+          image: %Schema{type: :string, nullable: true},
           capacity: %Schema{type: :object, additionalProperties: true},
           load: %Schema{type: :object, additionalProperties: true},
           last_worker_heartbeat_at: %Schema{type: :string, nullable: true},
-          started_at: %Schema{type: :string, nullable: true},
-          stopped_at: %Schema{type: :string, nullable: true},
-          stop_reason: %Schema{type: :string, nullable: true},
-          inserted_at: %Schema{type: :string},
-          updated_at: %Schema{type: :string}
+          state_changed_at: %Schema{type: :string, nullable: true},
+          drain_reason: %Schema{type: :string, nullable: true},
+          last_error: %Schema{type: :string, nullable: true}
         },
-        required: [
-          :worker_id,
-          :status,
-          :version,
-          :capacity,
-          :load,
-          :inserted_at,
-          :updated_at
-        ],
+        required: [:agent_uid, :state, :capacity, :load],
         additionalProperties: false
       },
       struct?: false
@@ -3884,64 +3913,87 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule WorkerFileEntry do
+  defmodule AgentFileEntry do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileEntry",
+        title: "AgentFileEntry",
         type: :object,
         properties: %{
-          relative_path: %Schema{type: :string},
-          kind: %Schema{type: :string, enum: ["file", "directory", "other"]},
-          size: %Schema{type: :integer},
-          modified_unix_ms: %Schema{type: :integer}
-        },
-        required: [:relative_path, :kind, :size, :modified_unix_ms],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule WorkerFileListData do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "WorkerFileListData",
-        type: :object,
-        properties: %{
-          root: %Schema{
-            type: :string,
-            enum: Ankole.WorkerFiles.roots()
-          },
           path: %Schema{type: :string},
-          entries: %Schema{type: :array, items: WorkerFileEntry},
-          truncated: %Schema{type: :boolean}
+          size: %Schema{type: :integer},
+          content_type: %Schema{type: :string},
+          source: %Schema{
+            type: :string,
+            enum: Ankole.Files.Schemas.AgentFile.sources()
+          },
+          signal_channel_id: %Schema{type: :string, nullable: true},
+          source_entry_id: %Schema{type: :string, nullable: true},
+          updated_at: %Schema{type: :string, format: :"date-time"}
         },
-        required: [:root, :path, :entries, :truncated],
+        required: [
+          :path,
+          :size,
+          :content_type,
+          :source,
+          :signal_channel_id,
+          :source_entry_id,
+          :updated_at
+        ],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule WorkerFileListResponse do
+  defmodule AgentFileFolder do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileListResponse",
+        title: "AgentFileFolder",
         type: :object,
         properties: %{
-          file_listing: WorkerFileListData
+          name: %Schema{type: :string},
+          path: %Schema{type: :string}
+        },
+        required: [:name, :path],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentFileListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentFileListResponse",
+        type: :object,
+        properties: %{
+          file_listing: %Schema{
+            type: :object,
+            properties: %{
+              path: %Schema{type: :string},
+              folders: %Schema{type: :array, items: AgentFileFolder},
+              files: %Schema{type: :array, items: AgentFileEntry},
+              truncated: %Schema{
+                type: :boolean,
+                description:
+                  "True when the folder has more folders or files than the listing shows"
+              }
+            },
+            required: [:path, :folders, :files, :truncated],
+            additionalProperties: false
+          }
         },
         required: [:file_listing],
         additionalProperties: false
@@ -3950,55 +4002,36 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule WorkerFileUploadRequest do
+  defmodule AgentFileUploadRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileUploadRequest",
+        title: "AgentFileUploadRequest",
         type: :object,
         properties: %{
-          root: %Schema{
-            type: :string,
-            enum: Ankole.WorkerFiles.roots()
-          },
           path: %Schema{type: :string},
           file: %Schema{type: :string, format: :binary}
         },
-        required: [:root, :path, :file],
+        required: [:path, :file],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule WorkerFileUploadResponse do
+  defmodule AgentFileUploadResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileUploadResponse",
+        title: "AgentFileUploadResponse",
         type: :object,
-        properties: %{
-          uploaded_file: %Schema{
-            type: :object,
-            properties: %{
-              root: %Schema{
-                type: :string,
-                enum: Ankole.WorkerFiles.roots()
-              },
-              relative_path: %Schema{type: :string},
-              size: %Schema{type: :integer},
-              xxh3_128: %Schema{type: :string, nullable: true}
-            },
-            required: [:root, :relative_path, :size],
-            additionalProperties: false
-          }
-        },
+        properties: %{uploaded_file: AgentFileEntry},
         required: [:uploaded_file],
         additionalProperties: false
       },
@@ -4006,88 +4039,54 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule WorkerFileMoveRequest do
+  defmodule AgentFileMoveRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileMoveRequest",
+        title: "AgentFileMoveRequest",
         type: :object,
         properties: %{
-          root: %Schema{
-            type: :string,
-            enum: Ankole.WorkerFiles.roots()
-          },
           from_path: %Schema{type: :string},
-          to_path: %Schema{type: :string},
-          overwrite: %Schema{type: :boolean}
+          to_path: %Schema{type: :string}
         },
-        required: [:root, :from_path, :to_path],
+        required: [:from_path, :to_path],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule WorkerFileMoveResponse do
+  defmodule AgentFileMoveResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileMoveResponse",
+        title: "AgentFileMoveResponse",
         type: :object,
-        properties: %{
-          moved_file: %Schema{
-            type: :object,
-            properties: %{
-              root: %Schema{
-                type: :string,
-                enum: Ankole.WorkerFiles.roots()
-              },
-              from_relative_path: %Schema{type: :string},
-              to_relative_path: %Schema{type: :string},
-              moved: %Schema{type: :boolean}
-            },
-            required: [:root, :from_relative_path, :to_relative_path, :moved],
-            additionalProperties: false
-          }
-        },
-        required: [:moved_file],
+        properties: %{moved_files: %Schema{type: :integer}},
+        required: [:moved_files],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule WorkerFileDeleteResponse do
+  defmodule AgentFileDeleteResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "WorkerFileDeleteResponse",
+        title: "AgentFileDeleteResponse",
         type: :object,
-        properties: %{
-          deleted_file: %Schema{
-            type: :object,
-            properties: %{
-              root: %Schema{
-                type: :string,
-                enum: Ankole.WorkerFiles.roots()
-              },
-              relative_path: %Schema{type: :string},
-              deleted: %Schema{type: :boolean}
-            },
-            required: [:root, :relative_path, :deleted],
-            additionalProperties: false
-          }
-        },
-        required: [:deleted_file],
+        properties: %{deleted_files: %Schema{type: :integer}},
+        required: [:deleted_files],
         additionalProperties: false
       },
       struct?: false

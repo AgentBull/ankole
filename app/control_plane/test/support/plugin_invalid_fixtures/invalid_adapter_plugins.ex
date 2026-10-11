@@ -305,7 +305,7 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
         %Ankole.AIGateway.ProviderDefinition.Capability{
           kind: :embedding_model,
           upstream: :json,
-          api_resolver: :openai_embeddings,
+          api_resolver: :openrouter_embeddings,
           prepare: :prepare_embedding_model
         }
       ]

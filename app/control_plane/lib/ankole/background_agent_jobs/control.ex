@@ -13,43 +13,46 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.Conversations.JobTurnRef
 
   @terminal_statuses Job.terminal_statuses()
 
   @spec request_stop(pos_integer(), map()) ::
-          {:ok, %{job: Job.t(), command_event: ActorEvent.t() | nil}}
+          {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
   def request_stop(job_id, attrs)
       when is_integer(job_id) and job_id > 0 and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
-      now = now()
+    result =
+      with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
+        now = now()
 
-      Repo.transact(fn repo ->
-        case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-          %Job{status: status} = job when status in @terminal_statuses ->
-            {:ok, %{job: job, command_event: nil}}
+        Repo.transact(fn repo ->
+          case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
+            %Job{status: status} = job when status in @terminal_statuses ->
+              {:ok, %{job: job, turn: nil}}
 
-          %Job{status: status} = job when status in ["queued", "waiting_on_user"] ->
-            with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
-                 :ok <- complete_pending_job_events(repo, job, now),
-                 :ok <- Lifecycle.nudge_queued_after_slot_release(repo, job, now) do
-              {:ok, %{job: job, command_event: nil}}
-            end
+            %Job{status: status} = job when status in ["queued", "waiting_on_user"] ->
+              with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
+                   :ok <- complete_pending_job_events(repo, job, now) do
+                {:ok, %{job: job, turn: nil}}
+              end
 
-          %Job{} = job ->
-            with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
-                 :ok <- Lifecycle.nudge_queued_after_slot_release(repo, job, now),
-                 {:ok, command_event} <- append_command(repo, job, "stop", attrs, now) do
-              {:ok, %{job: job, command_event: command_event}}
-            end
+            %Job{} = job ->
+              turn = live_turn_ref_in_tx(repo, job)
 
-          nil ->
-            {:error, :job_not_found}
-        end
-      end)
-    end
+              with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now) do
+                {:ok, %{job: job, turn: turn}}
+              end
+
+            nil ->
+              {:error, :job_not_found}
+          end
+        end)
+      end
+
+    result
   end
 
   @doc """
@@ -57,65 +60,72 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   The caller owns the outcome judgment: the commit skips the worker deliverable
   contract, records the caller's result summary, and produces the ordinary
-  succeeded wakeup. A running Job also receives a runtime stop command so the
-  Worker does not keep executing a Turn whose Job is already terminal. Open
+  succeeded wakeup. The caller sends a stop to the returned Turn after commit. Open
   steers close with the completion itself; an external completion never seeds a
   successor.
   """
   @spec request_complete(pos_integer(), map()) ::
-          {:ok, %{job: Job.t(), command_event: ActorEvent.t() | nil}}
+          {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
   def request_complete(job_id, attrs)
       when is_integer(job_id) and job_id > 0 and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-         {:ok, summary} <- require_result_summary(attrs) do
-      now = now()
+    result =
+      with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
+           {:ok, summary} <- require_result_summary(attrs) do
+        now = now()
 
-      Repo.transact(fn repo ->
-        case Queries.get_for_agent(repo, job_id, agent_uid, []) do
-          nil ->
-            {:error, :job_not_found}
+        Repo.transact(fn repo ->
+          case Queries.get_for_agent(repo, job_id, agent_uid, []) do
+            nil ->
+              {:error, :job_not_found}
 
-          %Job{status: "succeeded"} = job ->
-            {:ok, %{job: job, command_event: nil}}
+            %Job{status: "succeeded"} = job ->
+              {:ok, %{job: job, turn: nil}}
 
-          %Job{status: status} when status in ["failed", "stopped"] ->
-            {:error, :background_agent_job_terminal}
+            %Job{status: status} when status in ["failed", "stopped"] ->
+              {:error, :background_agent_job_terminal}
 
-          %Job{status: pre_status} ->
-            completed_by = Attrs.text(attrs, "completed_by")
+            %Job{status: pre_status} = job ->
+              turn = if pre_status == "running", do: live_turn_ref_in_tx(repo, job)
+              completed_by = Attrs.text(attrs, "completed_by")
 
-            result =
-              Attrs.reject_nil_values(%{
-                "summary" => summary,
-                "completed_by" => completed_by
-              })
+              result =
+                Attrs.reject_nil_values(%{
+                  "summary" => summary,
+                  "completed_by" => completed_by
+                })
 
-            with {:ok, %{job: job}} <-
-                   Lifecycle.commit_status_with_wakeup_in_tx(
-                     repo,
-                     job_id,
-                     agent_uid,
-                     %{"status" => "succeeded", "result" => result},
-                     now,
-                     nil,
-                     nil,
-                     %{
-                       "code" => "background_agent_job_succeeded",
-                       "summary" =>
-                         "The Job was completed externally before this runtime Turn reported completion."
-                     },
-                     external_completion: true
-                   ),
-                 {:ok, command_event} <-
-                   maybe_append_runtime_stop(repo, job, pre_status, attrs, now) do
-              {:ok, %{job: job, command_event: command_event}}
-            end
-        end
-      end)
-    end
+              with {:ok, %{job: job, wakeup_event: wakeup_event}} <-
+                     Lifecycle.commit_status_with_wakeup_in_tx(
+                       repo,
+                       job_id,
+                       agent_uid,
+                       %{"status" => "succeeded", "result" => result},
+                       now,
+                       nil,
+                       nil,
+                       %{
+                         "code" => "background_agent_job_succeeded",
+                         "summary" =>
+                           "The Job was completed externally before this runtime Turn reported completion."
+                       },
+                       external_completion: true
+                     ) do
+                {:ok, %{job: job, turn: turn, wakeup_event: wakeup_event}}
+              end
+          end
+        end)
+      end
+
+    if not Repo.in_transaction?(),
+      do:
+        Ankole.Conversations.deliver_committed(result, fn value ->
+          [Map.get(value, :wakeup_event)]
+        end)
+
+    result
   end
 
   defp require_result_summary(attrs) do
@@ -124,18 +134,6 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       nil -> {:error, :background_agent_job_result_summary_missing}
     end
   end
-
-  defp maybe_append_runtime_stop(repo, job, "running", attrs, now) do
-    append_command(
-      repo,
-      job,
-      "stop",
-      Map.put(attrs, "reason", "background_agent_job_completed_externally"),
-      now
-    )
-  end
-
-  defp maybe_append_runtime_stop(_repo, _job, _pre_status, _attrs, _now), do: {:ok, nil}
 
   @spec send_message(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), command_event: ActorEvent.t()}}
@@ -154,10 +152,9 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              now <- now(),
              {:ok, job} <- touch_job(repo, job, now),
              {:ok, command_event} <-
-               append_command(
+               append_steer(
                  repo,
                  job,
-                 "steer",
                  attrs
                  |> Map.put("request_id", source_tool_call_id)
                  |> Map.put("text", message),
@@ -203,10 +200,9 @@ defmodule Ankole.BackgroundAgentJobs.Control do
          :ok <- ensure_messageable(job),
          {:ok, job} <- touch_job(repo, job, now),
          {:ok, command_event} <-
-           append_command(
+           append_steer(
              repo,
              job,
-             "steer",
              %{
                "request_id" => "ambient-handoff:#{source_event.id}",
                "text" => message
@@ -315,33 +311,45 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     |> repo.update()
   end
 
-  defp append_command(repo, job, command, attrs, now) do
+  defp live_turn_ref_in_tx(repo, job) do
+    event =
+      repo.one(
+        from e in ActorEvent,
+          where:
+            e.agent_uid == ^job.agent_uid and
+              e.session_id == ^BackgroundAgentJobs.job_session_id(job.id) and
+              not is_nil(e.last_attempt_at) and is_nil(e.completed_at) and e.input_state == "open",
+          order_by: [asc: e.queue_sequence],
+          limit: 1
+      )
+
+    if event,
+      do: %JobTurnRef{
+        agent_uid: job.agent_uid,
+        session_id: event.session_id,
+        actor_event_id: event.id,
+        job_id: job.id,
+        attempt: job.attempts
+      }
+  end
+
+  defp append_steer(repo, job, attrs, now) do
     reply_route = job.reply_route || %{}
     request_id = Attrs.text(attrs, "request_id") || Ecto.UUID.generate()
-
-    args_text =
-      if command == "steer",
-        do: Map.fetch!(attrs, "text"),
-        else: Attrs.text(attrs, "reason") || command
-
-    command_data =
-      Attrs.reject_nil_values(%{
-        "argsText" => args_text,
-        "cancel_requested_by" => Attrs.text(attrs, "cancel_requested_by")
-      })
+    command_data = %{"argsText" => Map.fetch!(attrs, "text")}
 
     SignalsGateway.append_actor_event_in_tx(repo, %{
       source_work: job,
       agent_uid: job.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
       session_id: BackgroundAgentJobs.job_session_id(job.id),
-      source_event_id: "background_agent_job:#{job.id}:#{command}:#{request_id}",
+      source_event_id: "background_agent_job:#{job.id}:steer:#{request_id}",
       signal_channel_id: Map.get(reply_route, "signal_channel_id"),
       provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-      type: "command.#{command}",
+      type: "command.steer",
       available_at: now,
       payload: %{
-        "type" => "command.#{command}",
+        "type" => "command.steer",
         "data" => %{"command" => command_data}
       }
     })

@@ -1,135 +1,288 @@
 defmodule Ankole.E2E.DockerWorker do
   @moduledoc """
-  Docker process adapter for the real Agent Computer worker e2e tests.
+  Docker side of the Agent Computer e2e tests.
 
-  `Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap` owns worker auth, security, connectivity,
-  and Agent Home guarantees. This adapter adds only test container lifecycle,
-  optional mounted source, and the development command override.
+  The control plane under test creates each Agent's Worker container through
+  its Docker provider, as a deployment does. This module configures that provider
+  for one test with a unique installation label, gives the scenarios a handle
+  for an Agent's current container, disturbs containers for chaos scenarios,
+  and removes every container of the installation when the test exits.
   """
 
   import ExUnit.Assertions
+  import ExUnit.Callbacks, only: [on_exit: 1]
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Docker
+  alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, Docker, ProviderKind, Providers}
+  import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
-  @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
-  def start_docker_worker!(opts) do
-    name = unique_worker_name()
-    image = Keyword.get(opts, :image, docker_image())
-    # A published image runs its own baked Worker; the source mount only
-    # applies to the content-addressed image built from this tree.
-    mount_source? = Keyword.get(opts, :mount_source, true)
-    {agents_root, persist_agents?} = agents_root(name)
+  @doc """
+  Makes the control plane create Workers with the Docker provider for this
+  test, connecting them to `endpoint`. Returns the installation label.
+  """
+  def install_provider!(endpoint) do
+    installation = "e2e" <> (:crypto.strong_rand_bytes(5) |> Base.encode16(case: :lower))
+    {:ok, previous} = Config.fetch()
+    :ok = put_runtime(installation, endpoint, docker_image())
+    provider_id = provider_id!()
+    {:ok, provider} = Providers.load(provider_id)
 
-    {:ok, spec} =
-      WorkerBootstrap.worker_spec(
-        endpoint: Keyword.fetch!(opts, :endpoint),
-        worker_id: Keyword.fetch!(opts, :worker_id),
-        auth_key: Keyword.fetch!(opts, :worker_auth_key),
-        image: image,
-        agents_root: agents_root
-      )
+    on_exit(fn ->
+      remove_provider_resources(provider)
+      :ok = Config.put(Map.to_list(previous))
+    end)
 
-    Enum.each(spec.host_setup_dirs, &File.mkdir_p!/1)
-
-    args =
-      Docker.argv(spec,
-        name: name,
-        additional_mounts: if(mount_source?, do: docker_dev_agent_computer_mounts(), else: []),
-        command: if(mount_source?, do: docker_dev_agent_computer_command(), else: [])
-      )
-
-    port =
-      Port.open({:spawn_executable, docker_path()}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        {:args, args}
-      ])
-
-    %{
-      kind: :docker,
-      name: name,
-      port: port,
-      output: [],
-      agents_root: agents_root,
-      persist_agents?: persist_agents?
-    }
+    installation
   end
 
-  @doc "Runs the worker image once with custom env and returns command output."
-  def docker_run_worker_once(env) do
-    {:ok, spec} = WorkerBootstrap.container_spec(image: docker_image())
-
-    args =
-      Docker.argv(spec,
-        additional_env: Map.new(env),
-        additional_mounts: docker_dev_agent_computer_mounts(),
-        command: docker_dev_agent_computer_command()
-      )
-
-    System.cmd(docker_path(), args, stderr_to_stdout: true)
+  @doc """
+  Makes the control plane of this test target another Worker image, as an
+  upgraded control plane does. The lifecycle rules then replace the Workers
+  of the old image.
+  """
+  def switch_image!(image) do
+    {:ok, config} = Config.fetch()
+    :ok = Config.put(Keyword.put(Map.to_list(config), :image, image))
   end
 
-  @doc "Force-removes a Docker worker container, its temporary Agent root, and its watched port."
-  def cleanup_docker_worker(%{
-        name: name,
-        port: port,
-        agents_root: agents_root,
-        persist_agents?: persist_agents?
-      }) do
-    System.cmd(docker_path(), ["rm", "-f", name], stderr_to_stdout: true)
-    close_port(port)
+  @doc """
+  Tags the test Worker image with a new local name and returns that name. The
+  tag is removed when the test exits.
+  """
+  def tag_image!(label) do
+    image =
+      "ankole-e2e-#{label}:" <> (:crypto.strong_rand_bytes(5) |> Base.encode16(case: :lower))
 
-    unless persist_agents? do
-      File.rm_rf(agents_root)
-    end
-
-    :ok
-  end
-
-  @doc "Hard-kills a running worker container mid-turn (chaos scenarios)."
-  def kill_docker_worker!(%{name: name, port: port}) do
-    {_output, 0} = System.cmd(docker_path(), ["kill", name], stderr_to_stdout: true)
-    close_port(port)
-    :ok
-  end
-
-  @doc "Sends one process signal to a running worker container without closing its watched port."
-  def signal_docker_worker!(%{name: name}, signal) when is_binary(signal) do
     {_output, 0} =
-      System.cmd(docker_path(), ["kill", "--signal", signal, name], stderr_to_stdout: true)
+      System.cmd(docker_path(), ["tag", docker_image(), image], stderr_to_stdout: true)
+
+    on_exit(fn -> System.cmd(docker_path(), ["rmi", image], stderr_to_stdout: true) end)
+    image
+  end
+
+  @doc """
+  Creates a container with Worker labels that the control plane did not
+  create, and returns its name. The container is removed when the test exits.
+  """
+  def create_labeled_container!(installation, agent_uid, generation, provider_id \\ "e2e") do
+    name = ProviderKind.instance_name(installation, agent_uid, generation)
+
+    {_output, 0} =
+      System.cmd(
+        docker_path(),
+        [
+          "create",
+          "--name",
+          name,
+          "--label",
+          "ankole.worker=1",
+          "--label",
+          "ankole.installation=#{installation}",
+          "--label",
+          "ankole.provider=#{provider_id}",
+          "--label",
+          "ankole.agent-uid=#{agent_uid}",
+          "--label",
+          "ankole.generation=#{generation}",
+          "--entrypoint",
+          "true",
+          docker_image()
+        ],
+        stderr_to_stdout: true
+      )
+
+    on_exit(fn -> remove_container(name) end)
+    name
+  end
+
+  @doc """
+  The image reference and the state (`running`, `exited`, ...) of a container,
+  or `nil` when the container does not exist.
+  """
+  def container_info(name) when is_binary(name) do
+    case System.cmd(
+           docker_path(),
+           ["inspect", "--format", "{{.Config.Image}} {{.State.Status}}", name],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        [image, status] = output |> String.trim() |> String.split(" ", parts: 2)
+        %{image: image, status: status}
+
+      {output, 1} ->
+        assert String.downcase(output) =~ "no such object", output
+        nil
+
+      {output, status} ->
+        flunk("Docker inspect failed (#{status}): #{output}")
+    end
+  end
+
+  @doc "Creates the test provider before Agent assignment through the production domain."
+  def provider_id! do
+    case Providers.fetch("e2e") do
+      {:ok, provider} ->
+        provider.provider_id
+
+      {:error, :worker_provider_not_found} ->
+        assert {:ok, provider} =
+                 Providers.create(%{
+                   provider_id: "e2e",
+                   display_name: "E2E Docker",
+                   kind: "docker",
+                   config: Ankole.JSON.encode!(%{socket: docker_socket(), network: "bridge"}),
+                   credentials: %{}
+                 })
+
+        provider.provider_id
+    end
+  end
+
+  defp put_runtime(installation, endpoint, image) do
+    Config.put(
+      image: image,
+      runtime_fabric_endpoint: endpoint,
+      installation: installation
+    )
+  end
+
+  @doc """
+  The handle of an Agent's Worker container. The container name follows the
+  row's generation, so a rebuilt Worker gets a new name; the helpers below
+  read it again on every call.
+  """
+  def container(agent_uid), do: %{kind: :docker, agent_uid: agent_uid}
+
+  @doc "The current container name of an Agent's Worker."
+  def container_name(agent_uid) do
+    {:ok, config} = Config.fetch()
+
+    case Repo.get(AgentWorker, agent_uid) do
+      %AgentWorker{generation: generation} when is_binary(generation) ->
+        ProviderKind.instance_name(config.installation, agent_uid, generation)
+
+      other ->
+        flunk("Agent #{agent_uid} has no Worker generation: #{inspect(other)}")
+    end
+  end
+
+  @doc "Hard-kills an Agent's running Worker container (chaos scenarios)."
+  def kill_docker_worker!(%{agent_uid: agent_uid}) do
+    {_output, 0} =
+      System.cmd(docker_path(), ["kill", container_name(agent_uid)], stderr_to_stdout: true)
+
+    :ok
+  end
+
+  @doc "Sends one signal to the main process of an Agent's Worker container."
+  def signal_docker_worker!(%{agent_uid: agent_uid}, signal) when is_binary(signal) do
+    {_output, 0} =
+      System.cmd(docker_path(), ["kill", "--signal", signal, container_name(agent_uid)],
+        stderr_to_stdout: true
+      )
 
     :ok
   end
 
   @doc """
-  Published Worker image that still speaks ZeroMQ; `nil` when it is not
-  available locally. The dual-stack e2e test uses it as the legacy Worker.
+  The exit codes of an Agent's Worker container since `since` (a
+  `DateTime`), oldest first. Docker records them in its event log, so an exit
+  stays visible after the control plane replaces the container.
   """
-  @spec legacy_zmq_image() :: String.t() | nil
-  def legacy_zmq_image do
-    image =
-      System.get_env(
-        "ANKOLE_E2E_LEGACY_WORKER_IMAGE",
-        "ghcr.io/agentbull/ankole-agent-computer-worker:e924bf043c2d45be20028fc47204b088ea9cc783"
+  def exit_codes_since(%{agent_uid: agent_uid}, %DateTime{} = since) do
+    {output, 0} =
+      System.cmd(
+        docker_path(),
+        [
+          "events",
+          "--since",
+          Integer.to_string(DateTime.to_unix(since)),
+          "--until",
+          Integer.to_string(System.os_time(:second)),
+          "--filter",
+          "label=ankole.agent-uid=#{agent_uid}",
+          "--filter",
+          "label=ankole.provider=e2e",
+          "--filter",
+          "event=die",
+          "--format",
+          ~s({{index .Actor.Attributes "exitCode"}})
+        ],
+        stderr_to_stdout: true
       )
 
-    case System.cmd(docker_path(), ["image", "inspect", image], stderr_to_stdout: true) do
-      {_output, 0} -> image
-      _missing -> nil
+    output |> String.split("\n", trim: true) |> Enum.map(&String.to_integer/1)
+  end
+
+  @doc "Runs a command in an Agent's Worker container and returns its output."
+  def exec!(%{agent_uid: agent_uid}, argv) when is_list(argv) do
+    {output, status} =
+      System.cmd(docker_path(), ["exec", "--user", "1000:1000", container_name(agent_uid) | argv],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    output
+  end
+
+  @doc """
+  The last lines of a container log: the Worker of an Agent, or a container
+  name.
+  """
+  def logs(%{agent_uid: agent_uid}) do
+    case Repo.get(AgentWorker, agent_uid) do
+      %AgentWorker{generation: generation} when is_binary(generation) ->
+        logs(container_name(agent_uid))
+
+      _row ->
+        ""
     end
   end
 
-  @doc "Converts a host-bound ZeroMQ router endpoint into a container URL."
-  def docker_host_endpoint(endpoint) do
-    case URI.parse(endpoint) do
-      %URI{scheme: "tcp", port: port} when is_integer(port) ->
-        "tcp://host.docker.internal:#{port}"
+  def logs(name) when is_binary(name) do
+    {output, _status} =
+      System.cmd(docker_path(), ["logs", "--tail", "200", name], stderr_to_stdout: true)
 
-      _uri ->
-        flunk("unexpected router endpoint for Docker worker: #{endpoint}")
-    end
+    output
+  end
+
+  @doc """
+  Starts a Worker container outside the control plane with custom env, for
+  credential checks. The container is removed when the test exits.
+  """
+  def start_unmanaged_worker!(env, opts \\ []) do
+    name =
+      "ankole-e2e-unmanaged-" <> (:crypto.strong_rand_bytes(6) |> Base.encode16(case: :lower))
+
+    env = [{"ANKOLE_WORKER_STORAGE", "mounted"} | env]
+
+    mounts =
+      case Keyword.get(opts, :home_volume) do
+        nil -> []
+        name -> ["--mount", "type=volume,source=#{name},target=/workspace"]
+      end
+
+    args =
+      ["run", "--detach", "--name", name, "--add-host", "host.docker.internal:host-gateway"] ++
+        env_args(env) ++ mounts ++ [docker_image()]
+
+    {_output, 0} = System.cmd(docker_path(), args, stderr_to_stdout: true)
+    on_exit(fn -> remove_container(name) end)
+    name
+  end
+
+  @doc """
+  Runs the Worker process of the image once with custom env and returns the
+  output. It starts the process directly: the supervisor of the image would
+  restart a process that fails.
+  """
+  def docker_run_worker_once(env) do
+    args =
+      ["run", "--rm", "--entrypoint", "bun"] ++
+        env_args(env) ++ [docker_image(), "src/main.ts"]
+
+    System.cmd(docker_path(), args, stderr_to_stdout: true)
   end
 
   @doc "Asserts the e2e Docker image exists before starting worker tests."
@@ -145,84 +298,142 @@ defmodule Ankole.E2E.DockerWorker do
     end
   end
 
-  @doc "Asserts a running e2e worker received the canonical bootstrap contract."
-  def assert_launch_contract!(%{name: name, agents_root: agents_root}) do
-    {output, 0} = System.cmd(docker_path(), ["inspect", name], stderr_to_stdout: true)
-    [inspection] = Ankole.JSON.decode!(output)
+  @doc """
+  Asserts that the control plane created an Agent's container with the launch
+  contract: the contract variables, the identity labels, no restart policy,
+  no extra kernel capability, independent Home and cache, and read-only development source.
+  """
+  def assert_launch_contract!(agent_uid) do
+    {output, 0} =
+      System.cmd(docker_path(), ["inspect", container_name(agent_uid)], stderr_to_stdout: true)
 
+    [inspection] = Ankole.JSON.decode!(output)
     host_config = inspection["HostConfig"]
     env = inspection["Config"]["Env"]
-    mounts = Map.new(inspection["Mounts"], &{&1["Destination"], &1})
+    labels = inspection["Config"]["Labels"]
 
-    assert "CAP_SYS_ADMIN" in host_config["CapAdd"]
-    assert "seccomp=unconfined" in host_config["SecurityOpt"]
-    assert host_config["MaskedPaths"] == []
-    assert host_config["ReadonlyPaths"] == []
-
-    assert "host.docker.internal:host-gateway" in host_config["ExtraHosts"]
-
-    assert Enum.any?(env, &String.starts_with?(&1, "WORKER_ID="))
+    assert "WORKER_ID=#{agent_uid}" in env
     assert Enum.any?(env, &String.starts_with?(&1, "ANKOLE_RUNTIME_FABRIC_ENDPOINT="))
     assert Enum.any?(env, &String.starts_with?(&1, "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY="))
-    assert Enum.any?(env, &(&1 == "ANKOLE_AGENTS_ROOT=/agents"))
-    assert mounts["/agents"]["Source"] == agents_root
-    assert mounts["/agents"]["RW"]
+    assert "ANKOLE_WORKER_STORAGE=mounted" in env
+    assert "CODEX_HOME=/workspace/.codex" in env
+    assert "CODEX_SQLITE_HOME=/var/cache/ankole/codex" in env
+    assert labels["ankole.agent-uid"] == agent_uid
+    assert labels["ankole.worker"] == "1"
+    assert labels["ankole.provider"] == Repo.get!(AgentWorker, agent_uid).provider_id
+    assert host_config["RestartPolicy"]["Name"] == "no"
+    refute "CAP_SYS_ADMIN" in (host_config["CapAdd"] || [])
+    assert "host.docker.internal:host-gateway" in host_config["ExtraHosts"]
+
+    targets = Enum.map(inspection["Mounts"] || [], & &1["Destination"])
+    assert "/workspace" in targets
+    assert "/var/cache/ankole" in targets
+    assert targets -- ["/workspace", "/var/cache/ankole", "/repo/app/agent_computer/src"] == []
+    mounts = Map.new(inspection["Mounts"], &{&1["Destination"], &1})
+    assert mounts["/workspace"]["Type"] == "volume"
+    assert mounts["/var/cache/ankole"]["Type"] == "volume"
+    refute mounts["/workspace"]["Name"] == mounts["/var/cache/ankole"]["Name"]
+
+    assert exec!(container(agent_uid), [
+             "sh",
+             "-ec",
+             "test \"$(id -u)\" = 1000; ! command -v sudo; test \"$(readlink /agents/$WORKER_ID)\" = /workspace"
+           ]) == ""
 
     :ok
   end
 
-  defp docker_dev_agent_computer_command do
-    case mount_agent_computer_src?() do
-      true -> ["/bin/sh", "-lc", "cd /repo/app/agent_computer && exec bun src/main.ts"]
-      false -> []
+  def storage_volumes(agent_uid) do
+    {output, 0} =
+      System.cmd(docker_path(), ["inspect", container_name(agent_uid)], stderr_to_stdout: true)
+
+    [inspection] = Ankole.JSON.decode!(output)
+    mounts = Map.new(inspection["Mounts"], &{&1["Destination"], &1["Name"]})
+    %{home: Map.fetch!(mounts, "/workspace"), cache: Map.fetch!(mounts, "/var/cache/ankole")}
+  end
+
+  def volume_exists?(name) do
+    case System.cmd(docker_path(), ["volume", "inspect", name], stderr_to_stdout: true) do
+      {_output, 0} ->
+        true
+
+      {output, 1} ->
+        assert output =~ "no such volume", output
+        false
+
+      {output, status} ->
+        flunk("Docker volume inspect failed (#{status}): #{output}")
     end
   end
 
-  defp docker_dev_agent_computer_mounts do
-    case mount_agent_computer_src?() do
-      true ->
+  defp remove_container(name) do
+    case container_info(name) do
+      nil ->
+        :ok
+
+      %{status: status} ->
+        if status == "running" do
+          {output, exit_status} =
+            System.cmd(docker_path(), ["stop", "--time", "30", name], stderr_to_stdout: true)
+
+          assert exit_status == 0, output
+        end
+
+        {output, exit_status} = System.cmd(docker_path(), ["rm", name], stderr_to_stdout: true)
+        assert exit_status == 0, output
+    end
+  end
+
+  defp remove_provider_resources(provider) do
+    assert {:ok, true} =
+             wait_until(deadline(60_000), fn ->
+               assert {:ok, objects} = Docker.list_instances(provider, :all)
+
+               for object <- objects,
+                   do: assert(:ok = Docker.delete_instance(provider, object, :now))
+
+               objects == []
+             end)
+
+    {names, 0} =
+      System.cmd(
+        docker_path(),
         [
-          %{
-            source: Path.join([repo_root(), "app", "agent_computer", "src"]),
-            target: "/repo/app/agent_computer/src",
-            readonly: true
-          }
-        ]
+          "volume",
+          "ls",
+          "-q",
+          "--filter",
+          "label=ankole.installation=#{provider.runtime.installation}",
+          "--filter",
+          "label=ankole.provider=#{provider.provider_id}"
+        ],
+        stderr_to_stdout: true
+      )
 
-      false ->
-        []
+    for name <- String.split(names, "\n", trim: true) do
+      {output, status} = System.cmd(docker_path(), ["volume", "rm", name], stderr_to_stdout: true)
+      assert status == 0, output
     end
+
+    :ok
   end
 
-  defp mount_agent_computer_src?,
-    do: System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") == "1"
+  defp env_args(env), do: Enum.flat_map(env, fn {key, value} -> ["-e", "#{key}=#{value}"] end)
 
-  defp agents_root(name) do
-    case System.get_env("ANKOLE_E2E_HOST_AGENTS_ROOT") do
-      value when is_binary(value) and value != "" ->
-        {Path.join(Path.expand(value), name), true}
-
-      _value ->
-        {Path.join(System.tmp_dir!(), name), false}
+  # The socket of the current Docker context; Docker Desktop and Colima do not
+  # always provide /var/run/docker.sock.
+  defp docker_socket do
+    case System.cmd(
+           docker_path(),
+           ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+           stderr_to_stdout: true
+         ) do
+      {"unix://" <> path, 0} -> String.trim(path)
+      _other -> "/var/run/docker.sock"
     end
-  end
-
-  defp unique_worker_name do
-    suffix = :crypto.strong_rand_bytes(10) |> Base.encode16(case: :lower)
-    "ankole-worker-e2e-#{suffix}"
   end
 
   defp docker_image, do: System.fetch_env!("ANKOLE_E2E_WORKER_IMAGE")
-
-  defp close_port(port) when is_port(port) do
-    if Port.info(port), do: Port.close(port)
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp close_port(_port), do: :ok
-
-  defp repo_root, do: Path.expand("../../..", __DIR__)
 
   defp docker_path do
     System.find_executable("docker") || flunk("docker executable was not found on PATH")

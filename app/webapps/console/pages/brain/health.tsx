@@ -64,14 +64,14 @@ export function BrainHealthPage() {
             <HealthItem label={t('console.settings.brain_maintainer_agent_uid')}>
               {snapshot.maintainer_agent_uid ? (
                 <Link
-                  className="font-mono text-xs text-primary underline-offset-4 hover:underline"
+                  className="link font-mono text-xs"
                   to={`/agents/${encodeURIComponent(snapshot.maintainer_agent_uid)}#model-profiles`}>
                   {snapshot.maintainer_agent_uid}
                 </Link>
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge variant="warning">{t('console.brain.maintainer_agent_not_configured')}</Badge>
-                  <Link className="text-sm text-link hover:underline" to="/settings/group/brain">
+                  <Link className="link text-sm" to="/settings/group/brain">
                     {t('console.brain.configure')}
                   </Link>
                 </div>
@@ -233,14 +233,6 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
               {status.provider_error ? <HealthReason reason={status.provider_error} /> : null}
             </>
           ) : null}
-          {status.fallback === 'ankole_browser' ? (
-            <Badge variant="secondary">{t('console.brain.local_browser_fallback')}</Badge>
-          ) : null}
-        </span>
-      ) : status.fallback === 'ankole_browser' ? (
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <Badge variant="success">{t('console.brain.local_browser_fallback')}</Badge>
-          <span className="font-mono text-xs text-muted-foreground">web_fetch</span>
         </span>
       ) : status.profile_error ? (
         <span className="inline-flex flex-wrap items-center gap-2">
@@ -262,10 +254,10 @@ function InvalidConfigKeys({ config }: { config: Record<string, unknown> }) {
 
   return (
     <div className="grid gap-1">
-      <p className="text-sm text-destructive">{t('console.brain.invalid_config_keys')}</p>
+      <p className="text-sm text-destructive-foreground">{t('console.brain.invalid_config_keys')}</p>
       <ul className="grid gap-1">
         {invalid.map(([key, status]) => (
-          <li key={key} className="text-xs text-destructive">
+          <li key={key} className="text-xs text-destructive-foreground">
             <code>{key}</code>: {t(configStatusKey(status))}
           </li>
         ))}
@@ -291,7 +283,7 @@ function EmbeddingSignature({ value }: { value: unknown }) {
 function HealthReason({ reason }: { reason: string }) {
   const { t } = useTranslation()
 
-  return <span className="text-xs text-destructive">{t(healthReasonKey(reason))}</span>
+  return <span className="text-xs text-destructive-foreground">{t(healthReasonKey(reason))}</span>
 }
 
 function healthReasonKey(reason: string) {

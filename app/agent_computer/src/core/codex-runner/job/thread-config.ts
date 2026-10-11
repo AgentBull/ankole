@@ -7,6 +7,7 @@ import {
 import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../../ai_gateway_transport'
 import type { TurnTracePropagation } from '../../../observability/turn-tracing'
 import type { CodexRuntimeConfig } from '../runtime-config'
+import { codexJobDriveContext } from './runtime-files'
 
 /**
  * Merges workspace configuration with runtime-owned thread settings.
@@ -19,11 +20,15 @@ export function codexJobThreadConfig(input: {
   codexHome: string
   env: Record<string, string>
   runtime: CodexRuntimeConfig
+  driveDirectory?: string
   turnTracePropagation?: TurnTracePropagation
   projectConfig?: Record<string, unknown>
 }): Record<string, unknown> {
   const baseURL = input.runtime.aiGatewayKey.baseUrl.replace(/\/+$/, '')
   const config = mergeConfig(input.projectConfig ?? {}, {
+    developer_instructions: [input.projectConfig?.developer_instructions, codexJobDriveContext(input.driveDirectory)]
+      .filter(value => typeof value === 'string' && value.length > 0)
+      .join('\n\n'),
     model_provider: 'ankole_aigateway',
     ...(input.runtime.modelProfile.modelReasoningEffort
       ? { model_reasoning_effort: input.runtime.modelProfile.modelReasoningEffort }

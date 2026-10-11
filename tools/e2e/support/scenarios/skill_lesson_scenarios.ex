@@ -16,7 +16,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   import Ecto.Query
   import ExUnit.Assertions
 
-  import Ankole.E2E.Harness, only: [process_ready_event_for_actor!: 2]
+  import Ankole.E2E.Harness, only: [ensure_input_driver!: 2]
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ankole.AIAgent.Library
@@ -163,11 +163,12 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
              )
 
     recall_session_id = "signal-channel:skill-lesson-recall-e2e"
-    handler_id = attach_hosted_brain_telemetry!()
+    started_at = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => agent.uid,
+               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "owner_session_id" => recall_session_id,
                "source_tool_call_id" => "recall-e2e-1",
                "title" => "Recall the launch codename",
@@ -182,7 +183,6 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     dispatch_job!(agent.uid, job.id)
     finished = wait_for_terminal_job!(job.id)
-    :telemetry.detach(handler_id)
 
     assert finished.status == "succeeded",
            "recall job ended #{finished.status}: #{inspect(finished.error)}"
@@ -190,46 +190,16 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     assert finished.result["output_text"] =~ @codename,
            "the job did not report the recalled codename: #{inspect(finished.result["output_text"])}"
 
-    # AIGateway answers the hosted operation inside the job's own Response,
-    # which codex does not store, so the proof is the gateway's telemetry.
-    hosted_calls = hosted_brain_calls(agent.uid)
+    object = Repo.get_by!(Ankole.Brain.Schemas.Object, slug: "agents/" <> agent.uid)
+    assert %DateTime{} = object.last_retrieved_at
+    assert DateTime.compare(object.last_retrieved_at, started_at) != :lt
 
-    assert Enum.any?(hosted_calls, &(&1.operation == "recall" and &1.result == "success")),
-           "the job never called the hosted recall operation: #{inspect(hosted_calls)}"
+    assert Repo.aggregate(
+             from(claim in Ankole.Brain.Schemas.Claim, where: claim.created_at >= ^started_at),
+             :count
+           ) == 0
 
-    # Write operations stay out of the Job runtime.
-    refute Enum.any?(hosted_calls, &(&1.operation == "remember"))
-
-    %{job: finished, hosted_calls: hosted_calls}
-  end
-
-  defp attach_hosted_brain_telemetry! do
-    handler_id = "hosted-brain-e2e-#{System.unique_integer([:positive])}"
-    test_pid = self()
-
-    :ok =
-      :telemetry.attach(
-        handler_id,
-        [:ankole, :ai_gateway, :hosted_brain],
-        fn _event, _measurements, metadata, _config ->
-          send(test_pid, {:hosted_brain, metadata})
-        end,
-        nil
-      )
-
-    handler_id
-  end
-
-  defp hosted_brain_calls(agent_uid) do
-    receive do
-      {:hosted_brain, %{subject_uid: ^agent_uid} = metadata} ->
-        [metadata | hosted_brain_calls(agent_uid)]
-
-      {:hosted_brain, _other_subject} ->
-        hosted_brain_calls(agent_uid)
-    after
-      0 -> []
-    end
+    %{job: finished}
   end
 
   # -- lease review -----------------------------------------------------------
@@ -395,7 +365,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
       wait_until(deadline(@dispatch_deadline_ms), fn ->
         case Repo.get!(Job, job_id) do
           %Job{status: "queued"} ->
-            process_ready_event_for_actor!(event, DateTime.utc_now(:microsecond))
+            ensure_input_driver!(event, DateTime.utc_now(:microsecond))
             Process.sleep(500)
             false
 

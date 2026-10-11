@@ -16,21 +16,26 @@ defmodule Ankole.Brain.ModelCalls do
   """
   @spec complete_text(map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def complete_text(model, prompt, opts \\ []) when is_map(model) and is_binary(prompt) do
-    request =
-      %{
-        "model" => model["provider_id"] <> "/" <> model["model"],
-        "input" => prompt,
-        "store" => false
-      }
-      |> maybe_put_provider_options(model)
-      |> Map.merge(Keyword.get(opts, :request_overrides, %{}))
+    request = request(model, prompt, opts)
 
     with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
       case AIGateway.create_response(subject_uid, request, Keyword.take(opts, [:caller])) do
-        {:ok, %{body: body}} -> extract_output_text(body)
+        {:ok, %{body: body}} -> AIGateway.completed_output_text(body)
         {:error, _reason} = error -> error
       end
     end
+  end
+
+  @doc false
+  @spec request(map(), String.t(), keyword()) :: map()
+  def request(model, prompt, opts \\ []) do
+    %{
+      "model" => model["provider_id"] <> "/" <> model["model"],
+      "input" => prompt,
+      "store" => false
+    }
+    |> maybe_put_provider_options(model)
+    |> Map.merge(Keyword.get(opts, :request_overrides, %{}))
   end
 
   @doc """
@@ -71,26 +76,6 @@ defmodule Ankole.Brain.ModelCalls do
 
       _empty ->
         request
-    end
-  end
-
-  defp extract_output_text(body) do
-    text =
-      body
-      |> Map.get("output", [])
-      |> Enum.flat_map(fn
-        %{"type" => "message", "content" => content} when is_list(content) -> content
-        _other -> []
-      end)
-      |> Enum.flat_map(fn
-        %{"type" => "output_text", "text" => text} when is_binary(text) -> [text]
-        _other -> []
-      end)
-      |> Enum.join("")
-
-    case String.trim(text) do
-      "" -> {:error, :empty_model_output}
-      trimmed -> {:ok, trimmed}
     end
   end
 

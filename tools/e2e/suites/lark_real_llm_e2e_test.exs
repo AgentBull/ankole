@@ -1,8 +1,8 @@
 defmodule Ankole.E2E.LarkRealLLME2ETest do
   @moduledoc """
-  Real-provider smoke through the full chain: fake Feishu WS ingress, real
-  Docker worker, real OpenRouter LLM, real outbox HTTP — plus AIGateway
-  embedding and rerank against the real provider.
+  Real-provider scenarios use fake Feishu WS ingress, the control-plane loop,
+  real OpenRouter models, and Outbox HTTP. Computer scenarios use a real
+  Docker Worker. Embedding and rerank use the real AIGateway provider.
 
   Requires `ANKOLE_REAL_LLM_E2E=1` and an OpenRouter API key.
   """
@@ -13,6 +13,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   import Ankole.E2E.Scenarios.DeepResearchRealLLM
   import Ankole.E2E.Scenarios.RealLLM
   import Ankole.E2E.Scenarios.SkillLesson
+  import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_for_completed_final_reply: 3]
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
@@ -22,7 +23,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   alias Ankole.E2E.WaitHelpers
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
   import Ecto.Query
 
@@ -35,8 +36,12 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
   @tag :real_llm
+  @tag :deepseek_release_stories
   test "real OpenRouter LLM drives direct and skill tool-loop turns over Lark" do
-    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
+
+    assert %AgentWorker{state: "absent", wanted_until: %DateTime{} = creation_request} =
+             Repo.get!(AgentWorker, ctx.agent.uid)
 
     direct = run_real_lark_direct_turn(ctx)
 
@@ -48,6 +53,9 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       "om_real_1"
     )
 
+    assert %AgentWorker{state: "absent", wanted_until: ^creation_request} =
+             Repo.get!(AgentWorker, ctx.agent.uid)
+
     skill = run_real_lark_skill_tool_loop(ctx)
 
     assert_lark_final_reply(
@@ -57,6 +65,121 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       :reply,
       "om_real_skill_1"
     )
+
+    assert %AgentWorker{state: "absent", wanted_until: ^creation_request} =
+             Repo.get!(AgentWorker, ctx.agent.uid)
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :real_llm
+  @tag :deepseek_clarification_flow
+  test "real DeepSeek asks for a shipping choice and continues after an ordinary Lark reply" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
+    process = %{agent_uid: ctx.agent.uid}
+    reference = "SHIP#{100_000 + :rand.uniform(899_999)}"
+    source_id = "om_real_clarification_request"
+    answer_id = "om_real_clarification_answer"
+    chat_id = "oc_real_clarification"
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_real_clarification_request",
+               message_id: source_id,
+               chat_id: chat_id,
+               chat_type: "p2p",
+               text: """
+               Help me select shipping for fictional shipment #{reference}.
+               I must choose the cost and delivery tradeoff; neither option is a default.
+               Use clarify to ask me to choose between these two options, in this order:
+               Ground: 5 days, $20. Air: 1 day, $80.
+               Wait for my choice. Then confirm the selected method and shipment reference.
+               This is an internal recommendation; do not place an order.
+               """
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, source_id)
+    assert {:ok, _} = ensure_input_driver!(input, input.available_at)
+
+    assert {:ok, _} =
+             WaitHelpers.wait_for_actor_event_completed(process, input.id, deadline(180_000))
+
+    messages = WaitHelpers.ai_messages_for_actor_event(input.id)
+    assert [call] = tool_call_items(messages, "clarify")
+    assert tool_result_succeeded?(messages, "clarify")
+
+    assert [question_outbox] =
+             Repo.all(
+               from(o in Ankole.SignalsGateway.OutboxEntry,
+                 where: o.source_actor_event_id == ^input.id,
+                 where: o.delivery_class == :durable_ai_reply
+               )
+             )
+
+    assert question_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
+    [ground, air] = question_outbox.payload["interactive_output"]["choices"]
+    assert String.downcase(ground["label"]) =~ "ground"
+    assert String.downcase(air["label"]) =~ "air"
+    interaction_id = "clarify:#{call["call_id"]}"
+    checkpoint = Repo.reload!(input).reply_preview_checkpoint
+    assert checkpoint["interactions"][interaction_id]["state"] == "pending"
+
+    sent_question = dispatch_outbox_succeeded!(question_outbox)
+    visible_question = platform_message!(ctx.fake_feishu, sent_question.created_source_entry_id)
+    assert visible_question.sender == :bot
+    assert visible_question.chat_id == chat_id
+    assert visible_question.reply_to == source_id
+    assert visible_question.text =~ ground["label"]
+    assert visible_question.text =~ air["label"]
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_real_clarification_answer",
+               message_id: answer_id,
+               chat_id: chat_id,
+               chat_type: "p2p",
+               text: "1"
+             )
+
+    answer = actor_event_by_source_entry_id!(ctx.agent.uid, answer_id)
+    assert answer.session_id == input.session_id
+    assert answer.queue_sequence > input.queue_sequence
+    assert {:ok, _} = ensure_input_driver!(answer, answer.available_at)
+
+    assert {:ok, reply, _} =
+             wait_for_completed_final_reply(process, answer.id, deadline(180_000))
+
+    assert_lark_final_reply(ctx.fake_feishu, reply, reference, :reply, answer_id)
+    assert String.downcase(reply.text) =~ "ground"
+    assert_actor_event_completed!(answer.id)
+
+    assert successful_tool_results(WaitHelpers.ai_messages_for_actor_event(answer.id), "clarify") ==
+             []
+
+    # Ordinary messages supersede the pending card; only a managed button or
+    # form callback records an answered interaction.
+    resolved = Repo.reload!(input).reply_preview_checkpoint["interactions"][interaction_id]
+    assert resolved["state"] == "superseded"
+    assert resolved["superseded_by_actor_event_id"] == answer.id
+    assert is_binary(resolved["resolved_at"])
+
+    assert [%Ankole.SignalsGateway.OutboxEntry{status: :succeeded} = final_outbox] =
+             Repo.all(
+               from(o in Ankole.SignalsGateway.OutboxEntry,
+                 where: o.source_actor_event_id == ^answer.id,
+                 where: o.delivery_class == :durable_ai_reply
+               )
+             )
+
+    assert final_outbox.payload["metadata"]["source"] == "ai_gateway_final_reply"
+    assert final_outbox.tenant_id == input.tenant_id
+    assert reply.tenant_id == input.tenant_id
+
+    assert Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+             agent_uid: sent_question.agent_uid,
+             binding_name: sent_question.binding_name,
+             outbound_key: sent_question.outbound_key
+           ).status == :succeeded
   end
 
   @tag timeout: 600_000
@@ -103,6 +226,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :terminal_tools_real_llm
+  @tag :deepseek_release_stories
   test "real OpenRouter LLM completes a multi-step terminal tools task" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
@@ -115,6 +239,105 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       :reply,
       "om_real_terminal_tools_1"
     )
+  end
+
+  @tag timeout: 1_800_000
+  @tag ownership_timeout: 1_800_000
+  @tag :real_llm
+  @tag :deepseek_delivery_chaos
+  test "real DeepSeek delivers pinned file bytes once after the platform accepts a send but its confirmation fails" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    content = "HANDOFF_" <> Ecto.UUID.generate()
+    source_id = "om_real_delivery_loss"
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_real_delivery_loss",
+               message_id: source_id,
+               chat_id: "oc_real_delivery_loss",
+               chat_type: "p2p",
+               text: """
+               Create /workspace/handoff.txt with exactly #{content} and no newline using command.
+               Call reply_attachment with path /workspace/handoff.txt, name handoff.txt,
+               and mimeType text/plain. Then reply exactly HANDOFF_READY.
+               Do not send an attachment before creating the file.
+               """
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, source_id)
+    assert {:ok, _} = ensure_input_driver!(input, input.available_at)
+
+    assert {:ok, true} =
+             Ankole.E2E.WaitHelpers.wait_until(deadline(180_000), fn ->
+               Repo.get!(Ankole.SignalsGateway.ActorEvent, input.id).completed_at != nil
+             end)
+
+    [attachment_outbox] =
+      Repo.all(
+        from(o in Ankole.SignalsGateway.OutboxEntry,
+          where: o.source_actor_event_id == ^input.id
+        )
+      )
+      |> Enum.filter(&match?([_], &1.payload["attachments"]))
+
+    assert attachment_outbox.status == :created
+    [attachment] = attachment_outbox.payload["attachments"]
+    assert {:ok, _, ^content} = Ankole.Files.read(ctx.agent.uid, attachment["path"])
+
+    assert Ankole.E2E.DockerWorker.exec!(ctx.container, ["cat", "/workspace/handoff.txt"]) ==
+             content
+
+    # Exhaust the HTTP client's three retries after platform acceptance, so
+    # the durable Outbox must own the later retry of the same intent.
+    for _ <- 1..4 do
+      :ok =
+        FakeFeishu.State.fail_next(ctx.fake_feishu.state, :reply_message, :accepted_then_http_500)
+    end
+
+    assert {:ok, failed} =
+             Ankole.SignalsGateway.dispatch_outbox_by_key(
+               attachment_outbox.agent_uid,
+               attachment_outbox.binding_name,
+               attachment_outbox.outbound_key
+             )
+
+    assert failed.status == :failed
+    assert failed.recovery_state == %{}
+    assert %DateTime{} = failed.next_attempt_at
+
+    [accepted] =
+      FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_real_delivery_loss")
+      |> Enum.filter(&(&1.msg_type == "file"))
+
+    file_key = JSON.decode!(accepted.content)["file_key"]
+
+    assert %{content: ^content, name: "handoff.txt"} =
+             FakeFeishu.State.uploaded_file(ctx.fake_feishu.state, file_key)
+
+    assert {:ok, sent} =
+             Ankole.SignalsGateway.dispatch_outbox_by_key(
+               failed.agent_uid,
+               failed.binding_name,
+               failed.outbound_key,
+               now: failed.next_attempt_at
+             )
+
+    assert sent.status == :succeeded
+    assert sent.created_source_entry_id == accepted.id
+
+    assert FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_real_delivery_loss")
+           |> Enum.filter(&(&1.msg_type == "file")) == [accepted]
+
+    assert {:ok, _, ^content} = Ankole.Files.read(ctx.agent.uid, attachment["path"])
+
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_actor_event(input.id)
+    assert command_tool_succeeded?(messages)
+    assert tool_result_succeeded?(messages, "reply_attachment")
+
+    assert {:ok, reply, _} =
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
+
+    assert_lark_final_reply(ctx.fake_feishu, reply, "HANDOFF_READY", :reply, source_id)
   end
 
   @tag timeout: 1_800_000
@@ -254,10 +477,13 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     assert get_in(completed.result, ["output_text"]) =~ marker
     assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.158.0 "
 
-    legacy_auth_path =
-      Path.join([ctx.container.agents_root, ctx.agent.uid, ".codex", "auth.json"])
+    legacy_auth_path = "/agents/#{ctx.agent.uid}/.codex/auth.json"
 
-    refute File.exists?(legacy_auth_path)
+    assert Ankole.E2E.DockerWorker.exec!(ctx.container, [
+             "sh",
+             "-c",
+             "test -e #{legacy_auth_path} && echo present || echo absent"
+           ]) =~ "absent"
   end
 
   @tag timeout: 600_000
@@ -377,19 +603,11 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   defp maybe_dispatch_direct_job_event(dispatch_event_id) do
     event = Repo.get!(ActorEvent, dispatch_event_id)
 
-    live_delivery? =
-      Repo.exists?(
-        from(delivery in ActorEventDelivery,
-          where: delivery.actor_event_id == ^dispatch_event_id,
-          where: delivery.state in ^ActorEventDelivery.live_states()
-        )
-      )
-
     now = DateTime.utc_now(:microsecond)
 
-    if is_nil(event.completed_at) and not live_delivery? and
+    if is_nil(event.completed_at) and event.input_state == "open" and
          DateTime.compare(event.available_at, now) != :gt do
-      assert {:ok, _result} = process_ready_event_for_actor!(event, now)
+      assert {:ok, _result} = ensure_input_driver!(event, now)
     end
 
     :ok

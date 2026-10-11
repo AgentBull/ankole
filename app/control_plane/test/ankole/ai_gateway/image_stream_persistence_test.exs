@@ -168,9 +168,12 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
       assert {:ok, state, [], :continue} =
                ResponseStreamState.observe(state, done, 3)
 
-      details = Ankole.AIGateway.MaxToolCalls.details(state.max_tool_calls)
-      assert details["observed"] == if(budget == :full, do: 1, else: 0)
-      assert details["overshoot"] == 0
+      refute Ankole.AIGateway.MaxToolCalls.item_admitted?(state.max_tool_calls, %{
+               "type" => "image_generation_call",
+               "id" => image_id
+             })
+
+      assert Ankole.AIGateway.MaxToolCalls.remaining(state.max_tool_calls) == 0
 
       refute Enum.any?(ResponseStreamState.outcome(state).public_items, fn item ->
                item["id"] == image_id

@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   alias Ankole.AIGateway.ImageModelCatalog
   alias Ankole.AIGateway.ImageStreamPersistence
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.Logging
@@ -50,9 +51,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
 
   @spec persist_response(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate persist_response(subject_uid, response, opts \\ []), to: ImageStreamPersistence
-
-  @spec normalize_persistence_error(term()) :: OpenAIError.t()
-  defdelegate normalize_persistence_error(reason), to: Error, as: :normalize_persistence
 
   @spec normalize_execution_error(term()) :: OpenAIError.t()
   defdelegate normalize_execution_error(reason), to: Error, as: :normalize_execution
@@ -93,6 +91,78 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   end
 
   def record_credential_usage(_attempt, _response_or_event), do: :ok
+
+  @doc false
+  @spec failure_log_fields(map() | nil, term()) :: map()
+  def failure_log_fields(spec, reason) do
+    image_spec = hosted_image_spec(spec)
+    metadata = value(reason, "hosted_tool_metadata") || %{}
+
+    %{
+      actor_event_id: string(image_spec, "actor_event_id"),
+      image_model: string(metadata, "model") || string(image_spec, "selected_model"),
+      image_provider_tag: string(metadata, "provider_tag") || string(image_spec, "provider_tag"),
+      image_provider_slug:
+        string(metadata, "provider_slug") || string(image_spec, "provider_slug"),
+      image_provider_tags: string_list(value(image_spec, "provider_tags")),
+      image_provider_slugs: string_list(value(image_spec, "provider_slugs")),
+      image_latency_ms: positive_number(metadata, "image_latency_ms"),
+      image_failure_reason: string(metadata, "failure_reason") || failure_reason(reason)
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+  end
+
+  defp hosted_image_spec(%{} = spec) do
+    hosted_tools = Map.get(spec, :hosted_tools) || %{}
+    Map.get(hosted_tools, :image_generation) || %{}
+  end
+
+  defp hosted_image_spec(_spec), do: %{}
+
+  defp failure_reason(%OpenAIError{code: code}), do: code
+
+  defp failure_reason(%ProviderFailure{kind: kind})
+       when kind in [:status_rejected, :invalid_response], do: "unknown"
+
+  defp failure_reason(%ProviderFailure{kind: :other}), do: "universal_ai_request_failed"
+  defp failure_reason(%{"code" => code}) when is_binary(code), do: code
+  defp failure_reason(%{code: code}) when is_binary(code), do: code
+  defp failure_reason({tag, _details}) when is_atom(tag), do: Atom.to_string(tag)
+  defp failure_reason(tag) when is_atom(tag), do: Atom.to_string(tag)
+  defp failure_reason(_reason), do: "unknown"
+
+  defp string_list(values) when is_list(values) do
+    Enum.filter(values, &(is_binary(&1) and &1 != ""))
+  end
+
+  defp string_list(_values), do: []
+
+  defp positive_number(map, key) do
+    case value(map, key) do
+      value when (is_integer(value) or is_float(value)) and value > 0 -> value
+      _value -> nil
+    end
+  end
+
+  defp string(map, key) do
+    case value(map, key) do
+      value when is_binary(value) and value != "" -> value
+      _value -> nil
+    end
+  end
+
+  defp value(map, key) when is_map(map) do
+    Map.get(map, key) ||
+      Enum.find_value(Map.to_list(map), fn
+        {atom_key, value} when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: value
+
+        _entry ->
+          nil
+      end)
+  end
+
+  defp value(_value, _key), do: nil
 
   defp prepare_declared_tool(subject_uid, request, tool, tool_index, opts) do
     param_prefix = "tools[#{tool_index}]"
@@ -221,11 +291,10 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
 
   defp hosted_image_usage(_response_or_event), do: nil
 
-  defp failure_stage({:universal_ai_request_failed, %{} = error}),
-    do: Map.get(error, "stage") || Map.get(error, :stage)
+  defp failure_stage(%ProviderFailure{stage: stage}), do: stage
 
   defp failure_stage(%{} = error),
-    do: Map.get(error, "stage") || Map.get(error, :stage)
+    do: Map.get(error, "stage")
 
   defp failure_stage(_reason), do: nil
 

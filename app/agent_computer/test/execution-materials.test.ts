@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cleanupExecutionMaterials, prepareExecutionMaterials } from '../src/core/execution/execution-materials'
 import { BrowserRuntime } from '../src/browser-runtime'
-import { LARK_TENANT_TOKEN_ENV, LARK_TENANT_TOKEN_FILE_ENV } from '../src/core/execution/lark-credential'
-import { MCPORTER_CONFIG_ENV } from '../src/tools/mcp'
+import { LARK_TENANT_TOKEN_ENV } from '../src/core/execution/lark-credential'
+import { MCPORTER_CONFIG_ENV } from '../src/tools/mcp/mcporter-config'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
+import { type RPCRequester } from '../src/lanes/rpc_lane'
 
 const roots: string[] = []
 const browserBackendJSON = '{"kind":"local_chromium","executable":"/bin/true","args":[]}'
@@ -18,7 +18,7 @@ afterEach(() => {
 })
 
 describe('execution materials', () => {
-  it('consumes material source values but returns only sandbox-safe environment', async () => {
+  it('consumes material source values but returns only command-safe environment', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-execution-materials-'))
     roots.push(root)
     const agentHome = join(root, 'agent')
@@ -30,7 +30,6 @@ describe('execution materials', () => {
     let materialSourceEnv: Record<string, string> | undefined
 
     const materials = await prepareExecutionMaterials({
-      agentUID: 'agent-a',
       agentHome,
       rpc: workerEnvRPC(),
       bindingName: 'lark-main',
@@ -41,6 +40,7 @@ describe('execution materials', () => {
         runtime: new BrowserRuntime({
           runtimeRoot: join(root, 'runtime'),
           socketPath: join(root, 'socket', 'browser.sock'),
+          daemonEntry: '/bin/true',
           runnerPath: '/bin/true',
           localChromiumExecutable: '/bin/true'
         }),
@@ -60,13 +60,13 @@ describe('execution materials', () => {
     expect(materials.workerEnv[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
     expect(materials.workerEnv[MCPORTER_CONFIG_ENV]).toStartWith(temp)
     expect(materials.runtimeEnv.RUNTIME_SAFE).toBe('yes')
-    expect(materials.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]).toStartWith(agentHome)
+    expect(materials.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']).toStartWith(agentHome)
     expect(materials.runtimeEnv.ANKOLE_BROWSER_SOCKET).toBeUndefined()
     expect(materials.browserEnv.ANKOLE_BROWSER_SOCKET).toBe(join(root, 'socket', 'browser.sock'))
     expect(materials.browserEnv.ANKOLE_BROWSER_MATERIAL).toStartWith(join(root, 'runtime', 'browser'))
 
     const mcporterPath = materials.workerEnv[MCPORTER_CONFIG_ENV]!
-    const larkPath = materials.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]!
+    const larkPath = materials.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']!
     const browserPath = materials.browserEnv.ANKOLE_BROWSER_MATERIAL!
     expect(await Bun.file(mcporterPath).exists()).toBe(true)
     expect(await Bun.file(larkPath).exists()).toBe(true)
@@ -111,9 +111,9 @@ describe('execution materials', () => {
 
 function workerEnvRPC(): RPCRequester {
   return (async (method: unknown, payload: unknown, frame: unknown) => {
-    expect(method).toBe(rpcMethods.workerEnvResolve)
+    expect(method).toBe('worker_env.resolve')
     expect(payload).toMatchObject({ bindingName: 'lark-main' })
-    expect((frame as { agentUid: string }).agentUid).toBe('agent-a')
+    expect(frame).toBeUndefined()
 
     const bindingVars = {
       LARKSUITE_CLI_APP_ID: 'app-1',

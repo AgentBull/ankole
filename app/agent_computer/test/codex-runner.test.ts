@@ -1,3 +1,4 @@
+import { HostedTool } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import {
@@ -13,15 +14,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdirAgentSync } from '../src/common/agent-user'
 import { runCodexJob } from '../src/core/codex-runner'
 import { create } from '@bufbuild/protobuf'
-import { xxh3String128Hex } from '@ankole/kernel'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonBytes, jsonFromBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
   AgentConversationContextResponseSchema,
   AIGatewayAPIKeyResponseSchema,
-  AppConfigureResolveResponseSchema,
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
@@ -31,7 +31,6 @@ import {
   WorkerEnvResolveResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
-  rpcMethods,
   type BackgroundAgentJobResponse,
   type RPCRequester,
   type RPCRequestInit,
@@ -76,16 +75,15 @@ function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
   return bytes ? jsonObjectFromBytes(bytes, 'test fixture json') : undefined
 }
 import type { TurnStart } from '../src/lanes/actor_lane'
-import type { CodexJobOptions } from '../src/core/turns/turn_options'
+import type { CodexJobOptions } from '../src/core/codex-runner/options'
 import { BrowserRuntime } from '../src/browser-runtime'
+import { FakeDrive } from './support/fake-drive'
 
 const jobID = '1000'
 const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
-const previousBwrap = process.env.ANKOLE_BWRAP_PATH
 
 afterEach(() => {
   restoreEnv('ANKOLE_CODEX_BINARY', previousCodexBinary)
-  restoreEnv('ANKOLE_BWRAP_PATH', previousBwrap)
 })
 
 describe('@ankole/agent-computer Codex job runner', () => {
@@ -105,7 +103,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       const result = await runCodexJob(tracedTurnStart, options(fixture.root, statusUpdates, turnUpserts))
 
-      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         codex_user_agent: 'codex-cli 0.158.0',
@@ -141,6 +139,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
 
       const threadStart = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
+      expect(threadStart.config.developer_instructions).toContain('chats/mock:dm:alice/')
+      expect(threadStart.developerInstructions).toBe(threadStart.config.developer_instructions)
+      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).toContain('chats/mock:dm:alice/')
       expect(threadStart.config.model_providers.ankole_aigateway.http_headers).toMatchObject({
         traceparent,
         'x-ankole-observability-user-id': Buffer.from(observabilityUserID).toString('base64url')
@@ -184,12 +185,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
       ...start.request_context,
       ai_agent: { provider_hosted: { web_search: true } }
     }
-    start.hosted_tools = [{ type: 'web_search' }]
+    start.hosted_tools = [HostedTool.WEB_SEARCH]
 
     try {
       const result = await runCodexJob(start, options(fixture.root, statusUpdates, []))
 
-      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(result).toBeUndefined()
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.projected_tool_names).toEqual([
         'web_fetch',
         'skill_view',
@@ -210,7 +211,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
 
-      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('done before cleanup failure')
     } finally {
@@ -288,7 +289,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
 
-      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('completed after child usage updates')
       expect(turnUpserts.every(update => parsedJSON(update.errorJson)?.code !== 'codex_no_progress')).toBe(true)
@@ -334,7 +335,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
 
-      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).toMatchObject({ output_text: 'final response after retry' })
       expect(existsSync(join(codexHomeFor(fixture.root), 'compact-start.json'))).toBe(true)
@@ -406,7 +407,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const opts = options(fixture.root, statusUpdates, [], undefined, undefined, undefined, [jobAny, mainOnly])
 
     try {
-      await runCodexJob(turnStart(), opts)
+      await runCodexJob(turnStart([jobAny, mainOnly]), opts)
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.mcp_server_names).toEqual(['job-data'])
@@ -605,13 +606,11 @@ describe('@ankole/agent-computer Codex job runner', () => {
   })
 
   it('ends the Job turn on an Agent token quota rejection without a local Codex retry', async () => {
-    // The shape Codex produces for AIGateway's rejection: a terminal usage-limit
-    // error whose message repeats the `x-codex-promo-message` header.
+    // Codex emits one terminal usage-limit error for the gateway rejection.
     const fixture = prepareFixture('must not run', {
       turnError: {
         codexErrorInfo: 'usageLimitExceeded',
-        message:
-          "You've hit your usage limit. Ankole Agent token quota reached (agent_token_quota_exceeded), or try again at Sep 16th, 2026 8:00 AM.",
+        message: "You've hit your usage limit. retry_at=2030-09-16T08:00:00Z",
         additionalDetails: null
       }
     })
@@ -619,8 +618,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
     try {
       await expect(runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))).rejects.toMatchObject({
-        code: 'agent_token_quota_exceeded',
-        retryable: false,
+        code: 'credential_pool_exhausted',
+        retryable: true,
         status: 429
       })
       expect(statusUpdates.map(update => update.status)).toEqual(['running'])
@@ -675,6 +674,16 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(persistedItems).toContain(`client:${continuation.actor_event.actor_event_id}`)
       expect(persistedItems).not.toContain('"answers"')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+      const resumed = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-resume.json'), 'utf8'))
+      expect(resumed.config.developer_instructions).toContain('chats/mock:dm:alice/')
+      const injected = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'inject-items.json'), 'utf8'))
+      expect(injected.items).toEqual([
+        {
+          type: 'message',
+          role: 'developer',
+          content: [{ type: 'input_text', text: resumed.config.developer_instructions }]
+        }
+      ])
     } finally {
       fixture.cleanup()
     }
@@ -721,11 +730,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('done after replay', { resumeError: 'No rollout found for thread' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
-    mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
+    mkdirAgentSync(jobProjectFor(fixture.root, workspaceOwnerJobID))
     const currentJob = create(BackgroundAgentJobResponseSchema, {
       ...response(),
       task: 'Retry the failed work.',
       runtimeThreadId: 'missing-source-thread',
+      metadataJson: jsonBytes({ legacy_thread_replay: true }),
       continuedFromJobId: '1002',
       workspaceOwnerJobId: workspaceOwnerJobID
     })
@@ -771,7 +781,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe('Retry the failed work.')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         runtime_checkpoint_recreated: true,
-        runtime_checkpoint_recovery: 'replayed_from_transcript'
+        runtime_checkpoint_recovery: 'replayed_from_transcript',
+        legacy_thread_replay: false
       })
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
@@ -783,14 +794,15 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('done after rebuild', { resumeError: 'No rollout found for thread' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
-    mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
+    mkdirAgentSync(jobProjectFor(fixture.root, workspaceOwnerJobID))
     const currentJob = create(BackgroundAgentJobResponseSchema, {
       ...response(),
       task: 'Retry the failed work.',
       runtimeThreadId: 'missing-source-thread',
+      metadataJson: jsonBytes({ legacy_thread_replay: true }),
       continuedFromJobId: '1002',
       workspaceOwnerJobId: workspaceOwnerJobID,
-      resultOutputText: 'SOURCE_DONE: created context-marker.txt'
+      resultOutputText: `SOURCE_DONE: created context-marker.txt${'界'.repeat(20000)}`
     })
 
     try {
@@ -803,7 +815,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(turnInputText).toContain('Retry the failed work.')
       expect(turnInputText).toContain('The previous Codex thread could not be resumed')
       expect(turnInputText).toContain('This Job continues terminal Job 1002')
-      expect(turnInputText).toContain('SOURCE_DONE: created context-marker.txt')
+      expect(turnInputText).toContain(currentJob.resultOutputText)
       expect(existsSync(join(codexHomeFor(fixture.root), 'inject-items.json'))).toBe(false)
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         runtime_checkpoint_recreated: true,
@@ -819,7 +831,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('recovered', { turnError: 'No rollout found for thread' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
-    mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
+    mkdirAgentSync(jobProjectFor(fixture.root, workspaceOwnerJobID))
     const currentJob = create(BackgroundAgentJobResponseSchema, {
       ...response(),
       task: 'Retry the failed work.',
@@ -849,49 +861,45 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const statusUpdates: RecordedStatusUpdate[] = []
     const opts = options(fixture.root, statusUpdates, [])
     let polled = false
-    let applied = false
     opts.pollSteering = () => {
       if (polled) return []
       polled = true
       return [steerUpdate()]
-    }
-    opts.onSteeringApplied = async () => {
-      applied = true
     }
 
     try {
       await runCodexJob(turnStart(), opts)
 
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
-      expect(applied).toBe(false)
+      expect(statusUpdates.at(-1)?.appliedActorEventIds).not.toContain(steerUpdate().actorEvent?.actor_event_id)
     } finally {
       fixture.cleanup()
     }
   })
 
-  it('persists the causal steer trajectory before acknowledging the command event', async () => {
+  it('persists the causal steer trajectory and acknowledges it in the terminal commit', async () => {
     const fixture = prepareFixture('done after steering', { successfulSteer: true })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
     const opts = options(fixture.root, statusUpdates, turnUpserts)
     let polled = false
-    let trajectoryPersistedBeforeAck = false
     opts.pollSteering = () => {
       if (polled) return []
       polled = true
       return [steerUpdate()]
     }
-    opts.onSteeringApplied = async update => {
-      const causalItemKey = `client:${update.actorEvent?.actor_event_id}`
-      trajectoryPersistedBeforeAck = turnUpserts.some(request =>
-        request.turnItemsJson ? new TextDecoder().decode(request.turnItemsJson).includes(causalItemKey) : false
-      )
-    }
 
     try {
       await runCodexJob(turnStart(), opts)
 
-      expect(trajectoryPersistedBeforeAck).toBe(true)
+      const eventID = steerUpdate().actorEvent!.actor_event_id
+      expect(
+        turnUpserts.some(
+          request =>
+            request.turnItemsJson && new TextDecoder().decode(request.turnItemsJson).includes(`client:${eventID}`)
+        )
+      ).toBe(true)
+      expect(statusUpdates.at(-1)?.appliedActorEventIds).toContain(eventID)
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
     } finally {
       fixture.cleanup()
@@ -934,7 +942,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       return ['pdf']
     }
     try {
-      await runCodexJob(turnStart(), opts)
+      await runCodexJob(turnStart([pdf]), opts)
 
       expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).not.toContain('Test PDF Skill.')
       expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toContain('pdf')
@@ -996,7 +1004,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const opts = options(fixture.root, statusUpdates, [], () => persisted, undefined, undefined, [ordinary])
 
     try {
-      await runCodexJob(turnStart(), opts)
+      await runCodexJob(turnStart([ordinary]), opts)
 
       const agents = readFileSync(join(jobProject, 'AGENTS.md'), 'utf8')
       expect(agents.startsWith(originalAgents)).toBe(true)
@@ -1058,12 +1066,28 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('rejects a start without the Agent context before preparation', async () => {
+    const fixture = prepareFixture('must not run')
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const start = turnStart()
+    delete start.agent_context
+    try {
+      await expect(runCodexJob(start, options(fixture.root, statusUpdates, []))).rejects.toThrow(
+        'Job preparation requires the Agent context'
+      )
+      expect(statusUpdates).toEqual([])
+      expect(existsSync(join(jobProjectFor(fixture.root), 'browser-env.json'))).toBe(false)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('stops preparation at the first completed boundary after a control arrives', async () => {
     const fixture = prepareFixture('must not run')
     const statusUpdates: RecordedStatusUpdate[] = []
     const controller = new AbortController()
     const opts = options(fixture.root, statusUpdates, [], undefined, undefined, method => {
-      if (method === rpcMethods.agentConversationContextResolve) {
+      if (method === 'background_agent_job.get') {
         controller.abort(new Error('operator stopped during preparation'))
       }
     })
@@ -1114,28 +1138,27 @@ function options(
 ): CodexJobOptions {
   const job = response(contextSkills)
   const currentJob = () => jobOverride?.() ?? job
-  const agentsRoot = join(root, 'agents')
-  const agentHome = join(agentsRoot, 'agent-1')
-  const userFilesRoot = join(agentHome, 'user-files')
+  const agentHomeRoot = join(root, 'workspace')
+  const agentHome = agentHomeRoot
   const builtinSkillsRoot = join(root, 'builtin-skills')
   mkdirSync(join(builtinSkillsRoot, 'agent-plugins'), { recursive: true })
   const browserRuntime = new BrowserRuntime({
     runtimeRoot: join(root, 'browser-runtime'),
     socketPath: join(root, 'browser-socket', 'browser.sock'),
+    daemonEntry: '/bin/true',
+    runnerPath: '/bin/true',
     localChromiumExecutable: '/bin/true'
   })
 
   return {
-    agentsRoot,
     agentHome,
     workspaceRoot: join(agentHome, 'jobs', jobID),
-    userFilesRoot,
+    drive: new FakeDrive(agentHome).drive(),
     builtinSkillsRoot,
     agentInstalledSkillsRoot: join(agentHome, 'installed-skills'),
     browserRuntime,
-    requestAIGatewayAPIKey: async agentUid =>
+    requestAIGatewayAPIKey: async () =>
       create(AIGatewayAPIKeyResponseSchema, {
-        agentUid,
         apiKey: 'unused',
         tokenType: 'Bearer',
         expiresAt: BigInt(Math.floor(Date.now() / 1000) + 3_600),
@@ -1146,7 +1169,7 @@ function options(
     rpc: (async (method: unknown, payload: unknown) => {
       onRPC?.(method)
       switch (method) {
-        case rpcMethods.workerEnvResolve:
+        case 'worker_env.resolve':
           return create(WorkerEnvResolveResponseSchema, {
             vars: {
               SAFE_VALUE: 'kept',
@@ -1157,11 +1180,22 @@ function options(
               })
             }
           })
-        case rpcMethods.appConfigureResolve:
-          return create(AppConfigureResolveResponseSchema, { values: {} })
-        case rpcMethods.backgroundAgentJobGet:
+        case 'background_agent_job.get': {
+          const request = payload as { resultOffset?: string }
+          if (request.resultOffset !== undefined) {
+            const output = Buffer.from(currentJob().resultOutputText)
+            const offset = Number(request.resultOffset)
+            let end = Math.min(offset + 16384, output.length)
+            while (end < output.length && (output[end]! & 0xc0) === 0x80) end--
+            return create(BackgroundAgentJobResponseSchema, {
+              task: 'Source task',
+              resultOutputText: output.subarray(offset, end).toString('utf8'),
+              resultOutputTotalBytes: String(output.length)
+            })
+          }
           return currentJob()
-        case rpcMethods.backgroundAgentJobTurnItemsList:
+        }
+        case 'background_agent_job.turn_items.list':
           return create(BackgroundAgentJobTurnItemsListResponseSchema, {
             jobId: jobID,
             items: storedTurnItems.map(entry => ({
@@ -1173,12 +1207,12 @@ function options(
             })),
             nextCursor: ''
           })
-        case rpcMethods.backgroundAgentJobTurnUpsert: {
+        case 'background_agent_job.turn.upsert': {
           const request = payload as RecordedTurnUpsert
           turnUpserts.push(request)
           return turnUpsertResponse(request)
         }
-        case rpcMethods.backgroundAgentJobStatusUpdate: {
+        case 'background_agent_job.status.update': {
           const request = payload as RecordedStatusUpdate
           statusUpdates.push(request)
           onStatusUpdate?.(request)
@@ -1188,19 +1222,7 @@ function options(
             runtimeThreadId: request.runtimeThreadId ?? ''
           })
         }
-        case rpcMethods.agentConversationContextResolve:
-          return create(AgentConversationContextResponseSchema, {
-            soul: 'SOUL',
-            mission: 'MISSION',
-            design: '',
-            confidentialityPolicy: '',
-            soulContentHash: xxh3String128Hex('SOUL'),
-            missionContentHash: xxh3String128Hex('MISSION'),
-            designContentHash: xxh3String128Hex(''),
-            confidentialityPolicyContentHash: xxh3String128Hex(''),
-            skills: contextSkills
-          })
-        case rpcMethods.skillsOverlayResolve:
+        case 'skills.overlay.resolve':
           return create(SkillOverlayResolveResponseSchema, {
             overlays: (payload as { skillNames: string[] }).skillNames.map(skillName =>
               create(SkillOverlayResponseSchema, {
@@ -1224,13 +1246,9 @@ function options(
 
 function response(skills: RuntimeSkillSummary[] = []): BackgroundAgentJobResponse {
   return create(BackgroundAgentJobResponseSchema, {
-    jobId: jobID,
     agentUid: 'agent-1',
-    ownerSessionId: 'parent-session',
     status: 'queued',
-    title: 'Prepare launch brief',
     task: 'Write and verify the launch brief.',
-    replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),
     attempts: 1,
     workspaceTemplateId: '',
     workspaceOwnerJobId: jobID,
@@ -1262,25 +1280,31 @@ function response(skills: RuntimeSkillSummary[] = []): BackgroundAgentJobRespons
   })
 }
 
-function turnStart(): TurnStart {
+function turnStart(skills: RuntimeSkillSummary[] = []): TurnStart {
   return {
-    workspace_id: 10_000,
+    mode: 'start',
+    agent_context: create(AgentConversationContextResponseSchema, {
+      soul: 'SOUL',
+      mission: 'MISSION',
+      design: '',
+      confidentialityPolicy: '',
+      conversation: { driveDirectory: 'chats/mock:dm:alice' },
+      skills,
+      skillsPrompt: fakeSkillsPrompt(skills)
+    }),
+    fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { agent_uid: 'agent-1', session_id: `job:${jobID}` },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
-      revision: 0
+      actor: { session_id: `job:${jobID}` },
+      job_id: Number(jobID),
+      attempt: 1,
+      actor_event_id: '00000000-0000-0000-0000-000000000001'
     },
     actor_event: {
       actor_event_id: '00000000-0000-0000-0000-000000000001',
-      queue_sequence: 1,
       type: 'background_agent_job.dispatch',
-      source_event_id: 'background-agent-job-dispatch-1',
       payload_json: { data: { job_id: Number(jobID), owner_session_id: 'parent-session', attempts: 1 } }
     },
     model_ref: {
-      profile: 'coding',
       provider_id: 'openrouter',
       provider_kind: 'openrouter',
       model: 'openai/gpt-5.6-sol',
@@ -1296,16 +1320,16 @@ function messageTurnStart(): TurnStart {
   const actorEventID = '00000000-0000-0000-0000-000000000002'
 
   return {
-    workspace_id: base.workspace_id,
+    mode: 'start',
+    fetch_runtime_config: { ssrfFilter: true },
     turn: { ...base.turn, actor_event_id: actorEventID },
     actor_event: {
       actor_event_id: actorEventID,
-      queue_sequence: 2,
       type: 'command.steer',
-      source_event_id: 'background-job-message-1',
       payload_json: { data: { command: { argsText: 'The audience is operators.' } } }
     },
     model_ref: base.model_ref,
+    agent_context: base.agent_context,
     request_context: base.request_context
   }
 }
@@ -1316,9 +1340,7 @@ function steerUpdate() {
     correlationID: 'steer-correlation-1',
     actorEvent: {
       actor_event_id: '00000000-0000-0000-0000-000000000002',
-      queue_sequence: 2,
       type: 'command.steer',
-      source_event_id: 'steer-source-1',
       payload_json: { data: { command: { argsText: 'Use the latest operator guidance.' } } }
     }
   }
@@ -1347,26 +1369,24 @@ function turnUpsertResponse(request: RecordedTurnUpsert) {
 
 function prepareFixture(firstResponse: string, behavior: FakeCodexBehavior = {}): { root: string; cleanup(): void } {
   const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-runner-'))
+  mkdirAgentSync(root, 0o700)
   const fakeCodex = join(root, 'fake-codex')
-  const fakeBwrap = join(root, 'fake-bwrap')
   const fakeFlock = join(root, 'fake-flock')
   const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
-  const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
-  mkdirSync(jobProjectFor(root), { recursive: true })
-  writeFakeBwrap(fakeBwrap)
+  const previousStateRoot = process.env.CODEX_SQLITE_HOME
+  mkdirAgentSync(jobProjectFor(root))
   writeFakeFlock(fakeFlock)
   writeFakeCodex(fakeCodex, firstResponse, behavior)
   process.env.ANKOLE_CODEX_BINARY = fakeCodex
-  process.env.ANKOLE_BWRAP_PATH = fakeBwrap
   process.env.ANKOLE_FLOCK_BINARY = fakeFlock
-  process.env.ANKOLE_CODEX_STATE_ROOT = join(root, 'codex-state')
+  process.env.CODEX_SQLITE_HOME = join(root, 'codex-sqlite')
   return {
     root,
     cleanup: () => {
       if (previousFlockBinary === undefined) delete process.env.ANKOLE_FLOCK_BINARY
       else process.env.ANKOLE_FLOCK_BINARY = previousFlockBinary
-      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
-      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
+      if (previousStateRoot === undefined) delete process.env.CODEX_SQLITE_HOME
+      else process.env.CODEX_SQLITE_HOME = previousStateRoot
       rmSync(root, { recursive: true, force: true })
     }
   }
@@ -1448,6 +1468,7 @@ function handle(message) {
     return
   }
   if (message.method === 'thread/resume') {
+    writeFileSync(process.env.CODEX_HOME + '/thread-resume.json', JSON.stringify(message.params))
     if (resumeError) {
       return write({
         id: message.id,
@@ -1625,33 +1646,6 @@ process.stdin.on('data', chunk => {
   chmodSync(path, 0o755)
 }
 
-function writeFakeBwrap(path: string): void {
-  writeFileSync(
-    path,
-    `#!/usr/bin/env bash
-set -euo pipefail
-chdir=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --unshare-all|--share-net|--die-with-parent|--new-session|--clearenv) shift ;;
-    --proc|--dev|--tmpfs|--dir) shift 2 ;;
-    --bind|--ro-bind) shift 3 ;;
-    --chdir) chdir="$2"; shift 2 ;;
-    --setenv) export "$2=$3"; shift 3 ;;
-    --) shift; break ;;
-    --*) echo "unsupported option $1" >&2; exit 2 ;;
-    *) break ;;
-  esac
-done
-if [[ "\${1:-}" == "/bin/sh" && "\${2:-}" == "-lc" && "\${3:-}" == "test -r /proc/self/status && test -w /tmp" ]]; then exit 0; fi
-if [[ -n "$chdir" ]]; then cd "$chdir"; fi
-exec "$@"
-`,
-    { mode: 0o755 }
-  )
-  chmodSync(path, 0o755)
-}
-
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) delete process.env[key]
   else process.env[key] = value
@@ -1666,11 +1660,25 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 function jobProjectFor(root: string, workspaceOwnerJobID = jobID): string {
-  return join(root, 'agents', 'agent-1', 'jobs', workspaceOwnerJobID)
+  return join(root, 'workspace', 'jobs', workspaceOwnerJobID)
 }
 
-// Mirrors the Worker-local shard rule: Codex state lives under the state
-// root, not under the shared agents root.
+// Thread files stay in the persistent Agent Home; SQLite uses the cache.
 function codexHomeFor(root: string): string {
-  return join(root, 'codex-state', 'agent-1', '.codex')
+  return join(root, 'workspace', '.codex')
+}
+
+// The control plane selects the Job's Skills and renders their index. This
+// fake lists the Skills the Job runtime can load and the prompt shows, in the
+// same line shape.
+function fakeSkillsPrompt(skills: RuntimeSkillSummary[]): string {
+  const lines = skills
+    .filter(skill => {
+      const metadata = parsedJSON(skill.metadataJson)
+      return metadata?.['ankole-runtime'] !== 'main' && metadata?.['brain_recall_only'] !== true
+    })
+    .map(skill => `    - ${skill.skillName}: ${skill.description}`)
+  return lines.length === 0
+    ? ''
+    : ['## Skills', '<available_skills>', '  general:', ...lines, '</available_skills>'].join('\n')
 }

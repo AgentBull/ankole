@@ -15,7 +15,7 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -62,12 +62,10 @@ export function PermissionGrantsSection({
   title: string
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const deleteGrant = useMutation({
     ...ankoleWebPermissionGrantControllerDeleteMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.deleted'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -160,7 +158,6 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(PermissionGrantEditorModel)
   const params = useParams()
   const grantID = params.grantID
@@ -205,12 +202,11 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         : t('console.permission_grants.owner_principal', { id: loadedGrant.principal_uid ?? '' })
       : ''
 
-  const refresh = () => void queryClient.invalidateQueries()
   const createGrant = useMutation({
     ...ankoleWebPermissionGrantControllerCreateMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.saved'))
-      refresh()
+
       navigate(backTo)
     }
   })
@@ -218,7 +214,6 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     ...ankoleWebPermissionGrantControllerUpdateMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.saved'))
-      refresh()
     }
   })
   const mutationError = createGrant.error ?? updateGrant.error
@@ -313,7 +308,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
             its underline sits under the text instead of an empty box. */}
         <Textarea
           aria-invalid={serverFieldError('condition') ? true : undefined}
-          className="min-h-10 font-mono text-xs"
+          className="min-h-8 font-mono text-xs"
           spellCheck={false}
           value={model.condition.value}
           onChange={event => (model.condition.value = event.target.value)}

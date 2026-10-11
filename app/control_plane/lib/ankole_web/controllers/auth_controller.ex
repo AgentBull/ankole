@@ -5,7 +5,7 @@ defmodule AnkoleWeb.AuthController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.AdminAuth
+  alias Ankole.SiteAdminAuth
   alias Ankole.BrowserSessions
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.{LocalPassword, Login}
@@ -14,6 +14,30 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
   alias AnkoleWeb.Session, as: WebSession
+
+  plug :put_login_tenant when action != :oidc_callback
+
+  defp put_login_tenant(conn, _opts) do
+    case conn.params["flow"] do
+      flow when is_binary(flow) and flow != "" ->
+        transaction = WebSession.login_transaction(conn, flow)
+
+        case transaction do
+          {:ok, login} -> :ok = Ankole.Repo.put_tenant_id(login.tenant_id)
+          {:error, _} -> :ok
+        end
+
+        assign(conn, :login_transaction, transaction)
+
+      _ ->
+        case WebSession.put_privileged_tenant() do
+          :ok -> assign(conn, :login_transaction, {:error, :login_expired})
+          {:error, reason} -> conn |> login_error(reason) |> halt()
+        end
+    end
+  end
+
+  defp login_transaction(conn), do: conn.assigns.login_transaction
 
   tags(["Auth"])
   operation(:session, false)
@@ -31,7 +55,7 @@ defmodule AnkoleWeb.AuthController do
   def session(conn, _params) do
     case WebSession.admin_session(conn) do
       %{"principal_uid" => uid} = session ->
-        if AdminAuth.active_human_admin?(uid) do
+        if SiteAdminAuth.active_human_site_admin?(uid) do
           json(conn, %{authenticated: true, principalUID: uid, providerID: session["provider_id"]})
         else
           conn |> put_status(401) |> json(%{authenticated: false})
@@ -68,7 +92,9 @@ defmodule AnkoleWeb.AuthController do
   defp current_identity(conn) do
     case WebSession.oauth_session(conn) || WebSession.admin_session(conn) do
       %{"principal_uid" => uid, "provider_id" => provider} ->
-        {:ok, principal} = Ankole.Principals.get_principal(uid)
+        {:ok, principal} =
+          Ankole.Repo.across_tenants(fn -> Ankole.Principals.get_principal(uid) end)
+
         %{displayName: principal.display_name || uid, providerID: provider}
 
       _ ->
@@ -78,8 +104,8 @@ defmodule AnkoleWeb.AuthController do
 
   defp providers_for_flow(_conn, flow) when flow in [nil, ""], do: Login.list_login_providers()
 
-  defp providers_for_flow(conn, flow) do
-    with {:ok, transaction} <- WebSession.login_transaction(conn, flow) do
+  defp providers_for_flow(conn, _flow) do
+    with {:ok, transaction} <- login_transaction(conn) do
       case transaction.purpose do
         :console ->
           Login.list_login_providers()
@@ -94,7 +120,7 @@ defmodule AnkoleWeb.AuthController do
   def local_password_login(conn, params) do
     with {:ok, true} <- SetupConfig.completed?(),
          {:ok, %{status: :pending} = transaction} <-
-           WebSession.login_transaction(conn, params["flow"]),
+           login_transaction(conn),
          {:ok, provider} <- LocalPassword.fetch_enabled_provider(),
          :ok <- LoginPolicy.authorize_login(transaction, provider["provider_id"]),
          {:ok, _} <-
@@ -124,7 +150,8 @@ defmodule AnkoleWeb.AuthController do
     }
 
     cond do
-      transaction.purpose == :console and not AdminAuth.active_human_admin?(login.principal_uid) ->
+      transaction.purpose == :console and
+          not SiteAdminAuth.active_human_site_admin?(login.principal_uid) ->
         error(conn, 403, "not_an_admin")
 
       login.must_change_password ->
@@ -146,7 +173,7 @@ defmodule AnkoleWeb.AuthController do
 
   def local_password_change(conn, params) do
     with {:ok, %{status: :pending, password_ticket: %{} = ticket} = transaction} <-
-           WebSession.login_transaction(conn, params["flow"]),
+           login_transaction(conn),
          {:ok, password} <- required_param(params, "newPassword") do
       finish_json_login(conn, transaction.id, ticket, fn ->
         case LocalPassword.complete_forced_password_change(
@@ -159,15 +186,20 @@ defmodule AnkoleWeb.AuthController do
         end
       end)
     else
-      {:ok, _} -> error(conn, 401, "change_ticket_expired")
-      {:error, :login_expired} -> error(conn, 401, "change_ticket_expired")
-      {:error, reason} -> login_error(conn, reason)
+      {:ok, _} ->
+        error(conn, 401, "change_ticket_expired")
+
+      {:error, reason} when reason in [:login_expired, :browser_session_expired] ->
+        error(conn, 401, "change_ticket_expired")
+
+      {:error, reason} ->
+        login_error(conn, reason)
     end
   end
 
   defp finish_json_login(conn, id, auth, before_commit \\ fn -> :ok end) do
     result =
-      with {:ok, transaction} <- WebSession.login_transaction(conn, id),
+      with {:ok, transaction} <- login_transaction(conn),
            :ok <- LoginPolicy.authorize_login(transaction, auth["provider_id"]),
            :ok <- LoginPolicy.completed_authentication_allowed?(auth, transaction.request),
            do: WebSession.complete_login(conn, id, auth, before_commit)
@@ -181,10 +213,10 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  def oidc_authorization(conn, %{"provider_id" => provider_id} = params) do
+  def oidc_authorization(conn, %{"provider_id" => provider_id}) do
     with {:ok, true} <- SetupConfig.completed?(),
          {:ok, %{status: :pending} = transaction} <-
-           WebSession.login_transaction(conn, params["flow"]),
+           login_transaction(conn),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          :ok <- LoginPolicy.authorize_login(transaction, provider_id),
          state <- WebSession.opaque_token(),
@@ -216,6 +248,7 @@ defmodule AnkoleWeb.AuthController do
         error(conn, 400, "invalid OIDC callback")
 
       setup_state_matches?(conn, provider_id, state) ->
+        :ok = WebSession.put_privileged_tenant()
         complete_setup_oidc(conn, provider_id, code)
 
       true ->
@@ -226,6 +259,7 @@ defmodule AnkoleWeb.AuthController do
   defp complete_browser_oidc(conn, provider_id, code, state) do
     with {:ok, transaction} <-
            BrowserSessions.callback(WebSession.browser_reference(conn), provider_id, state),
+         :ok <- Ankole.Repo.put_tenant_id(transaction.tenant_id),
          :ok <- LoginPolicy.authorize_login(transaction, provider_id),
          {:ok, login} <-
            Login.complete_oidc_login(provider_id, code, redirect_uri: transaction.redirect_uri),
@@ -251,7 +285,7 @@ defmodule AnkoleWeb.AuthController do
          {:ok, login} <-
            Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
          {:ok, _root} <-
-           SetupCompletion.complete_with_root_admin(
+           SetupCompletion.complete_with_first_site_admin(
              login.principal_uid,
              WebSession.setup_brain_packs(conn)
            ) do
@@ -263,7 +297,7 @@ defmodule AnkoleWeb.AuthController do
         external_id: login.external_id,
         auth_time: login.auth_time
       })
-      |> redirect(to: ~p"/console")
+      |> redirect(to: AnkoleWeb.SiteAdminConsole.path())
     else
       {:ok, true} -> error(conn, 409, "setup already completed")
       {:error, reason} -> login_error(conn, reason)
@@ -289,6 +323,13 @@ defmodule AnkoleWeb.AuthController do
 
   defp login_error(conn, {:retry_locked, seconds}),
     do: conn |> put_status(429) |> json(%{error: "retry_locked", retryAfterSeconds: seconds})
+
+  defp login_error(conn, {:retry_busy, seconds}),
+    do:
+      conn
+      |> put_resp_header("retry-after", Integer.to_string(seconds))
+      |> put_status(429)
+      |> json(%{error: "retry_busy", retryAfterSeconds: seconds})
 
   defp login_error(conn, {:missing, key}), do: error(conn, 422, "#{key} is required")
   defp login_error(conn, :invalid_credentials), do: error(conn, 401, "invalid_credentials")

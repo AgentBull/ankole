@@ -90,7 +90,7 @@ defmodule Ankole.Brain.Links do
   end
 
   defp insert_distinct(repo, %schema{} = row) do
-    attrs = Map.take(row, schema.__schema__(:fields))
+    attrs = row |> Map.take(schema.__schema__(:fields)) |> Map.put(:tenant_id, Repo.tenant_id!())
 
     case repo.insert_all(schema, [attrs], on_conflict: :nothing, returning: true) do
       {0, []} -> {:ok, :duplicate}

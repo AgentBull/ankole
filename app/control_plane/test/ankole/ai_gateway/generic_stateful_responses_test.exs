@@ -13,6 +13,67 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
 
+  test "run recovery reads model output, recorded calls, without the live Response (G3)" do
+    %{principal: subject} = human_fixture()
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "run-recovery")
+
+    metadata = %{
+      "request_metadata" => %{"actor_event_id" => "event_1", "loop" => %{"iteration" => 1}}
+    }
+
+    {:ok, response} =
+      start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id,
+        metadata: metadata
+      })
+
+    {:ok, completed} =
+      StatefulResponses.commit_complete(response, [
+        %{
+          "type" => "function_call",
+          "call_id" => "c1",
+          "name" => "read_file",
+          "arguments" => "{}",
+          "status" => "completed"
+        }
+      ])
+
+    {:ok, journal} =
+      record_tool_results(%{
+        subject_uid: subject.uid,
+        previous_response_id: "resp_#{completed.id}",
+        metadata: metadata,
+        request_items: [%{"type" => "function_call_output", "call_id" => "c1", "output" => "ok"}]
+      })
+
+    {:ok, _live} =
+      start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id,
+        metadata: metadata
+      })
+
+    assert {:ok, tail} = AIGateway.conversation_tail(conversation, "event_1")
+    assert Enum.map(tail.responses, & &1.id) == [completed.id]
+    assert tail.recorded_call_ids == MapSet.new(["c1"])
+    assert tail.leaf == journal.id
+    assert {:ok, empty} = AIGateway.conversation_tail(conversation, "another_event")
+    assert empty.responses == []
+  end
+
+  test "a takeover immediately reclaims a generating Response after admission (G6)" do
+    %{principal: subject} = human_fixture()
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "force-recovery")
+
+    {:ok, live} =
+      start_response_run(%{subject_uid: subject.uid, conversation_id: conversation.id})
+
+    assert {:ok, :failed} = AIGateway.reconcile_orphaned_response(live.id, force: true)
+    assert Repo.get!(Message, live.id).status == "error"
+    assert {:ok, :already_terminal} = StatefulResponses.commit_complete(live, [])
+  end
+
   test "caller metadata round-trips without colliding with response facts" do
     %{principal: subject} = human_fixture()
     caller_metadata = %{"usage" => "caller-value", "model" => "caller-model", "tag" => "kept"}
@@ -81,7 +142,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       ])
 
     {:ok, journal} =
-      StatefulResponses.record_tool_results(%{
+      record_tool_results(%{
         subject_uid: subject.uid,
         previous_response_id: "resp_#{completed.id}",
         request_items: [
@@ -287,5 +348,21 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
                     %{response_id: response_id, metadata: %{"opaque" => "kept"}}}
 
     assert response_id == "resp_#{response.id}"
+  end
+
+  defp record_tool_results(attrs) do
+    {:ok, result} =
+      Ankole.Repo.transact(fn repo ->
+        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+      end)
+
+    case result do
+      {:ok, message, _disposition} ->
+        StatefulResponses.publish_tool_result_events(message)
+        {:ok, message}
+
+      error ->
+        error
+    end
   end
 end

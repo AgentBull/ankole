@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ankole-agent-workers",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "ankole-agent-homes" }],
+  "containers": [
+    {
+      "class_name": "AgentWorker",
+      "scheduling_policy": "durable_object"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_WORKER",
+        "class_name": "AgentWorker"
+      },
+      {
+        "name": "REGISTRY",
+        "class_name": "Registry"
+      }
+    ]
+  },
+  "exports": {
+    "AgentWorker": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "Registry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

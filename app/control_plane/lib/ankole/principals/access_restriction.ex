@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.AccessRestriction do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
   import Ecto.Changeset
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}

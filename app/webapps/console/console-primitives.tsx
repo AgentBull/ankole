@@ -1,4 +1,3 @@
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
@@ -35,17 +34,6 @@ export function parseJSON(text: string, field: string): { ok: true; value: unkno
   } catch (error) {
     return { ok: false, error: i18n.t('common.must_be_valid_json', { field, detail: requestErrorMessage(error) }) }
   }
-}
-
-export function parseObjectDraft(
-  text: string,
-  field: string
-): { ok: true; value: JSONObject } | { ok: false; error: string } {
-  const parsed = parseJSON(text, field)
-  if (!parsed.ok) return parsed
-  const value = recordValue(parsed.value)
-  if (value) return { ok: true, value }
-  return { ok: false, error: i18n.t('common.must_be_json_object', { field }) }
 }
 
 export function formatJSON(value: unknown): string {

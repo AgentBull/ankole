@@ -16,7 +16,7 @@ bun run dev   # in one terminal
 bun run kit logs pretty < /path/to/log-stream   # or pipe a log file through it
 ```
 
-In production, leave `ANKOLE_LOG_FORMAT=json` and let your log ingester handle formatting. The pretty printer is a local convenience, not a production setting.
+In production, send the structured logs to your log collection system. Use the pretty printer locally.
 
 ## Scope the log level before a bug hunt
 
@@ -42,7 +42,7 @@ The eight built-in Agent profile slots — `primary`, `light`, `heavy`, `coding`
 - Bind **`light`** to something genuinely cheap and fast — it exists for the high-volume, low-stakes path.
 - Set **`vision_fallback`** only if the agent sees images; otherwise leave it unbound and save the slot.
 - **`web_search`** and **`web_fetch`** are independent — bind them only when the agent needs to reach the web.
-- Configure Brain retrieval once in **AppConfigure**, not in an Agent profile. `brain.embedding_model` applies to vector retrieval for every Agent, and `brain.rerank_model` applies to reranking. An empty embedding model disables vector retrieval; an empty rerank model keeps the fusion order. See [Brain](../brain/).
+- Configure Brain retrieval in **AppConfigure**. The site setting `brain.embedding_model` selects vector retrieval for all Agents. Each tenant sets `brain.rerank_model` for its reranking. An empty embedding model disables vector retrieval; an empty rerank model keeps the fusion order. See [Brain](../brain/).
 
 An agent that "feels slow" is often a `primary` bound too heavy for the work it actually does.
 

@@ -2,6 +2,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
+  alias Ankole.Conversations.{Admission, Revisions, Run}
+  alias Ankole.SignalsGateway.ActorRuntime.EntryLifecycle
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
@@ -9,15 +11,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
   alias Ankole.SignalsGateway.ReplyPresentation
 
   setup do
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
-    :ok
+    %{principal: agent} = agent_fixture()
+    {:ok, agent: agent}
   end
 
-  test "tail entry removal hard deletes current visible actor-event rows" do
-    %{principal: agent} = agent_fixture()
+  test "tail entry removal hard deletes current visible actor-event rows", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     input =
@@ -79,7 +77,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                 }
               ]
             }} =
-             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 2, :second))
 
     assert processed_input.id == lifecycle_event.id
     assert MapSet.new(deleted_message_ids) == MapSet.new([first.id, final.id])
@@ -91,8 +89,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute_retracted_note("tail-remove-event")
   end
 
-  test "tail entry removal terminalizes generating descendants before hard delete" do
-    %{principal: agent} = agent_fixture()
+  test "tail entry removal terminalizes generating descendants before hard delete", %{
+    agent: agent
+  } do
     binding_fixture(agent.uid, "bot", :ignore)
 
     input =
@@ -149,7 +148,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                 }
               ]
             }} =
-             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 2, :second))
 
     assert processed_input.id == lifecycle_event.id
     assert deleted_message_id == anchor.id
@@ -175,8 +174,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert %DateTime{} = Repo.get!(ActorEvent, lifecycle_event.id).completed_at
   end
 
-  test "historical entry removal leaves later AIGateway rows untouched" do
-    %{principal: agent} = agent_fixture()
+  test "historical entry removal leaves later AIGateway rows untouched", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     old_input =
@@ -235,7 +233,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                 }
               ]
             }} =
-             process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 3, :second))
 
     assert processed_input.id == lifecycle_event.id
     assert deletion_targets(agent.uid, lifecycle_event.id) == []
@@ -251,8 +249,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute_retracted_note("historical-remove-event")
   end
 
-  test "compaction-covered entry removal leaves derived history untouched" do
-    %{principal: agent} = agent_fixture()
+  test "compaction-covered entry removal leaves derived history untouched", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     old_input =
@@ -327,7 +324,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                 }
               ]
             }} =
-             process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 3, :second))
 
     assert processed_input.id == lifecycle_event.id
     assert Repo.get(Message, old_message.id)
@@ -342,8 +339,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute_retracted_note("covered-remove-event")
   end
 
-  test "removing the source entry supersedes its pending clarification" do
-    %{principal: agent} = agent_fixture()
+  test "removing the source entry supersedes its pending clarification", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     input =
@@ -370,7 +366,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     lifecycle_event = emit_removed_lifecycle!(agent.uid, input, "clarification-recalled")
 
     assert {:ok, %{status: :entry_lifecycle_ignored}} =
-             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 2, :second))
 
     checkpoint = Repo.get!(ActorEvent, input.id).reply_preview_checkpoint
     interaction = checkpoint["interactions"]["clarify:call-1"]
@@ -381,8 +377,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
   end
 
-  test "removing an unrelated source entry preserves a pending clarification" do
-    %{principal: agent} = agent_fixture()
+  test "removing an unrelated source entry preserves a pending clarification", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     old_input =
@@ -425,10 +420,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       )
 
     open_pending_interaction!(clarification_input)
-    _lifecycle_event = emit_removed_lifecycle!(agent.uid, old_input, "unrelated-recalled")
+    lifecycle_event = emit_removed_lifecycle!(agent.uid, old_input, "unrelated-recalled")
 
     assert {:ok, %{status: :entry_lifecycle_ignored}} =
-             process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 4, :second))
 
     checkpoint = Repo.get!(ActorEvent, clarification_input.id).reply_preview_checkpoint
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
@@ -436,8 +431,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute Enum.any?(checkpoint["presentation"]["actions"], & &1["disabled"])
   end
 
-  test "recalling the source entry mid turn deletes the cards that turn opened" do
-    %{principal: agent} = agent_fixture()
+  test "recalling the source entry mid turn deletes the cards that turn opened", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     input =
@@ -450,18 +444,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
 
     open_card_chain!(input, ["card-message-1", "card-message-2"])
 
-    assert {:ok, %{canceled_actor_events: 1, runtime_retractions: retractions}} =
+    assert {:ok, %{canceled_actor_events: 0}} =
              remove_source_entry!(agent.uid, input, "open-card-recalled")
 
-    assert [%{status: :canceled, reply_deletions: 2}] = retractions.results
-    assert retractions.canceled_actor_event_ids == [input.id]
+    revision =
+      Repo.get_by!(ActorEvent,
+        agent_uid: agent.uid,
+        session_id: input.session_id,
+        type: "input.revised"
+      )
+
+    assert {:ok, :stopped} = Revisions.apply(Process.get({__MODULE__, input.id}), revision)
     refute Repo.get(ActorEvent, input.id)
 
     assert deletion_targets(agent.uid, input.id) == ["card-message-1", "card-message-2"]
   end
 
-  test "removing the source entry deletes the delivered reply it produced" do
-    %{principal: agent} = agent_fixture()
+  test "removing the source entry deletes the delivered reply it produced", %{agent: agent} do
     binding_fixture(agent.uid, "bot", :ignore)
 
     input =
@@ -489,7 +488,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     lifecycle_event = emit_removed_lifecycle!(agent.uid, input, "delivered-reply-recalled")
 
     assert {:ok, %{status: :entry_lifecycle_ignored, reply_deletions: 1}} =
-             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+             EntryLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 2, :second))
 
     assert deletion_targets(agent.uid, lifecycle_event.id) == ["delivered-reply-message"]
   end
@@ -557,21 +556,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                now: Map.get(overrides, :provider_time, @base_time)
              )
 
-    now = Map.get(overrides, :provider_time, @base_time)
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(now, 1, :second),
-               lease_seconds: @long_lease_seconds
+    assert {:ok, run} =
+             Admission.admit(
+               %{agent_uid: agent_uid, session_id: input.session_id},
+               input
              )
 
-    assert_receive {:actor_lane, envelope}
-    turn_ref = turn_start_payload!(envelope).turn
-
-    assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
-
-    Process.put({__MODULE__, input.id}, turn_ref)
+    Process.put({__MODULE__, input.id}, run)
 
     input
   end
@@ -654,10 +645,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
              StatefulResponses.commit_complete(run, Keyword.fetch!(opts, :terminal_items))
 
     if Keyword.get(opts, :complete_turn, false) do
-      turn_ref = Process.get({__MODULE__, actor_event_id})
+      run = Process.get({__MODULE__, actor_event_id})
 
-      assert {:ok, %{status: :turn_completed}} =
-               commit_turn_completion(turn_ref, "resp_#{complete.id}", "loop_finished")
+      assert {:ok, _} =
+               Run.finalize(
+                 %{run | anchor: complete.id, model_response: complete},
+                 "loop_finished"
+               )
     end
 
     complete

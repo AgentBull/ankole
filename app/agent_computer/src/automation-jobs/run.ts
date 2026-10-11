@@ -1,54 +1,102 @@
-import { existsSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, rmSync, unlinkSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { errorMessage } from '../common/errors'
+import { mkdirAgent } from '../common/agent-user'
+import { writeFileAtomicSync } from '../common/atomic-write'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import { agentHomePaths, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
-import { pathIsWithin } from '../core/path-boundary'
+import { Drive } from '../drive/drive'
+import { downloadFolder } from '../drive/folder-sync'
+import { materializeSkills } from '../skills/drive_skills'
 import { startSocketLineBridge, type SocketLineBridge } from '../core/socket-line-bridge'
-import { prepareExecutionMaterials, type PreparedExecutionMaterials } from '../core/execution/execution-materials'
-import { bubblewrapArgv } from '../sandbox/bubblewrap'
-import { commandEnv } from '../sandbox/command-env'
+import { prepareExecutionMaterials } from '../core/execution/execution-materials'
+import { commandEnv } from '../core/execution/command-env'
+import { agentProcessArgv, killProcessGroup } from '../core/execution/process-group'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
-import {
-  rpcMethods,
-  type AutomationJobRunRequest,
-  type AutomationJobRunResponse,
-  type RPCRequester
-} from '../lanes/rpc_lane'
-import type { WorkerConfig } from '../worker/config'
+import { type AutomationJobRunRequest, type AutomationJobRunResponse, type RPCRequester } from '../lanes/rpc_lane'
+import type { AgentHomeConfig, WorkerConfig } from '../worker/config'
 
 const logMaxBytes = 65_536
 const emitRequestMaxBytes = 1_100_000
-const sdkPath = '/repo/app/agent_computer/src/automation-jobs/sdk.ts'
+const workerSDKPath = '/repo/app/agent_computer/src/automation-jobs/sdk.ts'
 const contextFileEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CONTEXT_FILE'
 const emitSocketEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_EMIT_SOCKET'
 
 type RunResult = Omit<AutomationJobRunResponse, '$typeName'>
+type AutomationRunConfig = Pick<WorkerConfig, 'agentHomeRoot' | 'builtinSkillsRoot' | 'internalSkillsRoot'>
+type AutomationRunOptions = {
+  config: AutomationRunConfig
+  rpc: RPCRequester
+  /** SDK module to preload; the default is the installed Worker SDK. */
+  sdkPath?: string
+}
 
 /**
- * Runs one control-plane-claimed automation attempt in the Agent sandbox.
+ * Runs one control-plane-claimed automation attempt on the Agent's Worker.
+ *
+ * The script lives in the Agent's drive. Each attempt copies its folder to a
+ * fresh run directory in the Agent Home, runs `main.ts` there, and removes the
+ * directory afterwards. The file list and each downloaded digest must agree
+ * before execution starts. Installed Skills are copied under the same run root
+ * so another run cannot replace them during this execution.
+ *
+ * A folder without `main.ts` or an invalid Skill MCP
+ * declaration fails the run. A drive, control-plane, or disk failure before
+ * the script starts throws instead, so the control plane retries the attempt
+ * as an infrastructure failure.
  */
 export async function runAutomationJob(
   request: AutomationJobRunRequest,
-  opts: {
-    config: WorkerConfig
-    rpc: RPCRequester
-  }
+  opts: AutomationRunOptions
 ): Promise<RunResult> {
-  let execution: ValidatedExecution
+  const paths = agentHomePaths(opts.config.agentHomeRoot)
+  const agentHome = realpathSync(paths.home)
+  const runRoot = join(automationRunsRoot(agentHome), request.attemptId)
+  const directoryPath = join(runRoot, 'script')
+  const skillsRoot = join(runRoot, 'skills')
+  const drive = new Drive({ agentHome, rpc: opts.rpc })
 
   try {
-    execution = validateExecution(request, opts.config)
-  } catch (error) {
-    return failedResult(errorMessage(error))
+    await mkdirAgent(directoryPath)
+    const files = await downloadFolder(drive, request.drivePrefix, directoryPath)
+    if (!files.some(file => file.path === `${request.drivePrefix}/main.ts`)) {
+      return failedResult(`automation job main.ts is missing from ${request.drivePrefix} in the drive`)
+    }
+
+    await materializeSkills(drive, paths.installedSkills, skillsRoot)
+
+    return await runPreparedJob(request, { agentHome, agentInstalledSkillsRoot: skillsRoot, directoryPath }, opts)
+  } finally {
+    await rm(runRoot, { recursive: true, force: true })
   }
+}
 
-  const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
-  let materials: PreparedExecutionMaterials
+/**
+ * Removes the run directories that a former Worker process left when it ended
+ * during a run. It runs after admission, before the Worker handles a run.
+ */
+export function removeAbandonedRunDirectories(config: AgentHomeConfig): void {
+  rmSync(automationRunsRoot(agentHomePaths(config.agentHomeRoot).home), {
+    recursive: true,
+    force: true
+  })
+}
+
+function automationRunsRoot(agentHome: string): string {
+  return join(agentHome, '.ankole', 'automation-runs')
+}
+
+async function runPreparedJob(
+  request: AutomationJobRunRequest,
+  execution: RunExecution,
+  opts: AutomationRunOptions
+): Promise<RunResult> {
+  let skillMCPServers: Awaited<ReturnType<typeof loadEnabledSkillMCPServers>>
 
   try {
-    const skillMCPServers = await loadEnabledSkillMCPServers({
+    skillMCPServers = await loadEnabledSkillMCPServers({
       enabledSkills: request.skills,
       skillRoots: {
         builtinSkillsRoot: opts.config.builtinSkillsRoot,
@@ -56,30 +104,31 @@ export async function runAutomationJob(
         ...(opts.config.internalSkillsRoot ? { internalSkillsRoot: opts.config.internalSkillsRoot } : {})
       }
     })
-    materials = await prepareExecutionMaterials({
-      agentUID: request.agentUid,
-      agentHome: execution.agentHome,
-      rpc: opts.rpc,
-      bindingName: request.bindingName,
-      mcpServers: skillMCPServers
-    })
   } catch (error) {
     return failedResult(errorMessage(error))
   }
 
+  const materials = await prepareExecutionMaterials({
+    agentHome: execution.agentHome,
+    rpc: opts.rpc,
+    bindingName: request.bindingName,
+    mcpServers: skillMCPServers
+  })
+  const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
+
   try {
     const emitBridge = startEmitBridge(request, opts.rpc)
     try {
-      writeFileSync(
+      writeFileAtomicSync(
         contextPath,
         JSON.stringify({
-          event: execution.event,
+          event: jsonObjectFromBytes(request.eventJson, 'automation_job.run event_json'),
           job: {
             id: Number(request.automationJobId),
             label: request.label
           }
         }),
-        { mode: 0o600, flag: 'wx' }
+        0o600
       )
 
       return await runProcess(
@@ -88,7 +137,8 @@ export async function runAutomationJob(
         materials.workerEnv,
         contextPath,
         emitBridge.socketPath,
-        materials.runtimeEnv
+        materials.runtimeEnv,
+        opts.sdkPath ?? workerSDKPath
       )
     } finally {
       emitBridge.close()
@@ -99,77 +149,45 @@ export async function runAutomationJob(
   }
 }
 
-type ValidatedExecution = {
+type RunExecution = {
   agentHome: string
   agentInstalledSkillsRoot: string
   directoryPath: string
-  event: Record<string, unknown>
-}
-
-function validateExecution(request: AutomationJobRunRequest, config: WorkerConfig): ValidatedExecution {
-  canonicalModelID(request.automationJobRunId, 'automation job run id')
-  canonicalModelID(request.automationJobId, 'automation job id')
-  if (!uuidPattern.test(request.attemptId)) throw new Error('automation job attempt id is invalid')
-  if (!request.label.trim()) throw new Error('automation job label is required')
-
-  const paths = agentHomePaths(config.agentsRoot, request.agentUid)
-  const agentHome = realpathSync(paths.home)
-  const directoryPath = realpathSync(request.directoryPath)
-  if (!pathIsWithin(agentHome, directoryPath)) {
-    throw new Error('automation job directory no longer resolves inside the Agent Home')
-  }
-  if (!statSync(directoryPath).isDirectory()) {
-    throw new Error('automation job directory is missing')
-  }
-
-  const entrypoint = realpathSync(join(directoryPath, 'main.ts'))
-  if (!pathIsWithin(directoryPath, entrypoint) || !statSync(entrypoint).isFile()) {
-    throw new Error('automation job main.ts is missing or resolves outside its directory')
-  }
-
-  const event = jsonObjectFromBytes(request.eventJson, 'automation_job.run event_json')
-  if (!event) throw new Error('automation job trigger event is missing')
-
-  return { agentHome, agentInstalledSkillsRoot: paths.installedSkills, directoryPath, event }
 }
 
 async function runProcess(
   request: AutomationJobRunRequest,
-  execution: ValidatedExecution,
+  execution: RunExecution,
   workerEnv: Record<string, string>,
   contextPath: string,
   socketPath: string,
-  executionRuntimeEnv: Record<string, string>
+  executionRuntimeEnv: Record<string, string>,
+  sdkPath: string
 ): Promise<RunResult> {
   const timeoutMs = Math.max(1, request.timeoutMs)
   const env = commandEnv(undefined, {
+    agentHome: execution.agentHome,
     workerEnv,
     runtimeEnv: {
       [contextFileEnv]: contextPath,
       [emitSocketEnv]: socketPath,
       ...executionRuntimeEnv
-    },
-    home: execution.agentHome,
-    ankoleAgentHome: execution.agentHome
+    }
   })
-  const argv = bubblewrapArgv({
-    workspaceRoot: execution.agentHome,
-    cwd: execution.directoryPath,
-    env,
-    commandArgv: ['bun', '--preload', sdkPath, 'main.ts']
-  })
-  const proc = Bun.spawn(argv, {
+  // Its own process group lets the timeout end every process of the script.
+  const proc = Bun.spawn(agentProcessArgv(['bun', '--preload', sdkPath, 'main.ts']), {
     cwd: execution.directoryPath,
     env,
     stdin: 'ignore',
     stdout: 'pipe',
-    stderr: 'pipe'
+    stderr: 'pipe',
+    detached: true
   })
 
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
-    proc.kill(9)
+    killProcessGroup(proc.pid)
   }, timeoutMs)
 
   try {
@@ -227,13 +245,13 @@ async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPC
   }
 
   await rpc(
-    rpcMethods.automationJobEmit,
+    'automation_job.emit',
     {
       automationJobRunId: request.automationJobRunId,
       attemptId: request.attemptId,
       payloadJson: jsonBytes(command.payload as never)
     },
-    { agentUid: request.agentUid }
+    undefined
   )
 }
 
@@ -276,15 +294,6 @@ function failedResult(error: string): RunResult {
   }
 }
 
-function canonicalModelID(value: string, label: string): number {
-  if (!/^[1-9][0-9]*$/.test(value)) throw new Error(`${label} is invalid`)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1000 || String(parsed) !== value) {
-    throw new Error(`${label} is outside the supported range`)
-  }
-  return parsed
-}
-
 function failureSummary(value: string): string | undefined {
   const lines = value
     .split('\n')
@@ -293,5 +302,3 @@ function failureSummary(value: string): string | undefined {
   const runtimeError = lines.find(line => /^error:\s*\S/i.test(line))
   return runtimeError || lines[0]
 }
-
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

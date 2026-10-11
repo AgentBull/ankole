@@ -12,12 +12,14 @@ The Agent can use Company Brain within its knowledge boundary. A signal routing 
 ## Create an Agent
 
 1. Open **Console → Agents** and select **New Agent**.
-2. Enter the required display name. The Console generates a UID from English or Chinese text, such as `research-analyst` for `Research Analyst` and `yan-jiu-fen-xi-shi` for `研究分析师`. Mixed-language names also work.
-3. Review or change the UID, then enter a role and an optional avatar URL. The UID is a stable identifier that is unique in this deployment instance, and you cannot change it after you save the Agent. You can change the display name later without breaking existing configuration.
+2. Enter the display name and review the generated handle. You can change the handle later. Ankole generates a globally unique opaque UID when it saves the Agent.
+3. Enter the role, optional avatar URL, and Worker provider.
 4. Select the human Principal who owns the Agent, then select its group-memory disclosure mode.
 5. Save the Agent. The page then shows its durable instructions, model profiles, and Agent-specific environment variables.
 
 The role gives a short summary of the work, such as “Research Analyst” or “Customer Support.” The four durable documents below manage responsibilities, behavior, visual design, and confidentiality.
+
+The Worker provider selects the Agent's [Worker pool](../worker-management/). If the request omits it, the site default is used; creation fails when no default exists. The saved binding cannot change. Agents in the same pool still have separate Workers and persistent Home. Saving the Agent does not start an instance: the control plane starts it when computer work needs it.
 
 ## Set ownership and group disclosure
 
@@ -78,13 +80,13 @@ When the Agent reaches the limit, a chat message receives a reply with the used 
 
 ## Configure capabilities and environment variables
 
-The Agent inherits the deployment instance defaults for Agent Plugins and Skills. To change them, open **Console → Agent Library** and edit the defaults or set an override for this Agent.
+The Agent inherits the tenant defaults for Agent Plugins and Skills. To change them, open **Console → Agent Library** and edit the defaults or set an override for this Agent.
 
 See [Agent Library](../skills/) for the full procedure.
 
 If a Skill, command-line tool, or MCP service needs an API key, add it to **Environment variables** on the Agent page. An Agent-specific value is available only to this Agent.
 
-It overrides a global value with the same name. See [Environment variables](../worker-env/).
+It overrides the tenant value, or the site value when the tenant has no override. See [Environment variables](../worker-env/).
 
 ## Connect a chat channel
 
@@ -107,7 +109,7 @@ Check these items in order:
 1. The Agent is enabled.
 2. The `primary`, `light`, and `heavy` profiles are configured, and the LLM Provider is available.
 3. A signal routing rule points to this Agent.
-4. At least one worker is ready.
+4. **Console → Workers** shows the Agent's Worker as ready, or starting without a failure reason.
 5. **Console → Conversations** contains the message and shows a useful error.
 
 For channel-specific checks, see [Quick start troubleshooting](../quickstart/#if-the-agent-does-not-reply).

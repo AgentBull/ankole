@@ -26,7 +26,6 @@ defmodule Ankole.AIGateway.Providers.JinaSearch do
     setting(:engine, scope: :request)
 
     web_search do
-      upstream(:json)
       api_resolver(:jina_search_web_search)
       prepare(:prepare_web_search)
       timeout_ms(@timeout_ms)

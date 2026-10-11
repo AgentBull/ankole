@@ -1,7 +1,8 @@
 defmodule Ankole.AIGateway.CredentialPoolTest do
-  use ExUnit.Case, async: false
+  use Ankole.DataCase, async: false
 
-  alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.{CredentialPool, ProviderConfigs}
+  alias Ankole.AIGateway.ProviderConfigs.Provider
 
   setup do
     :ok = CredentialPool.reset_for_test()
@@ -54,14 +55,6 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
            ) == 60_000
   end
 
-  test "a concurrent short failure cannot shorten an active cooldown" do
-    entry = hd(entries())
-    :ok = CredentialPool.mark_exhausted("concurrent", entry, 429, %{"retry-after" => "60"})
-    before = CredentialPool.statuses("concurrent", [entry])
-    :ok = CredentialPool.mark_exhausted("concurrent", entry, 429, %{"retry-after" => "0"})
-    assert CredentialPool.statuses("concurrent", [entry]) == before
-  end
-
   test "fill-first, round-robin, least-used, and random select only usable entries" do
     entries = entries()
     [first, second | _rest] = entries
@@ -90,36 +83,14 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
     assert Enum.all?(random_ids, &(&1 in ~w(first second third)))
 
-    :ok = CredentialPool.mark_dead("random-single", first)
-    :ok = CredentialPool.mark_dead("random-single", second)
+    unavailable = [
+      Map.put(first, "reauth_required", true),
+      Map.put(second, "disabled_at", DateTime.to_iso8601(DateTime.utc_now())),
+      List.last(entries)
+    ]
 
     assert {:ok, %{credential_id: "third"}} =
-             CredentialPool.select("random-single", entries, "random")
-  end
-
-  test "retained thread affinity wins over strategy until its credential becomes unavailable" do
-    entries = entries()
-    [first | _rest] = entries
-
-    assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
-
-    assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "affinity",
-        first,
-        429,
-        %{"x-codex-primary-reset-at" => DateTime.utc_now() |> DateTime.add(600) |> unix()}
-      )
-
-    assert {:ok, %{credential_id: "second"}} =
-             CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
-
-    assert {:ok, %{credential_id: "second"}} =
-             CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
+             CredentialPool.select("random-single", unavailable, "random")
   end
 
   test "each provider retains only its 10,000 most recently used affinity keys" do
@@ -168,142 +139,6 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     assert_affinity_count("other-provider", 1)
   end
 
-  test "upstream reset time controls cooldown and expired entries return automatically" do
-    first = hd(entries())
-    entries = [first]
-    retry_at = DateTime.utc_now(:second) |> DateTime.add(900)
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "cooldown",
-        first,
-        429,
-        %{"x-codex-primary-reset-at" => unix(retry_at)},
-        %{"code" => "rate_limit", "reason" => "quota", "message" => "wait"}
-      )
-
-    assert {:error, {:credential_pool_exhausted, details}} =
-             CredentialPool.select("cooldown", entries, "fill_first")
-
-    assert_iso_equal(details["retry_at"], retry_at)
-
-    assert %{
-             "first" => %{
-               "status" => "exhausted",
-               "retry_at" => retry_at_text,
-               "last_error_code" => "rate_limit",
-               "last_error_reason" => "quota",
-               "last_error_message" => "wait",
-               "provider_status" => 429
-             }
-           } = CredentialPool.statuses("cooldown", entries)
-
-    assert_iso_equal(retry_at_text, retry_at)
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "expired-cooldown",
-        first,
-        429,
-        %{"x-codex-primary-reset-at" => DateTime.utc_now() |> DateTime.add(-1) |> unix()}
-      )
-
-    assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("expired-cooldown", entries, "fill_first")
-  end
-
-  test "dead and disabled entries stay out until explicit reauthentication" do
-    [first, second, third] = entries()
-    disabled = Map.put(third, "disabled_at", DateTime.utc_now() |> DateTime.to_iso8601())
-
-    :ok = CredentialPool.mark_dead("health", first, %{"code" => "token_revoked"})
-
-    assert {:ok, %{credential_id: "second"}} =
-             CredentialPool.select("health", [first, second, disabled], "fill_first")
-
-    assert %{
-             "first" => %{"status" => "dead"},
-             "third" => %{"status" => "disabled"}
-           } = CredentialPool.statuses("health", [first, second, disabled])
-
-    reauthenticated = Map.put(first, "health_revision", "reauthenticated")
-
-    assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("health", [reauthenticated, second, disabled], "fill_first")
-  end
-
-  test "runtime health and rate limits belong to one stored credential revision" do
-    [first, second | _rest] = entries()
-    old_first = Map.put(first, "health_revision", "old")
-    new_first = Map.put(first, "health_revision", "new")
-
-    :ok = CredentialPool.mark_dead("revision", old_first, %{"code" => "old_failure"})
-
-    assert {:ok, %{credential_id: "second"}} =
-             CredentialPool.select("revision", [old_first, second], "fill_first")
-
-    assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("revision", [new_first, second], "fill_first")
-
-    :ok = CredentialPool.mark_dead("revision", old_first, %{"code" => "late_old_failure"})
-
-    :ok =
-      CredentialPool.observe_success(
-        "revision",
-        old_first,
-        %{"x-codex-primary-used-percent" => "90"}
-      )
-
-    assert %{"first" => %{"status" => "ok", "rate_limits" => %{}}} =
-             CredentialPool.statuses("revision", [new_first, second])
-
-    :ok = CredentialPool.mark_dead("revision", new_first, %{"code" => "new_failure"})
-
-    assert %{"first" => %{"status" => "dead"}} =
-             CredentialPool.statuses("revision", [new_first, second])
-  end
-
-  test "a late failure from an old revision does not remove new revision affinity" do
-    [first, second | _rest] = entries()
-    old_first = Map.put(first, "health_revision", "old")
-    new_first = Map.put(first, "health_revision", "new")
-
-    assert {:ok, %{entry: ^old_first}} =
-             CredentialPool.select("revision-affinity", [old_first, second], "round_robin",
-               affinity_key: "thread-1"
-             )
-
-    assert {:ok, %{entry: ^new_first}} =
-             CredentialPool.select("revision-affinity", [new_first, second], "fill_first",
-               affinity_key: "thread-1"
-             )
-
-    :ok =
-      CredentialPool.mark_dead(
-        "revision-affinity",
-        old_first,
-        %{"code" => "late_old_failure"}
-      )
-
-    assert {:ok, %{entry: ^new_first}} =
-             CredentialPool.select("revision-affinity", [new_first, second], "round_robin",
-               affinity_key: "thread-1"
-             )
-
-    assert_affinity_count("revision-affinity", 1)
-
-    :ok = CredentialPool.mark_exhausted("revision-affinity", new_first, 429)
-    assert_affinity_count("revision-affinity", 0)
-
-    assert {:ok, %{entry: ^second}} =
-             CredentialPool.select("revision-affinity", [new_first, second], "round_robin",
-               affinity_key: "thread-1"
-             )
-
-    :ok = CredentialPool.mark_dead("revision-affinity", second)
-    assert_affinity_count("revision-affinity", 0)
-  end
-
   test "persisted reauthentication requirements survive runtime health reset" do
     [first, second | _rest] = entries()
     persisted_dead = Map.put(first, "reauth_required", true)
@@ -334,68 +169,6 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
       |> Enum.frequencies()
 
     assert selections == %{"first" => 20, "second" => 20, "third" => 20}
-  end
-
-  test "pool exhaustion reports the earliest recovery and exclusion never changes health" do
-    [first, second | _rest] = entries()
-    later = DateTime.utc_now(:second) |> DateTime.add(1_200)
-    earlier = DateTime.utc_now(:second) |> DateTime.add(600)
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "earliest",
-        first,
-        429,
-        %{"x-codex-primary-reset-at" => unix(later)}
-      )
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "earliest",
-        second,
-        429,
-        %{"x-codex-primary-reset-at" => unix(earlier)}
-      )
-
-    assert {:error, {:credential_pool_exhausted, %{"retry_at" => retry_at}}} =
-             CredentialPool.select("earliest", [first, second], "fill_first")
-
-    assert_iso_equal(retry_at, earlier)
-
-    reset_first = Map.put(first, "health_revision", "reset")
-
-    assert {:error, {:credential_pool_exhausted, _details}} =
-             CredentialPool.select("earliest", [reset_first, second], "fill_first",
-               exclude: ["first"]
-             )
-
-    assert %{"first" => %{"status" => "ok"}} =
-             CredentialPool.statuses("earliest", [reset_first, second])
-  end
-
-  test "removed credentials do not supply a recovery time for the current pool" do
-    [first | _rest] = entries()
-    retry_at = DateTime.utc_now(:second) |> DateTime.add(600)
-
-    :ok =
-      CredentialPool.mark_exhausted(
-        "removed-entry",
-        %{"id" => "removed", "health_revision" => "removed-revision"},
-        429,
-        %{"x-codex-primary-reset-at" => unix(retry_at)}
-      )
-
-    assert {:error, {:credential_pool_exhausted, details}} =
-             CredentialPool.select(
-               "removed-entry",
-               [Map.put(first, "reauth_required", true)],
-               "fill_first"
-             )
-
-    assert details["retry_at"] == nil
-
-    assert %{"first" => %{"status" => "dead", "reauth_required" => true}} =
-             details["statuses"]
   end
 
   test "successful headers and token usage stay attributed to one credential" do
@@ -456,33 +229,225 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
            )
   end
 
-  test "a later success observation does not erase an active cooldown" do
-    first = hd(entries())
-    entries = [first]
+  test "an expired failure retains affinity until another selection replaces it" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first",
+               affinity_key: "recovering-thread"
+             )
+
+    assert id == first["id"]
+    :ok = CredentialPool.mark_exhausted(provider.id, first, 429, %{"retry-after" => "0"})
+
+    assert {:ok, _} =
+             ProviderConfigs.update_credential(provider.provider_id, first["id"], %{
+               "priority" => 10
+             })
+
+    assert {:ok, %{credential_id: ^id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first",
+               affinity_key: "recovering-thread"
+             )
+  end
+
+  test "an absolute recovery header persists its exact instant" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+    recovery = DateTime.utc_now(:second) |> DateTime.add(300)
+
+    for _ <- 1..20 do
+      :ok =
+        CredentialPool.mark_exhausted(provider.id, first, 429, %{
+          "x-codex-primary-reset-at" => unix(recovery)
+        })
+
+      until = hd(stored_entries(provider))["cooldown_until"]
+      assert {:ok, actual, _} = DateTime.from_iso8601(until)
+      assert DateTime.compare(actual, recovery) == :eq
+    end
+  end
+
+  test "a rate-limited failure records its x-codex headers" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+
+    :ok =
+      CredentialPool.mark_exhausted(provider.id, first, 429, %{
+        "x-codex-primary-used-percent" => "100",
+        "retry-after" => "60"
+      })
+
+    assert CredentialPool.statuses(provider.id, stored_entries(provider))[first["id"]][
+             "rate_limits"
+           ] ==
+             %{"x-codex-primary-used-percent" => "100"}
+  end
+
+  test "a cooldown survives selection-process replacement and controls affinity" do
+    provider = provider_fixture()
+    [first, second] = stored_entries(provider)
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "round_robin",
+               affinity_key: "thread"
+             )
+
+    assert id == first["id"]
     retry_at = DateTime.utc_now(:second) |> DateTime.add(600)
 
     :ok =
       CredentialPool.mark_exhausted(
-        "concurrent-health",
+        provider.id,
         first,
         429,
-        %{"x-codex-primary-reset-at" => unix(retry_at)}
+        %{"x-codex-primary-reset-at" => unix(retry_at)},
+        %{"code" => "rate_limit", "message" => "wait"}
       )
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "round_robin",
+               affinity_key: "thread"
+             )
+
+    assert id == second["id"]
+    :ok = Supervisor.terminate_child(Ankole.Supervisor, CredentialPool)
+    assert {:ok, _pid} = Supervisor.restart_child(Ankole.Supervisor, CredentialPool)
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first")
+
+    assert id == second["id"]
+    status = CredentialPool.statuses(provider.id, stored_entries(provider))[first["id"]]
+    assert status["status"] == "exhausted"
+    assert status["last_error_code"] == "rate_limit"
+    assert_iso_equal(status["retry_at"], retry_at)
+  end
+
+  test "a shorter failure and a later success cannot clear the stored cooldown" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+    :ok = CredentialPool.mark_exhausted(provider.id, first, 429, %{"retry-after" => "60"})
+    before = hd(stored_entries(provider))
+    :ok = CredentialPool.mark_exhausted(provider.id, first, 429, %{"retry-after" => "0"})
 
     :ok =
-      CredentialPool.observe_success(
-        "concurrent-health",
-        first,
-        %{"x-codex-primary-used-percent" => "80"}
-      )
+      CredentialPool.observe_success(provider.id, first, %{"x-codex-primary-used-percent" => "80"})
 
-    assert %{
-             "first" => %{
-               "status" => "exhausted",
-               "rate_limits" => %{"x-codex-primary-used-percent" => "80"}
-             }
-           } = CredentialPool.statuses("concurrent-health", entries)
+    assert hd(stored_entries(provider))["cooldown_until"] == before["cooldown_until"]
+
+    assert CredentialPool.statuses(provider.id, stored_entries(provider))[first["id"]]["status"] ==
+             "exhausted"
   end
+
+  test "credential replacement clears cooldown and rejects late failures from the old revision" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+    :ok = CredentialPool.mark_dead(provider.id, first, %{"code" => "revoked"})
+
+    assert {:ok, _} =
+             ProviderConfigs.update_credential(provider.provider_id, first["id"], %{
+               "api_key" => "sk-new"
+             })
+
+    replacement = hd(stored_entries(provider))
+    assert replacement["health_revision"] != first["health_revision"]
+    refute replacement["cooldown_until"]
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first",
+               affinity_key: "thread"
+             )
+
+    assert id == first["id"]
+    :ok = CredentialPool.mark_dead(provider.id, first, %{"code" => "late_old_failure"})
+
+    :ok =
+      CredentialPool.observe_success(provider.id, first, %{"x-codex-primary-used-percent" => "90"})
+
+    assert hd(stored_entries(provider)) == replacement
+
+    assert {:ok, %{credential_id: ^id}} =
+             CredentialPool.select(
+               provider.id,
+               Enum.reverse(stored_entries(provider)),
+               "round_robin",
+               affinity_key: "thread"
+             )
+
+    assert CredentialPool.statuses(provider.id, stored_entries(provider))[id]["rate_limits"] ==
+             %{}
+  end
+
+  test "metadata updates preserve cooldown and expired deadlines become selectable" do
+    provider = provider_fixture()
+    first = hd(stored_entries(provider))
+    :ok = CredentialPool.mark_exhausted(provider.id, first, 429, %{"retry-after" => "60"})
+    before = hd(stored_entries(provider))
+
+    assert {:ok, _} =
+             ProviderConfigs.update_credential(provider.provider_id, first["id"], %{
+               "label" => "Renamed"
+             })
+
+    assert hd(stored_entries(provider))["cooldown_until"] == before["cooldown_until"]
+    second = List.last(stored_entries(provider))
+    :ok = CredentialPool.mark_exhausted(provider.id, second, 429, %{"retry-after" => "0"})
+
+    assert {:ok, %{credential_id: id}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first")
+
+    assert id == second["id"]
+  end
+
+  test "pool exhaustion reports the earliest current cooldown and ignores removed credentials" do
+    provider = provider_fixture()
+    [first, second] = stored_entries(provider)
+    later = DateTime.utc_now(:second) |> DateTime.add(1200)
+    earlier = DateTime.utc_now(:second) |> DateTime.add(600)
+
+    :ok =
+      CredentialPool.mark_exhausted(provider.id, first, 429, %{
+        "x-codex-primary-reset-at" => unix(later)
+      })
+
+    :ok =
+      CredentialPool.mark_exhausted(provider.id, second, 429, %{
+        "x-codex-primary-reset-at" => unix(earlier)
+      })
+
+    assert {:error, {:credential_pool_exhausted, details}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first")
+
+    assert_iso_equal(details["retry_at"], earlier)
+    assert {:ok, _} = ProviderConfigs.delete_credential(provider.provider_id, second["id"])
+    :ok = CredentialPool.mark_exhausted(provider.id, second, 429, %{"retry-after" => "3600"})
+
+    assert {:error, {:credential_pool_exhausted, details}} =
+             CredentialPool.select(provider.id, stored_entries(provider), "fill_first")
+
+    assert_iso_equal(details["retry_at"], later)
+    assert Map.keys(details["statuses"]) == [first["id"]]
+  end
+
+  defp provider_fixture do
+    {:ok, provider} =
+      ProviderConfigs.create_provider(%{
+        provider_id: "cooldown-#{System.unique_integer([:positive])}",
+        provider_kind: "openai",
+        credential_pool: %{
+          "entries" => [
+            %{"label" => "First", "api_key" => "sk-first", "priority" => 0},
+            %{"label" => "Second", "api_key" => "sk-second", "priority" => 1}
+          ]
+        }
+      })
+
+    provider
+  end
+
+  defp stored_entries(provider), do: Repo.get!(Provider, provider.id).credential_pool["entries"]
 
   defp assert_affinity_count(provider, count) do
     state = :sys.get_state(CredentialPool)[provider]

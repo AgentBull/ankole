@@ -33,7 +33,7 @@ defmodule FeishuOpenAPI.MixProject do
   defp deps do
     [
       {:req, "~> 0.7.3"},
-      {:torque, "~> 0.2.7"},
+      {:torque, "~> 0.5.0"},
       {:telemetry, "~> 1.4.2"},
       {:mint_web_socket, "~> 1.0"},
       {:plug, "~> 1.20", optional: true},

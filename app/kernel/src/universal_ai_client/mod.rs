@@ -13,13 +13,12 @@ mod downstream;
 mod error;
 mod hosted_responses;
 mod request_builder;
-mod runtime;
 mod spec;
 mod transport;
 mod wire;
 
 pub use client::{
-    APIResolverKind, DownstreamKind, EventSink, ModelRequestSpec, RawRequestSpec,
-    RequestResultSink, StreamEvent, StreamHandle, StreamLimits, StreamSpec, UpstreamKind,
-    start_model_request, start_raw_request, start_stream,
+    APIResolverKind, EventSink, ModelRequestSpec, RawRequestSpec, RequestResultSink, StreamEvent,
+    StreamHandle, StreamLimits, StreamSpec, UpstreamKind, start_model_request, start_raw_request,
+    start_stream,
 };

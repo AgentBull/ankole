@@ -20,14 +20,11 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
 
   @standard_responses [
     ok: {"Agent Library capabilities", "application/json", AgentLibraryCapabilitiesResponse},
-    unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-    forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-    not_found: {"Not found", "application/json", ErrorEnvelope},
-    unprocessable_entity: {"Invalid capability", "application/json", ErrorEnvelope}
+    default: {"Error", "application/json", ErrorEnvelope}
   ]
 
   tags(["Agent Library"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer

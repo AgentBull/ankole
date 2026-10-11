@@ -2180,10 +2180,8 @@ defmodule Ankole.AIGateway.Compaction do
   @doc false
   @spec config() :: map()
   def config do
-    case AppConfigure.get(config_definition()) do
-      {:ok, config} -> config
-      _reason -> @default_config
-    end
+    {:ok, config} = AppConfigure.get(config_definition())
+    config
   end
 
   defp config_schema do

@@ -1,6 +1,6 @@
 defmodule Ankole.IdentityProviders.DirectoryEvent do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
   schema "identity_directory_events" do
@@ -17,7 +17,7 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
 
     field :last_error, :string
     field :processed_at, :utc_datetime_usec
-    field :reviewed_by, Ankole.Ecto.PrincipalKey
+    field :reviewed_by, Ankole.Ecto.ActorRef
     field :review_reason, :string
     timestamps()
   end

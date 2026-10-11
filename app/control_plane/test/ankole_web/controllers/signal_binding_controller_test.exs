@@ -12,10 +12,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.AuthZ.Grant
   alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler, as: LarkConnectionReconciler
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -27,6 +29,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     {:ok, true} = SetupConfig.put_completed(true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
+    # A saved Lark binding starts an asynchronous pass of the shared Lark
+    # connection reconciler. Wait for the pass before the sandbox owner stops,
+    # so that the pass cannot read the data of a later test.
+    on_exit(fn -> :sys.get_state(LarkConnectionReconciler) end)
+
     :ok
   end
 
@@ -37,7 +44,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => %{
           "appID" => "cli_lark_main",
@@ -66,7 +73,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert binding.adapter == "lark"
     assert binding.unaddressed_group_message_policy == :record_only
 
-    assert {:ok, config} = LarkConfig.load_chat_config_ref(binding.config_ref)
+    assert {:ok, config} = Bindings.binding_config(binding, LarkConfig)
     assert config["appID"] == "cli_lark_main"
     assert config["appSecret"] == "secret-lark-main"
     # The bot identity is resolved automatically at connection time, so the
@@ -101,7 +108,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => %{"appSecret" => "secret-lark-main", "domain" => "feishu"}
       })
@@ -122,7 +129,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(agent.uid, "lark", "lark-main", lark_config("delivery-unsupported"))
 
     assert response(conn, 200)
@@ -171,7 +178,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(agent.uid, "lark", "lark-main", lark_config("delivery-failure"))
 
     assert response(conn, 200)
@@ -268,7 +275,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(agent.uid, "lark", "lark-main", original_config)
 
     assert response(conn, 200)
@@ -320,8 +327,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            } = json_response(conn, 200)
 
     assert {:ok, stored_config} =
-             LarkConfig.load_chat_config_ref(
-               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             Bindings.binding_config(
+               %Binding{
+                 config_ref:
+                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+               },
+               LarkConfig
              )
 
     assert stored_config["appSecret"] == original_config["appSecret"]
@@ -333,7 +344,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/missing/default", %{
         "config" => %{}
       })
@@ -347,7 +358,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(agent.uid, "lark", "lark-main", lark_config("same-agent"))
 
     assert response(conn, 200)
@@ -369,8 +380,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert agent_uid == agent.uid
 
     assert {:ok, %{"appID" => "cli_same-agent-updated"}} =
-             LarkConfig.load_chat_config_ref(
-               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             Bindings.binding_config(
+               %Binding{
+                 config_ref:
+                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+               },
+               LarkConfig
              )
   end
 
@@ -386,7 +401,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(agent.uid, "lark", "lark-main", original_config)
 
     assert response(conn, 200)
@@ -410,8 +425,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert agent_uid == agent.uid
 
     assert {:ok, stored_config} =
-             LarkConfig.load_chat_config_ref(
-               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             Bindings.binding_config(
+               %Binding{
+                 config_ref:
+                   "app-config://#{LarkConfig.binding_config_key(agent.uid, "lark-main")}"
+               },
+               LarkConfig
              )
 
     assert stored_config["appID"] == original_config["appID"]
@@ -427,7 +446,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("move"))
 
     assert response(conn, 200)
@@ -457,10 +476,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert target_binding.filters == %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
 
     assert {:ok, %{"appID" => "cli_move"}} =
-             LarkConfig.load_chat_config_ref(target_binding.config_ref)
+             Bindings.binding_config(target_binding, LarkConfig)
 
     assert {:ok, %{"appID" => "cli_move"}} =
-             LarkConfig.load_chat_config_ref(source_binding.config_ref)
+             Bindings.binding_config(source_binding, LarkConfig)
   end
 
   test "moving a binding keeps the group-message mode when the request omits it", %{conn: conn} do
@@ -469,7 +488,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => lark_config("group-mode-keep"),
         "group_message_mode" => "may_intervene"
@@ -500,7 +519,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => lark_config("policy-keep"),
         "unmatched_sender_policy" => "create_standalone"
@@ -532,7 +551,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("source-conflict"))
 
     assert response(conn, 200)
@@ -565,7 +584,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(target_agent.uid, "lark", "lark-main", lark_config("disabled-target"))
 
     assert response(conn, 200)
@@ -609,7 +628,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("missing-target"))
 
     assert response(conn, 200)
@@ -636,7 +655,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("forbidden"))
 
     assert response(conn, 200)
@@ -659,7 +678,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   } do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       put_binding(conn, first_agent.uid, "lark", "lark-main", %{
@@ -693,11 +712,19 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
 
     assert {:ok, %{"appID" => "cli_second_lark", "appSecret" => "secret-second-lark"}} =
-             LarkConfig.load_chat_config_ref(config_key)
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{config_key}"},
+               LarkConfig
+             )
 
     conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
-    assert {:ok, %{"appID" => "cli_second_lark"}} = LarkConfig.load_chat_config_ref(config_key)
+
+    assert {:ok, %{"appID" => "cli_second_lark"}} =
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{config_key}"},
+               LarkConfig
+             )
   end
 
   test "generic AppConfigure updates cannot bypass DingTalk binding assignment ownership", %{
@@ -705,7 +732,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   } do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       put_binding(conn, first_agent.uid, "dingtalk", "dingtalk-main", %{
@@ -742,11 +769,20 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
             %{
               "clientId" => "ding_second",
               "clientSecret" => "secret-second-dingtalk"
-            }} = DingTalkConfig.load_chat_config_ref(config_key)
+            }} =
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{config_key}"},
+               DingTalkConfig
+             )
 
     conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
-    assert {:ok, %{"clientId" => "ding_second"}} = DingTalkConfig.load_chat_config_ref(config_key)
+
+    assert {:ok, %{"clientId" => "ding_second"}} =
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{config_key}"},
+               DingTalkConfig
+             )
   end
 
   test "owner-managed adapter keys reject missing and corrupt rows before generic writes", %{
@@ -761,7 +797,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
        %{"clientId" => "ding_missing", "clientSecret" => "secret"}}
     ]
 
-    Enum.reduce(cases, bearer_conn(conn), fn {config_key, config}, conn ->
+    Enum.reduce(cases, console_conn(conn), fn {config_key, config}, conn ->
       conn = put_generic_config(conn, config_key, config)
 
       assert %{
@@ -828,7 +864,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> Enum.map(fn {key, attrs} ->
         Task.async(fn ->
           send(parent, {:generic_writer_ready, self()})
-          receive do: (:write -> AppConfigure.console_update_global_by_key(key, attrs))
+          receive do: (:write -> AppConfigure.console_update(:global, key, attrs))
         end)
       end)
 
@@ -849,10 +885,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            end)
 
     assert {:ok, %{"appID" => "cli_concurrent_owner"}} =
-             LarkConfig.load_chat_config_ref(lark_key)
+             Bindings.binding_config(%Binding{config_ref: "app-config://#{lark_key}"}, LarkConfig)
 
     assert {:ok, %{"clientId" => "ding_concurrent_owner"}} =
-             DingTalkConfig.load_chat_config_ref(dingtalk_key)
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{dingtalk_key}"},
+               DingTalkConfig
+             )
   end
 
   test "admin lists signal adapter catalog with provider fields and common group mode field", %{
@@ -860,7 +899,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   } do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/signal-adapters")
 
     assert %{"signal_adapters" => adapters} = json_response(conn, 200)
@@ -900,7 +939,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     end
 
     test "catalog serves the configured providers and the standalone choice", %{conn: conn} do
-      conn = conn |> bearer_conn() |> get(~p"/api/v1/signal-adapters")
+      conn = conn |> console_conn() |> get(~p"/api/v1/signal-adapters")
 
       assert %{"signal_adapters" => adapters} = json_response(conn, 200)
       lark = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
@@ -929,13 +968,19 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => lark_config("adopted")
         })
 
       assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
-      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+
+      assert {:ok, stored_config} =
+               Bindings.binding_config(
+                 %Binding{config_ref: "app-config://#{config_key}"},
+                 LarkConfig
+               )
+
       assert stored_config["identityProvider"] == nil
       assert LarkConfig.subject_namespace(stored_config) == "feishu"
     end
@@ -948,7 +993,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => Map.put(lark_config("unknown"), "identityProvider", "lark-main")
         })
@@ -964,7 +1009,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         })
 
       assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
-      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+
+      assert {:ok, stored_config} =
+               Bindings.binding_config(
+                 %Binding{config_ref: "app-config://#{config_key}"},
+                 LarkConfig
+               )
+
       assert LarkConfig.subject_namespace(stored_config) == "feishu"
 
       conn =
@@ -976,7 +1027,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         })
 
       assert %{"signal_binding" => %{"name" => "lark-main"}} = json_response(conn, 200)
-      assert {:ok, stored_config} = LarkConfig.load_chat_config_ref("app-config://#{config_key}")
+
+      assert {:ok, stored_config} =
+               Bindings.binding_config(
+                 %Binding{config_ref: "app-config://#{config_key}"},
+                 LarkConfig
+               )
+
       assert LarkConfig.subject_namespace(stored_config) == "lark-main"
     end
 
@@ -985,7 +1042,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => lark_config("older")
         })
@@ -1061,7 +1118,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{
     conn: conn
   } do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       without_plugin_registry(fn ->
@@ -1078,7 +1135,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   test "signal binding save returns 503 while the plugin registry is unavailable", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       without_plugin_registry(fn ->

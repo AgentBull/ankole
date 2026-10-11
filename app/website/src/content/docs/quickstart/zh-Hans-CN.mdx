@@ -33,7 +33,7 @@ export const deploymentTabs = [
     value: 'docker',
     label: 'Docker Compose',
     badge: '单机推荐',
-    summary: '大多数团队从这里开始。一台装有 Docker 的 Linux、macOS 或 Windows 电脑，就能运行 PostgreSQL、控制面、一个 Agent Computer Worker 和 Caddy HTTPS。',
+    summary: "一台主机运行 PostgreSQL、控制面和 Caddy；选定的 provider 为每个 Agent 创建一个 Worker。",
     prerequisites: [
       '能运行 Linux amd64 或 arm64 容器的 Linux、macOS 或 Windows 主机',
       'Docker Engine 与 Compose 插件，或 Docker Desktop',
@@ -71,11 +71,25 @@ export const deploymentTabs = [
                 "  '# ANKOLE的主加密密钥' \\",
                 '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
                 "  '' \\",
-                "  '# ANKOLE的Agent Worker和控制面的相互通讯密钥' \\",
-                '  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=$(openssl rand -hex 32)"'
+                "  '# 控制面的 Erlang distribution cookie' \\",
+                '  "RELEASE_COOKIE=$(openssl rand -hex 32)"'
               ].join('\n')
             }
           ]
+        },
+        {
+          title: '设置 Docker socket 的所属组',
+          body: [
+            '控制面通过 Docker socket 创建 Worker 容器。它以非特权用户运行，并通过容器内看到的 socket 所属组访问 socket。',
+            '在 Linux 上，把 .env 中的 ANKOLE_DOCKER_GID 设为下面命令输出的组 ID。在 macOS 的 Docker Desktop 上，设置 ANKOLE_DOCKER_GID=0。Docker Desktop 交给容器的 socket 所属组总是 0，与主机显示的组无关。只有 socket 不在 /var/run/docker.sock 时，才需要设置 ANKOLE_DOCKER_SOCKET。'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: 'stat -c %g /var/run/docker.sock   # Linux'
+            }
+          ],
+          caution: '能访问 Docker socket 就等同于拥有主机的 root 权限。请把这台主机视为受信任的第一方计算边界。'
         },
         {
           title: '配置访问域名',
@@ -102,7 +116,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            'Compose 会先等待 PostgreSQL 就绪，再执行 migration、写入 Worker key，最后启动控制面、Worker 和 Caddy。'
+            "Compose 等待 PostgreSQL 就绪，完成数据库迁移和一次性 Home 迁移后，再启动控制面与 Caddy。"
           ]
         },
         {
@@ -122,18 +136,14 @@ export const deploymentTabs = [
       summary: '把 Ankole 用于正式环境前，请先看完这些设置。',
       steps: [
         {
-          title: '固定配套的控制面和 Worker 镜像',
+          title: '固定经过验证的镜像',
           body: [
-            'RuntimeFabric 验证通过后，控制面和 Worker 的 tag 会同步更新。需要固定版本时，请选用同一次源码提交生成的两个 digest。'
+            '控制面镜像指定同一次源码提交的 Worker 镜像，控制面用它创建每个 Worker。需要固定版本时，请把控制面镜像设为不可变的 digest；这个 digest 同时固定 Worker 镜像。'
           ],
           fields: [
             {
               name: 'ANKOLE_CONTROL_PLANE_IMAGE',
-              description: '控制面镜像，建议填写不可变的 digest。'
-            },
-            {
-              name: 'ANKOLE_WORKER_IMAGE',
-              description: '与控制面镜像配套的 Worker digest。'
+              description: '控制面镜像，建议填写不可变的 digest。它同时指定 Worker 镜像。'
             },
             {
               name: 'ANKOLE_POSTGRESQL_IMAGE',
@@ -154,7 +164,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            '还要为 ankole_agents_data volume 创建快照。请在另一台主机上同时测试数据库和 Agent Home 能否恢复。'
+            "停止所有写者后，备份 PostgreSQL、ankole_files_data、全部持久 Agent Home 与原 ANKOLE_SECRET_BASE。仅停止控制面不会停止 Worker。请在隔离资源上验证完整恢复，具体步骤见“备份与还原”。"
           ]
         },
         {
@@ -164,14 +174,17 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'docker compose pull',
-                'docker compose down',
+                'docker compose stop',
                 'docker compose up -d --force-recreate',
                 'docker compose ps'
               ].join('\n')
             }
           ],
+          body: [
+            'docker compose stop 会保留 Worker 容器仍在使用的 ankole_workers 网络。Worker 容器会继续运行，并连接到新控制面。控制面会在 Agent 空闲时替换它的旧镜像 Worker。'
+          ],
           caution:
-            'docker compose down 会保留命名 volume；加上 -v 则会删除 PostgreSQL、Agent Home 和 Caddy 数据。除非确定要永久删除，而且备份已经验证可用，否则不要加 -v。'
+            "docker compose down -v 删除 Compose 管理的数据库与文件存储卷；独立 Agent Home 卷有自己的生命周期。删除任何持久存储之前，先验证完整备份。"
         },
         {
           title: '在本机测试 HTTPS',
@@ -202,11 +215,11 @@ export const deploymentTabs = [
     value: 'kubernetes',
     label: 'Kubernetes',
     badge: '企业级推荐',
-    summary: '团队已经有 Kubernetes 集群，并且能配置调度、HTTPS Ingress 和共享存储时，选择这种方式。',
+    summary: '团队已经有 Kubernetes 集群，并且能配置调度和 HTTPS Ingress 时，选择这种方式。控制面通过 Kubernetes API 为每个 Agent 创建一个 Worker Pod。',
     prerequisites: [
       'Kubernetes 1.27 或更高版本，Helm 3 或更高版本',
       'Linux amd64 或 arm64 节点',
-      'HTTPS Ingress，以及供 Agent Home 使用的 ReadWriteMany 存储'
+      "HTTPS Ingress，以及支持共享 ReadWriteMany Agent Home PVC 与 ReadWriteOnce 缓存 PVC 的存储"
     ],
     basic: {
       title: '安装 Helm Chart',
@@ -233,15 +246,15 @@ export const deploymentTabs = [
               code: [
                 'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
                 'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
-                'ANKOLE_WORKER_AUTH_KEY="$(openssl rand -hex 24)"',
+                'RELEASE_COOKIE="$(openssl rand -hex 32)"',
                 '',
                 'kubectl -n ankole create secret generic ankole-bootstrap \\',
                 '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
                 '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
-                '  --from-literal="ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=${ANKOLE_WORKER_AUTH_KEY}" \\',
+                '  --from-literal="RELEASE_COOKIE=${RELEASE_COOKIE}" \\',
                 '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
                 '',
-                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE ANKOLE_WORKER_AUTH_KEY'
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE RELEASE_COOKIE'
               ].join('\n')
             }
           ]
@@ -265,6 +278,10 @@ export const deploymentTabs = [
                 '    persistence:',
                 '      storageClass: nfs-rwx',
                 '      size: 100Gi',
+                '  cache:',
+                '    type: pvc',
+                '    storageClass: standard',
+                '    size: 20Gi',
                 '',
                 'postgresql:',
                 '  enabled: true',
@@ -313,11 +330,11 @@ export const deploymentTabs = [
               language: 'bash',
               code: [
                 'kubectl -n ankole get pods',
-                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m',
-                'kubectl -n ankole rollout status deployment/ankole-worker --timeout=10m'
+                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m'
               ].join('\n')
             }
-          ]
+          ],
+          body: ['此时还没有 Worker Pod。创建 Agent 时，控制面会一并创建这个 Agent 的 Worker。']
         },
         {
           title: '打开首次设置页面',
@@ -370,17 +387,28 @@ export const deploymentTabs = [
           ]
         },
         {
-          title: '确认集群允许 Worker 的安全配置',
+          title: '确认 Worker 的安全配置',
           body: [
-            '要让 bubblewrap 提供强隔离，Worker 需要 SYS_ADMIN、不受限的 seccomp profile，以及未屏蔽的 /proc。Chart 已经配置好这些选项，但集群准入策略必须允许它们。'
+            'Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离边界。Chart 为控制面提供一个 namespace 级 Role，允许它创建和删除 Pod、Secret 和 PVC；并为 Worker Pod 提供单独的、没有任何权限的 ServiceAccount。'
+          ],
+          fields: [
+            {
+              name: 'worker.runtimeClassName',
+              description: '可选。Worker Pod 的 RuntimeClass，例如 gvisor。'
+            },
+            {
+              name: 'networkPolicy.enabled',
+              value: 'true',
+              description: '可选。启用后，Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址。'
+            }
           ],
           caution:
-            'Worker 节点属于受信任的计算边界。如果集群策略拒绝这项配置，请改用专用节点池，或使用经过批准、隔离能力相当的 sandbox。'
+            'Worker 容器是受信任的第一方组件。控制面持有能创建 Pod 和 Secret 的 namespace 级 Role，请把它当作等同于 root 权限的组件来保护。'
         },
         {
           title: '成对固定和升级控制面、Worker 镜像',
           body: [
-            '控制面和 Worker 的 digest 必须来自同一次经过验证的源码提交。执行 helm upgrade 前，先备份 PostgreSQL 和 Agent Home。'
+            "控制面与 Worker 镜像固定为同一验证版本。helm upgrade 之前，备份 PostgreSQL、文件存储、全部持久 Home 与原加密密钥。"
           ],
           caution:
             'Helm rollback 不会撤销数据库 migration。如果旧版本应用依赖旧 schema，还必须恢复数据库备份。'
@@ -400,7 +428,7 @@ export const deploymentTabs = [
   {
     value: 'source',
     label: '源码安装',
-    summary: '开发、排错或在本机试用时选这个。它会启动 PostgreSQL、Phoenix 控制面、Console、前端资源和一个由 Ankole 管理的 Docker Worker。',
+    summary: "源码安装用于开发，启动 PostgreSQL、Phoenix、Console 与前端资源；控制面为每个 Agent 创建 Docker Worker。",
     prerequisites: [
       'macOS 或 Linux；Windows 使用 WSL2',
       '有权限安装系统软件包的账号',
@@ -501,7 +529,7 @@ export const deploymentTabs = [
               code: [
                 'bun run services:status',
                 'curl -I http://localhost:4000/',
-                'docker ps --filter name=ankole-dev-agent-computer'
+                'docker ps -a --filter label=ankole.installation=dev'
               ].join('\n')
             },
             {
@@ -510,6 +538,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
+            '创建 Agent 之前，不会有 Worker 容器。每个 Worker 容器以 watch 模式运行本地的 Agent Computer 源码。',
             '在运行 bun dev 的终端按 Ctrl+C，可停止控制面和 Worker。开发结束后，再用第二段命令停止 PostgreSQL。'
           ]
         },
@@ -1235,7 +1264,7 @@ export const identityTabs = [
 
 export const modelAdvanced = {
   title: '可选 Agent 档案和 Brain 维护配置',
-  summary: 'Agent 能力按需配置；Brain 只保留实例级检索模型。',
+  summary: 'Agent 能力按需配置；Brain 使用站点级 embedding 模型和租户级 rerank 模型。',
   steps: [
     {
       title: '按需配置 Agent 能力档案',
@@ -1261,20 +1290,20 @@ export const modelAdvanced = {
     },
     {
       title: '选择 Brain 维护 Agent 和检索模型',
-      body: ['打开 Console → 系统配置 → Brain。选择负责维护 Brain 的活跃 Agent。Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。停用后，模型调用和本地网页抓取都会停止，直到重新启用或更换 Agent。再通过链接进入该 Agent 的模型配置。'],
+      body: ['打开 Console → 系统配置 → Brain。先选择租户，再选择负责维护其 Brain 的活跃 Agent。Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。停用后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。再通过链接进入该 Agent 的模型配置。'],
       fields: [
         {
           name: 'brain.maintainer_agent_uid',
           description:
-            '使用所选 Agent 的 light profile 抽取知识、heavy profile 执行 Dreaming、web_fetch profile 读取 URL Source。未配置 web_fetch 时改用本地 ankole-browser。'
+            '使用所选 Agent 的 light profile 抽取知识、heavy profile 执行 Dreaming、web_fetch profile 读取 URL Source。未配置 web_fetch 或 Provider 请求失败时，Source 抓取会失败。'
         },
         {
           name: 'brain.embedding_model',
-          description: '启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
+          description: '站点级设置。启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
         },
         {
           name: 'brain.rerank_model',
-          description: '对融合后的搜索结果重新排序；留空会保留融合顺序。'
+          description: '租户级设置。对融合后的搜索结果重新排序；留空会保留融合顺序。'
         }
       ],
       links: [
@@ -2372,16 +2401,18 @@ export const signalAdvanced = {
 
 ## Ankole 的部署结构
 
-一套 Ankole 私有化部署实例由一个控制面和一个或多个 Agent Computer Worker 组成。控制面拥有持久领域状态与监督，负责管理和调度；Worker 负责实际运行 Agent，相当于给 Agent 配的工作电脑。
+一套 Ankole 私有化部署实例由一个控制面和每个 Agent 各一个 Agent Computer Worker 组成。控制面拥有持久领域状态与监督，负责管理和调度；Worker 负责实际运行 Agent，相当于 Agent 自己的工作电脑。
 
-一台 Worker 可以供多个 Agent 使用。金融等需要严格隔离的场景，建议每个 Agent 独享一台 Worker，就像工作电脑既可以给几个实习生共用，也可以一人一台。
+Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑。创建 Agent 时，控制面为它创建 Worker，之后也由控制面自行停止、替换和删除这个 Worker。
 
 <DocsKnowledgeNote
   label="💡 你知道吗？"
-  text="即使多个 Agent 共用一台 Worker，每个 Agent 仍在独立沙盒中运行。沙盒提供基础的进程与文件系统隔离，可以减少彼此干扰；但它属于轻量隔离，不能视为绝对安全边界。"
+  text="Worker 的容器或 Pod 是它唯一的隔离边界。Agent 的命令、Automation 脚本和浏览器直接在其中运行，没有内层沙盒，容器也不需要额外的内核权限。Agent 可以在自己的 Worker 上安装软件，甚至把它弄坏，但不能冒充其他 Agent。Worker 没有及时就绪时，控制面会重建它。"
 />
 
-每个实例还需要 PostgreSQL 和持久化磁盘。单机部署可以使用本地硬盘或虚拟硬盘；Kubernetes 部署则要使用 NFS 等支持 ReadWriteMany 的共享卷。
+每个部署需要 PostgreSQL、云盘文件存储和每个 Agent 的持久 Home。默认 Kubernetes chart 使用共享 ReadWriteMany Home PVC 与独立的 ReadWriteOnce 缓存 PVC。Home 需要备份，缓存不需要。
+
+一个站点可以包含多个租户。站点管理员管理共享基础设施；各租户拥有独立的人员、Agent、Brain 和外部平台连接。管理员控制台默认位于 `/site-admin-console`。需要修改时，在启动前设置 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm 使用 `controlPlane.siteAdminConsolePath`）。旧路径 `/console` 返回 404。
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2391,7 +2422,8 @@ export const signalAdvanced = {
 
 | 统一名称 | 含义 | 后文简称 |
 |---|---|---|
-| **私有化部署实例** | 一家企业自行部署并管理的一套完整 Ankole 系统 | 实例 |
+| **站点（Site）** | 一套共享基础设施、由站点管理员管理的完整 Ankole 部署 | 站点 |
+| **租户（Tenant）** | 站点内一个组织的人员、Agent、Brain、外部连接和工作 | 租户 |
 | **主体（Principal）** | Ankole 中可以拥有身份和权限的人、Agent 或系统服务 | 主体 |
 | **身份源提供商（Identity Provider，IdP）** | 为 Console 提供单点登录，并向 Ankole 同步员工、通讯录和组织架构的外部身份源 | IdP |
 | **聊天平台** | Slack、Teams、飞书 / Lark、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp 或邮箱等承载会话的外部平台 | 平台 |
@@ -2428,7 +2460,7 @@ export const signalAdvanced = {
 
 ## 2. 先设置身份源提供商
 
-Ankole 的核心设计目标是服务企业内部的私有化部署。每家企业拥有一套实例。在同一个实例内，Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）统一管控权限。
+Ankole 服务企业内部的私有化部署。一套站点可以容纳多个租户；各租户的 Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）管控权限。配置身份源前，先在控制台选择目标租户。
 
 因此，除了像 Hermes Agent、OpenClaw 那样配置聊天渠道，Ankole 还要连接企业的外部身份源，用来同步员工、通讯录和组织架构。首次设置时，先配置 IdP，使用企业账号登录 Console，再添加聊天渠道。
 
@@ -2462,7 +2494,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 控制面会加密保存 Provider 凭证。不要再把凭证写进部署环境变量或 Agent 文件。
 
-打开 **Agents → New Agent**。填写一个以后不再更改的 UID 和容易辨认的名称，并在 mission 中写清它负责什么，以及怎样才算交付合格。
+打开 **Agents → New Agent**。填写 handle 和显示名称，选择 Worker provider，并在 mission 中写清职责和交付标准。UID 由 Ankole 自动生成。
 
 接着配置 model profile：
 
@@ -2546,8 +2578,8 @@ Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的
 4. 路由规则已启用，并指向正确的 Agent。
 5. Agent 已配置 `primary`、`light` 与 `heavy`。
 6. 模型提供商凭证和模型选择器有效。
-7. 至少有一个 Worker 显示为 ready。
+7. 在 **Console → 工作节点** 中，该 Agent 的 Worker 显示为“就绪”；否则，该页面会显示后端给出的原因。
 
-使用 Compose 时，运行 `docker compose logs -f control-plane worker`。使用 Kubernetes 时，查看控制面和 Worker Pod 的日志。只查看相关错误，不要输出环境变量或 secret。
+使用 Compose 时，运行 `docker compose logs -f control-plane`；用 `docker ps -a --filter label=ankole.installation=ankole` 列出 Worker 容器，再用 `docker logs CONTAINER_NAME` 查看其中一个。使用 Kubernetes 时，查看控制面和 Worker Pod 的日志。只查看相关错误，不要输出环境变量或 secret。
 
 收到回复后，可以继续阅读 [Agent](../agents/)、[信号路由规则](../signal-bindings/)或 [后台 Agent 任务](../background-jobs/)。

@@ -3,6 +3,7 @@ defmodule Ankole.AutomationJobsTest do
   # AppConfigure ETS cache, which needs the shared sandbox connection.
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AutomationJobs
@@ -13,6 +14,9 @@ defmodule Ankole.AutomationJobsTest do
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
   @now ~U[2026-07-30 09:00:00.000000Z]
 
@@ -99,6 +103,63 @@ defmodule Ankole.AutomationJobsTest do
                session_id: source.session_id,
                type: "automation_job.run_failed"
              )
+  end
+
+  test "a run waits for its Agent's Worker without an attempt, and a cancelled run stops waiting" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source)
+    run = enqueue!(job, trigger_event("waits-for-worker"))
+
+    assert {:snooze, 10} = execute(run, attempt: 1)
+    assert %Run{status: "queued", attempts: 0} = Repo.get!(Run, run.id)
+    assert %AgentWorker{wanted_until: %DateTime{}} = Repo.get!(AgentWorker, agent.uid)
+    assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => agent.uid})
+
+    Repo.update_all(where(AgentWorker, agent_uid: ^agent.uid), set: [wanted_until: nil])
+
+    assert {:ok, %{status: :cancelled}} =
+             AutomationJobs.cancel_job(agent.uid, source.session_id, job.id)
+
+    assert :ok = execute(run, attempt: 1)
+    assert %AgentWorker{wanted_until: nil} = Repo.get!(AgentWorker, agent.uid)
+  end
+
+  test "a Worker that stays not ready for ready_timeout costs one attempt, and the last one fails the run" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source, wake_on_failure: true)
+    run = enqueue!(job, trigger_event("worker-never-ready"))
+
+    wait_past_ready_timeout(run)
+    assert {:error, :agent_worker_unavailable} = execute(run, attempt: 1)
+
+    assert %Run{status: "queued", attempts: 1, attempt_id: nil, error: error} =
+             Repo.get!(Run, run.id)
+
+    assert error =~ "agent_worker_unavailable"
+
+    assert {:snooze, 10} = execute(run, attempt: 2)
+
+    wait_past_ready_timeout(run)
+    assert :ok = execute(run, attempt: 5)
+    assert %Run{status: "failed", attempts: 2} = Repo.get!(Run, run.id)
+
+    assert %ActorEvent{type: "automation_job.run_failed"} =
+             Repo.get_by!(ActorEvent,
+               agent_uid: agent.uid,
+               session_id: source.session_id,
+               type: "automation_job.run_failed"
+             )
+  end
+
+  test "creation requires main.ts in the drive folder" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    drive_file_fixture(agent.uid, "automation/draft/notes.md", "no entry point yet")
+
+    assert {:error, :automation_job_script_missing} =
+             AutomationJobs.create_job(job_attrs(source, drive_prefix: "automation/draft"))
   end
 
   test "script failure is terminal and stores bounded log tails without scheduling another attempt" do
@@ -280,7 +341,7 @@ defmodule Ankole.AutomationJobsTest do
              0
   end
 
-  test "checkback replacement can bind and clear an automation job" do
+  test "checkback updates can bind and clear an automation job" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
     job = job!(source)
@@ -303,6 +364,7 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 1, :second)
              )
 
+    assert bound.id == initial.id
     assert bound.automation_job_id == job.id
 
     assert {:ok, %{scheduled_event: direct}} =
@@ -357,8 +419,7 @@ defmodule Ankole.AutomationJobsTest do
              )
 
     assert schedule.automation_job_id == job.id
-    assert [automatic] = Schedule.list_cron_runs(schedule.id, 10)
-    assert automatic.automation_job_id == job.id
+    assert Schedule.list_cron_runs(schedule.id, 10) == []
 
     assert {:ok, %{scheduled_event: manual}} =
              Schedule.run_cron_schedule(schedule.id,
@@ -383,40 +444,89 @@ defmodule Ankole.AutomationJobsTest do
 
     assert updated.automation_job_id == nil
 
-    same_automatic =
-      schedule.id
-      |> Schedule.list_cron_runs(10)
-      |> Enum.find(&(&1.id == automatic.id))
+    assert Schedule.list_cron_runs(schedule.id, 10) == [Repo.reload!(manual)]
 
-    assert same_automatic.id == automatic.id
-    assert same_automatic.automation_job_id == nil
+    assert {:ok, %{actor_event: actor_event, scheduled_event: automatic}} =
+             Schedule.fire_cron(schedule.id, now: first_slot)
 
-    assert {:ok, %{actor_event: actor_event}} =
-             Schedule.fire_due_event(same_automatic.id, now: first_slot)
+    assert automatic.automation_job_id == nil
 
     assert actor_event.type == "cron.fire"
   end
 
-  defp job!(source, opts \\ []) do
-    assert {:ok, job} =
-             AutomationJobs.create_job(%{
-               agent_uid: source.agent_uid,
-               owner_session_id: source.session_id,
-               source_actor_event_id: source.id,
-               source_entry_id: source.source_entry_id,
-               source_provenance: %{"kind" => "test"},
-               reply_route: %{
-                 "binding_name" => source.binding_name,
-                 "signal_channel_id" => source.signal_channel_id,
-                 "provider_thread_id" => source.provider_thread_id,
-                 "source_entry_id" => source.source_entry_id
-               },
-               directory_path: "/agents/#{source.agent_uid}/automation/test",
-               label: "Deterministic test consumer",
-               wake_on_failure: Keyword.get(opts, :wake_on_failure, false)
-             })
+  test "a cron slot history rejects a second automation run" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source)
+    slot = DateTime.add(@now, 1, :minute)
 
+    assert {:ok, %{cron_schedule: rule}} =
+             create_cron_schedule(
+               %{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => source.session_id,
+                 "binding_name" => source.binding_name,
+                 "name" => "automation-once",
+                 "schedule" => %{
+                   "kind" => "every",
+                   "every_ms" => 60_000,
+                   "anchor_at" => DateTime.to_iso8601(slot)
+                 },
+                 "payload" => %{},
+                 "delivery" => %{
+                   "targets" => [
+                     %{
+                       "binding_name" => source.binding_name,
+                       "signal_channel_id" => source.signal_channel_id
+                     }
+                   ]
+                 },
+                 "idempotency_key" => "automation-once",
+                 "automation_job_id" => job.id
+               },
+               now: @now
+             )
+
+    assert {:ok, %{automation_job_run: run}} = Schedule.fire_cron(rule.id, now: slot)
+    Repo.update!(Ecto.Changeset.change(Repo.reload!(rule), next_fire_at: slot))
+    assert {:error, %Ecto.Changeset{}} = Schedule.fire_cron(rule.id, now: slot)
+    assert Repo.all(from r in Run, where: r.automation_job_id == ^job.id) == [run]
+  end
+
+  defp execute(run, opts) do
+    perform_job(ExecuteRun, %{"automation_job_run_id" => run.id}, opts)
+  end
+
+  defp wait_past_ready_timeout(run) do
+    waiting_since =
+      DateTime.add(DateTime.utc_now(), -Settings.current().ready_timeout_ms - 1_000, :millisecond)
+
+    Repo.update_all(where(Run, id: ^run.id), set: [updated_at: waiting_since])
+  end
+
+  defp job!(source, opts \\ []) do
+    drive_file_fixture(source.agent_uid, "automation/test/main.ts")
+    assert {:ok, job} = AutomationJobs.create_job(job_attrs(source, opts))
     job
+  end
+
+  defp job_attrs(source, opts) do
+    %{
+      agent_uid: source.agent_uid,
+      owner_session_id: source.session_id,
+      source_actor_event_id: source.id,
+      source_entry_id: source.source_entry_id,
+      source_provenance: %{"kind" => "test"},
+      reply_route: %{
+        "binding_name" => source.binding_name,
+        "signal_channel_id" => source.signal_channel_id,
+        "provider_thread_id" => source.provider_thread_id,
+        "source_entry_id" => source.source_entry_id
+      },
+      drive_prefix: Keyword.get(opts, :drive_prefix, "automation/test"),
+      label: "Deterministic test consumer",
+      wake_on_failure: Keyword.get(opts, :wake_on_failure, false)
+    }
   end
 
   defp enqueue!(job, event) do
@@ -486,7 +596,11 @@ defmodule Ankole.AutomationJobsTest do
       attrs,
       Keyword.put_new(opts, :created_by, %{
         "kind" => "operator_api",
-        "principal_uid" => attrs["agent_uid"] || attrs[:agent_uid]
+        "principal_uid" =>
+          to_string(%Ankole.ActorRef{
+            tenant_id: Repo.tenant_id!(),
+            uid: attrs["agent_uid"] || attrs[:agent_uid]
+          })
       })
     )
   end

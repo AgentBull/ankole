@@ -7,11 +7,10 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   @moduledoc """
   Live OpenRouter Workflow scenarios through fake Feishu WS frames.
 
-  RuntimeEvents is disabled in the test environment, so each scenario drives
+  Oban queues use manual test mode, so each scenario drives
   the durable machine by hand: it pokes the RunServer for replay, processes
   each dispatch, wake, and owner wakeup ActorEvent, and asserts the durable
-  rows between hops. Sleep deadlines advance through the logical `now` given
-  to the ready-event processor instead of real waiting.
+  rows between hops. Sleep wakeups use the persisted deadline and real time.
   """
 
   import Ecto.Query
@@ -37,15 +36,12 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   alias Ankole.Workflow.Schemas.Run
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
-  @primary_model "~deepseek/deepseek-v4-flash-latest"
-  @light_model "~deepseek/deepseek-v4-flash-latest"
-  @coding_model "z-ai/glm-5.3-flash"
+  @primary_model "deepseek/deepseek-v4.1-flash"
+  @light_model "deepseek/deepseek-v4.1-flash"
+  @coding_model "deepseek/deepseek-v4.1-flash"
 
-  # OpenRouter GLM-5.3-flash stalls intermittently with zero stream output.
-  # The platform streaming idle budget is 30 minutes for high-thinking models,
-  # so bound turns with the ordinary per-agent inactivity timeout instead: a
-  # stalled call aborts the turn, compensation restores the durable call, and
-  # event redelivery retries — production machinery, not a test shortcut.
+  # Bound a stalled provider request through the ordinary Agent inactivity
+  # policy. Compensation restores the durable call for event redelivery.
   @stall_recovery_inactivity_timeout_ms 180_000
 
   @doc "Points primary/light at the user-selected OpenRouter models."
@@ -54,9 +50,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     put_profile!(agent.uid, provider_id, "light", @light_model)
 
     assert {:ok, _timeout} =
-             AppConfigure.put_for_agent(
-               agent.uid,
-               AgentConfig.inactivity_timeout_ms_definition(),
+             AppConfigure.put_tenant_by_key(AgentConfig.inactivity_timeout_ms_definition().key,
                @stall_recovery_inactivity_timeout_ms
              )
   end
@@ -157,8 +151,12 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert wake_event.type == "workflow.task.wakeup"
     assert DateTime.after?(wake_event.available_at, DateTime.utc_now())
 
-    # Advance the logical clock past the sleep deadline instead of waiting.
-    process_ready!(wake_event, DateTime.add(wake_event.available_at, 1, :second))
+    assert {:ok, true} =
+             wait_until(deadline(70_000), fn ->
+               not DateTime.after?(wake_event.available_at, DateTime.utc_now(:microsecond))
+             end)
+
+    process_ready!(wake_event)
 
     call = wait_for_call_status!(run, 0, "succeeded", deadline(420_000))
     assert call.result == %{"ok" => true, "value" => "woke"}
@@ -518,7 +516,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     call = wait_for_terminal_call!(run, 0, deadline(60_000))
     assert call.status == "failed"
     assert call.result["ok"] == false
-    assert call.result["code"] == "workflow_model_profile_unavailable"
+    assert call.result["code"] == "workflow_task_model_profile_unavailable"
 
     completion = drive_run_to_completion!(run, agent)
     {reply, _message} = process_owner_wakeup!(container, completion)
@@ -555,7 +553,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
         """
       })
 
-    {run, _start_reply} = start_run!(container, agent, input)
+    {run, _start_reply} = start_run!(container, agent, input, :failed)
     poke_run!(run.id)
 
     assert {:ok, %Run{} = run} =
@@ -677,7 +675,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     %{input: input, run: Repo.get!(Run, run.id), jobs: jobs, reply: reply}
   end
 
-  # Drives the durable machine the way production RuntimeEvents does: poke the
+  # Drives the durable machine through its production owners: poke the
   # RunServer, process every due wf_task:/job: session event, and repeat until
   # the run leaves `running`. Owner-session events stay untouched for the
   # caller, so the owner wakes exactly once at the end.
@@ -715,7 +713,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     # A busy session defers its event; only redeliver, never assert progress.
     Enum.each(events, fn event ->
-      process_ready_event_for_actor!(event, DateTime.add(now, 1, :second))
+      ensure_input_driver!(event, now)
     end)
   end
 
@@ -754,8 +752,9 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     actor_event_by_source_entry_id!(agent.uid, opts.message_id)
   end
 
-  defp start_run!(container, agent, input) do
-    assert {:ok, %{send_outcome: "sent_or_queued"}} = process_ready!(input)
+  defp start_run!(container, agent, input, expected_terminal \\ nil)
+       when expected_terminal in [nil, :failed] do
+    assert {:ok, %{status: :driving}} = process_ready!(input)
 
     assert {:ok, start_reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(420_000))
@@ -768,11 +767,15 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
         )
       )
 
-    assert run.status == "running"
+    case expected_terminal do
+      :failed -> assert run.status in ["running", "failed"]
+      nil -> assert run.status == "running"
+    end
+
     {run, start_reply}
   end
 
-  # RuntimeEvents is disabled under MIX_ENV=test, so replay advances only when
+  # Oban uses manual test mode, so replay advances when
   # the scenario pokes the RunServer.
   defp poke_run!(run_id) do
     assert :ok = RunServer.poke(run_id)
@@ -922,10 +925,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   end
 
   defp process_ready!(%ActorEvent{} = event),
-    do: process_ready!(event, DateTime.add(event.available_at, 1, :second))
-
-  defp process_ready!(%ActorEvent{} = event, now),
-    do: process_ready_event_for_actor!(event, now)
+    do: ensure_input_driver!(event, DateTime.utc_now(:microsecond))
 
   defp reply_text!(reply), do: reply.text || ""
 

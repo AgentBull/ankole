@@ -3,7 +3,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   Operator-configured AIGateway provider endpoint and inline credential pool.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]

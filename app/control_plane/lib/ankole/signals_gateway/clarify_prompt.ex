@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   """
 
   alias Ankole.Ecto.JSONPayload
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "clarify"
@@ -47,7 +48,12 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
   defp normalize_output(%{"tool" => @tool_name} = output, call_id) do
     with {:ok, question} <- required_text(output, "question"),
          {:ok, choices} <- normalize_choices(Map.get(output, "choices", [])) do
-      fallback = fallback_text(question, choices)
+      fallback =
+        ReplyPresentation.clarification_text(
+          question,
+          choices,
+          "Reply with a number or type your answer."
+        )
 
       {:ok,
        %{
@@ -91,23 +97,6 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
        }
        |> Ankole.Attrs.maybe_put("description", optional_text(choice, "description"))}
     end
-  end
-
-  defp fallback_text(question, choices) do
-    options =
-      choices
-      |> Enum.with_index(1)
-      |> Enum.map_join("\n", fn {choice, index} ->
-        description =
-          case choice["description"] do
-            text when is_binary(text) and text != "" -> " — #{text}"
-            _value -> ""
-          end
-
-        "#{index}. #{choice["label"]}#{description}"
-      end)
-
-    "#{question}\n\n#{options}\n\nReply with a number or type your answer."
   end
 
   defp required_text(map, key) do

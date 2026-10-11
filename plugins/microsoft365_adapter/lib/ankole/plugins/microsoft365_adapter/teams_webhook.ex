@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   the gateway's `(agent_uid, binding_name, source_event_id)` idempotency.
   """
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.{Logging, SignalsGateway}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.{BotFrameworkAuth, Config, Inbound}
@@ -43,6 +44,17 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   def handle_webhook(_request), do: {:ok, %{status: 404, body: %{"error" => "unknown webhook"}}}
 
   defp run_dispatch(activity, consumers, app_id) do
+    tenant_id = Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers)
+
+    case Ankole.Tenants.dispatch_inbound(tenant_id, fn ->
+           run_active_dispatch(activity, consumers, app_id)
+         end) do
+      {:ok, []} -> {:ok, %{status: 200, body: %{}}}
+      result -> result
+    end
+  end
+
+  defp run_active_dispatch(activity, consumers, app_id) do
     case dispatch_activity(activity, consumers) do
       {:ok, _results} ->
         {:ok, %{status: 200, body: %{}}}
@@ -63,11 +75,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   end
 
   defp consumers_for_app(app_id) do
+    Ankole.Repo.across_tenants(fn -> find_consumers_for_app(app_id) end)
+  end
+
+  defp find_consumers_for_app(app_id) do
     consumers =
       "teams"
       |> SignalsGateway.list_enabled_bindings()
       |> Enum.flat_map(fn binding ->
-        case Config.load_chat_config_ref(binding.config_ref) do
+        case Bindings.binding_config(binding, Config) do
           {:ok, %{"appID" => ^app_id} = config} ->
             context =
               AdapterContext.new(
@@ -77,7 +93,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
                 user_name: Map.get(config, "userName", "Teams")
               )
 
-            [Inbound.chat_consumer(context, config)]
+            [Map.put(Inbound.chat_consumer(context, config), :tenant_id, binding.tenant_id)]
 
           {:ok, _other_app_config} ->
             []

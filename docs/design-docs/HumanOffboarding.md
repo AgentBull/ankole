@@ -20,7 +20,7 @@ contracts.
 
 ## Scope and Ownership
 
-The scope is one private Ankole deployment instance. Feishu and DingTalk supply
+The scope is one Ankole site containing tenant-owned Humans. Feishu and DingTalk supply
 automatic offboarding facts. Other identity providers can use the same
 restriction operation without automatic detection.
 
@@ -44,6 +44,26 @@ belong to the owning subsystem's AppConfigure keys.
 Ankole does not provide an HR system, another identity model, cross-enterprise
 routing, automatic data deletion, or a general asset-transfer system for
 offboarding.
+
+## Tenant boundaries
+
+Each Human belongs to one tenant. A site administrator may authorize work in
+another tenant; that work still names the authenticated administrator. The six
+work tables keep `human_uid` as a text reference without a foreign key. Missing
+Humans are revoked at admission, and deleting the source tenant does not erase
+the authorizer's recorded UID or require the target tenant to act first.
+
+Human disablement stops future work across all tenants by that UID. Tenant
+deletion uses the same path and completes durable work cleanup before removing
+the Human. Other tenants retain the stopped work and its original authorization.
+Their work-review list permits explicit reauthorization of paused cron rules;
+other terminal work must be replaced through its existing owner.
+The existing WorkCleanup owner records its completed access-version sweep in
+Human access history; deletion processes bounded batches and retries safely.
+
+Tenant suspension rejects new work and treats Human OIDC tokens as inactive.
+Already admitted attempts can finish and recover after a process exit. Agent
+credentials used to finish those attempts remain usable.
 
 ## Keep the Existing Identity
 
@@ -192,7 +212,8 @@ Ankole checks Human access at each applicable authentication or request entry:
 | Local login, Feishu login, and SSO reuse | Reject a new authenticated session. |
 | Console and OAuth browser sessions | Reject their next authenticated use on every device. |
 | Authorization Code exchange and Refresh Token use | Reject credentials from the disabled or revoked authorization. |
-| Console API, UserInfo, and Human AI Gateway requests | Reject the disabled Human, including an otherwise unexpired token. |
+| Console API | Reject the disabled Human's browser session. |
+| UserInfo and Human AI Gateway requests | Reject the disabled Human, including an otherwise unexpired token. |
 | Existing Human WebSocket | Reject a new protected request; an idle connection need not be closed. |
 | Human signal, command, or approval input | Reject new action by the disabled Human. |
 
@@ -284,8 +305,8 @@ race boundary; no atomic guarantee spans the database and a Worker process.
 If the check cannot read authoritative state, do not start the attempt.
 
 Disablement invalidates the old work authorization as well as the account's
-current access. A quick disable-and-restore must not let queued work, a delayed
-retry, or a stale Worker assignment start under the old authorization. New
+current access. A quick disable-and-restore must not let queued work or a
+delayed retry start under the old authorization. New
 work dispatched by an already running attempt must pass its own start check
 and retain the Human association.
 
@@ -307,9 +328,13 @@ completion must not reactivate a cancelled definition, plan a valid next fire,
 or revive stopped work.
 
 Ending future work requires no handover approval. Show affected objects and
-their reasons in Console. An authorized person can review and explicitly
-restart, replace, or reauthorize work through its existing owner. Changing a
-label or an owner field cannot transfer the departed person's credentials.
+their reasons in Console. The existing work-review list includes unknown
+sources and missing, disabled, or revoked Human authority in the selected
+tenant. A paused cron rule can receive explicit new authority and then resume
+through Cron. The review records the previous Human UID and access version;
+it does not resume the rule. Other work that cleanup has made terminal must
+be replaced through its existing owner. Changing a label or an owner field
+cannot transfer the departed person's credentials.
 
 ## Restore Access Explicitly
 

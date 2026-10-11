@@ -83,16 +83,47 @@ defmodule Ankole.Brain.ToolsTest do
     assert {:ok, _json} = Torque.encode(page)
   end
 
+  test "context pack uses the base card while entity keeps relations and aliases", context do
+    {:ok, header} =
+      Objects.create_object(
+        %{slug: "concepts/frame-header", type: "concept", title: "Frame Header"},
+        context.agent.uid
+      )
+
+    for {from, to} <- [{context.object.slug, header.slug}, {header.slug, context.object.slug}] do
+      assert {:ok, _} =
+               Ankole.Brain.Links.upsert_link(%{
+                 from_object_slug: from,
+                 to_object_slug: to,
+                 link_type: "related"
+               })
+    end
+
+    assert {:ok, _} = Ankole.Brain.Links.add_alias(context.object.slug, "Wire Protocol")
+    pack = Tools.context_pack(context.context, %{recent_text: "Wire Format"})
+    card = Enum.find(pack.entities, &(&1.slug == context.object.slug))
+    assert card
+
+    assert {:ok, %{"entity" => entity}} =
+             Tools.execute("entity", %{"name" => context.object.slug}, context.context)
+
+    fields = [:slug, :title, :type, :subtype, :facts, :last_touched]
+    assert Map.keys(card) |> Enum.sort() == Enum.sort(fields)
+    assert Ankole.JSON.plain(card) == Map.take(entity, Enum.map(fields, &Atom.to_string/1))
+    assert "wire protocol" in entity["aka"]
+    assert entity["edges"] == [%{"link_type" => "related", "to" => header.slug}]
+    assert entity["backlink_count"] == 1
+  end
+
   test "volunteer pointers name the pages the message names, and nothing else", context do
     assert [pointer] =
              Tools.volunteer_pointers(context.context, "how did the Wire Format land?")
 
     assert pointer.slug == context.object.slug
 
-    # The page is recent and salient, and this message still has no reason
+    # The page is recent, and this message still has no reason
     # to see it: an unasked pointer on every Turn teaches the model to skip
     # the block.
-    touch_salience!(context.object)
 
     assert [] = Tools.volunteer_pointers(context.context, "please book a room for Thursday")
   end
@@ -317,8 +348,8 @@ defmodule Ankole.Brain.ToolsTest do
 
     test "does not resolve a disabled lazy Skill as the memory parent", context do
       lazy_set = %{
-        kind: :lazy_skills,
         set_id: "remember-lazy-visibility",
+        kind: :lazy_skills,
         name: "Remember lazy visibility",
         skills: [
           %{
@@ -361,7 +392,7 @@ defmodule Ankole.Brain.ToolsTest do
       %{principal: asker} = human_fixture()
       channel = insert_channel!(:im_dm, nil)
       event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
                Tools.execute(
@@ -390,7 +421,7 @@ defmodule Ankole.Brain.ToolsTest do
       {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
       channel = insert_channel!(:im_group, group.id)
       event = insert_actor_event!(context.agent.uid, nil, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
                Tools.execute(
@@ -410,7 +441,7 @@ defmodule Ankole.Brain.ToolsTest do
       %{principal: asker} = human_fixture()
       channel = insert_channel!(:im_dm, nil)
       event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
                Tools.execute(
@@ -450,7 +481,7 @@ defmodule Ankole.Brain.ToolsTest do
 
       channel = insert_channel!(:im_group, conversation_group.id)
       event = insert_actor_event!(context.agent.uid, nil, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
                Tools.execute(
@@ -506,13 +537,15 @@ defmodule Ankole.Brain.ToolsTest do
                )
     end
 
-    test "a write from a superseded turn does not land", context do
+    test "a write after its input closes does not land", context do
       channel = insert_channel!(:im_dm, nil)
       event = insert_actor_event!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
-      # No activation names this event as its current event, so the fence
-      # refuses the write while reads stay open.
+      event
+      |> Ecto.Changeset.change(completed_at: DateTime.utc_now(:microsecond))
+      |> Repo.update!()
+
       assert {:error, :turn_not_live} =
                Tools.execute(
                  "remember",
@@ -727,6 +760,34 @@ defmodule Ankole.Brain.ToolsTest do
     assert Enum.any?(card.facts, &(&1.claim =~ "written summary"))
   end
 
+  test "a minimal remember in a turn reaches the next context pack", context do
+    %{principal: speaker} = human_fixture()
+    channel = insert_channel!(:im_dm, nil)
+    event = insert_actor_event!(context.agent.uid, speaker.uid, channel.id)
+    turn_context = turn_context!(context.agent.uid, event)
+
+    assert {:ok, %{"claim_id" => _claim_id}} =
+             Tools.execute(
+               "remember",
+               %{
+                 "claim" => "The team ships releases on Thursdays",
+                 "kind" => "fact",
+                 "provenance" => "said in chat"
+               },
+               turn_context
+             )
+
+    pack =
+      Tools.context_pack(turn_context, %{
+        participant_uids: turn_context.participant_uids,
+        recent_text: ""
+      })
+
+    assert Enum.any?(pack.entities, fn card ->
+             Enum.any?(card.facts, &(&1.claim =~ "releases on Thursdays"))
+           end)
+  end
+
   describe "learn_source" do
     test "a channel-less request defaults to the agent's own scope and enqueues the run",
          context do
@@ -759,7 +820,7 @@ defmodule Ankole.Brain.ToolsTest do
       %{principal: asker} = human_fixture()
       dm = insert_channel!(:im_dm, nil)
       event = insert_actor_event!(context.agent.uid, asker.uid, dm.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/dm-#{System.unique_integer([:positive])}"
 
@@ -779,7 +840,7 @@ defmodule Ankole.Brain.ToolsTest do
       {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
       channel = insert_channel!(:im_group, group.id)
       event = insert_actor_event!(context.agent.uid, nil, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/group-#{System.unique_integer([:positive])}"
 
@@ -790,7 +851,7 @@ defmodule Ankole.Brain.ToolsTest do
     test "a group without a member group names the blocker instead of guessing", context do
       channel = insert_channel!(:im_group, nil)
       event = insert_actor_event!(context.agent.uid, nil, channel.id)
-      turn_context = live_turn_context!(context.agent.uid, event)
+      turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/orphan-#{System.unique_integer([:positive])}"
 
@@ -815,38 +876,9 @@ defmodule Ankole.Brain.ToolsTest do
     end
   end
 
-  # A turn context whose write fence is open: the event is the current event
-  # of a live activation.
-  defp live_turn_context!(agent_uid, event) do
-    insert_live_activation!(agent_uid, event)
-    turn_context!(agent_uid, event)
-  end
-
   defp turn_context!(agent_uid, event) do
     {:ok, context} = BrainContext.build(agent_uid, %{"actor_event_id" => event.id})
     context
-  end
-
-  defp insert_live_activation!(agent_uid, event) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation{
-      agent_uid: agent_uid,
-      session_id: event.session_id,
-      activation_uid: "activation-#{System.unique_integer([:positive])}",
-      actor_epoch: 1,
-      status: "active",
-      controller_node: "test",
-      lease_id: "lease-#{System.unique_integer([:positive])}",
-      lease_expires_at: DateTime.add(now, 60, :second),
-      assigned_worker_id: "worker-#{System.unique_integer([:positive])}",
-      current_actor_event_id: event.id,
-      revision: 0,
-      started_at: now,
-      metadata: %{},
-      inserted_at: now,
-      updated_at: now
-    })
   end
 
   defp insert_channel!(kind, principal_group_id) do
@@ -868,15 +900,6 @@ defmodule Ankole.Brain.ToolsTest do
 
   # Recall touches a retrieved page; this is the state a page reaches after
   # it has been read recently and carries weight.
-  defp touch_salience!(object) do
-    object
-    |> Ecto.Changeset.change(
-      salience_touched_at: DateTime.utc_now(:microsecond),
-      emotional_weight: 1.0
-    )
-    |> Repo.update!()
-  end
-
   defp insert_entry!(channel_id, author_uid) do
     now = DateTime.utc_now(:microsecond)
     unique = System.unique_integer([:positive])

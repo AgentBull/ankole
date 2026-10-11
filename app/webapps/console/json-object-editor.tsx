@@ -86,7 +86,7 @@ export default function JSONObjectEditor({
 }
 
 const ICON_CLASS =
-  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-link'
+  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
 const DANGER_ICON_CLASS =
   'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive'
 
@@ -131,7 +131,7 @@ const THEME: Theme = {
       padding: '0.125rem 0.375rem'
     },
     inputHighlight: 'var(--muted)',
-    error: 'var(--destructive)',
+    error: 'var(--destructive-foreground)',
     iconCollection: 'var(--muted-foreground)',
     iconEdit: 'var(--primary)',
     iconDelete: 'var(--destructive)',

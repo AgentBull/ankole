@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.WebhookEndpoint
 
@@ -31,22 +32,19 @@ defmodule Ankole.SignalsGateway.Webhooks do
           | {:error, term()}
 
   @doc """
-  Creates one webhook endpoint and keeps the plaintext token outside PostgreSQL.
+  Generates a capability for one new endpoint and stores only its token digest.
+
+  The returned plaintext token is used once to construct the callback URL.
   """
-  @spec create_endpoint(map(), String.t(), keyword()) ::
-          {:ok,
-           %{
-             status: :created | :already_exists,
-             webhook_endpoint: WebhookEndpoint.t()
-           }}
-          | {:error, term()}
-  def create_endpoint(attrs, token, opts \\ [])
+  @spec create_endpoint(map(), keyword()) ::
+          {:ok, %{webhook_endpoint: WebhookEndpoint.t(), token: String.t()}} | {:error, term()}
+  def create_endpoint(attrs, opts \\ [])
 
-  def create_endpoint(attrs, token, opts) when is_map(attrs) and is_binary(token) do
+  def create_endpoint(attrs, opts) when is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
-    with :ok <- validate_token(token),
-         {:ok, attrs} <- create_attrs(attrs, token),
+    with {:ok, attrs} <- create_attrs(attrs, token),
          :ok <- validate_expiry(attrs, now) do
       Repo.transact(fn repo ->
         with :ok <-
@@ -55,22 +53,16 @@ defmodule Ankole.SignalsGateway.Webhooks do
                  Map.get(attrs, "automation_job_id"),
                  Map.fetch!(attrs, "agent_uid"),
                  now
-               ) do
-          changeset = WebhookEndpoint.changeset(%WebhookEndpoint{}, attrs)
-
-          case repo.insert(changeset, mode: :savepoint) do
-            {:ok, endpoint} ->
-              {:ok, %{status: :created, webhook_endpoint: endpoint}}
-
-            {:error, %Ecto.Changeset{} = changeset} ->
-              existing_or_error(repo, changeset, attrs)
-          end
+               ),
+             {:ok, endpoint} <-
+               %WebhookEndpoint{} |> WebhookEndpoint.changeset(attrs) |> repo.insert() do
+          {:ok, %{webhook_endpoint: endpoint, token: token}}
         end
       end)
     end
   end
 
-  def create_endpoint(_attrs, _token, _opts), do: {:error, :invalid_webhook_endpoint}
+  def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
 
   @doc """
   Lists webhook endpoints for one Agent session, for every session of the
@@ -160,15 +152,22 @@ defmodule Ankole.SignalsGateway.Webhooks do
       when is_binary(token) and is_list(headers) and is_binary(body) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with :ok <- validate_token(token) do
-      Repo.transact(fn repo ->
-        case lock_endpoint_by_token(repo, token) do
-          %WebhookEndpoint{} = endpoint -> receive_locked(repo, endpoint, headers, body, now)
-          nil -> {:error, :webhook_endpoint_not_found}
-        end
+    with :ok <- validate_token(token),
+         %WebhookEndpoint{tenant_id: tenant_id} <-
+           Repo.across_tenants(fn ->
+             Repo.get_by(WebhookEndpoint, token_digest: token_digest(token))
+           end) do
+      Repo.with_tenant(tenant_id, fn ->
+        Repo.transact(fn repo ->
+          case lock_endpoint_by_token(repo, token) do
+            %WebhookEndpoint{} = endpoint -> receive_locked(repo, endpoint, headers, body, now)
+            nil -> {:error, :webhook_endpoint_not_found}
+          end
+        end)
+        |> Ankole.Conversations.deliver_committed(&[Map.get(&1, :actor_event)])
       end)
     else
-      {:error, :invalid_webhook_token} -> {:error, :webhook_endpoint_not_found}
+      _ -> {:error, :webhook_endpoint_not_found}
     end
   end
 
@@ -292,50 +291,6 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
   defp validate_expiry(_attrs, _now), do: {:error, :invalid_webhook_expiry}
 
-  defp existing_or_error(repo, changeset, attrs) do
-    if changeset_error_on?(changeset, :token_digest) do
-      case repo.get_by(WebhookEndpoint, token_digest: Map.fetch!(attrs, "token_digest")) do
-        %WebhookEndpoint{} = endpoint ->
-          if same_endpoint?(endpoint, attrs) do
-            {:ok, %{status: :already_exists, webhook_endpoint: endpoint}}
-          else
-            {:error, :webhook_token_collision}
-          end
-
-        nil ->
-          {:error, changeset}
-      end
-    else
-      {:error, changeset}
-    end
-  end
-
-  defp same_endpoint?(endpoint, attrs) do
-    fields =
-      ~w(agent_uid binding_name session_id signal_channel_id provider_thread_id source_actor_event_id source_entry_id label mode expires_at automation_job_id)
-
-    Enum.all?(fields, fn field ->
-      same_endpoint_value?(field, Map.get(attrs, field), endpoint_value(endpoint, field))
-    end)
-  end
-
-  defp same_endpoint_value?("expires_at", %DateTime{} = left, %DateTime{} = right),
-    do: DateTime.compare(left, right) == :eq
-
-  defp same_endpoint_value?(_field, left, right), do: left == right
-
-  defp endpoint_value(endpoint, "agent_uid"), do: endpoint.agent_uid
-  defp endpoint_value(endpoint, "binding_name"), do: endpoint.binding_name
-  defp endpoint_value(endpoint, "session_id"), do: endpoint.session_id
-  defp endpoint_value(endpoint, "signal_channel_id"), do: endpoint.signal_channel_id
-  defp endpoint_value(endpoint, "provider_thread_id"), do: endpoint.provider_thread_id
-  defp endpoint_value(endpoint, "source_actor_event_id"), do: endpoint.source_actor_event_id
-  defp endpoint_value(endpoint, "source_entry_id"), do: endpoint.source_entry_id
-  defp endpoint_value(endpoint, "label"), do: endpoint.label
-  defp endpoint_value(endpoint, "mode"), do: endpoint.mode
-  defp endpoint_value(endpoint, "expires_at"), do: endpoint.expires_at
-  defp endpoint_value(endpoint, "automation_job_id"), do: endpoint.automation_job_id
-
   defp cancel_locked_endpoint(repo, endpoint, now) do
     cond do
       endpoint.status not in @active_statuses ->
@@ -361,6 +316,9 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
   defp receive_locked(repo, endpoint, headers, body, now) do
     cond do
+      not Ankole.Tenants.accepting_work?(endpoint.tenant_id) ->
+        {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
+
       endpoint.status not in @active_statuses ->
         {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
 
@@ -391,10 +349,24 @@ defmodule Ankole.SignalsGateway.Webhooks do
          payload,
          now
        ) do
-    with {:ok, actor_event} <-
+    with {:ok, owner} <- ReplyRoute.long_lived_owner(endpoint.agent_uid, endpoint.session_id),
+         attrs = receipt_actor_attrs(endpoint, source_event_id, payload, now),
+         route = owner.reply_route,
+         attrs =
+           if(route,
+             do:
+               Map.merge(attrs, %{
+                 session_id: owner.session_id,
+                 binding_name: route["binding_name"],
+                 signal_channel_id: route["signal_channel_id"],
+                 provider_thread_id: route["provider_thread_id"]
+               }),
+             else: attrs
+           ),
+         {:ok, actor_event} <-
            SignalsGateway.append_actor_event_in_tx(
              repo,
-             receipt_actor_attrs(endpoint, source_event_id, payload, now)
+             attrs
            ) do
       {:ok, {:actor_event, actor_event}}
     end
@@ -407,7 +379,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
          payload,
          now
        ) do
-    with {:ok, %{automation_job_run: run}} <-
+    with {:ok, %{automation_job_run: run} = result} <-
            AutomationJobs.enqueue_run_in_tx(
              repo,
              automation_job_id,
@@ -415,7 +387,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
              payload,
              now: now
            ) do
-      {:ok, {:automation_job_run, run}}
+      {:ok, {:automation_job_run, run, Map.get(result, :actor_event)}}
     end
   end
 
@@ -440,8 +412,13 @@ defmodule Ankole.SignalsGateway.Webhooks do
     %{status: :accepted, webhook_endpoint: endpoint, actor_event: actor_event}
   end
 
-  defp receipt_result(endpoint, {:automation_job_run, run}) do
-    %{status: :accepted, webhook_endpoint: endpoint, automation_job_run: run}
+  defp receipt_result(endpoint, {:automation_job_run, run, actor_event}) do
+    %{
+      status: :accepted,
+      webhook_endpoint: endpoint,
+      automation_job_run: run,
+      actor_event: actor_event
+    }
   end
 
   defp receipt_payload(endpoint, source_event_id, headers, body, now) do
@@ -549,10 +526,6 @@ defmodule Ankole.SignalsGateway.Webhooks do
     if Regex.match?(@token_pattern, token),
       do: :ok,
       else: {:error, :invalid_webhook_token}
-  end
-
-  defp changeset_error_on?(changeset, field) do
-    Enum.any?(changeset.errors, fn {error_field, _error} -> error_field == field end)
   end
 
   defp bounded_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 500)

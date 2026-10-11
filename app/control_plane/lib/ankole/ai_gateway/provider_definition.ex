@@ -80,7 +80,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
     """
     @type t :: %__MODULE__{
             kind: kind(),
-            upstream: :sse | :eventstream | :websocket_text | :json,
+            upstream: :sse | :json,
             api_resolver: atom(),
             prepare: atom(),
             timeout_ms: pos_integer() | nil,

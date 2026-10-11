@@ -83,7 +83,7 @@ Job이 처음 workspace를 초기화할 때 러너는 프로젝트의 `AGENTS.md
 | `GET` | `/background-agent-jobs/:job_id` | Job 하나 읽기 |
 | `POST` | `/background-agent-jobs/:job_id/cancel` | Job 취소 |
 
-취소는 Job을 `stopped`로 이끕니다. 실행 중인 turn 아래에서 라이브 Worker를 빼앗지는 않습니다. turn은 스스로 완료되거나 실패하며, 모든 Worker 쓰기가 거치는 것과 같은 활성화(activation) 및 리비전 검사로 fencing됩니다.
+취소는 Job을 `stopped`로 바꾸고 라이브 실행 취소를 요청합니다. PostgreSQL의 Job 상태, attempt 식별자, Turn revision이 이후 Worker 결과를 커밋할 수 있는지 결정합니다.
 
 ## Background Agent Jobs가 아닌 것
 

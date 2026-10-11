@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
   exactly one provider side effect (the idempotency contract).
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -71,7 +71,6 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :attempt_count, :integer, default: 0
     # Hard automatic provider-call ceiling for every delivery class.
     field :max_attempts, :integer, default: 10
-    field :last_attempted_at, :utc_datetime_usec
     field :last_error, :map, default: %{}
     # Set the moment dispatch tells the adapter to send. If the node restarts
     # while still in `:sending`, this timestamp is the signal that a provider
@@ -113,7 +112,6 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :idempotency_key,
       :attempt_count,
       :max_attempts,
-      :last_attempted_at,
       :last_error,
       :platform_send_started_at,
       :next_attempt_at,

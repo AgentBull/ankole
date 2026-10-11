@@ -11,7 +11,7 @@ AIGateway は、Ankole deployment instance の統一された AI boundary です
 
 ## 位置づけ
 
-AIGateway は呼び出し元と provider の間にあります。呼び出し元、つまり agent の model loop、console の運用者、または外部の integration は、bearer token を提示して OpenResponses 形状の request を送ります。AIGateway は selector を解決し、request を準備し、bind された provider に fan-out し、単一の JSON body または stream を返します。LLM、embedding、rerank、web 検索、web fetch の能力はすべて同じ boundary を通ります。
+AIGateway は呼び出し元と provider の間にあります。呼び出し元、つまり agent の model loop、OIDC Human、または外部の integration は、bearer token を提示して OpenResponses 形状の request を送ります。AIGateway は selector を解決し、request を準備し、bind された provider に fan-out し、単一の JSON body または stream を返します。LLM、embedding、rerank、web 検索、web fetch の能力はすべて同じ boundary を通ります。
 
 最も重要な性質は、呼び出し元が provider の credential を決して見ないことです。control plane が credential と routing policy を所有し、呼び出し元が所有するのは自分の token と selector だけです。
 
@@ -20,7 +20,9 @@ AIGateway は呼び出し元と provider の間にあります。呼び出し元
 `/api/v1/ai-gateway` 配下のすべての endpoint は、`:ai_gateway_api` pipeline と `RequireAIGatewayAccessToken` plug を通ります。request は `Authorization` ヘッダに bearer token を提示する必要があり、plug は正確に 2 種類を受け付けます。
 
 - **agent token** — active な agent Principal を主体とする AIGateway API key。呼び出しはその agent の model binding と selector に限定され、`subject_type = "agent"` になります。
-- **admin token** — active な人間の管理者 console token。呼び出しは運用者の provider ビューに限定され、`subject_type = "admin_human"` になります。
+- **OIDC Human token** — `ai_gateway.write` を持つ OIDC Client が active Human に発行します。その Client の model alias のみ使用でき、`subject_type = "oidc_human"` です。
+
+OIDC Human token を取得するには、Console で `ai_gateway.write` scope を持つ OIDC Client を作成し、許可する group と model alias を設定します。Authorization Code と PKCE でログインしてください。長期利用には `offline_access` を要求し、ローテーションする Refresh Token を使用します。Human は許可された group に所属する必要があり、Client の model alias のみ使用できます。直接の `provider_id/model` selector は使用できません。
 
 token がない場合や検証できない場合は、`code: "invalid_token"` とともに `401` を返します。anonymous の経路はありません。
 
@@ -117,7 +119,7 @@ bind された provider が提供しない capability は、`422 unsupported_cap
 
 同じ主体と token が隣接する能力を駆動します。`POST /web_search` は長さ制限のある `query` を受け取り、provider が提供する結果を返します。`POST /web_fetch` は 1 つから 5 つの公開 HTTPS URL を受け取り、page content を返します。これらの呼び出しは `web_search.default` と `web_fetch.default` を使用でき、AIGateway が現在の Agent profile を解決します。
 
-`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のインスタンス共通設定 `brain.embedding_model` と `brain.rerank_model` を使います。検索の動作については [Brain](../brain/) を参照してください。
+`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のサイト単位の設定 `brain.embedding_model` とテナント単位の設定 `brain.rerank_model` を使います。検索の動作については [Brain](../brain/) を参照してください。
 
 file はファーストクラスです。`POST /files` がアップロードし、`GET /files` が一覧表示し、`GET /files/:id` と `GET /files/:id/content` が metadata と bytes を読み取り、`DELETE /files/:id` が 1 つを削除します。これらはすべて主体に限定されます。
 

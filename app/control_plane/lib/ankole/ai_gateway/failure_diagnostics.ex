@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   """
 
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.Logging
 
   @timeout_codes ~w(
@@ -20,6 +21,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     upstream_read_failed upstream_stream_closed_before_terminal_event websocket_connect_failed
     websocket_read_failed websocket_send_failed
   )
+  @route_retry_codes ~w(connect_timeout first_byte_timeout idle_timeout total_timeout
+    upstream_read_failed websocket_connect_failed websocket_read_failed)
   @legacy_provider_status_codes ~w(invalid_upstream_response upstream_response_failed)
   # Providers report the same capacity failure under several codes and types.
   # A Codex gateway substitutes `server_error` for `server_is_overloaded` on a
@@ -41,9 +44,6 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   @provider_validation_types ~w(invalid_request invalid_request_error)
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
   @identifier_limit 256
-  # Codex renders this text inside its usage-limit message, so it must read as
-  # a sentence fragment and must contain the error code.
-  @agent_token_quota_promo_message "Ankole Agent token quota reached (agent_token_quota_exceeded)"
   @provider_message_limit 2_000
 
   @spec classify(term()) :: map()
@@ -54,6 +54,21 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     |> Map.delete(:provider_event?)
     |> Map.put(:failure_kind, failure_kind(fields))
     |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+  end
+
+  @doc "Returns whether an AIGateway failure is a retryable provider capacity shortage."
+  @spec provider_capacity?(term()) :: boolean()
+  def provider_capacity?(reason) do
+    failure = classify(reason)
+    status = failure[:provider_status] || failure[:http_status]
+
+    failure[:retryable] == true and
+      (failure[:error_code] == "credential_pool_exhausted" or
+         failure[:error_code] in @retryable_provider_codes or
+         failure[:provider_error_code] in @retryable_provider_codes or
+         failure[:provider_error_type] in @retryable_provider_types or
+         status == 429 or
+         (failure[:failure_kind] == :provider_response and is_integer(status) and status >= 500))
   end
 
   @doc """
@@ -67,6 +82,47 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     Map.get(classification, :provider_error_code) in quota_codes or
       Map.get(classification, :provider_error_type) in quota_codes
   end
+
+  @doc "Returns the bounded provider code, type, and message from one error body."
+  @spec provider_error(term()) :: map()
+  def provider_error(body) do
+    fields = provider_error_fields(body)
+
+    %{
+      "code" => fields[:provider_error_code],
+      "type" => fields[:provider_error_type],
+      "message" => fields[:provider_message]
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  @doc "Returns whether one provider error explicitly rejects quota."
+  @spec quota_error?(term()) :: boolean()
+  def quota_error?(body) do
+    error = provider_error(body)
+    codes = ~w(insufficient_quota usage_limit_reached billing_hard_limit_reached)
+    error["code"] in codes or error["type"] in codes
+  end
+
+  @doc "Returns whether the unchanged request permits one route retry."
+  @spec route_retryable?(term()) :: boolean()
+  def route_retryable?(:stream_aborted), do: true
+
+  def route_retryable?(%ProviderFailure{} = failure) do
+    code = classify(failure)[:provider_error_code] || failure.code
+
+    failure.provider_status in [502, 503, 504] or code in @route_retry_codes or
+      (failure.kind == :other and failure.stage in ["connect", "read", "open"])
+  end
+
+  def route_retryable?(%{} = reason) do
+    code = classify(reason)[:provider_error_code] || value(reason, "code")
+
+    value(reason, "provider_status") in [502, 503, 504] or code in @route_retry_codes or
+      value(reason, "stage") in ["connect", "read", "open"]
+  end
+
+  def route_retryable?(_reason), do: false
 
   @spec classify_stored(map()) :: map()
   def classify_stored(%{} = reason) do
@@ -220,13 +276,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     %{status: 429, headers: recovery_headers(retry_at), error: error}
   end
 
-  # The pinned Codex runtime keeps only one 429 shape terminal and readable: a
-  # body whose `type` is `usage_limit_reached` becomes its usage-limit error,
-  # which it never retries, and whose message repeats the
-  # `x-codex-promo-message` header verbatim. Every other 429 body becomes a
-  # retry-limit error whose message drops the body, so the code would be lost
-  # before Agent Computer sees it. The code therefore travels in that header
-  # as well as in the body.
+  # Codex does not retry a 429 whose type is usage_limit_reached.
   def project({:agent_token_quota_exceeded, window}, _opts) when is_map(window) do
     window_ends_at = Map.fetch!(window, :window_ends_at)
 
@@ -246,10 +296,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       |> Map.put("retryable", false)
       |> put_resets_at(window_ends_at)
 
-    headers =
-      window_ends_at
-      |> recovery_headers()
-      |> Map.put("x-codex-promo-message", @agent_token_quota_promo_message)
+    headers = recovery_headers(window_ends_at)
 
     %{status: 429, headers: headers, error: error}
   end
@@ -367,8 +414,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp row(:invalid_tool_results),
     do:
       {400, "invalid_tool_results",
-       "response.tool_results.record requires at least one function_call_output item.", "input",
-       nil}
+       "A tool result log requires at least one function_call_output item.", "input", nil}
 
   defp row(:invalid_max_tool_calls),
     do:
@@ -482,9 +528,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       {400, "invalid_response_stream_collect_timeout",
        "response stream collect timeout must be a positive integer", nil, nil}
 
-  defp row(reason)
-       when reason in [:response_stream_collect_timeout, :universal_ai_stream_ready_timeout],
-       do: {504, "upstream_timeout", public_message(%{failure_kind: :timeout}), nil, nil}
+  defp row(:response_stream_collect_timeout),
+    do: {504, "upstream_timeout", public_message(%{failure_kind: :timeout}), nil, nil}
 
   defp row(:response_stream_missing_terminal_response),
     do:
@@ -498,30 +543,21 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       {502, "provider_stream_error", public_message(%{error_code: "provider_stream_error"}), nil,
        nil}
 
-  defp row({:tool_results_record_unavailable, %{} = details}),
-    do:
-      {503, "tool_results_record_unavailable",
-       "AIGateway could not persist tool results before the retry budget was exhausted.", nil,
-       details}
-
-  defp row({:upstream_response_failed, status, body, _headers}),
-    do: row({:upstream_response_failed, status, body})
-
-  defp row({:upstream_response_failed, status, _body} = reason) do
+  defp row(%ProviderFailure{kind: :status_rejected, provider_status: status} = reason) do
     classification = classify(reason)
 
     {upstream_status(status), "upstream_response_failed", public_message(classification), nil,
      {:safe_fields, classification}}
   end
 
-  defp row({:invalid_upstream_response, _status, _body} = reason) do
+  defp row(%ProviderFailure{kind: :invalid_response} = reason) do
     classification = classify(reason)
 
     {502, "invalid_upstream_response", public_message(classification), nil,
      {:safe_fields, classification}}
   end
 
-  defp row({:universal_ai_request_failed, _details} = reason) do
+  defp row(%ProviderFailure{kind: :other} = reason) do
     classification = classify(reason)
     message = public_message(classification)
     details = {:safe_fields, classification}
@@ -663,32 +699,53 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     }
   end
 
-  defp reason_fields({:upstream_response_failed, status, body}) do
+  defp reason_fields(%ProviderFailure{kind: kind} = failure)
+       when kind in [:status_rejected, :invalid_response] do
+    code =
+      if kind == :status_rejected,
+        do: "upstream_response_failed",
+        else: "invalid_upstream_response"
+
     %{
-      error_code: "upstream_response_failed",
-      provider_status: integer(status),
-      retryable: retryable(nil, status, "upstream_response_failed")
+      error_code: code,
+      provider_status: integer(failure.provider_status),
+      retryable: retryable(nil, failure.provider_status, code)
     }
-    |> Map.merge(provider_error_fields(body))
+    |> Map.merge(provider_error_fields(failure.provider_body))
   end
 
-  defp reason_fields({:upstream_response_failed, status, body, _headers}),
-    do: reason_fields({:upstream_response_failed, status, body})
+  defp reason_fields(%ProviderFailure{kind: :other} = failure) do
+    fields =
+      %{
+        error_code: string(failure.code),
+        error_stage: string(failure.stage),
+        provider_status: integer(failure.provider_status)
+      }
+      |> Map.merge(provider_error_fields(failure.provider_body))
 
-  defp reason_fields({:invalid_upstream_response, status, body}) do
-    %{
-      error_code: "invalid_upstream_response",
-      provider_status: integer(status),
-      retryable: retryable(nil, status, "invalid_upstream_response")
-    }
-    |> Map.merge(provider_error_fields(body))
+    fields =
+      if is_binary(failure.provider_error_type),
+        do: Map.put(fields, :provider_error_type, string(failure.provider_error_type)),
+        else: fields
+
+    fields
+    |> Map.put(
+      :retryable,
+      retryable(
+        failure.retryable,
+        failure.provider_status,
+        failure.code,
+        fields[:provider_error_type]
+      )
+    )
+    |> put_error_code_if_missing("universal_ai_request_failed")
   end
 
   defp reason_fields({:provider_event_failed, %{} = reason}) do
-    reason
-    |> reason_fields()
-    |> move_http_status_to_provider_status()
-    |> Map.merge(provider_error_fields(reason))
+    fields = reason |> reason_fields() |> move_http_status_to_provider_status()
+
+    fields
+    |> Map.merge(event_error_fields(reason, Map.get(fields, :error_stage)))
     |> Map.put(:provider_event?, true)
   end
 
@@ -806,7 +863,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
         explicit_retryable,
         provider_status || http_status,
         error_code,
-        Map.get(fields, :provider_error_type) || string(value(error, "type"))
+        Map.get(fields, :provider_error_type) || reported_provider_type(error, fields.error_stage)
       )
     )
   end
@@ -815,6 +872,19 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     do: %{error_code: Atom.to_string(reason)}
 
   defp reason_fields(_reason), do: %{}
+
+  # An error object with a stage is an Ankole envelope, not a Provider error.
+  # Its code names the Ankole failure, and the kernel gives every envelope the
+  # OpenAI type `server_error`, so neither is a Provider fact: a Provider code
+  # or type comes only from the Provider error type and the body excerpt of
+  # the envelope. The message of an envelope is the Provider's message.
+  defp reported_provider_type(_error, stage) when is_binary(stage), do: nil
+  defp reported_provider_type(error, nil), do: string(value(error, "type"))
+
+  defp event_error_fields(event, stage) when is_binary(stage),
+    do: event |> provider_error_fields() |> Map.take([:provider_message])
+
+  defp event_error_fields(event, nil), do: provider_error_fields(event)
 
   defp provider_error_fields(body) when is_binary(body) do
     case Ankole.JSON.decode(body) do

@@ -9,12 +9,9 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
   """
 
   import ExUnit.Assertions
-  import Ankole.PrincipalsFixtures
   import Plug.Conn
 
-  alias Ankole.AuthZ
   alias Phoenix.ConnTest
-  alias AnkoleWeb.ConsoleTokens
 
   @doc """
   Returns the stateless OpenResponses request templates used by the controller
@@ -286,26 +283,6 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
     ConnTest.build_conn()
     |> put_req_header("authorization", "Bearer #{api_key}")
     |> put_req_header("content-type", "application/json")
-  end
-
-  @doc "Mints an admin console access token for AIGateway controller tests."
-  def admin_access_token do
-    human = human_fixture(%{uid: unique_uid("ai-gateway-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn =
-      ConnTest.build_conn()
-      |> Plug.Test.init_test_session(%{})
-      |> AnkoleWeb.Session.put_admin_session(%{
-        principal_uid: human.principal.uid,
-        provider_id: "lark-main",
-        external_id: "external-1"
-      })
-
-    assert {:ok, token_set} =
-             ConsoleTokens.mint_for_session(AnkoleWeb.Session.admin_session(conn))
-
-    token_set.access_token
   end
 
   @doc "Decodes JSON events from an HTTP SSE response body."

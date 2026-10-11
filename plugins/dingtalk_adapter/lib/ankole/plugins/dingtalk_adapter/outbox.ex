@@ -21,15 +21,15 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.WorkerFiles
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
   alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Robot
 
@@ -56,12 +56,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     case fetch_list(outbox.payload, "attachments") do
       [] -> deliver_text(outbox)
       [attachment] -> deliver_attachment(outbox, attachment)
-      _attachments -> {:error, :multiple_outbound_attachments_not_supported}
     end
   end
 
   defp deliver_text(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox) do
       robot_code = Config.effective_robot_code(config)
@@ -84,7 +83,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   # the gateway guarantees `fallback_visible_text` on card operations, so the
   # fallback posts as a plain message rather than parking the row unsupported.
   defp deliver_card(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox) do
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config) do
       case card_template_id(config) do
         nil ->
           deliver_text(outbox)
@@ -153,13 +152,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   # attachment
 
   defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox),
          # The extension gate runs before the worker read: an unsupported type
          # must fail without pulling bytes it can never send.
-         {:ok, media_type} <- media_type(attachment, outbox.agent_uid),
-         {:ok, content, name} <- read_attachment(attachment, outbox.agent_uid),
+         {:ok, media_type} <- media_type(attachment),
+         {:ok, content, name} <- read_attachment(attachment),
          {:ok, msg_key, msg_param} <- upload_and_build(client, media_type, content, name) do
       robot_code = Config.effective_robot_code(config)
 
@@ -173,21 +172,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     |> normalize_delivery_result()
   end
 
-  defp read_attachment(attachment, agent_uid) do
-    with relative_path when is_binary(relative_path) <-
-           attachment_relative_path(attachment, agent_uid),
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path) do
-      {:ok, content, attachment_name(attachment, relative_path)}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
-      _other -> {:error, :outbound_attachment_read_failed}
+  defp read_attachment(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
+      {:ok, content, attachment_name(attachment)}
     end
   end
 
-  defp media_type(attachment, agent_uid) do
-    name =
-      optional_text(attachment, "name") || attachment_relative_path(attachment, agent_uid) || ""
+  defp media_type(attachment) do
+    name = attachment_name(attachment)
 
     ext = name |> Path.extname() |> String.downcase()
 
@@ -223,7 +215,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     do: {:error, :unsupported_target}
 
   defp deliver_delete(%OutboxEntry{target_source_entry_id: process_query_key} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox) do
       robot_code = Config.effective_robot_code(config)
@@ -303,7 +295,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   defp resolve_target(%OutboxEntry{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)
 
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{kind: :im_dm, metadata: metadata} ->
         case optional_text(metadata, "dm_user_id") do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}
@@ -318,36 +310,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   defp decode_channel("dingtalk:" <> encoded), do: URI.decode(encoded)
   defp decode_channel(value), do: value
 
-  defp config_for_outbox(%OutboxEntry{} = outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp attachment_relative_path(attachment, agent_uid) do
-    case optional_text(attachment, "user_files_relative_path") do
-      relative when is_binary(relative) ->
-        Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-      _missing ->
-        user_files = Ankole.AgentHomePaths.user_files(agent_uid) <> "/"
-
-        case optional_text(attachment, "agent_computer_path") || optional_text(attachment, "path") do
-          ^user_files <> relative ->
-            Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-          _outside ->
-            nil
-        end
-    end
-  end
-
-  defp attachment_name(attachment, relative_path) do
-    optional_text(attachment, "name") || Path.basename(relative_path)
+  defp attachment_name(attachment) do
+    optional_text(attachment, "name") || Path.basename(optional_text(attachment, "path") || "")
   end
 
   @doc false

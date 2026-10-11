@@ -14,6 +14,7 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
 
   alias Ankole.AIGateway
   alias Ankole.AppConfigure
+  alias Ankole.Brain.Config, as: BrainConfig
   alias Ankole.Brain.Embeddings, as: BrainEmbeddings
 
   @embedding_model "qwen/qwen3-embedding-4b"
@@ -23,6 +24,7 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   @tag timeout: 1_800_000
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
+  @tag :deepseek_release_stories
   test "real LLM drives Workflow fanout, sleep/wake, and attention over Lark" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
     put_workflow_real_models!(ctx)
@@ -80,6 +82,8 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   @tag timeout: 1_800_000
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
+  @tag :deepseek_release_stories
+  @tag :deepseek_workflow_failure
   test "real LLM Workflow failure reply and task-failure null contract" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
     put_workflow_real_models!(ctx)
@@ -149,6 +153,11 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   test "Brain embedding and rerank reach OpenRouter with the qwen models" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
 
+    # All Brain model calls, also embedding and rerank, run as the Brain
+    # maintainer Agent.
+    assert {:ok, _value} =
+             AppConfigure.put_global_by_key("brain.maintainer_agent_uid", ctx.agent.uid)
+
     assert {:ok, _value} =
              AppConfigure.put_global_by_key("brain.embedding_model", %{
                "provider_id" => ctx.provider_id,
@@ -175,10 +184,13 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
 
     assert is_binary(signature)
 
-    # Recall's rerank path uses the same explicit provider/model selector. The
-    # OpenRouter qwen3-reranker-8b upstream rate-limits aggressively, so a 429
-    # asserts the gateway's rate-limit contract instead of the ranking.
-    case AIGateway.create_rerank(BrainEmbeddings.subject_uid(), %{
+    # Recall's rerank path uses the same subject and explicit provider/model
+    # selector. The OpenRouter qwen3-reranker-8b upstream rate-limits
+    # aggressively, so a 429 asserts the gateway's rate-limit contract instead
+    # of the ranking.
+    assert {:ok, subject_uid} = BrainConfig.maintainer_subject_uid()
+
+    case AIGateway.create_rerank(subject_uid, %{
            "model" => ctx.provider_id <> "/" <> @rerank_model,
            "query" => "Which document is about Paris?",
            "documents" => [

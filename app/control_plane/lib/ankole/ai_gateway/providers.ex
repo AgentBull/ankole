@@ -131,11 +131,8 @@ defmodule Ankole.AIGateway.Providers do
   def fetch(_provider_kind), do: {:error, :unknown_ai_gateway_provider}
 
   @doc """
-  Projects a provider definition for Console and public metadata APIs.
-
-  The projection exposes accepted option keys and capability specs, but never
-  includes decrypted option values. Runtime request construction gets those from
-  `ProviderConfigs.runtime_connection/1` instead.
+  Projects a provider definition for the Console: label, capability names,
+  settings, and the default base URL. It never includes option values.
   """
   @spec projection(definition()) :: map()
   def projection(%ProviderDefinition{} = provider) do
@@ -146,11 +143,7 @@ defmodule Ankole.AIGateway.Providers do
       "settings" => [
         base_url_setting_projection(provider) | Enum.map(provider.settings, &setting_projection/1)
       ],
-      "capability_specs" => Enum.map(provider.capabilities, &capability_projection/1),
-      "default_base_url" => provider.base_url,
-      "connection_options" => connection_option_keys(provider),
-      "credential_options" => credential_option_keys(provider),
-      "runtime_provider_options" => runtime_provider_option_keys(provider)
+      "default_base_url" => provider.base_url
     }
   end
 
@@ -786,16 +779,6 @@ defmodule Ankole.AIGateway.Providers do
       default: provider.base_url,
       advanced?: provider.base_url_advanced?
     })
-  end
-
-  defp capability_projection(%Capability{} = capability) do
-    %{
-      "kind" => ProviderDefinition.capability_name(capability.kind),
-      "upstream" => Atom.to_string(capability.upstream),
-      "api_resolver" => Atom.to_string(capability.api_resolver),
-      "supports_parallel_tool_calls" => capability.supports_parallel_tool_calls?,
-      "supports_native_image_generation" => capability.supports_native_image_generation?
-    }
   end
 
   # The Console API is a public contract, so a declared setting type is enforced

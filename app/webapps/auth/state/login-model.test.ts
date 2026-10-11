@@ -18,6 +18,9 @@ describe('classifyLoginError', () => {
         new InternalAPIError(429, 'Too Many Requests', { error: 'retry_locked', retryAfterSeconds: 42 })
       )
     ).toEqual({ kind: 'locked', remainingSeconds: 42 })
+    expect(
+      classifyLoginError(new InternalAPIError(429, 'Too Many Requests', { error: 'retry_busy', retryAfterSeconds: 1 }))
+    ).toEqual({ kind: 'busy', remainingSeconds: 1 })
   })
 
   test('leaves unrecognized failures to the generic error surface', () => {
@@ -49,6 +52,7 @@ describe('tickLockout', () => {
     expect(tickLockout({ kind: 'locked', remainingSeconds: 1 })).toBeUndefined()
     expect(tickLockout({ kind: 'invalid_credentials' })).toEqual({ kind: 'invalid_credentials' })
     expect(tickLockout(undefined)).toBeUndefined()
+    expect(tickLockout({ kind: 'busy', remainingSeconds: 1 })).toBeUndefined()
   })
 })
 

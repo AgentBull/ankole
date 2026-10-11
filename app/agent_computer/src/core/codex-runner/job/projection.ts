@@ -2,8 +2,8 @@ import { imageBytes } from '../../../common/image-bytes'
 import { safeJsonStringify } from '@agentbull/active-support'
 import { errorMessage } from '../../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
-import type { WorkerAgentTool } from '../../index'
-import { zodToJSONSchema } from '../../llm/tool-schema'
+import type { WorkerAgentTool } from '../..'
+import { zodToJSONSchema } from '../../tool-schema'
 import type { DynamicToolCallParams } from '../generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from '../generated/protocol/v2/DynamicToolCallResponse'
 import type { DynamicToolSpec } from '../generated/protocol/v2/DynamicToolSpec'
@@ -26,10 +26,10 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
   const quarantinedTools: string[] = []
 
   for (const tool of input.tools) {
-    if (tool.namespace !== undefined || !codexJobToolPaths.has(tool.name)) continue
+    if (!codexJobToolPaths.has(tool.name)) continue
     try {
       if (tools.has(tool.name)) throw new Error(`Duplicate dynamic tool ${tool.name}`)
-      const inputSchema = (tool.jsonSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
+      const inputSchema = zodToJSONSchema(tool.schema) as unknown as JSONValue
       dynamicTools.push({ type: 'function', name: tool.name, description: tool.description, inputSchema })
       tools.set(tool.name, tool)
     } catch {

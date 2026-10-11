@@ -74,6 +74,7 @@ export function createFindTool(
     schema: FindParams,
     executionMode: 'parallel',
     isReadOnly: true,
+    retrySafe: true,
     isDestructive: false,
     describeActivity: () => ({
       key: 'signals_gateway.reply.activity.command_find_files_family',
@@ -88,7 +89,7 @@ export function createFindTool(
       let pageSize: number
       let offset: number
       if (params.cursor !== undefined) {
-        const state = runtime.getFindCursor(params.cursor, context.agentHome)
+        const state = runtime.getFindCursor(params.cursor)
         if (!state) {
           return {
             content: [{ type: 'text', text: 'Cursor expired; rerun the search from the first page.' }],

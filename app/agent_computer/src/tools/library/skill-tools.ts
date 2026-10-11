@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ActorTurnRef } from '../../lanes/actor_lane'
+import type { JobTurnRef } from '../../lanes/actor_lane'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { SkillFileRoots } from '../../skills/effective-skill'
@@ -16,7 +16,7 @@ const SkillViewParams = z.object({
 export type { SkillFileRoots } from '../../skills/effective-skill'
 
 export interface CreateSkillToolsOptions {
-  turn: ActorTurnRef
+  turn: JobTurnRef
   enabledSkills?: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   rpc: RPCRequester
@@ -38,8 +38,7 @@ export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool
       turn: opts.turn,
       enabledSkills: opts.enabledSkills,
       skillRoots: opts.skillRoots,
-      rpc: opts.rpc,
-      runtime: 'main'
+      rpc: opts.rpc
     })
   return [createSkillViewTool(loader)]
 }
@@ -57,7 +56,7 @@ export function createSkillViewTool(loader: SkillLoader): WorkerAgentTool<typeof
   return defineWorkerTool({
     name: 'skill_view',
     description:
-      'Read an enabled Skill file. In the main runtime, a background-job-only Skill returns routing guidance and rejects referenced resources; inside a background agent job, skill_view loads its full instructions. Read referenced files only when needed and resolve relative paths from the returned Skill directory. This tool cannot enable disabled Skills.',
+      'Read an enabled Skill file for this background agent job. skill_view loads its full instructions. Read referenced files only when needed and resolve relative paths from the returned Skill directory. This tool cannot enable disabled Skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,

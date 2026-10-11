@@ -396,7 +396,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     reserved_route = pending_type_suggestion("reserved-route")
 
     assert {:error, {:reserved_object_slug_prefix, "lazyload-agent-skills/"}} =
-             Promotion.approve(reserved_route.id, human.uid,
+             Promotion.approve(reserved_route.id, Ankole.ActorRef.from_principal(human),
                slug_prefix: "lazyload-agent-skills/"
              )
 
@@ -405,7 +405,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     methodology = pending_type_suggestion("methodology")
 
     assert {:ok, %{status: :type_created, type: "methodology", migrated: 0}} =
-             Promotion.approve(methodology.id, human.uid)
+             Promotion.approve(methodology.id, Ankole.ActorRef.from_principal(human))
 
     projected = Repo.get_by!(Object, slug: slug)
     assert projected.type == "agent-skills"

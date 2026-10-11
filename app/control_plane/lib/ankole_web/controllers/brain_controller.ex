@@ -8,7 +8,7 @@ defmodule AnkoleWeb.BrainController do
   and the health surface.
 
   Console edits run the same write contracts as every other writer; the
-  operating Principal enters `author_uid`.
+  operating Principal is recorded in `author`.
   """
 
   use AnkoleWeb, :controller
@@ -35,7 +35,7 @@ defmodule AnkoleWeb.BrainController do
   @list_limit 100
 
   tags(["Brain"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   # Object slugs contain `/`, which OpenAPI path templates cannot express,
   # so every object operation carries the slug as a query parameter or in
@@ -302,10 +302,17 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  defp brain_writer(conn) do
+    principal = conn.assigns.current_principal
+    if principal.tenant_id == Ankole.Repo.tenant_id!(), do: principal.uid, else: :system
+  end
+
   def create_object(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, attrs} <- object_create_attrs(conn.body_params) do
-      case Objects.create_object(attrs, conn.assigns.current_principal_uid) do
+      case Objects.create_object(attrs, brain_writer(conn),
+             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
+           ) do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
@@ -317,7 +324,9 @@ defmodule AnkoleWeb.BrainController do
   def update_object(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, slug, attrs} <- object_update_attrs(conn.body_params) do
-      case Objects.update_object(slug, attrs, conn.assigns.current_principal_uid) do
+      case Objects.update_object(slug, attrs, brain_writer(conn),
+             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
+           ) do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
@@ -335,7 +344,7 @@ defmodule AnkoleWeb.BrainController do
         |> Enum.map(fn version ->
           %{
             id: version.id,
-            author_uid: version.author_uid,
+            author: version.author && Map.from_struct(version.author),
             body: version.body,
             meta: version.meta,
             snapshot_at: version.snapshot_at
@@ -351,7 +360,9 @@ defmodule AnkoleWeb.BrainController do
   def rollback_object(conn, %{"slug" => slug, "version_id" => version_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, object} <-
-           Objects.rollback(slug, version_id, conn.assigns.current_principal_uid) do
+           Objects.rollback(slug, version_id, brain_writer(conn),
+             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
+           ) do
       json_plain(conn, %{object: object_summary(object)})
     else
       {:error, reason} -> error(conn, reason)
@@ -420,7 +431,9 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, claim} <-
-           Claims.supersede_claim(claim_id, attrs, conn.assigns.current_principal_uid) do
+           Claims.supersede_claim(claim_id, attrs, brain_writer(conn),
+             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
+           ) do
       json_plain(conn, %{claim: claim_detail(claim)})
     else
       {:error, reason} -> error(conn, reason)
@@ -447,7 +460,11 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, claim} <-
-           Claims.resolve_take(claim_id, resolution, conn.assigns.current_principal_uid) do
+           Claims.resolve_take(
+             claim_id,
+             resolution,
+             to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
+           ) do
       json_plain(conn, %{claim: claim_detail(claim)})
     else
       {:error, reason} -> error(conn, reason)
@@ -525,7 +542,7 @@ defmodule AnkoleWeb.BrainController do
 
   def decide_suggestion(conn, %{"suggestion_id" => id} = params) do
     decision = params["decision"]
-    operator = conn.assigns.current_principal_uid
+    operator = Ankole.ActorRef.from_principal(conn.assigns.current_principal)
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update") do
       result =
@@ -539,7 +556,9 @@ defmodule AnkoleWeb.BrainController do
             })
 
           "reject" ->
-            Promotion.reject(id, operator)
+            with {:ok, suggestion} <- Promotion.reject(id, operator) do
+              {:ok, %{id: suggestion.id, status: suggestion.status}}
+            end
 
           _invalid ->
             {:error, :invalid_decision}
@@ -579,7 +598,7 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def decide_merge_suggestion(conn, %{"suggestion_id" => id} = params) do
-    operator = conn.assigns.current_principal_uid
+    operator = Ankole.ActorRef.from_principal(conn.assigns.current_principal)
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update") do
       result =
@@ -723,7 +742,6 @@ defmodule AnkoleWeb.BrainController do
       subtype: object.subtype,
       title: object.title,
       effective_date: object.effective_date,
-      emotional_weight: object.emotional_weight,
       library_managed: object.managed_by_source_id != nil,
       deleted_at: object.deleted_at,
       updated_at: object.updated_at
@@ -750,7 +768,7 @@ defmodule AnkoleWeb.BrainController do
       kind: claim.kind,
       holder: claim.holder,
       audience_scope: claim.audience_scope,
-      author_uid: claim.author_uid,
+      author: claim.author && Map.from_struct(claim.author),
       object_slug: claim.object_slug,
       signal_gateway_channel_id: claim.signal_gateway_channel_id,
       notability: claim.notability,

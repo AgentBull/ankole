@@ -3,9 +3,10 @@
 AuthZ answers one question: can this Principal perform this action on this
 resource? A Principal is the human or Agent responsible for the request.
 
-PostgreSQL stores the permission rules for one Ankole deployment instance.
-AuthZ manages subjects inside that instance. It does not create separate
-organization boundaries or keep a worker-local access list.
+PostgreSQL stores permission rules per tenant. Group names are unique within
+a tenant. AuthZ loads the operator and its grants in the operator's own tenant,
+even when a site administrator selects another data context. It does not keep
+a worker-local access list.
 
 AuthZ grants permission only through explicit allow rules. It has no deny rule.
 If required data is missing, invalid, disabled, or unmatched, AuthZ denies the
@@ -52,11 +53,10 @@ Elixir passes the kernel all data for one decision. The kernel never reads
 PostgreSQL or changes Ankole data. It does not know about setup sessions or
 first-administrator rules.
 
-Rustler and napi-rs expose the same rules to host runtimes. The bindings only
+Rustler exposes the evaluator to the Elixir control plane. The bindings only
 convert values and errors.
 
-Bun code does not implement another permission model. It calls the control
-plane or evaluates data prepared by the control plane.
+Bun code calls the control plane for permission decisions.
 
 ## Stored Groups and Grants
 
@@ -235,8 +235,10 @@ and `updated_at`.
 
 ## Create the First Administrator
 
-Root setup creates two built-in groups. The static `admin` group contains root
-operators for the deployment instance.
+Every tenant receives the computed `all_humans` group. The privileged tenant
+also receives the built-in static `siteadmin` group. A site administrator must
+be an active human Principal in that tenant and a member of that group.
+A same-named group in another tenant does not grant site access.
 
 AuthZ computes the `all_humans` group.
 It uses this CEL condition:
@@ -246,7 +248,7 @@ principal.type == "human" && principal.status == "active"
 ```
 
 The first administrator must be an active human Principal. One transaction
-creates both groups, adds that human to `admin`, and creates Console grants.
+creates both groups, adds that human to `siteadmin`, and creates Console grants.
 
 The same Principal can safely repeat the first claim. After that, another
 Principal cannot claim the first-administrator role.
@@ -300,3 +302,12 @@ functions return detailed domain errors.
 - Protect the last active Human administrator during manual operations.
 
 See [Principal](Principal.md) for identity and status rules.
+
+## Site Administration
+
+`tenants.privileged_slug` selects the privileged tenant. It is not writable in
+the generic settings editor. `Tenants.transfer_site_administration/2` owns the
+transaction that locks this configuration and the target tenant, makes the
+selected active human a site administrator, and transfers the role. Suspending
+or deleting the privileged tenant is rejected. Site resources use the `site:`
+AuthZ namespace and `/api/v1/site/` HTTP namespace.

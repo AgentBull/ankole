@@ -1,4 +1,4 @@
-{{- if not .Values.worker.agents.persistence.existingClaim }}
+{{- if and .Values.worker.localPods (not .Values.worker.storage) (not .Values.worker.agents.persistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -18,5 +18,29 @@ spec:
       storage: {{ .Values.worker.agents.persistence.size }}
   {{- if .Values.worker.agents.persistence.storageClass }}
   storageClassName: {{ .Values.worker.agents.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}
+
+---
+{{- if and (eq .Values.files.store "fs") (not .Values.files.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ankole-agent.filesClaimName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with .Values.files.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.files.persistence.size }}
+  {{- if .Values.files.persistence.storageClass }}
+  storageClassName: {{ .Values.files.persistence.storageClass | quote }}
   {{- end }}
 {{- end }}

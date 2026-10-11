@@ -7,15 +7,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.JobTurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
-  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Queries
@@ -42,14 +38,14 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @running_statuses Job.running_statuses()
 
   @doc false
-  @spec upsert_turn_from_worker(pos_integer(), String.t(), map(), TurnRef.t(), String.t()) ::
+  @spec upsert_turn_from_worker(pos_integer(), String.t(), map(), JobTurnRef.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, term()}
-  def upsert_turn_from_worker(job_id, agent_uid, attrs, %TurnRef{} = turn_ref, route)
+  def upsert_turn_from_worker(job_id, agent_uid, attrs, %JobTurnRef{} = turn_ref, worker_id)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
-             is_binary(route) do
+             is_binary(worker_id) do
     Repo.transact(fn repo ->
       with {:ok, :authorized} <-
-             WorkerRouteAuth.authorize_turn_route_in_tx(repo, turn_ref, route, :write, lock: true),
+             WorkerRouteAuth.authorize_turn_in_tx(repo, turn_ref, worker_id, :write, lock: true),
            :ok <- lock_agent_slots(repo, agent_uid),
            %Job{} = job <-
              Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
@@ -131,30 +127,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc false
-  @spec requeue_unstarted_attempt(pos_integer(), String.t(), pos_integer()) ::
-          {:ok, Job.t()} | {:error, term()}
-  def requeue_unstarted_attempt(job_id, agent_uid, expected_attempt)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
-    Repo.transact(fn repo ->
-      with :ok <- lock_agent_slots(repo, agent_uid),
-           %Job{status: "running", attempts: ^expected_attempt} = job <-
-             Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-        job
-        |> Job.changeset(%{
-          status: "queued",
-          attempts: expected_attempt - 1,
-          started_at: if(expected_attempt == 1, do: nil, else: job.started_at)
-        })
-        |> repo.update()
-      else
-        nil -> {:error, :job_not_found}
-        %Job{} -> {:error, :background_agent_job_attempt_changed}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
-
-  @doc false
   @spec requeue_credential_pool_exhausted_attempt_in_tx(
           module(),
           pos_integer(),
@@ -167,10 +139,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   # cap and fails with the infrastructure verdict instead of a task verdict.
   def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
-    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
-
-    with :ok <- WorkerPool.release_assignment_for_actor_in_tx(repo, actor_key),
-         :ok <- lock_agent_slots(repo, agent_uid),
+    with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       job
@@ -190,11 +159,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
     charge? = Keyword.get(opts, :charge, false)
 
-    # The assignment is kept on purpose. Releasing it returns no turn capacity —
-    # that is `reserve_worker_slot`'s ledger — and only discards the one fact the
-    # retry needs, because the Job's Codex thread lives in that worker's local
-    # runtime shard. Placement revalidates the worker anyway and moves the Job
-    # when the worker is gone.
     with :ok <- lock_agent_slots(repo, agent_uid) do
       case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
         %Job{status: "running"} = job ->
@@ -233,12 +197,27 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             attrs,
             now,
             turn_ref,
-            Keyword.get(opts, :worker_route),
+            Keyword.get(opts, :worker_id),
             Keyword.get(opts, :turn_interruption),
-            Keyword.take(opts, [:external_completion])
+            Keyword.take(opts, [:external_completion, :applied_actor_event_ids])
           )
         end)
       end
+
+    if not Repo.in_transaction?() do
+      case result do
+        {:ok, %{job: job} = value} ->
+          Ankole.Conversations.job_turn(job)
+
+          Ankole.Conversations.deliver_events([
+            value.wakeup_event,
+            Map.get(value, :dispatch_event)
+          ])
+
+        _error ->
+          :ok
+      end
+    end
 
     result
   end
@@ -250,7 +229,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t(),
           map(),
           DateTime.t(),
-          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil,
+          Ankole.Conversations.JobTurnRef.t() | nil,
           String.t() | nil,
           map() | nil
         ) ::
@@ -263,14 +242,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         attrs,
         %DateTime{} = now,
         turn_ref \\ nil,
-        worker_route \\ nil,
+        worker_id \\ nil,
         turn_interruption \\ nil,
         opts \\ []
       ) do
-    # Every transition locks any live worker/assignment prefix before taking the
-    # agent/job locks. Worker writes additionally validate activation and
-    # revision through their turn fence.
-    with :ok <- lock_runtime_prefix_in_tx(repo, job_id, agent_uid, turn_ref, worker_route),
+    # Every transition locks the Agent's Worker row before taking the agent/job
+    # locks. Worker writes also validate the Job attempt and process identity.
+    with :ok <- lock_runtime_prefix_in_tx(repo, agent_uid, turn_ref, worker_id),
          {:ok, result} <-
            commit_status_after_runtime_prefix_in_tx(
              repo,
@@ -293,7 +271,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t(),
           map(),
           DateTime.t(),
-          Ankole.SignalsGateway.ActorRuntime.TurnRef.t() | nil,
+          Ankole.Conversations.JobTurnRef.t() | nil,
           map() | nil
         ) ::
           {:ok, %{job: Job.t(), wakeup_event: ActorEvent.t() | nil}}
@@ -309,14 +287,26 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         opts \\ []
       ) do
     with :ok <- lock_agent_slots(repo, agent_uid),
-         %Job{} = job <-
-           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-         attrs <- Attrs.normalize(attrs),
+         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
+      if match?(%JobTurnRef{}, turn_ref) and job.status != "running" do
+        if job.attempts == turn_ref.attempt and job.status == Attrs.normalize(attrs)["status"],
+          do: {:ok, %{job: job, wakeup_event: nil}},
+          else: {:error, :background_agent_job_attempt_changed}
+      else
+        commit_running_status_in_tx(repo, job, attrs, now, turn_ref, turn_interruption, opts)
+      end
+    else
+      nil -> {:error, :job_not_found}
+      error -> error
+    end
+  end
+
+  defp commit_running_status_in_tx(repo, job, attrs, now, turn_ref, turn_interruption, opts) do
+    with attrs <- Attrs.normalize(attrs),
          attrs <- bound_result_path_handoffs(attrs),
          :ok <- enforce_status_transition(job, attrs),
-         :ok <- enforce_running_limit(repo, job, attrs),
          :ok <-
-           maybe_interrupt_active_turns(
+           maybe_interrupt_active_slots(
              repo,
              job,
              turn_interruption || terminal_turn_interruption(attrs),
@@ -331,12 +321,12 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              |> lifecycle_timestamps(job, now)
            )
            |> repo.update(),
+         :ok <- complete_applied_in_tx(repo, job, turn_ref, opts, now),
          {:ok, steer_outcome} <-
            resolve_open_steers_after_commit(repo, job, now, turn_ref, opts),
-         :ok <- maybe_release_worker_assignment(repo, job, turn_ref),
-         {:ok, wakeup_event} <- conclude_job_transition(repo, job, now, steer_outcome),
-         :ok <- maybe_nudge_queued_after_status_commit(repo, job, now, turn_ref) do
-      {:ok, %{job: job, wakeup_event: wakeup_event}}
+         {:ok, wakeup_event} <- conclude_job_transition(repo, job, now, steer_outcome) do
+      {:ok,
+       %{job: job, wakeup_event: wakeup_event, dispatch_event: steer_outcome[:dispatch_event]}}
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -353,11 +343,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          repo,
          %Job{status: "succeeded"} = job,
          now,
-         turn_ref,
+         _turn_ref,
          opts
        ) do
     open_steers = Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid)
-    steers = unapplied_steers_in_tx(repo, open_steers, turn_ref)
+    steers = open_steers
 
     case steers do
       [] ->
@@ -369,10 +359,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             {:ok, nil}
           end
         else
-          with {:ok, successor} <- Dispatch.seed_steer_successor_in_tx(repo, job, steers, now),
-               :ok <- inherit_worker_assignment(repo, job, successor, now),
+          with {:ok, %{job: successor, dispatch_event: dispatch_event}} <-
+                 Dispatch.seed_steer_successor_in_tx(repo, job, steers, now),
                :ok <- complete_steer_events_in_tx(repo, steers, now) do
-            {:ok, %{successor_job_id: successor.id}}
+            {:ok, %{successor_job_id: successor.id, dispatch_event: dispatch_event}}
           end
         end
     end
@@ -392,29 +382,26 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp resolve_open_steers_after_commit(_repo, %Job{}, _now, _turn_ref, _opts), do: {:ok, nil}
 
-  defp unapplied_steers_in_tx(_repo, steers, nil), do: steers
-  defp unapplied_steers_in_tx(_repo, [], %TurnRef{}), do: []
+  defp complete_applied_in_tx(repo, job, %JobTurnRef{} = ref, opts, now)
+       when job.status in ["waiting_on_user", "succeeded", "failed", "stopped"] do
+    ids = Enum.uniq([ref.actor_event_id | Keyword.get(opts, :applied_actor_event_ids, [])])
 
-  defp unapplied_steers_in_tx(repo, steers, %TurnRef{} = turn_ref) do
-    event_ids = Enum.map(steers, & &1.id)
+    Enum.reduce_while(ids, :ok, fn id, :ok ->
+      case Ankole.SignalsGateway.Actors.lock_actor_event_in_tx(repo, id) do
+        %ActorEvent{agent_uid: uid, session_id: session} = event
+        when uid == ref.agent_uid and session == ref.session_id ->
+          case Ankole.SignalsGateway.Actors.mark_event_completed_in_tx(repo, event, now) do
+            {:ok, _} -> {:cont, :ok}
+            error -> {:halt, error}
+          end
 
-    applied_event_ids =
-      ActorEventDelivery
-      |> where([delivery], delivery.agent_uid == ^turn_ref.agent_uid)
-      |> where([delivery], delivery.session_id == ^turn_ref.session_id)
-      |> where([delivery], delivery.activation_uid == ^turn_ref.activation_uid)
-      |> where([delivery], delivery.actor_epoch == ^turn_ref.actor_epoch)
-      |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
-      |> where([delivery], delivery.actor_event_id in ^event_ids)
-      |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-      |> where([delivery], delivery.revision <= ^turn_ref.revision)
-      |> lock("FOR UPDATE")
-      |> repo.all()
-      |> Enum.filter(&ActorEventDelivery.applied_by_worker?(&1, turn_ref.revision))
-      |> MapSet.new(& &1.actor_event_id)
-
-    Enum.reject(steers, &MapSet.member?(applied_event_ids, &1.id))
+        _ ->
+          {:halt, {:error, :invalid_applied_actor_event_id}}
+      end
+    end)
   end
+
+  defp complete_applied_in_tx(_repo, _job, _ref, _opts, _now), do: :ok
 
   defp complete_steer_events_in_tx(_repo, [], _now), do: :ok
 
@@ -498,7 +485,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     }
   end
 
-  defp maybe_interrupt_active_turns(
+  defp maybe_interrupt_active_slots(
          repo,
          %Job{} = job,
          %{"code" => code, "summary" => summary} = error,
@@ -508,142 +495,20 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     Turns.interrupt_active_for_current_attempt_in_tx(repo, job, error, now)
   end
 
-  defp maybe_interrupt_active_turns(_repo, %Job{}, nil, %DateTime{}), do: :ok
+  defp maybe_interrupt_active_slots(_repo, %Job{}, nil, %DateTime{}), do: :ok
 
-  defp lock_runtime_prefix_in_tx(
-         repo,
-         _job_id,
-         _agent_uid,
-         %TurnRef{} = turn_ref,
-         route
-       )
-       when is_binary(route) do
-    case WorkerRouteAuth.authorize_turn_route_in_tx(repo, turn_ref, route, :write, lock: true) do
+  # A Worker write proves its turn with the connection's worker id; a turn
+  # reference without one fails the turn check.
+  defp lock_runtime_prefix_in_tx(repo, _agent_uid, %JobTurnRef{} = turn_ref, worker_id) do
+    case WorkerRouteAuth.authorize_turn_in_tx(repo, turn_ref, worker_id, :terminal, lock: true) do
       {:ok, :authorized} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp lock_runtime_prefix_in_tx(repo, job_id, agent_uid, _turn_ref, _route) do
-    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
-
-    with {:ok, _assignment} <- WorkerPool.lock_existing_assignment_in_tx(repo, actor_key) do
-      :ok
-    end
-  end
-
-  @doc false
-  @spec nudge_queued_after_slot_release(module(), Job.t(), DateTime.t()) ::
-          :ok | {:error, term()}
-  def nudge_queued_after_slot_release(repo, %Job{status: status} = job, now)
-      when status in @terminal_statuses or status == "waiting_on_user" do
-    Job
-    |> where([row], row.agent_uid == ^job.agent_uid)
-    |> where([row], row.status == "queued")
-    |> select([row], {row.id, row.agent_uid})
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn {job_id, agent_uid}, :ok ->
-      case RuntimeEvents.notify_actor_session_ready(
-             repo,
-             agent_uid,
-             BackgroundAgentJobs.job_session_id(job_id),
-             now
-           ) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  def nudge_queued_after_slot_release(_repo, %Job{}, _now), do: :ok
-
-  @doc false
-  @spec finalize_worker_turn_in_tx(module(), TurnRef.t(), DateTime.t()) ::
-          :ok | {:error, term()}
-  def finalize_worker_turn_in_tx(
-        repo,
-        %TurnRef{agent_uid: agent_uid, session_id: session_id},
-        %DateTime{} = now
-      ) do
-    case BackgroundAgentJobs.parse_job_session_id(session_id) do
-      :error ->
-        :ok
-
-      {:ok, job_id} ->
-        case Queries.get_for_agent(repo, job_id, agent_uid, []) do
-          %Job{status: status} = job
-          when status in @terminal_statuses or status == "waiting_on_user" ->
-            with :ok <- release_worker_assignment(repo, job),
-                 :ok <- nudge_queued_after_slot_release(repo, job, now) do
-              :ok
-            end
-
-          %Job{} ->
-            :ok
-
-          nil ->
-            WorkerPool.release_assignment_for_actor_in_tx(repo, %{
-              agent_uid: agent_uid,
-              session_id: session_id
-            })
-        end
-    end
-  end
-
-  defp maybe_nudge_queued_after_status_commit(_repo, %Job{}, _now, %TurnRef{}),
-    do: :ok
-
-  defp maybe_nudge_queued_after_status_commit(repo, %Job{} = job, now, nil),
-    do: nudge_queued_after_slot_release(repo, job, now)
-
-  defp maybe_release_worker_assignment(_repo, %Job{}, %TurnRef{}), do: :ok
-
-  defp maybe_release_worker_assignment(repo, %Job{status: "stopped"} = job, nil) do
-    case live_worker_assignment?(repo, job) do
-      true -> :ok
-      false -> release_worker_assignment(repo, job)
-    end
-  end
-
-  defp maybe_release_worker_assignment(repo, %Job{status: status} = job, _turn_ref)
-       when status in @terminal_statuses or status == "waiting_on_user" do
-    release_worker_assignment(repo, job)
-  end
-
-  defp maybe_release_worker_assignment(_repo, %Job{}, _turn_ref), do: :ok
-
-  # The successor carries the source Job's `runtime_thread_id`, and that Codex
-  # thread lives in one worker's local runtime shard. The source assignment is
-  # still live here, because a Worker-committed terminal status keeps it, so the
-  # successor starts with the same worker as its placement hint.
-  defp inherit_worker_assignment(repo, %Job{} = source_job, %Job{} = successor, now) do
-    WorkerPool.inherit_assignment_in_tx(
-      repo,
-      %{
-        agent_uid: source_job.agent_uid,
-        session_id: BackgroundAgentJobs.job_session_id(source_job.id)
-      },
-      %{
-        agent_uid: successor.agent_uid,
-        session_id: BackgroundAgentJobs.job_session_id(successor.id)
-      },
-      now
-    )
-  end
-
-  defp release_worker_assignment(repo, job) do
-    WorkerPool.release_assignment_for_actor_in_tx(repo, %{
-      agent_uid: job.agent_uid,
-      session_id: BackgroundAgentJobs.job_session_id(job.id)
-    })
-  end
-
-  defp live_worker_assignment?(repo, job) do
-    ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^job.agent_uid)
-    |> where([assignment], assignment.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
-    |> where([assignment], assignment.status in ["assigned", "draining"])
-    |> repo.exists?()
+  defp lock_runtime_prefix_in_tx(repo, agent_uid, nil, _worker_id) do
+    _worker = AgentWorkers.lock_in_tx(repo, agent_uid)
+    :ok
   end
 
   defp claim_attempt(
@@ -758,12 +623,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp ensure_runtime_projection(
-         _repo,
-         %Job{runtime_projection: %{} = projection},
-         %{} = turn_start_spec
-       ),
-       do: {:ok, RuntimeProjection.complete_legacy_capabilities(projection, turn_start_spec)}
+  defp ensure_runtime_projection(_repo, %Job{runtime_projection: %{} = projection}, %{}),
+    do: {:ok, projection}
 
   defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
     do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)
@@ -848,11 +709,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "workspace_template_id" => job.workspace_template_id,
           "attempts" => job.attempts,
           "result_summary" => result_summary(job),
-          "delivery_status" => delivery_status(job),
-          "delivery_issue_count" => delivery_issue_count(job),
-          "silent_success_allowed" => silent_success_allowed?(job),
-          "artifacts" => bounded_path_handoff(Map.get(job.result || %{}, "artifacts")),
-          "artifact_roots" => bounded_path_handoff(Map.get(job.result || %{}, "artifact_roots")),
+          "artifacts" => Map.get(job.result || %{}, "artifacts"),
+          "artifact_roots" => Map.get(job.result || %{}, "artifact_roots"),
           "project_path" => Map.get(job.result || %{}, "project_path"),
           "reply_route" => job.reply_route || %{},
           "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"]),
@@ -880,41 +738,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp result_summary(%Job{}), do: nil
-
-  defp delivery_status(%Job{result: %{"verification" => verification}})
-       when is_map(verification),
-       do: Map.get(verification, "status")
-
-  defp delivery_status(%Job{}), do: nil
-
-  defp delivery_issue_count(%Job{result: result}) when is_map(result) do
-    verification = Map.get(result, "verification")
-
-    case if(is_map(verification), do: Map.get(verification, "issues")) do
-      issues when is_list(issues) and issues != [] -> length(issues)
-      _value -> nil
-    end
-  end
-
-  defp delivery_issue_count(%Job{}), do: nil
-
-  defp silent_success_allowed?(%Job{
-         status: "succeeded",
-         result: %{"verification" => verification}
-       })
-       when is_map(verification) do
-    verification_ok? = Map.get(verification, "ok") == true
-    message_id? = non_empty_text?(Map.get(verification, "message_id"))
-    no_error? = Map.get(verification, "error") in [nil, ""]
-    no_issues? = Map.get(verification, "issues") in [nil, []]
-
-    verification_ok? and message_id? and no_error? and no_issues?
-  end
-
-  defp silent_success_allowed?(%Job{}), do: false
-
-  defp non_empty_text?(value) when is_binary(value), do: String.trim(value) != ""
-  defp non_empty_text?(_value), do: false
 
   defp bound_result_path_handoffs(%{"result" => result} = attrs) when is_map(result) do
     result =
@@ -1031,7 +854,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp lock_agent_slots(repo, agent_uid) do
+  def lock_agent_slots(repo, agent_uid) do
     lock_key = "background_agent_jobs:running_slots:#{agent_uid}"
 
     case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
@@ -1039,35 +862,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  # Only a transition into a running status needs the cap, and reading it costs
-  # a round trip to the AppConfigure owner on another connection. Terminal
-  # transitions must not pay for it inside their transaction.
-  defp enforce_running_limit(repo, %Job{} = job, attrs) do
-    status = Map.get(attrs, "status")
-
-    cond do
-      status not in @running_statuses ->
-        :ok
-
-      job.status in @running_statuses ->
-        :ok
-
-      true ->
-        enforce_agent_slot(repo, job, max_running_per_agent())
-    end
-  end
-
-  defp enforce_agent_slot(repo, %Job{} = job, limit) do
-    if running_count(repo, job.agent_uid, job.id) < limit do
-      :ok
-    else
-      {:error, {:background_agent_job_agent_running_limit_exceeded, limit}}
-    end
-  end
-
-  defp max_running_per_agent,
-    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig.max_running_per_agent()
 
   defp enforce_status_transition(%Job{status: current}, attrs) do
     case Map.get(attrs, "status") do

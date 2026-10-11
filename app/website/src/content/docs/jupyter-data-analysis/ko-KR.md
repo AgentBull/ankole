@@ -42,7 +42,7 @@ kernel은 백그라운드 job이 지속되는 동안 살아 있습니다. job이
 
 1. `jupyter-live-kernel` skill이 활성화되어 있는지 확인합니다(기본적으로 켜져 있습니다).
 2. agent를 만들고 `MISSION.md`를 작성합니다: "When a CSV appears in the channel, load it into a DataFrame, inspect the schema and summary statistics, identify anomalies, and report findings with a plot."
-3. 채널에 CSV를 업로드합니다(worker-file 라우트를 통해 또는 URL을 제공).
+3. 채널에 CSV를 첨부하거나, Console에서 Agent의 드라이브에 업로드하고 그 경로를 알려 줍니다.
 4. agent가 백그라운드 job에 위임하고, kernel을 시작하고, CSV를 로드하고, 반복적으로 검사하고, 플롯을 생성하고, 결과를 보고합니다.
 
 ## 이 가이드가 아닌 것

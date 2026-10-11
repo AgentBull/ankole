@@ -1,5 +1,5 @@
 defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
   alias Ankole.SignalsGateway.ReplyPresentation
@@ -446,8 +446,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert element_index(answering_elements, "separator") <
              element_index(answering_elements, "answer")
 
-    answering = ReplyPresentation.append_answer(empty, "正文开始")
-    assert {:ok, actions} = Renderer.batch_actions(empty, answering, mode: :working)
+    actions = Renderer.diff(empty_card, answering_card)
 
     separator_addition =
       Enum.find(actions, fn action ->
@@ -471,7 +470,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
         "label" => "检索资料"
       })
 
-    assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
+    assert {:ok, previous_card} = Renderer.render(previous, mode: :working)
+    assert {:ok, current_card} = Renderer.render(current, mode: :working)
+    actions = Renderer.diff(previous_card, current_card)
     assert Enum.any?(actions, &(&1["action"] in ["add_elements", "update_element"]))
     refute Enum.any?(actions, &get_in(&1, ["params", "partial_element", "raw_tool_name"]))
 
@@ -504,7 +505,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
         ]
       })
 
-    assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
+    assert {:ok, previous_card} = Renderer.render(previous, mode: :working)
+    assert {:ok, current_card} = Renderer.render(current, mode: :working)
+    actions = Renderer.diff(previous_card, current_card)
 
     plan_addition =
       Enum.find(actions, fn action ->
@@ -953,7 +956,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
         "rows" => [%{"value" => 6}]
       })
 
-    assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
+    assert {:ok, previous_card} = Renderer.render(previous, mode: :working)
+    assert {:ok, current_card} = Renderer.render(current, mode: :working)
+    actions = Renderer.diff(previous_card, current_card)
 
     added_elements =
       actions

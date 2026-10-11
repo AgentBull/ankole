@@ -3,7 +3,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   Concrete fire attempt shared by one-shot checkbacks and cron schedules.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -19,7 +19,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @kinds ~w(check_back_later cron_fire)
-  @statuses ~w(scheduled firing fired cancelled failed)
+  @statuses ~w(scheduled fired cancelled failed)
 
   @type t :: %__MODULE__{}
 
@@ -54,13 +54,10 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     field :source_entry_id, :string
     field :source_provenance, :map, default: %{}
     field :wake_payload, :map, default: %{}
-    field :oban_job_id, :integer
     field :actor_event_id, Ecto.UUID
     # When the schedule originates from an AI/tool message, record the stored
     # ai_gateway_messages.id so the origin can be traced deterministically.
     field :origin_ai_message_id, Ecto.UUID
-    field :fire_attempts, :integer, default: 0
-    field :fire_claimed_at, :utc_datetime_usec
     field :fired_at, :utc_datetime_usec
     field :cancelled_at, :utc_datetime_usec
     field :last_fire_error, :map, default: %{}
@@ -98,11 +95,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :source_entry_id,
       :source_provenance,
       :wake_payload,
-      :oban_job_id,
       :actor_event_id,
       :origin_ai_message_id,
-      :fire_attempts,
-      :fire_claimed_at,
       :fired_at,
       :cancelled_at,
       :last_fire_error
@@ -132,12 +126,10 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :idempotency_key,
       :source_provenance,
       :wake_payload,
-      :fire_attempts,
       :last_fire_error
     ])
     |> validate_inclusion(:kind, @kinds)
     |> validate_inclusion(:status, @statuses)
-    |> validate_number(:fire_attempts, greater_than_or_equal_to: 0)
     |> validate_timezone(:timezone)
     |> JSONPayload.validate_map(:source_provenance)
     |> JSONPayload.validate_map(:wake_payload)
@@ -154,9 +146,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     )
     |> unique_constraint([:cron_schedule_id, :cron_fire_slot_at],
       name: :actor_scheduled_events_cron_slot_index
-    )
-    |> unique_constraint(:cron_schedule_id,
-      name: :actor_scheduled_events_one_live_recurring_index
     )
     |> check_constraint(:kind, name: :actor_scheduled_events_kind_check)
     |> check_constraint(:status, name: :actor_scheduled_events_status_check)

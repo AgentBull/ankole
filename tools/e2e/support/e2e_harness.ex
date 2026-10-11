@@ -18,9 +18,9 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.E2E.FakeOpenAIPlug
   alias Ankole.E2E.WaitHelpers
@@ -30,9 +30,8 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Bindings
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -72,6 +71,99 @@ defmodule Ankole.E2E.Harness do
   def secondary_app_id, do: @secondary_app_id
 
   # -- infrastructure ---------------------------------------------------------
+
+  @doc """
+  Cleans up committed fixtures for a serial test tagged `sandbox: false`.
+
+  Timed lifecycle tests need real transaction boundaries: PostgreSQL `now()`
+  stays fixed inside a sandbox transaction. Container cleanup runs before this
+  callback. These tests must not share their database with another suite.
+  """
+  def cleanup_committed_fixtures_on_exit! do
+    tenant_id = Repo.tenant_id!()
+    drivers = Ankole.SignalsGateway.ActorRuntimeCase.driver_pids()
+    principals = Repo.all(from(p in Principals.Principal, select: p.uid))
+    workers = Repo.all(from(w in AgentWorker, select: w.agent_uid))
+    providers = Repo.all(from(p in ProviderConfigs.Provider, select: p.provider_id))
+    worker_providers = Enum.map(AgentWorkers.Providers.list(), & &1.provider_id)
+    jobs = Repo.all(from(j in Oban.Job, select: j.id))
+    objects = Repo.all(from(o in Ankole.Brain.Schemas.Object, select: o.id))
+
+    scopes =
+      Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
+
+    channels = Repo.all(from(c in Channel, select: c.id))
+
+    on_exit(
+      Repo.bind_tenant(fn ->
+        Ankole.SignalsGateway.ActorRuntimeCase.stop_new_drivers(drivers)
+
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          created = Repo.all(from(p in Principals.Principal, where: p.uid not in ^principals))
+          uids = Enum.map(created, & &1.uid)
+
+          Repo.delete_all(from(o in Ankole.Brain.Schemas.Object, where: o.id not in ^objects))
+          Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
+          # Provider mirrors outlive Agents. Volatile fences have no foreign keys.
+          Repo.delete_all(from(c in Channel, where: c.id not in ^channels))
+          # The owner foreign key is RESTRICT. Delete Agents before their Humans.
+          Repo.delete_all(
+            from(p in Principals.Principal, where: p.uid in ^uids and p.type == :agent)
+          )
+
+          Repo.delete_all(
+            from(r in Principals.AccessRestriction, where: r.principal_uid in ^uids)
+          )
+
+          Repo.delete_all(from(e in Principals.AccessEvent, where: e.principal_uid in ^uids))
+          Repo.delete_all(from(p in Principals.Principal, where: p.uid in ^uids))
+          Repo.delete_all(from(w in AgentWorker, where: w.agent_uid not in ^workers))
+
+          Repo.delete_all(
+            from(j in Oban.Job,
+              where: j.id not in ^jobs and j.args["tenant_id"] == ^tenant_id
+            )
+          )
+
+          Repo.delete_all(
+            from(p in ProviderConfigs.Provider, where: p.provider_id not in ^providers)
+          )
+
+          for provider <- AgentWorkers.Providers.list(),
+              provider.provider_id not in worker_providers do
+            assert {:ok, _provider} = AgentWorkers.Providers.delete(provider.provider_id)
+          end
+
+          if tenant = Repo.get(Ankole.Tenants.Tenant, tenant_id) do
+            assert {:ok, _} = Ankole.Tenants.delete(tenant)
+
+            worker = Oban.Worker.to_string(Ankole.Tenants.Jobs.Delete)
+
+            job =
+              Repo.one!(
+                from(j in Oban.Job,
+                  where: j.worker == ^worker and j.args["tenant_id"] == ^tenant_id,
+                  where: j.state in ["available", "scheduled", "retryable"]
+                )
+              )
+
+            # Other tenants can still have platform jobs. Teardown runs only
+            # this tenant's persisted delete job through its original owner.
+            assert {:ok, true} =
+                     WaitHelpers.wait_until(WaitHelpers.deadline(60_000), fn ->
+                       result = Ankole.Tenants.Jobs.Delete.perform(job)
+                       assert result == :ok or match?({:snooze, _}, result), inspect(result)
+                       Ankole.Tenants.get(tenant_id) == {:error, :not_found}
+                     end)
+
+            Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id))
+          end
+
+          :ok = Ankole.AppConfigure.Cache.clear_for_test()
+        end)
+      end)
+    )
+  end
 
   def start_fake_llm_server! do
     server =
@@ -119,7 +211,9 @@ defmodule Ankole.E2E.Harness do
         )
     end
 
-    %{state: state, base_url: "http://127.0.0.1:#{port}", port: port}
+    base_url = "http://127.0.0.1:#{port}"
+    put_lark_test_client_opts!(base_url: base_url)
+    %{state: state, base_url: base_url, port: port}
   end
 
   # The historical e2e bot identities: the multi-agent apps carry distinct
@@ -133,24 +227,25 @@ defmodule Ankole.E2E.Harness do
   Derives real long connections from enabled bindings and waits for the WS
   handshake against the fake Feishu server.
 
-  Uses a test-scoped connection registry and supervisor so connections die with
-  the test. `connections:` is the number of WS connections to wait for.
+  Uses the production connection owner and stops the connections this call
+  starts when the test ends. `connections:` is the number of WS connections.
   """
   def start_lark_connections!(fake_feishu, opts \\ []) do
-    suffix = System.unique_integer([:positive])
-    registry = :"lark_e2e_conn_registry_#{suffix}"
-    supervisor = :"lark_e2e_conn_supervisor_#{suffix}"
+    %{registry: registry, supervisor: supervisor} =
+      ConnectionReconciler.__connection_lifecycle__()
 
-    start_supervised!({Registry, keys: :unique, name: registry})
-    start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-    put_lark_test_client_opts!(base_url: fake_feishu.base_url)
+    tenant_id = Repo.tenant_id!()
+    existing = MapSet.new(ConnectionReconciler.registered_keys())
+    result = ConnectionReconciler.reconcile_once()
 
-    result =
-      ConnectionReconciler.reconcile_once(
-        registry: registry,
-        supervisor: supervisor
-      )
+    started =
+      ConnectionReconciler.registered_keys()
+      |> Enum.filter(fn key ->
+        not MapSet.member?(existing, key) or
+          match?([{_pid, {^tenant_id, _fingerprint}}], Registry.lookup(registry, key))
+      end)
 
+    on_exit(fn -> Enum.each(started, &ConnectionReconciler.stop/1) end)
     assert %{errors: []} = result
 
     expected = Keyword.get(opts, :connections, 1)
@@ -171,11 +266,7 @@ defmodule Ankole.E2E.Harness do
     server =
       start_supervised!(
         {Bandit,
-         plug: AnkoleWeb.Endpoint,
-         scheme: :http,
-         ip: {0, 0, 0, 0},
-         port: port,
-         startup_log: false},
+         plug: AnkoleWeb.Endpoint, scheme: :http, ip: {0, 0, 0, 0}, port: port, startup_log: false},
         id: @control_plane_server_id
       )
 
@@ -229,13 +320,16 @@ defmodule Ankole.E2E.Harness do
   Starts the full worker e2e stack one suite test needs:
 
   fake OpenAI upstream + fake Feishu platform + agent domain + control-plane
-  HTTP server (Worker Channel and AIGateway) + one real Docker worker, then
-  waits for WS connections and worker admission. Returns the ctx map the scenario functions consume.
+  HTTP server (Worker Channel and AIGateway) + the real Docker Worker of each
+  domain Agent, then waits for WS connections and for every Worker to be
+  ready. Returns the ctx map the scenario functions consume.
 
   Options: `secondary: true` adds the second agent/app, `multi_agent: true`
   adds the multi-agent-room bindings, `real_llm_api_key:` switches the domain
   to the real OpenRouter provider (no fake LLM assertions), `worker: false`
-  skips the Docker worker.
+  leaves the creation request pending without running Worker reconciliation,
+  and `replaces_workers: true` lets the test kill, stop, or
+  replace its Workers (see `start_worker!/2`).
   """
   def start_worker_e2e_stack!(opts \\ []) do
     Ankole.E2E.DockerWorker.assert_docker_image!()
@@ -281,31 +375,114 @@ defmodule Ankole.E2E.Harness do
     ctx = Map.merge(domain, %{fake_feishu: fake_feishu, fake_llm_port: fake_llm_port})
 
     case Keyword.get(opts, :worker, true) do
-      false -> ctx
-      true -> Map.merge(ctx, start_worker!(Keyword.get(opts, :worker_prefix, "lark-e2e")))
+      false ->
+        ctx
+
+      true ->
+        agent_uids =
+          [domain.agent.uid] ++
+            case domain do
+              %{secondary_agent: secondary} -> [secondary.uid]
+              _domain -> []
+            end
+
+        worker_opts = Keyword.take(opts, [:replaces_workers])
+        Map.merge(ctx, start_worker!(agent_uids, worker_opts))
     end
   end
 
   @doc """
-  Starts the control-plane HTTP server that the Worker can reach (Worker
-  Channel and AIGateway) and one admitted Docker worker. Returns
-  `%{container:, worker_id:, endpoint:, worker_auth_key:, server_port:}`.
+  Starts the control-plane HTTP server that Workers reach (Worker Channel and
+  AIGateway), makes the control plane create Workers with its Docker provider,
+  and waits until the Worker of each Agent is ready. Returns
+  `%{container:, endpoint:, server_port:}`, where `container` is the Worker
+  of the first Agent.
+
+  The supervisor in the image starts a crashed Worker process again in its
+  container, and the control plane replaces an instance that is gone, so a
+  Turn can still finish after a crash. Thus the test fails at its end when
+  one of these Workers has a different generation or incarnation than when
+  it became ready. A test that kills, stops, or replaces its Workers on
+  purpose gives `replaces_workers: true`.
   """
-  def start_worker!(prefix) do
-    worker_id = "#{prefix}-worker-#{System.unique_integer([:positive])}"
-    worker_auth_key = WorkerAuthKey.ensure!()
+  def start_worker!([first | _rest] = agent_uids, opts \\ []) do
     port = start_ai_gateway_test_http_server!()
     endpoint = worker_endpoint(port)
+    Ankole.E2E.DockerWorker.install_provider!(endpoint)
+    start_worker_reconciler!()
 
-    container = start_additional_worker!(endpoint, worker_id, worker_auth_key)
+    Enum.each(agent_uids, &request_worker!/1)
 
-    %{
-      container: container,
-      worker_id: worker_id,
-      endpoint: endpoint,
-      worker_auth_key: worker_auth_key,
-      server_port: port
-    }
+    unless Keyword.get(opts, :replaces_workers, false),
+      do: assert_workers_kept_on_exit!(agent_uids)
+
+    %{container: Ankole.E2E.DockerWorker.container(first), endpoint: endpoint, server_port: port}
+  end
+
+  # The callback runs before the Worker containers are removed, so a failure
+  # shows the log of the current container.
+  defp assert_workers_kept_on_exit!(agent_uids) do
+    started = Map.new(agent_uids, &{&1, worker_identity(&1)})
+
+    on_exit(
+      Repo.bind_tenant(fn ->
+        Enum.each(started, fn {agent_uid, identity} ->
+          current = worker_identity(agent_uid)
+
+          if current != identity do
+            logs = Ankole.E2E.DockerWorker.logs(Ankole.E2E.DockerWorker.container(agent_uid))
+
+            flunk(
+              "the Worker of #{agent_uid} changed while the test ran: #{inspect(identity)} " <>
+                "became #{inspect(current)}; logs=#{inspect(logs, printable_limit: :infinity)}"
+            )
+          end
+        end)
+      end)
+    )
+  end
+
+  defp worker_identity(agent_uid) do
+    case Repo.get(AgentWorker, agent_uid) do
+      %AgentWorker{generation: generation, incarnation_id: incarnation_id} ->
+        %{generation: generation, incarnation_id: incarnation_id}
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc """
+  Requests the Worker for work that needs the Agent computer, and waits until
+  it is ready. Returns the container handle of that Worker.
+  """
+  def request_worker!(agent_uid) do
+    :ok = AgentWorkers.request(agent_uid)
+    container = Ankole.E2E.DockerWorker.container(agent_uid)
+
+    assert {:ok, _worker} =
+             WaitHelpers.wait_for_worker(container, WaitHelpers.deadline(120_000))
+
+    container
+  end
+
+  @doc """
+  Puts one file into an Agent's drive, as the Console or `ankole-files put`
+  does. A Skill is installed at `skills/<name>/`; the Worker materializes it
+  into `installed-skills/<name>/` of its Agent Home before the next turn.
+  """
+  def put_drive_file!(agent_uid, path, content, opts \\ []) do
+    assert {:ok, %{sha256: sha256}} = Ankole.Files.store(content)
+
+    upsert =
+      Ankole.Attrs.maybe_put(
+        %{path: path, sha256: sha256, source: "agent"},
+        :mode,
+        Keyword.get(opts, :mode)
+      )
+
+    assert {:ok, _result} = Ankole.Files.commit(agent_uid, [upsert])
+    :ok
   end
 
   @doc "Worker Channel URL for a Docker worker against a host-bound control-plane port."
@@ -313,69 +490,25 @@ defmodule Ankole.E2E.Harness do
     "ws://host.docker.internal:#{port}/runtime-fabric/worker"
   end
 
-  @doc """
-  Binds the ZeroMQ ROUTER on a free host port for Workers that still use
-  `tcp://` and returns the container-side endpoint. Stopped on exit.
-  """
-  def start_zmq_router!(port \\ 0) do
-    {:ok, endpoint} =
-      WorkerRoute.start_router("tcp://0.0.0.0:#{port}",
-        worker_auth_key: WorkerAuthKey.ensure!(),
-        poll_interval_ms: 1
-      )
-
-    on_exit(fn -> safe_stop_router() end)
-    Ankole.E2E.DockerWorker.docker_host_endpoint(endpoint)
+  # Oban runs in manual mode in tests. This process runs the Worker lifecycle
+  # jobs that a deployment runs in the `agent_workers` queue and in cron: it
+  # drains the due reconciliations every 200 ms and sweeps every 5 seconds,
+  # with the provider instances every 30 seconds.
+  defp start_worker_reconciler! do
+    start_supervised!(%{
+      id: :e2e_worker_reconciler,
+      start: {Task, :start_link, [Repo.bind_tenant(fn -> reconcile_workers(0) end)]}
+    })
   end
 
-  @doc "Stops the ZeroMQ ROUTER if the route exit is still alive."
-  def safe_stop_router do
-    WorkerRoute.stop_router()
-  catch
-    :exit, _reason -> :ok
-  end
+  defp reconcile_workers(round) do
+    if rem(round, 25) == 0 do
+      :ok = SweepJob.perform(%Oban.Job{args: %{"objects" => rem(round, 150) == 0}})
+    end
 
-  @doc """
-  Restarts the ZeroMQ ROUTER on the same host port; the old socket must
-  release the port first.
-  """
-  def restart_zmq_router_on_port!(router_port) do
-    endpoint = "tcp://0.0.0.0:#{router_port}"
-
-    assert {:ok, _endpoint} =
-             WaitHelpers.wait_until(WaitHelpers.deadline(5_000), fn ->
-               case WorkerRoute.start_router(endpoint,
-                      worker_auth_key: WorkerAuthKey.ensure!(),
-                      poll_interval_ms: 1
-                    ) do
-                 {:ok, endpoint} -> {:ok, endpoint}
-                 {:error, _reason} -> nil
-               end
-             end),
-           "router did not release and restart on #{endpoint}"
-  end
-
-  @doc """
-  Starts one more Docker worker against the running control-plane server and
-  waits for its admission projection.
-  """
-  def start_additional_worker!(endpoint, worker_id, worker_auth_key, docker_opts \\ []) do
-    container =
-      Ankole.E2E.DockerWorker.start_docker_worker!(
-        [endpoint: endpoint, worker_id: worker_id, worker_auth_key: worker_auth_key] ++
-          docker_opts
-      )
-
-    on_exit(fn -> Ankole.E2E.DockerWorker.cleanup_docker_worker(container) end)
-
-    assert {:ok, _worker} =
-             WaitHelpers.wait_for_worker_projection(
-               worker_id,
-               container,
-               WaitHelpers.deadline(90_000)
-             )
-
-    container
+    Oban.drain_queue(queue: :agent_workers, with_scheduled: DateTime.utc_now())
+    Process.sleep(200)
+    reconcile_workers(round + 1)
   end
 
   # -- domain setup -----------------------------------------------------------
@@ -386,31 +519,40 @@ defmodule Ankole.E2E.Harness do
   def create_e2e_agent!(attrs) do
     owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
 
-    assert {:ok, %{principal: _owner}} =
+    assert {:ok, %{principal: owner}} =
              Principals.create_human(%{
-               uid: owner_uid,
                display_name: "E2E Agent Owner",
                email: "#{owner_uid}@example.com"
              })
 
     assert {:ok, %{principal: _agent} = result} =
-             Principals.create_agent(Map.put(attrs, :owner_principal_uid, owner_uid))
+             Principals.create_agent(
+               attrs
+               |> Map.delete(:uid)
+               |> Map.delete("uid")
+               |> Map.put_new_lazy(:handle, fn ->
+                 "e2e-agent-#{System.unique_integer([:positive])}"
+               end)
+               |> Map.put(:owner_principal_uid, owner.uid)
+               |> Map.put_new_lazy(:worker_provider_id, &Ankole.E2E.DockerWorker.provider_id!/0)
+             )
 
     result
   end
 
-  def setup_lark_domain!(fake_llm_port, fake_feishu) do
+  def setup_lark_domain!(fake_llm_port, fake_feishu, agent_attrs \\ %{}) do
     uid =
       "agent-lark-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
 
     provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
 
     %{principal: agent} =
-      create_e2e_agent!(%{
-        uid: uid,
-        display_name: "Lark Chaos Agent",
-        role: "Reliability test agent"
-      })
+      create_e2e_agent!(
+        Map.merge(
+          %{uid: uid, display_name: "Lark Chaos Agent", role: "Reliability test agent"},
+          agent_attrs
+        )
+      )
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos")
 
@@ -512,8 +654,8 @@ defmodule Ankole.E2E.Harness do
              })
 
     for {profile, model} <- [
-          {"primary", "~deepseek/deepseek-v4-flash-latest"},
-          {"light", "~deepseek/deepseek-v4-flash-latest"}
+          {"primary", "deepseek/deepseek-v4.1-flash"},
+          {"light", "deepseek/deepseek-v4.1-flash"}
         ] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
@@ -609,24 +751,21 @@ defmodule Ankole.E2E.Harness do
   # -- ingress waits ----------------------------------------------------------
 
   @doc """
-  Waits for one pending actor event created from a provider entry.
+  Waits for one actor event created from a provider entry.
 
-  WS dispatch is asynchronous, so the test wait loop advances runtime-event
-  deadlines and then checks whether the exact actor event exists.
+  WS dispatch is asynchronous. The wait loop runs due Oban batch jobs and
+  checks whether the exact actor event exists.
   """
   def actor_event_by_source_entry_id!(agent_uid, source_entry_id, timeout_ms \\ 20_000) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
            finalize_due_inbound_batch_events!()
-           pending_actor_event(agent_uid, source_entry_id)
+           actor_events_for(agent_uid, source_entry_id) |> List.first()
          end) do
       {:ok, %ActorEvent{} = input} ->
         input
 
       :timeout ->
-        flunk(
-          "no pending actor event for source_entry_id=#{source_entry_id} agent_uid=#{agent_uid}; " <>
-            "existing=#{inspect(actor_events_for(agent_uid, source_entry_id))}"
-        )
+        flunk("no actor event for source_entry_id=#{source_entry_id} agent_uid=#{agent_uid}")
     end
   end
 
@@ -645,8 +784,8 @@ defmodule Ankole.E2E.Harness do
     ActorEvent
     |> where([input], input.agent_uid == ^agent_uid)
     |> where([input], input.source_entry_id == ^source_entry_id)
+    |> order_by([input], desc: input.inserted_at, desc: input.id)
     |> Repo.all()
-    |> Enum.map(&Map.take(&1, [:id, :type, :completed_at]))
   end
 
   @doc """
@@ -697,48 +836,45 @@ defmodule Ankole.E2E.Harness do
   # -- turn driving -----------------------------------------------------------
 
   def finalize_due_inbound_batch_events! do
-    now = DateTime.utc_now(:microsecond) |> DateTime.add(120, :second)
+    result =
+      Oban.drain_queue(
+        queue: :conversations,
+        with_scheduled: DateTime.utc_now(:microsecond),
+        with_limit: 20
+      )
 
-    SignalsGateway.runtime_event_snapshot()
-    |> Enum.filter(fn {channel, payload} ->
-      channel == RuntimeEvents.inbound_batch_due_channel() and runtime_event_due?(payload, now)
-    end)
-    |> Enum.each(fn {_channel, payload} ->
-      assert {:ok, _result} =
-               SignalsGateway.finalize_inbound_batch_by_id(
-                 Map.fetch!(payload, "batch_id"),
-                 Map.fetch!(payload, "batch_revision"),
-                 now: now
-               )
-    end)
+    assert result.failure == 0, inspect(result)
+    :ok
   end
 
-  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
-
-  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
-    case DateTime.from_iso8601(due_at) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      _invalid -> false
+  def ensure_input_driver!(%ActorEvent{} = event, _now) do
+    with {:ok, pid} <- Ankole.Conversations.ensure_driver(event) do
+      send(pid, {:inbox, event.id})
+      {:ok, %{status: :driving, pid: pid}}
     end
   end
 
-  defp runtime_event_due?(_payload, _now), do: true
-
-  def process_ready_event_for_actor!(%ActorEvent{} = event, now) do
-    ReadyEventProcessor.process_ready_event_for_actor(
-      %{agent_uid: event.agent_uid, session_id: event.session_id},
-      now: now,
-      lease_seconds: @long_lease_seconds
-    )
+  def retry_until_sent!(input, now) do
+    assert {:ok, _result} =
+             WaitHelpers.wait_until(WaitHelpers.deadline(90_000), fn ->
+               case ensure_input_driver!(input, now) do
+                 {:ok, %{status: :driving} = result} -> result
+                 {:error, _reason} -> nil
+               end
+             end),
+           "input #{input.id} had no conversation driver"
   end
 
   @doc "Asserts one actor event finished, either by completion or recall hard delete."
   def assert_actor_event_finished!(actor_event_id) do
-    case Repo.get(ActorEvent, actor_event_id) do
-      nil -> :ok
-      %ActorEvent{completed_at: %DateTime{}} -> :ok
-      %ActorEvent{} = event -> flunk("actor event still pending: #{inspect(event)}")
-    end
+    assert {:ok, :finished} =
+             WaitHelpers.wait_until(WaitHelpers.deadline(30_000), fn ->
+               case Repo.get(ActorEvent, actor_event_id) do
+                 nil -> :finished
+                 %ActorEvent{completed_at: %DateTime{}} -> :finished
+                 %ActorEvent{} -> nil
+               end
+             end)
   end
 
   @doc "Asserts one actor event completed with a durable completion timestamp."
@@ -753,37 +889,12 @@ defmodule Ankole.E2E.Harness do
   fake Feishu server).
   """
   def run_outbox_dispatch! do
-    now = DateTime.utc_now(:microsecond)
-
-    SignalsGateway.runtime_event_snapshot()
-    |> Enum.filter(&outbox_due_event?(&1, now))
-    |> Enum.take(20)
-    |> Enum.map(fn {_channel, payload} ->
-      SignalsGateway.dispatch_outbox_by_key(
-        payload["agent_uid"],
-        payload["binding_name"],
-        payload["outbound_key"],
-        now: now
-      )
-    end)
+    Oban.drain_queue(
+      queue: :outbox,
+      with_scheduled: DateTime.utc_now(:microsecond),
+      with_limit: 20
+    )
   end
-
-  defp outbox_due_event?({channel, payload}, now) when is_map(payload) do
-    channel == Ankole.RuntimeEvents.outbox_due_channel() and due_at?(payload["due_at"], now)
-  end
-
-  defp outbox_due_event?(_event, _now), do: false
-
-  defp due_at?(nil, _now), do: true
-
-  defp due_at?(value, now) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      {:error, _reason} -> false
-    end
-  end
-
-  defp due_at?(_value, _now), do: false
 
   @doc """
   Dispatches one committed outbox row and asserts the message became visible on
@@ -841,10 +952,13 @@ defmodule Ankole.E2E.Harness do
 
     assert [
              %{
-               "user_files_relative_path" => "reports/chaos-report.txt",
+               "path" => "sent/" <> _digest_and_name,
+               "blob_ref" => blob_ref,
                "name" => "chaos-report.txt"
              }
            ] = outbox.payload["attachments"]
+
+    assert is_binary(blob_ref)
 
     sent = dispatch_outbox_succeeded!(outbox)
 
@@ -869,13 +983,11 @@ defmodule Ankole.E2E.Harness do
   def dispatch_outbox_succeeded!(%OutboxEntry{outbound_key: key}) do
     results = run_outbox_dispatch!()
 
-    sent =
-      Enum.find_value(results, fn
-        {:ok, %OutboxEntry{outbound_key: ^key, status: :succeeded} = row} -> row
-        _other -> nil
-      end)
+    sent = Repo.get_by!(OutboxEntry, outbound_key: key)
 
-    assert sent, "outbox #{key} did not dispatch successfully: #{inspect(results)}"
+    assert sent.status == :succeeded,
+           "outbox #{key} did not dispatch successfully: #{inspect(sent)} jobs=#{inspect(results)}"
+
     assert is_binary(sent.created_source_entry_id)
     sent
   end
@@ -1070,16 +1182,7 @@ defmodule Ankole.E2E.Harness do
   defp decode_output_result(output) when is_binary(output) do
     case JSON.decode(output) do
       {:ok, decoded} -> %{"result" => decoded}
-      {:error, _reason} -> decode_json_prefix_result(output)
-    end
-  end
-
-  defp decode_json_prefix_result(output) do
-    with {:ok, json} <- json_container_prefix(output),
-         {:ok, decoded} <- JSON.decode(json) do
-      %{"result" => decoded}
-    else
-      _error -> %{}
+      {:error, _reason} -> %{}
     end
   end
 
@@ -1089,8 +1192,6 @@ defmodule Ankole.E2E.Harness do
       |> String.split("\n", trim: true)
       |> Enum.reduce(%{}, fn line, acc ->
         case String.split(line, "=", parts: 2) do
-          ["background_id", background_id] -> Map.put(acc, "backgroundID", background_id)
-          ["status", status] -> Map.put(acc, "status", status)
           ["exit_code", exit_code] -> Map.put(acc, "exitCode", String.to_integer(exit_code))
           _other -> acc
         end
@@ -1101,64 +1202,6 @@ defmodule Ankole.E2E.Harness do
       _empty -> %{"raw" => value}
     end
   end
-
-  defp json_container_prefix(value) when is_binary(value) do
-    value = String.trim_leading(value)
-
-    case value do
-      <<byte, _rest::binary>> when byte in [?{, ?[] ->
-        find_json_container_end(value, 0, [], false, false)
-
-      _other ->
-        :error
-    end
-  end
-
-  defp find_json_container_end(value, position, stack, in_string?, escaped?)
-       when position < byte_size(value) do
-    byte = :binary.at(value, position)
-
-    cond do
-      in_string? and escaped? ->
-        find_json_container_end(value, position + 1, stack, true, false)
-
-      in_string? and byte == ?\\ ->
-        find_json_container_end(value, position + 1, stack, true, true)
-
-      in_string? and byte == ?" ->
-        find_json_container_end(value, position + 1, stack, false, false)
-
-      in_string? ->
-        find_json_container_end(value, position + 1, stack, true, false)
-
-      byte == ?" ->
-        find_json_container_end(value, position + 1, stack, true, false)
-
-      byte == ?{ ->
-        find_json_container_end(value, position + 1, [?} | stack], false, false)
-
-      byte == ?[ ->
-        find_json_container_end(value, position + 1, [?] | stack], false, false)
-
-      byte in [?}, ?]] ->
-        case stack do
-          [^byte | rest] ->
-            if rest == [] do
-              {:ok, binary_part(value, 0, position + 1)}
-            else
-              find_json_container_end(value, position + 1, rest, false, false)
-            end
-
-          _mismatched ->
-            :error
-        end
-
-      true ->
-        find_json_container_end(value, position + 1, stack, false, false)
-    end
-  end
-
-  defp find_json_container_end(_value, _position, _stack, _in_string?, _escaped?), do: :error
 
   # -- misc ---------------------------------------------------------------------
 

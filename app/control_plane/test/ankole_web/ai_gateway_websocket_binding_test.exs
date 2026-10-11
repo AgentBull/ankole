@@ -125,6 +125,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
              })
 
     connection_state = %{
+      tenant_id: agent.tenant_id,
       subject_uid: agent.uid,
       subject_type: "agent",
       codex_model_binding: %{

@@ -1,5 +1,6 @@
 defmodule Ankole.Plugins.DingTalkAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
 
@@ -12,7 +13,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.DingTalkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
   alias Ankole.Plugins.DingTalkAdapter.Inbound
   alias Ankole.Plugins.DingTalkAdapter.Outbox
@@ -86,17 +86,19 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     end)
 
     first_save =
-      Task.async(fn ->
-        send(parent, {:ready, self()})
-        receive do: (:save -> :ok)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          send(parent, {:ready, self()})
+          receive do: (:save -> :ok)
 
-        Bindings.put_binding(
-          first_agent.uid,
-          "dingtalk",
-          "dingtalk-main",
-          dingtalk_binding_attrs(shared_config)
-        )
-      end)
+          Bindings.put_binding(
+            first_agent.uid,
+            "dingtalk",
+            "dingtalk-main",
+            dingtalk_binding_attrs(shared_config)
+          )
+        end)
+      )
 
     assert_receive {:ready, first_save_pid}, 1_000
     assert first_save_pid == first_save.pid
@@ -108,14 +110,16 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                    1_000
 
     second_save =
-      Task.async(fn ->
-        Bindings.put_binding(
-          second_agent.uid,
-          "dingtalk",
-          "dingtalk-main",
-          dingtalk_binding_attrs(shared_config)
-        )
-      end)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Bindings.put_binding(
+            second_agent.uid,
+            "dingtalk",
+            "dingtalk-main",
+            dingtalk_binding_attrs(shared_config)
+          )
+        end)
+      )
 
     second_result = Task.yield(second_save, 500)
     :ok = :sys.resume(cache_pid)
@@ -224,11 +228,11 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         )
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  Inbound.chat_consumer(context, config)
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
 
@@ -427,7 +431,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              Outbox.send(outbox_entry(binding, %{operation: :delete}))
   end
 
-  test "an unlisted attachment extension fails explicitly before touching the worker" do
+  test "an unlisted attachment extension fails explicitly before reading the file" do
     binding = setup_chat_binding()
 
     unsupported_entry =
@@ -435,13 +439,17 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         operation: :post,
         payload: %{
           "attachments" => [
-            %{"user_files_relative_path" => "outbox-test/program.exe", "name" => "program.exe"}
+            %{
+              "path" => "sent/abababababababab/program.exe",
+              "blob_ref" => "abababababababababababababababababababababababababababababababab",
+              "name" => "program.exe"
+            }
           ]
         }
       })
 
     # The sampleFile type list is a strict whitelist: unlisted extensions fail
-    # before any worker file read.
+    # before the file bytes are read.
     stub_outbox_requests(self(), &ok_send_responder/1)
     assert {:error, :unsupported_file_type} = Outbox.send(unsupported_entry)
 
@@ -772,7 +780,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     ]
 
     stub_identity_requests(self(), users)
-    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+
+    consumer =
+      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      |> Map.put(:tenant_id, Repo.tenant_id!())
 
     add_event = %Event{
       type: "EVENT",
@@ -819,7 +830,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              })
 
     uid = observed.principal.uid
-    assert {:ok, _} = AuthZ.root_init_admin(uid)
+    assert {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(uid)
 
     event = %Event{
       type: "EVENT",
@@ -828,7 +839,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       data: %{"userId" => ["last-admin", "unknown-staff"]}
     }
 
-    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+    consumer =
+      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      |> Map.put(:tenant_id, Repo.tenant_id!())
 
     for _ <- 1..2 do
       assert {:ok, _} = IdentityProvider.handle_contact_event("user_leave_org", event, [consumer])
@@ -870,7 +883,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              })
 
     uid = observed.principal.uid
-    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+
+    consumer =
+      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      |> Map.put(:tenant_id, Repo.tenant_id!())
 
     event = %Event{
       type: "EVENT",
@@ -928,7 +944,11 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     alias DingTalkOpenAPI.Stream.Dispatcher, as: StreamDispatcher
     provider_id = "dingtalk-incomplete-#{unique_suffix()}"
     configure_identity_provider(provider_id, @identity_config)
-    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
+
+    consumer =
+      IdentityProvider.identity_consumer(provider_id, @identity_config)
+      |> Map.put(:tenant_id, Repo.tenant_id!())
+
     dispatcher = Dispatcher.build([consumer])
     event = %Event{type: "EVENT", event_type: "user_leave_org", event_id: "incomplete", data: %{}}
     assert {:reply, 200, %{"status" => "SUCCESS"}} = StreamDispatcher.dispatch(dispatcher, event)

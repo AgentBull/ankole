@@ -1,29 +1,19 @@
 defmodule AnkoleWeb.RequestLogger do
   @moduledoc """
   Emits one structured request log for completed Phoenix requests.
+  Ankole.Application attaches the handler before it starts child processes.
   """
-
-  use GenServer
 
   alias Ankole.Logging
 
   @handler_id __MODULE__
   @event [:phoenix, :endpoint, :stop]
 
-  @spec start_link(term()) :: GenServer.on_start()
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-
-  @impl true
-  def init(_opts) do
-    :telemetry.detach(@handler_id)
-    :ok = :telemetry.attach(@handler_id, @event, &__MODULE__.handle_event/4, %{})
-    {:ok, %{}}
-  end
-
-  @impl true
-  def terminate(_reason, _state) do
-    :telemetry.detach(@handler_id)
-    :ok
+  @doc "Attaches the request log handler and replaces an earlier handler in this VM."
+  @spec attach() :: :ok | {:error, :already_exists}
+  def attach do
+    _ = :telemetry.detach(@handler_id)
+    :telemetry.attach(@handler_id, @event, &__MODULE__.handle_event/4, %{})
   end
 
   @spec handle_event([atom()], map(), map(), map()) :: :ok

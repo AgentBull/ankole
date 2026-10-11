@@ -26,7 +26,7 @@ defmodule Ankole.Brain.SignalsTriggers do
            Utils.signal_channel_id_from_session_id(conversation_key),
          true <- Config.enabled?(),
          %Channel{kind: kind} when kind in [:im_dm, :im_group] <-
-           repo.get(Channel, channel_id) do
+           repo.get_by(Channel, id: channel_id) do
       {:ok, _job} = ProcessChannelSlice.enqueue(channel_id)
 
       :ok

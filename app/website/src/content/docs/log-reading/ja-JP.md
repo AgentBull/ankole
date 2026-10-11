@@ -1,6 +1,6 @@
 ---
 title: ログの読み方
-description: Docker Compose または Kubernetes から Ankole のログを取得し、イベント名と context フィールドを使って障害箇所を特定します。
+description: Docker Compose、Kubernetes、または Cloudflare から Ankole のログを取得し、イベント名と context フィールドを使って障害箇所を特定します。
 section: User guide
 order: 57
 ---
@@ -15,17 +15,31 @@ Docker Compose:
 
 ```bash
 docker compose logs --since 30m control-plane
-docker compose logs --since 30m agent-computer-worker
+docker ps -a --filter label=ankole.installation=ankole
+docker logs --since 30m CONTAINER_NAME
 ```
+
+control plane は Agent ごとに Worker コンテナを 1 つ作成します。2 つ目のコマンドでそれらを一覧表示できます。ラベル `ankole.agent-uid` が各コンテナの Agent を示します。
 
 Kubernetes:
 
 ```bash
 kubectl -n ankole logs deployment/ankole-control-plane --since=30m
-kubectl -n ankole logs deployment/ankole-agent-computer-worker --since=30m
+kubectl -n ankole get pods -l ankole.io/installation=ankole
+kubectl -n ankole logs POD_NAME -c worker --since=30m
 ```
 
-リソース名は release 名に応じて変わることがあります。コマンドでオブジェクトが見つからない場合は、最初に `kubectl -n ankole get deployments` を実行してください。
+リソース名は release 名に応じて変わることがあります。コマンドでオブジェクトが見つからない場合は、最初に `kubectl -n ankole get deployments` を実行してください。Worker Pod のラベル `ankole.io/installation` の値は、`worker.installation` で別の値を設定しない限り release 名です。Pod のアノテーション `ankole.io/agent-uid` がその Pod の Agent を示します。
+
+Cloudflare（`tools/deploy/cloudflare/agent-workers` で実行）:
+
+```bash
+bunx wrangler tail ankole-agent-workers
+```
+
+アダプターは、Worker の起動、停止、スナップショットごとに JSON を 1 行書き出します。
+
+Agent の Worker が起動しない場合は、**Console → Workers** にその状態と、そのバックエンドからの最新の理由が表示されます。[Workers](../worker-management/) を参照してください。
 
 問題を再現する前に、おおよその時刻、Agent、chat channel、ユーザーの操作を記録しておきましょう。そうすれば、プロセス起動時からすべて読むのではなく、短い時間帯だけを調べられます。
 
@@ -52,10 +66,10 @@ kubectl -n ankole logs deployment/ankole-agent-computer-worker --since=30m
 
 1. 問題の時刻にログを限定します。
 2. `error`、`warning`、または Console に表示されたエラーコードを検索します。
-3. 関連するイベントを見つけたら、Agent UID、Provider ID、Worker ID、または chat adapter でフィルタリングします。
+3. 関連するイベントを見つけたら、Agent UID（Agent の Worker の ID でもあります）、Provider ID、または chat adapter でフィルタリングします。
 4. レコードと、**Console → Conversations** または **Background Agent Jobs** の状態を照合します。
 
-ログには、復号された model credential、channel secret、Worker 認証キーは含まれません。ログをサポートに共有する前でも、ユーザーメッセージ、URL、その他の業務データが含まれていないか確認してください。
+ログには、復号された model credential、channel secret、Worker の credential は含まれません。ログをサポートに共有する前でも、ユーザーメッセージ、URL、その他の業務データが含まれていないか確認してください。
 
 ## 一時的にログの詳細度を上げる
 
@@ -63,6 +77,6 @@ kubectl -n ankole logs deployment/ankole-agent-computer-worker --since=30m
 
 再現後に元の値へ戻し、大量のログが出力され続けないようにしてください。
 
-`ANKOLE_LOG_FORMAT` は `json` または `pretty` を指定できます。ログ収集システムを使っている場合は、そのシステムが期待する形式を維持してください。すべての変数については [デプロイ環境変数リファレンス](../environment-variables/) を参照してください。
+すべての変数については [デプロイ環境変数リファレンス](../environment-variables/) を参照してください。
 
 現象別のチェックは [FAQ](../faq/) を参照してください。

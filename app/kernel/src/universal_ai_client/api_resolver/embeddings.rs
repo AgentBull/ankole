@@ -1,23 +1,9 @@
 use super::*;
 #[derive(Debug)]
-pub(super) struct OpenAIEmbeddings;
-
-#[derive(Debug)]
 pub(super) struct OpenrouterEmbeddings;
 
 #[derive(Debug)]
 pub(super) struct JinaEmbeddings;
-
-impl APIProtocol for OpenAIEmbeddings {
-    fn on_provider_body(
-        &mut self,
-        context: &ResponseContext,
-        status: u16,
-        body: Value,
-    ) -> Result<Value, StreamError> {
-        normalize_openai_embeddings_body(context, status, body)
-    }
-}
 
 impl APIProtocol for OpenrouterEmbeddings {
     fn on_provider_body(
@@ -39,20 +25,6 @@ impl APIProtocol for JinaEmbeddings {
     ) -> Result<Value, StreamError> {
         normalize_jina_embeddings_body(context, status, body)
     }
-}
-
-fn normalize_openai_embeddings_body(
-    context: &ResponseContext,
-    status: u16,
-    body: Value,
-) -> Result<Value, StreamError> {
-    normalize_embedding_body(
-        context,
-        status,
-        body,
-        "OpenAI embeddings",
-        normalize_openai_embedding_data,
-    )
 }
 
 fn normalize_openrouter_embeddings_body(
@@ -113,10 +85,6 @@ fn normalize_embedding_body(
             .unwrap_or_else(|| json!({})),
     );
     Ok(Value::Object(object))
-}
-
-fn normalize_openai_embedding_data(data: &Value) -> Value {
-    normalize_embedding_items(data, false)
 }
 
 fn normalize_openrouter_embedding_data(data: &Value) -> Value {

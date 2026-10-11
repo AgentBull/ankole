@@ -5,13 +5,21 @@ Thank you for contributing to Ankole. This guide is for both human contributors 
 > [!WARNING]
 > Ankole is in active development. Public APIs do not yet have a compatibility contract, so interfaces and subsystem boundaries can change between releases.
 
+A site is one complete deployment. It may contain several tenants, each with
+its own people, Agents, Brain and integrations. Site operators manage shared
+providers and infrastructure. The administrator Console defaults to
+`/site-admin-console`; `/console` returns 404 after this upgrade. Set
+`ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
+Keep that path in operator configuration. Normal users sign in through their
+OIDC application rather than the site administration Console.
+
 ## What a successful setup means
 
 A full local setup is complete only when all of these are true:
 
 1. Bun, Elixir/Erlang, Rust, Docker, and Docker Compose work from a new terminal.
 2. The devkit PostgreSQL service is healthy and the control-plane database is migrated.
-3. `bun dev` runs the Phoenix control plane, Web Console, frontend assets, and one Docker Agent Computer worker.
+3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation requests its Docker Worker in the background. After an idle stop, environment tools or Codex request it again; pure questions do not wait for it.
 4. The first administrator can sign in, and an LLM provider, agent, and Signal binding are configured.
 5. A real message sent through Feishu/Lark reaches the agent and receives the expected reply.
 
@@ -50,8 +58,8 @@ You do not need to learn every runtime before starting. The repository-level Bun
 | PostgreSQL | Stores all durable control-plane state | Devkit Compose service | `localhost:5433` |
 | Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://localhost:4000` |
 | Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
-| Agent Computer | Runs model turns, tools, skills, and worker-local state | `app/agent_computer` | Docker container `ankole-dev-agent-computer` |
-| Kernel | Provides shared native primitives and RuntimeFabric envelope validation | `app/kernel` | Loaded by Elixir and Bun |
+| Agent Computer | Runs environment tools, Codex, Skill materialization, and Worker-local state | `app/agent_computer` | One Docker container per Agent, label `ankole.installation=dev` |
+| Kernel | Provides native primitives and AI transport | `app/kernel` | Loaded by Elixir through Rustler |
 | RuntimeFabric | Carries live control-plane-to-worker traffic over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
 
 ### Elixir in five minutes
@@ -155,7 +163,7 @@ bun run control-plane:setup
 
 They perform distinct jobs:
 
-1. `bun install` installs every workspace dependency and runs the root `prepare` script, which points `core.hooksPath` at `.githooks`.
+1. `bun install` installs every workspace dependency.
 2. `services:start` starts PostgreSQL through `tools/devkit/external-services.docker-compose.yml` and waits for it to become healthy.
 3. `services:status` shows the Compose service state.
 4. `control-plane:setup` fetches Elixir dependencies, creates the development database, runs Ecto migrations, and loads seeds.
@@ -174,7 +182,18 @@ Run:
 bun dev
 ```
 
-Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale worker image, starts Phoenix and the frontend assets, and starts one managed Docker worker.
+Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. When an Agent needs its computer, the control plane creates its Worker container, which runs the local Agent Computer source in watch mode.
+
+`mix ecto.migrate` also runs the temporary 2026-10 data upgrade from
+`Ankole.Upgrade202610`. `ecto.setup`, `kit app-db` and `bun dev` use this same
+entry point. Release runs the same data steps through `Release.migrate`.
+Keep the original encryption key and stop every old control-plane replica
+before an upgrade. To repeat only the data steps after schema migration, run:
+
+```bash
+cd app/control_plane
+mix run --no-start -e 'Ankole.Upgrade202610.run()'
+```
 
 The first run may spend substantial time building the Agent Computer image. Wait while there is active build output.
 
@@ -183,12 +202,13 @@ In another terminal, verify the visible boundaries:
 ```bash
 bun run services:status
 curl -I http://localhost:4000/
-docker ps --filter name=ankole-dev-agent-computer
 ```
 
-The database must be healthy, the HTTP request must reach the control plane, and the worker container must be running. Then open [`http://localhost:4000`](http://localhost:4000).
+The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Creating an Agent requests a Worker in the background. List the containers with `docker ps -a --filter label=ankole.installation=dev`; pure questions do not wait for them.
 
-Do not start a second `bun dev`. Stop the managed control plane and worker with `Ctrl+C` in the original terminal.
+The development control plane listens on every interface, because Worker containers reach it through the Docker bridge gateway (`host.docker.internal`). On a shared network, block port 4000 from other machines.
+
+Do not start a second `bun dev`. Stop the control plane with `Ctrl+C` in the original terminal; the devkit then removes the Worker containers of the `dev` installation.
 
 PostgreSQL intentionally remains running after `Ctrl+C`. Stop it separately when needed:
 
@@ -196,7 +216,7 @@ PostgreSQL intentionally remains running after `Ctrl+C`. Stop it separately when
 bun run services:stop
 ```
 
-**Stage 4 is complete when the local site opens and the managed worker container stays running.**
+**Stage 4 is complete when the local site opens.**
 
 ## 5. Complete first-time product setup
 
@@ -356,9 +376,9 @@ Return to the Web Console. If the browser session expired, sign in again through
 Create runtime resources in this order because each later resource references an earlier one:
 
 1. **Provider.** Open Providers, choose the service you actually use, and enter a stable Provider ID, API key, endpoint if required, and model information. Save it and confirm it is available.
-2. **Agent.** Open Agents and create a stable UID, display name, and role. Configure `primary`, `light`, and `heavy` model profiles. One provider and model can temporarily serve all three.
+2. **Agent.** Open Agents and set its handle, display name, role, and Worker provider. Ankole generates its opaque UID. Configure `primary`, `light`, and `heavy` model profiles. One provider and model can temporarily serve all three.
 3. **Signal binding.** Open Signals, select the agent and Feishu/Lark adapter, use `lark-main` as the binding name and principal namespace, enter the same app credentials and Feishu domain, then save and enable it.
-4. **Worker.** Open Workers and confirm `local-dev-worker` is ready.
+4. **Worker.** Open Workers and confirm that the Agent has the selected Worker provider and no error. Its initial state is Absent. Environment tools or Codex start the Worker when required; pure questions and control-plane tools do not.
 
 For a first group-chat smoke test, use `addressed_only`. It responds only when the bot is explicitly mentioned and needs fewer Feishu permissions than the full-message modes.
 
@@ -366,7 +386,7 @@ The identity provider and Signal binding are separate boundaries. Entering the s
 
 If you need the financial MCP, add `BULLX_FINANCIAL_DATA_MCP_API_KEY` through the Console's encrypted worker-environment surface. Test it in a new agent turn after saving.
 
-**Stage 5 is complete when the administrator can sign in, the provider and agent are usable, the Signal binding is enabled, and `local-dev-worker` is ready.**
+**Stage 5 is complete when the administrator can sign in, the provider and agent are usable, and the Signal binding is enabled.**
 
 ## 6. Prove the end-to-end path
 
@@ -377,18 +397,23 @@ Before sending a message, confirm:
 - the bot is present in the test chat;
 - the provider is usable and the agent has all three model profiles;
 - the Signal binding is enabled;
-- `local-dev-worker` is ready.
+- the Workers page shows no reason for the Agent's Worker.
 
 Send `Please reply with LOCAL_OK only` in a direct chat with the bot. In a group using `addressed_only`, mention the bot and send the same request.
 
 The reply must travel through the real path:
 
 ```text
-Feishu event -> long connection -> Signal binding -> Agent -> LLM provider
-              <- CardKit/message <- Signal binding <- Agent Computer
+Feishu event -> long connection -> Signal binding -> conversation driver -> AIGateway -> LLM provider
+              <- CardKit/message <- Signal binding <- Outbox <- conversation driver
 ```
 
 The setup passes only when Feishu shows `LOCAL_OK` from the configured agent and the `bun dev` terminal has no provider, permission, event, or worker error for that turn.
+
+For a new Agent, confirm that this pure question leaves the Worker Absent.
+Then ask the Agent to use `command` to print `LOCAL_TOOL_OK`. Confirm that its
+computer starts and the tool result reaches the reply. This checks the Worker
+path as well as the control-plane model path.
 
 Seeing the page, database, or worker alone is not an end-to-end result. If this message does not complete, report the first boundary that failed.
 
@@ -450,12 +475,13 @@ Check these boundaries in order:
 3. Message, CardKit, event, and callback permissions are active.
 4. The Signal binding is enabled and points to the intended agent.
 5. The agent has usable model profiles and the provider credentials are valid.
-6. `local-dev-worker` is ready.
+6. The Agent's Worker is Ready; otherwise the Workers page shows the backend's reason.
 
-Inspect recent worker output without dumping its environment:
+Inspect recent Worker output without dumping its environment:
 
 ```bash
-docker logs --tail 200 ankole-dev-agent-computer
+docker ps -a --filter label=ankole.installation=dev --format '{{.Names}} {{.Label "ankole.agent-uid"}}'
+docker logs --tail 200 CONTAINER_NAME
 ```
 
 If the primary model profile is unavailable, inspect the Console's Agents and Providers pages before blaming Feishu ingress.
@@ -473,12 +499,12 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | Path | Responsibility |
 | --- | --- |
 | `app/control_plane` | Phoenix/OTP control plane, Ecto persistence, setup, Console APIs, and durable runtime authority |
-| `app/agent_computer` | Bun/TypeScript worker, model loop, tools, skills, files, and terminal state |
-| `app/kernel` | Shared Rust crate loaded through Rustler and N-API |
+| `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
+| `app/kernel` | Rust library loaded by the control plane through Rustler |
 | `app/webapps` | Vite/React setup, authentication, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
-| `libs/` | Shared UI and provider client libraries |
+| `libs/` | Shared UI, editor, and provider client libraries |
 | `plugins/` | Trusted first-party plugins |
 | `tools/devkit` | Repository automation, local services, database helpers, and analysis |
 | `tools/e2e` | Dedicated integration and end-to-end suites |
@@ -509,10 +535,44 @@ Start with checks scoped to the files you changed. This makes failures easier to
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
 | Feishu client | `bun run feishu-openapi:test` |
+| Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
+| Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
+
+The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7. `astro check` stops with an error on TypeScript 7.0, and `@astrojs/check` lists TypeScript 5 and 6 as its supported versions. Keep this pin when you update dependencies. Move the website to the workspace version when Astro supports it: `@astrojs/ts-content-mapper` needs TypeScript 7.1 or later.
 
 For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
 
-The Agent Computer runs only in its Linux image. Its test command uses the devkit Docker path and requires Docker plus a current worker image.
+Control Plane lint includes Credo and selected ex_slop checks. Fix violations;
+there is no baseline exemption. The nesting limit is 4 and the cyclomatic
+complexity limit is 20. `bun run analyze:unused` checks production files,
+exports, types, and dependencies; tests do not retain dead production code.
+
+Run the Driver's process and transaction checks separately from the unit suite.
+Use a separate test partition and a resolvable local node name:
+
+```bash
+cd app/control_plane
+MIX_TEST_PARTITION=conversation_driver elixir --sname conversation_checks@localhost -S mix test integration/conversation_driver_test.exs
+```
+
+`bun run test:integration` in `app/control_plane` runs every integration file
+that needs only PostgreSQL. It excludes the `cloud`, `cluster` (a named node),
+and `external` (Docker, Kubernetes, or cloud tooling) tags; run those files with
+the commands later in this guide.
+
+`bun run agent-computer:test` runs Agent Computer unit tests on the host. The
+host needs Bun, Bash, GNU `timeout`, and Python 3. In `app/agent_computer`,
+`bun run test:integration` runs portable integration tests on the host with
+Codex 0.158.0, MCPorter 0.14.1 running with Bun, native `apply_patch`, and GNU
+`stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select a local Codex binary.
+The command sets `TMPDIR=/tmp` to keep Unix socket paths short.
+
+On Linux, also run `bun run test:integration:linux`. It checks the supervisor
+and managed Codex runtime with `setsid` and util-linux `flock` (`-F` support).
+`bun run test:integration:docker` checks the Worker entrypoint, image
+configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark
+CLI. `bun run test:docker` runs the unit suite in the image. Only the Docker
+commands require Docker and a current Worker image.
 
 ### Full local quality gate
 
@@ -527,7 +587,7 @@ bun run test
 git diff --check
 ```
 
-`bun run fmt` changes files in place. If a `.githooks/pre-commit` hook exists in your checkout, it still does not replace the quality gate.
+`bun run fmt` changes files in place.
 
 If the full workspace has an unrelated failure, keep the scoped validation result separate and report the exact ambient blocker. Do not weaken a test or bypass a production path to make the aggregate command green.
 
@@ -546,6 +606,253 @@ tools/e2e/run --all
 ```
 
 These suites are slower and are not part of the default fast path. Run the mode that protects the changed boundary; real-provider and real-LLM modes require the relevant test credentials.
+
+The gate includes a real Compose upgrade from the pooled release pinned in
+`tools/e2e/pooled-worker-revision`. It pulls that release's images and builds
+the current control-plane image. To use an image already built from the
+current source and resolved Worker image, set `ANKOLE_E2E_CONTROL_PLANE_IMAGE`.
+This is required for the Compose scenario with `--no-build`. To run only that
+scenario, use `tools/e2e/run --gate --only=compose_upgrade`.
+
+The chaos suite's idle and image replacement scenarios use real database
+transactions and wait for the five-minute Worker demand window to end. Do
+not run another suite against the same database partition at the same time.
+
+For the DeepSeek user stories and recovery checks, select these tags:
+
+```bash
+tools/e2e/run --real-llm --only=deepseek_release_stories
+tools/e2e/run --real-llm --only=deepseek_clarification_flow
+ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --chaos --only=real_llm_chaos
+tools/e2e/run --real-llm --only=deepseek_delivery_chaos
+ANKOLE_REAL_LLM_E2E=1 tools/e2e/run --gate --only=real_llm_compose_chaos
+```
+
+These selections use `deepseek/deepseek-v4.1-flash` through OpenRouter and
+FakeFeishu transport. Computer scenarios use real Docker Workers; direct
+replies, Skill views, and clarification do not require a computer.
+Set `OPENROUTER_API_KEY` or
+`OPEN_ROUTER_API_KEY` through the existing test credential configuration.
+The first four run the control plane in the test BEAM. The Compose selection
+runs the control plane and PostgreSQL in containers, stops the complete
+control plane, restarts PostgreSQL, and waits for production reconciliation.
+It uses the same image preflight as `compose_upgrade`.
+
+Check the stored file contents, the number of effects, and the platform-visible
+reply or attachment. A model's completion text alone does not prove delivery
+or recovery. After Worker process loss, an unsafe tool with an unknown result
+must return an interrupted result. Inspect the authoritative effect before
+repeating it; only a declared retry-safe call can run again automatically.
+The clarification scenario checks the visible choices and an ordinary WS
+reply that continues the same conversation. An ordinary reply supersedes
+the old interaction; only managed interaction callbacks record it as answered.
+
+The local kind user-flow suite below uses fake Feishu and a fake model. Its
+Kubernetes, Worker, and storage checks do not establish real model behavior.
+FakeFeishu observations also do not prove the real Feishu service or web UI.
+
+The conversation driver suite also uses two named BEAM nodes with PostgreSQL.
+It checks one writer, epoch fencing, settings invalidation, remote routing, and
+recovery after planned node shutdown. Its model provider and Worker channel
+are test fakes; the Docker suites check the real Worker separately.
+
+```bash
+cd app/control_plane
+MIX_TEST_PARTITION=conversation_loop_cluster \
+  elixir --sname ankole_conversation_checks@localhost -S mix test \
+  integration/conversation_driver_test.exs --trace
+```
+
+### Worker provider checks
+
+The Docker and kind suites call the production provider adapters. They delete
+instances, attach the same storage to new instances, check files, and delete
+storage. The lifecycle suites also call the real platform APIs and interrupt
+the coordinator to check recovery and row locks. The provider transaction
+suite uses concurrent PostgreSQL transactions to check seed import and default
+selection. These checks do not replace the full user flow in `tools/e2e/run`.
+The kind user-flow suite uses the real Worker Channel, AIGateway, command and
+file tools, and Kubernetes provider with fake Feishu and model services. It
+checks a reply, file retention after Pod deletion, a reply from the replacement,
+and Agent deletion with both storage layouts.
+Run them separately from the fast suite and do not run two `mix test` commands
+against the same database partition at the same time.
+
+With Docker, Helm, kubectl, and kind installed, run these commands from the
+repository root. The kind cluster and NFS fixture are for local tests only.
+Always pass the temporary kubeconfig; do not use a cloud cluster context.
+kind gives the node the `HTTP_PROXY` and `HTTPS_PROXY` of your shell. A proxy
+on a loopback address does not work in the node, and the NFS fixture image
+cannot be pulled; for `kind create cluster`, use an address that the node can
+reach, such as `http://host.docker.internal:<port>` on Docker Desktop.
+
+```bash
+WORKER_PROVIDER_TEST_DIR=$(mktemp -d)
+bun tools/devkit/src/local-worker-image.ts --scope complete --output "$WORKER_PROVIDER_TEST_DIR/image"
+export ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat "$WORKER_PROVIDER_TEST_DIR/image")
+export ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG="$WORKER_PROVIDER_TEST_DIR/kubeconfig"
+
+kind create cluster --name ankole-worker-provider-test \
+  --image kindest/node:v1.37.0 --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG"
+kind load docker-image "$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" --name ankole-worker-provider-test
+kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" apply \
+  -f app/control_plane/integration/fixtures/kubernetes_worker_storage.yaml
+kubectl --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG" rollout status \
+  deployment/nfs-provisioner --timeout=60s
+
+cd app/control_plane
+MIX_TEST_PARTITION=worker_provider mix test \
+  integration/docker_worker_storage_test.exs \
+  integration/compose_agent_home_migration_test.exs \
+  integration/kubernetes_worker_storage_test.exs \
+  integration/helm_worker_provider_seed_test.exs \
+  integration/agent_worker_lifecycle_test.exs \
+  integration/kubernetes_worker_lifecycle_test.exs \
+  integration/kubernetes_worker_user_flow_test.exs \
+  integration/worker_provider_transactions_test.exs
+cd ../..
+
+kind delete cluster --name ankole-worker-provider-test \
+  --kubeconfig "$ANKOLE_WORKER_PROVIDER_TEST_KUBECONFIG"
+rm -r "$WORKER_PROVIDER_TEST_DIR"
+```
+
+The kind suite uses `standard` for exclusive local-path PVCs and `example-nfs`
+for a shared NFS PVC. Its fixture pins NFS-Ganesha 4.0.8 and uses NFS 4.0; see
+the source and kernel compatibility note in the fixture. These checks do not
+cover CSI block storage or recovery after a node fails. The Helm suite also
+checks the internal chart when that checkout is present.
+For an approved EFS check, use a separate kind cluster and a dedicated EFS
+test directory. Replace the NFS fixture with a static RWX NFS PV and a
+`kubernetes.io/no-provisioner` StorageClass named `example-nfs`. Set the PV's
+storage class to `example-nfs`, capacity to `128Mi`, reclaim policy to `Retain`,
+and mount options to `vers=4.1` and `hard`. The node must reach the EFS mount
+target. Run the same `kubernetes_worker_storage_test.exs` without changing its
+assertions. If a TCP tunnel supplies a different NFS port, set `port` only;
+do not set `mountport`, because EFS does not provide the NFSv3 mount service.
+Afterward, remove the test PV, cluster, and EFS resources. This check does not
+exercise the EFS CSI driver or access-point identity mapping.
+The user-flow suite needs Pods to reach the host control plane through
+`host.docker.internal`, as provided by Docker Desktop.
+
+The Cloudflare storage check needs a dedicated adapter, R2 bucket, and two
+different digest-pinned amd64 images in that adapter. It runs two real Workers
+and uses the real control-plane Channel and file relay. It checks same-generation
+creation, provider isolation, file restore after instance deletion and image
+replacement, and Agent deletion. It does not use an LLM or prove the full user
+flow. Obtain approval for the cloud resources and image uploads first.
+
+Provide these values only for the approved run:
+
+- `ANKOLE_CLOUDFLARE_TEST_ADAPTER_URL` and `ANKOLE_CLOUDFLARE_TEST_ADAPTER_TOKEN`.
+- `ANKOLE_CLOUDFLARE_TEST_IMAGE` and
+  `ANKOLE_CLOUDFLARE_TEST_REPLACEMENT_IMAGE`: the two deployed image names.
+- `ANKOLE_CLOUDFLARE_TEST_CP_PORT`: a free local port for the test control plane.
+- `ANKOLE_CLOUDFLARE_TEST_CP_ORIGIN`: an approved public HTTPS origin that
+  forwards to that port, with no trailing slash. It must carry WebSockets and
+  the file relay. Use a separate test database.
+
+```bash
+cd app/control_plane
+MIX_TEST_PARTITION=cloudflare_worker_provider mix test \
+  integration/cloudflare_worker_storage_test.exs --trace
+```
+
+The check deletes its Agents through the coordinator. If cloud cleanup fails,
+it keeps the unresolved Worker rows and provider credentials in the test
+database. Keep that database until the instances and storage are deleted.
+Remove the adapter, bucket, uploaded images, and public forwarding endpoint
+after the approved checks. This check does not cover a forced platform stop,
+a Durable Object restart, or direct inspection of R2 objects after deletion.
+
+The Lambda entry check runs the production Worker image against a local Linux
+kernel NFS server. It verifies NFS 4.1, the root Worker identity, uid 1000 file
+access, directory isolation, real container deletion and image replacement,
+and repeated deletion hooks. It
+does not call AWS or prove EFS behavior through suspension. Docker must support
+privileged Linux containers and kernel NFS:
+
+```bash
+bun tools/devkit/src/local-worker-image.ts --scope complete --output /tmp/ankole-worker-image
+export ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image)
+docker build --build-arg WORKER_IMAGE="$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" \
+  -f app/control_plane/integration/fixtures/nfs-server.Dockerfile \
+  -t ankole-worker-nfs-test .
+cd app/control_plane
+ANKOLE_NFS_TEST_SERVER_IMAGE=ankole-worker-nfs-test \
+  MIX_TEST_PARTITION=worker_provider mix test integration/lambda_worker_bootstrap_test.exs --trace
+```
+
+The Function Compute contract-file check also runs the production entry in
+Linux. It checks admission gating, the root Worker identity, removal of sudo,
+and repeated Worker and deletion contracts. It also checks that writable Home
+ownership stays unchanged and a read-only Home stops startup. It does not call
+Aliyun or envd:
+
+```bash
+cd app/control_plane
+ANKOLE_WORKER_PROVIDER_TEST_IMAGE=$(cat /tmp/ankole-worker-image) \
+  MIX_TEST_PARTITION=worker_provider mix test integration/function_compute_worker_bootstrap_test.exs --trace
+```
+
+The Vercel and Lambda cloud checks use the production coordinator, Channel,
+and file relay. They are separate from the local and default suites. Prepare
+only approved temporary resources and keep credentials in temporary files
+outside the repository. Both need two different target images and a reachable
+HTTPS/WebSocket test control plane. They preserve unresolved rows if cleanup
+fails; retain the test database until cleanup is complete.
+
+- Vercel: `ANKOLE_VERCEL_TEST_TOKEN_FILE`, `ANKOLE_VERCEL_TEST_TEAM_ID`,
+  `ANKOLE_VERCEL_TEST_PROJECT_ID`, `ANKOLE_VERCEL_TEST_REGION`,
+  `ANKOLE_VERCEL_TEST_IMAGE_REPOSITORY`, `ANKOLE_VERCEL_TEST_IMAGE`,
+  `ANKOLE_VERCEL_TEST_REPLACEMENT_IMAGE`, `ANKOLE_VERCEL_TEST_CP_PORT`, and
+  `ANKOLE_VERCEL_TEST_CP_ORIGIN`. Images must be ready digests in VCR. The check
+  creates two providers, sandboxes, and Drives and removes them afterward.
+  The team plan must permit a 24-hour Sandbox; Hobby's 45-minute limit does not.
+- Lambda: `ANKOLE_LAMBDA_TEST_CONFIG_FILE` contains provider YAML;
+  `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` contains a JSON object with temporary
+  `accessKeyId`, `secretAccessKey`, and `sessionToken` values. Also set
+  `ANKOLE_LAMBDA_TEST_IMAGE`, `ANKOLE_LAMBDA_TEST_REPLACEMENT_IMAGE`,
+  `ANKOLE_LAMBDA_TEST_CP_PORT`, and `ANKOLE_LAMBDA_TEST_CP_ORIGIN`. Prepare the
+  S3 build bucket, build IAM role, EFS root, VPC connector, and NAT access.
+  The check builds provider images, creates MicroVMs and EFS directories,
+  exercises suspend/resume, and deletes its Agents through the coordinator.
+  Check the account's ARM64 memory quota first. The flow needs room for three
+  instances at the configured size, including storage deletion helpers:
+  at least 12 GiB with the default 4 GiB size. A completed helper can retain
+  its allocation until its one-hour platform limit.
+  Remove the tagged images, S3 build objects, and supporting cloud resources
+  after the instances have terminated. A local Docker check cannot prove this
+  cloud path.
+
+Run one command at a time from `app/control_plane` with a separate database:
+
+```bash
+MIX_TEST_PARTITION=vercel_worker_provider mix test integration/vercel_worker_storage_test.exs --trace
+MIX_TEST_PARTITION=lambda_worker_provider mix test integration/lambda_worker_storage_test.exs --trace
+```
+
+The Function Compute cloud check uses the same coordinator, Channel, and file
+relay. It needs an account with second-generation memory pause enabled. Run
+it once with AgenticFS and once with OSS; one storage layout does not prove
+the other. Set `ANKOLE_FUNCTION_COMPUTE_TEST_CONFIG_FILE` to provider YAML and
+`ANKOLE_FUNCTION_COMPUTE_TEST_CREDENTIALS_FILE` to a temporary JSON file with
+the provider's credential fields. Also set `ANKOLE_FUNCTION_COMPUTE_TEST_IMAGE`,
+`ANKOLE_FUNCTION_COMPUTE_TEST_REPLACEMENT_IMAGE`,
+`ANKOLE_FUNCTION_COMPUTE_TEST_CP_PORT`, and
+`ANKOLE_FUNCTION_COMPUTE_TEST_CP_ORIGIN`. Both image versions must exist in
+the configured ACR Enterprise repository. The test checks memory resume,
+instance deletion, image replacement, provider isolation, and storage deletion.
+Remove its remaining templates after cleanup.
+
+```bash
+MIX_TEST_PARTITION=function_compute_provider mix test integration/function_compute_worker_storage_test.exs --trace
+```
+
+The Kubernetes shared-PVC cleanup must also be checked on the target NFS
+server and EFS using NFS 4.1, including the rename under `.deleted/` and the
+removal. Neither the kind NFS 4.0 fixture nor the local Lambda entry check
+proves that production path.
 
 ## Keep design docs and the changelog current
 
@@ -579,6 +886,8 @@ A mixed commit uses `MINOR` only if one change qualifies on its own; `PATCH` cha
 For a `main` push that runs the runtime-image workflow, the newest changelog version is the release identity. After the control-plane and Worker image pair passes verification, the workflow adds immutable version tags and creates the matching `vVERSION` GitHub Release from that exact changelog section. An `alpha` or `beta` version publishes as a GitHub pre-release and moves `canary`; an `rc` or stable version publishes as a full release and moves `main-latest`.
 
 The workflow must fail rather than reuse a version for another commit, replace an existing image tag with another digest, or publish release notes that differ from the changelog.
+
+The same workflow publishes the Agent OS base, built from `app/agent_computer/Dockerfile.base`, as `ghcr.io/agentbull/ankole-agent-os-base:REVISION`. Local Worker builds use the base that `app/agent_computer/base-image.lock` pins. A commit that changes `Dockerfile.base` cannot pin its own base, because the workflow publishes that base only after the push. After the workflow publishes the base of that commit, run `bun run kit pin-base-image` and commit the lock. The command pins the base of `HEAD` or of a commit that you give. It accepts only a commit in the history of `HEAD` that has the `Dockerfile.base` of `HEAD` and a published base. Until the new pin, local builds warn that the pinned base has a different `Dockerfile.base`.
 
 ## Submit a pull request
 

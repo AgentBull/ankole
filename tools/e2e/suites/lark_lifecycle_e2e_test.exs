@@ -5,6 +5,7 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
 
@@ -14,6 +15,11 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
   import Ankole.E2E.Scenarios.Lifecycle
 
   alias Ankole.E2E.FakeOpenAIState
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000

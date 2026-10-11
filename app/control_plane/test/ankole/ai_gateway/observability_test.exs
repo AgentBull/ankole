@@ -192,6 +192,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     }
 
     %{traceparent: traceparent, user_id: nil} =
+      turn =
       Observability.start_turn(actor_event, %{
         request_context: %{"job_id" => 1000, "attempts" => 2}
       })
@@ -227,7 +228,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     observation = AIGatewayObservability.finish_round(observation, provider_response)
     _observation = AIGatewayObservability.finish_response(observation, provider_response)
 
-    assert :ok = Observability.finish_turn(actor_event.id, output: "final reply")
+    assert :ok = Observability.finish_turn(turn, output: "final reply")
 
     spans = exported_spans()
     root = span!(spans, "turn background_agent_job.dispatch")
@@ -324,7 +325,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
           "observability_user_id" => "channel:forged"
         },
         stateful: %{conversation_id: "conversation-admin"},
-        subject_type: "admin_human"
+        subject_type: "oidc_human"
       )
       |> AIGatewayObservability.start_round(
         %{runtime: %{"provider_kind" => "openai"}},
@@ -348,7 +349,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     Enum.each([span!(spans, "ai_gateway.response"), span!(spans, "chat gpt-admin")], fn span ->
       assert span.attributes["user.id"] == "principal:admin-1"
       assert span.attributes["ankole.principal.uid"] == "admin-1"
-      assert span.attributes["ankole.principal.type"] == "admin_human"
+      assert span.attributes["ankole.principal.type"] == "oidc_human"
       assert span.attributes["session.id"] == "conversation-admin"
     end)
   end
@@ -430,11 +431,12 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     }
 
     assert %{traceparent: traceparent, user_id: nil} =
+             turn =
              Observability.start_turn(actor_event, %{request_context: %{}})
 
     assert is_binary(traceparent)
 
-    assert :ok = Observability.finish_turn(actor_event.id, outcome: "silent")
+    assert :ok = Observability.finish_turn(turn, outcome: "silent")
 
     root = exported_spans() |> span!("turn cron.fire")
     assert root.attributes["langfuse.observation.output"] == ~s({"outcome":"silent"})
@@ -535,16 +537,22 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     observation =
       AIGatewayObservability.fail_round(
         observation,
-        {:universal_ai_request_failed,
-         %{"code" => "rate_limit_exceeded", "message" => "secret provider text"}}
+        %Ankole.AIGateway.ProviderFailure{
+          kind: :other,
+          code: "rate_limit_exceeded",
+          message: "secret provider text"
+        }
       )
 
     _observation =
       AIGatewayObservability.finish_response(
         observation,
         {:error,
-         {:universal_ai_request_failed,
-          %{"code" => "rate_limit_exceeded", "message" => "secret provider text"}}}
+         %Ankole.AIGateway.ProviderFailure{
+           kind: :other,
+           code: "rate_limit_exceeded",
+           message: "secret provider text"
+         }}
       )
 
     spans = exported_spans()
@@ -587,8 +595,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       assert span.status == :error
       assert span.attributes["error.type"] == "credential_pool_exhausted"
       assert span.attributes["ankole.ai_gateway.provider_status"] == 429
-      # The pinned OTLP exporter encodes Erlang boolean atoms as strings.
-      assert span.attributes["ankole.ai_gateway.retryable"] == "true"
+      assert span.attributes["ankole.ai_gateway.retryable"] == true
       assert span.attributes["ankole.ai_gateway.retry_at"] == "2026-09-28T15:12:46Z"
       assert span.attributes["ankole.ai_gateway.provider_error_code"] == "RESOURCE_EXHAUSTED"
     end
@@ -601,7 +608,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         {%{"code" => nil}, "provider_error"},
         {%{"code" => 429}, "provider_error"},
         {%{code: :rate_limit_exceeded}, "rate_limit_exceeded"},
-        {{:universal_ai_request_failed, %{"code" => nil}}, "universal_ai_request_failed"}
+        {%Ankole.AIGateway.ProviderFailure{kind: :other, code: nil},
+         "universal_ai_request_failed"}
       ] do
     @failure_reason reason
     @expected_error_code expected
@@ -717,40 +725,76 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert generation.attributes["gen_ai.usage.reasoning.output_tokens"] == 2
   end
 
-  test "a provider-native compact call records its own generation" do
+  test "a provider-native compact call has one generation under its response root" do
     enable_export(self(), "langfuse")
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    test_pid = self()
+    output = [%{"type" => "compaction", "encrypted_content" => "opaque-secret"}]
 
-    runtime = %{"model" => "gpt-compact", "provider_kind" => "openai"}
+    base_url =
+      Ankole.AIGatewayCase.start_upstream_server(fn
+        %{method: :get} ->
+          {:json, 200, %{"data" => []}}
 
-    result =
-      AIGatewayObservability.record_compact(
-        "principal-compact",
-        runtime,
-        %{"model" => "gpt-compact", "input" => [%{"type" => "message", "content" => "history"}]},
-        fn ->
-          {:ok,
-           %{
-             body: %{
-               "id" => "resp-compact",
-               "model" => "gpt-compact",
-               "status" => "completed",
-               "output" => [%{"type" => "compaction", "encrypted_content" => "opaque-secret"}],
-               "usage" => %{"input_tokens" => 9, "output_tokens" => 4}
-             }
-           }}
-        end
-      )
+        request ->
+          send(test_pid, {:compact_request, request.body})
 
-    assert {:ok, %{body: %{"id" => "resp-compact"}}} = result
+          {:sse, 200,
+           Ankole.AIGatewayCase.openai_compaction_stream_events(
+             "resp-compact",
+             output,
+             %{"input_tokens" => 9, "output_tokens" => 4}
+           )}
+      end)
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: "compact-trace",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(
+               agent.uid,
+               "llm",
+               %{"model" => "compact-trace/gpt-compact"}
+             )
+
+    assert {:ok, %{output: ^output, usage: %{"input_tokens" => 9}}} =
+             Ankole.AIGateway.UpstreamCompaction.compact(
+               runtime,
+               [%{"type" => "message", "role" => "user", "content" => "history"}],
+               %{},
+               enabled?: true,
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             )
+
+    assert_receive {:compact_request, request}
+    assert List.last(request["input"]) == %{"type" => "compaction_trigger"}
 
     spans = exported_spans()
-    compact = span!(spans, "compact gpt-compact")
-
+    assert [compact] = Enum.filter(spans, &(&1.name == "compact gpt-compact"))
+    response = span!(spans, "ai_gateway.response")
+    assert compact.parent_span_id == response.span_id
+    assert compact.trace_id == response.trace_id
     assert compact.attributes["langfuse.observation.type"] == "generation"
     assert compact.attributes["gen_ai.request.model"] == "gpt-compact"
-    assert compact.attributes["user.id"] == "principal:principal-compact"
+    assert compact.attributes["user.id"] == "principal:#{agent.uid}"
     assert compact.attributes["ankole.ai_gateway.caller"] == "compaction.upstream"
     assert compact.attributes["gen_ai.usage.input_tokens"] == 9
+
+    assert [compact] ==
+             Enum.filter(
+               spans,
+               &(&1.attributes["langfuse.observation.type"] == "generation" and
+                   Map.has_key?(&1.attributes, "gen_ai.usage.input_tokens"))
+             )
+
+    assert response.attributes["gen_ai.usage.input_tokens"] == 9
+
     assert compact.status == :ok
     refute compact.attributes["langfuse.observation.output"] =~ "opaque-secret"
     refute Map.has_key?(compact.attributes, "ankole.ai_gateway.output")
@@ -770,7 +814,11 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert :ok =
              AIGatewayObservability.record_credential_retry(
                observation,
-               {:upstream_response_failed, 429, %{}},
+               %Ankole.AIGateway.ProviderFailure{
+                 kind: :status_rejected,
+                 provider_status: 429,
+                 provider_body: %{}
+               },
                250
              )
 
@@ -951,10 +999,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   end
 
   defp assert_turn_identity(actor_event, human_uid, expected_user_id) do
-    on_exit(fn ->
-      Observability.finish_turn(actor_event.id, error_type: "test_cleanup")
-    end)
-
     runtime_env =
       if is_binary(human_uid) do
         %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human_uid}
@@ -963,6 +1007,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       end
 
     %{traceparent: traceparent, user_id: ^expected_user_id} =
+      turn =
       Observability.start_turn(actor_event, %{
         request_context: %{},
         runtime_env: runtime_env
@@ -973,7 +1018,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         actor_event.agent_uid,
         %{"input" => "hello"},
         request_context: %{
-          "headers" => %{"traceparent" => traceparent},
+          "traceparent" => traceparent,
           "observability_user_id" => expected_user_id
         },
         stateful: %{conversation_id: actor_event.session_id},
@@ -1003,7 +1048,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     observation = AIGatewayObservability.finish_round(observation, provider_response)
     _observation = AIGatewayObservability.finish_response(observation, provider_response)
-    assert :ok = Observability.finish_turn(actor_event.id)
+    assert :ok = Observability.finish_turn(turn)
 
     spans = exported_spans()
     root = span!(spans, "turn #{actor_event.type}")

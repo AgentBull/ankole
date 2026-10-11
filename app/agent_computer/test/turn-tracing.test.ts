@@ -78,20 +78,23 @@ describe('worker turn tracing', () => {
   })
 
   it('creates explicit remote children and exports provider-neutral agent and tool facts', async () => {
-    const exports: Array<{ agentUID: string; payload: Uint8Array }> = []
+    const exports: Uint8Array[] = []
     const sharedChannelUserID = 'channel:lark:oc_shared'
-    configureWorkerTracing(async (payload, agentUID) => {
-      exports.push({ agentUID, payload })
+    configureWorkerTracing(async payload => {
+      exports.push(payload)
     })
 
     const firstTrace = workerTurnTrace(
-      turnStart('agent-1', 'session-1', '00-11111111111111111111111111111111-1111111111111111-01', sharedChannelUserID)
+      turnStart('agent-1', 'session-1', '00-11111111111111111111111111111111-1111111111111111-01', sharedChannelUserID),
+      'agent-1'
     )
     const secondTrace = workerTurnTrace(
-      turnStart('agent-2', 'session-2', '00-22222222222222222222222222222222-2222222222222222-01', sharedChannelUserID)
+      turnStart('agent-1', 'session-2', '00-22222222222222222222222222222222-2222222222222222-01', sharedChannelUserID),
+      'agent-1'
     )
     const unattributedTrace = workerTurnTrace(
-      turnStart('agent-3', 'session-3', '00-44444444444444444444444444444444-4444444444444444-01', undefined)
+      turnStart('agent-1', 'session-3', '00-44444444444444444444444444444444-4444444444444444-01', undefined),
+      'agent-1'
     )
 
     expect(firstTrace?.attributes).toEqual({
@@ -101,11 +104,16 @@ describe('worker turn tracing', () => {
       'session.id': 'session-1'
     })
     expect(unattributedTrace?.attributes).toEqual({
-      'ankole.principal.uid': 'agent-3',
+      'ankole.principal.uid': 'agent-1',
       'ankole.principal.type': 'agent',
       'session.id': 'session-3'
     })
 
+    // Spans that other tests left in the shared processor export first, so
+    // each flush below carries the spans of one trace only.
+    await forceFlushWorkerTracing()
+
+    // The three Turns run at the same time.
     const codexTurn = startWorkerSpan(firstTrace, 'codex.turn', {
       ...workerObservationInputAttributes('agent', 'inspect the PDF skill'),
       'ankole.principal.uid': 'spoofed-agent',
@@ -122,6 +130,16 @@ describe('worker turn tracing', () => {
       },
       codexTurn ? { parent: codexTurn } : {}
     )
+    const search = startWorkerSpan(secondTrace, 'execute_tool web_search', {
+      ...workerObservationInputAttributes('tool', { query: 'observability' }),
+      'gen_ai.tool.name': 'web_search'
+    })
+    const internal = startWorkerSpan(unattributedTrace, 'execute_tool internal', {
+      ...workerObservationInputAttributes('tool', {}),
+      'gen_ai.tool.name': 'internal'
+    })
+
+    // A span is exported only after it ends, so each flush exports one trace.
     finishWorkerSpan(tool, {
       attributes: {
         ...workerObservationOutputAttributes('tool', 'loaded PDF skill'),
@@ -137,41 +155,30 @@ describe('worker turn tracing', () => {
         'session.id': 'finish-spoofed-session'
       }
     })
-    finishWorkerSpan(
-      startWorkerSpan(secondTrace, 'execute_tool web_search', {
-        ...workerObservationInputAttributes('tool', { query: 'observability' }),
-        'gen_ai.tool.name': 'web_search'
-      }),
-      { attributes: workerObservationOutputAttributes('tool', ['result']) }
-    )
-    finishWorkerSpan(
-      startWorkerSpan(unattributedTrace, 'execute_tool internal', {
-        ...workerObservationInputAttributes('tool', {}),
-        'gen_ai.tool.name': 'internal'
-      })
-    )
+    const firstWire = await flushedWireText(exports)
+    finishWorkerSpan(search, { attributes: workerObservationOutputAttributes('tool', ['result']) })
+    const secondWire = await flushedWireText(exports)
+    finishWorkerSpan(internal)
+    const unattributedWire = await flushedWireText(exports)
 
-    await forceFlushWorkerTracing()
-
-    expect(exports.map(entry => entry.agentUID).sort()).toEqual(['agent-1', 'agent-2', 'agent-3'])
-    const expectedIdentities: Record<string, { sessionID: string; userID?: string }> = {
-      'agent-1': { sessionID: 'session-1', userID: sharedChannelUserID },
-      'agent-2': { sessionID: 'session-2', userID: sharedChannelUserID },
-      'agent-3': { sessionID: 'session-3' }
-    }
-
-    for (const entry of exports) {
-      expect(entry.payload.byteLength).toBeGreaterThan(0)
-      const wireText = new TextDecoder().decode(entry.payload)
-      const expected = expectedIdentities[entry.agentUID]!
+    const sessionIDs = ['session-1', 'session-2', 'session-3']
+    const traces = [
+      { wireText: firstWire, sessionID: 'session-1', userID: sharedChannelUserID },
+      { wireText: secondWire, sessionID: 'session-2', userID: sharedChannelUserID },
+      { wireText: unattributedWire, sessionID: 'session-3' }
+    ]
+    for (const { wireText, sessionID, userID } of traces) {
       expect(wireText).toContain('ankole-worker')
       expect(wireText).toContain('ankole.principal.uid')
-      expect(wireText).toContain(entry.agentUID)
+      expect(wireText).toContain('agent-1')
       expect(wireText).toContain('session.id')
-      expect(wireText).toContain(expected.sessionID)
-      if (expected.userID) {
+      expect(wireText).toContain(sessionID)
+      for (const otherSessionID of sessionIDs.filter(id => id !== sessionID)) {
+        expect(wireText).not.toContain(otherSessionID)
+      }
+      if (userID) {
         expect(wireText).toContain('user.id')
-        expect(wireText).toContain(expected.userID)
+        expect(wireText).toContain(userID)
       } else {
         expect(wireText).not.toContain('user.id')
       }
@@ -182,37 +189,33 @@ describe('worker turn tracing', () => {
       expect(wireText).not.toContain('ankole.worker.output')
       expect(wireText).not.toContain('langfuse.')
       expect(wireText).not.toContain('langsmith.')
-
-      if (entry.agentUID === 'agent-1') {
-        expect(wireText).toContain('ankole.agent.input')
-        expect(wireText).toContain('ankole.agent.output')
-        expect(wireText).toContain('gen_ai.tool.call.arguments')
-        expect(wireText).toContain('gen_ai.tool.call.result')
-        expect(wireText).toContain('skill_view')
-        expect(wireText).toContain('"name":"pdf"')
-        expect(wireText).toContain('loaded PDF skill')
-      } else if (entry.agentUID === 'agent-2') {
-        expect(wireText).toContain('gen_ai.operation.name')
-        expect(wireText).toContain('gen_ai.tool.call.arguments')
-        expect(wireText).toContain('gen_ai.tool.call.result')
-      } else {
-        expect(wireText).toContain('gen_ai.tool.call.arguments')
-      }
+      expect(wireText).toContain('gen_ai.operation.name')
+      expect(wireText).toContain('gen_ai.tool.call.arguments')
     }
+
+    expect(firstWire).toContain('ankole.agent.input')
+    expect(firstWire).toContain('ankole.agent.output')
+    expect(firstWire).toContain('gen_ai.tool.call.result')
+    expect(firstWire).toContain('skill_view')
+    expect(firstWire).toContain('"name":"pdf"')
+    expect(firstWire).toContain('loaded PDF skill')
+    expect(secondWire).toContain('gen_ai.tool.call.result')
+    expect(secondWire).toContain('web_search')
+    expect(unattributedWire).toContain('internal')
   })
 
   it('rejects invalid traceparents and normalizes observability user boundaries', () => {
     configureWorkerTracing(async () => {})
     const validTraceparent = '00-11111111111111111111111111111111-1111111111111111-01'
-    expect(workerTurnTrace(turnStart('agent-valid', 'session-valid', validTraceparent))).toBeDefined()
+    expect(workerTurnTrace(turnStart('agent-valid', 'session-valid', validTraceparent), 'agent-valid')).toBeDefined()
 
     const invalid = turnStart('agent-1', 'session-1', 'invalid')
     expect(traceparentFromTurnStart(invalid)).toBeUndefined()
-    expect(workerTurnTrace(invalid)).toBeUndefined()
+    expect(workerTurnTrace(invalid, 'agent-valid')).toBeUndefined()
 
     const missing = turnStart('agent-1', 'session-1')
     expect(traceparentFromTurnStart(missing)).toBeUndefined()
-    expect(workerTurnTrace(missing)).toBeUndefined()
+    expect(workerTurnTrace(missing, 'agent-valid')).toBeUndefined()
 
     const zeroTraceID = turnStart('agent-1', 'session-1', '00-00000000000000000000000000000000-1111111111111111-01')
     expect(traceparentFromTurnStart(zeroTraceID)).toBeUndefined()
@@ -288,7 +291,8 @@ describe('worker turn tracing', () => {
     })
 
     const turnTrace = workerTurnTrace(
-      turnStart('agent-shutdown', 'session-shutdown', '00-33333333333333333333333333333333-3333333333333333-01')
+      turnStart('agent-shutdown', 'session-shutdown', '00-33333333333333333333333333333333-3333333333333333-01'),
+      'agent-shutdown'
     )
     finishWorkerSpan(startWorkerSpan(turnTrace, 'tool shutdown'))
 
@@ -296,21 +300,27 @@ describe('worker turn tracing', () => {
   })
 })
 
+async function flushedWireText(exports: Uint8Array[]): Promise<string> {
+  const first = exports.length
+  await forceFlushWorkerTracing()
+  const flushed = exports.slice(first)
+  expect(flushed.length).toBeGreaterThan(0)
+  return flushed.map(payload => new TextDecoder().decode(payload)).join('\n')
+}
+
 function turnStart(agentUID: string, sessionID: string, traceparent?: string, observabilityUserID?: string): TurnStart {
   return {
-    workspace_id: 10_000,
+    mode: 'start',
+    fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { agent_uid: agentUID, session_id: sessionID },
-      activation_uid: `activation-${agentUID}`,
-      actor_epoch: 1,
-      actor_event_id: `event-${agentUID}`,
-      revision: 0
+      actor: { session_id: sessionID },
+      job_id: 1000,
+      attempt: 1,
+      actor_event_id: `event-${agentUID}`
     },
     actor_event: {
       actor_event_id: `event-${agentUID}`,
-      queue_sequence: 1,
       type: 'im.message',
-      source_event_id: `source-${agentUID}`,
       payload_json: {}
     },
     request_context: {

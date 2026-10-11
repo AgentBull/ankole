@@ -1,6 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { lstat, mkdir, rm } from 'node:fs/promises'
+import { lstat, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { mkdirAgent } from '../common/agent-user'
+import { commandEnv } from '../core/execution/command-env'
+import { agentProcessArgv, killProcessGroup } from '../core/execution/process-group'
 
 export type BrowserDaemonEvent = {
   kind: 'started' | 'exited' | 'restart_scheduled'
@@ -20,7 +23,7 @@ export class BrowserDaemonSupervisor {
   constructor(
     readonly options: {
       socketPath: string
-      daemonEntry?: string
+      daemonEntry: string
       onEvent?: (event: BrowserDaemonEvent) => void
     }
   ) {}
@@ -37,9 +40,9 @@ export class BrowserDaemonSupervisor {
     const child = this.child
     this.child = undefined
     if (!child || child.exitCode !== null || child.signalCode !== null) return
-    child.kill('SIGTERM')
+    killProcessGroup(child.pid, 'SIGTERM')
     if (await waitForExit(child, 5_000)) return
-    child.kill('SIGKILL')
+    killProcessGroup(child.pid)
     await waitForExit(child, 1_000)
   }
 
@@ -52,12 +55,24 @@ export class BrowserDaemonSupervisor {
   }
 
   private async spawnAndWait(): Promise<void> {
-    await mkdir(dirname(this.options.socketPath), { recursive: true })
+    await mkdirAgent(dirname(this.options.socketPath))
     await rm(this.options.socketPath, { force: true })
-    const daemonEntry = this.options.daemonEntry ?? '/opt/ankole-browser/dist/daemon/main.js'
-    const child = spawn(process.execPath, [daemonEntry], {
-      env: { ...process.env, ANKOLE_BROWSER_DAEMON_SOCKET: this.options.socketPath },
-      stdio: ['ignore', 'inherit', 'inherit']
+    // `stop()` can run while a start or restart waits above. It finds no child
+    // then, so the daemon must not start after it.
+    if (!this.desired) return
+    const [command, ...args] = agentProcessArgv([process.execPath, this.options.daemonEntry])
+    const child = spawn(command!, args, {
+      env: commandEnv(
+        {
+          ANKOLE_BROWSER_DAEMON_SOCKET: this.options.socketPath,
+          ...(process.env.ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS
+            ? { ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS: process.env.ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS }
+            : {})
+        },
+        { agentHome: process.env.HOME! }
+      ),
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: true
     })
     this.child = child
     let spawnError: Error | undefined
@@ -123,7 +138,7 @@ async function waitForSocketOrExit(
     }
     await new Promise(resolve => setTimeout(resolve, 25))
   }
-  child.kill('SIGTERM')
+  killProcessGroup(child.pid, 'SIGTERM')
   throw new Error('ankole-browserd readiness timed out')
 }
 

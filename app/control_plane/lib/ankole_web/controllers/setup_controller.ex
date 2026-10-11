@@ -22,6 +22,15 @@ defmodule AnkoleWeb.SetupController do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Login
 
+  plug :put_setup_tenant
+
+  defp put_setup_tenant(conn, _opts) do
+    case WebSession.put_privileged_tenant() do
+      :ok -> conn
+      {:error, reason} -> conn |> error(503, reason) |> halt()
+    end
+  end
+
   @doc """
   Returns setup state needed before the SPA can decide which step to show.
   """
@@ -197,7 +206,7 @@ defmodule AnkoleWeb.SetupController do
         provider_id: provider_id,
         state: state,
         redirect_uri: redirect_uri,
-        return_to: "/console"
+        return_to: AnkoleWeb.SiteAdminConsole.path()
       })
       |> json(%{authorizationURL: authorization_url})
     else
@@ -292,7 +301,8 @@ defmodule AnkoleWeb.SetupController do
          {:ok, display_name} <- validate_local_admin_display_name(params["display_name"]),
          {:ok, principal_uid} <-
            ensure_local_admin_account(email, display_name, params["password"]),
-         {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid, brain_packs) do
+         {:ok, _root} <-
+           SetupCompletion.complete_with_first_site_admin(principal_uid, brain_packs) do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_admin_session(%{
@@ -301,7 +311,7 @@ defmodule AnkoleWeb.SetupController do
         external_id: email,
         auth_time: System.system_time(:second)
       })
-      |> json(%{returnTo: "/console"})
+      |> json(%{returnTo: AnkoleWeb.SiteAdminConsole.path()})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> error(conn, 400, reason)
@@ -362,7 +372,7 @@ defmodule AnkoleWeb.SetupController do
         put_local_admin_password(principal.uid, password)
 
       {:error, :not_found} ->
-        attrs = %{uid: email, email: email}
+        attrs = %{email: email}
         attrs = if display_name, do: Map.put(attrs, :display_name, display_name), else: attrs
 
         with {:ok, %{principal: principal}} <- Principals.create_human(attrs) do

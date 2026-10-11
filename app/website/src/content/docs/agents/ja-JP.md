@@ -12,12 +12,14 @@ Agent は、知識境界の範囲で Company Brain を使えます。Signal rout
 ## Agent を作成する
 
 1. **Console → Agents** を開き、**New Agent** を選択します。
-2. 必須の表示名を入力します。Console は英語または中国語のテキストから UID を生成します。たとえば `Research Analyst` から `research-analyst`、`研究分析师` から `yan-jiu-fen-xi-shi` です。混合言語の名前も機能します。
-3. UID を確認または変更し、ロールとオプションのアバター URL を入力します。UID はこのデプロイメントインスタンス内で一意の安定した識別子であり、Agent を保存した後は変更できません。表示名は後から変更しても、既存の設定を壊しません。
+2. 表示名を入力し、自動生成された handle を確認します。handle は後から変更できます。保存時に Ankole がグローバルに一意の不透明な UID を生成します。
+3. ロール、任意のアバター URL、Worker provider を設定します。
 4. Agent を所有する人間の Principal と、group memory の開示モードを選択します。
 5. Agent を保存します。ページにはその永続的な指示、モデルプロファイル、Agent 固有の環境変数が表示されます。
 
 ロールは、「Research Analyst」や「Customer Support」など、作業の短い要約を提供します。以下の 4 つの永続的なドキュメントが、責任、動作、ビジュアルデザイン、機密性を管理します。
+
+Worker provider は Agent の [Worker pool](../worker-management/) を選びます。指定しない要求は site の既定 pool を使い、既定がなければ作成に失敗します。保存後の選択は変更できません。同じ pool の Agent も専用 Worker と永続 Home を持ちます。Agent 保存時はインスタンスを起動せず、コンピュータ作業が必要になった時点で control plane が起動します。
 
 ## 所有者と group memory の開示を設定する
 
@@ -78,13 +80,13 @@ Agent が上限に達すると、チャットメッセージには回答の代�
 
 ## 機能と環境変数を設定する
 
-Agent は、Agent Plugins と Skills のデプロイメントインスタンスのデフォルトを継承します。変更するには、**Console → Agent Library** を開き、デフォルトを編集するか、この Agent の上書きを設定します。
+Agent は、Agent Plugins と Skills のテナントのデフォルトを継承します。変更するには、**Console → Agent Library** を開き、デフォルトを編集するか、この Agent の上書きを設定します。
 
 完全な手順は[Agent Library](../skills/)を参照してください。
 
 Skill、コマンドラインツール、または MCP サービスが API key を必要とする場合は、Agent ページの **Environment variables** に追加します。Agent 固有の値はこの Agent だけが使えます。
 
-これは同じ名前のグローバル値を上書きします。[環境変数](../worker-env/)を参照してください。
+同名のテナント値を上書きし、テナントの設定がなければサイト値を上書きします。[環境変数](../worker-env/)を参照してください。
 
 ## chat channel を接続する
 
@@ -105,9 +107,9 @@ Skill、コマンドラインツール、または MCP サービスが API key �
 次の項目を順に確認してください。
 
 1. Agent が有効になっている。
-2. `primary`、`light`、`heavy` のプロファイルが設定され、LLM Provider が利用可能である。
-3. この Agent を指す signal routing ルールがある。
-4. 少なくとも 1 つの worker が準備完了である。
+2. `primary`、`light`、`heavy` profile が設定され、LLM Provider が利用可能です。
+3. シグナルルーティングルールがこの Agent を指しています。
+4. **Console → Workers** で Agent の Worker が ready であるか、失敗の理由なしに起動中である。
 5. **Console → Conversations** にメッセージが含まれ、役立つエラーが表示されている。
 
 channel 固有の確認は、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying)を参照してください。

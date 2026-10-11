@@ -67,7 +67,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Tokens
-  alias Ankole.Principals
+  alias Ankole.{Principals, Repo, Tenants}
 
   def run(argv \\ System.argv()) do
     argv = normalize_argv(argv)
@@ -86,14 +86,22 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         File.mkdir_p!(Path.dirname(@results_path))
         File.rm(@results_path)
 
-        setup = setup_runtime(providers, credentials)
-        image = deterministic_image_data_url()
-        cases = setup |> cases(image) |> selected_cases(argv)
+        {:ok, tenant} =
+          Tenants.create(%{
+            slug: "ai-gateway-real-provider-#{unique_suffix()}",
+            display_name: "AI Gateway real-provider fixture"
+          })
 
-        require!(cases != [], "no real-provider cases selected")
+        Repo.with_tenant(tenant.id, fn ->
+          setup = setup_runtime(providers, credentials)
+          image = deterministic_image_data_url()
+          cases = setup |> cases(image) |> selected_cases(argv)
 
-        results = Enum.map(cases, fn {name, fun} -> run_case(name, fun, credentials) end)
-        summarize(results)
+          require!(cases != [], "no real-provider cases selected")
+
+          results = Enum.map(cases, fn {name, fun} -> run_case(name, fun, credentials) end)
+          summarize(results)
+        end)
     end
   end
 
@@ -285,24 +293,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
-    agent =
-      create_agent!(
-        "e2e-openrouter-agent-#{suffix}",
-        %{
-          "ai_agent" => %{
-            "models" => %{
-              "embedding" => %{
-                "provider_id" => provider_id,
-                "model" => embedding_model
-              },
-              "rerank" => %{
-                "provider_id" => provider_id,
-                "model" => rerank_model
-              }
-            }
-          }
-        }
-      )
+    agent = create_agent!("e2e-openrouter-agent-#{suffix}", %{})
 
     put_profile!(agent.uid, "primary", %{
       provider_id: provider_id,
@@ -340,12 +331,6 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       provider_id: provider_id,
       provider_kind: "jina",
       base_url: "https://api.jina.ai/v1",
-      # Product defaults still prefer native HTTP/2 transport for first-class
-      # providers. This live smoke row pins Jina to HTTP/1 because Jina's edge
-      # has historically been more predictable over HTTP/1.1 for this probe.
-      connection_options: %{
-        "transport" => %{"http_versions" => ["h1"], "compression" => ["zstd", "br", "gzip"]}
-      },
       credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
@@ -356,31 +341,14 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
-    agent =
-      create_agent!(
-        "e2e-jina-agent-#{suffix}",
-        %{
-          "ai_agent" => %{
-            "models" => %{
-              "embedding" => %{
-                "provider_id" => provider_id,
-                "model" => "jina-embeddings-v5-text-nano"
-              },
-              "rerank" => %{
-                "provider_id" => provider_id,
-                "model" => "jina-reranker-v3"
-              }
-            }
-          }
-        }
-      )
+    agent = create_agent!("e2e-jina-agent-#{suffix}", %{})
 
     put_profile!(agent.uid, "web_search", %{
       provider_id: search_provider_id,
       model: "default"
     })
 
-    Map.put(setup, :jina_agent, agent)
+    setup |> Map.put(:jina_agent, agent) |> Map.put(:jina_provider, provider_id)
   end
 
   defp setup_google(%{suffix: suffix} = setup, credential) do
@@ -495,7 +463,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp fake_setup(:openai), do: %{openai_agent: %{uid: "fake-openai-agent"}}
-  defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}}
+  defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}, jina_provider: "fake-jina"}
   defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
   defp fake_setup(:alibaba_cn), do: %{alibaba_cn_agent: %{uid: "fake-alibaba-cn-agent"}}
 
@@ -580,14 +548,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        fn -> case_image_generation_unsupported(agent, gemini_image_model, "quality", "high") end},
       {"openrouter.embedding_batch",
        fn ->
-         case_embedding(agent, "embedding.default", [
+         case_embedding(agent, "#{provider}/#{embedding_model}", [
            "Ankole gateway test query",
            "Ankole gateway test passage"
          ])
        end},
       {"openrouter.embedding_multimodal",
-       fn -> case_embedding_multimodal(agent, "embedding.default", image) end},
-      {"openrouter.rerank_text_structured", fn -> case_rerank(agent, "rerank.default", true) end},
+       fn -> case_embedding_multimodal(agent, "#{provider}/#{embedding_model}", image) end},
+      {"openrouter.rerank_text_structured",
+       fn -> case_rerank(agent, "#{provider}/#{rerank_model}", true) end},
       {"openrouter.concurrent_multi_agent_mixed",
        fn ->
          case_openrouter_concurrent_multi_agent(
@@ -623,20 +592,24 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp add_openrouter_cases(cases, _setup, _image), do: cases
 
-  defp add_jina_cases(cases, %{jina_agent: agent}) do
+  defp add_jina_cases(cases, %{jina_agent: agent, jina_provider: provider}) do
+    embedding_model = "jina-embeddings-v5-text-nano"
+    rerank_model = "jina-reranker-v3"
+
     [
       {"jina.embedding_batch_dimensions",
        fn ->
          case_embedding(
            agent,
-           "embedding.default",
-           ["search query: durable actor runtime", "passage: runtime fabric uses zeromq"],
+           "#{provider}/#{embedding_model}",
+           ["search query: durable actor runtime", "passage: runtime fabric uses phoenix"],
            %{"dimensions" => 128, "embedding_type" => "float", "task" => "retrieval.query"}
          )
        end},
-      {"jina.rerank_return_documents_true", fn -> case_rerank(agent, "rerank.default", true) end},
+      {"jina.rerank_return_documents_true",
+       fn -> case_rerank(agent, "#{provider}/#{rerank_model}", true) end},
       {"jina.rerank_return_documents_false",
-       fn -> case_rerank(agent, "rerank.default", false) end},
+       fn -> case_rerank(agent, "#{provider}/#{rerank_model}", false) end},
       {"jina_search.web_search", fn -> case_web_search(agent, "web_search.default") end}
       | cases
     ]
@@ -746,19 +719,19 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     body = json_response!(conn, 200)
     data = Map.fetch!(body, "data")
+    selectors = Enum.map(data, & &1["id"])
 
-    require!(Enum.any?(data, &(&1["id"] == "primary")), "models missing primary selector")
+    for selector <- ["primary", "vision_fallback", "image_generate.default"] do
+      require!(selector in selectors, "models missing #{selector}")
+    end
 
-    require!(
-      Enum.any?(data, &(&1["id"] == "embedding.default")),
-      "models missing embedding.default"
-    )
-
-    require!(Enum.any?(data, &(&1["id"] == "rerank.default")), "models missing rerank.default")
+    for removed <- ["embedding.default", "rerank.default"] do
+      require!(removed not in selectors, "models exposes removed #{removed}")
+    end
 
     %{
       count: length(data),
-      required_selectors: ["primary", "embedding.default", "rerank.default"]
+      required_selectors: ["primary", "vision_fallback", "image_generate.default"]
     }
   end
 
@@ -988,8 +961,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
             ]
           }
         ],
-        "max_output_tokens" => 64,
-        "reasoning" => %{"effort" => "none"},
+        "max_output_tokens" => 1_024,
+        "reasoning" => %{"effort" => "low"},
         "temperature" => 0
       })
 
@@ -1290,7 +1263,12 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           model: response.body["model"]
         }
 
-      {:error, {:upstream_response_failed, status, body}} ->
+      {:error,
+       %Ankole.AIGateway.ProviderFailure{
+         kind: :status_rejected,
+         provider_status: status,
+         provider_body: body
+       }} ->
         message = get_in(body, ["error", "message"]) || inspect(body["error"])
 
         require!(
@@ -1376,9 +1354,6 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           model: llm_model
         })
 
-        put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
-        put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
-
         {index, agent}
       end
 
@@ -1394,12 +1369,16 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         {"embedding.batch",
          fn ->
            {_index, agent} = hd(agents)
-           case_embedding(agent, "embedding.default", ["concurrent query", "concurrent passage"])
+
+           case_embedding(agent, "#{provider}/#{embedding_model}", [
+             "concurrent query",
+             "concurrent passage"
+           ])
          end},
         {"rerank.structured",
          fn ->
            {_index, agent} = List.last(agents)
-           case_rerank(agent, "rerank.default", true)
+           case_rerank(agent, "#{provider}/#{rerank_model}", true)
          end}
       ])
 
@@ -1485,17 +1464,16 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       model: llm_model
     })
 
-    put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
-    put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
-
     invalid_model = "#{provider}/ankole-invalid-model-#{suffix}"
 
     jobs = [
       {"good.llm_json", fn -> case_llm_direct(agent, "primary") end},
       {"good.llm_sse", fn -> case_llm_http_sse(agent) end},
       {"good.embedding",
-       fn -> case_embedding(agent, "embedding.default", ["chaos query", "chaos passage"]) end},
-      {"good.rerank", fn -> case_rerank(agent, "rerank.default", true) end},
+       fn ->
+         case_embedding(agent, "#{provider}/#{embedding_model}", ["chaos query", "chaos passage"])
+       end},
+      {"good.rerank", fn -> case_rerank(agent, "#{provider}/#{rerank_model}", true) end},
       {"expected_failure.invalid_model",
        fn ->
          expect_upstream_failure(fn ->
@@ -1509,7 +1487,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        end},
       {"expected_failure.embedding_image_or_provider_support",
        fn ->
-         case_embedding_multimodal(agent, "embedding.default", image)
+         case_embedding_multimodal(agent, "#{provider}/#{embedding_model}", image)
        end}
     ]
 
@@ -1537,22 +1515,26 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       |> Keyword.get(:max_concurrency, concurrency_limit())
       |> min(length(jobs))
 
+    tenant_id = Repo.tenant_id!()
+
     jobs
     |> Task.async_stream(
       fn {label, fun} ->
-        started_at = System.monotonic_time(:millisecond)
+        Repo.with_tenant(tenant_id, fn ->
+          started_at = System.monotonic_time(:millisecond)
 
-        try do
-          summary = fun.()
-          {:ok, label, elapsed_ms(started_at), summary}
-        rescue
-          exception ->
-            {:error, label, elapsed_ms(started_at),
-             Exception.format(:error, exception, __STACKTRACE__)}
-        catch
-          kind, reason ->
-            {:error, label, elapsed_ms(started_at), "#{inspect(kind)} #{inspect(reason)}"}
-        end
+          try do
+            summary = fun.()
+            {:ok, label, elapsed_ms(started_at), summary}
+          rescue
+            exception ->
+              {:error, label, elapsed_ms(started_at),
+               Exception.format(:error, exception, __STACKTRACE__)}
+          catch
+            kind, reason ->
+              {:error, label, elapsed_ms(started_at), "#{inspect(kind)} #{inspect(reason)}"}
+          end
+        end)
       end,
       max_concurrency: max_concurrency,
       on_timeout: :kill_task,
@@ -1581,7 +1563,13 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp expect_upstream_failure(fun) do
     case fun.() do
-      {:error, {:upstream_response_failed, status, body}} when status in 400..499 ->
+      {:error,
+       %Ankole.AIGateway.ProviderFailure{
+         kind: :status_rejected,
+         provider_status: status,
+         provider_body: body
+       }}
+      when status in 400..499 ->
         %{
           outcome: "expected_upstream_failure",
           status: status,
@@ -1671,23 +1659,30 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp create_agent!(uid, options) do
-    owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
+    suffix = unique_suffix()
+    owner_uid = "human-e2e-owner-#{suffix}"
 
-    case Principals.create_human(%{
-           uid: owner_uid,
-           display_name: "E2E Agent Owner",
-           email: "#{owner_uid}@example.com"
-         }) do
-      {:ok, _owner} -> :ok
-      {:error, reason} -> raise "create owner failed: #{inspect(reason)}"
-    end
+    {:ok, worker_provider} =
+      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.create(%{
+        provider_id: "e2e-worker-#{suffix}",
+        display_name: "AIGateway E2E Worker provider",
+        kind: "docker",
+        config: "network: bridge\n"
+      })
+
+    {:ok, %{principal: owner}} =
+      Principals.create_human(%{
+        display_name: "E2E Agent Owner",
+        email: "#{owner_uid}@example.com"
+      })
 
     case Principals.create_agent(%{
-           uid: uid,
+           worker_provider_id: worker_provider.provider_id,
+           handle: "e2e-#{suffix}",
            display_name: uid,
            role: "AIGateway E2E Agent",
            options: options,
-           owner_principal_uid: owner_uid
+           owner_principal_uid: owner.uid
          }) do
       {:ok, %{principal: principal}} -> principal
       {:error, reason} -> raise "create agent failed: #{inspect(reason)}"

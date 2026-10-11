@@ -36,7 +36,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     safety_identifier user
   )
 
-  @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
   # Stateful history replays as Responses items. Only these wires translate
   # bare client tool calls and outputs faithfully. Other wires cannot preserve
   # those pairs in provider history. Stateless requests do not pass this gate.
@@ -57,19 +56,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def record_tool_results(subject_uid, request) when is_map(request) do
-    with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, %{}),
-         {:ok, %Message{} = message} <-
-           record_tool_results_with_transient_db_retry(attrs),
-         {:ok, body} <- response_resource(message) do
-      {:ok, %{body: body}}
-    end
-  end
-
-  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
-
-  @doc false
   @spec record_tool_results_in_tx(module(), String.t(), map(), map()) ::
           {:ok, %{message: Message.t(), body: map(), disposition: :inserted | :existing}}
           | {:error, term()}
@@ -88,43 +74,42 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_and_start_websocket_provider_request(subject_uid, request, opts \\ []) do
     request = Attrs.normalize_external_attrs(request)
-    request_context = websocket_request_context(opts, request)
-    resolver_request = Map.put(request, "__ankole_request_context", request_context)
+    base = websocket_base_context(opts)
 
-    with :ok <- validate_websocket_stateful_shape(request),
-         :ok <- ResponsesPreparation.ensure_token_quota(subject_uid, opts),
-         {:ok, runtime} <-
-           Resolver.resolve_request_model(subject_uid, "llm", resolver_request,
-             model_binding: Keyword.get(opts, :model_binding)
-           ),
-         {:ok, request} <-
-           CodexVision.adapt(
-             subject_uid,
-             request,
-             request_context: request_context,
-             subject_type: Keyword.get(opts, :subject_type)
-           ) do
+    with :ok <- validate_websocket_stateful_shape(request) do
       if request["store"] == true do
-        prepare_and_start_stateful_provider_request(
-          subject_uid,
-          request,
-          runtime,
-          request_context,
-          Keyword.take(opts, [:oidc_client_id, :subject_type])
-        )
-      else
-        with {:ok, request} <-
-               CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
-             {:ok, %{spec: prepared_request}} <-
-               ResponsesPreparation.prepare_with_runtime(
-                 subject_uid,
-                 runtime,
-                 strip_stateful_provider_fields(request),
-                 stream?: true,
+        request_context = RequestContext.prepare(base, request)
+        resolver_request = Map.put(request, "__ankole_request_context", request_context)
+
+        with :ok <- ResponsesPreparation.ensure_token_quota(subject_uid, opts),
+             {:ok, runtime} <-
+               Resolver.resolve_request_model(subject_uid, "llm", resolver_request,
+                 model_binding: Keyword.get(opts, :model_binding)
+               ),
+             {:ok, request} <-
+               CodexVision.adapt(subject_uid, request,
                  request_context: request_context,
                  subject_type: Keyword.get(opts, :subject_type)
                ) do
-          {:ok, prepared_request, nil}
+          prepare_and_start_stateful_provider_request(
+            subject_uid,
+            request,
+            runtime,
+            request_context,
+            Keyword.take(opts, [:oidc_client_id, :subject_type, :authorize_run_in_tx])
+          )
+        end
+      else
+        with {:ok, %{spec: spec}} <-
+               ResponsesPreparation.prepare(
+                 subject_uid,
+                 strip_stateful_provider_fields(request),
+                 stream?: true,
+                 request_context: base,
+                 subject_type: Keyword.get(opts, :subject_type),
+                 model_binding: Keyword.get(opts, :model_binding)
+               ) do
+          {:ok, spec, nil}
         end
       end
     end
@@ -231,7 +216,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              Keyword.get(opts, :oidc_client_id)
            ),
          {:ok, message} <-
-           StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
+           StatefulResponses.start_planned_response_run(planned_run_attrs(context), opts) do
       stateful_context = response_stream_context(message)
       context = materialize_admitted_context(context, message)
       request_context = Map.put(request_context, "conversation_id", context.conversation.id)
@@ -273,11 +258,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  defp websocket_request_context(opts, request) do
+  defp websocket_base_context(opts) do
     opts
     |> Keyword.get(:request_context, %{"downstream_transport" => "websocket"})
     |> Map.put("downstream_transport", "websocket")
-    |> RequestContext.prepare(request)
   end
 
   defp build_stateful_request_context(subject_uid, request, runtime, oidc_client_id) do
@@ -1255,25 +1239,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  defp validate_tool_results_record_shape(request) do
-    request = Attrs.normalize_external_attrs(request)
-    previous_response_id = Map.get(request, "previous_response_id")
-
-    cond do
-      is_nil(previous_response_id) ->
-        {:error, :missing_stateful_anchor}
-
-      validate_external_response_id(previous_response_id) != :ok ->
-        {:error, :invalid_anchor}
-
-      not valid_stateful_input?(Map.get(request, "input")) ->
-        {:error, :invalid_input}
-
-      true ->
-        :ok
-    end
-  end
-
   defp valid_max_tool_calls?(nil), do: true
   defp valid_max_tool_calls?(value) when is_integer(value), do: value >= 0
   defp valid_max_tool_calls?(_value), do: false
@@ -1300,57 +1265,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp normalize_stateful_input(_input), do: {:error, :invalid_input}
 
   defp tool_result_record_attrs(subject_uid, request, internal_metadata) do
-    request = Attrs.normalize_external_attrs(request)
     previous_response_id = request["previous_response_id"]
 
-    with :ok <- validate_tool_results_record_shape(request),
-         {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")) do
-      {:ok,
-       %{
-         subject_uid: subject_uid,
-         previous_response_id: previous_response_id,
-         request_items: current_input,
-         metadata: Map.merge(stateful_run_metadata(request, %{}), internal_metadata)
-       }}
-    end
-  end
-
-  defp record_tool_results_with_transient_db_retry(attrs) do
-    with_transient_db_checkout_retry(@tool_result_record_db_retry_delays_ms, fn ->
-      StatefulResponses.record_tool_results(attrs)
-    end)
-  end
-
-  defp with_transient_db_checkout_retry(delays_ms, fun) do
-    fun.()
-  rescue
-    error in DBConnection.ConnectionError ->
-      if transient_db_checkout_error?(error) do
-        retry_transient_db_checkout(delays_ms, Exception.message(error), fun)
-      else
-        reraise error, __STACKTRACE__
-      end
-  end
-
-  defp retry_transient_db_checkout([delay_ms | rest], _message, fun) do
-    Process.sleep(delay_ms)
-    with_transient_db_checkout_retry(rest, fun)
-  end
-
-  defp retry_transient_db_checkout([], message, _fun) do
-    {:error,
-     {:tool_results_record_unavailable,
-      %{
-        "stage" => "tool_results_record",
-        "retryable" => true,
-        "message" => message
-      }}}
-  end
-
-  defp transient_db_checkout_error?(%DBConnection.ConnectionError{} = error) do
-    message = Exception.message(error)
-
-    String.contains?(message, "could not checkout the connection") and
-      String.contains?(message, "connection not available")
+    {:ok,
+     %{
+       subject_uid: subject_uid,
+       previous_response_id: previous_response_id,
+       request_items: request["input"],
+       metadata: Map.merge(stateful_run_metadata(request, %{}), internal_metadata)
+     }}
   end
 end

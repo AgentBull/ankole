@@ -19,13 +19,12 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiLightbulbLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebBrainControllerDecideSuggestionMutation,
-  ankoleWebBrainControllerListSuggestionsOptions,
-  ankoleWebBrainControllerListSuggestionsQueryKey
+  ankoleWebBrainControllerListSuggestionsOptions
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainSuggestion } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
@@ -37,7 +36,6 @@ const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
 
 export function BrainSuggestionsPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [status, setStatus] = useState<(typeof SUGGESTION_STATUSES)[number]>('pending')
   const [approveTarget, setApproveTarget] = useState<BrainSuggestion>()
   const [rejectTarget, setRejectTarget] = useState<BrainSuggestion>()
@@ -47,8 +45,6 @@ export function BrainSuggestionsPage() {
 
   const suggestions = useQuery(ankoleWebBrainControllerListSuggestionsOptions({ query: { status } }))
   const rows = suggestions.data?.suggestions ?? []
-  const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListSuggestionsQueryKey() })
 
   const approve = useMutation({
     ...ankoleWebBrainControllerDecideSuggestionMutation(),
@@ -58,7 +54,6 @@ export function BrainSuggestionsPage() {
       setPrimitive('')
       setSlugPrefix('')
       setTargetType('')
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -67,7 +62,6 @@ export function BrainSuggestionsPage() {
     onSuccess: () => {
       toast.success(t('console.brain.suggestion_rejected'))
       setRejectTarget(undefined)
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

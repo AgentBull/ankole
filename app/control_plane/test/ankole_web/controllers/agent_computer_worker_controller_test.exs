@@ -1,11 +1,12 @@
 defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  import Ankole.PrincipalsFixtures
+
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
+  alias Ankole.SignalsGateway.ActorRuntimeCase
 
   setup do
     allow_cache_database_access()
@@ -18,68 +19,33 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
     :ok
   end
 
-  test "admin lists workers ordered newest first", %{conn: conn} do
-    %{worker_id: older_id} =
-      insert_worker!(%{status: "ready", inserted_at_diff_seconds: -120})
+  test "admin lists the Worker of each Agent without its credential or route", %{conn: conn} do
+    %{principal: ready_agent} = agent_fixture()
+    %{principal: idle_agent} = agent_fixture()
+    route = "route-#{System.unique_integer([:positive])}"
+    {:ok, _worker} = ActorRuntimeCase.admit_worker(route, %{worker_id: ready_agent.uid})
 
-    %{worker_id: newer_id} =
-      insert_worker!(%{status: "stale", inserted_at_diff_seconds: -30})
+    workers = console_conn(conn) |> get(~p"/api/v1/agent-computer-workers") |> json_response(200)
+    workers = workers["workers"]
+    by_agent = Map.new(workers, &{&1["agent_uid"], &1})
 
-    conn = bearer_conn(conn) |> get(~p"/api/v1/agent-computer-workers")
+    assert %{"state" => "ready", "generation" => generation, "image" => image} =
+             by_agent[ready_agent.uid]
 
-    assert %{"workers" => [first, second]} = json_response(conn, 200)
-    assert first["worker_id"] == newer_id
-    assert first["status"] == "stale"
-    refute Map.has_key?(first, "transport_route")
+    assert is_binary(generation) and is_binary(image)
+    assert is_binary(by_agent[ready_agent.uid]["last_worker_heartbeat_at"])
+    assert %{"state" => "absent", "generation" => nil} = by_agent[idle_agent.uid]
 
-    assert second["worker_id"] == older_id
-    assert second["status"] == "ready"
-    refute Map.has_key?(second, "transport_route")
+    agent_uids = Enum.map(workers, & &1["agent_uid"])
+    assert agent_uids == Enum.sort(agent_uids)
 
-    assert is_binary(first["inserted_at"])
-    assert is_binary(first["updated_at"])
+    for worker <- workers, field <- ~w(token_digest transport_route incarnation_id) do
+      refute Map.has_key?(worker, field)
+    end
   end
 
-  test "listing workers does not leak transport_route", %{conn: conn} do
-    %{worker_id: worker_id} = insert_worker!(%{status: "ready", inserted_at_diff_seconds: -5})
-
-    conn = bearer_conn(conn) |> get(~p"/api/v1/agent-computer-workers")
-
-    [worker] = json_response(conn, 200)["workers"]
-    assert worker["worker_id"] == worker_id
-    refute Map.has_key?(worker, "transport_route")
-  end
-
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     conn = get(conn, ~p"/api/v1/agent-computer-workers")
     assert json_response(conn, 401)
-  end
-
-  defp insert_worker!(opts) do
-    now = DateTime.utc_now(:microsecond)
-    offset = opts[:inserted_at_diff_seconds] || 0
-    stamp = DateTime.add(now, offset, :second)
-    route = "route-#{System.unique_integer([:positive])}"
-    worker_id = "worker-#{System.unique_integer([:positive])}"
-
-    worker =
-      %AgentComputerWorker{
-        worker_id: worker_id,
-        incarnation_id: Ecto.UUID.generate(),
-        status: opts[:status] || "ready",
-        version: "test",
-        capacity: %{"available_turn_slots" => 4, "max_turns" => 9},
-        load: %{"active_turns" => 1},
-        transport_route: route,
-        last_worker_heartbeat_at: stamp,
-        started_at: stamp,
-        inserted_at: stamp,
-        updated_at: stamp,
-        metadata: %{"runtime" => "test"}
-      }
-      |> Ecto.Changeset.change()
-      |> Repo.insert!()
-
-    %{worker_id: worker.worker_id, transport_route: route, row: worker}
   end
 end

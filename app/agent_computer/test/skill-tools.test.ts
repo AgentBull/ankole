@@ -10,16 +10,15 @@ import {
   SkillOverlayResolveResponseSchema,
   SkillOverlayResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
-import type { ActorTurnRef } from '../src/lanes/actor_lane'
+import { type RPCRequester } from '../src/lanes/rpc_lane'
+import type { JobTurnRef } from '../src/lanes/actor_lane'
 import { createSkillLoader } from '../src/skills/skill-loader'
 
-const testTurn: ActorTurnRef = {
-  actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-  activation_uid: 'activation-1',
-  actor_epoch: 1,
-  actor_event_id: '00000000-0000-0000-0000-000000000000',
-  revision: 0
+const testTurn: JobTurnRef = {
+  actor: { session_id: 'session-1' },
+  job_id: 1000,
+  attempt: 1,
+  actor_event_id: '00000000-0000-0000-0000-000000000000'
 }
 
 const unusedRPC = (async () => {
@@ -28,7 +27,7 @@ const unusedRPC = (async () => {
 
 function overlayResolveRPC(text?: string): RPCRequester {
   return (async (method: unknown, payload: unknown) => {
-    expect(method).toBe(rpcMethods.skillsOverlayResolve)
+    expect(method).toBe('skills.overlay.resolve')
     const request = payload as { skillNames: string[] }
     return create(SkillOverlayResolveResponseSchema, {
       overlays: request.skillNames.map(skillName =>
@@ -126,7 +125,7 @@ describe('@ankole/agent-computer skill tools', () => {
             sourceKind: 'builtin',
             relativePath: 'nano-pdf',
             skillRoot: 'library',
-            metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
+            metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
           })
         ],
         skillRoots: {
@@ -143,68 +142,7 @@ describe('@ankole/agent-computer skill tools', () => {
       const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
       expect(text).toContain('# Public nano-pdf')
       expect(text).not.toContain('# Internal nano-pdf')
-      expect(text).toContain(`directory="${join(builtinRoot, 'nano-pdf')}" runtime="main">`)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('skill_view routes background-job skills without exposing their body or resources', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-long-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    let overlayReads = 0
-    try {
-      writeFileSyncWithParents(
-        join(builtinRoot, 'long-report', 'SKILL.md'),
-        ['---', 'name: long-report', 'description: Long report.', '---', '', '# Private operation body', ''].join('\n')
-      )
-      writeFileSyncWithParents(join(builtinRoot, 'long-report', 'references', 'private.md'), 'private reference')
-
-      const tools = createSkillTools({
-        turn: testTurn,
-        enabledSkills: [
-          create(RuntimeSkillSummarySchema, {
-            skillName: 'long-report',
-            sourceKind: 'builtin',
-            relativePath: 'long-report',
-            metadataJson: jsonBytes({ 'ankole-runtime': 'background_job' })
-          })
-        ],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        },
-        rpc: (async (method: unknown) => {
-          if (method === rpcMethods.skillsOverlayResolve) {
-            overlayReads += 1
-            return create(SkillOverlayResolveResponseSchema, {
-              overlays: [
-                create(SkillOverlayResponseSchema, {
-                  skillName: 'long-report',
-                  hasOverlay: true,
-                  text: 'private overlay',
-                  contentHash: 'overlay-hash'
-                })
-              ]
-            })
-          }
-          throw new Error('unexpected background-job Skill RPC')
-        }) as RPCRequester
-      })
-
-      const tool = tools.find(candidate => candidate.name === 'skill_view')!
-      const result = await tool.execute('call-long', { name: 'long-report' })
-      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
-      expect(text).not.toContain('Private operation body')
-      expect(text).not.toContain('private overlay')
-      expect(text).not.toContain('skill://')
-      expect(text).not.toContain('directory=')
-      expect(overlayReads).toBe(1)
-
-      await expect(
-        tool.execute('call-long-reference', { name: 'long-report', filePath: 'references/private.md' })
-      ).rejects.toThrow('available only inside a background agent job')
-      expect(overlayReads).toBe(1)
+      expect(text).toContain(`directory="${join(builtinRoot, 'nano-pdf')}" runtime="any">`)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -245,7 +183,6 @@ describe('@ankole/agent-computer skill tools', () => {
           agentInstalledSkillsRoot: join(root, 'installed')
         },
         rpc: overlayResolveRPC('Use the preferred cadence.'),
-        runtime: 'background_job',
         onSkillLoaded: name => loadedNames.push(name)
       })
       const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
@@ -279,8 +216,7 @@ describe('@ankole/agent-computer skill tools', () => {
         })
       ],
       skillRoots: { builtinSkillsRoot: '/nonexistent/library', agentInstalledSkillsRoot: '/nonexistent/installed' },
-      rpc: unusedRPC,
-      runtime: 'background_job'
+      rpc: unusedRPC
     })
     const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
 
@@ -353,12 +289,11 @@ describe('@ankole/agent-computer skill tools', () => {
     const builtinRoot = join(root, 'library')
     const skillRoot = join(builtinRoot, 'enabled-skill')
     const outsideFile = join(root, 'outside-secret.txt')
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000003',
-      revision: 0
+    const turn: JobTurnRef = {
+      actor: { session_id: 'session-1' },
+      job_id: 1000,
+      attempt: 1,
+      actor_event_id: '00000000-0000-0000-0000-000000000003'
     }
 
     try {

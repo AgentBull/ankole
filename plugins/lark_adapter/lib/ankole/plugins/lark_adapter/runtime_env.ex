@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
   identity before any request is sent.
   """
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.SignalsGateway.Binding
@@ -21,7 +22,7 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
           {:ok, %{String.t() => String.t()}} | {:error, term()}
   def resolve_worker_env(%Binding{} = binding) do
     with {:ok, true} <- AgentPlugins.effective_enabled?(binding.agent_uid, "lark"),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, token} <-
            TokenManager.get_tenant_token(Config.client(config), nil,
              min_validity_ms: @minimum_token_validity_ms

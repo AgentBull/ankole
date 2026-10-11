@@ -1,6 +1,6 @@
 defmodule Ankole.E2E.Scenarios.Skill do
   @moduledoc """
-  Skill-tool scenarios for the Docker worker suites.
+  Skill-tool scenarios for the control plane and Docker Worker suites.
   """
 
   import ExUnit.Assertions
@@ -21,9 +21,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   @doc """
-  Runs `skill_view` through the Docker worker and verifies it reads a real skill file.
+  Runs `skill_view` through the control plane and verifies the enabled Skill.
   """
-  def run_skill_view_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_skill_view_tool_loop(%{fake_feishu: fake_feishu, agent: agent}) do
     mention = lark_bot_mention()
 
     assert :ok =
@@ -41,11 +41,11 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_skill_view_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
     assert reply.text =~ "CHAOS_SKILL_VIEW_OK"
 
@@ -63,9 +63,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
   end
 
   @doc """
-  Verifies standalone background-task Skills are visible to the real Docker worker.
+  Verifies that the main Agent receives the routing for background-task Skills.
   """
-  def run_all_builtin_skill_views(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_all_builtin_skill_views(%{fake_feishu: fake_feishu, agent: agent}) do
     mention = lark_bot_mention()
 
     assert :ok =
@@ -83,11 +83,11 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_skill_view_all_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
     assert reply.text =~ "CHAOS_SKILL_VIEW_ALL_OK"
 
@@ -111,12 +111,11 @@ defmodule Ankole.E2E.Scenarios.Skill do
   end
 
   @doc """
-  Verifies disabled skills are absent from the worker-visible enabled skill set.
+  Verifies that disabled Skills are absent from the model's enabled Skill set.
   """
   def run_disabled_skill_guardrail(%{
         fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
+        agent: agent
       }) do
     mention = lark_bot_mention()
 
@@ -143,11 +142,11 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_skill_disabled_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
     assert reply.text =~ "CHAOS_SKILL_DISABLED_OK"
 
@@ -162,20 +161,18 @@ defmodule Ankole.E2E.Scenarios.Skill do
   end
 
   @doc """
-  Verifies worker-scanned installed skills are registered before context resolve
-  and removed authoritatively after the worker directory is deleted.
+  Verifies that the control plane reads an installed Skill from the Agent's
+  drive before context resolve, and removes it from the catalog after its
+  drive folder is deleted. The real Worker uses that catalog.
   """
   def run_installed_skill_registry_loop(%{
         fake_feishu: fake_feishu,
         agent: agent,
         container: container
       }) do
-    skill_dir = Path.join(Ankole.AgentHomePaths.installed_skills(agent.uid), "e2e-installed")
-    docker_exec!(container, ["mkdir", "-p", skill_dir])
-
-    docker_write_text!(
-      container,
-      "#{skill_dir}/SKILL.md",
+    put_drive_file!(
+      agent.uid,
+      "skills/e2e-installed/SKILL.md",
       """
       ---
       name: e2e-installed
@@ -207,8 +204,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
@@ -238,7 +235,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
 
-    docker_exec!(container, ["rm", "-rf", skill_dir])
+    # Removing the drive folder uninstalls the Skill: the next context read
+    # removes its catalog row, and the Worker removes its cached files.
+    assert {:ok, 1} = Ankole.Files.delete(agent.uid, "skills/e2e-installed")
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -255,8 +254,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     deleted_input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_deleted_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                deleted_input,
                DateTime.add(deleted_input.available_at, 1, :second)
              )
@@ -277,26 +276,5 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert_actor_event_completed!(input.id)
     assert_actor_event_completed!(deleted_input.id)
     %{input: input, reply: reply, deleted_input: deleted_input, deleted_reply: deleted_reply}
-  end
-
-  defp docker_exec!(container, args) do
-    {output, status} =
-      System.cmd(docker_path(), ["exec", container.name | args], stderr_to_stdout: true)
-
-    assert status == 0, output
-    output
-  end
-
-  defp docker_write_text!(container, path, text) do
-    script = "cat > #{shell_quote(path)} <<'EOF'\n#{text}\nEOF\n"
-    docker_exec!(container, ["sh", "-lc", script])
-  end
-
-  defp docker_path do
-    System.find_executable("docker") || flunk("docker executable was not found on PATH")
-  end
-
-  defp shell_quote(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 end

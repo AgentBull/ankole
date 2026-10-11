@@ -4,8 +4,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   previews for a Signal channel.
 
   Lifecycle:
-    1. `maybe_start_for/3` is called immediately before a real worker turn is
-       dispatched, after its AIGateway conversation is known.
+    1. `maybe_start_for/4` is called when a Driver starts its attempt, after its AIGateway conversation is known.
     2. The handler subscribes to generic conversation-scoped AIGateway events
        and filters opaque metadata in SignalsGateway.
     3. On first `:output_text_delta` or tool activity event, it sends an
@@ -31,7 +30,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.ScheduledTurn
+  alias Ankole.Conversations.Scheduled
   alias Ankole.Logging
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -84,48 +83,49 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   Starts one preview handler for a dispatched Actor turn.
   """
   @spec maybe_start_for(ActorEvent.t(), String.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
-  def maybe_start_for(%ActorEvent{} = event, subject_uid, conversation_id)
+  def maybe_start_for(event, subject_uid, conversation_id, opts \\ [])
+
+  def maybe_start_for(%ActorEvent{} = event, subject_uid, conversation_id, opts)
       when is_binary(subject_uid) and is_binary(conversation_id) do
     if channel_reply_eligible?(event) do
-      with {:ok, event} <- rebase_dispatched_owner(event) do
-        start_preview(event, subject_uid, conversation_id, event.id)
-      end
+      owner = current_presentation_owner(event.id, event) || event
+      start_preview(owner, subject_uid, conversation_id, event.id, opts)
     else
       :ok
     end
   end
 
-  defp rebase_dispatched_owner(%ActorEvent{reply_preview_checkpoint: checkpoint} = event)
-       when is_map(checkpoint) do
-    if checkpoint["stream_actor_event_id"] in [nil, event.id] and
-         checkpoint["presentation_owner"] != false do
-      {:ok, event}
-    else
-      generation = non_negative_integer(checkpoint["owner_generation"]) + 1
-
-      checkpoint =
-        checkpoint
-        |> Map.put("stream_actor_event_id", event.id)
-        |> Map.put("presentation_owner", true)
-        |> Map.put("owner_generation", generation)
-        |> Map.delete("continued_to_actor_event_id")
-
-      Actors.put_reply_preview_checkpoint(event.id, checkpoint)
-    end
-  end
-
-  defp rebase_dispatched_owner(%ActorEvent{} = event), do: {:ok, event}
-
-  defp start_preview(event, subject_uid, conversation_id, stream_actor_event_id) do
-    name = via_tuple(stream_actor_event_id)
+  defp start_preview(event, subject_uid, conversation_id, stream_actor_event_id, opts \\ []) do
+    name = via_tuple(event)
 
     case DynamicSupervisor.start_child(
            Ankole.SignalsGateway.PreviewSupervisor,
-           {__MODULE__, {event, subject_uid, conversation_id, stream_actor_event_id, name}}
+           {__MODULE__, {event, subject_uid, conversation_id, stream_actor_event_id, name, opts}}
          ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, pid}} ->
+        monitor = Process.monitor(pid)
+
+        case GenServer.call(pid, {:adopt_driver, stream_actor_event_id, opts}) do
+          :retiring ->
+            receive do
+              {:DOWN, ^monitor, :process, ^pid, _reason} ->
+                start_preview(event, subject_uid, conversation_id, stream_actor_event_id, opts)
+            after
+              30_000 ->
+                Process.demonitor(monitor, [:flush])
+                {:error, :reply_preview_close_timeout}
+            end
+
+          result ->
+            Process.demonitor(monitor, [:flush])
+            result
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -148,44 +148,37 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @doc false
   def start_link(
-        {%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id, name}
+        {%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id, name, opts}
       ) do
     GenServer.start_link(
       __MODULE__,
-      {event, subject_uid, conversation_id, stream_actor_event_id},
+      {event, subject_uid, conversation_id, stream_actor_event_id, opts},
       name: name
     )
   end
 
   @doc """
-  Returns the via-tuple for registry-based process naming.
+  Returns the global name for one conversation preview.
   """
-  def via_tuple(actor_event_id) do
-    {:via, Registry, {Ankole.SignalsGateway.PreviewRegistry, actor_event_id}}
-  end
+  def via_tuple(%ActorEvent{} = event),
+    do: {:global, {__MODULE__, event.agent_uid, event.session_id}}
+
+  def via_tuple(actor_event_id), do: via_tuple(Repo.get!(ActorEvent, actor_event_id))
 
   @doc """
   Stops the preview owned by an explicit Actor lifecycle transition.
   """
-  @spec stop(Ecto.UUID.t()) :: :ok
-  def stop(actor_event_id) when is_binary(actor_event_id) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
-      [{pid, _value}] ->
-        GenServer.cast(pid, :stop)
-
-      [] ->
-        :ok
-    end
-  end
+  @spec stop(ActorEvent.t() | Ecto.UUID.t()) :: :ok
+  def stop(event), do: cast_for_event(event, :stop)
 
   @doc """
   Freezes the current visible reply fragment and makes `new_owner` own later
-  presentation updates for the same immutable worker Turn stream.
+  presentation updates for the same run stream.
   """
   @spec continue_on(Ecto.UUID.t(), ActorEvent.t()) :: :ok | {:error, term()}
   def continue_on(stream_actor_event_id, %ActorEvent{} = new_owner)
       when is_binary(stream_actor_event_id) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, stream_actor_event_id) do
+    case lookup(stream_actor_event_id) do
       [{pid, _value}] ->
         GenServer.call(pid, {:continue_on, new_owner}, 60_000)
 
@@ -223,7 +216,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
              stream_actor_event_id
            ),
          [{pid, _value}] <-
-           Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, stream_actor_event_id) do
+           lookup(stream_actor_event_id) do
       GenServer.call(pid, {:continue_on, new_owner}, 60_000)
     else
       nil -> {:error, :reply_preview_owner_not_found}
@@ -266,44 +259,22 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @doc false
   @spec input_superseded(Ecto.UUID.t()) :: :ok
-  def input_superseded(actor_event_id) when is_binary(actor_event_id) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
-      [{pid, _value}] -> GenServer.cast(pid, :input_superseded)
-      [] -> :ok
-    end
-  end
+  def input_superseded(event), do: cast_for_event(event, :input_superseded)
 
   @doc false
   @spec presentation_event(Ecto.UUID.t(), map()) :: :ok
-  def presentation_event(actor_event_id, event)
-      when is_binary(actor_event_id) and is_map(event) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
-      [{pid, _value}] -> GenServer.cast(pid, {:presentation_event, event})
-      [] -> :ok
-    end
-  end
+  def presentation_event(owner, event) when is_map(event),
+    do: cast_for_event(owner, {:presentation_event, event})
 
   @doc false
   @spec recover(Ecto.UUID.t()) :: :ok | {:error, term()}
   def recover(actor_event_id) when is_binary(actor_event_id) do
-    case Registry.register(
-           Ankole.SignalsGateway.PreviewRegistry,
-           actor_event_id,
-           :recovery
-         ) do
-      {:ok, _owner} ->
-        result =
-          try do
-            recover_without_owner(actor_event_id)
-          after
-            Registry.unregister(Ankole.SignalsGateway.PreviewRegistry, actor_event_id)
-          end
-
-        start_recovered_preview(result)
-
-      {:error, {:already_registered, _owner}} ->
-        :ok
-    end
+    :global.trans({{__MODULE__, :recovery, actor_event_id}, self()}, fn ->
+      case lookup(actor_event_id) do
+        [] -> recover_without_owner(actor_event_id) |> start_recovered_preview()
+        _live -> :ok
+      end
+    end)
   end
 
   defp recover_without_owner(actor_event_id) do
@@ -366,16 +337,19 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  defp start_recovered_preview({:start, event, subject_uid, conversation_id}) do
-    stream_actor_event_id =
-      event.reply_preview_checkpoint
-      |> then(&if(is_map(&1), do: &1["stream_actor_event_id"], else: nil))
-      |> case do
-        stream_actor_event_id when is_binary(stream_actor_event_id) -> stream_actor_event_id
-        _missing -> event.id
-      end
-
-    start_preview(event, subject_uid, conversation_id, stream_actor_event_id)
+  defp start_recovered_preview(
+         {:start, %ActorEvent{input_state: "open", completed_at: nil} = event, _subject,
+          _conversation}
+       ) do
+    with {:ok, pid} <-
+           Ankole.Conversations.ensure_driver(%{
+             agent_uid: event.agent_uid,
+             session_id: event.session_id
+           }) do
+      stream_id = event.reply_preview_checkpoint["stream_actor_event_id"] || event.id
+      send(pid, {:recover_preview, stream_id})
+      :ok
+    end
   end
 
   defp start_recovered_preview(result), do: result
@@ -521,15 +495,18 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     now = DateTime.utc_now(:microsecond)
 
     case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{reply_preview_cleanup_at: %DateTime{} = due_at} = event ->
-        if DateTime.compare(due_at, now) in [:lt, :eq] do
-          cleanup_due_event(event)
-        else
-          {:error, :reply_preview_cleanup_not_due}
-        end
+      %ActorEvent{} = event ->
+        case Actors.reply_preview_cleanup_at(event) do
+          %DateTime{} = due_at ->
+            if DateTime.compare(due_at, now) in [:lt, :eq] do
+              cleanup_due_event(event)
+            else
+              {:error, :reply_preview_cleanup_not_due}
+            end
 
-      %ActorEvent{} ->
-        {:error, :reply_preview_cleanup_not_due}
+          nil ->
+            {:error, :reply_preview_cleanup_not_due}
+        end
 
       nil ->
         {:error, :actor_event_not_found}
@@ -537,7 +514,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp cleanup_due_event(%ActorEvent{} = event) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id) do
+    case lookup(event.id) do
       [{pid, _value}] ->
         GenServer.cast(pid, :cleanup_thought)
         :ok
@@ -727,7 +704,16 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   # GenServer callbacks
 
   @impl GenServer
-  def init({%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id}) do
+  def init({%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id, opts}) do
+    Ankole.Repo.put_tenant_id(event.tenant_id)
+
+    case claim_owner(event, subject_uid, conversation_id, stream_actor_event_id, opts) do
+      {:ok, event} -> init_owner(event, subject_uid, conversation_id, stream_actor_event_id, opts)
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  defp init_owner(event, subject_uid, conversation_id, stream_actor_event_id, opts) do
     case Events.subscribe(subject_uid, conversation_id) do
       :ok -> :ok
       {:error, reason} -> raise "cannot subscribe AI reply preview: #{inspect(reason)}"
@@ -737,6 +723,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     rich? = match?(%ReplyPreviewAdapter{}, rich_adapter)
     preview_editable? = rich? or editable_outbox?(event)
     checkpoint = event.reply_preview_checkpoint || %{}
+
+    resuming? =
+      is_map(checkpoint["presentation"]) or ReplyPreviewAdapter.surface?(rich_adapter, checkpoint)
 
     stream_event =
       if event.id == stream_actor_event_id,
@@ -752,7 +741,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     initial_flush_ms =
       cond do
         not rich? -> @edit_flush_interval_ms
-        map_size(checkpoint) > 0 -> 0
+        resuming? -> 0
         true -> @rich_creation_debounce_ms
       end
 
@@ -760,6 +749,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
     state = %{
       actor_event: event,
+      driver: preview_driver(event, opts),
       stream_actor_event_id: stream_actor_event_id,
       structured_reply: stream_event.type in ["cron.fire", "check_back_later.wakeup"],
       owner_generation: non_negative_integer(checkpoint["owner_generation"]),
@@ -786,7 +776,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       preview_disabled: not preview_editable?,
       # Monotonic key segment for best-effort preview edits.
       edit_sequence: 0,
-      dirty: rich? and map_size(checkpoint) > 0,
+      dirty: rich? and resuming?,
       reply_preview_adapter: rich_adapter,
       presentation: presentation,
       rich_task: nil,
@@ -795,10 +785,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       rich_task_presentation: nil,
       rich_retry_ms: 1_000,
       rich_retry_at: nil,
-      silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
+      silent_success_allowed: Scheduled.silent_success_allowed?(event),
       # A quiet scheduled turn must not open a card before its result is known.
-      silent_rich_pending:
-        rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0,
+      silent_rich_pending: rich? and Scheduled.silent_success_allowed?(event) and not resuming?,
       input_superseded: false,
       handoff: nil,
       stopping: false
@@ -807,7 +796,105 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     {:ok, state}
   end
 
+  @doc false
+  def lookup(id) do
+    with %ActorEvent{} = event <- Repo.get(ActorEvent, id),
+         pid when is_pid(pid) <- preview_pid(event),
+         true <- GenServer.call(pid, {:owns_event, id}) do
+      [{pid, nil}]
+    else
+      _missing -> []
+    end
+  catch
+    :exit, _reason -> []
+  end
+
+  defp preview_pid(%ActorEvent{} = event) do
+    {:global, name} = via_tuple(event)
+    :global.whereis_name(name)
+  end
+
+  defp cast_for_event(id, message) when is_binary(id),
+    do: cast_for_event(Repo.get(ActorEvent, id), message)
+
+  defp cast_for_event(%ActorEvent{} = event, message) do
+    case preview_pid(event) do
+      pid when is_pid(pid) -> GenServer.cast(pid, {:for_event, event.id, message})
+      :undefined -> :ok
+    end
+  end
+
+  defp cast_for_event(nil, _message), do: :ok
+
+  defp preview_driver(event, opts) do
+    driver = Keyword.get(opts, :driver) || Ankole.Conversations.Driver.whereis(event)
+    if is_pid(driver), do: {driver, Process.monitor(driver)}, else: nil
+  end
+
+  defp claim_owner(event, subject_uid, conversation_id, stream_id, opts) do
+    Repo.transact(fn repo ->
+      authorization = authorize_owner_in_tx(repo, opts)
+
+      with :ok <- authorization,
+           %ActorEvent{} = current <- Actors.lock_actor_event_in_tx(repo, event.id) do
+        checkpoint = current.reply_preview_checkpoint || %{}
+
+        checkpoint =
+          checkpoint
+          |> Map.put("subject_uid", subject_uid)
+          |> Map.put("conversation_id", conversation_id)
+          |> Map.put("stream_actor_event_id", stream_id)
+          |> Map.put("presentation_owner", true)
+          |> Map.put("owner_generation", non_negative_integer(checkpoint["owner_generation"]) + 1)
+          |> Map.delete("continued_to_actor_event_id")
+
+        Actors.put_reply_preview_checkpoint_in_tx(repo, current, checkpoint)
+      else
+        nil -> {:error, :actor_event_not_found}
+        error -> error
+      end
+    end)
+  end
+
+  defp authorize_owner_in_tx(repo, opts) do
+    case Keyword.get(opts, :run) do
+      nil -> :ok
+      run -> Ankole.Conversations.Fence.check_in_tx(repo, run, :share)
+    end
+  end
+
   @impl GenServer
+  def handle_call({:owns_event, id}, _from, state),
+    do: {:reply, id in [state.stream_actor_event_id, state.actor_event.id], state}
+
+  def handle_call({:adopt_driver, stream_id, opts}, _from, state)
+      when stream_id != state.stream_actor_event_id do
+    if Keyword.get(opts, :driver) do
+      case Repo.transact(fn repo ->
+             with :ok <- authorize_owner_in_tx(repo, opts), do: {:ok, :authorized}
+           end) do
+        {:ok, :authorized} ->
+          if state.rich_task do
+            {:reply, :retiring, %{state | stopping: true}}
+          else
+            checkpoint_latest_rich_presentation(state)
+            {:stop, :normal, :retiring, state}
+          end
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    else
+      {:reply, {:error, :reply_preview_not_recoverable}, state}
+    end
+  end
+
+  def handle_call({:adopt_driver, _stream_id, opts}, _from, state) do
+    if Keyword.get(opts, :driver),
+      do: adopt_driver(opts, state),
+      else: {:reply, :ok, state}
+  end
+
   def handle_call({:continue_on, %ActorEvent{} = new_owner}, from, state) do
     cond do
       state.actor_event.id == new_owner.id ->
@@ -826,7 +913,46 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
+  defp adopt_driver(opts, state) do
+    driver = Keyword.fetch!(opts, :driver)
+
+    case state.driver do
+      {^driver, _ref} ->
+        {:reply, :ok, state}
+
+      _previous ->
+        case claim_owner(
+               state.actor_event,
+               state.subject_uid,
+               state.conversation_id,
+               state.stream_actor_event_id,
+               opts
+             ) do
+          {:ok, event} ->
+            if state.driver, do: Process.demonitor(elem(state.driver, 1), [:flush])
+
+            {:reply, :ok,
+             %{
+               state
+               | driver: preview_driver(event, opts),
+                 actor_event: event,
+                 owner_generation: event.reply_preview_checkpoint["owner_generation"],
+                 stopping: false
+             }}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
   @impl GenServer
+  def handle_cast({:for_event, id, message}, state) do
+    if id in [state.stream_actor_event_id, state.actor_event.id],
+      do: handle_cast(message, state),
+      else: {:noreply, state}
+  end
+
   def handle_cast(:stop, %{rich_task: nil} = state), do: finish_rich_stop(state)
 
   def handle_cast(:stop, state) do
@@ -861,6 +987,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
     presentation =
       if (is_binary(kind) or is_atom(kind)) and is_map(payload) do
+        payload = Map.put_new(payload, "revision", state.presentation["revision"] + 1)
         ReplyPresentation.apply_event(state.presentation, kind, payload)
       else
         state.presentation
@@ -872,6 +999,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def handle_cast({:presentation_event, _event}, state), do: {:noreply, state}
 
   @impl GenServer
+  def handle_info({:DOWN, ref, :process, driver, _reason}, %{driver: {driver, ref}} = state) do
+    handle_cast(:stop, state)
+  end
+
   def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     finish_rich_task(state, result)
@@ -1157,7 +1288,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         task =
           Task.Supervisor.async_nolink(
             Ankole.SignalsGateway.PreviewTaskSupervisor,
-            fn -> ReplyPreviewAdapter.finalize(adapter, request) end
+            Ankole.Repo.bind_tenant(fn -> ReplyPreviewAdapter.finalize(adapter, request) end)
           )
 
         {:noreply,
@@ -1206,7 +1337,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp complete_pending_handoff(state, _result), do: {:noreply, state}
 
   defp switch_presentation_owner(state, %ActorEvent{} = new_owner, handoff_result) do
-    next_generation = state.owner_generation + 1
     continued = ReplyPresentation.continued(state.presentation)
     new_presentation = ReplyPresentation.new(state: "working")
     old_visible? = old_preview_visible?(state)
@@ -1223,6 +1353,16 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
              Actors.lock_actor_event_in_tx(repo, state.actor_event.id),
            %ActorEvent{} = new_event <- Actors.lock_actor_event_in_tx(repo, new_owner.id),
            true <- valid_handoff_owner?(old_event, new_event),
+           true <-
+             non_negative_integer((old_event.reply_preview_checkpoint || %{})["owner_generation"]) ==
+               state.owner_generation,
+           next_generation =
+             max(
+               state.owner_generation,
+               non_negative_integer(
+                 (new_event.reply_preview_checkpoint || %{})["owner_generation"]
+               )
+             ) + 1,
            {:ok, old_event} <-
              persist_previous_owner_in_tx(
                repo,
@@ -1258,7 +1398,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
          %{
            state
            | actor_event: new_owner,
-             owner_generation: next_generation,
+             owner_generation: checkpoint["owner_generation"],
              text_buffer: "",
              preview_text: "",
              tool_calls: %{},
@@ -1372,7 +1512,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp valid_handoff_owner?(%ActorEvent{} = current, %ActorEvent{} = new_owner) do
-    new_owner.type == "command.steer" and
+    channel_reply_eligible?(new_owner) and
       current.agent_uid == new_owner.agent_uid and
       current.binding_name == new_owner.binding_name and
       current.session_id == new_owner.session_id and
@@ -1403,7 +1543,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       task =
         Task.Supervisor.async_nolink(
           Ankole.SignalsGateway.PreviewTaskSupervisor,
-          fn -> ReplyPreviewAdapter.update(adapter, request) end
+          Ankole.Repo.bind_tenant(fn -> ReplyPreviewAdapter.update(adapter, request) end)
         )
 
       %{
@@ -1425,7 +1565,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp finish_rich_sync(state, {:ok, result}) when is_map(result) do
     checkpoint =
       Map.get(result, :reply_preview_checkpoint) ||
-        Map.get(result, "reply_preview_checkpoint") ||
         state.actor_event.reply_preview_checkpoint
 
     entry_id = created_source_entry_id(result) || state.preview_entry_id
@@ -1643,7 +1782,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     do: state
 
   defp handle_tool_activity(state, stage, payload) when is_map(payload) do
-    call_id = normalize_optional_text(payload[:call_id] || payload["call_id"])
+    call_id = normalize_optional_text(payload["call_id"])
     name = tool_activity_name(payload, call_id, state.tool_calls)
     tool_calls = remember_tool_call(state.tool_calls, call_id, name)
     text = tool_activity_text(stage, name)
@@ -1718,15 +1857,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp tool_activity_name(payload, call_id, tool_calls) do
     name =
       normalize_optional_text(
-        payload[:name] || payload["name"] || payload[:tool] || payload["tool"] ||
-          payload[:type] || payload["type"]
+        payload["name"] || payload["tool"] ||
+          payload["type"]
       ) ||
-        tool_name_from_output(payload[:output] || payload["output"]) ||
+        tool_name_from_output(payload["output"]) ||
         if(is_binary(call_id), do: Map.get(tool_calls, call_id)) ||
         call_id ||
         "tool"
 
-    case normalize_optional_text(payload[:namespace] || payload["namespace"]) do
+    case normalize_optional_text(payload["namespace"]) do
       nil -> name
       namespace -> "#{namespace}.#{name}"
     end

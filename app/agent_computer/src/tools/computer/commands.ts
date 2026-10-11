@@ -1,6 +1,7 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path'
-import { bubblewrapArgv } from '../../sandbox/bubblewrap'
-import { commandEnv } from '../../sandbox/command-env'
+import { assertPathInsideAgentHome } from '../../core/agent-home-paths'
+import { commandEnv } from '../../core/execution/command-env'
+import { agentProcessArgv, killProcessGroup } from '../../core/execution/process-group'
 
 export type CommandOutputMode = 'stdout' | 'stderr' | 'both'
 
@@ -51,7 +52,7 @@ export interface WorkspaceProcessFinished {
 }
 
 /**
- * Runs one foreground command inside bubblewrap.
+ * Runs one foreground command on the Worker.
  */
 export async function runWorkspaceCommand(
   input: WorkspaceCommandInput,
@@ -76,7 +77,13 @@ export async function runWorkspaceCommand(
 }
 
 /**
- * Runs one argv inside the existing bubblewrap view and returns its exact bytes.
+ * Runs one argv in a working directory inside the Agent Home and returns its
+ * exact bytes.
+ *
+ * The process runs as uid 1000, separate from the credential-holding Worker.
+ * The container remains the Agent boundary. The process gets a fresh
+ * environment and its own process group, so a cancellation ends every process
+ * that the command started.
  */
 export async function runWorkspaceProcess(
   input: WorkspaceProcessInput,
@@ -87,23 +94,16 @@ export async function runWorkspaceProcess(
     return { exitCode: 130, stdout: Buffer.alloc(0), stderr: Buffer.from('command aborted') }
   }
 
-  const cwd = input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot
-  const env = commandEnv(input.env, {
-    workerEnv: input.workerEnv,
-    runtimeEnv: input.runtimeEnv,
-    home: agentHome,
-    ankoleAgentHome: agentHome
-  })
-  const argv = bubblewrapArgv({
-    workspaceRoot: agentHome,
-    cwd,
-    env,
-    commandArgv: input.commandArgv
-  })
+  const cwd = assertPathInsideAgentHome(
+    agentHome,
+    input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot,
+    'command cwd escapes Agent Home'
+  )
+  const env = commandEnv(input.env, { agentHome, workerEnv: input.workerEnv, runtimeEnv: input.runtimeEnv })
 
   return runCommandProcess({
-    argv,
-    cwd: workspaceRoot,
+    argv: input.commandArgv,
+    cwd,
     env,
     stdin: input.stdin,
     boundedOutput: input.boundedOutput,
@@ -122,7 +122,8 @@ export function commandArgvWithOptionalTimeout(input: CommandInput, defaultTimeo
 }
 
 /**
- * Resolves command path syntax without deciding which paths bubblewrap permits.
+ * Resolves command path syntax relative to the working directory and the
+ * Agent Home.
  */
 export function workspacePath(agentHome: string, cwd: string, path: string): string {
   const expanded = path === '~' ? agentHome : path.startsWith('~/') ? join(agentHome, path.slice(2)) : path
@@ -137,17 +138,18 @@ async function runCommandProcess(input: {
   boundedOutput?: boolean
   signal?: AbortSignal
 }): Promise<WorkspaceProcessFinished> {
-  const proc = Bun.spawn(input.argv, {
+  const proc = Bun.spawn(agentProcessArgv(input.argv), {
     cwd: input.cwd,
     env: input.env,
     stdin: input.stdin === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
-    stderr: 'pipe'
+    stderr: 'pipe',
+    detached: true
   })
 
   if (input.stdin !== undefined) {
     const stdin = proc.stdin
-    if (!stdin) throw new Error('sandbox process stdin pipe is unavailable')
+    if (!stdin) throw new Error('command process stdin pipe is unavailable')
     stdin.write(input.stdin)
     stdin.end()
   }
@@ -155,7 +157,7 @@ async function runCommandProcess(input: {
   let aborted = false
   const abort = () => {
     aborted = true
-    proc.kill()
+    killProcessGroup(proc.pid)
   }
 
   input.signal?.addEventListener('abort', abort, { once: true })
@@ -191,10 +193,10 @@ const BoundedOutputTailBytes = 1024 * 1024
  * a full pipe. When bytes are dropped, a marker line with the dropped byte count
  * replaces the middle.
  *
- * Contract note: downstream `truncateOutput` reports "N chars omitted of M total"
+ * Contract note: downstream `truncateOutputDetailed` reports "N chars omitted of M total"
  * against this bounded text. When this collector drops bytes, M undercounts the
  * true output by the dropped middle, and the marker inserted here usually falls
- * inside the range `truncateOutput` cuts. Below the 2 MB bound the bytes are
+ * inside the range `truncateOutputDetailed` cuts. Below the 2 MB bound the bytes are
  * exact, so the model-visible output is unchanged.
  */
 async function readableToBoundedBuffer(stream: ReadableStream<Uint8Array> | null): Promise<Buffer> {

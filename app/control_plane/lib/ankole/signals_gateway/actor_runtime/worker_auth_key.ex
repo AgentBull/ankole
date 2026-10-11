@@ -1,10 +1,11 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
   @moduledoc """
-  Global RuntimeFabric worker authentication key.
+  The installation's RuntimeFabric key, kept in AppConfigure.
 
-  The control plane persists the key in AppConfigure. Workers receive it as a
-  separate bootstrap secret. Rust only sees the resolved in-memory value needed
-  for ZAP/PLAIN verification.
+  It stays in the control plane and keys the opaque Lark profile names
+  (`TurnRuntimeEnv`). A Worker proves its Agent with the random credential of
+  its own generation (`AgentWorkers.authenticate/2`), not with this key, and
+  a file relay URL carries a random token of its session.
   """
 
   alias Ankole.AppConfigure
@@ -25,11 +26,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
       scope: :global,
       schema: Schema.non_empty_string(),
       generator: GeneratedSecret.generator(),
-      # The release bootstrap generates and stores this key, and every Worker authenticates with
-      # it. A Console edit would reject every running Worker, so the value stays readable but not
-      # writable there.
+      # The control plane generates and stores this key when it first starts. A Console edit
+      # would rename every Lark profile, so its users would have to authorize again; the value
+      # stays readable but not writable there.
       console_writable: false,
-      description: "Global RuntimeFabric worker authentication key."
+      description: "Installation key that names Lark profiles."
     )
   end
 

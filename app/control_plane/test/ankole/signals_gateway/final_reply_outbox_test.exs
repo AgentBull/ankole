@@ -9,8 +9,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
-  alias Ankole.RuntimeEvents.Scheduler
+  alias Ankole.Conversations.{Admission, Run}
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Entry
@@ -24,29 +23,37 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     alias Ankole.SignalsGateway.Actors
     alias Ankole.SignalsGateway.AIReplyPreview
 
-    def start_link({owner, actor_event_id, preview_source_entry_id}) do
+    def start_link({owner, event, preview_source_entry_id}) do
       GenServer.start_link(
         __MODULE__,
-        {owner, actor_event_id, preview_source_entry_id},
-        name: AIReplyPreview.via_tuple(actor_event_id)
+        {owner, event, preview_source_entry_id},
+        name: AIReplyPreview.via_tuple(event)
       )
     end
 
     @impl true
-    def init({owner, actor_event_id, preview_source_entry_id}) do
+    def init({owner, event, preview_source_entry_id}) do
+      Ankole.Repo.put_tenant_id(event.tenant_id)
+
       {:ok,
        %{
          owner: owner,
-         actor_event_id: actor_event_id,
+         actor_event_id: event.id,
          preview_source_entry_id: preview_source_entry_id
        }}
     end
 
     @impl true
-    def handle_cast(:stop, state) do
+    def handle_cast({:for_event, id, :stop}, %{actor_event_id: id} = state) do
       send(state.owner, {:late_reply_preview_stop_requested, self()})
       {:noreply, state}
     end
+
+    def handle_cast({:for_event, _other_id, :stop}, state), do: {:noreply, state}
+
+    @impl true
+    def handle_call({:owns_event, id}, _from, state),
+      do: {:reply, state.actor_event_id == id, state}
 
     @impl true
     def handle_info(:settle, state) do
@@ -97,7 +104,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{event: event} = start_channel_reply_response_run()
 
       assert [{preview_pid, _value}] =
-               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+               AIReplyPreview.lookup(event.id)
 
       preview_monitor = Process.monitor(preview_pid)
       assert :ok = AIReplyPreview.stop(event.id)
@@ -256,12 +263,11 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert [{preview_pid, _value}] =
-               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+               AIReplyPreview.lookup(event.id)
 
       rich_adapter = %ReplyPreviewAdapter{
         surface_ids_fun: &MockReplyPreview.surface_ids/1,
         surface_open_fun: &MockReplyPreview.surface_open?/1,
-        open_fun: fn _request -> {:ok, %{}} end,
         update_fun: fn _request -> {:ok, %{}} end,
         finalize_fun: fn _request -> {:ok, %{}} end
       }
@@ -373,6 +379,159 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                }
     end
 
+    test "quota notice waits for its preview and leaves a timed-out delivery retryable" do
+      %{event: event} = start_channel_reply_response_run()
+      preview_pid = replace_with_late_preview(event, "quota-preview")
+
+      assert {:ok, outbox} =
+               Repo.transact(fn repo ->
+                 Outbox.commit_token_quota_exceeded_notice_outbox_in_tx(
+                   repo,
+                   event,
+                   "quota notice"
+                 )
+               end)
+
+      adapter = outbox_adapter([:reply_entry], fn _ -> flunk("preview has not settled") end)
+
+      assert {:error, :reply_preview_settle_timeout} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter,
+                 reply_preview_settle_timeout_ms: 0
+               )
+
+      assert_receive {:late_reply_preview_stop_requested, ^preview_pid}
+
+      stored =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: outbox.agent_uid,
+          binding_name: outbox.binding_name,
+          outbound_key: outbox.outbound_key
+        )
+
+      assert %{status: :created, attempt_count: 0, platform_send_started_at: nil} = stored
+      assert Process.alive?(preview_pid)
+      assert stored.payload["text"] == "quota notice"
+      monitor = Process.monitor(preview_pid)
+      send(preview_pid, :settle)
+      assert_receive {:DOWN, ^monitor, :process, ^preview_pid, :normal}
+    end
+
+    test "quota notice adopts a preview entry recorded after its commit" do
+      %{event: event} = start_channel_reply_response_run()
+      preview_source_entry_id = "quota-preview-late"
+      preview_pid = replace_with_late_preview(event, preview_source_entry_id)
+
+      assert {:ok, outbox} =
+               Repo.transact(fn repo ->
+                 Outbox.commit_token_quota_exceeded_notice_outbox_in_tx(
+                   repo,
+                   event,
+                   "quota notice"
+                 )
+               end)
+
+      assert outbox.operation == :reply
+      parent = self()
+
+      adapter =
+        outbox_adapter([:edit_entry], fn dispatched ->
+          send(parent, {:quota_notice_dispatched, dispatched})
+          {:ok, %{raw_payload: %{}}}
+        end)
+
+      dispatch =
+        Task.async(
+          Repo.bind_tenant(fn ->
+            SignalsGateway.dispatch_outbox(
+              outbox.agent_uid,
+              outbox.binding_name,
+              outbox.outbound_key,
+              adapter,
+              reply_preview_settle_timeout_ms: 1_000
+            )
+          end)
+        )
+
+      assert_receive {:late_reply_preview_stop_requested, ^preview_pid}
+      refute_receive {:quota_notice_dispatched, _}, 100
+      send(preview_pid, :settle)
+
+      assert {:ok,
+              %{
+                status: :succeeded,
+                operation: :edit,
+                target_source_entry_id: ^preview_source_entry_id
+              }} = Task.await(dispatch, 2_000)
+
+      assert_receive {:quota_notice_dispatched, dispatched}
+      assert dispatched.payload["text"] == "quota notice"
+      assert dispatched.payload["reply_presentation"]["answer"] == "quota notice"
+
+      assert {:error, :outbox_not_dispatchable} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter
+               )
+
+      refute_receive {:quota_notice_dispatched, _}, 100
+    end
+
+    test "tenant suspension notice does not stop another input's preview" do
+      %{event: preview_event} = start_channel_reply_response_run()
+      preview_pid = replace_with_late_preview(preview_event, "unrelated-preview")
+
+      assert {:ok, %{actor_event: event}} =
+               emit_entry(
+                 preview_event.agent_uid,
+                 preview_event.binding_name,
+                 group_entry(%{source_entry_id: "suspended-next-input", explicit: true}),
+                 now: DateTime.add(@base_time, 40, :second)
+               )
+
+      assert event.session_id == preview_event.session_id
+      refute event.id == preview_event.id
+
+      assert {:ok, outbox} =
+               Repo.transact(fn repo ->
+                 Outbox.commit_tenant_suspended_notice_outbox_in_tx(
+                   repo,
+                   event,
+                   "suspended notice"
+                 )
+               end)
+
+      parent = self()
+
+      adapter =
+        outbox_adapter([:reply_entry], fn dispatched ->
+          send(parent, {:suspension_notice_dispatched, dispatched})
+          {:ok, %{created_source_entry_id: "suspension-notice", raw_payload: %{}}}
+        end)
+
+      assert {:ok, %{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter,
+                 reply_preview_settle_timeout_ms: 0
+               )
+
+      assert_receive {:suspension_notice_dispatched, dispatched}
+      assert dispatched.payload["text"] == "suspended notice"
+      assert Process.alive?(preview_pid)
+      refute_receive {:late_reply_preview_stop_requested, ^preview_pid}, 100
+      monitor = Process.monitor(preview_pid)
+      send(preview_pid, :settle)
+      assert_receive {:DOWN, ^monitor, :process, ^preview_pid, :normal}
+    end
+
     test "dispatch waits for a late preview id and edits it instead of posting a duplicate reply" do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
@@ -382,7 +541,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       preview_source_entry_id = "provider-preview-late"
 
       assert [{existing_preview_pid, _value}] =
-               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+               AIReplyPreview.lookup(event.id)
 
       existing_preview_monitor = Process.monitor(existing_preview_pid)
       assert :ok = AIReplyPreview.stop(event.id)
@@ -392,7 +551,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       preview_pid =
         start_supervised!(
           Supervisor.child_spec(
-            {LateReplyPreview, {self(), event.id, preview_source_entry_id}},
+            {LateReplyPreview, {self(), event, preview_source_entry_id}},
             restart: :temporary
           )
         )
@@ -418,15 +577,17 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
         end)
 
       dispatch =
-        Task.async(fn ->
-          SignalsGateway.dispatch_outbox(
-            outbox.agent_uid,
-            outbox.binding_name,
-            outbox.outbound_key,
-            adapter,
-            reply_preview_settle_timeout_ms: 1_000
-          )
-        end)
+        Task.async(
+          Repo.bind_tenant(fn ->
+            SignalsGateway.dispatch_outbox(
+              outbox.agent_uid,
+              outbox.binding_name,
+              outbox.outbound_key,
+              adapter,
+              reply_preview_settle_timeout_ms: 1_000
+            )
+          end)
+        )
 
       refute_receive {:late_preview_final_dispatched, _outbox}, 100
       send(preview_pid, :settle)
@@ -460,7 +621,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                StatefulResponses.commit_complete(message, assistant_content("recovered final"))
 
       assert [{existing_preview_pid, _value}] =
-               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+               AIReplyPreview.lookup(event.id)
 
       existing_preview_monitor = Process.monitor(existing_preview_pid)
       assert :ok = AIReplyPreview.stop(event.id)
@@ -475,7 +636,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       preview_pid =
         start_supervised!(
           Supervisor.child_spec(
-            {LateReplyPreview, {self(), event.id, preview_source_entry_id}},
+            {LateReplyPreview, {self(), event, preview_source_entry_id}},
             restart: :temporary
           )
         )
@@ -489,15 +650,17 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
         end)
 
       dispatch =
-        Task.async(fn ->
-          SignalsGateway.dispatch_outbox(
-            outbox.agent_uid,
-            outbox.binding_name,
-            outbox.outbound_key,
-            adapter,
-            reply_preview_settle_timeout_ms: 1_000
-          )
-        end)
+        Task.async(
+          Repo.bind_tenant(fn ->
+            SignalsGateway.dispatch_outbox(
+              outbox.agent_uid,
+              outbox.binding_name,
+              outbox.outbound_key,
+              adapter,
+              reply_preview_settle_timeout_ms: 1_000
+            )
+          end)
+        )
 
       assert_receive {:late_reply_preview_stop_requested, ^preview_pid}
       refute_receive {:recovered_preview_final_dispatched, _outbox}, 100
@@ -533,7 +696,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       preview_source_entry_id = "provider-preview-after-timeout"
 
       assert [{existing_preview_pid, _value}] =
-               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+               AIReplyPreview.lookup(event.id)
 
       existing_preview_monitor = Process.monitor(existing_preview_pid)
       assert :ok = AIReplyPreview.stop(event.id)
@@ -543,7 +706,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       preview_pid =
         start_supervised!(
           Supervisor.child_spec(
-            {LateReplyPreview, {self(), event.id, preview_source_entry_id}},
+            {LateReplyPreview, {self(), event, preview_source_entry_id}},
             restart: :temporary
           )
         )
@@ -663,7 +826,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert ai_message_id == message.id
     end
 
-    test "runtime event scheduler dispatches final reply outbox through the registered adapter" do
+    test "Oban dispatches final reply outbox through the registered adapter" do
       MockOutbox.put_recipient(self())
 
       on_exit(fn ->
@@ -678,14 +841,16 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert_turn_completed(turn_ref, completed)
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
-      scheduler = start_runtime_events_scheduler!()
 
-      Scheduler.notify(scheduler, RuntimeEvents.outbox_due_channel(), %{
-        "agent_uid" => outbox.agent_uid,
-        "binding_name" => outbox.binding_name,
-        "outbound_key" => outbox.outbound_key,
-        "due_at" => nil
-      })
+      job =
+        Repo.one!(
+          from job in Oban.Job,
+            where:
+              job.worker == "Ankole.SignalsGateway.Jobs.OutboxDispatch" and
+                fragment("?->>'outbound_key'", job.args) == ^outbox.outbound_key
+        )
+
+      assert :ok = Ankole.SignalsGateway.Jobs.OutboxDispatch.perform(job)
 
       key = outbox.outbound_key
       assert_receive {:mock_provider_outbox_sent, %OutboxEntry{outbound_key: ^key}}, 1_000
@@ -697,13 +862,22 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
   end
 
+  defp replace_with_late_preview(event, source_entry_id) do
+    [{pid, _}] = AIReplyPreview.lookup(event.id)
+    monitor = Process.monitor(pid)
+    assert :ok = AIReplyPreview.stop(event.id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+
+    start_supervised!(
+      Supervisor.child_spec({LateReplyPreview, {self(), event, source_entry_id}},
+        restart: :temporary
+      )
+    )
+  end
+
   defp start_channel_reply_response_run do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
 
     assert {:ok, %{actor_event: event}} =
              emit_entry(
@@ -717,20 +891,16 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                now: @base_time
              )
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 1, :second),
-               lease_seconds: @long_lease_seconds
+    assert {:ok, turn_ref} =
+             Admission.admit(
+               %{agent_uid: agent.uid, session_id: event.session_id},
+               event
              )
-
-    assert_receive {:actor_lane, envelope}
-    turn_ref = turn_start_payload!(envelope).turn
-
-    assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
              Conversations.ensure_conversation(agent.uid, event.session_id)
+
+    assert :ok = Ankole.Conversations.Presentation.start(turn_ref, self())
 
     assert {:ok, message} =
              start_response_run(%{
@@ -743,8 +913,11 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   end
 
   defp assert_turn_completed(turn_ref, message) do
-    assert {:ok, %{status: :turn_completed}} =
-             commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
+    assert {:ok, _} =
+             Run.finalize(
+               %{turn_ref | anchor: message.id, model_response: message},
+               "loop_finished"
+             )
   end
 
   defp assistant_content(text) do
@@ -765,17 +938,6 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
          raw_payload: %{"provider" => "test"}
        }}
     end)
-  end
-
-  defp start_runtime_events_scheduler! do
-    suffix = System.unique_integer([:positive])
-    task_supervisor = :"runtime_events_final_reply_task_supervisor_#{suffix}"
-    scheduler = :"runtime_events_final_reply_scheduler_#{suffix}"
-
-    start_supervised!({Task.Supervisor, name: task_supervisor})
-    start_supervised!({Scheduler, name: scheduler, task_supervisor: task_supervisor})
-
-    scheduler
   end
 
   defp wait_for_entry!(ai_message_id, attempts_left \\ 20)

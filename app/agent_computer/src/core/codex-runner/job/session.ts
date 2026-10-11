@@ -3,9 +3,10 @@ import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { errorMessage, toError } from '../../../common/errors'
-import { jsonBytes } from '../../../fabric/envelope_proto'
+import { isRuntimeFabricTransportError } from '../../../fabric/fabric'
+import { jsonBytes, jsonObjectFromBytes } from '../../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../../lanes/actor_lane'
-import { rpcMethods, type BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
+import { RPCTimeoutError, type BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
 import type {
   BackgroundAgentJobStatus,
   BackgroundAgentJobTurnKind,
@@ -32,11 +33,10 @@ import {
   stringValue,
   textInput
 } from '../protocol'
-import type { CodexJobOptions, TurnHandlerResult } from '../../turns/turn_options'
+import type { CodexJobOptions } from '../options'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
   classifyCodexRecoveryFailure,
-  codexAgentTokenQuotaExceeded,
   codexCredentialPoolExhaustion,
   initialCodexRecoveryState,
   transitionCodexRecovery,
@@ -71,7 +71,7 @@ export async function runCodexJobSession(
   jobID: string,
   job: BackgroundAgentJobResponse,
   prepared: PreparedCodexJobExecution
-): Promise<TurnHandlerResult> {
+): Promise<void> {
   return new CodexJobSession(turnStart, opts, jobID, job, prepared).run()
 }
 
@@ -81,6 +81,7 @@ export async function runCodexJobSession(
  * commit.
  */
 class CodexJobSession implements AgentCodexRuntimeSession {
+  private readonly appliedEventIDs = new Set<string>()
   private readonly turnRecorder: BackgroundAgentJobTurnRecorder
   private readonly modelProfile: CodexAIGatewayModelProfile
   private readonly expectedSkillNames: string[]
@@ -102,10 +103,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private completionPending = false
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
-  private pendingAgentTokenQuotaExceeded = false
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
   private replayedThreadOnResume = false
+  private legacyThreadReplay: boolean
   private suppressRuntimeCapture = false
   private finalizing = false
   private closing = false
@@ -113,7 +114,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private runtimeCleaned = false
   private durableJobStatusCommitted = false
   private readonly toolAbortController = new AbortController()
-  private turnResult: TurnHandlerResult | undefined
   private activeTurnUpdateTimer: ReturnType<typeof setInterval> | undefined
   private firstProgressTimer: ReturnType<typeof setTimeout> | undefined
   private leadRuntimeProgressVersion = 0
@@ -127,7 +127,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     private readonly job: BackgroundAgentJobResponse,
     private readonly prepared: PreparedCodexJobExecution
   ) {
+    this.appliedEventIDs.add(turnStart.actor_event.actor_event_id)
     this.runtimeThreadID = job.runtimeThreadId || undefined
+    this.legacyThreadReplay = jsonObjectFromBytes(job.metadataJson, 'Job metadata')?.legacy_thread_replay === true
     this.modelProfile = codexJobModelProfile(turnStart)
     this.expectedSkillNames = prepared.skills.loadable.map(skill => skill.skillName).sort(compareCodePointStrings)
     this.skillUsage = new CodexSkillUsageTracker({
@@ -139,8 +141,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       jobID,
       attempt: job.attempts,
       actorTurn: turnStart.turn,
-      turnTrace: workerTurnTrace(turnStart),
-      upsert: request => opts.rpc(rpcMethods.backgroundAgentJobTurnUpsert, request, { turn: turnStart.turn })
+      turnTrace: workerTurnTrace(turnStart, job.agentUid),
+      upsert: request => opts.rpc('background_agent_job.turn.upsert', request, { jobTurn: turnStart.turn })
     })
     this.done = new Promise<void>((resolve, reject) => {
       this.resolveDone = resolve
@@ -148,24 +150,16 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     })
   }
 
-  async run(): Promise<TurnHandlerResult> {
+  async run(): Promise<void> {
     let thrownError: unknown
     let hasThrownError = false
 
     try {
       await this.execute()
-      this.turnResult = {
-        kind: 'noop_completed',
-        reason: 'background_agent_job_committed'
-      }
     } catch (caughtError) {
       if (this.finalizing) {
         try {
           await this.done
-          this.turnResult = {
-            kind: 'noop_completed',
-            reason: 'background_agent_job_committed'
-          }
         } catch (finalizationError) {
           thrownError = finalizationError
           hasThrownError = true
@@ -238,8 +232,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     }
 
     if (hasThrownError) throw thrownError
-    if (!this.turnResult) throw new Error('background agent job turn ended without a result')
-    return this.turnResult
   }
 
   private async execute(): Promise<void> {
@@ -298,7 +290,18 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           model: this.modelProfile.model
         })
       })
-      this.opts.onTurnActivity?.('codex:thread_resumed')
+      // Resume keeps the recorded initial instructions. Add the current drive
+      // rules to the native transcript before the next turn.
+      await this.client.request('thread/inject_items', {
+        ['threadId']: resumedThreadID,
+        items: [
+          {
+            type: 'message',
+            role: 'developer',
+            content: [{ type: 'input_text', text: this.prepared.threadConfig.developer_instructions }]
+          }
+        ]
+      })
       return 'resumed'
     } catch (error) {
       const decision = transitionCodexRecovery({
@@ -320,16 +323,16 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   }
 
   /**
-   * Rebuilds the runtime thread after native state is gone or its frozen
-   * capability projection is obsolete.
-   *
-   * The ladder is: replay the control plane's stored turn items into a fresh
-   * thread; when the store has nothing to replay or the inject fails, keep
-   * the fresh thread and let the recreated-thread input continue from the
-   * durable Workspace instead. Both outcomes are disclosed through the Job's
-   * runtime metadata.
+   * Uses the existing workspace when native thread recovery fails. Only Jobs
+   * marked at the WorkerProvider migration can replay stored turn items.
    */
   private async replaceLostThread(): Promise<'replayed' | 'recreated'> {
+    if (!this.legacyThreadReplay) {
+      this.runtimeThreadID = undefined
+      await this.startNewThread()
+      return 'recreated'
+    }
+
     let wireItems: ReturnType<typeof wireItemsFromTurnItems> = []
     try {
       const stored = await fetchReplayTurnItems(this.opts.rpc, this.turnStart.turn, this.jobID)
@@ -362,8 +365,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     } finally {
       this.suppressRuntimeCapture = false
     }
-
-    this.opts.onTurnActivity?.('codex:thread_replayed')
     return 'replayed'
   }
 
@@ -377,15 +378,25 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const sourceJobID = this.job.continuedFromJobId
     if (!sourceJobID) return undefined
     try {
-      const source = await this.opts.rpc(
-        rpcMethods.backgroundAgentJobGet,
-        { jobId: sourceJobID },
-        { turn: this.turnStart.turn }
-      )
-      return {
-        task: stringValue(source.task),
-        finalReport: stringValue(source.resultOutputText)
+      let offset = 0
+      let task: string | undefined
+      const report: string[] = []
+      for (;;) {
+        const source = await this.opts.rpc(
+          'background_agent_job.get',
+          { jobId: sourceJobID, resultOffset: String(offset) },
+          { jobTurn: this.turnStart.turn },
+          { retryOnDisconnect: true }
+        )
+        task ??= stringValue(source.task)
+        report.push(source.resultOutputText)
+        offset += Buffer.byteLength(source.resultOutputText, 'utf8')
+        const total = Number(source.resultOutputTotalBytes)
+        if (!Number.isSafeInteger(total) || total < offset) throw new Error('Invalid source Job result size')
+        if (offset === total) break
+        if (!source.resultOutputText) throw new Error('Source Job result window did not advance')
       }
+      return { task, finalReport: stringValue(report.join('')) }
     } catch (error) {
       this.opts.logger?.warning(
         'worker.codex_continuation_source_unavailable',
@@ -396,6 +407,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           error: toError(error)
         }
       )
+      if (isRuntimeFabricTransportError(error) || error instanceof RPCTimeoutError || this.opts.abortSignal?.aborted) {
+        throw error
+      }
       return undefined
     }
   }
@@ -404,7 +418,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available')
     const { projection, project, skills } = this.prepared
     await this.opts.rpc(
-      rpcMethods.backgroundAgentJobStatusUpdate,
+      'background_agent_job.status.update',
       {
         jobId: this.jobID,
         status: 'running',
@@ -415,6 +429,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           job_workspace: project.root,
           codex_app_server_pid: this.client?.processID,
           mcp_server_names: skills.mcpServers.map(server => server.name).sort(compareCodePointStrings),
+          ...(this.legacyThreadReplay ? { legacy_thread_replay: false } : {}),
           ...(this.recreatedThreadOnResume
             ? {
                 runtime_checkpoint_recreated: true,
@@ -432,8 +447,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           shared_skill_count: this.expectedSkillNames.length
         })
       },
-      { turn: this.turnStart.turn }
+      { jobTurn: this.turnStart.turn }
     )
+    this.legacyThreadReplay = false
   }
 
   private async commit(
@@ -446,6 +462,29 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   ): Promise<void> {
     if (!this.claimFinalization()) return
     await this.commitClaimed(status, details)
+  }
+
+  private async commitStatusWithAck(
+    ...args: [
+      'background_agent_job.status.update',
+      import('../../../lanes/rpc_lane').RPCRequestInit<'background_agent_job.status.update'>,
+      { jobTurn: import('../../../lanes/actor_lane').JobTurnRef }
+    ]
+  ): Promise<void> {
+    for (;;) {
+      try {
+        await this.opts.rpc(...args)
+        return
+      } catch (error) {
+        if (
+          !(error instanceof RPCTimeoutError) &&
+          !(isRuntimeFabricTransportError(error) && ['socket_closed', 'timeout'].includes(error.code))
+        ) {
+          throw error
+        }
+        await Bun.sleep(100)
+      }
+    }
   }
 
   private claimFinalization(): boolean {
@@ -472,17 +511,18 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         this.turnRecorder.finishTurn(this.codexTurnID, status, details.error)
       }
       await this.turnRecorder.flush()
-      await this.opts.rpc(
-        rpcMethods.backgroundAgentJobStatusUpdate,
+      await this.commitStatusWithAck(
+        'background_agent_job.status.update',
         {
           jobId: this.jobID,
           status,
+          appliedActorEventIds: [...this.appliedEventIDs],
           ...(this.runtimeThreadID ? { runtimeThreadId: this.runtimeThreadID } : {}),
           ...(details.result ? { resultJson: jsonBytes(details.result) } : {}),
           ...(details.error ? { errorJson: jsonBytes(details.error) } : {}),
           ...(details.metadata ? { metadataJson: jsonBytes(details.metadata) } : {})
         },
-        { turn: this.turnStart.turn }
+        { jobTurn: this.turnStart.turn }
       )
       this.durableJobStatusCommitted = true
       this.resolveDone()
@@ -515,6 +555,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         sandbox: 'danger-full-access',
         modelProvider: 'ankole_aigateway',
         config: this.prepared.threadConfig,
+        developerInstructions: stringValue(this.prepared.threadConfig.developer_instructions),
         threadSource: 'ankole',
         dynamicTools: this.prepared.projection.dynamicTools,
         model: this.modelProfile.model
@@ -523,7 +564,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.runtimeThreadID = stringValue(jsonObject(started.thread).id)
     if (!this.runtimeThreadID) throw new Error('codex app-server did not return a thread id')
     await this.runtimeLease.runtime.registerRoot(this.runtimeThreadID, this)
-    this.opts.onTurnActivity?.('codex:thread_started')
   }
 
   private async startCodexTurn(input: string): Promise<void> {
@@ -553,7 +593,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       clientUserMessageID
     )
     if (this.leadRuntimeProgressVersion === progressVersion) this.armFirstProgressDeadline()
-    this.opts.onTurnActivity?.('codex:turn_started')
   }
 
   private armFirstProgressDeadline(): void {
@@ -612,14 +651,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private async persistRuntimeThreadAnchor(reason: string): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available for persistence')
     await this.opts.rpc(
-      rpcMethods.backgroundAgentJobStatusUpdate,
+      'background_agent_job.status.update',
       {
         jobId: this.jobID,
         status: 'running',
         runtimeThreadId: this.runtimeThreadID,
         metadataJson: jsonBytes({ runtime_thread_recreated_reason: reason })
       },
-      { turn: this.turnStart.turn }
+      { jobTurn: this.turnStart.turn }
     )
   }
 
@@ -693,10 +732,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     this.recoveryInFlight = true
     try {
-      if (this.pendingAgentTokenQuotaExceeded || codexAgentTokenQuotaExceeded(error)) {
-        throw new AgentTokenQuotaExceededError(error)
-      }
-
       const poolExhaustion = codexCredentialPoolExhaustion(error) ?? this.pendingCredentialPoolExhaustion
       if (poolExhaustion) throw new CodexCredentialPoolExhaustedError(poolExhaustion, error)
 
@@ -768,7 +803,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     }
     if (projection.type === 'ignored') return
     const isLeadNotification = !projection.threadID || projection.threadID === this.runtimeThreadID
-    this.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
     if (isLeadNotification) this.noteLeadRuntimeProgress()
 
     // Child-thread items also carry Skill-usage evidence.
@@ -793,11 +827,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     if (projection.type === 'credential_pool_exhausted') {
       this.pendingCredentialPoolExhaustion = projection.exhaustion
-    } else if (projection.type === 'agent_token_quota_exceeded') {
-      this.pendingAgentTokenQuotaExceeded = true
     } else if (projection.type === 'turn_started') {
       this.pendingCredentialPoolExhaustion = undefined
-      this.pendingAgentTokenQuotaExceeded = false
       this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
     } else if (projection.type === 'agent_completed') {
@@ -876,7 +907,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const requestThreadID = stringValue(params.threadId)
     const isLeadRequest = !requestThreadID || requestThreadID === this.runtimeThreadID
     if (isLeadRequest) this.noteLeadRuntimeProgress()
-    this.opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
 
     const dynamicToolParams = method === 'item/tool/call' ? (message.params as DynamicToolCallParams) : undefined
     const bridgedUserInput = dynamicToolParams ? pendingParentInputFromDynamicTool(dynamicToolParams) : undefined
@@ -1047,8 +1077,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
               await this.turnRecorder.flush()
             },
             async update => {
-              this.turnStart.turn.revision = Math.max(this.turnStart.turn.revision, update.turn.revision)
-              await this.opts.onSteeringApplied?.(update)
+              if (update.actorEvent) this.appliedEventIDs.add(update.actorEvent.actor_event_id)
             }
           )
         )
@@ -1256,19 +1285,6 @@ class CodexTurnNoProgressError extends Error {
   constructor(timeoutMs: number) {
     super(`Codex turn produced no runtime progress within ${timeoutMs}ms after turn/start`)
     this.name = 'CodexTurnNoProgressError'
-  }
-}
-
-class AgentTokenQuotaExceededError extends Error {
-  readonly code = 'agent_token_quota_exceeded'
-  readonly retryable = false
-  readonly status = 429
-
-  constructor(cause: JSONObject) {
-    super('The Agent has used its token quota for the current period.', {
-      cause: new Error(stringValue(cause.message) ?? 'AIGateway rejected the request at the Agent token quota')
-    })
-    this.name = 'AgentTokenQuotaExceededError'
   }
 }
 

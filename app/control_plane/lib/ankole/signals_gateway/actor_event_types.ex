@@ -11,9 +11,6 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   behavior that still applies after an ActorEvent has already been formed.
   """
 
-  @live_turn_command_types ~w(
-    command.new command.stop command.retry command.steer command.compress command.llm_help
-  )
   @interaction_preserving_turn_types ~w(
     signal.entry.removed
     session.reset_due
@@ -47,32 +44,4 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   @doc false
   @spec interaction_preserving_turn_types() :: [String.t()]
   def interaction_preserving_turn_types, do: @interaction_preserving_turn_types
-
-  @doc """
-  Command events that may wake a session while another event has a live delivery.
-  """
-  @spec live_turn_command_types() :: [String.t()]
-  def live_turn_command_types, do: @live_turn_command_types
-
-  @doc """
-  Whether an event may interrupt a live turn for the same actor session.
-  """
-  @spec live_turn_command_event?(String.t()) :: boolean()
-  def live_turn_command_event?(type),
-    do: command_runtime_policy(type) in [:control_now, :checkpoint_nudge]
-
-  @doc """
-  Returns how ActorRuntime should schedule a command event.
-  """
-  @spec command_runtime_policy(String.t()) ::
-          :control_now | :checkpoint_nudge | :worker_turn | :unknown
-  def command_runtime_policy("command.new"), do: :control_now
-  def command_runtime_policy("command.stop"), do: :control_now
-  def command_runtime_policy("command.retry"), do: :control_now
-  def command_runtime_policy("command.steer"), do: :checkpoint_nudge
-  def command_runtime_policy("command.compress"), do: :control_now
-  def command_runtime_policy("command.llm_help"), do: :control_now
-  def command_runtime_policy("command.llm"), do: :worker_turn
-  def command_runtime_policy("command." <> _name), do: :unknown
-  def command_runtime_policy(_type), do: :unknown
 end

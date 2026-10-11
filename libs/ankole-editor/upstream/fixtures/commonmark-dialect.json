@@ -1,0 +1,619 @@
+{
+  "reasons": {
+    "indentation": "Indentation does not make a code block and does not stop other blocks. Indented lines are ordinary lines.",
+    "tags": "A tag is a page element, not raw HTML. Markdown inside a tag is read. An element outside the vocabulary shows as an unknown element.",
+    "incomplete-tag": "A < that does not start a complete tag is text.",
+    "bare-url": "GFM links a bare URL or email address.",
+    "lists": "Adjacent lists of the same kind are one list.",
+    "angle-autolink": "Angle-bracket autolinks are rejected. Write a link or a bare URL.",
+    "hidden-markup": "Comments, CDATA, processing instructions and declarations are rejected. A page has no hidden content.",
+    "tag-syntax": "A < before a name starts a tag. The tag must be complete and closed at the same block level.",
+    "invalid-element": "An element of the vocabulary must have its required attributes and allowed content."
+  },
+  "examples": {
+    "1": {
+      "reason": "indentation",
+      "xml": "<page><p>foo\tbaz\t\tbim</p></page>"
+    },
+    "2": {
+      "reason": "indentation",
+      "xml": "<page><p>foo\tbaz\t\tbim</p></page>"
+    },
+    "3": {
+      "reason": "indentation",
+      "xml": "<page><p>a\ta ὐ\ta</p></page>"
+    },
+    "5": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>foo</p><p>bar</p></li></ul></page>"
+    },
+    "6": {
+      "reason": "indentation",
+      "xml": "<page><blockquote><p>foo</p></blockquote></page>"
+    },
+    "7": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>foo</p></li></ul></page>"
+    },
+    "8": {
+      "reason": "indentation",
+      "xml": "<page><p>foo bar</p></page>"
+    },
+    "18": {
+      "reason": "indentation",
+      "xml": "<page><p>[]</p></page>"
+    },
+    "20": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "21": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "31": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "36": {
+      "reason": "indentation",
+      "xml": "<page><p>föfö</p></page>"
+    },
+    "48": {
+      "reason": "indentation",
+      "xml": "<page><hr /></page>"
+    },
+    "49": {
+      "reason": "indentation",
+      "xml": "<page><p>Foo</p><hr /></page>"
+    },
+    "69": {
+      "reason": "indentation",
+      "xml": "<page><h1>foo</h1></page>"
+    },
+    "70": {
+      "reason": "indentation",
+      "xml": "<page><p>foo</p><h1>bar</h1></page>"
+    },
+    "85": {
+      "reason": "indentation",
+      "xml": "<page><h2>Foo</h2><h2>Foo</h2></page>"
+    },
+    "87": {
+      "reason": "indentation",
+      "xml": "<page><h2>Foo</h2></page>"
+    },
+    "91": {
+      "reason": "invalid-element",
+      "error": "Markdown 第 5 行第 1 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+    },
+    "100": {
+      "reason": "indentation",
+      "xml": "<page><h2>foo</h2></page>"
+    },
+    "107": {
+      "reason": "indentation",
+      "xml": "<page><p>a simple indented code block</p></page>"
+    },
+    "110": {
+      "reason": "invalid-element",
+      "error": "Markdown 第 1 行第 5 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+    },
+    "111": {
+      "reason": "indentation",
+      "xml": "<page><p>chunk1</p><p>chunk2</p><p>chunk3</p></page>"
+    },
+    "112": {
+      "reason": "indentation",
+      "xml": "<page><p>chunk1</p><p>chunk2</p></page>"
+    },
+    "114": {
+      "reason": "indentation",
+      "xml": "<page><p>foo bar</p></page>"
+    },
+    "115": {
+      "reason": "indentation",
+      "xml": "<page><h1>Heading</h1><h2>foo Heading</h2><h2>foo</h2></page>"
+    },
+    "116": {
+      "reason": "indentation",
+      "xml": "<page><p>foo bar</p></page>"
+    },
+    "117": {
+      "reason": "indentation",
+      "xml": "<page><p>foo</p></page>"
+    },
+    "118": {
+      "reason": "indentation",
+      "xml": "<page><p>foo</p></page>"
+    },
+    "134": {
+      "reason": "indentation",
+      "xml": "<page><pre>aaa</pre></page>"
+    },
+    "137": {
+      "reason": "indentation",
+      "xml": "<page><pre>aaa</pre></page>"
+    },
+    "148": {
+      "reason": "invalid-element",
+      "error": "Markdown 第 2 行第 1 列：<pre> 只能包含一个代码围栏。请把代码写在 ``` 围栏里。"
+    },
+    "149": {
+      "reason": "tags",
+      "xml": "<page><table><tr><td><p>hi</p></td></tr></table><p>okay.</p></page>"
+    },
+    "150": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 3 行第 15 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "151": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+    },
+    "152": {
+      "reason": "tags",
+      "xml": "<page><DIV CLASS=\"foo\"><p><em>Markdown</em></p></DIV></page>"
+    },
+    "153": {
+      "reason": "tags",
+      "xml": "<page><div class=\"bar\" id=\"foo\" /></page>"
+    },
+    "154": {
+      "reason": "tags",
+      "xml": "<page><div class=\"bar&#10;baz\" id=\"foo\" /></page>"
+    },
+    "155": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "156": {
+      "reason": "incomplete-tag",
+      "xml": "<page><p>&lt;div id=\"foo\" <em>hi</em></p></page>"
+    },
+    "157": {
+      "reason": "incomplete-tag",
+      "xml": "<page><p>&lt;div class foo</p></page>"
+    },
+    "158": {
+      "reason": "incomplete-tag",
+      "xml": "<page><p>&lt;div *???-&amp;&amp;&amp;-&lt;--- <em>foo</em></p></page>"
+    },
+    "159": {
+      "reason": "tags",
+      "xml": "<page><div><em><a href=\"bar\">foo</a></em></div></page>"
+    },
+    "160": {
+      "reason": "tags",
+      "xml": "<page><table><tr><td><p>foo</p></td></tr></table></page>"
+    },
+    "161": {
+      "reason": "tags",
+      "xml": "<page><div /><pre lang=\"c\">int x = 33;</pre></page>"
+    },
+    "162": {
+      "reason": "tags",
+      "xml": "<page><p><em><a href=\"foo\">bar</a></em></p></page>"
+    },
+    "163": {
+      "reason": "tags",
+      "xml": "<page><Warning><p><em>bar</em></p></Warning></page>"
+    },
+    "164": {
+      "reason": "tags",
+      "xml": "<page><i class=\"foo\"><p><em>bar</em></p></i></page>"
+    },
+    "165": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+    },
+    "166": {
+      "reason": "tags",
+      "xml": "<page><del><p><em>foo</em></p></del></page>"
+    },
+    "167": {
+      "reason": "tags",
+      "xml": "<page><del><p><em>foo</em></p></del></page>"
+    },
+    "168": {
+      "reason": "tags",
+      "xml": "<page><del><em>foo</em></del></page>"
+    },
+    "169": {
+      "reason": "invalid-element",
+      "error": "Markdown 第 1 行第 1 列：<pre> 只能包含一个代码围栏。请把代码写在 ``` 围栏里。"
+    },
+    "170": {
+      "reason": "tags",
+      "xml": "<page><script type=\"text/javascript\"><p>// JavaScript example</p><p>document.getElementById(\"demo\").innerHTML = \"Hello JavaScript!\";</p></script><p>okay</p></page>"
+    },
+    "171": {
+      "reason": "tags",
+      "xml": "<page><textarea><p><em>foo</em></p><p><em>bar</em></p></textarea></page>"
+    },
+    "172": {
+      "reason": "tags",
+      "xml": "<page><style type=\"text/css\"><p>h1 {color:red;}</p><p>p {color:blue;}</p></style><p>okay</p></page>"
+    },
+    "173": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <style> 没有闭合。请在内容后写 </style>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "174": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 3 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "175": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 3 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "176": {
+      "reason": "tags",
+      "xml": "<page><p><style>p{color:red;}</style> <em>foo</em></p></page>"
+    },
+    "177": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 1 列：页面没有注释节点。请删除这段注释。"
+    },
+    "178": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 3 行第 1 列：结束标签 </script> 和开始标签不在同一层。开始标签单独成行时，结束标签也要单独成行；否则把两个标签写在同一段里。"
+    },
+    "179": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 1 列：页面没有注释节点。请删除这段注释。"
+    },
+    "180": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 1 列：页面不支持处理指令。请删除这段指令。"
+    },
+    "181": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 1 列：页面不支持 <!…> 声明。请删除这段声明。"
+    },
+    "182": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 1 列：页面不支持 CDATA。请直接写文字。"
+    },
+    "183": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 3 列：页面没有注释节点。请删除这段注释。"
+    },
+    "184": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 3 行第 5 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "185": {
+      "reason": "tags",
+      "xml": "<page><p>Foo</p><div><p>bar</p></div></page>"
+    },
+    "186": {
+      "reason": "tags",
+      "xml": "<page><div><p>bar</p></div><p><em>foo</em></p></page>"
+    },
+    "187": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 2 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "188": {
+      "reason": "tags",
+      "xml": "<page><div><p><em>Emphasized</em> text.</p></div></page>"
+    },
+    "189": {
+      "reason": "tags",
+      "xml": "<page><div><p><em>Emphasized</em> text.</p></div></page>"
+    },
+    "190": {
+      "reason": "tags",
+      "xml": "<page><table><tr><td><p>Hi</p></td></tr></table></page>"
+    },
+    "191": {
+      "reason": "tags",
+      "xml": "<page><table><tr><td><p>Hi</p></td></tr></table></page>"
+    },
+    "195": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 2 行第 1 列：标签 <my> 没有闭合。请在内容后写 </my>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "201": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 8 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "211": {
+      "reason": "indentation",
+      "xml": "<page><p><a href=\"/url\" title=\"title\">foo</a></p></page>"
+    },
+    "225": {
+      "reason": "indentation",
+      "xml": "<page><p>aaa bbb</p></page>"
+    },
+    "231": {
+      "reason": "indentation",
+      "xml": "<page><blockquote><h1>Foo</h1><p>bar baz</p></blockquote></page>"
+    },
+    "236": {
+      "reason": "indentation",
+      "xml": "<page><blockquote><p>foo bar</p></blockquote></page>"
+    },
+    "238": {
+      "reason": "indentation",
+      "xml": "<page><blockquote><p>foo</p></blockquote><ul><li><p>bar</p></li></ul></page>"
+    },
+    "252": {
+      "reason": "indentation",
+      "xml": "<page><blockquote><p>code</p></blockquote><blockquote><p>not code</p></blockquote></page>"
+    },
+    "253": {
+      "reason": "indentation",
+      "xml": "<page><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></page>"
+    },
+    "254": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "257": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>one</p></li></ul><p>two</p></page>"
+    },
+    "264": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>Foo</p><p>bar</p><p>baz</p></li></ul></page>"
+    },
+    "270": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>foo</p><p>bar</p></li></ul></page>"
+    },
+    "271": {
+      "reason": "indentation",
+      "xml": "<page><ol start=\"10\"><li><p>foo</p><p>bar</p></li></ol></page>"
+    },
+    "272": {
+      "reason": "indentation",
+      "xml": "<page><p>indented code</p><p>paragraph</p><p>more code</p></page>"
+    },
+    "273": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>indented code</p></li></ol><p>paragraph</p><p>more code</p></page>"
+    },
+    "274": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>indented code</p></li></ol><p>paragraph</p><p>more code</p></page>"
+    },
+    "278": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>foo</p></li><li><pre>bar</pre></li><li><p>baz</p></li></ul></page>"
+    },
+    "286": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "287": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "288": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "289": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "290": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>A paragraph with two lines.</p><p>indented code</p><blockquote><p>A block quote.</p></blockquote></li></ol></page>"
+    },
+    "301": {
+      "reason": "lists",
+      "xml": "<page><ul><li><p>foo</p></li><li><p>bar</p></li><li><p>baz</p></li></ul></page>"
+    },
+    "302": {
+      "reason": "lists",
+      "xml": "<page><ol><li><p>foo</p></li><li><p>bar</p></li><li><p>baz</p></li></ol></page>"
+    },
+    "308": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 4 行第 1 列：页面没有注释节点。请删除这段注释。"
+    },
+    "309": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 7 行第 1 列：页面没有注释节点。请删除这段注释。"
+    },
+    "312": {
+      "reason": "indentation",
+      "xml": "<page><ul><li><p>a</p></li><li><p>b</p></li><li><p>c</p></li><li><p>d</p></li><li><p>e</p></li></ul></page>"
+    },
+    "313": {
+      "reason": "indentation",
+      "xml": "<page><ol><li><p>a</p></li><li><p>b</p></li><li><p>c</p></li></ol></page>"
+    },
+    "344": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "346": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "475": {
+      "reason": "tags",
+      "xml": "<page><p>*<img src=\"foo\" title=\"*\" /></p></page>"
+    },
+    "476": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 3 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "477": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 3 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "480": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 4 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "481": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 4 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "491": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 8 列：标签 <foo> 没有闭合。请在同一段里写 </foo>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "493": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 12 列：标签中不能有字符 \\。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "494": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 7 列：标签中不能有字符 )。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "524": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 6 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "526": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 5 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "536": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 6 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "538": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 5 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "594": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "595": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "596": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "597": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "598": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "599": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "600": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "601": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "602": {
+      "reason": "bare-url",
+      "xml": "<page><p>&lt;<a href=\"https://foo.bar/baz\">https://foo.bar/baz</a> bim&gt;</p></page>"
+    },
+    "603": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "604": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "605": {
+      "reason": "angle-autolink",
+      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+    },
+    "608": {
+      "reason": "bare-url",
+      "xml": "<page><p>&lt; <a href=\"https://foo.bar\">https://foo.bar</a> &gt;</p></page>"
+    },
+    "609": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <m:abc> 没有闭合。请在内容后写 </m:abc>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "610": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <foo.bar.baz> 没有闭合。请在内容后写 </foo.bar.baz>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "611": {
+      "reason": "bare-url",
+      "xml": "<page><p><a href=\"https://example.com\">https://example.com</a></p></page>"
+    },
+    "612": {
+      "reason": "bare-url",
+      "xml": "<page><p><a href=\"mailto:foo@bar.example.com\">foo@bar.example.com</a></p></page>"
+    },
+    "613": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 9 列：标签 <c2c> 没有闭合。请在内容后写 </c2c>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "614": {
+      "reason": "invalid-element",
+      "error": "Markdown 第 1 行第 1 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+    },
+    "615": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 7 列：标签 <b2> 没有闭合。请在内容后写 </b2>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "616": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 2 行第 15 列：标签中不能有字符 3。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "617": {
+      "reason": "tags",
+      "xml": "<page><p>Foo <responsive-image src=\"foo.jpg\" /></p></page>"
+    },
+    "618": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 6 列：标签 <__> 没有闭合。请在同一段里写 </__>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "623": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+    },
+    "625": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 5 列：页面没有注释节点。请删除这段注释。"
+    },
+    "626": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 5 列：页面没有注释节点。请删除这段注释。"
+    },
+    "627": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 5 列：页面不支持处理指令。请删除这段指令。"
+    },
+    "628": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 5 列：页面不支持 <!…> 声明。请删除这段声明。"
+    },
+    "629": {
+      "reason": "hidden-markup",
+      "error": "Markdown 第 1 行第 5 列：页面不支持 CDATA。请直接写文字。"
+    },
+    "630": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 5 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "631": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 5 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "642": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    },
+    "643": {
+      "reason": "tag-syntax",
+      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+    }
+  }
+}

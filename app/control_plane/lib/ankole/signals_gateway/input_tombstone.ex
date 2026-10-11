@@ -17,7 +17,7 @@ defmodule Ankole.SignalsGateway.InputTombstone do
   ordering guard, not a record of the deletion.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

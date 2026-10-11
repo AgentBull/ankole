@@ -1,80 +1,31 @@
 ---
 title: 性能调优
-description: 了解并发回合、数据库连接池、PostgreSQL 最大连接数、Worker 回合上限和 Agent 任务槽怎样共同决定一个实例的并发能力。
+description: Worker 槽位、模型并发、数据库连接池、Job 上限与空闲回收。
 section: Guides
 order: 319
 ---
 
-Ankole 里的性能主要是容量：一次能跑多少回合、它们能从连接池取多少连接、一个 agent 能并行跑多少任务。本页命名旋钮、给默认值，并——要紧的部分——解释它们如何关联，因为只调一个不调其余，就会得到慢部署或失败部署。
+主对话与 Workflow 的模型调用在控制面运行，纯问答不启动 Worker。Worker 容量只计算打开的环境工作区与运行中的 Codex 回合，不能把槽位数当成所有对话的并发上限。
 
-先说明最关键的一点：旋钮构成一条链。并发回合需要数据库连接；数据库连接由 Postgres 限定；任务槽放大 agent 能跑的工作。只抬一个不抬其余，链在最弱环节断——回合排队、连接耗尽、或 Postgres 拒绝连接。针对你的负载形态把它们作为一组调，不是一个一个调。
+## 容量的 owner
 
-## 容量链
-
-一个回合触及控制面（用数据库连接池）、worker（跑模型循环）、Postgres（服务连接池）。关系，一句话：
-
-```text
-(并发回合) × (每回合连接数)  ≤  数据库连接池大小  ≤  Postgres max_connections
-```
-
-每个回合持有数据库工作；每个数据库连接来自 Postgres。如果你的并发回合设置意味着比连接池允许更多的连接，回合在连接池上排队。如果连接池大小意味着比 Postgres 允许更多的连接，连接被拒。默认值让单台小主机可用；扩展意味着一起抬它们。
-
-## 旋钮
+Driver 等待模型或工具时释放数据库连接。模型并发、provider 配额、Worker 槽位和数据库查询并发是分别管理的上限。各控制面副本的连接池总量须低于 Postgres 的连接预算，并为管理操作和其他服务留出空间。先观察连接池 checkout 等待，再调整容量。
 
 | 旋钮 | 默认 | 限制什么 |
 |---|---|---|
-| `ANKOLE_MAX_CONCURRENT_TURNS` | 9 | worker 将接受的并发 actor 回合 |
+| `ANKOLE_MAX_CONCURRENT_SLOTS` | 部署种子中为 12（未设置时为 9） | 单个 Agent 打开的环境工作区与运行中的 Codex 回合 |
 | `ANKOLE_DATABASE_POOL_SIZE` | 10 | 控制面数据库连接池 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | Postgres `max_connections`（内置服务器） |
-| `agent_computer.background_agent_job.max_turns_per_worker` | 可配置 | 后台任务每个 worker 的回合上限 |
 | `max_running_per_agent` | 3 | 每个 agent 最多三个运行中后台任务 |
+| `idleReleaseAfter` | Docker / Kubernetes: `never`; Cloudflare / Vercel / Lambda / Function Compute: `15m` | Worker 空闲多久后停止并释放 CPU 和内存 |
 
-默认（9 回合、10 连接池、300 Postgres）保守，适合单台小主机。调优问题是当部署比那更忙时抬哪个、抬多少。
+## 调整真正等待的边界
 
-## 按症状调
+- 模型请求等待 provider 容量时，检查 provider 配额与凭据。
+- 电脑工具等待 `no_worker_capacity` 时，需要空 Worker 槽位；提高上限前先检查保留工作区中的在途命令。
+- 后台 Job 排队可能受每 Agent 的 Job 上限或 Worker 容量限制。提高 Worker 槽位不会改变 Job 上限。
+- 数据库 checkout 延迟需要检查全部副本的连接池与 Postgres 容量。
 
-不同症状指向不同旋钮。动任何东西之前先读症状。
+provider YAML 修改在控制面替换空闲 Worker 时生效，既有 generation 保留已保存的设置。`idleReleaseAfter` 控制空闲资源回收，持久 Home 仍由 provider 存储保留。
 
-### "回合启动慢"（排队）
-
-Worker 池满时，回合会排队。`ANKOLE_MAX_CONCURRENT_TURNS` 是每个 Worker 接受的并发回合上限。若 Console 显示回合正在等可用 Worker，可以增加容量，但必须同时确认数据库连接池仍有余量。
-
-### "回合一旦跑起来就慢"（数据库饱和）
-
-持有数据库连接的回合在连接池耗尽时等待。抬 `ANKOLE_DATABASE_POOL_SIZE`——但只到 Postgres 允许的范围。内置 Postgres 默认 300 连接；外部服务器有自己的 `max_connections`。若连接池大小接近 Postgres 上限，先抬 Postgres 上限（或让内置服务器的 `ANKOLE_POSTGRES_MAX_CONNECTIONS` 增长），再抬连接池。
-
-### "后台任务排队"（agent 槽饱和）
-
-每个 agent 最多并发跑 `max_running_per_agent`（3）个任务。若一个 agent 有三个 `running`、更多在 `queued`，上限是限制——不是 worker、不是连接池。要么接受队列，要么把工作摊到更多 agent（各有自己的三个槽）。抬 `max_running_per_agent` 很少是对的动作；按 worker 回合上限（`max_turns_per_worker`）和全局回合上限也会拦住它。
-
-### "provider 调用是瓶颈"（不是 Ankole 旋钮）
-
-若 `/ai-gateway/conversations` 显示模型调用占回合大部分时间，瓶颈是 provider，不是 Ankole。没有容量旋钮修这个——见 [成本管理](../cost-management/) 的模型侧杠杆（更便宜的 `primary`、更低 `reasoning_effort`），它们也让回合更快。
-
-## 一个完整容量示例
-
-一个更忙的部署，比如 5 个活跃 agent，各跑 1–2 个任务并在频道回答：
-
-- **并发回合**——抬 `ANKOLE_MAX_CONCURRENT_TURNS` 匹配现实峰值（15–20），不是理论最大。
-- **数据库连接池**——抬 `ANKOLE_DATABASE_POOL_SIZE`，让连接池不是排队点（此负载 20–30）。
-- **Postgres**——确认 `ANKOLE_POSTGRES_MAX_CONNECTIONS`（300）舒适地超过连接池、worker 自身连接与余量之和；通常够，但外部服务器可能需要抬自己的 `max_connections`。
-- **按 agent 任务槽**——留在 3；把更多工作摊到 agent，而不是抬它。
-
-这些数字不是固定答案。每次只调整一个上限，再比较 Console 中的排队状态、后台任务状态和数据库指标，找到能够处理实际峰值的最小容量。
-
-## 不只是 worker 容量，还有 worker 数量
-
-Kubernetes 上，worker 是一个可水平扩展的 Deployment——更多 worker pod，各有自己的 `ANKOLE_MAX_CONCURRENT_TURNS`。容量算术是 `worker pod × 每 worker 回合`，仍受数据库连接池和 Postgres 约束。Compose（单主机）上，你有一个 worker；扩展意味着抬它的回合上限，抬到主机和数据库允许的范围。
-
-单 worker 的主机是限制时，水平 worker 扩展是更合适的路径；数据库是限制且主机有余量时，垂直（抬单个 worker 上限）更合适。
-
-## 性能调优不是什么
-
-性能调优不是把所有上限调到最大。上层容量超过下层承载能力时，瓶颈只会移动。先从 Console 的回合和任务状态判断队列在哪一层，再调整对应上限。更高并发也会增加模型调用和数据库连接，应同时检查 [成本管理](../cost-management/)。
-
-## 下一步
-
-- 作为环境变量的旋钮，读 [环境变量](../environment-variables/)。
-- 回合与任务接口，读 [Console API 参考](../console-api/)。
-- 也影响速度的模型侧杠杆，读 [成本管理](../cost-management/)。
-- 跑回合的 worker，读 [Agent Computer Worker](../agent-computer-worker/)。
+另见 [工作节点](../worker-management/)、[后台任务](../background-agent-jobs/) 与 [成本管理](../cost-management/)。

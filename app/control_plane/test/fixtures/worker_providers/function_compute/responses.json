@@ -1,0 +1,82 @@
+{
+  "template": {
+    "templateID": "tpl_example",
+    "teamID": "team_example",
+    "name": "ankole-template",
+    "status": {"state": "ready", "finishedAt": "2026-10-08T00:00:00Z"}
+  },
+  "template_created": {"templateID": "tpl_example", "requestId": "request-example"},
+  "sandbox_created": {
+    "accountID": "account-example",
+    "alias": "base",
+    "clientID": "account-example",
+    "domain": "cn-hangzhou.sandbox.aliyuncs.com",
+    "envdAccessToken": "test-envd-token",
+    "envdVersion": "0.5.2",
+    "sandboxID": "sandbox-selected",
+    "templateID": "tpl_example",
+    "userID": "account-example"
+  },
+  "sandbox": {
+    "sandboxID": "sandbox-selected",
+    "templateID": "tpl_example",
+    "alias": "base",
+    "clientID": "account-example",
+    "accountID": "account-example",
+    "userID": "account-example",
+    "cpuCount": 2,
+    "memoryMB": 2048,
+    "diskSizeMB": 15360,
+    "envdVersion": "0.5.2",
+    "envdAccessToken": "test-envd-token",
+    "domain": "cn-hangzhou.sandbox.aliyuncs.com",
+    "state": "running",
+    "startedAt": "2026-10-08T00:00:00Z",
+    "endAt": "2026-10-09T00:00:00Z",
+    "metadata": {},
+    "lifecycle": {"autoResume": false, "onTimeout": "kill"}
+  },
+  "oss_mount": {
+    "mountPoints": [{
+      "bucketName": "test-bucket",
+      "mountDir": "/workspace",
+      "bucketPath": "/ankole/agent-fc",
+      "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+      "readOnly": false
+    }]
+  },
+  "spaces": {
+    "RequestId": "request-example",
+    "NextToken": "",
+    "AgenticSpaces": {"AgenticSpace": [{
+      "AgenticSpaceId": "agentic-example",
+      "FileSystemPath": "/ankole-agent/",
+      "Status": "Running",
+      "Quota": {"SizeLimit": 107374182400, "FileCountLimit": 100000}
+    }]}
+  },
+  "space_created": {"RequestId": "request-example", "AgenticSpaceId": "agentic-example"},
+  "access_points": {
+    "RequestId": "request-example", "NextToken": "",
+    "AccessPoints": [{
+      "AccessPointId": "ap-example",
+      "AccessPointName": "ankole-agent-ap-network",
+      "Status": "Active",
+      "DomainName": "ap-example.cn-hangzhou.nas.aliyuncs.com",
+      "VpcId": "vpc-example", "VSwitchId": "vsw-example",
+      "Tags": []
+    }]
+  },
+  "access_point_created": {
+    "RequestId": "request-example",
+    "AccessPoint": {"AccessPointId": "ap-example", "AccessPointDomain": "ap-example.cn-hangzhou.nas.aliyuncs.com"}
+  },
+  "volumes": {
+    "requestId": "request-example", "nextToken": "",
+    "volumes": [{
+      "volumeID": "vol-example", "volumeName": "ankole-agent-ap-network", "teamID": "team_example",
+      "agenticFSVolumeConfig": {"serverAddr": "ap-example.cn-hangzhou.nas.aliyuncs.com:/", "userID": 1000, "groupID": 1000}
+    }]
+  },
+  "volume_created": {"requestId": "request-example", "volumeID": "vol-example"}
+}

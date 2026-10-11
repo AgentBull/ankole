@@ -17,7 +17,7 @@ Harness 识别每个行动主体，执行访问规则，恢复中断的长任务
 
 <DocsArchitectureDiagram lang="zh-Hans-CN" />
 
-每个私有部署实例包含一个逻辑控制面，并可连接一台或多台 Agent Computer Worker。控制面管理身份、状态和调度。Worker 提供 Agent 的执行环境。
+每个私有部署实例包含一个逻辑控制面，并为每个 Agent 提供一台 Agent Computer Worker。控制面管理身份、状态和调度，并负责创建 Worker。每台 Worker 为它的 Agent 提供执行环境。
 
 SignalsGateway 接收外部聊天、Webhook 和计划任务。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
 
@@ -33,11 +33,21 @@ OTP 监督树为 Agent、连接和后台任务划分独立故障域。某个执�
 
 ### Worker 提供 Agent 工作环境
 
-Agent Computer Worker 运行模型循环、工具、Skill、浏览器、终端和文件操作，也运行 Automation Job 脚本。控制面创建并提交需要持久保存的业务状态。Worker 接受控制面调度，并将执行结果提交给控制面。
+控制面运行主 Agent loop，需要环境工具或 Codex 时才启动 Agent Computer Worker。Worker 执行工具、Skills、浏览器、终端、文件操作、自动化脚本与 Codex Job，持久结果由控制面提交。
 
-一台 Worker 可以运行多个 Agent，每个 Agent 使用独立的轻量沙盒。需要加强隔离时，可为 Agent 分配专用 Worker。增加 Worker 可以提高并发量，也可以将安全要求不同的任务调度到不同节点。
+每个 Agent 有一个 Worker 身份，同时最多接纳一个 Worker 实例，Agent 之间从不共享 Worker、缓存盘或凭证。Worker 容器或 Pod 是唯一的隔离边界：Agent 的命令运行时没有内层沙盒，可以改动 Agent 自己的电脑。在 Kubernetes 上，可以通过 Pod 模板的 runtime class 加上 gVisor。
 
-RuntimeFabric 通过 ZeroMQ 连接控制面与 Worker，传递唤醒、引导、取消、进度和执行结果。RuntimeFabric 负责低延迟实时通信。连接中断后，控制面根据 PostgreSQL 中的状态恢复任务。
+控制面通过 Agent 选定的 provider 管理 Worker：Docker、Kubernetes、Cloudflare、Vercel、AWS Lambda MicroVMs 或阿里云函数计算。Agent Home 是 `/workspace` 上的持久存储，`/var/cache/ankole` 只放可丢失的缓存。命令以 uid 1000 运行，没有 sudo。
+
+RuntimeFabric 通过每个 Worker 一条 Phoenix Channel 连接控制面与 Worker，传递唤醒、引导、取消、进度和执行结果。RuntimeFabric 负责低延迟实时通信。连接中断后，控制面根据 PostgreSQL 中的状态恢复任务。
+
+### WorkerPool 选择平台与实例配置
+
+运维通过 **Settings → Worker providers** 配置 WorkerPool。一个 provider 就是一个站点级池，包含平台类型、YAML 配置与加密的平台凭据。多个 Agent 可以使用同一个池，每个 Agent 仍有自己的电脑和持久 Home。不同类型或实例规格使用不同池。
+
+创建 Agent 时明确选择池，或使用站点默认池。此后绑定保持不变。控制面按需启动 Worker，空闲时回收或暂停，实例过时时保留 Home 并替换；缓存可独立重建。见 [WorkerPool](../worker-management/)。
+
+每台 Worker 单独限制环境工作区和 Codex 回合容量。主对话与 Workflow 的模型调用在控制面执行，不占这部分容量。增加池提供更多部署选择，不会把已有 Agent 的工作迁到共享电脑上。
 
 ## 一条消息如何变成可恢复的工作
 
@@ -59,7 +69,7 @@ Cron、Checkback 和 Webhook 端点都可以作为触发器。触发器默认唤
 
 每个活跃会话都是可寻址的 Virtual Actor，包含信箱、生命周期和恢复点。新消息或计划任务可以唤醒 Actor。Actor 在执行期间可以接收补充信息、取消请求和人工引导。
 
-Actor Runtime 管理长任务身份，并为每个回合创建新的执行实例和提交隔离标识。Worker 只能提交当前获得授权的回合。恢复或重试后，过期 Worker 无法覆盖较新的结果。
+对话 Driver 管理长任务，用 PostgreSQL 中的 epoch 栅栏保护自身写入，从持久 Response 链保留已完成步骤。Worker 结果按 RunRef 或 JobTurnRef 的操作标识接纳，新 Driver 可以领养在途工作。
 
 流式内容表示执行进度。控制面确认并持久化的消息、工具结果和状态迁移构成已提交记录。控制面将「界面显示工作进度」与「工作已经完成」作为两种状态分别记录。
 
@@ -69,7 +79,7 @@ Brain 将聊天、Source 和 Agent 写入的内容整理为可更新的世界模
 
 知识可以来自 Agent 参与的对话、未明确提及 Agent 但符合学习条件的群聊消息，以及已注册的文件或 URL Source。
 
-同一实例中的所有 Agent 共用一个知识空间。每个受保护的正文段落、Claim 和时间线事件都使用以下一种可见范围：`world`、权限组或单个 Principal。Source 或 Channel 记录出处。学习所得知识的访问权限由可见范围决定。
+同一租户中的所有 Agent 共用一个知识空间，租户之间的知识空间隔离。每个受保护的正文段落、Claim 和时间线事件都使用以下一种可见范围：`world`、权限组或单个 Principal。Source 或 Channel 记录出处。学习所得知识的访问权限由可见范围决定。
 
 运行中的 Agent 通过统一的召回接口获得当前任务需要的长期上下文。离线 Dreaming 整理新证据、发现模式、评估到期预测，并标记等待复核的冲突。
 
@@ -81,11 +91,11 @@ Brain 为 Agent 提供长期记忆，并负责存储、Dreaming 和写入权限�
 
 主 Agent 可以将调研、数据分析、文件处理、代码修改和 Deep Research 等边界明确的工作交给后台 Agent 任务。后台任务运行期间，主会话仍可继续与用户交流。
 
-后台任务的生命周期保存在控制面中，Worker 负责实际执行。如果 Worker 中断，控制面会重新派发任务，并从已保存的状态继续执行。
+控制面保存 Job 生命周期。实例替换后，Worker 从持久 Home 的工作区与 Codex 线程文件恢复；PostgreSQL 保存已接纳的工作与恢复状态。
 
 主 Agent 与后台任务可以继续通信。后台任务可以请求用户补充信息、返回失败信息和最终结果，也可以按要求静默运行。等待用户输入时，后台任务释放执行资源，并在收到回答后恢复。
 
-Deep Research 使用这套机制。Agent Plugin 提供工作区模板，Skill 提供研究方法，后台任务负责持久执行，Agent Home 保存研究资料与交付物。
+Deep Research 使用这套机制。Agent Plugin 提供工作区模板，Skill 提供研究方法，后台任务负责持久执行。任务工作区保存在持久 Home；需要在 Worker 外访问的研究资料与交付物，由 Agent 发布到控制面云盘。
 
 参见 [后台 Agent 任务](../background-jobs/) 和 [Deep Research](../deep-research-job/)。
 
@@ -93,7 +103,7 @@ Deep Research 使用这套机制。Agent Plugin 提供工作区模板，Skill �
 
 AIGateway 是模型调用的统一边界。主 Agent、后台任务、Brain 和外部 API 客户端都通过 AIGateway 使用 LLM、Embedding、Rerank、图像、Web Search 和 Web Fetch 服务。
 
-Agent 的模型档案指定执行所用的模型。Brain 使用 AppConfigure 中的五项实例级模型设置。控制面加密保存 Provider 凭证，AIGateway 使用这些凭证请求上游服务。Agent 与 Worker 只能访问获准使用的模型和调用结果。
+Agent 的模型档案指定执行所用的模型。每个租户选择 Brain 维护 Agent，使用其 `light`、`heavy` 和 `web_fetch` profile 执行 Brain 工作。站点级 AppConfigure 设置 Embedding 模型，租户级 AppConfigure 设置 Rerank 模型。控制面加密保存 Provider 凭证，AIGateway 使用这些凭证请求上游服务。
 
 AIGateway 支持不保存历史的单次调用和可继续的有状态会话。AIGateway 负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，并统一处理各 Provider 的生命周期。
 
@@ -117,19 +127,19 @@ Control Plane Plugin 将 IdP、聊天渠道和其他控制面能力接入实例�
 
 PostgreSQL 保存身份、权限、配置、消息、会话、任务、记忆、投递状态和审计记录等权威领域状态。需要判断一项工作是否已经提交时，以这些记录为准。
 
-Agent Home 保存工作区文件、工具产生的中间文件和最终交付物。单机部署可以使用本地磁盘或虚拟磁盘。多 Worker 的 Kubernetes 部署需要 NFS 等支持 `ReadWriteMany` 的共享卷。
+控制面的云盘文件存储保存附件、发布的文件、Skill 和 Automation 脚本。持久 Home 单独保存工作区、用户软件与 Codex 线程。PostgreSQL、云盘文件存储、全部 Home 与原部署加密密钥需要一起备份。
 
-RuntimeFabric、Worker 进程内状态和流式预览都可以重建。任务恢复以 PostgreSQL 和 Agent Home 中的状态为准。
+RuntimeFabric、Worker 进程、流式预览和 `/var/cache/ankole` 可以重建。持久 Home 必须撑过实例删除，并需要存储备份。参见[备份与还原](../backup-and-restore/)。
 
 ## 三种部署形态
 
 | 形态 | 控制面与 Worker | 持久化 |
 | --- | --- | --- |
-| **Docker Compose · 单机推荐** | 一台 Linux、macOS 或 Windows 主机运行控制面和一个 Worker | PostgreSQL 与 Agent Home 使用本机持久化卷 |
-| **Kubernetes · 企业级推荐** | 一个控制面连接一个或多个 Worker Pod，可按节点和安全要求调度 | PostgreSQL 和支持 `ReadWriteMany` 的共享 Agent Home |
-| **源码安装** | 在开发环境中分别运行控制面和 Worker | 使用开发环境配置的 PostgreSQL 与本地工作区 |
+| **Docker Compose · 单机推荐** | 一台 Linux、macOS 或 Windows 主机运行控制面，控制面通过 Docker socket 为每个 Agent 创建一个 Worker 容器 | PostgreSQL、云盘文件存储与每个 Agent 的独享持久 Home 卷 |
+| **Kubernetes · 企业级推荐** | 一个控制面通过 Kubernetes API 为每个 Agent 创建一个 Worker Pod | PostgreSQL、云盘文件存储与持久 Home PVC 或共享存储；缓存卷独立 |
+| **源码安装** | `bun dev` 运行控制面，控制面为每个 Agent 创建一个 Docker Worker 容器，容器以 watch 模式运行本地 Agent Computer 源码 | PostgreSQL、`var/ankole-dev/files` 与独享 Docker 持久 Home 卷 |
 
-三种部署方式使用相同的逻辑边界。每个实例包含一个控制面，并可按需增加 Worker。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
+三种部署方式使用相同的逻辑边界。每个实例包含一个控制面，由控制面为每个 Agent 提供自己的 Worker。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
 
 ## 支撑运行时的五项技术选择
 
@@ -137,8 +147,8 @@ RuntimeFabric、Worker 进程内状态和流式预览都可以重建。任务恢
 | --- | --- |
 | **Virtual Actor 承载 AI 工作** | 让每个会话拥有地址、信箱、生命周期和恢复点 |
 | **OTP 监督树划分故障域** | 让一个 Agent 或连接失败时只恢复对应分支 |
-| **ZeroMQ 承载实时控制** | 在 Agent 执行期间低延迟传递唤醒、插话、进度和背压 |
-| **Agent Computer Worker 提供执行环境** | 在可直接访问工作区的环境中运行模型循环、工具、文件、终端和沙箱 |
+| **Phoenix Channel 承载实时控制** | 在 Agent 执行期间低延迟传递唤醒、插话、进度和背压 |
+| **Agent Computer Worker 提供执行环境** | 为每个 Agent 提供自己的电脑，运行工具、文件、终端、浏览器与 Codex |
 | **PostgreSQL 保存权威状态** | 让消息、任务、记忆、决策和已提交操作可以恢复与审计 |
 
 Agent 可以连续工作数小时，并在运行中接收新信息。运行时可以独立恢复失败的执行分支，并为每项已提交的工作保留审计记录。

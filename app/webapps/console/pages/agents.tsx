@@ -1,3 +1,5 @@
+import { principalLabel } from '../state/principal-label'
+import { ActorLabel } from '../actor-label'
 import { match, recordValue } from '@agentbull/active-support'
 import {
   Input,
@@ -14,7 +16,7 @@ import {
 import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -26,7 +28,7 @@ import {
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerShowOptions,
   ankoleWebAgentControllerUpdateMutation,
-  ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
+  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebPrincipalControllerIndexOptions
@@ -34,11 +36,11 @@ import {
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
-import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { EditorNotFound, LabeledField, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { SinglePrincipalPicker } from '../principal-picker'
 import {
-  agentUIDInputPattern,
+  agentHandleInputPattern,
   AgentEditorModel,
   type AgentEditorDraft,
   type AgentMemoryDisclosureMode
@@ -51,30 +53,30 @@ import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { TokenQuotaEditor } from './token-quota-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
+import { AgentFilesLink } from './agent-files'
+import { AgentWorkerProvider, WorkerProviderSelect } from './agent-worker-provider'
+import { ankoleWebWorkerProviderControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
 
 export function AgentsListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (agents.data?.agents ?? []).filter(agent =>
-    matchesResourceSearch(searchQuery, agent.uid, agent.display_name, agent.role, agent.status)
+    matchesResourceSearch(searchQuery, agent.handle, agent.uid, agent.display_name, agent.role, agent.status)
   )
   // The DELETE response reports status "disabled" for both steps, so the
   // toast keys on the row's status at click time: a disabled row's delete is
   // the permanent one.
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
-    onSuccess: () => void queryClient.invalidateQueries(),
     onError: error => toast.error(requestErrorMessage(error))
   })
   const enableAgent = useMutation({
     ...ankoleWebAgentControllerEnableMutation(),
-    onSuccess: (_data, variables) => {
-      toast.success(t('console.agents.enabled', { id: variables.path.agent_uid }))
-      void queryClient.invalidateQueries()
+    onSuccess: data => {
+      toast.success(t('console.agents.enabled', { id: data.agent.handle }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -86,7 +88,7 @@ export function AgentsListPage() {
       createTo="new"
       createLabel={t('console.agents.new')}
       columns={[
-        t('console.agents.uid'),
+        t('console.agents.handle'),
         t('console.agents.display_name'),
         t('console.agents.role'),
         t('console.agents.status')
@@ -113,8 +115,8 @@ export function AgentsListPage() {
         return (
           <TableRow key={agent.uid}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
-                {agent.uid}
+              <Link data-row-link className="text-foreground" to={encodeURIComponent(agent.uid)}>
+                {agent.handle}
               </Link>
             </TableCell>
             <TableCell>{agent.display_name}</TableCell>
@@ -148,12 +150,12 @@ export function AgentsListPage() {
                 disabled
                   ? {
                       title: t('console.agents.delete_title'),
-                      description: t('console.agents.delete_description', { id: agent.uid }),
+                      description: t('console.agents.delete_description', { id: agent.handle }),
                       confirmLabel: t('common.delete')
                     }
                   : {
                       title: t('console.agents.disable_title'),
-                      description: t('console.agents.disable_description', { id: agent.uid }),
+                      description: t('console.agents.disable_description', { id: agent.handle }),
                       confirmLabel: t('common.disable'),
                       icon: <RiPauseCircleLine />
                     }
@@ -165,7 +167,7 @@ export function AgentsListPage() {
                     onSuccess: () =>
                       toast.success(
                         t(disabled ? 'console.agents.deleted' : 'console.agents.disabled_toast', {
-                          id: agent.uid
+                          id: agent.handle
                         })
                       )
                   }
@@ -196,17 +198,17 @@ function AgentEditor({ uid }: { uid?: string }) {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(AgentEditorModel)
   const libraryModel = useModel(AgentLibraryEditorModel)
   const displayNameInput = useRef<HTMLInputElement>(null)
-  const uidInput = useRef<HTMLInputElement>(null)
+  const handleInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
   const mode = uid ? 'edit' : 'new'
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
+  const workerProviders = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
   const providerKinds = useQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
     enabled: Boolean(uid)
@@ -221,8 +223,17 @@ function AgentEditor({ uid }: { uid?: string }) {
     enabled: Boolean(selectedAgent?.uid)
   })
   const agentDraft = useMemo(
-    () => (mode === 'new' ? emptyAgentForm() : selectedAgent ? formFromAgent(selectedAgent) : undefined),
-    [mode, selectedAgent]
+    () =>
+      mode === 'new'
+        ? workerProviders.data
+          ? emptyAgentForm(
+              workerProviders.data.worker_providers.find(provider => provider.is_default)?.provider_id ?? ''
+            )
+          : undefined
+        : selectedAgent
+          ? formFromAgent(selectedAgent)
+          : undefined,
+    [mode, selectedAgent, workerProviders.data]
   )
   const draftStatus = useEditorDraft(model, {
     identity: { resource: 'agent', uid },
@@ -230,13 +241,11 @@ function AgentEditor({ uid }: { uid?: string }) {
     absent: () => mode === 'edit' && requestErrorCode(agentDetail.error) === 'not_found'
   })
 
-  const refresh = () => void queryClient.invalidateQueries()
-
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.uid }))
-      refresh()
+      toast.success(t('console.agents.saved', { id: response.agent.handle }))
+
       // Land on the new agent's editor so model profiles can be configured next.
       navigate(`/agents/${encodeURIComponent(response.agent.uid)}`)
     }
@@ -244,9 +253,8 @@ function AgentEditor({ uid }: { uid?: string }) {
   const updateAgent = useMutation({
     ...ankoleWebAgentControllerUpdateMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.uid }))
+      toast.success(t('console.agents.saved', { id: response.agent.handle }))
       model.markSaved(formFromAgent(response.agent))
-      refresh()
     }
   })
 
@@ -257,14 +265,15 @@ function AgentEditor({ uid }: { uid?: string }) {
       model.validationError.value = draftError
       match(draftError)
         .with('display_name_required', () => displayNameInput.current?.focus())
-        .with('uid_required', 'uid_invalid', () => uidInput.current?.focus())
+        .with('handle_required', 'handle_invalid', () => handleInput.current?.focus())
         .with('role_required', () => roleInput.current?.focus())
         // The owner picker renders no focusable ref; its inline error is the signal.
-        .with('owner_required', () => undefined)
+        .with('owner_required', 'worker_provider_required', () => undefined)
         .exhaustive()
       return
     }
     const body = {
+      handle: model.handle.value.trim(),
       display_name: model.displayName.value.trim(),
       avatar_url: blankToNull(model.avatarURL.value),
       role: model.role.value.trim(),
@@ -272,7 +281,9 @@ function AgentEditor({ uid }: { uid?: string }) {
       group_memory_disclosure_mode: model.groupMemoryDisclosureMode.value
     }
     if (mode === 'new') {
-      createAgent.mutate({ body: { ...body, uid: model.uid.value.trim() } })
+      createAgent.mutate({
+        body: { ...body, worker_provider_id: model.workerProviderID.value }
+      })
       return
     }
     if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
@@ -280,18 +291,18 @@ function AgentEditor({ uid }: { uid?: string }) {
 
   // Blur-time required and pattern feedback comes from LabeledField; these
   // carry only the submit-time decisions of the draft model, which also
-  // covers values the model derives without a keystroke, such as the UID.
+  // covers values the model derives without a keystroke, such as the handle.
   // Required messages reuse the shared template, so the text never changes
   // between blur and submit.
   const draftError = model.validationError.value
   const requiredText = (labelKey: string) => t('common.field_required', { field: t(labelKey) })
   const displayNameError =
     draftError === 'display_name_required' ? requiredText('console.agents.display_name') : undefined
-  const uidError =
-    draftError === 'uid_required'
-      ? requiredText('console.agents.uid')
-      : draftError === 'uid_invalid'
-        ? t('console.agents.uid_invalid')
+  const handleError =
+    draftError === 'handle_required'
+      ? requiredText('console.agents.handle')
+      : draftError === 'handle_invalid'
+        ? t('console.agents.handle_invalid')
         : undefined
   const roleError = draftError === 'role_required' ? requiredText('console.agents.role') : undefined
   const ownerError = draftError === 'owner_required' ? requiredText('console.agents.owner') : undefined
@@ -306,7 +317,9 @@ function AgentEditor({ uid }: { uid?: string }) {
 
   return (
     <ResourceEditorPage
-      title={mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || (uid ?? '')}
+      title={
+        mode === 'new' ? t('console.agents.new') : selectedAgent?.display_name || selectedAgent?.handle || (uid ?? '')
+      }
       description={t('console.agents.editor_description')}
       backTo="/agents"
       dirty={model.dirty.value}
@@ -315,6 +328,7 @@ function AgentEditor({ uid }: { uid?: string }) {
         createAgent.error ??
         updateAgent.error ??
         agentDetail.error ??
+        workerProviders.error ??
         providers.error ??
         providerKinds.error ??
         modelCatalog.error
@@ -328,6 +342,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
+            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data?.worker_providers ?? []} />
             <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
               agent={selectedAgent}
@@ -337,8 +352,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
               providers={providers.data?.ai_gateway_providers ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
-              modelCatalog={modelCatalog.data}
-              onChanged={refresh}
+              modelCatalog={modelCatalog.data?.models ?? []}
             />
             <CustomModelProfilesEditor
               agentUID={selectedAgent.uid}
@@ -347,16 +361,34 @@ function AgentEditor({ uid }: { uid?: string }) {
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
               providers={providers.data?.ai_gateway_providers ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
-              modelCatalog={modelCatalog.data}
-              onChanged={refresh}
+              modelCatalog={modelCatalog.data?.models ?? []}
             />
             <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
             <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
+            <AgentFilesLink agentUID={selectedAgent.uid} />
           </div>
         ) : null
       }
       onSubmit={submit}>
       <div className={cn('grid gap-5', mode === 'edit' && 'md:grid-cols-2')}>
+        {mode === 'new' ? (
+          <LabeledField
+            label={t('console.worker_providers.provider')}
+            description={t('console.worker_providers.agent_hint')}
+            required
+            error={
+              draftError === 'worker_provider_required' ? requiredText('console.worker_providers.provider') : undefined
+            }>
+            <WorkerProviderSelect
+              providers={workerProviders.data?.worker_providers ?? []}
+              value={model.workerProviderID.value}
+              onChange={value => {
+                model.workerProviderID.value = value
+                model.clearValidation()
+              }}
+            />
+          </LabeledField>
+        ) : null}
         <LabeledField label={t('console.agents.display_name')} error={displayNameError} required>
           <Input
             aria-invalid={displayNameError ? true : undefined}
@@ -368,28 +400,24 @@ function AgentEditor({ uid }: { uid?: string }) {
           />
         </LabeledField>
         <LabeledField
-          label={t('console.agents.uid')}
-          description={t('console.agents.uid_hint')}
-          error={uidError}
-          invalidError={t('console.agents.uid_invalid')}
-          required={mode === 'new'}>
-          {mode === 'edit' ? (
-            <ReadOnlyValue mono>{model.uid.value}</ReadOnlyValue>
-          ) : (
-            <Input
-              aria-invalid={uidError ? true : undefined}
-              aria-required="true"
-              required
-              autoCapitalize="none"
-              autoComplete="off"
-              maxLength={96}
-              pattern={agentUIDInputPattern}
-              ref={uidInput}
-              spellCheck={false}
-              value={model.uid.value}
-              onChange={event => model.setUID(event.target.value)}
-            />
-          )}
+          label={t('console.agents.handle')}
+          description={t('console.agents.handle_hint')}
+          error={handleError}
+          invalidError={t('console.agents.handle_invalid')}
+          required>
+          <Input
+            aria-invalid={handleError ? true : undefined}
+            aria-required="true"
+            required
+            autoCapitalize="none"
+            autoComplete="off"
+            maxLength={96}
+            pattern={agentHandleInputPattern}
+            ref={handleInput}
+            spellCheck={false}
+            value={model.handle.value}
+            onChange={event => model.setHandle(event.target.value)}
+          />
         </LabeledField>
         <LabeledField
           label={t('console.agents.role')}
@@ -423,7 +451,8 @@ function AgentEditor({ uid }: { uid?: string }) {
             placeholder={t('console.agents.owner_placeholder')}
             candidates={(principals.data?.principals ?? []).map(principal => ({
               id: principal.uid,
-              label: principal.display_name
+              label: principalLabel(principal),
+              description: principal.email ?? principal.handle
             }))}
             value={model.ownerPrincipalUID.value}
             onChange={ownerUID => {
@@ -432,6 +461,11 @@ function AgentEditor({ uid }: { uid?: string }) {
             }}
           />
         </LabeledField>
+        {selectedAgent?.created_by ? (
+          <LabeledField label={t('console.agents.created_by')}>
+            <ActorLabel actor={selectedAgent.created_by} />
+          </LabeledField>
+        ) : null}
         <LabeledField
           label={t('console.agents.group_memory_disclosure_mode')}
           description={t('console.agents.group_memory_disclosure_mode_hint')}>
@@ -456,24 +490,26 @@ function AgentEditor({ uid }: { uid?: string }) {
   )
 }
 
-function emptyAgentForm(): AgentEditorDraft {
+function emptyAgentForm(workerProviderID: string): AgentEditorDraft {
   return {
-    uid: '',
+    handle: '',
     displayName: '',
     avatarURL: '',
     role: '',
     ownerPrincipalUID: '',
+    workerProviderID,
     groupMemoryDisclosureMode: 'strict'
   }
 }
 
 function formFromAgent(agent: AgentItem): AgentEditorDraft {
   return {
-    uid: agent.uid,
+    handle: agent.handle,
     displayName: agent.display_name,
     avatarURL: agent.avatar_url ?? '',
     role: agent.role,
     ownerPrincipalUID: agent.owner_principal_uid,
+    workerProviderID: agent.worker_provider_id ?? '',
     groupMemoryDisclosureMode: agent.group_memory_disclosure_mode
   }
 }

@@ -1,0 +1,662 @@
+[
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:57",
+    "name": "should correctly serialize overlapping bold and italic marks",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "123",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "456",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "789",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "**123*456***<em>789</em>"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:99",
+    "name": "should correctly serialize italic starting before bold",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "abc",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "def",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "ghi",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "*abc**def***<strong>ghi</strong>"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:137",
+    "name": "should correctly serialize bold and italic on the same text",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "***hello***"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:164",
+    "name": "serializes italic inside a same-node link label",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "google",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[*google*](https://google.com)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:197",
+    "name": "serializes bold inside a same-node link label",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "google",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                },
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[**google**](https://google.com)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:229",
+    "name": "keeps html-reopened italic open across later text nodes before closing",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "123",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "456",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "789",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "xyz",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " plain"
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "**123*456***<em>789xyz</em> plain"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:267",
+    "name": "closes html-reopened italic correctly before a hard break",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "123",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "456",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "789",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "hardBreak"
+            },
+            {
+              "type": "text",
+              "text": "after"
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "**123*456***<em>789</em>  \nafter"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:293",
+    "name": "does not switch non-bold-italic marks to html reopen mode",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "abc",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "def",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "strike"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "ghi",
+              "marks": [
+                {
+                  "type": "strike"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "*abc~~def~~*~~ghi~~"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:317",
+    "name": "serializes italic on the leading subset of link text inside the link label",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "google",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " search",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[*google* search](https://google.com)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:363",
+    "name": "serializes bold on the leading subset of link text inside the link label",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "google",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " search",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://google.com",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[**google** search](https://google.com)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:483",
+    "name": "closes multiple simultaneously-ending marks in LIFO order (simple path)",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "bold ",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "italics ",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "strike",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "strike"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "**bold *italics ~~strike~~***"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:520",
+    "name": "closes previously-active marks in LIFO order on a crossed boundary",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "abc",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "strike"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "def",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "strike"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "ghi",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "**~~abc*def*~~**<em>ghi</em>"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:563",
+    "name": "should serialize adjacent links with different href values as separate links",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "example",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": null
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "github",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://github.com",
+                    "title": null
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "tiptap",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://tiptap.dev",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[example](https://example.com)[github](https://github.com)[tiptap](https://tiptap.dev)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:600",
+    "name": "should keep links with the same href and attributes merged",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "the same",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": null
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " link",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[the same link](https://example.com)"
+  },
+  {
+    "id": "tiptap:packages/markdown/tests/integration/overlapping-marks.test.ts:632",
+    "name": "should handle adjacent links with titles alongside links without titles",
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "with title",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": "Example"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " no title",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.org",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "upstreamMarkdown": "[with title](https://example.com \"Example\") [no title](https://example.org)"
+  }
+]

@@ -20,9 +20,9 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   import Ecto.Query, warn: false
 
   alias Ankole.AIGateway.Conversations
-  alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.ToolContract
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.Brain.Tools
   alias Ankole.Kernel, as: NativeKernel
@@ -180,40 +180,22 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   outcome. A slow or crashing operation fails only its own call.
   """
   @spec run_job(map()) :: map()
-  def run_job(%{preflight_outcome: %{} = outcome} = job), do: emit_telemetry(job, outcome, 0)
+  def run_job(%{kind: :brain, operation: operation, params: params, context: context}) do
+    task = Task.async(Ankole.Repo.bind_tenant(fn -> safe_execute(operation, params, context) end))
 
-  def run_job(%{kind: :brain, operation: operation, params: params, context: context} = job) do
-    started_at = System.monotonic_time(:millisecond)
-    task = Task.async(fn -> safe_execute(operation, params, context) end)
+    case Task.yield(task, @call_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, output}} ->
+        completed_outcome(output)
 
-    outcome =
-      case Task.yield(task, @call_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, {:ok, output}} ->
-          completed_outcome(output)
+      {:ok, {:error, reason}} ->
+        failed_outcome("brain_operation_failed", reason)
 
-        {:ok, {:error, reason}} ->
-          failed_outcome("brain_operation_failed", reason)
+      {:exit, reason} ->
+        failed_outcome("brain_operation_crashed", reason)
 
-        {:exit, reason} ->
-          failed_outcome("brain_operation_crashed", reason)
-
-        nil ->
-          failed_outcome("brain_operation_timeout", "operation exceeded #{@call_timeout_ms} ms")
-      end
-
-    emit_telemetry(job, outcome, System.monotonic_time(:millisecond) - started_at)
-  end
-
-  defp emit_telemetry(job, outcome, latency_ms) do
-    HostedToolTelemetry.emit_brain(%{
-      "operation" => job.operation,
-      "result" => if(outcome.status == :completed, do: "success", else: "failure"),
-      "failure_reason" => outcome.error_code,
-      "subject_uid" => job.context.querier_uid,
-      "latency_ms" => latency_ms
-    })
-
-    outcome
+      nil ->
+        failed_outcome("brain_operation_timeout", "operation exceeded #{@call_timeout_ms} ms")
+    end
   end
 
   @doc """
@@ -401,7 +383,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
     end
   end
 
-  defp root_call?(item), do: Map.get(item, "namespace") in [nil, "", "functions"]
+  defp root_call?(item), do: ToolContract.default_namespace?(Map.get(item, "namespace"))
 
   # Execution
 
@@ -635,11 +617,22 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
   defp open_thread_lines(_thread), do: []
 
+  # Titles are free text, and these lines join the block the system prompt
+  # trusts, so each line keeps the block's boundary and its one-line form.
   defp pointer_lines(pointers) do
     Enum.flat_map(pointers, fn pointer ->
       case non_empty(field(pointer, :slug)) do
-        nil -> []
-        slug -> ["memory: " <> slug <> title_suffix(pointer) <> type_suffix(pointer)]
+        nil ->
+          []
+
+        slug ->
+          line = "memory: " <> slug <> title_suffix(pointer) <> type_suffix(pointer)
+
+          [
+            line
+            |> escape_recalled_memory_tags()
+            |> String.replace(~r/[\r\n\x{2028}\x{2029}]+/u, " ")
+          ]
       end
     end)
   end

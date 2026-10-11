@@ -1,6 +1,7 @@
 defmodule Ankole.Plugins.LineAdapterTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -20,8 +21,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
-  alias Ankole.WorkerFilesFake
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ReplyActionToken
 
@@ -88,7 +87,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert adapter.adapter_category == "consumer_im"
       assert adapter.author_hydrator == Profile
       refute Map.has_key?(adapter, :reply_preview_module)
-      refute Map.has_key?(adapter, :connection_supervisor)
 
       assert adapter.supported_group_message_modes == [
                "addressed_only",
@@ -156,7 +154,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, _binding} =
                SignalsGateway.put_binding(first_agent.uid, "line", "line-one", attrs)
 
-      assert {:error, {:line_channel_already_bound, first_uid, "line-one"}} =
+      {:ok, application} = Config.platform_application(binding_config())
+
+      assert {:error, {:platform_application_already_bound, ^application, first_uid, "line-one"}} =
                SignalsGateway.put_binding(second_agent.uid, "line", "line-two", attrs)
 
       assert first_uid == first_agent.uid
@@ -430,7 +430,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "25 MB"
-      refute Map.has_key?(attachment, "agent_computer_path")
+      refute Map.has_key?(attachment, "blob_ref")
 
       external =
         message_event(user_source(), %{
@@ -451,7 +451,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       refute Map.has_key?(external_attachment, "provider_file_id")
     end
 
-    test "assigns the durable attachment ID before writing an admitted file to user-files" do
+    test "assigns the durable attachment ID before storing an admitted file" do
       parent = self()
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-media")
@@ -469,10 +469,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
             |> Plug.Conn.send_resp(200, "attachment")
         end
       end)
-
-      route = "line-inbound-attachment-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-      WorkerFilesFake.start!(route, notify: parent)
 
       photo =
         message_event(user_source(), %{
@@ -492,8 +488,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert is_integer(pending["attachment_id"])
       refute pending["materialization_state"] == "complete"
 
-      expected_relative = "inbox/#{pending["attachment_id"]}/image-m-photo.jpg"
-
       assert eventually(fn ->
                entry =
                  Repo.get_by(Entry,
@@ -511,15 +505,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
         )
 
       assert attachment["attachment_id"] == pending["attachment_id"]
-      assert attachment["user_files_relative_path"] == expected_relative
       assert attachment["mimetype"] == "image/jpeg"
-
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative}"
-
+      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-m-photo.jpg")
       assert_received {:line_request, "/v2/bot/message/m-photo/content"}
-      expected_lane = "/user_files/#{agent.uid}/user-files/#{expected_relative}"
-      assert_receive {:materialized_attachment_path, ^expected_lane}
 
       # LINE redelivers the same event after a non-2xx answer. The completed
       # download stays, and no second fetch runs, even when LINE would now
@@ -536,7 +524,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert %Entry{attachments: [kept]} = redelivered.signal_entry
       assert kept["materialization_state"] == "complete"
-      assert kept["agent_computer_path"] == attachment["agent_computer_path"]
+      assert kept["blob_ref"] == attachment["blob_ref"]
       assert kept["attachment_id"] == attachment["attachment_id"]
       refute_received {:line_request, "/v2/bot/message/m-photo/content"}
 
@@ -546,12 +534,24 @@ defmodule Ankole.Plugins.LineAdapterTest do
           source_entry_id: "m-photo"
         )
 
-      assert stored["agent_computer_path"] == attachment["agent_computer_path"]
+      assert stored["path"] == attachment["path"]
       assert metadata["attachment_materialization"]["state"] == "complete"
+
+      assert metadata["attachment_materialization"]["observed_at"] ==
+               result.signal_entry.metadata["attachment_materialization"]["observed_at"]
+
+      refute Map.get(redelivered, :actor_event)
+
+      refute Enum.any?(
+               Repo.all(ActorEvent),
+               &(&1.agent_uid == agent.uid and &1.event_type == "input.revised")
+             )
     end
 
     test "a redelivery during the download fetches again and a late failure cannot lose the file" do
-      %{fixture: fixture, release: release} = blocking_download_fixture("line-overlap", "m-slow")
+      %{fixture: fixture, release: release, agent: agent} =
+        blocking_download_fixture("line-overlap", "m-slow")
+
       photo = fixture.photo
       consumer = fixture.consumer
 
@@ -582,9 +582,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
         Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-slow")
 
       assert attachment["attachment_id"] == pending["attachment_id"]
-
-      assert attachment["agent_computer_path"] =~
-               "/inbox/#{pending["attachment_id"]}/image-m-slow.jpg"
+      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-m-slow.jpg")
     end
 
     test "a redelivery after the download task died fetches again" do
@@ -616,7 +614,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert attachment["attachment_id"] == pending["attachment_id"]
     end
 
-    test "a route moved to another Agent downloads that Agent's own copy" do
+    test "a moved route puts the stored file in the new Agent's drive without a download" do
       %{fixture: fixture, release: release, agent: first_agent} =
         blocking_download_fixture("line-moved", "m-moved")
 
@@ -634,29 +632,27 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %Entry{attachments: [first_copy]} =
         Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-moved")
 
-      assert first_copy["agent_computer_path"] =~ "/agents/#{first_agent.uid}/"
+      assert_stored_attachment!(first_agent.uid, first_copy, "attachment", "image-m-moved.jpg")
 
       # The operator moves the route: the old binding is disabled and the
-      # channel now belongs to another Agent that holds no copy yet.
+      # channel now belongs to another Agent. The stored bytes serve every
+      # Agent, so nothing is downloaded again, and the drive of the new Agent
+      # gets its own entry for them.
       assert {:ok, _disabled} = SignalsGateway.disable_binding(first_agent.uid, "line-moved")
       %{principal: second_agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(second_agent.uid, "line-moved")
 
-      assert {:ok, [_moved]} =
+      assert {:ok, [moved]} =
                Inbound.handle_message_receive("message", envelope(photo), [
                  consumer(second_agent.uid, "line-moved")
                ])
 
-      assert_receive {:download_waiting, second_download}, 2_000
-      release.(second_download, :finish_success)
-
-      assert eventually(fn -> own_copy?(channel_id, "m-moved", second_agent.uid) end)
-
-      %Entry{attachments: [second_copy]} =
-        Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-moved")
-
-      assert second_copy["attachment_id"] == pending["attachment_id"]
-      assert second_copy["materialization_state"] == "complete"
+      refute_receive {:download_waiting, _download}, 200
+      assert %Entry{attachments: [kept]} = moved.signal_entry
+      assert kept["attachment_id"] == pending["attachment_id"]
+      assert kept["materialization_state"] == "complete"
+      assert kept["blob_ref"] == first_copy["blob_ref"]
+      assert_stored_attachment!(second_agent.uid, kept, "attachment", "image-m-moved.jpg")
     end
   end
 
@@ -789,7 +785,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
     test "renders postback buttons that resolve to the checkpointed action" do
       parent = self()
       %{principal: agent} = agent_fixture()
-      human_fixture(%{uid: "human-a"})
+      %{principal: human} = human_fixture()
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-action")
       channel_id = "line:#{@bot_user_id}:user:#{@user_id}"
 
@@ -804,7 +800,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: "human-a", id: @user_id},
+            author: %{principal_uid: human.uid, id: @user_id},
             provider_time: base_time()
           }
         )
@@ -1106,7 +1102,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
           payload: %{"reply_presentation" => ReplyPresentation.new(state: "completed")},
           fallback_visible_text: "already delivered before shutdown",
           platform_send_started_at: started_at,
-          last_attempted_at: started_at,
           attempt_count: 1,
           inserted_at: started_at,
           updated_at: started_at
@@ -1189,8 +1184,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
   end
 
   # A download stub that blocks inside the materialization task until the test
-  # releases it with `:finish_success` or `:finish_failure`, plus a fake worker
-  # that accepts the user-files write for any Agent.
+  # releases it with `:finish_success` or `:finish_failure`.
   defp blocking_download_fixture(binding_name, message_id) do
     parent = self()
     %{principal: agent} = agent_fixture()
@@ -1219,10 +1213,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
       end
     end)
 
-    route = "#{binding_name}-#{System.unique_integer([:positive])}"
-    insert_ready_worker!(route)
-    WorkerFilesFake.start!(route)
-
     photo =
       message_event(user_source(), %{
         "id" => message_id,
@@ -1242,16 +1232,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %Entry{attachments: [%{"materialization_state" => "complete"}]},
       Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: source_entry_id)
     )
-  end
-
-  defp own_copy?(channel_id, source_entry_id, agent_uid) do
-    case Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: source_entry_id) do
-      %Entry{attachments: [%{"agent_computer_path" => path}]} when is_binary(path) ->
-        String.contains?(path, "/agents/#{agent_uid}/")
-
-      _other ->
-        false
-    end
   end
 
   defp binding_config do
@@ -1326,22 +1306,5 @@ defmodule Ankole.Plugins.LineAdapterTest do
       "text" => text,
       "quoteToken" => "quote-token-1"
     }
-  end
-
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: "line-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
   end
 end

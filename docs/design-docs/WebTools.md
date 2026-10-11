@@ -1,6 +1,6 @@
 # Web Tools
 
-Agent Computer gives the model two foreground tools. `web_search` searches the
+The control-plane conversation tools and Codex Job tools expose two web tools. `web_search` searches the
 public web. `web_fetch` reads text from a page.
 
 For clicks, screenshots, or a saved login, use the Browser Skill in a
@@ -13,15 +13,16 @@ AIGateway owns provider selection, credentials, and these HTTP endpoints:
 - `/web_search`
 - `/web_fetch`
 
-Agent Computer owns the model schemas, cancellation, result format, and rendered
-`web_fetch` fallback.
+The control plane owns foreground schemas, provider calls, cancellation, result
+windows, and the run-local page cache. Agent Computer owns the rendered
+`web_fetch` fallback and the Codex Job web tools.
 
 `ankole-browser` manages browser sessions and extracts text from rendered pages.
 It identifies each session with an opaque route ID. It does not understand
 Agents, Jobs, Principals, or control-plane records.
 
-The Rust kernel classifies URLs for worker checks. The browser package implements
-the same rules because it cannot load the native module.
+The control plane uses the Rust kernel to classify provider-fetch URLs.
+`ankole-browser` checks rendered-fetch URLs in its browser runtime.
 
 The control plane owns `security.ssrf_filter` and
 `worker.rendered_fetch_idle_ttl_ms`.
@@ -32,17 +33,16 @@ AIGateway key and uses the semantic `web_search.default` and
 
 ## `web_search`
 
-Agent Computer accepts one nonempty query and does not add a length limit to the
+Both tool catalogs accept one nonempty query and do not add a length limit to the
 model-visible schema. AIGateway rejects a trimmed query longer than 500
 characters before provider dispatch.
 
 The optional `limit` accepts values from 1 through 100. Its default is 5.
 
-Agent Computer sends the query to the search provider selected by AIGateway.
+The tool sends the query to the search provider selected by AIGateway.
 The tool returns titles, URLs, and short extracts.
 
-If no provider exists, the tool explains why search is unavailable. The worker
-does not keep a second search index.
+If no provider exists, the tool explains why search is unavailable.
 
 ## `web_fetch`
 
@@ -50,9 +50,9 @@ does not keep a second search index.
 
 Do not use this tool for PDFs, archives, images, audio, video, or executable files. Use the command tool for explicit downloads.
 
-Agent Computer first calls AIGateway with `web_fetch.default`. If AIGateway
-cannot resolve that selector or the provider request fails, Agent Computer opens
-the page in a browser.
+The main Agent calls AIGateway with `web_fetch.default`. If the selector is
+unavailable or the provider request fails, the control plane delegates rendered
+extraction to the Worker. Codex Jobs use the same provider and rendered paths.
 
 Both paths return the URL, title, text or error, and source. The rendered path uses the `rendered_fallback` source name.
 
@@ -60,7 +60,12 @@ The model does not receive browser endpoints, credentials, process details, or l
 
 ## Keep Page Text Inside a Fixed Budget
 
-One `web_fetch` call returns at most 40,000 characters of page text. Page text
+Foreground results fit the control-plane tool-result byte budget. Longer pages
+return `next_offset`; call `web_fetch` with the same URL and `result_offset`
+to read the next window. The full text stays in the run's page cache. Recovery
+fetches it again. Foreground results do not require a workspace file.
+
+Codex Jobs use the following file-based budget. One `web_fetch` call returns at most 40,000 characters of page text. Page text
 is untrusted input of unbounded size, the result is sent again on each model
 iteration of the turn, and compaction later reduces it to about 2,000 tokens. An
 unbounded page is therefore charged many times and still does not survive.
@@ -88,22 +93,14 @@ on it.
 
 ## Read a Page in a Browser When Fetch Fails
 
-Agent Computer creates a temporary browser session with an opaque route ID. It
-then runs `ankole-browser fetch` with a prepared connection file.
+Agent Computer creates a temporary browser route in memory. In the Worker
+process, it sends a `fetch` command to the daemon socket with the route,
+session, final material, and artifact root. It does not write a material file.
 
-The CLI process receives:
-
-- the daemon socket
-- the opaque route and session
-- the final material file
-- the artifact root
-- the packaged Node and runner paths
-
-The process does not receive the original backend settings or profile
-credentials.
-
-The CLI has a 300-second process timeout and an 8 MiB output buffer. If the
-caller cancels the request, Agent Computer sends `SIGTERM` to the CLI process.
+The client allows 300 seconds and at most 8 MiB of response data. Cancellation
+closes the socket immediately. After success, failure, or cancellation, the
+Worker purges the temporary route and removes its artifact directory. If purge
+fails, it restarts the daemon and retries purge once.
 
 The browser accepts at most five URLs and opens at most two pages at once. Each
 URL has a fixed time limit.
@@ -151,14 +148,16 @@ Use `web_fetch` for text extraction. Use the Browser Skill for interaction, scre
 
 The model schema accepts only HTTPS URLs. The rendered fallback checks each URL again before extraction.
 
-The kernel blocks cloud-metadata destinations. It also blocks private destinations when the operator enables `security.ssrf_filter`.
+The control plane blocks cloud-metadata destinations. It also blocks private
+destinations when the operator enables `security.ssrf_filter`.
 
-AppConfigure enables the SSRF filter unless the operator explicitly sets it to `false`.
+The site setting defaults to `false` to permit enterprise intranet access.
+Cloud metadata endpoints remain blocked at either value.
 
 The browser checks every main page URL and every resolved address. It applies
 the same metadata and private-address rules.
 
-Rust, Elixir, and Bun use the same URL test vectors from
+The Rust classifier and browser checks use the same URL test vectors from
 `app/kernel/test/vectors/web_url_host_classification.json`.
 
 Treat provider responses and page text as untrusted input. Reading a page does
@@ -170,18 +169,18 @@ Credentials and decrypted settings must not appear in model output, result metad
 
 The model-facing web-tool list is stable. Each call sends its semantic selector
 directly to AIGateway, which resolves the current Agent profile and provider.
-There is no separate availability lookup, and the Worker caches no provider
-resolution.
+There is no separate availability lookup or provider-resolution cache.
 
 `web_search` requires a provider. `web_fetch` remains usable when the rendered fallback is available.
 
 ## Repeat Fetches Inside One Session
 
-The Worker keeps a session-local result cache for `web_fetch`: a clean result
-for a URL answers a repeat fetch of the same URL for 15 minutes, marked as a
-repeat in the output, without a new download. The cache holds at most 100
-entries, never stores failed or degraded results, and lives only for the
-session process. It caches results, not provider resolution.
+The control-plane Driver keeps a run-local result cache for foreground calls,
+with at most 96 entries. The Codex runner keeps a Job-session result cache with
+at most 100 entries. In both paths, a clean result for a URL answers a repeat
+fetch of the same URL for 15 minutes, marked as a repeat in the output, without
+a new download. Failed or degraded results are not cached. Each cache lives
+only for its owning process and stores results, not provider resolution.
 
 ## Tests
 
@@ -192,7 +191,7 @@ Tests verify:
 - page-text budget, budget division across URLs, and whole small pages
 - full-text storage, stored-size limit, and the `read_file` offset that continues the page
 - bounded results and a stated missing full text when storage fails
-- route material injection and source-variable removal
+- requests carry final material; rendered fetch does not write a material file
 - partial URL failure and result order across one rendered batch call: a
   blocked URL, a returned result that carries an error, and a failed batch each
   keep their request position

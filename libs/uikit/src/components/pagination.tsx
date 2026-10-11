@@ -33,7 +33,7 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
       variant="ghost"
       size={size}
       className={cn(
-        'relative size-12! min-w-0! justify-center! p-0! text-foreground! hover:bg-muted! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:bottom-0 data-[active=true]:after:left-1/2 data-[active=true]:after:h-1 data-[active=true]:after:w-4 data-[active=true]:after:-translate-x-1/2 data-[active=true]:after:bg-primary',
+        'relative size-8! min-w-0! justify-center! p-0! text-foreground! hover:bg-accent! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:bottom-0 data-[active=true]:after:left-1/2 data-[active=true]:after:h-1 data-[active=true]:after:w-4 data-[active=true]:after:-translate-x-1/2 data-[active=true]:after:bg-foreground',
         className
       )}
       nativeButton={false}

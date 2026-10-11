@@ -102,13 +102,9 @@ function provider(providerID: string, providerKind: string): AIGatewayProviderIt
 function kind(providerKind: string, capabilities: string[]): AIGatewayProviderKindItem {
   return {
     capabilities,
-    capability_specs: [],
-    connection_options: [],
-    credential_options: [],
     default_base_url: null,
     label: { default: providerKind },
     provider_kind: providerKind,
-    runtime_provider_options: [],
     settings: []
   }
 }

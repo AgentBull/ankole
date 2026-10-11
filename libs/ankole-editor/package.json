@@ -1,0 +1,89 @@
+{
+  "name": "@ankole/block-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ankole internal block editor with React, document and editor APIs",
+  "files": [
+    "src",
+    "patches",
+    "SPEC.md",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./document": {
+      "types": "./src/document/index.ts",
+      "import": "./src/document/index.ts"
+    },
+    "./editor": {
+      "types": "./src/editor/index.ts",
+      "import": "./src/editor/index.ts"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "dev": "bun --bun vite --host 127.0.0.1",
+    "build": "bun run type-check",
+    "preview": "bun --bun vite preview --host 127.0.0.1",
+    "test": "bun test ./test",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium firefox webkit",
+    "type-check": "tsc --noEmit",
+    "fmt": "oxfmt src playground test e2e scripts compat upstream/*.ts upstream/tests playwright*.config.ts vite.config.ts tsconfig.json package.json index.html turbo.json",
+    "fmt:check": "oxfmt --check src playground test e2e scripts compat upstream/*.ts upstream/tests playwright*.config.ts vite.config.ts tsconfig.json package.json index.html turbo.json",
+    "test:upstream": "bun test ./upstream/tests",
+    "test:compat:install": "bun scripts/install-compat-browsers.ts",
+    "test:chromium126": "playwright test --config playwright.compat.config.ts",
+    "test:native": "bun test ./compat/native.test.ts",
+    "test:package": "bun scripts/check-package.ts",
+    "build:playground": "bun run build && bun --bun vite build",
+    "lint": "oxlint ."
+  },
+  "dependencies": {
+    "@ankole/uikit": "workspace:*",
+    "@marijn/find-cluster-break": "1.0.4",
+    "@remixicon/react": "4.9.0",
+    "crelt": "1.0.7",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm": "3.1.0",
+    "mdast-util-mdx-jsx": "3.2.0",
+    "mdast-util-to-markdown": "2.2.0",
+    "micromark-extension-gfm": "3.0.0",
+    "micromark-extension-mdx-jsx": "3.0.2",
+    "micromark-extension-mdx-md": "2.0.0",
+    "saxes": "6.0.0",
+    "style-mod": "4.1.4",
+    "xmlchars": "2.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/bun": "1.4.2",
+    "@types/commonmark": "^0.27.10",
+    "@types/mdast": "^4.0.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/selenium-webdriver": "4.35.7",
+    "@vitejs/plugin-react": "6.1.2",
+    "commonmark": "0.31.2",
+    "fast-check": "4.10.2",
+    "ist": "1.1.7",
+    "oxfmt": "^0.72.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "selenium-webdriver": "4.50.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.3"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

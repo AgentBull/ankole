@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeCatalogLine, truncateUtf16Safe, truncateUtf16SafeTail } from '../src/common/text-sanitize'
-import { truncateOutput } from '../src/tools/computer/format'
+import { truncateOutputDetailed } from '../src/tools/computer/format'
 
 const rocket = '🚀'
 
@@ -52,11 +52,11 @@ describe('catalog line sanitization', () => {
 
 describe('command output truncation', () => {
   it('returns output that fits without a truncation marker', () => {
-    expect(truncateOutput('short output', 100)).toBe('short output')
+    expect(truncateOutputDetailed('short output', 100).text).toBe('short output')
   })
 
   it('keeps the head and the tail around one marker and reports the omitted count', () => {
-    const result = truncateOutput('a'.repeat(50) + 'b'.repeat(50), 40)
+    const result = truncateOutputDetailed('a'.repeat(50) + 'b'.repeat(50), 40).text
 
     expect(result).toStartWith('a'.repeat(16))
     expect(result).toEndWith('b'.repeat(24))
@@ -64,7 +64,7 @@ describe('command output truncation', () => {
   })
 
   it('never leaves half of a character at the tail cut', () => {
-    const result = truncateOutput(`${'a'.repeat(50)}${rocket.repeat(20)}`, 41)
+    const result = truncateOutputDetailed(`${'a'.repeat(50)}${rocket.repeat(20)}`, 41).text
 
     expect(result).not.toContain('�')
     expect([...result].every(char => char.codePointAt(0)! < 0xd800 || char.codePointAt(0)! > 0xdfff)).toBe(true)

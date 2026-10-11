@@ -1,15 +1,15 @@
 defmodule Ankole.Plugins.LarkAdapter.Config do
+  def platform_application(config),
+    do: {:ok, "lark:" <> Torque.encode!(Tuple.to_list(connection_key(config)))}
+
   @moduledoc """
   Validation and runtime helpers for the first-party Lark / Feishu adapter.
   """
-
-  import Ecto.Query, warn: false
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.Binding
   alias FeishuOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
@@ -56,6 +56,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.lark.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),
@@ -142,19 +144,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def validate_binding_config(value), do: validate_chat_config(value)
 
   @doc """
-  Ensures that one enabled SignalsGateway binding owns each Lark application.
-
-  An Agent can own several applications. Updating the current binding is
-  allowed. Disabled bindings do not reserve an application.
-  """
-  @spec validate_binding_assignment(module(), String.t(), String.t(), chat_config()) ::
-          :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    ensure_app_not_bound_to_another_binding(repo, agent_uid, binding_name, config)
-  end
-
-  @doc """
   Normalizes and validates identity-provider configuration loaded from AppConfigure.
   """
   @spec validate_identity_config(term()) :: {:ok, identity_config()} | {:error, term()}
@@ -194,19 +183,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def validate_identity_config(_value), do: {:error, :invalid_identity_config}
 
   @doc """
-  Loads a chat config referenced by a SignalsGateway binding `config_ref`.
-  """
-  @spec load_chat_config_ref(String.t()) :: {:ok, chat_config()} | {:error, term()} | :error
-  def load_chat_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key) do
-      validate_chat_config(value)
-    end
-  end
-
-  def load_chat_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
-  @doc """
   Loads an identity-provider config by its AppConfigure key.
   """
   @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
@@ -222,8 +198,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   Builds a FeishuOpenAPI client without exposing the secret in inspect output.
 
   The optional application `:client_opts` value is an internal transport seam
-  for integration tests. Stored binding config cannot override the provider
-  endpoint.
+  for tests and for the local fake platform in development. Stored binding
+  config cannot override the provider endpoint.
   """
   @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
   def client(config, opts \\ []) when is_map(config) do
@@ -324,55 +300,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     )
 
     config
-  end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp load_chat_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_chat_config(value)
-    end
-  end
-
-  defp ensure_app_not_bound_to_another_binding(
-         repo,
-         agent_uid,
-         binding_name,
-         config
-       ) do
-    connection_key = connection_key(config)
-
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "lark" and binding.enabled == true and
-        not (binding.agent_uid == ^agent_uid and binding.name == ^binding_name)
-    )
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_chat_config_ref_in_tx(repo, binding.config_ref) do
-        {:ok, existing_config} ->
-          if connection_key(existing_config) == connection_key do
-            {domain, app_id} = connection_key
-
-            {:halt,
-             {:error, {:lark_app_already_bound, domain, app_id, binding.agent_uid, binding.name}}}
-          else
-            {:cont, :ok}
-          end
-
-        :error ->
-          {:halt,
-           {:error, {:lark_binding_config_unavailable, binding.agent_uid, binding.name, :missing}}}
-
-        {:error, reason} ->
-          {:halt,
-           {:error, {:lark_binding_config_unavailable, binding.agent_uid, binding.name, reason}}}
-      end
-    end)
   end
 
   defp enum_string(map, key, values, default) do

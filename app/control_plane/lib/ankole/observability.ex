@@ -40,11 +40,6 @@ defmodule Ankole.Observability do
   @headers_key "observability.traces.otlp_headers"
   @runtime_key {__MODULE__, :provider}
   @runtime_config_key {__MODULE__, :runtime_config}
-  @turn_table :ankole_observability_turn_spans
-  @turn_cleanup_interval_ms :timer.minutes(1)
-  # Worker turns end within minutes under stall detection; a day-old open
-  # entry means the terminal was lost, so the sweep can close it visibly.
-  @turn_span_timeout_ms :timer.hours(24)
   @worker_export_timeout_ms 10_000
   @direct_message_types ~w(im.message.addressed im.message.may_intervene)
   @otlp_environment_variables ~w(
@@ -91,34 +86,83 @@ defmodule Ankole.Observability do
   def put_runtime_config_for_test(config), do: set_runtime_config(config)
 
   @doc """
-  Starts the root span for one persisted TurnStart and returns its trace context.
+  Starts one attempt's root span. The caller owns the returned handle.
 
   A tracing failure returns `nil` and does not change turn delivery.
   """
   @spec start_turn(ActorEvent.t(), map()) ::
-          %{traceparent: String.t(), user_id: String.t() | nil} | nil
+          map() | nil
   def start_turn(%ActorEvent{} = actor_event, %{} = turn_start_spec) do
-    if provider() && :ets.whereis(@turn_table) != :undefined do
-      safe(nil, fn ->
-        finish_registered_turn(actor_event.id, error_type: "turn_replaced")
-        start_turn_span(actor_event, turn_start_spec)
-      end)
-    end
+    if provider(), do: safe(nil, fn -> start_turn_span(actor_event, turn_start_spec) end)
   end
 
   def start_turn(_actor_event, _turn_start_spec), do: nil
 
   @doc """
-  Ends one registered turn root outside the terminal database transaction.
+  Ends the attempt span outside the domain transaction.
   """
-  @spec finish_turn(String.t(), keyword()) :: :ok
-  def finish_turn(actor_event_id, opts \\ [])
+  @spec finish_turn(map() | nil, keyword()) :: :ok
+  def finish_turn(handle, opts \\ [])
 
-  def finish_turn(actor_event_id, opts) when is_binary(actor_event_id) and is_list(opts) do
-    safe(:ok, fn -> finish_registered_turn(actor_event_id, opts) end)
+  def finish_turn(%{span: _, provider: _} = handle, opts) when is_list(opts) do
+    safe(:ok, fn -> finish_turn_span(handle, opts) end)
   end
 
-  def finish_turn(_actor_event_id, _opts), do: :ok
+  def finish_turn(_handle, _opts), do: :ok
+
+  @doc "Starts a tool span under the attempt root."
+  def start_tool(%{span: parent, provider: provider} = handle, call) do
+    safe(nil, fn ->
+      {input, truncated?} = encode_content(call["arguments"] || call["input"])
+
+      attributes =
+        handle.attributes
+        |> Map.merge(%{
+          "gen_ai.operation.name" => "execute_tool",
+          "gen_ai.tool.name" => call["name"],
+          "gen_ai.tool.call.id" => call["call_id"] || call["id"],
+          "gen_ai.tool.call.arguments" => input
+        })
+        |> maybe_put_true("ankole.observability.input_truncated", truncated?)
+
+      context = :otel_tracer.set_current_span(Ctx.new(), parent)
+
+      span =
+        :otel_tracer.start_span(context, tracer(), "execute_tool #{call["name"]}", %{
+          attributes: attributes,
+          kind: :internal
+        })
+
+      %{span: span, provider: provider}
+    end)
+  end
+
+  def start_tool(_handle, _call), do: nil
+
+  @doc "Ends a tool span when its result arrives."
+  def finish_tool(%{span: span}, result) do
+    safe(:ok, fn ->
+      {output, truncated?} = encode_content(result)
+
+      Span.set_attributes(
+        span,
+        maybe_put_true(
+          %{"gen_ai.tool.call.result" => output},
+          "ankole.observability.output_truncated",
+          truncated?
+        )
+      )
+
+      if result["is_error"],
+        do: mark_error(span, result["failure_kind"] || "tool_error"),
+        else: Span.set_status(span, OpenTelemetry.status(:ok))
+
+      Span.end_span(span)
+      :ok
+    end)
+  end
+
+  def finish_tool(_handle, _result), do: :ok
 
   @doc """
   Forwards one worker-produced OTLP protobuf request through the configured exporter endpoint.
@@ -157,7 +201,6 @@ defmodule Ankole.Observability do
   def init(opts) do
     set_provider(nil)
     set_runtime_config(nil)
-    ensure_turn_table()
     set_exporter = Keyword.get(opts, :set_exporter, &set_exporter/1)
 
     enabled? =
@@ -188,41 +231,16 @@ defmodule Ankole.Observability do
           false
       end
 
-    state = %{
-      enabled?: enabled?,
-      turn_cleanup_interval_ms:
-        Keyword.get(opts, :turn_cleanup_interval_ms, @turn_cleanup_interval_ms),
-      turn_span_timeout_ms: Keyword.get(opts, :turn_span_timeout_ms, @turn_span_timeout_ms)
-    }
-
-    if Process.whereis(__MODULE__) == self() do
-      schedule_turn_cleanup(state.turn_cleanup_interval_ms)
-    end
-
-    {:ok, state}
-  end
-
-  @impl true
-  def handle_info(:cleanup_turn_spans, state) do
-    safe(:ok, fn ->
-      cleanup_turn_spans(System.monotonic_time(:millisecond), state.turn_span_timeout_ms)
-    end)
-
-    schedule_turn_cleanup(state.turn_cleanup_interval_ms)
-    {:noreply, state}
+    {:ok, %{enabled?: enabled?}}
   end
 
   @impl true
   def terminate(_reason, %{enabled?: true}) do
-    finish_all_turns("turn_outcome_lost")
     _ = :otel_tracer_provider.force_flush()
     :ok
   end
 
-  def terminate(_reason, _state) do
-    finish_all_turns("turn_outcome_lost")
-    :ok
-  end
+  def terminate(_reason, _state), do: :ok
 
   defp start_turn_span(%ActorEvent{} = actor_event, turn_start_spec) do
     provider = provider()
@@ -230,18 +248,20 @@ defmodule Ankole.Observability do
     user_id = turn_user_id(actor_event, turn_start_spec)
     {input, truncated?} = encode_content(actor_event.payload)
 
-    context = %{
-      principal_uid: actor_event.agent_uid,
-      principal_type: "agent",
-      user_id: user_id,
-      actor_event_id: actor_event.id,
-      session_id: actor_event.session_id,
-      originator: nil,
-      caller: "signals_gateway.turn",
-      release: release(),
-      job_id: positive_integer(map_value(request_context, "job_id")),
-      attempts: positive_integer(map_value(request_context, "attempts"))
-    }
+    context =
+      %{
+        principal_uid: actor_event.agent_uid,
+        principal_type: "agent",
+        user_id: user_id,
+        actor_event_id: actor_event.id,
+        session_id: actor_event.session_id,
+        originator: nil,
+        caller: "signals_gateway.turn",
+        release: release(),
+        job_id: positive_integer(map_value(request_context, "job_id")),
+        attempts: positive_integer(map_value(request_context, "attempts"))
+      }
+      |> Ankole.Observability.Trace.with_tenant()
 
     attributes =
       context
@@ -259,31 +279,19 @@ defmodule Ankole.Observability do
     if Span.is_recording(span) do
       case traceparent(span) do
         traceparent when is_binary(traceparent) ->
-          true =
-            :ets.insert(
-              @turn_table,
-              {actor_event.id,
-               %{
-                 span: span,
-                 provider: provider,
-                 started_at_ms: System.monotonic_time(:millisecond)
-               }}
-            )
-
-          %{traceparent: traceparent, user_id: user_id}
+          %{
+            span: span,
+            provider: provider,
+            traceparent: traceparent,
+            user_id: user_id,
+            attributes: turn_trace_attributes(context)
+          }
 
         nil ->
           mark_error(span, "trace_context_injection_failed")
           Span.end_span(span)
           nil
       end
-    end
-  end
-
-  defp finish_registered_turn(actor_event_id, opts) do
-    case :ets.take(@turn_table, actor_event_id) do
-      [{^actor_event_id, entry}] -> finish_turn_span(entry, opts)
-      [] -> :ok
     end
   end
 
@@ -315,29 +323,6 @@ defmodule Ankole.Observability do
     end
 
     :ok
-  end
-
-  defp cleanup_turn_spans(now_ms, timeout_ms) do
-    Enum.each(:ets.tab2list(@turn_table), fn
-      {actor_event_id, %{started_at_ms: started_at_ms}}
-      when now_ms - started_at_ms >= timeout_ms ->
-        finish_registered_turn(actor_event_id, error_type: "turn_outcome_lost")
-
-      _entry ->
-        :ok
-    end)
-  end
-
-  defp finish_all_turns(error_type) do
-    case :ets.whereis(@turn_table) do
-      :undefined ->
-        :ok
-
-      _table ->
-        Enum.each(:ets.tab2list(@turn_table), fn {actor_event_id, _entry} ->
-          safe(:ok, fn -> finish_registered_turn(actor_event_id, error_type: error_type) end)
-        end)
-    end
   end
 
   defp traceparent(span) do
@@ -396,29 +381,6 @@ defmodule Ankole.Observability do
 
   defp turn_span_name(type) when is_binary(type) and type != "", do: "turn #{type}"
   defp turn_span_name(_type), do: "turn unknown"
-
-  defp ensure_turn_table do
-    case :ets.whereis(@turn_table) do
-      :undefined ->
-        :ets.new(@turn_table, [
-          :named_table,
-          :public,
-          :set,
-          read_concurrency: true,
-          write_concurrency: true
-        ])
-
-        :ok
-
-      _table ->
-        :ok
-    end
-  end
-
-  defp schedule_turn_cleanup(interval_ms) when is_integer(interval_ms) and interval_ms > 0 do
-    Process.send_after(self(), :cleanup_turn_spans, interval_ms)
-    :ok
-  end
 
   defp do_export_worker_spans(payload) do
     case :persistent_term.get(@runtime_config_key, nil) do

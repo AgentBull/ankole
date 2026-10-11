@@ -25,8 +25,14 @@ defmodule Ankole.Plugins.TelegramAdapter.Dispatcher do
   end
 
   @spec dispatch(map(), map(), map(), keyword()) :: {:ok, term()} | {:error, term()}
-  def dispatch(%{"message" => message, "update_id" => update_id}, consumer, bot, _opts)
-      when is_map(message) do
+  def dispatch(update, consumer, bot, opts) do
+    Ankole.Tenants.dispatch_inbound(fn ->
+      dispatch_active(update, consumer, bot, opts)
+    end)
+  end
+
+  defp dispatch_active(%{"message" => message, "update_id" => update_id}, consumer, bot, _opts)
+       when is_map(message) do
     Inbound.handle_message_receive(
       "message",
       %{"update_id" => update_id, "message" => message, "bot" => bot},
@@ -34,13 +40,13 @@ defmodule Ankole.Plugins.TelegramAdapter.Dispatcher do
     )
   end
 
-  def dispatch(
-        %{"message_reaction" => reaction, "update_id" => update_id},
-        consumer,
-        bot,
-        _opts
-      )
-      when is_map(reaction) do
+  defp dispatch_active(
+         %{"message_reaction" => reaction, "update_id" => update_id},
+         consumer,
+         bot,
+         _opts
+       )
+       when is_map(reaction) do
     Inbound.handle_reaction_update(
       "message_reaction",
       %{"update_id" => update_id, "message_reaction" => reaction, "bot" => bot},
@@ -48,8 +54,13 @@ defmodule Ankole.Plugins.TelegramAdapter.Dispatcher do
     )
   end
 
-  def dispatch(%{"callback_query" => callback, "update_id" => update_id}, consumer, bot, opts)
-      when is_map(callback) do
+  defp dispatch_active(
+         %{"callback_query" => callback, "update_id" => update_id},
+         consumer,
+         bot,
+         opts
+       )
+       when is_map(callback) do
     Inbound.handle_card_action(
       "callback_query",
       %{
@@ -62,6 +73,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Dispatcher do
     )
   end
 
-  def dispatch(_unsupported, _consumer, _bot, _opts),
+  defp dispatch_active(_unsupported, _consumer, _bot, _opts),
     do: {:ok, %{status: :ignored_unsupported_update}}
 end

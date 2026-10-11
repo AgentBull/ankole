@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.EmailAdapter do
 
   alias Ankole.Plugins.EmailAdapter.Config
   alias Ankole.Plugins.EmailAdapter.ConnectionReconciler
-  alias Ankole.Plugins.EmailAdapter.ConnectionSupervisor
   alias Ankole.Plugins.EmailAdapter.Inbound
   alias Ankole.Plugins.EmailAdapter.Outbox
 
@@ -37,11 +36,11 @@ defmodule Ankole.Plugins.EmailAdapter do
         display_name: %{"default" => "Email", "zh-Hans-CN" => "邮件"},
         config_key_pattern: "signals_gateway.email.bindings.<id>",
         config_module: Config,
+        application_bindings: :one,
         fields: Config.fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
-        connection_supervisor: ConnectionSupervisor,
         inbound_capabilities: ["entry_receive"],
         outbound_capabilities: ["post_entry", "reply_entry"]
       }

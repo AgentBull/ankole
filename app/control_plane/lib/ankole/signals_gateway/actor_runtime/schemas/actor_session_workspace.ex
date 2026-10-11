@@ -6,7 +6,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace do
   only the model-visible directory name under the Agent's `sessions` tree.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
   import Ecto.Changeset
@@ -26,6 +26,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace do
       type: Ankole.Ecto.PrincipalKey
 
     field :session_id, :string
+    field :epoch, :integer, default: 0
 
     timestamps()
   end

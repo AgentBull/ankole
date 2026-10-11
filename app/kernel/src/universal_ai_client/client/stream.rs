@@ -73,7 +73,7 @@ async fn run_http_stream(
         return;
     }
 
-    let encoder = DownstreamEncoder::new(spec.downstream);
+    let encoder = DownstreamEncoder;
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut delivery = Delivery::new(
@@ -88,10 +88,7 @@ async fn run_http_stream(
         "status": http_stream.0.status,
         "headers": transport::safe_response_headers(&http_stream.0.headers),
         "upstream_kind": spec.upstream.kind.as_str(),
-        "downstream_kind": spec.downstream.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
-        "http_version": http_stream.0.version,
-        "http_negotiation": http_stream.0.negotiation
     })));
 
     match spec.upstream.kind {
@@ -170,57 +167,21 @@ async fn run_http_stream(
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
-                    Ok(None) => match parser.finish() {
-                        Ok(events) => {
-                            for event in events {
-                                match sonic_rs::from_str::<Value>(&event.data) {
-                                    Ok(value) => match ingest_resolver_event(
-                                        &mut delivery,
-                                        &mut resolver,
-                                        value,
-                                    )
-                                    .await
-                                    {
-                                        Ok(true) => {}
-                                        Ok(false) => return,
-                                        Err(error) => {
-                                            finish_after_ready_error(
-                                                delivery,
-                                                &mut resolver,
-                                                error,
-                                            )
-                                            .await;
-                                            return;
-                                        }
-                                    },
-                                    Err(reason) => {
-                                        let error = StreamError::new(
-                                            "invalid_provider_event",
-                                            "api_resolver",
-                                            format!("SSE data was not valid JSON: {reason}"),
-                                        );
-                                        finish_after_ready_error(delivery, &mut resolver, error)
-                                            .await;
-                                        return;
-                                    }
-                                }
-                            }
-
-                            match resolver.finish() {
-                                Ok(events) => delivery.push_events(events),
-                                Err(error) => {
-                                    finish_after_ready_error(delivery, &mut resolver, error).await;
-                                    return;
-                                }
-                            }
-                            delivery.finish_done(summary("upstream_closed")).await;
-                            return;
-                        }
-                        Err(error) => {
+                    Ok(None) => {
+                        if let Err(error) = parser.finish() {
                             finish_after_ready_error(delivery, &mut resolver, error).await;
                             return;
                         }
-                    },
+                        match resolver.finish() {
+                            Ok(events) => delivery.push_events(events),
+                            Err(error) => {
+                                finish_after_ready_error(delivery, &mut resolver, error).await;
+                                return;
+                            }
+                        }
+                        delivery.finish_done(summary("upstream_closed")).await;
+                        return;
+                    }
                     Err(_) => {
                         let error = StreamError::new(
                             "idle_timeout",
@@ -257,39 +218,25 @@ async fn run_http_stream(
                                     message.message_type.as_deref(),
                                     Some("exception" | "error")
                                 ) {
-                                    let error = eventstream_provider_error(&message);
+                                    let error = eventstream_provider_error(&message, &resolver);
                                     finish_after_ready_error(delivery, &mut resolver, error).await;
                                     return;
                                 }
 
-                                match sonic_rs::from_slice::<Value>(&message.payload) {
-                                    Ok(value) => match ingest_resolver_event(
-                                        &mut delivery,
-                                        &mut resolver,
-                                        value,
-                                    )
-                                    .await
-                                    {
-                                        Ok(true) => {}
-                                        Ok(false) => return,
-                                        Err(error) => {
-                                            finish_after_ready_error(
-                                                delivery,
-                                                &mut resolver,
-                                                error,
-                                            )
+                                let event = match eventstream_event(message) {
+                                    Ok(event) => event,
+                                    Err(error) => {
+                                        finish_after_ready_error(delivery, &mut resolver, error)
                                             .await;
-                                            return;
-                                        }
-                                    },
-                                    Err(reason) => {
-                                        let error = StreamError::new(
-                                            "invalid_provider_event",
-                                            "api_resolver",
-                                            format!(
-                                                "AWS eventstream payload was not valid JSON: {reason}"
-                                            ),
-                                        );
+                                        return;
+                                    }
+                                };
+                                match ingest_resolver_event(&mut delivery, &mut resolver, event)
+                                    .await
+                                {
+                                    Ok(true) => {}
+                                    Ok(false) => return,
+                                    Err(error) => {
                                         finish_after_ready_error(delivery, &mut resolver, error)
                                             .await;
                                         return;
@@ -390,7 +337,7 @@ async fn run_websocket_stream(
         }
     }
 
-    let encoder = DownstreamEncoder::new(spec.downstream);
+    let encoder = DownstreamEncoder;
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut delivery = Delivery::new(
@@ -405,7 +352,6 @@ async fn run_websocket_stream(
         "status": 101,
         "headers": response_headers,
         "upstream_kind": spec.upstream.kind.as_str(),
-        "downstream_kind": spec.downstream.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
         "websocket_initial_messages": websocket_initial_messages.len()
     })));
@@ -1011,7 +957,6 @@ impl Delivery {
         self.seq += 1;
         (self.sink)(StreamEvent::Chunk {
             seq: self.seq,
-            kind: chunk.kind,
             bytes: chunk.bytes,
         });
     }
@@ -1021,10 +966,6 @@ impl Delivery {
     }
 
     async fn finish_done_pending(&mut self, summary: Value) -> bool {
-        if let Some(chunk) = self.encoder.encode_done_sentinel() {
-            self.push_chunk(chunk);
-        }
-
         if self.flush_pending_blocking().await {
             (self.sink)(StreamEvent::Done(summary));
             true
@@ -1048,10 +989,6 @@ impl Delivery {
             self.push_chunk(self.encoder.encode_error(&error));
         } else {
             self.push_events(events);
-        }
-
-        if let Some(chunk) = self.encoder.encode_done_sentinel() {
-            self.push_chunk(chunk);
         }
 
         if self.flush_pending_blocking().await {
@@ -1180,27 +1117,69 @@ async fn finish_after_ready_error(
     delivery.finish_error_events(events, error).await;
 }
 
-fn eventstream_provider_error(message: &wire::EventStreamMessage) -> StreamError {
-    let provider_message = sonic_rs::from_slice::<Value>(&message.payload)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("message")
-                .or_else(|| value.get("Message"))
-                .or_else(|| value.get("error"))
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .unwrap_or_else(|| {
-            message
-                .event_type
-                .as_deref()
-                .unwrap_or("AWS eventstream error")
-                .to_string()
-        });
+// The AWS SDK reads an event frame as one member of the event union: the
+// `:event-type` header names the member, and the JSON payload holds the fields
+// of that member. The resolver gets the same `{event_type: payload}` object.
+fn eventstream_event(message: wire::EventStreamMessage) -> Result<Value, StreamError> {
+    let Some(event_type) = message.event_type else {
+        return Err(StreamError::new(
+            "invalid_provider_event",
+            "api_resolver",
+            "AWS eventstream event has no :event-type header",
+        ));
+    };
+    let payload = sonic_rs::from_slice::<Value>(&message.payload).map_err(|reason| {
+        StreamError::new(
+            "invalid_provider_event",
+            "api_resolver",
+            format!("AWS eventstream payload was not valid JSON: {reason}"),
+        )
+    })?;
+    Ok(json!({ event_type: payload }))
+}
 
-    StreamError::new("provider_eventstream_error", "read", provider_message)
-        .provider_body_excerpt(&message.payload)
+// The frame header names the Provider error: `:exception-type` for a modeled
+// exception, with its members as the JSON payload, or `:error-code` and
+// `:error-message` for an unmodeled error.
+fn eventstream_provider_error(
+    message: &wire::EventStreamMessage,
+    resolver: &api_resolver::APIResolver,
+) -> StreamError {
+    let provider_type = message
+        .exception_type
+        .as_deref()
+        .or(message.error_code.as_deref());
+    let provider_message = message
+        .error_message
+        .clone()
+        .or_else(|| {
+            sonic_rs::from_slice::<Value>(&message.payload)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("message")
+                        .or_else(|| value.get("Message"))
+                        .or_else(|| value.get("error"))
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                })
+        })
+        .or_else(|| provider_type.map(ToOwned::to_owned))
+        .unwrap_or_else(|| "AWS eventstream error".to_string());
+
+    let mut error = StreamError::new("provider_eventstream_error", "read", provider_message)
+        .provider_body_excerpt(&message.payload);
+    if let Some(provider_type) = provider_type {
+        error = error.provider_error_type(provider_type);
+    }
+    if let Some(status) = message
+        .exception_type
+        .as_deref()
+        .and_then(|exception_type| resolver.provider_exception_status(exception_type))
+    {
+        error = error.provider_status(status);
+    }
+    error
 }
 
 async fn provider_status_error(
@@ -1242,7 +1221,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::universal_ai_client::spec::{APIResolverKind, DownstreamKind, ResponseContext};
+    use crate::universal_ai_client::spec::{APIResolverKind, ResponseContext};
 
     fn test_delivery(
         limits: &StreamLimits,
@@ -1259,7 +1238,7 @@ mod tests {
         let delivery = Delivery::new(
             command_rx,
             sink,
-            DownstreamEncoder::new(DownstreamKind::SSE),
+            DownstreamEncoder,
             Arc::new(AtomicBool::new(false)),
             limits,
         );
@@ -1338,5 +1317,59 @@ mod tests {
 
         assert_eq!(error.code, "response_body_too_large");
         assert!(error.message.contains("pending byte limit"));
+    }
+
+    #[test]
+    fn bedrock_stream_exceptions_report_their_type_and_declared_status() {
+        let resolver = api_resolver::APIResolver::new(
+            APIResolverKind::BedrockConverse,
+            ResponseContext::default(),
+        );
+
+        for (exception_type, status) in [
+            ("internalServerException", Some(500)),
+            ("modelStreamErrorException", Some(424)),
+            ("serviceUnavailableException", Some(503)),
+            ("throttlingException", Some(429)),
+            ("validationException", Some(400)),
+            ("undeclaredException", None),
+        ] {
+            let message = wire::EventStreamMessage {
+                message_type: Some("exception".to_string()),
+                exception_type: Some(exception_type.to_string()),
+                payload: br#"{"message":"provider message"}"#.to_vec(),
+                ..wire::EventStreamMessage::default()
+            };
+
+            let error = eventstream_provider_error(&message, &resolver);
+
+            assert_eq!(error.code, "provider_eventstream_error");
+            assert_eq!(error.message, "provider message");
+            assert_eq!(error.provider_status, status, "{exception_type}");
+            assert_eq!(error.provider_error_type.as_deref(), Some(exception_type));
+        }
+    }
+
+    #[test]
+    fn eventstream_error_frames_report_their_header_code_and_message() {
+        let resolver = api_resolver::APIResolver::new(
+            APIResolverKind::BedrockConverse,
+            ResponseContext::default(),
+        );
+        let message = wire::EventStreamMessage {
+            message_type: Some("error".to_string()),
+            error_code: Some("InternalFailure".to_string()),
+            error_message: Some("internal failure".to_string()),
+            ..wire::EventStreamMessage::default()
+        };
+
+        let error = eventstream_provider_error(&message, &resolver);
+
+        assert_eq!(error.message, "internal failure");
+        assert_eq!(
+            error.provider_error_type.as_deref(),
+            Some("InternalFailure")
+        );
+        assert_eq!(error.provider_status, None);
     }
 }

@@ -7,13 +7,13 @@ order: 122
 
 An Agent can run commands and edit files during a normal conversation. It can also delegate durable work to a Background Agent Job. These are separate runtime paths: a conversation uses the Agent Computer Worker's foreground tools, while every Background Agent Job uses CodexRunner. The amount of code in a message does not select between them.
 
-The decisive property, stated up front: every command runs confined. Shell commands run under bubblewrap with `SYS_ADMIN`, an unconfined seccomp, and an unmasked `/proc` — that is the worker hard requirement, not an operator choice. The agent works inside a per-agent filesystem under `/agents`, and it never escapes that sandbox by way of the shell.
+The decisive property, stated up front: every command runs on the Agent's own computer. Each Agent has its own Worker container, and the container is the only isolation boundary. Commands run as the Worker's user without an inner sandbox, and the agent works in its Agent Home under `/workspace`. The Agent may change its own computer; it shares no Worker, cache disk, or credential with another Agent.
 
-## Shell commands under bubblewrap
+## Shell commands
 
-The Agent runs shell commands through the command tool, backed by `app/agent_computer/src/tools/computer/command-tool.ts` and the bubblewrap confinement in `bubblewrap.ts`. Every command the model requests runs under bubblewrap with `SYS_ADMIN`, an unconfined seccomp policy, and an unmasked `/proc`. The unmasked `/proc` and the `SYS_ADMIN` capability let the [browser](../browser-automation/) daemon and the Jupyter kernel run in the same confinement. This profile is a Worker image requirement documented in [Quick start](../quickstart/#deployment); you do not tune it for each Agent.
+The Agent runs shell commands through the command tool, backed by `app/agent_computer/src/tools/computer/command-tool.ts`. Each command runs as the Worker's user in its own process group, with a fresh environment that does not contain the Worker credential. A cancellation or a timeout ends the whole group; the default foreground budget is 180 seconds. The working directory must be inside the Agent Home. The [browser](../browser-automation/) daemon, the Codex app-server, and Automation scripts also run as the Worker's user, and the Worker needs no extra kernel privileges.
 
-What this means in practice: a shell command can read and write files under the agent's workspace, run installed tools, and start subprocesses the worker image provides. It cannot reach another agent's workspace, and it cannot reach control-plane state. The sandbox is the boundary.
+Commands run as uid 1000 without sudo. They can write Home, install user-space packages, and start subprocesses; they cannot install system packages. Sessions and Jobs of one Agent can see its files. The instance isolates Agents; the Worker has no database connection or object-store credentials.
 
 ## File reads and apply_patch
 
@@ -26,16 +26,16 @@ The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. Th
 
 This shared path keeps normal conversations and Background Agent Jobs on one edit protocol. A patch that does not match fails in the native tool and returns that failure to the model. For a quick search, the shell is fine. Use `apply_patch` for file edits.
 
-## The /agents filesystem
+## The /workspace filesystem
 
-Everything the agent reads and writes lives under `/agents`, laid out per agent key. The agent sees the container path directly — the worker does not translate paths for the model:
+Agent Home is persistent storage at `/workspace`. The old `/agents/<agent_uid>` path links to it; path checks resolve symbolic links before checking the Home boundary. Its layout is:
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -45,6 +45,10 @@ Everything the agent reads and writes lives under `/agents`, laid out per agent 
 ```
 
 `SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
+
+Home survives instance deletion and image changes. A rebuild removes only `/var/cache/ankole`. Docker local volumes depend on their host; a forced Cloudflare stop can lose writes since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
+
+The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
 
 Background Agent Jobs load Skills through Ankole `skill_view`; they do not copy Skill roots into the Job workspace.
 
@@ -70,7 +74,7 @@ The operator surface is narrow:
 
 ## Next steps
 
-- For the Worker that runs these tools and owns the `/agents` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
+- For the Worker that runs these tools and owns the `/workspace` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
 - For the skill and enablement model behind the Jupyter skill, read [Agent Library](../agent-library/).
 - For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
-- For the confinement the Worker image requires, read [Quick start](../quickstart/#deployment).
+- For the Worker trust boundary and how to harden it, read [Security hardening](../security-hardening/).

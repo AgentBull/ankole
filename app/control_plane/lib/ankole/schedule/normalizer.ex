@@ -20,28 +20,30 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
-  @spec checkback_replacement_attrs(ScheduledEvent.t(), map(), DateTime.t(), keyword()) ::
+  @spec checkback_update_attrs(ScheduledEvent.t(), map(), DateTime.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def checkback_replacement_attrs(%ScheduledEvent{} = existing, attrs, now, opts) do
+  def checkback_update_attrs(%ScheduledEvent{} = existing, attrs, now, opts) do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
-    source_provenance =
-      case Attrs.map_value(attrs, "source_provenance") do
-        value when is_map(value) -> Map.put(value, "replaces_scheduled_event_id", existing.id)
-        _value -> %{"replaces_scheduled_event_id" => existing.id}
-      end
-
-    merged_attrs =
-      existing
-      |> existing_checkback_values()
-      |> Map.merge(attrs)
-      |> Map.put("source_provenance", source_provenance)
+    merged_attrs = existing |> existing_checkback_values() |> Map.merge(attrs)
 
     with {:ok, due_at, timezone, schedule} <-
-           replacement_checkback_schedule(existing, attrs, now, opts) do
-      with {:ok, replacement} <-
-             build_checkback_attrs(merged_attrs, due_at, timezone, schedule, now),
-           do: {:ok, Ankole.Principals.WorkAccess.merge(replacement, existing)}
+           update_checkback_schedule(existing, attrs, now, opts) do
+      with {:ok, updated} <- build_checkback_attrs(merged_attrs, due_at, timezone, schedule, now) do
+        {:ok,
+         updated
+         |> Map.take([
+           :wake_payload,
+           :due_at,
+           :timezone,
+           :automation_job_id,
+           :binding_name,
+           :signal_channel_id,
+           :provider_thread_id,
+           :source_entry_id
+         ])
+         |> Map.put(:last_fire_error, %{})}
+      end
     end
   end
 
@@ -104,7 +106,7 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
-  defp replacement_checkback_schedule(existing, attrs, now, opts) do
+  defp update_checkback_schedule(existing, attrs, now, opts) do
     case Map.has_key?(attrs, "schedule") do
       true ->
         normalize_checkback_schedule(attrs, now, opts)
@@ -222,13 +224,13 @@ defmodule Ankole.Schedule.Normalizer do
   defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
 
-  # A cron execution session cannot own schedules: cron-origin turns are
-  # already denied schedule mutation, so an owner in that namespace would be
-  # a schedule nothing can manage.
-  defp reject_reserved_owner_session("cron:" <> _rest),
-    do: {:error, :cron_owner_session_reserved}
-
-  defp reject_reserved_owner_session(_owner_session_id), do: :ok
+  # A cron execution session cannot own schedules: its turns see only the
+  # schedule that fired them, so a schedule owned there could not be listed.
+  defp reject_reserved_owner_session(owner_session_id) do
+    if Ankole.Schedule.Cron.execution_schedule_id(owner_session_id),
+      do: {:error, :cron_owner_session_reserved},
+      else: :ok
+  end
 
   # A direct-Agent cron runs in its own execution session and must not depend
   # on the owner conversation's transcript, so its stored input has to carry

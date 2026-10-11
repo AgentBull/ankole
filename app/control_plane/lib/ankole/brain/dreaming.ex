@@ -4,8 +4,8 @@ defmodule Ankole.Brain.Dreaming do
 
   Phases run in order; one failing phase is recorded and the round
   continues. Products use the shared write contracts: consolidation marks
-  its inputs, patterns update semantic topics, contradiction pairs and
-  pending suggestions have unique keys, and grading updates in place.
+  its inputs, patterns update semantic topics, contradiction pairs have
+  unique keys, and grading updates in place.
   Model phases use the maintainer
   Agent's `heavy` profile and skip with a report when it is absent.
   """
@@ -41,16 +41,10 @@ defmodule Ankole.Brain.Dreaming do
   @suggest_subtype_threshold 20
   @suggest_type_threshold 100
 
-  @high_emotion_tags MapSet.new(~w(
-    family marriage wedding loss death grief relationship love mental-health
-    health illness birth children kids parents
-  ))
-
   @phases [
     :consolidate,
     :patterns,
     :extract_links,
-    :emotional_weight,
     :grade_takes,
     :calibration_profile,
     :contradictions,
@@ -90,7 +84,6 @@ defmodule Ankole.Brain.Dreaming do
       :consolidate -> phase_consolidate()
       :patterns -> phase_patterns()
       :extract_links -> phase_extract_links()
-      :emotional_weight -> phase_emotional_weight()
       :grade_takes -> Calibration.grade_takes()
       :calibration_profile -> Calibration.calibration_profile()
       :contradictions -> phase_contradictions()
@@ -211,16 +204,25 @@ defmodule Ankole.Brain.Dreaming do
     facts
     |> Enum.sort_by(&DateTime.to_unix(&1.valid_from || &1.created_at), :desc)
     |> Enum.reduce([], fn fact, clusters ->
+      # Clusters are stored newest first. The last match is the first-created
+      # cluster, whose representative must stay fixed as members accumulate.
       index =
-        Enum.find_index(clusters, fn [head | _rest] ->
-          cosine(head.embedding, fact.embedding) >= threshold
+        clusters
+        |> Enum.with_index()
+        |> Enum.reduce(nil, fn {{head, _members}, index}, found ->
+          if cosine(head.embedding, fact.embedding) >= threshold, do: index, else: found
         end)
 
       case index do
-        nil -> clusters ++ [[fact]]
-        index -> List.update_at(clusters, index, &(&1 ++ [fact]))
+        nil ->
+          [{fact, [fact]} | clusters]
+
+        index ->
+          List.update_at(clusters, index, fn {head, members} -> {head, [fact | members]} end)
       end
     end)
+    |> Enum.reverse()
+    |> Enum.map(fn {_head, members} -> Enum.reverse(members) end)
   end
 
   defp cosine(a, b) do
@@ -435,109 +437,7 @@ defmodule Ankole.Brain.Dreaming do
     |> Enum.reject(&(&1 == object.slug))
   end
 
-  # Phase 4: emotional weight
-
-  # Only the scoring fields load (never the bodies or vectors), changed
-  # weights write individually, and one statement stamps the whole pass:
-  # per-row stamp writes made this phase a daily N-round-trip rewrite.
-  @doc false
-  def phase_emotional_weight do
-    objects =
-      Object
-      |> where([object], is_nil(object.deleted_at))
-      |> select([object], %{
-        id: object.id,
-        slug: object.slug,
-        emotional_weight: object.emotional_weight
-      })
-      |> Repo.all()
-
-    takes_by_object =
-      Claim
-      |> where([claim], claim.claim_type == "take" and claim.active == true)
-      |> where([claim], not is_nil(claim.object_slug))
-      |> select([claim], %{
-        object_slug: claim.object_slug,
-        weight: claim.weight,
-        holder: claim.holder
-      })
-      |> Repo.all()
-      |> Enum.group_by(& &1.object_slug)
-
-    tags_by_object =
-      Tag
-      |> select([tag], {tag.object_slug, tag.tag})
-      |> Repo.all()
-      |> Enum.group_by(fn {slug, _tag} -> slug end, fn {_slug, tag} -> tag end)
-
-    now = DateTime.utc_now(:microsecond)
-
-    changed =
-      Enum.flat_map(objects, fn object ->
-        takes = Map.get(takes_by_object, object.slug, [])
-        tags = Map.get(tags_by_object, object.slug, [])
-        weight = emotional_weight(tags, takes)
-
-        if abs(weight - object.emotional_weight) > 1.0e-9,
-          do: [{object.id, weight}],
-          else: []
-      end)
-
-    Enum.each(changed, fn {id, weight} ->
-      Object
-      |> where([object], object.id == ^id)
-      |> Repo.update_all(set: [emotional_weight: weight, salience_touched_at: now])
-    end)
-
-    Object
-    |> where([object], is_nil(object.deleted_at))
-    |> Repo.update_all(set: [emotional_weight_recomputed_at: now])
-
-    %{status: :ok, updated: length(changed), objects: length(objects)}
-  end
-
-  @doc """
-  GBrain emotional-weight formula: high-emotion tag adds 0.5, active-take
-  density adds 0.1 per take capped at 0.3, average take weight scales into
-  0..0.1, and the share of takes held by organization members scales into
-  0..0.1; the sum clamps to 0..1.
-  """
-  @spec emotional_weight([String.t()], [%{weight: float(), holder: String.t()}]) :: float()
-  def emotional_weight(tags, takes) do
-    tag_boost =
-      if Enum.any?(tags, &MapSet.member?(@high_emotion_tags, String.downcase(&1))),
-        do: 0.5,
-        else: 0.0
-
-    take_density = min(length(takes) * 0.1, 0.3)
-
-    average_weight =
-      case takes do
-        [] -> 0.0
-        takes -> Enum.sum(Enum.map(takes, &min(max(&1.weight, 0.0), 1.0))) / length(takes) * 0.1
-      end
-
-    member_ratio =
-      case takes do
-        [] ->
-          0.0
-
-        takes ->
-          members =
-            Enum.count(takes, fn take ->
-              String.starts_with?(take.holder, "people/") or
-                String.starts_with?(take.holder, "agents/")
-            end)
-
-          members / length(takes) * 0.1
-      end
-
-    (tag_boost + take_density + average_weight + member_ratio)
-    |> max(0.0)
-    |> min(1.0)
-  end
-
-  # Phase 7: contradictions
+  # Phase 6: contradictions
 
   @doc false
   def phase_contradictions do
@@ -636,7 +536,7 @@ defmodule Ankole.Brain.Dreaming do
       status: status,
       created_at: DateTime.utc_now(:microsecond)
     }
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:a_claim_id, :b_claim_id])
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :a_claim_id, :b_claim_id])
 
     :ok
   end

@@ -1,6 +1,8 @@
 defmodule AnkoleWeb.AgentControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import OpenApiSpex.TestAssertions
+
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIGateway.Schemas.UsageRecord
@@ -22,11 +24,13 @@ defmodule AnkoleWeb.AgentControllerTest do
 
   test "admin creates, lists, updates, disables, re-enables, and deletes an agent", %{conn: conn} do
     %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
-    conn = bearer_conn(conn)
+    provider = worker_provider_fixture()
+    conn = console_conn(conn)
 
     conn =
       post(conn, ~p"/api/v1/agents", %{
-        "uid" => "Console-Agent",
+        "worker_provider_id" => provider.provider_id,
+        "handle" => "Console-Agent",
         "display_name" => "Console Agent",
         "role" => "Research Operator",
         "owner_principal_uid" => owner.uid,
@@ -37,7 +41,8 @@ defmodule AnkoleWeb.AgentControllerTest do
 
     assert %{
              "agent" => %{
-               "uid" => "console-agent",
+               "uid" => agent_uid,
+               "handle" => "console-agent",
                "display_name" => "Console Agent",
                "role" => "Research Operator",
                "status" => "active",
@@ -45,11 +50,19 @@ defmodule AnkoleWeb.AgentControllerTest do
                "options" => %{"ai_agent" => %{"temperature" => 0.2}},
                "owner_principal_uid" => ^owner_uid,
                "group_memory_disclosure_mode" => "strict",
-               "created_by_principal_uid" => admin_uid
+               "created_by" => creator
              }
            } = json_response(conn, 200)
 
-    assert is_binary(admin_uid)
+    assert_schema(json_response(conn, 200), "AgentResponse", AnkoleWeb.APISpec.spec())
+
+    assert creator == %{
+             "tenant_id" => conn.assigns.current_principal.tenant_id,
+             "uid" => conn.assigns.current_principal_uid
+           }
+
+    assert {:ok, _} = Ecto.UUID.cast(agent_uid)
+    assert agent_uid != "console-agent"
 
     conn =
       conn
@@ -57,12 +70,12 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> get(~p"/api/v1/agents")
 
     assert %{"agents" => agents} = json_response(conn, 200)
-    assert Enum.any?(agents, &(&1["uid"] == "console-agent"))
+    assert Enum.any?(agents, &(&1["uid"] == agent_uid))
 
     conn =
       conn
       |> recycle_api()
-      |> patch(~p"/api/v1/agents/console-agent", %{
+      |> patch(~p"/api/v1/agents/#{agent_uid}", %{
         "display_name" => "Console Agent Updated",
         "role" => "Customer Success Operator",
         "options" => %{"ai_agent" => %{"temperature" => 0.1}}
@@ -70,7 +83,7 @@ defmodule AnkoleWeb.AgentControllerTest do
 
     assert %{
              "agent" => %{
-               "uid" => "console-agent",
+               "uid" => ^agent_uid,
                "display_name" => "Console Agent Updated",
                "role" => "Customer Success Operator",
                "options" => %{"ai_agent" => %{"temperature" => 0.1}}
@@ -80,7 +93,7 @@ defmodule AnkoleWeb.AgentControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/console-agent")
+      |> get(~p"/api/v1/agents/#{agent_uid}")
 
     assert %{"agent" => %{"display_name" => "Console Agent Updated"}} =
              json_response(conn, 200)
@@ -88,9 +101,9 @@ defmodule AnkoleWeb.AgentControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/agents/console-agent")
+      |> delete(~p"/api/v1/agents/#{agent_uid}")
 
-    assert %{"agent" => %{"uid" => "console-agent", "status" => "disabled"}} =
+    assert %{"agent" => %{"uid" => ^agent_uid, "status" => "disabled"}} =
              json_response(conn, 200)
 
     # A disabled agent stays listed so the operator can re-enable or delete it.
@@ -100,30 +113,30 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> get(~p"/api/v1/agents")
 
     assert %{"agents" => agents} = json_response(conn, 200)
-    assert Enum.any?(agents, &(&1["uid"] == "console-agent" and &1["status"] == "disabled"))
+    assert Enum.any?(agents, &(&1["uid"] == agent_uid and &1["status"] == "disabled"))
 
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/agents/console-agent/enable")
+      |> post(~p"/api/v1/agents/#{agent_uid}/enable")
 
-    assert %{"agent" => %{"uid" => "console-agent", "status" => "active"}} =
+    assert %{"agent" => %{"uid" => ^agent_uid, "status" => "active"}} =
              json_response(conn, 200)
 
     # Deleting requires disabling first; the second delete removes the row.
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/agents/console-agent")
+      |> delete(~p"/api/v1/agents/#{agent_uid}")
 
     assert %{"agent" => %{"status" => "disabled"}} = json_response(conn, 200)
 
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/agents/console-agent")
+      |> delete(~p"/api/v1/agents/#{agent_uid}")
 
-    assert %{"agent" => %{"uid" => "console-agent"}} = json_response(conn, 200)
+    assert %{"agent" => %{"uid" => ^agent_uid}} = json_response(conn, 200)
 
     conn =
       conn
@@ -131,7 +144,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> get(~p"/api/v1/agents")
 
     assert %{"agents" => agents} = json_response(conn, 200)
-    refute Enum.any?(agents, &(&1["uid"] == "console-agent"))
+    refute Enum.any?(agents, &(&1["uid"] == agent_uid))
   end
 
   test "agent delete does not disable a human principal with the same path shape", %{conn: conn} do
@@ -139,7 +152,7 @@ defmodule AnkoleWeb.AgentControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> delete(~p"/api/v1/agents/#{human.uid}")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
@@ -147,11 +160,11 @@ defmodule AnkoleWeb.AgentControllerTest do
 
   test "agent creation requires a nonblank display name", %{conn: conn} do
     %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       post(conn, ~p"/api/v1/agents", %{
-        "uid" => unique_uid("missing-display-name"),
+        "handle" => unique_uid("missing-display-name"),
         "role" => "Research Analyst",
         "owner_principal_uid" => owner.uid
       })
@@ -162,7 +175,7 @@ defmodule AnkoleWeb.AgentControllerTest do
       conn
       |> recycle_api()
       |> post(~p"/api/v1/agents", %{
-        "uid" => unique_uid("blank-display-name"),
+        "handle" => unique_uid("blank-display-name"),
         "display_name" => "   ",
         "role" => "Research Analyst",
         "owner_principal_uid" => owner.uid
@@ -178,12 +191,14 @@ defmodule AnkoleWeb.AgentControllerTest do
 
   test "agent creation refuses a token quota in its options", %{conn: conn} do
     %{principal: owner} = human_fixture()
+    provider = worker_provider_fixture()
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> post(~p"/api/v1/agents", %{
-        "uid" => unique_uid("quota-at-creation"),
+        "worker_provider_id" => provider.provider_id,
+        "handle" => unique_uid("quota-at-creation"),
         "display_name" => "Quota At Creation",
         "role" => "Research Analyst",
         "owner_principal_uid" => owner.uid,
@@ -199,7 +214,7 @@ defmodule AnkoleWeb.AgentControllerTest do
   test "the generic agent update keeps the ai_agent options and refuses to write them",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       put(conn, ~p"/api/v1/agents/#{agent.uid}/token-quota", %{
@@ -232,7 +247,7 @@ defmodule AnkoleWeb.AgentControllerTest do
 
   test "admin reads, sets, resets, and clears an agent token quota", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/agents/#{agent.uid}/token-quota")
     assert %{"token_quota" => nil, "usage" => nil} = json_response(conn, 200)
@@ -294,7 +309,7 @@ defmodule AnkoleWeb.AgentControllerTest do
 
   test "an invalid token quota is rejected", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       put(conn, ~p"/api/v1/agents/#{agent.uid}/token-quota", %{

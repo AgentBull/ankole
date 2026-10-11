@@ -1,72 +1,37 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { classifyLLMError, llmErrorCode } from '../core/llm-error-classifier'
+import { RuntimeFabricTransportError } from '../fabric/fabric'
 
 /**
- * Converts an arbitrary Turn failure into durable details for the control plane.
+ * Converts a Turn failure into durable details for the control plane.
  *
- * The Worker does not decide the final retry policy. It preserves LLM and
- * AIGateway classification so the Turn owner can make that decision.
+ * The control plane decides the retry policy from these fields. An error is
+ * retryable only when its class says so; an unexpected error fails loudly.
  */
 export function turnFailureDetails(error: unknown): JSONObject {
-  const classification = classifyLLMError(error)
-  const workerError = workerErrorDetails(error)
-  const details: JSONObject = {
+  const { code, retryable, retryAt } = failureFields(error)
+  return {
     runtime: 'bun',
-    llm_error_kind: classification.kind,
-    retryable: workerError.retryable ?? classification.retryable,
-    should_compress: classification.shouldCompress
+    retryable,
+    ...(code ? { error_code: code } : {}),
+    ...(retryAt ? { retry_at: retryAt } : {})
   }
-
-  if (workerError.code) details.error_code = workerError.code
-  if (workerError.retryAt) details.retry_at = workerError.retryAt
-
-  const gateway = aigatewayErrorDetails(error)
-  if (gateway) details.aigateway = gateway
-
-  return details
 }
 
-/** Projects durable failure classification into flat indexed log fields. */
+/** Projects the failure fields into flat indexed log fields. */
 export function turnFailureLogFields(error: unknown): JSONObject {
-  const classification = classifyLLMError(error)
-  const workerError = workerErrorDetails(error)
-  const gateway = aigatewayErrorDetails(error)
-
-  return {
-    llm_error_kind: classification.kind,
-    retryable: workerError.retryable ?? classification.retryable,
-    should_compress: classification.shouldCompress,
-    ...(workerError.code ? { error_code: workerError.code } : {}),
-    ...(typeof gateway?.status === 'number' ? { aigateway_status: gateway.status } : {})
-  }
+  const { code, retryable } = failureFields(error)
+  return { retryable, ...(code ? { error_code: code } : {}) }
 }
 
-/**
- * Extracts structured AIGateway error fields without depending on one concrete
- * error class. HTTP and WebSocket paths can surface different error shapes.
- */
-export function aigatewayErrorDetails(error: unknown): JSONObject | undefined {
-  if (!error || typeof error !== 'object') return undefined
-
-  const record = error as JSONObject
-  const details: JSONObject = {}
-
-  if (typeof record.code === 'string') details.code = record.code
-  if (typeof record.status === 'number') details.status = record.status
-  if (record.details && typeof record.details === 'object' && !Array.isArray(record.details)) {
-    details.details_json = record.details as JSONObject
+function failureFields(error: unknown): { code?: string; retryable: boolean; retryAt?: string } {
+  if (error instanceof RuntimeFabricTransportError) {
+    return { code: error.code === 'timeout' ? 'runtime_fabric_timeout' : error.code, retryable: error.retryable }
   }
-
-  return Object.keys(details).length > 0 ? details : undefined
-}
-
-function workerErrorDetails(error: unknown): { code?: string; retryable?: boolean; retryAt?: string } {
-  if (!error || typeof error !== 'object') return {}
+  if (!error || typeof error !== 'object') return { retryable: false }
   const record = error as { code?: unknown; retryable?: unknown; retryAt?: unknown }
-  const code = llmErrorCode(error)
   return {
-    ...(code ? { code } : {}),
-    ...(typeof record.retryable === 'boolean' ? { retryable: record.retryable } : {}),
+    ...(typeof record.code === 'string' && record.code ? { code: record.code } : {}),
+    retryable: record.retryable === true,
     ...(typeof record.retryAt === 'string' ? { retryAt: record.retryAt } : {})
   }
 }

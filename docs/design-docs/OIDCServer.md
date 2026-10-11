@@ -1,5 +1,11 @@
 # OIDC Server
 
+Clients, credentials and RP sessions belong to a tenant; the issuer and signing
+keys belong to the site. Client authentication establishes tenant context before
+accessing those rows. Login transactions retain that tenant through callbacks.
+Suspended tenants cannot issue Human tokens; introspection reports them inactive.
+Browser-wide logout follows [Browser Sessions](BrowserSessions.md#tenant-routing).
+
 The control plane is the OpenID Provider for one Ankole installation. It uses
 Boruta 2.3.8 for OAuth 2.0 and OpenID Connect protocol processing. Ankole owns
 Client administration, Human identity, persistence, token policy, and the web
@@ -54,21 +60,6 @@ The authorization endpoint completes authorization after login. It does not
 store user consent. The administrator's Client scopes, allowed groups, and
 allowed models are the authorization boundary.
 
-## Shared Token Endpoint
-
-`POST /oauth/token` also serves the Console. Request shape selects one branch
-before authentication:
-
-- The `urn:ankole:params:oauth:grant-type:browser-session` grant and a Refresh
-  Token request without Client credentials use the Console branch. This branch
-  requires an active administrator session, the same Origin, and CSRF proof. It
-  rejects every OIDC Client credential.
-- Authorization Code and Refresh Token requests with the declared Client
-  authentication shape use the OIDC branch. This branch does not use the
-  browser cookie.
-
-The Console has no OIDC Client record and receives no ID Token.
-
 ## Keys, Tokens, and Persistence
 
 The installation has one RSA-2048 signing key. Startup loads it from PostgreSQL
@@ -77,12 +68,10 @@ a key derived from `SecretKeyBase`. The public key is one JWK. Startup fails if
 the stored private key cannot be decrypted or does not match the stored public
 key. There is no signing-key administration or rotation system.
 
-Agent Access Tokens, Console Access and Refresh Tokens, OIDC Access Tokens, and
-OIDC ID Tokens use this RS256 key. A Client secret authenticates only its
+Agent Access Tokens, OIDC Access Tokens, and OIDC ID Tokens use this RS256 key. A Client secret authenticates only its
 confidential Client. It never signs a token. Access Tokens use `typ=at+jwt` and
 include `iss`, `sub`, `aud`, `scope`, `subject_type`, `token_use`, `jti`, `iat`,
-`nbf`, and `exp`. Console Refresh Tokens use `typ=rt+jwt` and remain bound to the
-current Console browser session by `sid_hash`.
+`nbf`, and `exp`.
 
 OIDC Access Tokens live for 30 minutes, and ID Tokens live for 5 minutes. An
 Authorization Code lives for 5 minutes and can be used once. An OIDC Refresh
@@ -209,7 +198,7 @@ malformed requests.
 
 The Ankole profile supports its OIDC Access and Refresh Tokens. An enabled
 confidential Client authenticates with `client_secret_basic` and can inspect
-only tokens issued to that Client. Do not accept Console tokens, Agent tokens,
+only tokens issued to that Client. Do not accept Agent tokens,
 ID Tokens, or a public `client_id` as caller authentication. Public Clients
 retain their existing login flows; Ankole does not give them anonymous
 Introspection access or a secret to embed in an application.

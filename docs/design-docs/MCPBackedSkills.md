@@ -1,7 +1,7 @@
 # MCP-Backed Skills
 
-This document specifies Skill-backed MCP dependencies and the shared boundary
-for a future model-visible MCP integration.
+This document specifies Skill-backed MCP dependencies and their execution
+boundary. The model-visible MCP boundary is described separately below.
 
 An MCP dependency is an execution adapter for a Skill. It is not a second
 model-visible tool registry. An enabled Skill declares the connection in
@@ -111,9 +111,12 @@ wins and avoids an invalid mcporter config with both filter modes.
 
 ## Per-Execution Config
 
-Agent Computer writes a unique JSON file under `/var/share` with mode `0600`.
-It injects the file path as `MCPORTER_CONFIG` and removes the file when the
-execution ends. It writes a config even when the server set is empty.
+Agent Computer writes a unique JSON file with mode `0600`. Main environment
+Workspaces and Automation attempts use `/var/share` by default, or `TMPDIR`
+when it is set. Background Agent Job
+attempts use the Job workspace's `temp/` directory. Agent Computer injects the
+file path as `MCPORTER_CONFIG` and removes the file during execution cleanup.
+It writes a config even when the server set is empty.
 
 The generated file always contains `imports: []`. The explicit
 `MCPORTER_CONFIG` path and this empty import list prevent mcporter from reading
@@ -131,9 +134,16 @@ Each execution receives a fresh view:
 
 | Execution | Skill source | Config lifetime | Call owner |
 | --- | --- | --- | --- |
-| Main Agent | Current conversation Skill summaries | One text turn | Main Agent command tool |
+| Main Agent | Current Skill summaries when the environment Workspace opens | One Worker environment Workspace | Main Agent command tool |
 | Background Agent Job | Current selected standalone and Plugin Skills | One prepared Codex execution | Codex terminal |
 | Automation Job | Current enabled Agent Skill summaries | One Automation attempt | `main.ts` |
+
+The main model loop runs in the control plane. It requests an environment
+Workspace only when a tool needs the Worker's computer. Workspace preparation
+loads the current Skill declarations; close, idle expiry, or preparation
+failure cleans up its config. A model request without an environment tool does
+not create a config. Script and MCP declaration changes apply when the next
+execution is prepared; Skill instruction reads remain live.
 
 Background Job project config removes any existing `mcp_servers` table.
 Skill-backed dependencies do not enter that table. A workspace template or
@@ -211,9 +221,9 @@ only while a mcporter list or call process uses it.
 
 ## Security and Deliberate Limits
 
-WorkerEnv provides credentials to the same trusted sandbox that runs the model
-command or Automation script. The generated file stores only environment
-variable placeholders. A missing variable diagnostic must name the variable
+WorkerEnv provides credentials to the same trusted Worker environment that
+runs the model command or Automation script. The generated file stores only
+environment variable placeholders. A missing variable diagnostic must name the variable
 and must not print a credential value.
 
 The server output is untrusted input. Removing the native MCP client also
@@ -227,8 +237,8 @@ removes these client-side guarantees:
 The last item removes a defense against a server that accidentally returns a
 secret and lets command output enter persistent history. Ankole accepts this
 narrower contract for trusted, first-party MCP Skills. The secret already
-exists in the same sandbox, and the config still stores only its variable
-name. Do not use this contract for an untrusted third-party server without a
+exists in the same Worker environment, and the config still stores only its
+variable name. Do not use this contract for an untrusted third-party server without a
 separate security review.
 
 The real write boundary is the remote credential scope. Tool filters and Skill

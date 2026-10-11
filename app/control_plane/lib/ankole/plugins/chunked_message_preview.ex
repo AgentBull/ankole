@@ -124,28 +124,19 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
       first_id = first_message_id(messages)
       checkpoint = build_checkpoint(checkpoint, messages, presentation, request, adapter_id)
 
-      with :ok <-
-             record_source_entry(
-               provider,
-               request.actor_event,
-               first_id,
-               provider_thread_id,
-               changed?
-             ) do
-        {:ok,
-         %{
-           created_source_entry_id: first_id,
-           provider_thread_id: provider_thread_id,
-           reply_preview_checkpoint: checkpoint,
-           raw_payload: %{"messages" => Enum.reverse(responses)},
-           recovery_state: %{
-             "message_id" => first_id,
-             "messages" => messages,
-             "streaming_state" => checkpoint["streaming_state"]
-           }
+      {:ok,
+       %{
+         created_source_entry_id: first_id,
+         provider_thread_id: provider_thread_id,
+         reply_preview_checkpoint: checkpoint,
+         raw_payload: %{"messages" => Enum.reverse(responses)},
+         recovery_state: %{
+           "message_id" => first_id,
+           "messages" => messages,
+           "streaming_state" => checkpoint["streaming_state"]
          }
-         |> maybe_put_payload(request.outbox)}
-      end
+       }
+       |> maybe_put_payload(request.outbox)}
     end
   end
 
@@ -223,15 +214,18 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
       checkpoint
       |> build_checkpoint(sorted_message_records(records), presentation, request, adapter_id)
 
-    case Actors.put_reply_preview_checkpoint(request.actor_event.id, staged) do
-      {:ok, _event} ->
-        case first_message_id(sorted_message_records(records)) do
-          id when is_binary(id) ->
-            record_source_entry(provider, request.actor_event, id, provider_thread_id, true)
+    source =
+      case first_message_id(sorted_message_records(records)) do
+        id when is_binary(id) -> {id, provider_thread_id}
+        nil -> nil
+      end
 
-          nil ->
-            :ok
-        end
+    case Actors.put_reply_preview_checkpoint(request.actor_event.id, staged, source) do
+      {:ok, _event} ->
+        :ok
+
+      {:error, {:reply_preview_source_entry, reason}} ->
+        failure(provider, reason, :source_entry, true)
 
       {:error, reason} ->
         failure(provider, reason, :checkpoint, true)
@@ -279,21 +273,6 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
       end
     end)
   end
-
-  defp record_source_entry(provider, event, source_entry_id, provider_thread_id, changed?)
-       when is_binary(source_entry_id) do
-    case Actors.record_reply_preview_source_entry(
-           event.id,
-           source_entry_id,
-           provider_thread_id
-         ) do
-      :ok -> :ok
-      {:error, reason} -> failure(provider, reason, :source_entry, changed?)
-    end
-  end
-
-  defp record_source_entry(_provider, _event, nil, _provider_thread_id, _changed?),
-    do: :ok
 
   defp build_checkpoint(checkpoint, messages, presentation, request, adapter_id) do
     previous = checkpoint["presentation"]

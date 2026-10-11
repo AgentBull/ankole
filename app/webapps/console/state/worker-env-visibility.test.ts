@@ -4,8 +4,6 @@ import { workerEnvValueText } from './worker-env-visibility'
 
 function item(overrides: Partial<WorkerEnvItem>): WorkerEnvItem {
   return {
-    editable: true,
-    kind: 'custom',
     name: 'EXAMPLE',
     present: true,
     secret: false,

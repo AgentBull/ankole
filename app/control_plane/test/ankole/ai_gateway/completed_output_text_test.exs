@@ -22,6 +22,22 @@ defmodule Ankole.AIGateway.CompletedOutputTextTest do
     assert {:ok, "first\nsecond"} = AIGateway.completed_output_text(body)
   end
 
+  test "reads only message text when a completed response includes a reasoning draft" do
+    body = %{
+      "status" => "completed",
+      "output" => [
+        %{
+          "type" => "reasoning",
+          "summary" => [],
+          "content" => [%{"type" => "reasoning_text", "text" => ~s(draft {"x":1})}]
+        },
+        %{"type" => "message", "content" => [%{"type" => "output_text", "text" => ~s({"x":2})}]}
+      ]
+    }
+
+    assert {:ok, ~s({"x":2})} = AIGateway.completed_output_text(body)
+  end
+
   test "prefers the output_text convenience field when present" do
     body = %{"status" => "completed", "output_text" => "  plain answer  "}
 

@@ -1,26 +1,27 @@
-import { match } from '@agentbull/active-support'
+import { match, ms } from '@agentbull/active-support'
+import { removeAbandonedRunDirectories } from './automation-jobs/run'
 import { toError } from './common/errors'
 import { createChannelTransport } from './fabric/channel_transport'
 import { controlShutdownEnvelope } from './fabric/envelopes'
-import type { EnvelopeSender } from './fabric/fabric'
+import type { EnvelopeSender, RuntimeFabricHost } from './fabric/fabric'
 import type { Envelope } from './fabric/envelope_proto'
-import { connectZeroMQTransport } from './fabric/zmq_transport'
 import { handleWorkerRPCRequest, RuntimeRPCClient, type WorkerRPCHandlers } from './lanes/rpc_lane'
 import { configureRuntimeFabricTracing } from './observability/runtime-fabric-exporter'
 import { forceFlushWorkerTracing } from './observability/turn-tracing'
 import { ActiveTurns } from './worker/active_turns'
+import { Workspaces } from './worker/workspaces'
 import { createWorkerBrowserRuntime } from './worker/browser'
 import { loadWorkerConfig } from './worker/config'
 import { WorkerDrainState } from './worker/drain'
-import {
-  heartbeatIntervalMs,
-  sendWorkerHeartbeat,
-  workerHeartbeatEnvelope,
-  workerReadyEnvelope
-} from './worker/lifecycle_messages'
+import { heartbeatIntervalMs, sendWorkerHeartbeat, Slots } from './worker/lifecycle_messages'
 import { workerLogger } from './worker/logging'
 import { verifyWorkerReadiness } from './worker/readiness'
 import { createWorkerRPCHandlers } from './worker/rpc_handlers'
+
+/** Time without a joined channel after which the Worker stops itself. */
+const selfIsolationAfterMs = ms('5m')
+/** Longest wait of one loop step, so that signals and isolation take effect in time. */
+const loopStepMs = 500
 
 try {
   await runWorker()
@@ -28,6 +29,9 @@ try {
   workerLogger.critical('worker.error', 'worker failed', { error: toError(error) })
   process.exit(1)
 }
+// A drained Worker exits even if a handle is still open. `bun --watch`, which
+// runs the development source, does not exit when the event loop is empty.
+process.exit(0)
 
 /**
  * Runs the long-lived Agent Computer Worker process.
@@ -40,36 +44,42 @@ async function runWorker(): Promise<void> {
   const config = loadWorkerConfig()
   verifyWorkerReadiness(config)
 
-  // The transport sends `worker_ready` on every join, including a rejoin
-  // after a lost connection, so the ready message reports the current slots.
-  // The ready callback can run before the ActiveTurns constructor returns.
-  // oxlint-disable-next-line prefer-const
-  let activeTurns: ActiveTurns | undefined
-  const readyEnvelope = () => workerReadyEnvelope(config, activeTurns?.availableSlots ?? config.maxConcurrentTurns)
-  const fabric =
-    config.transport === 'zmq'
-      ? connectZeroMQTransport(config, { readyEnvelope })
-      : createChannelTransport(config, { readyEnvelope })
+  // Phoenix calls this function again when the same process reconnects.
+  const drain = new WorkerDrainState()
+  const slots = new Slots(config, drain, envelope => fabric.sendEnvelope(envelope))
+  const fabric = createChannelTransport(config, {
+    joinParams: () => ({
+      incarnation_id: config.incarnationID,
+      max_slots: config.maxConcurrentSlots,
+      available_slots: slots.available()
+    })
+  })
   const sendEnvelope = fabric.sendEnvelope
-  const rpcClient = new RuntimeRPCClient(sendEnvelope)
+  const rpcClient = new RuntimeRPCClient(sendEnvelope, { awaitReady: fabric.awaitReady })
   configureRuntimeFabricTracing(rpcClient)
 
-  const drain = new WorkerDrainState()
-  const browserRuntime = createWorkerBrowserRuntime()
-  activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain)
-  const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient, browserRuntime)
+  const browserRuntime = createWorkerBrowserRuntime(config.browser)
+  const activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain, slots)
+  const workspaces = new Workspaces(config, browserRuntime, sendEnvelope, rpcClient, drain, slots)
+  const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient)
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       drain.begin(signal.toLowerCase())
+      activeTurns.beginDrain()
+      workspaces?.beginDrain()
     })
   }
 
   try {
     await browserRuntime.start()
-    await activeTurns.publishCapacity()
+    if (!(await awaitFirstAdmission(fabric, drain))) return
+    // A late instance can have a revoked credential. It must not remove the
+    // admitted Worker's run files before the control plane accepts its join.
+    removeAbandonedRunDirectories(config)
 
-    let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
+    // The first heartbeat reports the load of this process at once.
+    let nextHeartbeatAt = Date.now()
     let shutdownReported = false
     // Span export is an RPC: it needs a reply, and only this loop delivers
     // replies. So the flush starts when the loop is otherwise done and the loop
@@ -86,7 +96,7 @@ async function runWorker(): Promise<void> {
           workerLogger.notice('worker.draining', 'worker draining active tasks', {
             reason: drain.reason,
             active_tasks: drain.activeTaskCount,
-            active_turns: activeTurns.size
+            active_slots: slots.used()
           })
         } catch (error) {
           workerLogger.warning('worker.drain_report_failed', 'worker drain report failed', {
@@ -103,23 +113,30 @@ async function runWorker(): Promise<void> {
         })
       }
 
+      assertNotIsolated(fabric)
+
       if (Date.now() >= nextHeartbeatAt) {
-        await sendWorkerHeartbeat(
-          sendEnvelope,
-          workerHeartbeatEnvelope(config, Math.floor(performance.now()), activeTurns.size)
-        )
+        // Without a channel, a heartbeat would wait for the rejoin and stall
+        // this loop; the rejoin renews the row.
+        if (fabric.isReady) {
+          await sendWorkerHeartbeat(sendEnvelope, slots.heartbeat())
+        }
         nextHeartbeatAt = Date.now() + heartbeatIntervalMs
       }
 
-      const received = await fabric.receive(500)
+      const received = await fabric.receive(loopStepMs)
       if (received.kind === 'timeout') continue
+      if (received.kind === 'disconnected') {
+        rpcClient.disconnected(received.connectionID)
+        continue
+      }
 
       const envelope = received.envelope
       workerLogger.debug('worker.envelope_received', 'runtime fabric envelope received', {
         envelope_type: envelope.body.case,
         message_id: envelope.messageId
       })
-      await handleEnvelope(sendEnvelope, rpcClient, activeTurns, drain, workerRPCHandlers, envelope)
+      await handleEnvelope(sendEnvelope, rpcClient, activeTurns, workspaces, drain, workerRPCHandlers, envelope)
     }
   } finally {
     // A drained shutdown already flushed its spans inside the loop, where their
@@ -131,10 +148,36 @@ async function runWorker(): Promise<void> {
       try {
         await forceFlushWorkerTracing()
       } finally {
+        rpcClient.close()
         fabric.stop()
       }
     }
   }
+}
+
+/**
+ * Waits until the control plane admits this process for the first time.
+ *
+ * The isolation rules of the main loop apply from the process start. Commands
+ * that arrive in the meantime wait in the transport queue. Returns false when
+ * a shutdown signal comes first, because the process has no work to drain.
+ */
+async function awaitFirstAdmission(fabric: RuntimeFabricHost, drain: WorkerDrainState): Promise<boolean> {
+  while (!fabric.isReady) {
+    if (!drain.acceptsTurns) return false
+    assertNotIsolated(fabric)
+    await Bun.sleep(loopStepMs)
+  }
+  return true
+}
+
+/**
+ * Stops a Worker that the control plane no longer accepts, or that has had no
+ * channel for too long; the supervisor in the image restarts it.
+ */
+function assertNotIsolated(fabric: RuntimeFabricHost): void {
+  const isolation = fabric.isolationReason(selfIsolationAfterMs)
+  if (isolation) throw new Error(`worker isolated itself from its Agent: ${isolation}`)
 }
 
 /**
@@ -147,6 +190,7 @@ async function handleEnvelope(
   sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRPCClient,
   activeTurns: ActiveTurns,
+  workspaces: Workspaces,
   drain: WorkerDrainState,
   workerRPCHandlers: WorkerRPCHandlers,
   envelope: Envelope
@@ -173,6 +217,12 @@ async function handleEnvelope(
     .with({ case: 'turnStart' }, () => activeTurns.start(envelope))
     .with({ case: 'mailboxUpdated' }, () => activeTurns.mailboxUpdated(envelope))
     .with({ case: 'turnControl' }, () => activeTurns.control(envelope))
+    .with({ case: 'workspaceOpen' }, ({ value }) => workspaces.open(value))
+    .with({ case: 'toolCall' }, ({ value }) => workspaces.call(value))
+    .with({ case: 'toolCancel' }, ({ value }) => workspaces.cancel(value))
+    .with({ case: 'workspaceClose' }, ({ value }) => {
+      drain.track(workspaces.close(value))
+    })
     .otherwise(body => {
       throw new Error(`RuntimeFabric protocol error: Worker cannot receive ${body.case ?? 'an empty body'}`)
     })

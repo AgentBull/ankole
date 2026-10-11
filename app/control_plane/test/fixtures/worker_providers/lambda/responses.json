@@ -1,0 +1,122 @@
+{
+  "image": {
+    "imageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:ankole-prod-example",
+    "name": "ankole-prod-example",
+    "state": "CREATED",
+    "latestActiveImageVersion": "1.0",
+    "createdAt": 1791388800.0,
+    "tags": {
+      "ankole-installation": "prod",
+      "ankole-provider": "lambda-test",
+      "ankole-role": "worker"
+    }
+  },
+  "version": {
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "baseImageVersion": "1.0",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/AnkoleMicrovmBuild",
+    "codeArtifact": {
+      "uri": "s3://ankole-microvm-builds/worker.zip"
+    },
+    "imageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:ankole-prod-example",
+    "imageVersion": "1.0",
+    "state": "SUCCESSFUL",
+    "status": "ACTIVE",
+    "createdAt": 1791388800.0,
+    "egressNetworkConnectors": [
+      "arn:aws:lambda:us-east-1:123456789012:network-connector:worker-vpc"
+    ],
+    "cpuConfigurations": [
+      {
+        "architecture": "ARM_64"
+      }
+    ],
+    "resources": [
+      {
+        "minimumMemoryInMiB": 4096
+      }
+    ],
+    "additionalOsCapabilities": [
+      "ALL"
+    ],
+    "environmentVariables": {
+      "ANKOLE_WORKER_BOOTSTRAP": "lambda",
+      "ANKOLE_WORKER_TASK": "worker",
+      "ANKOLE_RUNTIME_FABRIC_ENDPOINT": "wss://ankole.example.com/runtime-fabric/worker"
+    },
+    "hooks": {
+      "port": 8080,
+      "microvmImageHooks": {
+        "ready": "ENABLED",
+        "readyTimeoutInSeconds": 120
+      },
+      "microvmHooks": {
+        "run": "ENABLED",
+        "runTimeoutInSeconds": 60,
+        "terminate": "ENABLED",
+        "terminateTimeoutInSeconds": 60
+      }
+    }
+  },
+  "microvm": {
+    "microvmId": "mvm-0123456789abcdef0",
+    "state": "RUNNING",
+    "endpoint": "https://mvm-example.lambda-url.us-east-1.on.aws",
+    "imageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:ankole-prod-example",
+    "imageVersion": "1.0",
+    "maximumDurationInSeconds": 28800,
+    "startedAt": 1791388800.0
+  },
+  "managed_images": {
+    "items": [
+      {
+        "imageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+        "createdAt": 1791388800.0
+      }
+    ]
+  },
+  "managed_versions": {
+    "items": [
+      {
+        "imageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+        "imageVersion": "1.0",
+        "status": "AVAILABLE",
+        "createdAt": 1791388800.0
+      }
+    ]
+  },
+  "ecr_token": {
+    "authorizationData": [
+      {
+        "authorizationToken": "QVdTOmZha2U=",
+        "expiresAt": 1791398800,
+        "proxyEndpoint": "https://123456789012.dkr.ecr.us-east-1.amazonaws.com"
+      }
+    ]
+  },
+  "build_response": {
+    "imageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:ankole-prod-example",
+    "name": "ankole-prod-example",
+    "state": "CREATING",
+    "createdAt": 1791388800.0,
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/AnkoleMicrovmBuild",
+    "codeArtifact": {
+      "uri": "s3://ankole-microvm-builds/worker.zip"
+    },
+    "imageVersion": "1.0"
+  },
+  "update_response": {
+    "imageArn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:ankole-prod-example",
+    "name": "ankole-prod-example",
+    "state": "UPDATING",
+    "createdAt": 1791388800.0,
+    "baseImageArn": "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1",
+    "buildRoleArn": "arn:aws:iam::123456789012:role/AnkoleMicrovmBuild",
+    "codeArtifact": {
+      "uri": "s3://ankole-microvm-builds/worker.zip"
+    },
+    "imageVersion": "1.0",
+    "updatedAt": 1791388900.0
+  }
+}

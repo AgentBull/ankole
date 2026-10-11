@@ -21,6 +21,13 @@ What it is
   composed for yourself. You stay out of the loop for mechanical checks and
   return for judgment.
 
+Ownership
+  In a background Job or Workflow task, this conversation means its
+  originating long-lived Agent session. Create, list, show, and cancel use
+  that same owner. The script can wake it after the Job or task ends.
+  Creation fails if the control plane cannot identify that owner; the
+  calling turn still supplies the authorization for the new automation job.
+
 When it fits
   The handling is mechanical: fetch a value, compare, parse, or perform
   one predetermined action. Handling that needs conversation, memory, or
@@ -29,9 +36,10 @@ When it fits
   script once it has proven mechanical, or back.
 
 Writing the script
-  - One directory per job. Entry point main.ts, run by Bun with the
-    directory as working directory. Multiple files and local imports are
-    fine; other languages work behind a thin main.ts wrapper (Bun Shell).
+  - One directory per job. Entry point main.ts, run by Bun with a fresh
+    copy of the directory as working directory; the copy is removed after
+    the run. Multiple files and local imports are fine; other languages
+    work behind a thin main.ts wrapper (Bun Shell).
   - emitEvent(...) from the provided SDK sends an event immediately; the
     typical call wakes this conversation with a payload you compose. A run
     with no emitEvent call is a silent, completed consumption.
@@ -54,9 +62,12 @@ Registering and evolving
   Before registration, run the script by hand to check its setup and every
   branch that does not call context() or emitEvent(...). These SDK functions
   exist only in a platform run. After registration, use a test trigger to
-  check each SDK branch, then inspect its run history. Registration points
-  the platform at your directory: whatever is on disk at fire time is what
-  runs, so edits take effect without re-registering.
+  check each SDK branch, then inspect its run history. Registration copies
+  the directory into your drive and returns its folder as drive_prefix;
+  every run uses what that folder holds at fire time. To change the script,
+  put the edited directory to the same folder again with
+  ankole-files put <dir> <drive_prefix>; edits take effect without
+  re-registering.
 
 Reliability
   By default a failed run is recorded and nothing else happens.

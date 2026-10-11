@@ -18,7 +18,6 @@ defmodule Ankole.Plugins.WeComAdapter do
   alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
-  alias Ankole.Plugins.WeComAdapter.ConnectionSupervisor
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
   alias Ankole.Plugins.WeComAdapter.Inbound
   alias Ankole.Plugins.WeComAdapter.Outbox
@@ -62,7 +61,6 @@ defmodule Ankole.Plugins.WeComAdapter do
         ingress_module: Inbound,
         outbox_module: Outbox,
         reply_preview_module: AIStream,
-        connection_supervisor: ConnectionSupervisor,
         inbound_capabilities: ["entry_receive", "action_event"],
         outbound_capabilities: ["post_entry", "card"]
       },
@@ -143,7 +141,8 @@ defmodule Ankole.Plugins.WeComAdapter do
         "identityProvider",
         %{"default" => "Identity provider", "zh-Hans-CN" => "身份源提供商"},
         %{
-          "default" => "Identity provider whose users the senders of this binding resolve to. A single provider is adopted by default; choose one when several exist.",
+          "default" =>
+            "Identity provider whose users the senders of this binding resolve to. A single provider is adopted by default; choose one when several exist.",
           "zh-Hans-CN" => "此绑定的发信人解析到哪个身份源的用户。只有一个身份源时默认采用；有多个时必须选择。"
         },
         :identity_provider,

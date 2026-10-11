@@ -37,7 +37,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        'fixed inset-0 z-50 bg-black/60 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0',
+        'fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
       )}
       {...props}
@@ -64,7 +64,7 @@ function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          'fixed z-50 flex flex-col bg-popover bg-clip-padding text-sm text-popover-foreground shadow-none transition-[transform,opacity] duration-(--duration-drawer) ease-drawer data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-full data-[side=bottom]:data-starting-style:translate-y-full data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:-translate-x-full data-[side=left]:data-starting-style:-translate-x-full data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:-translate-y-full data-[side=top]:data-starting-style:-translate-y-full data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
+          'ceramic fixed z-50 flex max-w-[calc(100%-1rem)] flex-col overflow-hidden text-sm outline-none text-popover-foreground transition-[transform,opacity] duration-(--duration-drawer) ease-drawer data-[side=bottom]:inset-x-2 data-[side=bottom]:bottom-2 data-[side=bottom]:h-auto data-[side=bottom]:data-ending-style:translate-y-[calc(100%+--spacing(2))] data-[side=bottom]:data-starting-style:translate-y-[calc(100%+--spacing(2))] data-[side=left]:inset-y-2 data-[side=left]:left-2 data-[side=left]:w-3/4 data-[side=left]:data-ending-style:-translate-x-[calc(100%+--spacing(2))] data-[side=left]:data-starting-style:-translate-x-[calc(100%+--spacing(2))] data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:w-3/4 data-[side=right]:data-ending-style:translate-x-[calc(100%+--spacing(2))] data-[side=right]:data-starting-style:translate-x-[calc(100%+--spacing(2))] data-[side=top]:inset-x-2 data-[side=top]:top-2 data-[side=top]:h-auto data-[side=top]:data-ending-style:-translate-y-[calc(100%+--spacing(2))] data-[side=top]:data-starting-style:-translate-y-[calc(100%+--spacing(2))] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
           className
         )}
         {...props}>
@@ -72,7 +72,7 @@ function SheetContent({
         {showCloseButton && (
           <SheetPrimitive.Close
             data-slot="sheet-close"
-            render={<Button variant="ghost" className="absolute top-0 right-0" size="icon" />}>
+            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon" />}>
             <RiCloseLine />
             <span className="sr-only">{closeLabel}</span>
           </SheetPrimitive.Close>

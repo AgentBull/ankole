@@ -7,7 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   to keep the same logical execution choices.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

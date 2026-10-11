@@ -83,7 +83,7 @@ Job が初めて workspace を初期化するとき、ランナーはプロジ�
 | `GET` | `/background-agent-jobs/:job_id` | 1 つの Job を読み取る |
 | `POST` | `/background-agent-jobs/:job_id/cancel` | Job をキャンセル |
 
-キャンセルは Job を `stopped` に導きます。実行中の turn の下からライブの worker を引き抜くことはありません。turn は、すべての worker 書き込みが通過するのと同じ activation と revision チェックでフェンスされ、自分で完了するか失敗します。
+キャンセルは Job を `stopped` にし、実行中の作業の停止を要求します。PostgreSQL の Job status、attempt identity、Turn revision が、後から届く Worker result の commit 可否を決定します。
 
 ## Background Agent Jobs がそうでないもの
 

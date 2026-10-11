@@ -1,76 +1,34 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  import Ankole.FilesFixtures, only: [sent_attachment_fixture: 4]
+
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.Observability
-  alias Ankole.Observability.Providers.OpenTelemetry
+  alias Ankole.Conversations.{Admission, Presentation, Run}
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.SignalsGateway.Entry
 
   setup :use_mock_signal_provider_plugin
 
-  test "IM actor event stays live through Responses rounds and completes only after turn_completed" do
-    previous_provider = Observability.provider()
-    :ok = Observability.put_provider_for_test(OpenTelemetry)
-    on_exit(fn -> Observability.put_provider_for_test(previous_provider) end)
-
+  test "IM input stays open through Responses rounds and closes with the terminal decision" do
     %{principal: agent} = agent_fixture()
 
     Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
       adapter: "mock-provider"
     )
 
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
-
-    %{actor_event: actor_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
-        agent.uid,
-        "mock",
-        Ankole.SignalsGatewayFixtures.group_entry(%{
-          source_event_id: "main-chain-event",
-          signal_channel_id: "mock:chat:main-chain",
-          source_entry_id: "human-main-chain-1",
-          provider_thread_id: "mock-thread-main-chain",
-          explicit: true,
-          text: "Need the weather."
-        })
-      )
-
-    refute preview_handler_started?(actor_event.id)
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    preview_handler = wait_for_preview_handler(actor_event.id)
-    assert is_pid(preview_handler)
-
-    assert_receive {:actor_lane, envelope}, 2_000
-    turn_start = turn_start_payload!(envelope)
-    turn_ref = turn_start.turn
-
-    assert turn_ref.actor.agent_uid == agent.uid
-    assert turn_ref.actor.session_id == actor_event.session_id
-    assert turn_ref.actor_event_id == actor_event.id
-    assert turn_start.actor_event.actor_event_id == actor_event.id
-
-    request_context = decoded_request_context(turn_start)
-    assert request_context["observability_user_id"] == "channel:mock:chat:main-chain"
-    refute Map.has_key?(request_context, "observability_provider")
-    assert is_binary(request_context["traceparent"])
-
-    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
-
-    assert live_delivery_count(actor_event.id) == 1
+    %{actor_event: actor_event, run: run, preview_handler: preview_handler} =
+      admit_event(agent.uid, %{
+        source_event_id: "main-chain-event",
+        signal_channel_id: "mock:chat:main-chain",
+        source_entry_id: "human-main-chain-1",
+        provider_thread_id: "mock-thread-main-chain",
+        explicit: true,
+        text: "Need the weather."
+      })
 
     {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
@@ -103,7 +61,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert first_committed.previous_message_id == nil
     assert first_committed.content == first_request_items ++ [function_call]
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
-    assert live_delivery_count(actor_event.id) == 1
     assert Process.alive?(preview_handler)
     refute_final_mirror(first_committed.id)
 
@@ -141,15 +98,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     assert final_committed.content == tool_result_items ++ final_output
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
-    assert live_delivery_count(actor_event.id) == 1
     assert Process.alive?(preview_handler)
     refute Repo.get_by(OutboxEntry, source_actor_event_id: actor_event.id)
 
-    assert {:ok, %{status: :turn_completed}} =
-             complete_turn(turn_ref, final_committed)
+    assert {:ok, %{status: :completed}} =
+             finalize_run(run, final_committed)
 
     assert %DateTime{} = Repo.get!(ActorEvent, actor_event.id).completed_at
-    assert live_delivery_count(actor_event.id) == 0
     refute Process.alive?(preview_handler)
 
     dispatch_final_reply_outbox!(final_committed.id)
@@ -168,8 +123,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       adapter: "mock-provider"
     )
 
-    %{actor_event: actor_event, turn_ref: turn_ref} =
-      start_accepted_actor_event(agent.uid, %{
+    %{actor_event: actor_event, run: run} =
+      admit_event(agent.uid, %{
         source_event_id: "reply-attachment-main-chain-event",
         signal_channel_id: "mock:chat:reply-attachment",
         source_entry_id: "human-reply-attachment-1",
@@ -201,17 +156,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
                  "call_id" => "call_reply_attachment",
                  "name" => "reply_attachment",
                  "arguments" =>
-                   ~s({"path":"/agents/#{agent.uid}/user-files/reports/chaos-report.txt","name":"chaos-report.txt","mimeType":"text/plain"})
+                   ~s({"path":"reports/chaos-report.txt","name":"chaos-report.txt","mimeType":"text/plain"})
                }
              ])
 
-    attachment = %{
-      "agent_computer_path" => "/agents/#{agent.uid}/user-files/reports/chaos-report.txt",
-      "user_files_relative_path" => "reports/chaos-report.txt",
-      "name" => "chaos-report.txt",
-      "mime_type" => "text/plain",
-      "size" => 28
-    }
+    attachment =
+      sent_attachment_fixture(
+        agent.uid,
+        "chaos-report.txt",
+        "CHAOS_REPLY_ATTACHMENT_BODY",
+        "text/plain"
+      )
 
     {:ok, second_round} =
       start_response_run(%{
@@ -245,8 +200,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     refute Repo.get_by(OutboxEntry, source_actor_event_id: actor_event.id)
 
-    assert {:ok, %{status: :turn_completed}} =
-             complete_turn(turn_ref, final_committed)
+    assert {:ok, %{status: :completed}} =
+             finalize_run(run, final_committed)
 
     outbox =
       Repo.get_by!(OutboxEntry,
@@ -284,8 +239,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       adapter: "mock-provider"
     )
 
-    %{actor_event: actor_event, turn_ref: turn_ref} =
-      start_accepted_actor_event(agent.uid, %{
+    %{actor_event: actor_event, run: run} =
+      admit_event(agent.uid, %{
         source_event_id: "reply-attachment-journal-event",
         signal_channel_id: "mock:chat:reply-attachment-journal",
         source_entry_id: "human-reply-attachment-journal-1",
@@ -317,20 +272,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
                  "call_id" => "call_reply_attachment_journal",
                  "name" => "reply_attachment",
                  "arguments" =>
-                   ~s({"path":"/agents/#{agent.uid}/user-files/charts/sales.png","name":"sales.png","mimeType":"image/png"})
+                   ~s({"path":"charts/sales.png","name":"sales.png","mimeType":"image/png"})
                }
              ])
 
-    attachment = %{
-      "agent_computer_path" => "/agents/#{agent.uid}/user-files/charts/sales.png",
-      "user_files_relative_path" => "charts/sales.png",
-      "name" => "sales.png",
-      "mime_type" => "image/png",
-      "size" => 4096
-    }
+    attachment = sent_attachment_fixture(agent.uid, "sales.png", <<137, 80, 78, 71>>, "image/png")
 
     assert {:ok, journal} =
-             StatefulResponses.record_tool_results(%{
+             record_tool_results(%{
                subject_uid: agent.uid,
                metadata: actor_event_metadata(actor_event.id),
                previous_response_id: "resp_#{first_committed.id}",
@@ -371,8 +320,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     refute Repo.get_by(OutboxEntry, source_actor_event_id: actor_event.id)
 
-    assert {:ok, %{status: :turn_completed}} =
-             complete_turn(turn_ref, final_committed)
+    assert {:ok, %{status: :completed}} =
+             finalize_run(run, final_committed)
 
     outbox =
       Repo.get_by!(OutboxEntry,
@@ -411,8 +360,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       adapter: "mock-provider"
     )
 
-    %{actor_event: actor_event, turn_ref: turn_ref} =
-      start_accepted_actor_event(agent.uid, %{
+    %{actor_event: actor_event, run: run} =
+      admit_event(agent.uid, %{
         source_event_id: "clarify-main-chain-event",
         signal_channel_id: "mock:chat:clarify",
         source_entry_id: "human-clarify-1",
@@ -484,8 +433,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     refute Repo.get_by(OutboxEntry, source_actor_event_id: actor_event.id)
 
-    assert {:ok, %{status: :turn_completed}} =
-             complete_turn(turn_ref, final_committed)
+    assert {:ok, %{status: :completed}} =
+             finalize_run(run, final_committed)
 
     outbox =
       Repo.get_by!(OutboxEntry,
@@ -518,43 +467,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
            ) == 1
   end
 
-  defp start_accepted_actor_event(agent_uid, event_attrs) do
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
+  defp admit_event(agent_uid, event_attrs) do
+    {:ok, %{actor_event: event}} =
+      Repo.transact(fn _repo ->
+        {:ok,
+         Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+           agent_uid,
+           "mock",
+           Ankole.SignalsGatewayFixtures.group_entry(event_attrs)
+         )}
+      end)
 
-    %{actor_event: actor_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
-        agent_uid,
-        "mock",
-        Ankole.SignalsGatewayFixtures.group_entry(event_attrs)
-      )
+    refute preview_handler_started?(event.id)
 
-    refute preview_handler_started?(actor_event.id)
+    assert {:ok, run} =
+             Admission.admit(%{agent_uid: agent_uid, session_id: event.session_id}, event)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    preview_handler = wait_for_preview_handler(actor_event.id)
-    assert_receive {:actor_lane, envelope}, 2_000
-    turn_ref = turn_start_payload!(envelope).turn
-
-    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
-
-    %{
-      actor_event: actor_event,
-      preview_handler: preview_handler,
-      turn_ref: turn_ref
-    }
+    Presentation.start(run, self())
+    %{actor_event: event, run: run, preview_handler: wait_for_preview_handler(event.id)}
   end
 
-  defp complete_turn(turn_ref, final_response, outcome \\ "loop_finished") do
-    commit_turn_completion(turn_ref, "resp_#{final_response.id}", outcome)
+  defp finalize_run(run, final_response, outcome \\ "loop_finished") do
+    Run.finalize(%{run | anchor: final_response.id}, outcome)
   end
 
   # StatefulResponses is an internal storage API. The caller-owned metadata
@@ -565,7 +499,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp preview_handler_started?(actor_event_id) do
-    Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) != []
+    Ankole.SignalsGateway.AIReplyPreview.lookup(actor_event_id) != []
   end
 
   defp use_mock_signal_provider_plugin(_context) do
@@ -590,7 +524,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   defp wait_for_preview_handler(actor_event_id, attempts_left \\ 20)
 
   defp wait_for_preview_handler(actor_event_id, attempts_left) when attempts_left > 0 do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+    case Ankole.SignalsGateway.AIReplyPreview.lookup(actor_event_id) do
       [{pid, _value}] ->
         pid
 
@@ -602,18 +536,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
   defp wait_for_preview_handler(actor_event_id, 0) do
     flunk("preview handler for actor_event_id=#{actor_event_id} was not started")
-  end
-
-  defp live_delivery_count(actor_event_id) do
-    live_states = ActorEventDelivery.live_states()
-
-    Repo.aggregate(
-      from(delivery in ActorEventDelivery,
-        where: delivery.actor_event_id_fence == ^actor_event_id,
-        where: delivery.state in ^live_states
-      ),
-      :count
-    )
   end
 
   defp dispatch_attachment_outbox!(ai_message_id) do
@@ -657,23 +579,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     flunk("expected attachment and final reply mirrors for ai_message_id=#{ai_message_id}")
   end
 
-  defp wait_for_final_mirror(ai_message_id, attempts_left \\ 20)
-
-  defp wait_for_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
-    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
-      %Entry{} = entry ->
-        entry
-
-      nil ->
-        Process.sleep(50)
-        wait_for_final_mirror(ai_message_id, attempts_left - 1)
-    end
-  end
-
-  defp wait_for_final_mirror(ai_message_id, 0) do
-    flunk("expected final reply mirror for ai_message_id=#{ai_message_id}")
-  end
-
   defp refute_final_mirror(ai_message_id, attempts_left \\ 3)
 
   defp refute_final_mirror(ai_message_id, attempts_left) when attempts_left > 0 do
@@ -683,4 +588,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp refute_final_mirror(_ai_message_id, 0), do: :ok
+
+  defp record_tool_results(attrs) do
+    {:ok, result} =
+      Ankole.Repo.transact(fn repo ->
+        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+      end)
+
+    case result do
+      {:ok, message, _disposition} ->
+        StatefulResponses.publish_tool_result_events(message)
+        {:ok, message}
+
+      error ->
+        error
+    end
+  end
 end

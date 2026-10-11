@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.DiscordAdapter do
 
   alias Ankole.Plugins.DiscordAdapter.Config
   alias Ankole.Plugins.DiscordAdapter.ConnectionReconciler
-  alias Ankole.Plugins.DiscordAdapter.ConnectionSupervisor
   alias Ankole.Plugins.DiscordAdapter.Inbound
   alias Ankole.Plugins.DiscordAdapter.Outbox
   alias Ankole.Plugins.DiscordAdapter.ReplyPreview
@@ -57,7 +56,6 @@ defmodule Ankole.Plugins.DiscordAdapter do
         ingress_module: Inbound,
         outbox_module: Outbox,
         reply_preview_module: ReplyPreview,
-        connection_supervisor: ConnectionSupervisor,
         inbound_capabilities: [
           "entry_receive",
           "reaction_add",

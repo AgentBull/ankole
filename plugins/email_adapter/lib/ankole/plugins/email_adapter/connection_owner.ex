@@ -22,8 +22,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   defstruct [
     :key,
     :config,
-    :secret_fingerprint,
-    :consumer_fingerprint,
     :consumer,
     :task,
     :uidvalidity,
@@ -37,7 +35,16 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     key = Keyword.fetch!(opts, :key)
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {@registry, key}})
+
+    GenServer.start_link(__MODULE__, opts,
+      name:
+        {:via, Registry,
+         {@registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(
+            Keyword.fetch!(opts, :config),
+            [Keyword.fetch!(opts, :consumer)]
+          )}}
+    )
   end
 
   def child_spec(opts) do
@@ -47,12 +54,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
       type: :worker,
       restart: :permanent
     }
-  end
-
-  @spec ensure_configuration(GenServer.server(), map(), map()) ::
-          {:ok, pid()} | {:error, :configuration_changed}
-  def ensure_configuration(server, config, consumer) do
-    GenServer.call(server, {:ensure_configuration, config, consumer})
   end
 
   @spec status(GenServer.server()) :: map()
@@ -73,13 +74,12 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
     Process.flag(:trap_exit, true)
     config = Config.runtime(Keyword.fetch!(opts, :config))
     consumer = Keyword.fetch!(opts, :consumer)
+    Ankole.Repo.put_tenant_id(Map.fetch!(consumer, :tenant_id))
 
     {:ok,
      %__MODULE__{
        key: Keyword.fetch!(opts, :key),
        config: config,
-       secret_fingerprint: Config.secret_fingerprint(config),
-       consumer_fingerprint: fingerprint(consumer),
        consumer: consumer
      }, {:continue, :connect}}
   end
@@ -88,15 +88,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   def handle_continue(:connect, state), do: {:noreply, start_session(state)}
 
   @impl true
-  def handle_call({:ensure_configuration, config, consumer}, _from, state) do
-    unchanged? =
-      Config.secret_fingerprint(config) == state.secret_fingerprint and
-        fingerprint(consumer) == state.consumer_fingerprint
-
-    reply = if unchanged?, do: {:ok, self()}, else: {:error, :configuration_changed}
-    {:reply, reply, state}
-  end
-
   def handle_call(:status, _from, state), do: {:reply, public_status(state), state}
 
   @impl true
@@ -149,7 +140,12 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
     consumer = state.consumer
 
     handler = fn event ->
-      case Inbound.handle_message_receive("message", event, [consumer]) do
+      result =
+        Ankole.Tenants.dispatch_inbound(fn ->
+          Inbound.handle_message_receive("message", event, [consumer])
+        end)
+
+      case result do
         {:ok, [result]} -> {:ok, result}
         {:ok, results} -> {:ok, results}
         {:error, _reason} = error -> error
@@ -157,9 +153,12 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
     end
 
     task =
-      Task.Supervisor.async_nolink(@task_supervisor, fn ->
-        MailboxSession.run(config, handler, owner: owner)
-      end)
+      Task.Supervisor.async_nolink(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          MailboxSession.run(config, handler, owner: owner)
+        end)
+      )
 
     %{state | task: task, blocked_reason: nil}
   end
@@ -196,12 +195,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   defp connection_state(%{blocked_reason: reason}) when not is_nil(reason), do: :blocked
   defp connection_state(%{ready: true}), do: :running
   defp connection_state(_state), do: :starting
-
-  defp fingerprint(value) do
-    :sha256
-    |> :crypto.hash(:erlang.term_to_binary(value))
-    |> Base.encode16(case: :lower)
-  end
 
   defp sanitize_reason(reason) when is_atom(reason), do: reason
   defp sanitize_reason({kind, detail}) when is_atom(kind) and is_atom(detail), do: {kind, detail}

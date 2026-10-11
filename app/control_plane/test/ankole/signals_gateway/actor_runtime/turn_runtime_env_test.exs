@@ -5,11 +5,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
 
   import Ankole.PrincipalsFixtures
 
   @runtime_name "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL"
-  @version_name "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_ACCESS_VERSION"
+  @profile_name "ANKOLE_RUNTIME_LARK_PROFILE"
 
   test "exports the active human Principal from the normalized event author" do
     %{principal: principal} = human_fixture()
@@ -19,17 +20,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
       payload: %{"data" => %{"entry" => %{"author" => %{"principal_uid" => principal.uid}}}}
     }
 
-    assert TurnRuntimeEnv.resolve(event) == %{
-             @runtime_name => principal.uid,
-             @version_name => "1"
-           }
+    assert TurnRuntimeEnv.resolve(event) == human_env(principal.uid, 1)
   end
 
   test "uses sender_key only when the event has no normalized author Principal" do
     %{principal: principal} = human_fixture()
 
     assert TurnRuntimeEnv.resolve(%ActorEvent{sender_key: principal.uid, payload: %{}}) ==
-             %{@runtime_name => principal.uid, @version_name => "1"}
+             human_env(principal.uid, 1)
   end
 
   test "prefers the Turn requester over the last author in a multi-user batch" do
@@ -45,10 +43,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
       }
     }
 
-    assert TurnRuntimeEnv.resolve(event) == %{
-             @runtime_name => requester.uid,
-             @version_name => "1"
-           }
+    assert TurnRuntimeEnv.resolve(event) == human_env(requester.uid, 1)
   end
 
   test "does not replace an ineligible requester with the last batch author" do
@@ -87,11 +82,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
     assert TurnRuntimeEnv.resolve(%ActorEvent{payload: %{}}) == %{}
   end
 
-  test "exports the new access version only after reviewed restoration" do
+  test "changes the Lark profile only after reviewed restoration" do
     alias Ankole.Principals.HumanAccess
     %{principal: human} = human_fixture()
     event = %ActorEvent{sender_key: human.uid, payload: %{}}
-    assert TurnRuntimeEnv.resolve(event)[@version_name] == "1"
+    assert TurnRuntimeEnv.resolve(event) == human_env(human.uid, 1)
     assert {:ok, _} = HumanAccess.disable(human.uid, "review", nil, "disable")
     assert TurnRuntimeEnv.resolve(event) == %{}
     [restriction] = HumanAccess.restrictions(human.uid)
@@ -104,7 +99,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
     assert {:ok, _} =
              HumanAccess.restore(human.uid, review.fingerprint, nil, "approved", "restore")
 
-    assert TurnRuntimeEnv.resolve(event) == %{@runtime_name => human.uid, @version_name => "2"}
+    assert TurnRuntimeEnv.resolve(event) == human_env(human.uid, 2)
+  end
+
+  test "names the Lark profile byte for byte as the Worker did before" do
+    # Computed with the former Worker code: `ankole-u-` and the base64url
+    # HMAC-SHA256 of the identity, keyed with the installation key.
+    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-alice", 1) ==
+             "ankole-u-ua-czUjC-GGMM5BAg-Kfip_pfRS6mPEuQ23AIE5h6EA"
+
+    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-alice", 2) ==
+             "ankole-u-QWn2bkOEC6Av4ZhcK0yYIvrRdgFFxSD00JccXhV_f3Q"
+
+    assert TurnRuntimeEnv.lark_profile("worker-secret", "human-bob", 1) ==
+             "ankole-u-IhXPvK8PMtK4SSP5GDnOGf9Y130C4iJovRzq9fO6CD8"
+
+    assert TurnRuntimeEnv.lark_profile("other-worker-secret", "human-alice", 1) ==
+             "ankole-u-GJi4AvNXSfa4DaOfrvPgcJctPx4FsOqiHGjKEoAeT7I"
   end
 
   test "reads only the canonical current sender runtime value" do
@@ -114,5 +125,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
     assert TurnRuntimeEnv.current_sender_principal_uid(%{@runtime_name => ""}) == nil
     assert TurnRuntimeEnv.current_sender_principal_uid(%{"other" => "principal-1"}) == nil
     assert TurnRuntimeEnv.current_sender_principal_uid(nil) == nil
+  end
+
+  defp human_env(uid, version) do
+    %{
+      @runtime_name => uid,
+      @profile_name => TurnRuntimeEnv.lark_profile(WorkerAuthKey.ensure!(), uid, version)
+    }
   end
 end

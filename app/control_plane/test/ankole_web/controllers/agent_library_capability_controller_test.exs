@@ -2,6 +2,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
+  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
@@ -11,7 +12,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
 
   setup do
@@ -34,7 +34,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
          conn: conn
        } do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     global = conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(200)
 
@@ -135,19 +135,17 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   test "Agent-private installed Skills appear only in that Agent's standalone list", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, _sync} =
-             Library.replace_installed_skill_observations(agent.uid, [
-               %{
-                 skill_name: "private-notes",
-                 description: "Private notes Skill.",
-                 default_enabled: true,
-                 tags: []
-               }
-             ])
+    drive_file_fixture(agent.uid, "skills/private-notes/SKILL.md", """
+    ---
+    name: private-notes
+    description: Private notes Skill.
+    ---
+    Take notes.
+    """)
 
     response =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
@@ -195,10 +193,12 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert Repo.reload!(existing_job).workspace_template_id == "deep-research"
   end
 
-  test "capability endpoints require a bearer token and reject missing resources", %{conn: conn} do
+  test "capability endpoints require a browser session and reject missing resources", %{
+    conn: conn
+  } do
     assert conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(401)
 
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     assert %{"error" => %{"code" => "not_found"}} =
              conn
@@ -214,36 +214,40 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   test "a Skill disable sends one scoped control to each active Job turn", %{conn: conn} do
     %{principal: agent} = background_agent_fixture()
+    {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "coding")
+
+    :ok =
+      Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(profile["provider_id"])
+
     route = "agent-library-skill-disable-#{System.unique_integer([:positive])}"
     :ok = WorkerRoute.register_local_worker(route, self())
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
-    assert {:ok, %{job: job, dispatch_event: event}} = create_job(agent.uid, "skill-disable", nil)
+    assert {:ok, _worker} =
+             Ankole.SignalsGateway.ActorRuntimeCase.admit_worker(route, %{worker_id: agent.uid})
 
-    assert {:ok, _delivery} =
-             %ActorEventDelivery{}
-             |> ActorEventDelivery.changeset(%{
-               actor_event_id: event.id,
+    assert {:ok, %{job: job}} = create_job(agent.uid, "skill-disable", nil)
+    assert job.authorization_kind == "service"
+
+    event =
+      Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+        session_id: BackgroundAgentJobs.job_session_id(job.id),
+        type: "background_agent_job.dispatch"
+      )
+
+    assert event.authorization_kind == job.authorization_kind
+
+    assert {:ok, _driver} =
+             Ankole.Conversations.ensure_driver(%{
                agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(job.id),
-               queue_sequence: event.queue_sequence,
-               attempt_no: 1,
-               actor_lane_message_id: "skill-disable-turn",
-               activation_uid: "skill-disable-activation",
-               actor_epoch: 1,
-               actor_event_id_fence: event.id,
-               revision: 0,
-               worker_id: "skill-disable-worker",
-               transport_route: route,
-               state: "accepted",
-               send_outcome: "sent_or_queued",
-               error: %{}
+               session_id: BackgroundAgentJobs.job_session_id(job.id)
              })
-             |> Repo.insert()
+
+    assert_receive {:actor_lane, %{body: {:turn_start, _}}}, 2_000
 
     response =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/skills/pdf", %{
         "enabled" => false
       })

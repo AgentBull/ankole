@@ -7,7 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   and thread replay reads them back when a lost Codex thread must be rebuilt.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

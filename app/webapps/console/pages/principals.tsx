@@ -1,3 +1,4 @@
+import { principalLabel } from '../state/principal-label'
 import { HumanAccessSection } from './principal-access'
 import { WorkAccessReview } from './work-access-review'
 import {
@@ -16,7 +17,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { RiKey2Line } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -71,7 +72,15 @@ export function PrincipalsListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (principals.data?.principals ?? []).filter(principal =>
-    matchesResourceSearch(searchQuery, principal.uid, principal.display_name, principal.type, principal.status)
+    matchesResourceSearch(
+      searchQuery,
+      principal.uid,
+      principal.email,
+      principal.handle,
+      principal.display_name,
+      principal.type,
+      principal.status
+    )
   )
 
   return (
@@ -82,7 +91,7 @@ export function PrincipalsListPage() {
       createLabel={localIdentity.enabled ? t('console.principals.new_user') : undefined}
       columns={[
         t('console.principals.principal'),
-        t('console.principals.uid'),
+        t('console.principals.identity'),
         t('console.principals.type'),
         t('console.principals.status')
       ]}
@@ -113,13 +122,14 @@ export function PrincipalsListPage() {
         <TableRow key={principal.uid}>
           <TableCell>
             <Link
-              className="flex items-center gap-2 text-foreground hover:text-link hover:underline"
+              data-row-link
+              className="flex items-center gap-2 text-foreground"
               to={encodeURIComponent(principal.uid)}>
               <PrincipalAvatar principal={principal} />
-              <span className="truncate">{principal.display_name ?? principal.uid}</span>
+              <span className="truncate">{principalLabel(principal)}</span>
             </Link>
           </TableCell>
-          <TableCell className="font-mono text-xs">{principal.uid}</TableCell>
+          <TableCell className="text-sm">{principal.email ?? principal.handle ?? '—'}</TableCell>
           <TableCell>
             <Badge variant="secondary">{t(`console.principals.type_${principal.type}`)}</Badge>
           </TableCell>
@@ -129,7 +139,9 @@ export function PrincipalsListPage() {
             </StatusIndicator>
           </TableCell>
           <RowViewAction
-            label={t('common.view_details_for', { name: principal.display_name ?? principal.uid })}
+            label={t('common.view_details_for', {
+              name: principalLabel(principal)
+            })}
             to={encodeURIComponent(principal.uid)}
           />
         </TableRow>
@@ -154,11 +166,12 @@ export function PrincipalDetailPage() {
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
             <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
-              {loadedPrincipal?.display_name ?? uid}
+              {loadedPrincipal ? principalLabel(loadedPrincipal) : uid}
             </h2>
-            <p className="truncate font-mono text-xs text-muted-foreground">{uid}</p>
-            {loadedPrincipal?.email ? (
-              <p className="truncate text-sm text-muted-foreground">{loadedPrincipal.email}</p>
+            {loadedPrincipal?.email || loadedPrincipal?.handle ? (
+              <p className="truncate text-sm text-muted-foreground">
+                {loadedPrincipal.email ?? loadedPrincipal.handle}
+              </p>
             ) : null}
           </div>
           {loadedPrincipal ? (
@@ -200,7 +213,6 @@ export function PrincipalDetailPage() {
 /** Static operator-domain groups this principal belongs to, with join/leave. */
 function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const groups = useQuery(ankoleWebPrincipalControllerGroupsOptions({ path: { uid: principal.uid } }))
   const allGroups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const memberships = groups.data?.principal_groups ?? []
@@ -209,7 +221,6 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
     ...ankoleWebAuthZGroupControllerAddMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principals.group_added', { id: variables.path.name }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -217,7 +228,6 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
     ...ankoleWebAuthZGroupControllerRemoveMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principals.group_removed', { id: variables.path.name }))
-      void queryClient.invalidateQueries()
     },
     // The server refuses removing the last admin member (409); toast its reason.
     onError: error => toast.error(requestErrorMessage(error))
@@ -279,7 +289,8 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
                     <TableRow key={group.id}>
                       <TableCell>
                         <Link
-                          className="font-mono text-xs text-foreground hover:text-link hover:underline"
+                          data-row-link
+                          className="font-mono text-xs text-foreground"
                           to={`/access/groups/${encodeURIComponent(group.name)}`}>
                           {group.name}
                         </Link>
@@ -345,7 +356,7 @@ function PrincipalAvatar({ principal, size = 'sm' }: { principal: PrincipalItem;
   return (
     <Avatar size={size}>
       {principal.avatar_url ? <AvatarImage src={principal.avatar_url} alt="" /> : null}
-      <AvatarFallback>{(principal.display_name ?? principal.uid).slice(0, 1).toUpperCase()}</AvatarFallback>
+      <AvatarFallback>{principalLabel(principal).slice(0, 1).toUpperCase()}</AvatarFallback>
     </Avatar>
   )
 }

@@ -10,6 +10,7 @@ defmodule Ankole.ConsoleReadiness do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
   @required_profiles ~w(primary light heavy)
   @total_core_steps 5
@@ -26,7 +27,10 @@ defmodule Ankole.ConsoleReadiness do
     missing_profiles = missing_profiles(target, ready_provider_ids)
     agent_complete = valid_agent?(target)
     profiles_complete = agent_complete and missing_profiles == []
-    ready_worker_count = Enum.count(SignalsGateway.list_workers(), &(&1.status == "ready"))
+    ready_worker_count = Enum.count(SignalsGateway.list_workers(), &(&1.state == "ready"))
+    # A Worker runs only while its Agent needs one, so the step checks that
+    # the default provider accepts requests.
+    worker_provider_ready = AgentWorkers.provider_status() == :ok
     agent_uid = agent_uid(target)
     # An Agent with no bound channel receives nothing, so a Signal Binding is
     # part of a working deployment instance rather than an optional extra. The
@@ -40,7 +44,7 @@ defmodule Ankole.ConsoleReadiness do
       ready_providers != [],
       agent_complete,
       profiles_complete,
-      ready_worker_count > 0,
+      worker_provider_ready,
       signal_route_complete
     ]
 
@@ -65,7 +69,7 @@ defmodule Ankole.ConsoleReadiness do
         missing_profiles: missing_profiles
       },
       worker: %{
-        complete: ready_worker_count > 0,
+        complete: worker_provider_ready,
         ready_count: ready_worker_count
       },
       signal_route: %{

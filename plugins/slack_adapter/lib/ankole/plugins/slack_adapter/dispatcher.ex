@@ -59,6 +59,10 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
   end
 
   defp handler(consumers, fun) do
-    fn event_type, %Event{} = event -> fun.(event_type, event, consumers) end
+    tenant_id = Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers)
+
+    fn event_type, %Event{} = event ->
+      Ankole.Tenants.dispatch_inbound(tenant_id, fn -> fun.(event_type, event, consumers) end)
+    end
   end
 end

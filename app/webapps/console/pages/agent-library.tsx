@@ -31,7 +31,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
@@ -316,7 +316,7 @@ function ScopeSelect({
   onChange,
   scope
 }: {
-  agents: Array<{ uid: string; display_name?: string | null }>
+  agents: Array<{ uid: string; handle: string; display_name?: string | null }>
   onChange: (value: string) => void
   scope: string
 }) {
@@ -330,7 +330,7 @@ function ScopeSelect({
         <SelectItem value={GLOBAL_LIBRARY_SCOPE}>{t('console.agent_library_capabilities.global_defaults')}</SelectItem>
         {agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
-            {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
+            {agent.display_name ? `${agent.display_name} · ${agent.handle}` : agent.handle}
           </SelectItem>
         ))}
       </SelectContent>
@@ -373,7 +373,7 @@ function AgentPluginCard({
       <CardHeader>
         <CardTitle className="normal-case">
           <Link
-            className="hover:text-link hover:underline"
+            className="hover:underline"
             to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
             {name}
           </Link>
@@ -614,7 +614,7 @@ function SkillLessonRow({ children, lesson }: { children?: React.ReactNode; less
           <span className="flex flex-wrap items-center gap-1.5">
             {t('console.agent_library_capabilities.lessons_evidence')}
             {lesson.evidence_job_ids.map(jobID => (
-              <Link key={jobID} className="text-link hover:underline" to={`/background-agent-jobs?job=${jobID}`}>
+              <Link key={jobID} className="link" to={`/background-agent-jobs?job=${jobID}`}>
                 #{jobID}
               </Link>
             ))}
@@ -861,11 +861,9 @@ function useLibraryCapabilities(scope: string) {
 
 function useCapabilityMutations(scope: string) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const refresh = () => void queryClient.invalidateQueries()
+
   const success = () => {
     toast.success(t('console.agent_library_capabilities.saved'))
-    refresh()
   }
   const error = (mutationError: unknown) => toast.error(requestErrorMessage(mutationError))
   const globalPlugin = useMutation({
@@ -915,19 +913,17 @@ type SkillLessonsController = {
 // immunity list, so Dreaming never re-adds equivalent content.
 function useSkillLessons(scope: string): SkillLessonsController | undefined {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const agentScope = scope !== GLOBAL_LIBRARY_SCOPE
   const lessonsQuery = useQuery({
     ...ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }),
     enabled: agentScope
   })
   const onError = (mutationError: unknown) => toast.error(requestErrorMessage(mutationError))
-  const refresh = () => void queryClient.invalidateQueries()
+
   const create = useMutation({
     ...ankoleWebAgentSkillLessonControllerCreateMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.lesson_added'))
-      refresh()
     },
     onError
   })
@@ -935,7 +931,6 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
     ...ankoleWebAgentSkillLessonControllerRetireMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.lesson_retired'))
-      refresh()
     },
     onError
   })
@@ -957,12 +952,10 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
 
 function useControlPlanePluginMutation() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   return useMutation({
     ...ankoleWebControlPlanePluginControllerUpdateMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.saved_for_restart'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

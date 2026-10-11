@@ -1,113 +1,70 @@
 import { ms } from '@agentbull/active-support'
 import { create } from '@bufbuild/protobuf'
 import {
-  AgentComputerWorkerCapacitySchema,
   AgentComputerWorkerHeartbeatSchema,
-  AgentComputerWorkerReadySchema,
   createEnvelope,
   envelopeHeader,
   type Envelope
 } from '../fabric/envelope_proto'
+import { errorMessage } from '../common/errors'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { WorkerConfig } from './config'
 import { workerLogger } from './logging'
+import type { WorkerDrainState } from './drain'
 
-/** Cadence for replaceable Worker liveness evidence. */
 export const heartbeatIntervalMs = ms('15s')
-/** Runtime label reported as lifecycle telemetry. */
-const workerRuntime = 'bun'
-/** Implementation version reported as telemetry, not as a protocol version. */
-const workerVersion = '0.1.0'
 
-/**
- * Builds the first lifecycle envelope after RuntimeFabric connects.
- *
- * Runtime and product version are observability metadata. Protocol compatibility
- * is enforced by the envelope header before this worker can enter the ready pool.
- */
-export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = config.maxConcurrentTurns): Envelope {
-  const available = clampAvailableSlots(config, availableTurnSlots)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerReady',
-      value: create(AgentComputerWorkerReadySchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        runtime: workerRuntime,
-        version: workerVersion,
-        maxTurns: config.maxConcurrentTurns,
-        availableTurnSlots: available
+/** Owns capacity shared by Job turns and environment workspaces. */
+export class Slots {
+  private count = 0
+  constructor(
+    private readonly config: WorkerConfig,
+    private readonly drain: WorkerDrainState,
+    private readonly send: EnvelopeSender
+  ) {}
+  used(): number {
+    return this.count
+  }
+  available(): number {
+    return Math.max(this.config.maxConcurrentSlots - this.count, 0)
+  }
+  reserve(): boolean {
+    if (this.count >= this.config.maxConcurrentSlots) return false
+    this.count += 1
+    return true
+  }
+  release(): void {
+    this.count -= 1
+  }
+  heartbeat(): Envelope {
+    const load = this.drain.load
+    return createEnvelope({
+      ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
+      body: {
+        case: 'workerHeartbeat',
+        value: create(AgentComputerWorkerHeartbeatSchema, {
+          incarnationId: this.config.incarnationID,
+          activeSlots: this.count,
+          maxSlots: this.config.maxConcurrentSlots,
+          availableSlots: this.available(),
+          activeTasks: load.activeTasks,
+          idleForMs: BigInt(load.idleForMs)
+        })
+      }
+    })
+  }
+  async publish(): Promise<void> {
+    try {
+      await this.send(this.heartbeat())
+    } catch (error) {
+      workerLogger.warning('worker.capacity_send_failed', 'Capacity will be reported on the next heartbeat', {
+        error: errorMessage(error)
       })
     }
-  })
+  }
 }
 
-/**
- * Builds the periodic liveness envelope for the admitted worker process.
- *
- * The control plane fences heartbeats by worker id and transport route, so an
- * old process cannot keep a replaced worker projection alive.
- */
-export function workerHeartbeatEnvelope(
-  config: WorkerConfig,
-  monotonicMs = Math.floor(performance.now()),
-  activeTurns = 0
-): Envelope {
-  const available = clampAvailableSlots(config, config.maxConcurrentTurns - activeTurns)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerHeartbeat',
-      value: create(AgentComputerWorkerHeartbeatSchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        monotonicMs: BigInt(monotonicMs),
-        activeTurns,
-        runtime: workerRuntime,
-        version: workerVersion,
-        maxTurns: config.maxConcurrentTurns,
-        availableTurnSlots: available
-      })
-    }
-  })
-}
-
-/**
- * Builds the capacity projection used by the simple worker scheduler.
- *
- * Capacity is intentionally small here: it answers whether the worker can take
- * more turns, not which actor or tool classes it supports.
- */
-export function workerCapacityEnvelope(
-  config: WorkerConfig,
-  availableTurnSlots = config.maxConcurrentTurns,
-  activeTurns = 0
-): Envelope {
-  const available = clampAvailableSlots(config, availableTurnSlots)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-capacity-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerCapacity',
-      value: create(AgentComputerWorkerCapacitySchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        maxTurns: config.maxConcurrentTurns,
-        activeTurns,
-        availableTurnSlots: available
-      })
-    }
-  })
-}
-
-/**
- * Treats heartbeat as replaceable lease evidence. A heartbeat that the control
- * plane does not answer, or that finds the connection closed, is dropped; the
- * next one renews the lease. Any other transport error remains fatal.
- */
+/** A heartbeat is replaceable lease evidence; the next one renews a lost send. */
 export async function sendWorkerHeartbeat(sendEnvelope: EnvelopeSender, heartbeat: Envelope): Promise<void> {
   try {
     await sendEnvelope(heartbeat)
@@ -115,18 +72,6 @@ export async function sendWorkerHeartbeat(sendEnvelope: EnvelopeSender, heartbea
     if (!isRuntimeFabricTransportError(error, 'socket_closed') && !isRuntimeFabricTransportError(error, 'timeout')) {
       throw error
     }
-
     workerLogger.warning('worker.heartbeat_skipped', 'worker heartbeat skipped', { reason: error.code })
   }
-}
-
-/**
- * Clamps capacity before the Worker projects it to the control plane.
- *
- * A bad local counter degrades to zero capacity instead of advertising a value
- * that the scheduler cannot safely interpret.
- */
-function clampAvailableSlots(config: WorkerConfig, availableTurnSlots: number): number {
-  if (!Number.isInteger(availableTurnSlots)) return 0
-  return Math.max(0, Math.min(config.maxConcurrentTurns, availableTurnSlots))
 }

@@ -41,7 +41,6 @@ RUN sed -i \
     7zip \
     aria2 \
     bash \
-    bubblewrap \
     build-essential \
     ca-certificates \
     chromium-headless-shell \
@@ -58,8 +57,6 @@ RUN sed -i \
     imagemagick \
     jq \
     less \
-    libzmq3-dev \
-    libzmq5 \
     lsof \
     openssh-client \
     pandoc \
@@ -94,7 +91,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 
 # pdf-inspector publishes no prebuilt binaries, so its `detect-pdf` and
 # `pdf2md` CLIs build from crates.io here. `--root /usr/local` keeps them on
-# the sandbox-visible PATH instead of /root/.cargo/bin. The CLIs have no
+# the PATH of the Worker's commands instead of /root/.cargo/bin. The CLIs have no
 # `--version`, so the check classifies a generated PDF.
 RUN cargo install pdf-inspector --version "${PDF_INSPECTOR_VERSION}" --locked --root /usr/local \
     --bin detect-pdf --bin pdf2md \
@@ -270,8 +267,8 @@ RUN set -eux; \
 
 # Bake the PP-OCRv6 medium models into the rapidocr package directory and prove
 # the image-level OpenVINO path with one rendered-text round trip. The Agent
-# Computer integration suite proves the same path inside bubblewrap. Keep the
-# params aligned with app/library/skills/ocr/scripts/ocr.py.
+# Computer integration suite proves the same path through the OCR Skill. Keep
+# the params aligned with app/library/skills/ocr/scripts/ocr.py.
 RUN <<'OCR_SMOKE'
 set -eu
 cat > /tmp/ocr-smoke.py <<'PY'

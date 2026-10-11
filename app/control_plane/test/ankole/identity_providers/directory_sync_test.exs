@@ -18,6 +18,66 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
     Cache.clear_for_test()
   end
 
+  test "a broken tenant cannot prevent another tenant's periodic directory sync", %{
+    tenant: broken
+  } do
+    allow_cache_database_access()
+
+    assert {:ok, _} =
+             AppConfigure.put_tenant_by_key("principals.identity_providers.active", [
+               %{
+                 "provider_id" => "broken",
+                 "adapter_id" => "missing-adapter",
+                 "plugin_id" => "missing-plugin",
+                 "config_key" => "principals.identity_providers.lark.broken",
+                 "enabled" => true
+               }
+             ])
+
+    healthy = create_tenant()
+
+    Repo.with_tenant(healthy.id, fn ->
+      assert {:ok, _} =
+               IdentityProviders.save_provider(
+                 "healthy",
+                 "lark",
+                 %{"appID" => "cli_healthy", "appSecret" => "secret"},
+                 true
+               )
+    end)
+
+    assert {:ok, %{errors: errors}} = perform_job(EnqueueDirectorySyncs, %{})
+    assert Enum.any?(errors, &(&1.tenant_id == broken.id))
+    assert_enqueued(worker: SyncProvider, args: %{provider_id: "healthy", tenant_id: healthy.id})
+  end
+
+  test "a provider without stored configuration fails its Oban run" do
+    allow_cache_database_access()
+    key = "principals.identity_providers.missing-sync-config"
+
+    definition =
+      AppConfigure.define(key: key, encrypted: true, schema: Ankole.AppConfigure.Schema.object())
+
+    assert :ok = AppConfigure.register_definitions([definition])
+
+    provider = %{
+      "provider_id" => "missing-sync-config",
+      "adapter_id" => "lark",
+      "plugin_id" => "lark-adapter",
+      "config_key" => key,
+      "enabled" => true
+    }
+
+    assert {:ok, _} =
+             AppConfigure.put_tenant_by_key("principals.identity_providers.active", [provider])
+
+    assert :error = IdentityProviders.provider_config(provider)
+
+    assert_raise CaseClauseError, fn ->
+      perform_job(SyncProvider, %{"provider_id" => provider["provider_id"]})
+    end
+  end
+
   test "directory full sync interval defaults to six hours and is operator configurable" do
     assert {:ok, 900} = IdentityProviderConfig.directory_full_sync_interval_seconds()
 
@@ -227,7 +287,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
              Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
                provider: "lark-main",
                external_id: "ou_member_1",
-               uid: "ou_member_1",
                display_name: "Member One"
              })
 
@@ -246,7 +305,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
              Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
                provider: "lark-main",
                external_id: "ou_mail_1",
-               uid: "ou_mail_1",
                display_name: "Mail One",
                email: "Mail.One@Corp.example"
              })
@@ -260,7 +318,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
              Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
                provider: "lark-main",
                external_id: "ou_mail_1",
-               uid: "ou_mail_1",
                email: "mail.one@corp.example"
              })
 
@@ -276,7 +333,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
              Ankole.IdentityProviders.Directory.upsert_user("lark-main", %{
                provider: "lark-main",
                external_id: "ou_mail_2",
-               uid: "ou_mail_2",
                email: "claimed@corp.example"
              })
 

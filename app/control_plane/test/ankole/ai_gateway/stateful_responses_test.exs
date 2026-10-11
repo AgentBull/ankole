@@ -188,11 +188,13 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       tasks =
         for _index <- 1..2 do
-          Task.async(fn ->
-            receive do
-              :start -> StatefulResponses.start_planned_response_run(attrs)
-            end
-          end)
+          Task.async(
+            Repo.bind_tenant(fn ->
+              receive do
+                :start -> StatefulResponses.start_planned_response_run(attrs)
+              end
+            end)
+          )
         end
 
       Enum.each(tasks, fn task ->
@@ -298,7 +300,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         metadata: %{"request_metadata" => %{"opaque" => "kept"}}
       }
 
-      assert {:ok, journal} = StatefulResponses.record_tool_results(attrs)
+      assert {:ok, journal} = record_tool_results(attrs)
       assert journal.status == "complete"
       assert journal.type == "message"
       assert journal.previous_message_id == anchor.id
@@ -334,7 +336,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
-      assert {:ok, duplicate} = StatefulResponses.record_tool_results(attrs)
+      assert {:ok, duplicate} = record_tool_results(attrs)
       assert duplicate.id == journal.id
 
       assert_receive {^handler_id, query, params}, 1_000
@@ -397,7 +399,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       }
 
       assert {:ok, journal} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [output, output]
@@ -438,7 +440,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  "invalid_output_count" => 1,
                  "quarantine_response_id" => quarantine_response_id
                }}} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [invalid_output]
@@ -477,7 +479,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       }
 
       assert {:ok, journal} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [output]
@@ -524,7 +526,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                    }
                  ]
                }}} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [
@@ -569,7 +571,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  "orphan_call_ids" => ["call_orphan"],
                  "quarantine_response_id" => quarantine_response_id,
                  "quarantine_status" => "error"
-               }}} = StatefulResponses.record_tool_results(attrs)
+               }}} = record_tool_results(attrs)
 
       quarantine_id = String.replace_prefix(quarantine_response_id, "resp_", "")
       quarantined = Repo.get!(Message, quarantine_id)
@@ -586,7 +588,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       assert {:error,
               {:tool_results_quarantined, %{"quarantine_response_id" => ^quarantine_response_id}}} =
-               StatefulResponses.record_tool_results(attrs)
+               record_tool_results(attrs)
     end
 
     test "quarantines outputs for explicitly incomplete calls" do
@@ -614,7 +616,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  "reason" => "non_executable_tool_call_output",
                  "non_executable_call_ids" => ["call_incomplete"]
                }}} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [
@@ -660,7 +662,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  "reason" => "orphan_tool_call_output",
                  "orphan_call_ids" => ["call_shared"]
                }}} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [
@@ -680,7 +682,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       }
 
       assert {:ok, journal} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [scoped_output]
@@ -702,7 +704,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = StatefulResponses.commit_complete(anchor, [%{"type" => "message"}])
 
       assert {:error, :invalid_tool_results} =
-               StatefulResponses.record_tool_results(%{
+               record_tool_results(%{
                  subject_uid: agent.principal.uid,
                  previous_response_id: "resp_#{anchor.id}",
                  request_items: [%{"type" => "message", "role" => "user", "content" => "steer"}]
@@ -1289,5 +1291,21 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       },
       usage: %{}
     })
+  end
+
+  defp record_tool_results(attrs) do
+    {:ok, result} =
+      Ankole.Repo.transact(fn repo ->
+        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+      end)
+
+    case result do
+      {:ok, message, _disposition} ->
+        StatefulResponses.publish_tool_result_events(message)
+        {:ok, message}
+
+      error ->
+        error
+    end
   end
 end

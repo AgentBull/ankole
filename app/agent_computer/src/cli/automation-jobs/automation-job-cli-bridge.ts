@@ -1,29 +1,33 @@
-import { realpathSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { lstat } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { errorMessage } from '../../common/errors'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
-import { pathIsWithin } from '../../core/path-boundary'
 import {
+  CLI_REQUEST_MAX_BYTES,
+  parseCLIRequest,
   startSocketLineBridge,
   type SocketLineBridge,
   type SocketLineBridgeResponse
 } from '../../core/socket-line-bridge'
-import { rpcMethods, type AutomationJobRPCRequester } from '../../lanes/rpc_lane'
+import { type Drive, joinDrivePath } from '../../drive/drive'
+import { RPCRejectedError, type AutomationJobRPCRequester } from '../../lanes/rpc_lane'
 import { AutomationJobCLICommand } from './automation-job-cli-protocol'
 
-const maxCommandBytes = 16 * 1024
+/** Keeps the drive folder name, with its random suffix, inside one 255-byte path segment. */
+const maxFolderNameCodePoints = 48
 
 /**
  * Starts the turn-local bridge for automation job management CLIs.
  */
 export function startAutomationJobCLIBridge(opts: {
-  agentHome: string
+  drive: Drive
   requestAutomationJobRPC: AutomationJobRPCRequester
   socketRoot?: string
 }): SocketLineBridge {
   return startSocketLineBridge({
     socketPath: join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-aj-${randomUUID()}.sock`),
-    maxRequestBytes: maxCommandBytes,
+    maxRequestBytes: CLI_REQUEST_MAX_BYTES,
     oversizeError: 'automation job CLI request is too large',
     handleLine: line => executeLine(line, opts)
   })
@@ -32,73 +36,78 @@ export function startAutomationJobCLIBridge(opts: {
 async function executeLine(
   line: string,
   opts: {
-    agentHome: string
+    drive: Drive
     requestAutomationJobRPC: AutomationJobRPCRequester
   }
 ): Promise<SocketLineBridgeResponse> {
-  let raw: unknown
-
-  try {
-    raw = JSON.parse(line)
-  } catch {
-    return { ok: false, error: 'automation job CLI request must be one JSON object' }
-  }
-
-  const parsed = AutomationJobCLICommand.safeParse(raw)
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues.map(issue => issue.message).join('; ') }
-  }
-
-  const command = parsed.data
+  const command = parseCLIRequest(line, AutomationJobCLICommand, 'automation job CLI request must be one JSON object')
   const call = opts.requestAutomationJobRPC
 
   if (command.operation === 'create') {
-    const directoryPath = validatedJobDirectory(opts.agentHome, command.cwd, command.directory_path)
-    const result = await call(rpcMethods.automationJobCreate, {
-      directoryPath,
-      label: command.label,
-      wakeOnFailure: command.wake_on_failure
-    })
+    const result = await createJob(opts.drive, call, command)
     return { ok: true, result }
   }
 
   if (command.operation === 'list') {
-    const result = await call(rpcMethods.automationJobList, command.limit ? { limit: command.limit } : {})
+    const result = await call('automation_job.list', command.limit ? { limit: command.limit } : {})
     return { ok: true, result }
   }
 
   if (command.operation === 'show') {
-    const result = await call(rpcMethods.automationJobShow, {
+    const result = await call('automation_job.show', {
       automationJobId: String(command.automation_job_id),
       ...(command.runs ? { runs: command.runs } : {})
     })
     return { ok: true, result }
   }
 
-  const result = await call(rpcMethods.automationJobCancel, {
+  const result = await call('automation_job.cancel', {
     automationJobId: String(command.automation_job_id)
   })
   return { ok: true, result }
 }
 
-export function validatedJobDirectory(agentHome: string, cwd: string, requestedPath: string): string {
-  const home = realpathSync(agentHome)
-  const candidate = realpathSync(resolve(cwd, requestedPath))
+/**
+ * Copies the script directory into a new drive folder under `automation/` and
+ * registers the job on that folder. Only a confirmed rejection removes the
+ * folder. An unknown outcome can already have committed the Job.
+ */
+async function createJob(
+  drive: Drive,
+  call: AutomationJobRPCRequester,
+  command: { cwd: string; directory_path: string; label: string; wake_on_failure: boolean }
+): Promise<Record<string, unknown>> {
+  const directory = resolve(command.cwd, command.directory_path)
+  await assertJobDirectory(directory)
 
-  if (!pathIsWithin(home, candidate)) {
-    throw new Error('automation job directory must resolve inside the current Agent Home')
-  }
-  if (!statSync(candidate).isDirectory()) {
-    throw new Error('automation job path must resolve to a directory')
-  }
+  const folderName = Array.from(basename(directory)).slice(0, maxFolderNameCodePoints).join('')
+  const drivePrefix = joinDrivePath('automation', `${folderName}-${randomBytes(4).toString('hex')}`)
+  await drive.put(directory, drivePrefix)
 
-  const entrypoint = realpathSync(join(candidate, 'main.ts'))
-  if (!pathIsWithin(candidate, entrypoint)) {
-    throw new Error('automation job main.ts must resolve inside the job directory')
+  try {
+    return await call('automation_job.create', {
+      drivePrefix,
+      label: command.label,
+      wakeOnFailure: command.wake_on_failure
+    })
+  } catch (error) {
+    // RPCLane can report a handler failure after the Job was inserted.
+    if (error instanceof RPCRejectedError && error.rejection.code !== 'rpc_handler_failed') {
+      await drive.remove(drivePrefix).catch(() => undefined)
+      throw error
+    }
+    throw new Error(
+      `Automation Job creation outcome is unknown: ${errorMessage(error)}. The script is kept at ${drivePrefix}. Run list-automation-jobs-cli and look for this drive_prefix before retrying create.`,
+      { cause: error }
+    )
   }
-  if (!statSync(entrypoint).isFile()) {
-    throw new Error('automation job directory must contain a main.ts file')
-  }
+}
 
-  return candidate
+/** The drive copies regular files only, so `main.ts` must be one. */
+async function assertJobDirectory(directory: string): Promise<void> {
+  const directoryStat = await lstat(directory).catch(() => undefined)
+  if (!directoryStat?.isDirectory()) throw new Error('automation job path must be a directory')
+
+  const entrypoint = await lstat(join(directory, 'main.ts')).catch(() => undefined)
+  if (!entrypoint?.isFile()) throw new Error('automation job directory must contain a regular main.ts file')
 }

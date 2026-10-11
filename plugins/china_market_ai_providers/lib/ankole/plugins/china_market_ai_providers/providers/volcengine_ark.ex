@@ -80,7 +80,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     )
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
     end

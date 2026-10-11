@@ -183,7 +183,7 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp model_selector(request) do
-    case Map.get(request, "model") || Map.get(request, :model) do
+    case Map.get(request, "model") do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, :missing_model}
@@ -281,7 +281,6 @@ defmodule Ankole.AIGateway.Resolver do
     |> Providers.projection()
     |> Map.take([
       "capabilities",
-      "capability_specs",
       "settings"
     ])
   end

@@ -7,7 +7,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   derived execution session `Ankole.Schedule.Cron.execution_session_id/1`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

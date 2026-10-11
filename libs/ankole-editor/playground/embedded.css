@@ -1,0 +1,28 @@
+@import '@ankole/uikit/styles.css';
+@import '@ankole/block-editor/styles.css';
+@source '.';
+
+.embedding-page {
+  padding: 24px;
+}
+.embedding-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-block: 24px;
+}
+.embedding-panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  height: 520px;
+  overflow: auto;
+}
+.host-controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-block: 20px;
+}
+.embedding-page pre {
+  white-space: pre-wrap;
+}

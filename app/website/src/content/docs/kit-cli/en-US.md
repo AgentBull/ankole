@@ -26,9 +26,9 @@ Run `env-setup` once on a fresh machine; the rest are detection helpers other co
 | `kit external-services start` | Start the devkit Docker Compose services (PostgreSQL and friends). Wrapped as `bun run services:start`. |
 | `kit external-services stop` | Stop the devkit Compose services. Wrapped as `bun run services:stop`. |
 | `kit external-services status` | Report devkit service health. Wrapped as `bun run services:status`. |
-| `kit dev` | Start the complete development environment — Phoenix, frontend assets, and one managed Docker worker. Wrapped as `bun run dev`. Keep this terminal open. |
+| `kit dev` | Start the complete development environment — Phoenix and frontend assets, with the Docker Worker backend that creates one Worker container for each Agent. Wrapped as `bun run dev`. Keep this terminal open. |
 
-`kit dev` is the one command that runs the whole stack. It starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale worker image, and starts the managed worker. Do not start a second `kit dev`; stop it with `Ctrl+C` in its terminal.
+`kit dev` is the one command that runs the whole stack. It starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale worker image, and starts the control plane with the Docker Worker backend. The control plane creates an Agent's Worker container when the Agent is created; the container runs the local Agent Computer source with `bun --watch`. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Do not start a second `kit dev`. Stop it with `Ctrl+C` in its terminal; this also removes the Worker containers of the `dev` installation. After a restart, the control plane creates the Worker of an existing Agent again when the Agent next needs it.
 
 ## Database lifecycle
 
@@ -63,7 +63,7 @@ Options apply across these: `--start-services` starts Compose before the operati
 
 ## Worker test runner
 
-`kit agent-computer-test` runs the Agent Computer Worker package tests in the canonical worker container runtime, so tests execute in the same environment a real turn uses. It takes a `--suite` of `unit` or `integration`, and a `--prebuilt-image` to run against a specific Agent Computer Worker Docker image rather than building one.
+`kit agent-computer-test` runs the Agent Computer Worker package tests in the canonical worker container runtime, so tests execute in the same environment a real turn uses. It takes a `--suite` of `unit` or `integration`, and a `--image` to run against a specific Agent Computer Worker Docker image rather than building one.
 
 ## Discovering more
 

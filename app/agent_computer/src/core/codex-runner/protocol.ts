@@ -5,11 +5,7 @@ import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../co
 import type { JSONRPCMessage } from './runtime/app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
-import {
-  codexAgentTokenQuotaExceeded,
-  codexCredentialPoolExhaustion,
-  type CodexCredentialPoolExhaustion
-} from './job/recovery-policy'
+import { codexCredentialPoolExhaustion, type CodexCredentialPoolExhaustion } from './job/recovery-policy'
 
 /** `threadID` is the notification's thread scope; the session resolves
  * lead-versus-child against its own runtime thread. */
@@ -21,7 +17,6 @@ export type CodexNotificationProjection = { threadID?: string } & (
   | { type: 'compaction_completed'; turnID?: string }
   | { type: 'mcp_server_startup_failed'; server: string; failureReason?: string; error: string }
   | { type: 'credential_pool_exhausted'; exhaustion: CodexCredentialPoolExhaustion }
-  | { type: 'agent_token_quota_exceeded' }
   | { type: 'token_usage'; usage: BackgroundAgentJobTurnUsage }
   | { type: 'turn_diff'; filesChanged: BackgroundAgentJobPathHandoff }
   | {
@@ -72,7 +67,6 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
 
   if (method === 'error') {
     const error = jsonObject(params.error)
-    if (codexAgentTokenQuotaExceeded(error)) return { type: 'agent_token_quota_exceeded', threadID }
     const exhaustion = codexCredentialPoolExhaustion(error)
     if (exhaustion) return { type: 'credential_pool_exhausted', threadID, exhaustion }
   }
@@ -200,32 +194,6 @@ export function approvalAcceptance(method: string, params: JSONObject): JSONObje
       scope: 'session'
     }))
     .otherwise(() => ({ decision: 'acceptForSession' }))
-}
-
-export function userInputResponse(
-  params: JSONObject,
-  fallbackAnswer: string,
-  suppliedAnswers?: Record<string, string | string[]>
-): JSONObject {
-  const questions = Array.isArray(params.questions) ? params.questions : []
-  const answers: Record<string, { answers: string[] }> = {}
-
-  for (const question of questions) {
-    const questionObject = jsonObject(question)
-    const id = stringValue(questionObject.id)
-    if (!id) continue
-    const supplied = suppliedAnswers?.[id]
-    const values = match(supplied)
-      .when(Array.isArray, value => value)
-      .when(
-        value => typeof value === 'string',
-        value => [value]
-      )
-      .otherwise(() => [fallbackAnswer])
-    answers[id] = { answers: values }
-  }
-
-  return { answers }
 }
 
 function terminalStatusFromCodexTurn(status: string): BackgroundAgentJobStatus {

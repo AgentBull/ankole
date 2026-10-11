@@ -1,84 +1,31 @@
 ---
 title: Agent ループ
-description: コントロールプレーンのターンライフサイクルと worker 側の agent ループの境界 — 各側が所有するもの、通信方法、反復予算と再試行の所在。
+description: control plane の Driver、永続化されたモデルとツールのステップ、Worker の実行境界。
 section: Developer guide
 order: 117
 ---
 
-ターンは 2 つのランタイムにまたがる作業単位です。Elixir コントロールプレーンがそれをスケジュールしてフェンス管理し、Bun worker がその中の agent ループを実行します。このページは両者の境界を説明します — コントロールプレーンの `TurnLifecycle` が所有するもの、worker の `runAgentLoop` が所有するもの、そして RuntimeFabric を越えてどのように通信するか。これは [Actor Runtime](../actor-runtime/) と [Agent Computer Worker](../agent-computer-worker/) ページの上に構築されます。ここは両者の間にあるターンレベルの詳細です。
+主 Agent loop は Elixir control plane の `Ankole.Conversations` で動作します。各会話を 1 つの `:gen_statem` Driver が進めます。質問と control plane のツールには Worker は不要です。環境ツールまたは Codex が必要になった時点で Agent の Worker を起動します。
 
-決定的な性質を先に述べます: ターンの*アイデンティティとコミット*はコントロールプレーンが所有し、ターンの*実行*は worker が所有します。ループをいつ終えるかは worker が決め、ターンの結果が永続的かどうかを決めるのはコントロールプレーンです。worker が完了と報告したターンも、コントロールプレーンがコミットするまでは永続的ではありません。
+## 1 ラウンドの永続ステップ
 
-## コントロールプレーン側: TurnLifecycle
+1. open の ActorEvent を受け入れ、PostgreSQL の会話 epoch を進めます。
+2. 保存された Response チェーンから進捗を復元し、モデル要求を準備します。
+3. AIGateway のプロセス内 Responses API で永続 Response を開きます。
+4. 宣言された owner に従い、control plane、Worker、永続待機へツールを渡します。
+5. ラウンド全体の結果、待機を満たす入力の完了、回収した receipt の削除を同じトランザクションでコミットします。
+6. 境界で追加入力を注入するか、最終返信と入力完了をコミットします。
 
-`Ankole.SignalsGateway.ActorRuntime.TurnLifecycle` はループの周りで起こることを所有し、内部は所有しません。その責務:
+AIGateway は履歴、圧縮、記憶注入、hosted ツールを所有します。Driver は反復制限、空返信の修復、反復エラーの通知、最終返信規則を所有します。全会話がこの owner を使います。Codex は Worker 内で独自の loop を保持します。
 
-| 責務 | 内容 |
-|---|---|
-| **リース管理** | アクティベーションはリースを保持します（`activation_progress_lease_seconds` = 2100 秒、120 秒の猶予付き）。ウォッチドッグは期限切れのアクティベーションを失敗させ、そのイベントを再試行できるようにします |
-| **ターン開始** | 新しいエポックで `ActorSessionActivation` を作成し、worker を割り当て、RuntimeFabric 経由でターンエンベロープを配信します |
-| **ターンエラー処理** | `handle_turn_error/2` が worker のエラーレポートを受け取り、分類し、再試行かデッドレターかを決定します |
-| **ターンコミット** | worker が成功を報告したとき、ターンの結果を永続的な真実として記録します |
-| **アクティベーション期限切れ** | `fail_activation_if_expired/2` が、リースが切れたフリーズまたはクラッシュしたターンを検出します |
+## 復旧と副作用
 
-ターンエラーの再試行予算はここにあり、worker にはありません。最大 5 回の配信（`@worker_turn_error_dead_letter_attempts`）です。Worker の一時的な失敗は 5 秒から 120 秒の指数バックオフで待ちます。プロバイダー容量の失敗（上流の `429`、`5xx`、または枯渇した credential pool）は独自のラダーで待ちます。30 秒、次に 2 分、5 分、12.5 分なので、自動再試行が予定するバックオフは合計で 20 分を超えません。失敗した試行ごとにエポックが上がるため、失敗した試行からの遅延返信は後続の再試行に一致できません。
+新 Driver は ActorEvent と Response チェーンから進捗を復元します。control plane の副作用と receipt は同じトランザクションでコミットします。チェーンに記録済みの結果を再実行しません。Worker は Response ID と call ID で環境呼び出しを識別し、新 Driver が引き継げます。Worker プロセスを失った後、安全な呼び出しは再試行し、それ以外の不明な呼び出しは `interrupted` を返します。
 
-コントロールプレーンは、モデルが何を言うか、agent がどのツールを呼ぶか、ループが何回反復するかを決定**しません**。これらは worker のものです。
+通常の入力は次の境界を待ちます。停止と有効な retry は現在の作業を中断します。無効な対象付き retry は現在の実行を続けます。ツール実行後の撤回や裸の retry は記録を保持し、同じチェーンに修正を注入します。
 
-## worker 側: runAgentLoop
+## 失敗の上限
 
-`app/agent_computer/src/core/agent-loop.ts` の `runAgentLoop` は、worker がターン内で実行する 4 ステップのループです:
+1 ラウンド内の再試行は AIGateway、試行間の再試行は Driver が所有します。通常の入力は 6 回目の准入で dead letter になります。計画停止はトランザクションが成功した場合に試行を 1 回返します。クラッシュは返しません。Workflow と Job はそれぞれの予算を保持します。
 
-1. **モデルを呼び出す** — ターンスコープの OpenAI Responses adapter（AIGateway のステートフル転送）を通じて。
-2. **関数呼び出しをローカルで実行する** — 応答に関数呼び出し項目があれば、worker がツールを実行します。
-3. **出力を記録する** — AIGateway を通じて、function-call-output メッセージとして保存します。
-4. **ジャーナルアンカーから続ける** — 応答がそれ以上関数呼び出し項目を返さなくなるまで。
-
-worker は**ループの終了とローカルの反復予算**を所有します。結果は 2 つです:
-
-- **`loop_finished`** — モデルがさらなるツール呼び出しなしで返りました。ターンは自然に終了します。
-- **`iteration_exhausted`** — worker が反復上限に達しました。モデルはこれ以上のツール呼び出しではなく最終応答の合成を促され（`MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT`）、その合成でターンは終了します。
-
-worker は 3 つの復旧プロンプトも所有します: ツール後に空応答になった場合のプロンプト（モデルがツールを実行したのに空の応答を返した）、ツールエラー復旧のヒント、反復上限の合成。これらはターンが永続的かどうかではなく、モデルが次に何をするかに関するものなので、worker 側にあります。
-
-## worker が所有しないもの
-
-agent-loop モジュールの doc は明示的です: worker は履歴の展開、圧縮、継続アンカー、永続的な応答状態を所有**しません**。これらは AIGateway に残ります。worker は:
-
-- モデルが見る履歴の量を決定しない（AIGateway のステートフル Responses が、圧縮を含めて所有します）;
-- 会話を保存しない（AIGateway がします）;
-- ターンの副作用がコミットされるかどうかを決定しない（コントロールプレーンがします）。
-
-これこそが worker を交換可能にする分割です。ループを実行するのは worker、トランスクリプトを所有するのは AIGateway、コミットを所有するのはコントロールプレーンです。
-
-## 通信方法
-
-| 方向 | 境界を越えるもの |
-|---|---|
-| コントロールプレーン → worker | `TurnStart` エンベロープ（actor アイデンティティ、ターン ref、処理するイベント） |
-| worker → コントロールプレーン | 進捗エンベロープ（チェックポイント、アクティビティサマリー）、失敗時の `actor_turn.abort` RPC、または完了時の `actor_turn.complete` / `actor_turn.noop` RPC |
-| worker → AIGateway | モデル呼び出し、関数呼び出し出力（これらはコントロールプレーンを経由しません） |
-
-worker のすべてのメッセージは `ActorTurnRef`（`activation_uid`、`actor_epoch`、`actor_event_id`）を運びます。コントロールプレーンはそれを現在のアクティベーションと照合します。ref がもはや一致しないメッセージは stale として拒否されます。これは [Actor Runtime](../actor-runtime/) トリプルフェンスをターンレベルから見たものです。
-
-## 再試行の境界
-
-ターンが失敗すると、再試行を決定するのは worker ではなくコントロールプレーンです。worker はエラーを報告し、`handle_turn_error` が分類します:
-
-- **インフラ**（Codex ランタイムのビジー、ランタイム例外、配信できなかった steer）— 中断はタスクの失敗ではないので、失敗予算を消費しません。
-- **プロバイダー容量**（再試行可能な上流の `429` または `5xx`、あるいは枯渇した credential pool）— イベントは `open` のまま、エポックが上がり、ランタイムは上記の容量ラダーで再配信します。Worker はこのクラスのモデル呼び出しをローカルで繰り返しません。回復時刻が残りのすべての待ち時間より後にある credential pool は、すぐにデッドレターになります。
-- **実行**（その他の再試行可能な失敗、たとえば worker 転送の失敗やタイムアウト）— イベントは `open` のまま、エポックが上がり、ランタイムは指数バックオフ後に再配信し、その試行は予算に計上されます。
-- **デッドレター** — 5 回の配信後、または失敗が再試行不可能なとき、イベントは `dead_letter` に移り、ターンは再試行を停止します。ユーザーには自動再試行が停止した通知が届き、オペレーターが確認して解決します。
-
-worker は自分で再試行しません。エラーを報告し、再試行の決定はコントロールプレーンが所有します。コントロールプレーンこそがアクティベーションフェンスを再確立できるからです。
-
-## このガイドがそうでないもの
-
-モデルへのプロンプトガイドではありません。ループの形は機械的（呼び出す、実行する、記録する、続ける）であり、その中のモデルの挙動はペルソナの関心事です。転送ガイドでもありません。RuntimeFabric がエンベロープを運び、それは [Kernel](../kernel/) ページの範囲です。そして [Actor Runtime](../actor-runtime/) ページの代わりでもありません。アクティベーションフェンスはターンライフサイクルが内部で動作するコンテキストです。
-
-## 次のステップ
-
-- アクティベーションフェンスと actor モデルについては、[Actor Runtime](../actor-runtime/) を読んでください。
-- ループを実行する worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
-- ループが呼び出すステートフルな Responses 転送については、[AIGateway](../ai-gateway/) を読んでください。
-- 圧縮（worker は所有しない）については、[Context compression](../context-compression-and-caching/) を読んでください。
+writer の所有権は [Actor Runtime](../actor-runtime/)、実行と保存は [Agent Computer Worker](../agent-computer-worker/)、Responses は [AIGateway](../ai-gateway/) を参照してください。

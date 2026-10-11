@@ -68,7 +68,7 @@ Open **Background Agent Jobs**. The board groups Jobs into queued, active, and f
 
 | Status | Meaning | What to do |
 |---|---|---|
-| `queued` | Accepted and waiting for an available Worker | Usually wait. Check Worker availability if it does not move. |
+| `queued` | Accepted and waiting for the Agent's Worker or a free Job slot | Usually wait. If it does not move, check the Agent's Worker on **Console → Workers**. |
 | `running` | Work is in progress | Open the Job to inspect the plan and latest progress. |
 | `waiting_on_user` | Waiting for an answer from the Agent or from you | The Agent answers what it can. Reply in the conversation that created the Job when the Agent asks you. |
 | `succeeded` | Finished | Read the result. If you requested an update, confirm that the original conversation received it. |
@@ -87,7 +87,7 @@ If you only need to correct the goal, first tell the Agent in the original conve
 
 ## Common problems
 
-- **The Job remains `queued`:** confirm that at least one Worker is ready and that other Jobs are not using all available capacity.
+- **The Job remains `queued`:** confirm that the Agent's Worker is ready, and that other Jobs of the same Agent do not use all of its Job slots (`agent_computer.background_agent_job.max_running_per_agent`).
 - **It fails as soon as it starts:** check the saved Background Agent Jobs model profile and the selected provider's credential-pool status.
 - **It is `waiting_on_user`, but no question arrived and the Agent did not answer it:** check the signal routing rule and Channel Provider for the original conversation.
 - **It succeeded but did not return to chat:** first confirm that it was not asked to stay silent. If it was not, open the Job and confirm that it has a result, then check the original conversation's routing rule.

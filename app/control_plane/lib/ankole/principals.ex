@@ -18,19 +18,19 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
-  alias Ankole.AgentHomePaths
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
   @agent_fields [
+    :handle,
     :type,
     :role,
     :options,
     :owner_principal_uid,
     :group_memory_disclosure_mode,
-    :created_by_principal_uid
+    :created_by
   ]
   @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
 
@@ -114,28 +114,39 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Creates an agent Principal and its agent subtype row in one transaction.
+  Creates an agent Principal, its agent subtype, and its absent Worker row
+  in one transaction. Requests the Worker after this transaction commits.
   """
   @spec create_agent(map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
   def create_agent(attrs) when is_map(attrs) do
-    with {:ok, uid} <- fetch_attr(attrs, :uid),
-         {:ok, uid} <- normalize_uid(uid),
-         :ok <- AgentHomePaths.validate_agent_uid(uid) do
-      attrs = attrs |> Map.delete("uid") |> Map.put(:uid, uid)
+    with {:ok, _handle} <- required_text(attrs, :handle) do
+      attrs = attrs |> Map.delete("uid") |> Map.put(:uid, NativeKernel.gen_uuid_v7())
 
-      Repo.transact(fn repo ->
-        agent_attrs = take_attrs(attrs, @agent_fields)
+      with {:ok, %{principal: principal} = result} <-
+             Repo.transact(fn repo ->
+               agent_attrs = take_attrs(attrs, @agent_fields)
 
-        with :ok <- validate_agent_owner(repo, agent_attrs),
-             :ok <- reject_token_quota_at_creation(agent_attrs),
-             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
-             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
-             :ok <- RuntimeEvents.notify_agent_home_projection(repo, principal.uid) do
-          {:ok, %{principal: principal, agent: agent}}
-        end
-      end)
+               provider_id =
+                 Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
+
+               with {:ok, provider_id} <-
+                      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.select_in_tx(
+                        repo,
+                        provider_id
+                      ),
+                    :ok <- validate_agent_owner(repo, agent_attrs),
+                    :ok <- reject_token_quota_at_creation(agent_attrs),
+                    {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+                    {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
+                    :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+                    :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
+                 {:ok, %{principal: principal, agent: agent}}
+               end
+             end) do
+        :ok = AgentWorkers.request(principal.uid)
+        {:ok, result}
+      end
     end
   end
 
@@ -206,38 +217,9 @@ defmodule Ankole.Principals do
     end)
   end
 
-  @doc """
-  Soft-disables a Principal.
-  """
-  @spec disable_principal(String.t()) :: principal_result()
-  def disable_principal(uid) do
-    with {:ok, principal} <- get_principal(uid) do
-      case principal.type do
-        :human ->
-          Ankole.Principals.HumanAccess.disable(
-            principal.uid,
-            "manual_disable",
-            nil,
-            NativeKernel.gen_uuid_v7()
-          )
-
-        _ ->
-          Repo.transact(fn repo -> disable_in_tx(repo, principal.uid) end)
-      end
-    end
-  end
-
   # The AuthZ check takes the admin group lock, and the installation-wide lock
   # order puts that lock before the principal row lock. Every path that
   # disables a principal must go through here so the order cannot invert.
-  defp disable_in_tx(repo, uid) do
-    with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
-         {:ok, principal} <- fetch_principal_for_update(repo, uid) do
-      principal
-      |> Principal.status_changeset(%{status: :disabled})
-      |> repo.update()
-    end
-  end
 
   @doc """
   Re-enables a disabled agent Principal.
@@ -268,19 +250,37 @@ defmodule Ankole.Principals do
            :ok <- ensure_principal_type(principal, :agent) do
         case principal.status do
           :active ->
-            # Keep this branch equal to disable_in_tx: the AuthZ gate above
-            # runs first for the same lock order, and a side effect added to
-            # one disable path belongs in both.
             principal
             |> Principal.status_changeset(%{status: :disabled})
             |> repo.update()
 
           :disabled ->
+            :ok = AgentWorkers.mark_deleting_in_tx(repo, principal.uid)
+
+            :ok =
+              Ankole.SignalsGateway.Bindings.delete_agent_config_rows_in_tx(repo, principal.uid)
+
+            :ok =
+              Ankole.SignalsGateway.ActorRuntime.WorkerEnv.delete_agent_rows_in_tx(
+                repo,
+                principal.uid
+              )
+
             repo.delete(principal)
         end
       end
     end)
+    |> reconcile_agent_worker()
   end
+
+  # A disabled Agent's Worker stops when it is idle, and a deleted Agent's
+  # Worker objects are deleted; the Worker owner does both after the commit.
+  defp reconcile_agent_worker({:ok, %Principal{uid: uid}} = result) do
+    :ok = AgentWorkers.reconcile(uid)
+    result
+  end
+
+  defp reconcile_agent_worker(result), do: result
 
   @doc """
   Creates a human Principal with a generated local initial password.
@@ -383,9 +383,7 @@ defmodule Ankole.Principals do
   A first-seen subject that carries an email or mobile number already held by
   an existing human Principal binds to that Principal instead of creating a
   new one, so subjects from different providers converge on one human. Any
-  other first-seen subject is a new person; when its UID is already taken,
-  the write fails with `:principal_uid_taken` instead of joining that
-  Principal, because an equal UID is not identity evidence. An email or
+  other first-seen subject gets a new UUIDv7 UID. An email or
   mobile value owned by a different Principal than the one the subject
   resolves to is dropped from the profile update with a warning; subjects
   are never re-pointed automatically.
@@ -425,7 +423,6 @@ defmodule Ankole.Principals do
                email,
                mobile
              ),
-           :ok <- lock_principal_uid(repo, selection),
            {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
            profile_attrs <-
              drop_conflicting_contacts(
@@ -598,22 +595,20 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp upsert_human_principal(repo, {selection, uid}, attrs) do
+  defp upsert_human_principal(repo, {:new, uid}, attrs) do
+    insert_principal(repo, human_principal_attrs(attrs, uid))
+  end
+
+  defp upsert_human_principal(repo, {:selected, uid}, attrs) do
     case fetch_principal_for_update(repo, uid) do
-      {:ok, %Principal{type: :human} = principal} when selection == :selected ->
+      {:ok, %Principal{type: :human} = principal} ->
         update_principal_profile(repo, principal, observed_profile_attrs(principal, attrs))
 
-      {:ok, %Principal{type: :human}} ->
-        {:error, :principal_uid_taken}
-
-      {:ok, %Principal{type: :agent}} ->
+      {:ok, %Principal{}} ->
         {:error, :not_human}
 
       {:error, :not_found} ->
-        insert_principal(
-          repo,
-          human_principal_attrs(Map.put(take_attrs(attrs, @principal_profile_fields), :uid, uid))
-        )
+        {:error, :principal_not_found}
 
       {:error, reason} ->
         {:error, reason}
@@ -652,12 +647,14 @@ defmodule Ankole.Principals do
     from principal in Principal,
       as: :principal,
       left_join: human_user in assoc(principal, :human_user),
+      left_join: agent in assoc(principal, :agent),
       left_join: credential in LocalCredential,
       on: credential.principal_uid == principal.uid,
       order_by: [asc: principal.uid],
       select: %{
         principal: principal,
         email: human_user.email,
+        handle: agent.handle,
         has_external_identity:
           exists(
             from identity in ExternalIdentity,
@@ -721,10 +718,10 @@ defmodule Ankole.Principals do
   defp ensure_principal_type(%Principal{type: :human}, :agent), do: {:error, :not_agent}
   defp ensure_principal_type(%Principal{type: :agent}, :human), do: {:error, :not_human}
 
-  defp human_principal_attrs(attrs) do
+  defp human_principal_attrs(attrs, uid \\ NativeKernel.gen_uuid_v7()) do
     attrs
-    |> take_attrs([:uid | @principal_profile_fields])
-    |> Map.merge(%{type: :human, status: :active})
+    |> take_attrs(@principal_profile_fields)
+    |> Map.merge(%{uid: uid, type: :human, status: :active})
   end
 
   defp agent_principal_attrs(attrs) do
@@ -757,7 +754,7 @@ defmodule Ankole.Principals do
       when is_binary(provider) and is_binary(external_id) do
     advisory_xact_lock(
       repo,
-      "principal_external_identity:platform_subject:#{provider}:#{external_id}"
+      "principal_external_identity:platform_subject:#{Repo.tenant_id!()}:#{provider}:#{external_id}"
     )
   end
 
@@ -788,19 +785,10 @@ defmodule Ankole.Principals do
     :ok
   end
 
-  # The contact join runs on subject creation, so concurrent first-sightings of
-  # the same email or mobile must serialize or both would create a principal.
-  # Two providers can derive the same UID at the same time under different
-  # subject locks. This lock serializes them, so the second write sees the
-  # first Principal and returns `:principal_uid_taken` instead of a unique
-  # constraint error.
-  defp lock_principal_uid(repo, {_selection, uid}),
-    do: advisory_xact_lock(repo, "principal_uid:#{uid}")
-
   defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
 
   defp maybe_lock_human_contact(repo, prefix, value) do
-    advisory_xact_lock(repo, "#{prefix}:#{value}")
+    advisory_xact_lock(repo, "#{prefix}:#{Repo.tenant_id!()}:#{value}")
   end
 
   defp advisory_xact_lock(repo, lock_key) do
@@ -810,12 +798,8 @@ defmodule Ankole.Principals do
     end
   end
 
-  # A binding, a contact match, or a caller-supplied UID selects the Principal;
-  # the caller-supplied UID is an explicit decision by a reviewer, admission,
-  # or directory sync and creates the Principal when it does not exist yet.
-  # A UID derived from the subject id only ever creates: an existing Principal
-  # with that UID, such as a local account named by its sign-in email, is a
-  # collision, not a match.
+  # Provider bindings, contact matches, and explicit reviewer selections only
+  # select existing humans. A new external subject gets an opaque UUID.
   defp platform_subject_principal_uid(
          _repo,
          %ExternalIdentity{principal_uid: principal_uid},
@@ -836,7 +820,7 @@ defmodule Ankole.Principals do
             with {:ok, uid} <- normalize_uid(uid), do: {:ok, {:selected, uid}}
 
           :error ->
-            with {:ok, uid} <- normalize_uid(external_id), do: {:ok, {:derived, uid}}
+            {:ok, {:new, NativeKernel.gen_uuid_v7()}}
         end
 
       owner_uid ->

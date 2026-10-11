@@ -1,14 +1,17 @@
+import { writeFileAtomicSync } from '../../../common/atomic-write'
 import { ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirAgentSync } from '../../../common/agent-user'
 import { dirname, join } from 'node:path'
-import { agentHomePaths } from '../../agent-home-paths'
+import { agentHomePaths, codexSQLiteHome } from '../../agent-home-paths'
 import type { CodexRuntimeConfig } from '../runtime-config'
 import { CODEX_RUNTIME_CONFIG_TOML_ENV, CODEX_RUNTIME_TOKEN_ENV } from './codex-home-lock'
 
 export type MaterializedCodexConfig = {
   agentHome: string
   codexHome: string
+  sqliteHome: string
   env: Record<string, string>
 }
 
@@ -24,29 +27,26 @@ const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = ms('5m')
  */
 export const AIGATEWAY_PROVIDER_NAME = 'OpenAI'
 
-export function materializeCodexConfig(input: { agentsRoot: string; agentUID: string }): MaterializedCodexConfig {
-  const paths = agentHomePaths(input.agentsRoot, input.agentUID)
-  mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
+export function materializeCodexConfig(input: { agentHomeRoot: string }): MaterializedCodexConfig {
+  const paths = agentHomePaths(input.agentHomeRoot)
+  mkdirAgentSync(paths.codexHome, 0o700)
   chmodSync(paths.codexHome, 0o700)
 
+  const sqliteHome = codexSQLiteHome()
+  mkdirAgentSync(sqliteHome, 0o700)
+
   const env: Record<string, string> = {
-    PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+    // The Worker image sets this variable, and the entry restores it.
+    PATH: process.env.PATH!,
     HOME: paths.home,
     CODEX_HOME: paths.codexHome,
+    CODEX_SQLITE_HOME: sqliteHome,
     CODEX_INTERNAL_ORIGINATOR_OVERRIDE: 'codex_cli_rs',
     LANG: process.env.LANG || 'C.UTF-8',
     TERM: process.env.TERM || 'xterm-256color'
   }
 
-  return { agentHome: paths.home, codexHome: paths.codexHome, env }
-}
-
-/**
- * Production writes config.toml inside the locked startup wrapper.
- * Tests use this helper when they start Codex without that wrapper.
- */
-export function resetCodexAgentRuntimeConfig(codexHome: string, baseURL: string): void {
-  atomicWriteIfChanged(join(codexHome, 'config.toml'), codexConfigToml(codexHome, baseURL))
+  return { agentHome: paths.home, codexHome: paths.codexHome, sqliteHome, env }
 }
 
 export function codexAgentRuntimeBootstrapEnv(
@@ -178,15 +178,8 @@ export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string
   ).toString('base64url')
 }
 
-function atomicWrite(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`
-  writeFileSync(temporary, content, { mode: 0o600 })
-  renameSync(temporary, path)
-  chmodSync(path, 0o600)
-}
-
 function atomicWriteIfChanged(path: string, content: string): void {
   if (existsSync(path) && readFileSync(path, 'utf8') === content) return
-  atomicWrite(path, content)
+  mkdirAgentSync(dirname(path))
+  writeFileAtomicSync(path, content, 0o600)
 }

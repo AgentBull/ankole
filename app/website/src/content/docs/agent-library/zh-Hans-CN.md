@@ -1,33 +1,30 @@
 ---
 title: Agent Library
-description: 一个 agent 能做什么——skill 作为文件系统 bundle，Agent Plugin 作为 Codex 包，以及按 agent 解析的“默认再覆盖”启用模型。
+description: 一个 agent 能做什么——skill 作为文件包，Agent Plugin 作为 Codex 包，以及按 agent 解析的“默认再覆盖”启用模型。
 section: Developer guide
 order: 107
 ---
 
 Agent Library 回答一个问题：这个 Agent 实际可以使用哪些能力？它由实例内的 Skill 和 Agent Plugin 目录，以及每个 Agent 的启用状态组成。本页以 `Ankole.AIAgent.Library` 的实际代码为准说明这套模型。
 
-Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。PostgreSQL 保存启用状态、注册表语义和文件观察结果，并在实例级默认值之上记录每个 Agent 的少量覆盖。文件内容和版本留在实例的部署包中，数据库只记录哪些能力由谁启用。
+随产品发布的 Skill 和 Agent Plugin 是应用镜像中的文件包。已安装 Skill 保存在控制面管理的 Agent Files 盘的 `skills/` 下。PostgreSQL 保存目录、启用状态和权威文件引用，对象存储保存已安装文件的内容。Worker 将这些文件下载到本地执行缓存。
 
 ## 两种能力
 
 库持有两种相关但不相同的东西：
 
-- **一个 Skill** 是一个文件系统 bundle，由一份 `SKILL.md` 标识。skill 名小写，以字母开头，只用字母、数字、`_` 和 `-`，最长 64 字符。一个 skill 要么是 `builtin`（随应用镜像发布，从 `app/library/skills` 同步），要么是 `installed`（agent 安装到 worker 可见的存储下）。`agent_skills` 行记录启用状态、来源种类、content hash 和同步时间——它明确不是一张文件内容表。
+- **一个 Skill** 是一个文件包，由一份 `SKILL.md` 标识。skill 名小写，以字母开头，只用字母、数字、`_` 和 `-`，最长 64 字符。一个 skill 要么是 `builtin`（随应用镜像发布，从 `app/library/skills` 同步），要么是 `installed`（保存在 Agent Files 盘的 `skills/` 下）。`agent_skills` 行记录启用状态、来源种类、content hash 和同步时间——它明确不是一张文件内容表。
 - **Agent Plugin** 是标准 Codex Plugin 包，可以附带 Ankole 的 `workspace-template/` 初始化目录。包的文件和版本留在实例的部署包中；PostgreSQL 只保存每个 Agent 的启用覆盖。Plugin 标识符与 Skill 名称使用相同的格式规则。
 
 两者相连：一个 Agent Plugin 可以带 skill，而 skill 行记录它的 `agent_plugin_id`，供父级启用和目录展示使用。但 Agent Plugin 成员只是独立的元数据——它不改变 skill 的加载方式。
 
-## 启用：默认，再覆盖
+## 启用：租户默认值，再由 Agent 覆盖
 
-一个 agent 的有效能力，是带着两层走过目录解析出来的：
+租户设置提供 Agent Plugin 和 Skill 的有效默认值。租户没有覆盖时继承站点设置；运维没有设置时使用随产品发布的目录默认值。Agent 只保存自己的覆盖值。
 
-1. **实例级默认值**——每个 Skill 的 `default_enabled`，以及运维者设置的全局 Plugin 默认值。
-2. **按 agent 的覆盖**——某条 skill 行上的 `enabled_override`，或限定到某一个 agent 的 Agent Plugin 覆盖。
+`effective_enabled` 使用 Agent 覆盖值或继承的租户默认值。Plugin 成员 Skill 还要求父 Plugin 已启用。关闭父 Plugin 会保留成员原来的设置，父级重新启用后继续生效。
 
-解析结果就是能力端点返回的 `effective_enabled` 字段：取默认值，若存在覆盖则应用覆盖。没有覆盖的能力继承默认值；有覆盖的能力遵从覆盖。目录上限 256 个 plugin，所以解析开销很低，界面保持清晰可读。
-
-这就是 [Console](../console-api/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
+[Console](../console-api/) 的 Agent Library 能力路由读写所选租户的默认值，再允许按 Agent 覆盖。API 字段保留 `global_default_enabled` 名称，返回的是该租户包含站点继承的有效默认值。
 
 ## 只通过 Brain 召回的 Skill 发现
 
@@ -35,7 +32,7 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 
 Agent Library 会把完整的有效 Skill 集发送给 Worker。普通 Skill 进入模型可见的 Skill 目录；只通过 Brain 召回的 Skill 保留在 `skill_view` 可加载集合中，但不会进入该目录。Library sweep 只把它们的名称、描述和标签投影为 `lazyload-agent-skills/<skill-name>` 下的轻量 Brain 记录；Skill 正文、资源和 Agent 专属教训仍留在各自的文件与数据库所有者中。
 
-投影由实例共享，不会因为某个 Agent 关闭 Skill 而删除。Brain 查询和 `skill_view` 都会应用该 Agent 当前的 Plugin 与 Skill 有效状态，因此已关闭的记录不会占用召回名额，也不能被加载。重新启用能力后会直接恢复已有投影。
+投影由同一租户内的 Agent 共享，不会因为某个 Agent 关闭 Skill 而删除。Brain 查询和 `skill_view` 都会应用该 Agent 当前的 Plugin 与 Skill 有效状态，因此已关闭的记录不会占用召回名额，也不能被加载。重新启用能力后会直接恢复已有投影。
 
 ## Agent 长期文档与技能教训
 
@@ -48,12 +45,12 @@ Skill 视图读取 Skill 文件，并把符合投递条件的教训渲染到 `Ag
 
 ## 同步：让注册表保持诚实
 
-因为 skill 是文件系统 bundle，数据库注册表必须跟踪文件系统。两条同步路径做这件事：
+控制面的 `sync_agent_skills` 将两种来源合并为一个 Agent 的能力目录：
 
-- **`sync_builtin_skills`** 把 `app/library/skills` 树与 builtin skill 行对账，返回是否有变化、content hash 以及 skill 数和文件数。它从应用镜像运行，所以新镜像能在下一次同步时新增或更新 builtin skill。
-- **`sync_agent_skills`** 把某个 agent 的已安装 skill 与 worker 可见存储的实际内容对账，而 `replace_installed_skill_observations` 写下观察到的文件集。从存储里消失的 skill 会反映到注册表；新出现的 skill 会被捡起来。
+- **随产品发布的 Skill** 来自应用镜像，包括独立 Skill 和 Agent Plugin 成员 Skill。新镜像可在下一次同步时新增或更新这些 Skill。
+- **已安装 Skill** 直接来自 Agent Files 盘中的 `skills/<name>/SKILL.md`。Library 读取全部列表分页和每份 manifest 后才修改目录。新增或变更的 manifest 更新目录记录；删除 manifest 会移除对应记录。读取或解析失败时，目录保持不变。更新会保留运维人员已有的 `enabled_override`。
 
-同步是“读取并对账”，不是“发完就不管”。`content_hash` 让同步幂等：同一棵树产出同一个 hash，只有真正的变化才写一行。
+Worker 将已安装 Skill 下载到执行缓存，不扫描缓存来上报或替换能力目录。内容哈希让同步跳过未变化的记录。
 
 ## 运维界面
 
@@ -61,9 +58,9 @@ Skill 视图读取 Skill 文件，并把符合投递条件的教训渲染到 `Ag
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/agent-library/capabilities` | 带默认值的全局目录 |
-| `PUT` | `/agent-library/agent-plugins/:id` | 设定一个 plugin 的全局默认值 |
-| `PUT` | `/agent-library/skills/:id` | 设定一个 skill 的全局默认值 |
+| `GET` | `/agent-library/capabilities` | 所选租户的目录与默认值 |
+| `PUT` | `/agent-library/agent-plugins/:id` | 设定一个 plugin 的租户默认值 |
+| `PUT` | `/agent-library/skills/:id` | 设定一个 skill 的租户默认值 |
 | `GET` | `/agents/:agent_uid/library-capabilities` | 某个 agent 的有效能力 |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 为某一个 agent 覆盖一个 plugin |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 为某一个 agent 覆盖一个 skill |
@@ -73,11 +70,11 @@ Skill 视图读取 Skill 文件，并把符合投递条件的教训渲染到 `Ag
 | `POST` | `/agents/:agent_uid/skill-lessons` | 新增一条人工技能教训 |
 | `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 让一条技能教训退场 |
 
-读取 `/agents/:agent_uid/library-capabilities` 会触发一次 agent skill 同步，所以运维者看到的是注册表与当前存储对账后的结果——不是过期的快照。
+读取 `/agents/:agent_uid/library-capabilities` 会从应用镜像和 Agent Files 盘同步 Skill，无需正在运行的 Worker。
 
 ## Agent Library 不是什么
 
-它不是 marketplace，也不是热加载系统。skill 和 plugin 是受信任的第一方 bundle，随部署发布，或安装到 worker 可见的存储里；没有第三方发现，没有 worker 之外的额外隔离机制。数据库不是 skill 字节的来源——字节在文件系统上，注册表只跟踪它所见到的。库也不是定义模型工具的地方；它是运维者决定一个 agent 能把哪些能力带进一个回合的地方。从“已启用”到“真正被调用”，由 Agent Computer Worker 在回合中完成。
+它不是 marketplace，也不是热加载系统。Skill 和 Plugin 是受信任的第一方文件包。内置文件包随部署发布，已安装 Skill 保存在 Agent Files 盘中。没有第三方发现，没有 worker 之外的额外隔离机制。库也不是定义模型工具的地方；它是运维者决定一个 agent 能把哪些能力带进一个回合的地方。执行时，控制面加载主 Agent 的 Skill 指令；Worker 准备电脑工具与 Codex Job 的 Skill。
 
 ## 下一步
 

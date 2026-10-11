@@ -150,4 +150,110 @@ defmodule Ankole.Workflow.ResultSchemaTest do
                [1, 1.0]
              )
   end
+
+  test "JSON values retain strict numeric types and the original accepted value" do
+    for value <- ["4", 4.0] do
+      assert {:error, {:workflow_result_type_mismatch, [], "integer"}} =
+               ResultSchema.validate(%{"type" => "integer"}, value)
+    end
+
+    assert {:ok, 4.0} = ResultSchema.validate(%{"type" => "number"}, 4.0)
+
+    assert {:error, {:workflow_result_multiple_of, [], 2}} =
+             ResultSchema.validate(%{"type" => "integer", "multipleOf" => 2}, 1_000_000_000_001)
+
+    assert {:error, {:workflow_result_minimum, [], 1.5}} =
+             ResultSchema.validate(%{"type" => "integer", "minimum" => 1.5}, 1)
+
+    assert {:ok, 1.0} = ResultSchema.validate(%{"type" => "number", "enum" => [1]}, 1.0)
+  end
+
+  test "string and array lengths retain their structural failure class" do
+    assert {:ok, "中文"} =
+             ResultSchema.validate(%{"type" => "string", "maxLength" => 2}, "中文")
+
+    assert {:error, {:workflow_result_schema_mismatch, _}} =
+             ResultSchema.validate(%{"type" => "string", "minLength" => 2}, "é")
+
+    assert {:error, {:workflow_result_schema_mismatch, _}} =
+             ResultSchema.validate(
+               %{"type" => "array", "items" => %{"type" => "string"}, "maxItems" => 1},
+               ["a", "b"]
+             )
+
+    assert {:error, {:workflow_result_schema_mismatch, _}} =
+             ResultSchema.validate(closed_object(%{"count" => %{"type" => "integer"}}), %{
+               "count" => 1,
+               "extra" => true
+             })
+  end
+
+  test "empty closed objects work at the root and within a property or array" do
+    empty = closed_object(%{})
+    assert {:ok, %{}} = ResultSchema.validate(empty, %{})
+
+    assert {:error, {:workflow_result_schema_mismatch, _}} =
+             ResultSchema.validate(empty, %{"x" => 1})
+
+    value = %{"meta" => %{}}
+    assert {:ok, ^value} = ResultSchema.validate(closed_object(%{"meta" => empty}), value)
+
+    assert {:ok, [%{}]} =
+             ResultSchema.validate(%{"type" => "array", "items" => empty}, [%{}])
+  end
+
+  test "typed failures preserve nested paths and choose type before enum at the same node" do
+    schema =
+      closed_object(%{
+        "items" => %{
+          "type" => "array",
+          "items" => closed_object(%{"count" => %{"type" => "integer"}})
+        }
+      })
+
+    assert {:error, {:workflow_result_type_mismatch, ["items", 1, "count"], "integer"}} =
+             ResultSchema.validate(schema, %{"items" => [%{"count" => 1}, %{"count" => 2.0}]})
+
+    assert {:error, {:workflow_result_type_mismatch, [], "string"}} =
+             ResultSchema.validate(%{"type" => "string", "enum" => ["a"]}, 5)
+
+    assert {:error, {:workflow_result_type_mismatch, ["a"], "integer"}} =
+             ResultSchema.validate(
+               closed_object(%{"a" => %{"type" => "integer"}, "b" => %{"type" => "integer"}}),
+               %{"a" => 1.0, "b" => 2.0}
+             )
+
+    assert {:error, {:workflow_result_type_mismatch, ["a/b"], "integer"}} =
+             ResultSchema.validate(closed_object(%{"a/b" => %{"type" => "integer"}}), %{
+               "a/b" => 1.0
+             })
+
+    assert {:error, {:workflow_result_minimum, [], 10}} =
+             ResultSchema.validate(%{"type" => "integer", "minimum" => 10, "multipleOf" => 3}, 4)
+  end
+
+  test "optional null bounds and ambiguous slash property names keep their existing contract" do
+    assert {:ok, 1} = ResultSchema.validate(%{"type" => "integer", "minimum" => nil}, 1)
+
+    schema =
+      closed_object(%{
+        "a" => closed_object(%{"b" => %{"type" => "integer"}}),
+        "a/b" => %{"type" => "integer"}
+      })
+
+    assert {:error, {:workflow_result_type_mismatch, ["a/b"], "integer"}} =
+             ResultSchema.validate(schema, %{"a" => %{"b" => 1}, "a/b" => 1.0})
+
+    assert {:error, {:workflow_result_type_mismatch, ["a", "b"], "integer"}} =
+             ResultSchema.validate(schema, %{"a" => %{"b" => 1.0}, "a/b" => 1})
+  end
+
+  defp closed_object(properties) do
+    %{
+      "type" => "object",
+      "properties" => properties,
+      "required" => Map.keys(properties),
+      "additionalProperties" => false
+    }
+  end
 end

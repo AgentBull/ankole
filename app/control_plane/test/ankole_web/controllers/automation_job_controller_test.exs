@@ -2,6 +2,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ecto.Query
+  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
   import OpenApiSpex.TestAssertions
 
@@ -61,7 +62,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
              })
 
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     foreign_source = source_event!(other_agent.uid)
     foreign_job = create_job!(other_agent.uid, foreign_source, "Foreign consumer")
@@ -76,7 +77,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     list =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/automation-jobs?agent=#{agent.uid}")
       |> json_response(200)
 
@@ -91,7 +92,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     detail =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}?runs=20")
       |> json_response(200)
 
@@ -100,25 +101,25 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     assert get_in(detail, ["automation_job", "runs", Access.at(0), "stdout"]) == "checked"
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/9007199254740991")
            |> json_response(404)
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/999")
            |> json_response(404)
 
     for invalid_id <- [0, 9_007_199_254_740_992] do
       assert %{"error" => %{"code" => "validation_failed"}} =
                conn
-               |> recycle_bearer()
+               |> recycle_api()
                |> get("/api/v1/agents/#{agent.uid}/automation-jobs/#{invalid_id}")
                |> json_response(422)
     end
   end
 
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     assert conn
            |> get(~p"/api/v1/automation-jobs")
            |> json_response(401)
@@ -128,7 +129,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     job = create_job!(agent.uid, source_event!(agent.uid), "Permission test consumer")
-    {conn, admin_uid} = bearer_conn_with_principal(conn)
+    {conn, admin_uid} = console_conn_with_principal(conn)
 
     Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
 
@@ -158,7 +159,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     assert %{"error" => %{"code" => "forbidden"}} =
              conn
-             |> recycle_bearer()
+             |> recycle_api()
              |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}")
              |> json_response(403)
 
@@ -175,12 +176,14 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     assert %{"error" => %{"code" => "forbidden"}} =
              conn
-             |> recycle_bearer()
+             |> recycle_api()
              |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}")
              |> json_response(403)
   end
 
   defp create_job!(agent_uid, source, label) do
+    drive_file_fixture(agent_uid, "automation/console-test/main.ts")
+
     assert {:ok, job} =
              AutomationJobs.create_job(%{
                agent_uid: agent_uid,
@@ -192,7 +195,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
                  "binding_name" => source.binding_name,
                  "signal_channel_id" => source.signal_channel_id
                },
-               directory_path: "/agents/#{agent_uid}/automation/console-test",
+               drive_prefix: "automation/console-test",
                label: label,
                wake_on_failure: true
              })
@@ -225,14 +228,5 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
       })
 
     event
-  end
-
-  defp recycle_bearer(conn) do
-    authorization = get_req_header(conn, "authorization") |> List.first()
-
-    conn
-    |> recycle()
-    |> put_req_header("authorization", authorization)
-    |> put_req_header("content-type", "application/json")
   end
 end

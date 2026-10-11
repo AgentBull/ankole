@@ -3,18 +3,16 @@ defmodule Ankole.OIDC.Jobs.CleanupExpiredCredentials do
   Hourly cleanup for expired credentials, browser transactions, and unused session state.
   """
 
-  use Oban.Worker, queue: :default, max_attempts: 3
+  use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
 
   alias Ankole.OIDC
 
-  @impl Oban.Worker
+  @impl Ankole.Job
   @spec perform(Oban.Job.t()) :: :ok
-  def perform(%Oban.Job{} = job) do
-    metadata = %{worker: __MODULE__, queue: job.queue, job_id: job.id, attempt: job.attempt}
+  def run(job), do: Ankole.Repo.across_tenants(fn -> sweep(job) end)
 
-    :telemetry.span([:ankole, :oban, :job], metadata, fn ->
-      counts = OIDC.cleanup_expired_credentials()
-      {:ok, counts |> Map.merge(metadata) |> Map.put(:result, :ok)}
-    end)
+  defp sweep(%Oban.Job{}) do
+    _counts = OIDC.cleanup_expired_credentials()
+    :ok
   end
 end

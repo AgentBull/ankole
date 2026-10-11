@@ -8,12 +8,12 @@ import { createFindTool } from './find-tool'
 import { createGrepTool } from './grep-tool'
 import { createLsTool } from './ls-tool'
 import { createReadFileTool } from './read-file-tool'
-import { createReplyAttachmentTool } from './reply-attachment-tool'
+import type { Drive } from '../../drive/drive'
 
 export interface ComputerToolsBinding {
   agentHome: string
   workspaceRoot: string
-  userFilesRoot: string
+  drive: Drive
   /** Operator-managed shell variables resolved for this turn's agent. */
   workerEnv?: Record<string, string>
   /** Trusted ephemeral shell variables for this Actor turn. */
@@ -21,27 +21,27 @@ export interface ComputerToolsBinding {
 }
 
 /**
- * Builds the run-bound tool list for Ankole Agent Computer.
- *
- * Ankole resolves a remote computer worker from the control plane. The model
- * loop already runs inside Agent Computer, so this factory keeps the migrated
- * tool contracts but binds them to the current Agent Home at its real path.
+ * Builds the environment tools that the control-plane loop calls on this
+ * Worker. The tools use the current workspace and the Agent Home.
  */
 export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentTool[] {
   const context = createComputerToolContext(binding)
-  // Warm the workspace search index while the model is still thinking, and
-  // rescan a warm one: the shared filesystem can carry writes from other
-  // Workers that the local watcher never saw.
+  // Warm the workspace search index while the model is still thinking. A warm
+  // index rescans too; fff throttles repeats, so the rescan is cheap.
   fffSearchRuntime.prewarm(binding.workspaceRoot)
 
+  return computerToolsForContext(context)
+}
+
+/** The runtime and schema exporter use this same tool catalog. */
+export function computerToolsForContext(context: ComputerToolContext): WorkerAgentTool[] {
   return [
     createCommandTool(context),
     createReadFileTool(context),
     createFindTool(context),
     createGrepTool(context),
     createLsTool(context),
-    createApplyPatchTool(context),
-    createReplyAttachmentTool(context)
+    createApplyPatchTool(context)
   ]
 }
 
@@ -54,7 +54,7 @@ function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolC
   return {
     agentHome: binding.agentHome,
     workspaceRoot: binding.workspaceRoot,
-    userFilesRoot: binding.userFilesRoot,
-    getComputer: async () => computer
+    drive: binding.drive,
+    computer
   }
 }

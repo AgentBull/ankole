@@ -2,14 +2,10 @@ defmodule Ankole.AIGateway.CodexModelBinding do
   @moduledoc false
 
   @header_name "x-ankole-aigateway-model-binding"
-  @responses_lite_header_name "x-openai-internal-codex-responses-lite"
-  @responses_lite_client_metadata_key "ws_request_header_x_openai_internal_codex_responses_lite"
+  alias Ankole.AIGateway.ChatGPTProtocol
 
   @spec header_name() :: String.t()
   def header_name, do: @header_name
-
-  @spec responses_lite_header_name() :: String.t()
-  def responses_lite_header_name, do: @responses_lite_header_name
 
   @spec decode(String.t()) :: {:ok, map()} | {:error, :invalid_codex_model_binding}
   def decode(encoded) when is_binary(encoded) do
@@ -45,16 +41,16 @@ defmodule Ankole.AIGateway.CodexModelBinding do
 
   def decode(_encoded), do: {:error, :invalid_codex_model_binding}
 
-  @spec apply(map(), map() | nil, keyword()) :: map()
-  def apply(request, binding, opts \\ [])
+  @spec apply(map(), map() | nil, map()) :: map()
+  def apply(request, binding, request_context \\ %{})
 
-  def apply(request, nil, _opts) when is_map(request), do: request
+  def apply(request, nil, _request_context) when is_map(request), do: request
 
-  def apply(request, binding, opts) when is_map(request) and is_map(binding) do
+  def apply(request, binding, request_context)
+      when is_map(request) and is_map(binding) and is_map(request_context) do
     defaults = Map.fetch!(binding, "provider_options")
 
-    responses_lite? =
-      Keyword.get_lazy(opts, :responses_lite?, fn -> responses_lite_request?(request) end)
+    responses_lite? = ChatGPTProtocol.lite_request?(request, request_context)
 
     request
     |> strip_codex_private_input_fields()
@@ -160,16 +156,6 @@ defmodule Ankole.AIGateway.CodexModelBinding do
   end
 
   defp decode_modalities(_value), do: {:error, :invalid_codex_model_binding}
-
-  defp responses_lite_request?(request) do
-    case Map.get(request, "client_metadata") do
-      metadata when is_map(metadata) ->
-        Map.get(metadata, @responses_lite_client_metadata_key) == "true"
-
-      _value ->
-        false
-    end
-  end
 
   defp put_provider_options(request, defaults) do
     case Map.get(request, "provider_options") do

@@ -16,7 +16,6 @@ ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.98.1
 
 ENV MIX_ENV=prod
-ENV RUSTFLAGS="--cfg reqwest_unstable"
 ENV HEX_HTTP_CONCURRENCY=1
 ENV HEX_HTTP_TIMEOUT=120
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -34,7 +33,6 @@ RUN sed -i \
     ca-certificates \
     curl \
     git \
-    libzmq3-dev \
     pkg-config \
     protobuf-compiler \
   && rm -rf /var/lib/apt/lists/*
@@ -57,6 +55,10 @@ COPY libs/feishu_openapi/package.json ./libs/feishu_openapi/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 COPY tools/devkit/package.json ./tools/devkit/package.json
 COPY tools/openapi-client-generator/package.json ./tools/openapi-client-generator/package.json
+COPY libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch ./libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch
+
+# The build uses only the workspace packages copied above.
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/control_plane", "app/kernel", "app/webapps", "libs/feishu_openapi", "libs/uikit", "tools/devkit", "tools/openapi-client-generator"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
@@ -98,6 +100,10 @@ RUN --mount=type=cache,target=/root/.cargo/git \
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
+  ANKOLE_FILES_STORE=fs \
+  ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \
+  ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT=ws://build-smoke:4000/runtime-fabric/worker \
+  ANKOLE_AGENT_COMPUTER_IMAGE=build-smoke \
   PHX_SERVER=false \
   mix ankole.openapi.check
 
@@ -132,7 +138,6 @@ RUN sed -i \
     libgcc-s1 \
     libncurses6 \
     libstdc++6 \
-    libzmq5 \
     locales \
     openssl \
     tini \
@@ -140,14 +145,20 @@ RUN sed -i \
   && locale-gen \
   && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --system --home-dir /app --shell /usr/sbin/nologin ankole \
-  && chown ankole:ankole /app
+# The fixed uid and gid let a Kubernetes fsGroup make the file store volume
+# writable. /var/lib/ankole/files is the mount point of the `fs` file store;
+# a new Docker named volume copies its owner from the image. USER is numeric
+# because the kubelet can verify runAsNonRoot only for a numeric image user.
+RUN groupadd --system --gid 10001 ankole \
+  && useradd --system --uid 10001 --gid ankole --home-dir /app --shell /usr/sbin/nologin ankole \
+  && chown ankole:ankole /app \
+  && install -d -o ankole -g ankole /var/lib/ankole /var/lib/ankole/files
 
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/prod/rel/ankole ./
 COPY --from=build --chown=ankole:ankole /repo/app/locales ./lib/locales
 COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
 
-USER ankole
+USER 10001:10001
 
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
@@ -162,6 +173,9 @@ ENV ANKOLE_LIBRARY_ROOT=/app/app/library
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \
+  ANKOLE_FILES_STORE=fs \
+  ANKOLE_FILES_FS_ROOT=/var/lib/ankole/files \
+  ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT=ws://build-smoke:4000/runtime-fabric/worker \
   PHX_SERVER=false \
   /app/bin/ankole eval 'Application.load(:ankole)'
 

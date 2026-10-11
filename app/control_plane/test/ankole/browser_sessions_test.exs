@@ -1,5 +1,6 @@
 defmodule Ankole.BrowserSessionsTest do
-  use Ankole.DataCase, async: true
+  # This module exercises the site-wide privileged-tenant setting.
+  use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, BrowserSessions}
   alias Ankole.Principals.HumanAccess
@@ -27,10 +28,13 @@ defmodule Ankole.BrowserSessionsTest do
              BrowserSessions.complete_login(current, first_flow.id, auth(first))
   end
 
-  test "explicit Console and OAuth identity changes remove the conflicting context" do
+  test "explicit Console and OAuth identity changes remove the conflicting context", %{
+    tenant: tenant
+  } do
+    :ok = set_privileged_tenant(tenant)
     %{principal: admin} = human_fixture()
     %{principal: human} = human_fixture()
-    {:ok, _} = AuthZ.root_init_admin(admin.uid)
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(admin.uid)
     {:ok, browser} = BrowserSessions.create()
     ref = BrowserSessions.reference(browser)
     {:ok, completed} = BrowserSessions.complete_login(ref, flow(ref, :oauth).id, auth(human))

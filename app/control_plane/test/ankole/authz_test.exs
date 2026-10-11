@@ -5,7 +5,6 @@ defmodule Ankole.AuthZTest do
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
-  alias Ankole.Principals
 
   import Ankole.PrincipalsFixtures
 
@@ -209,7 +208,8 @@ defmodule Ankole.AuthZTest do
                  action: "read"
                })
 
-      assert {:ok, _principal} = Principals.disable_principal(principal.uid)
+      assert {:ok, _principal} =
+               Ankole.PrincipalsFixtures.disable_principal_fixture(principal.uid)
 
       assert {:ok, snapshot} =
                AuthZ.build_authorization_snapshot(principal.uid, "workspace:default", "read", %{})
@@ -222,77 +222,47 @@ defmodule Ankole.AuthZTest do
   end
 
   describe "root admin safety" do
-    test "invalid root init attempts do not create built-ins or close setup" do
-      refute AuthZ.root_initialized?()
-      assert :ok = AuthZ.ensure_root_init_open()
-
-      assert {:error, :not_found} = AuthZ.root_init_admin(unique_uid("missing-admin"))
-
-      refute AuthZ.root_initialized?()
-      assert :ok = AuthZ.ensure_root_init_open()
-    end
-
-    test "built-in group shape drift fails root init with an explicit conflict" do
-      %{principal: principal} = human_fixture(%{uid: unique_uid("shape-drift-admin")})
-
-      Repo.insert!(%Group{
-        id: Ankole.Kernel.gen_uuid_v7(),
-        name: "admin",
-        display_name: "Wrong Admin",
-        kind: :computed,
-        built_in: true,
-        computed_condition: "true",
-        metadata: %{}
-      })
-
-      assert {:error, {:built_in_group_conflict, "admin"}} =
-               AuthZ.root_init_admin(principal.uid)
-
-      refute AuthZ.root_initialized?()
-    end
-
-    test "root init creates built-ins and prevents disabling the last active human admin" do
+    test "root init uses the scaffold and prevents disabling the last active human admin" do
       first_admin = human_fixture(%{uid: unique_uid("first-admin")})
 
-      refute AuthZ.root_initialized?()
+      assert {:ok, %{admin_group: admin_group}} =
+               Ankole.PrincipalsFixtures.first_site_admin_fixture(first_admin.principal.uid)
 
-      assert {:ok, %{admin_group: admin_group, all_humans_group: all_humans_group}} =
-               AuthZ.root_init_admin(first_admin.principal.uid)
-
-      assert admin_group.name == "admin"
-      assert all_humans_group.name == "all_humans"
-      assert AuthZ.root_initialized?()
-      assert {:error, :root_init_closed} = AuthZ.ensure_root_init_open()
+      assert admin_group.name == "siteadmin"
 
       assert {:ok, %{membership: retried_membership}} =
-               AuthZ.root_init_admin(first_admin.principal.uid)
+               Ankole.PrincipalsFixtures.first_site_admin_fixture(first_admin.principal.uid)
 
       assert retried_membership.principal_uid == first_admin.principal.uid
 
       other_human = human_fixture(%{uid: unique_uid("other-root-init")})
 
-      assert {:error, :root_init_closed} = AuthZ.root_init_admin(other_human.principal.uid)
+      assert {:error, :root_init_closed} =
+               Ankole.PrincipalsFixtures.first_site_admin_fixture(other_human.principal.uid)
 
       assert {:error, :last_active_human_admin} =
-               Principals.disable_principal(first_admin.principal.uid)
+               Ankole.PrincipalsFixtures.disable_principal_fixture(first_admin.principal.uid)
 
       second_admin = human_fixture(%{uid: unique_uid("second-admin")})
 
       assert {:ok, _membership} =
-               AuthZ.add_principal_to_group(second_admin.principal.uid, "admin")
+               AuthZ.add_principal_to_group(second_admin.principal.uid, "siteadmin")
 
-      assert {:ok, _principal} = Principals.disable_principal(first_admin.principal.uid)
+      assert {:ok, _principal} =
+               Ankole.PrincipalsFixtures.disable_principal_fixture(first_admin.principal.uid)
     end
 
     test "admin group accepts only active humans" do
       first_admin = human_fixture(%{uid: unique_uid("human-admin")})
       agent = agent_fixture(%{uid: unique_uid("agent-admin")})
 
-      assert {:ok, _root} = AuthZ.root_init_admin(first_admin.principal.uid)
-      assert {:error, :not_human} = AuthZ.add_principal_to_group(agent.principal.uid, "admin")
+      assert {:ok, _root} =
+               Ankole.PrincipalsFixtures.first_site_admin_fixture(first_admin.principal.uid)
+
+      assert {:error, :not_human} = AuthZ.add_principal_to_group(agent.principal.uid, "siteadmin")
 
       assert {:error, :last_active_human_admin} =
-               Principals.disable_principal(first_admin.principal.uid)
+               Ankole.PrincipalsFixtures.disable_principal_fixture(first_admin.principal.uid)
     end
   end
 
@@ -723,7 +693,7 @@ defmodule Ankole.AuthZTest do
 
     test "disabled Principals never match" do
       %{principal: principal} = human_fixture(%{uid: unique_uid("preview-disabled")})
-      assert {:ok, _disabled} = Principals.disable_principal(principal.uid)
+      assert {:ok, _disabled} = Ankole.PrincipalsFixtures.disable_principal_fixture(principal.uid)
 
       assert {:ok, members} =
                AuthZ.preview_computed_group_members(~s(principal.type == "human"))

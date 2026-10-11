@@ -70,7 +70,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert {:ok, provider_request, plan} = ToolSearch.plan(request)
       assert plan.execution == :server
       assert plan.tool_name == "tool_search"
-      assert Enum.map(plan.catalog, & &1["name"]) == ["bx_market_data", "bx_dragon_tiger"]
+      assert Enum.map(plan.catalog, & &1.name) == ["bx_market_data", "bx_dragon_tiger"]
 
       tool_names = Enum.map(provider_request["tools"], & &1["name"])
       assert tool_names == ["get_weather", "tool_search"]
@@ -195,7 +195,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                  )
                )
 
-      assert Enum.map(plan.catalog, & &1["name"]) == [
+      assert Enum.map(plan.catalog, & &1.name) == [
                "stock_price",
                "company_news"
              ]
@@ -203,8 +203,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__finance"])
-      assert loaded["namespace"] == "mcp__finance"
-      assert loaded["name"] == "stock_price"
+      assert loaded.namespace == "mcp__finance"
+      assert loaded.name == "stock_price"
 
       output =
         ToolSearch.public_search_output(
@@ -889,16 +889,16 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       output = client_search_output("search-1")
 
       cases = [
-        {[output], {:orphan_client_search_output, "search-1"}},
+        {[output], {:orphan_call_output, {:search, :client, "search-1"}, "tool_search_output"}},
         {[call, client_search_output("search-2")],
-         {:mismatched_client_search_output, "search-2"}},
-        {[call, call], {:duplicate_client_search_call, "search-1"}},
-        {[call, output, output], {:duplicate_client_search_output, "search-1"}},
+         {:orphan_call_output, {:search, :client, "search-2"}, "tool_search_output"}},
+        {[call, call], {:duplicate_history_item, {:search, :client, "search-1"}}},
+        {[call, output, output], {:duplicate_history_item, {:search, :client, "search-1"}}},
         {[call], {:unanswered_client_search_call, "search-1"}},
         {[call, Map.delete(output, "status")], {:incomplete_tool_search_output, "search-1"}},
         {[call, Map.put(output, "status", "in_progress")],
-         {:incomplete_tool_search_output, "search-1", "in_progress"}},
-        {[call, Map.delete(output, "execution")], {:invalid_search_output_id, "search-1"}},
+         {:invalid_tool_search_output, "search-1"}},
+        {[call, Map.delete(output, "execution")], {:invalid_tool_search_output, "search-1"}},
         {[call, Map.put(output, "call_id", nil)], {:invalid_tool_search_output, nil}}
       ]
 
@@ -934,8 +934,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                )
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["apply_edit"])
-      assert loaded["format"] == format
-      assert loaded["output_schema"] == output_schema
+      assert loaded.format == format
+      assert loaded.output_schema == output_schema
       refute Map.has_key?(loaded, "parameters")
 
       public =
@@ -967,19 +967,6 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       refute Map.has_key?(provider_tool, "output_schema")
       refute Map.has_key?(provider_tool, "parameters")
       assert Enum.any?(loaded_plan.ptc.program.bindings, &(&1.name == "apply_edit"))
-    end
-
-    test "rejects a complete loaded list when any member is invalid" do
-      assert {:ok, provider_request, plan} =
-               ToolSearch.plan(base_request([deferred_tool("quote", "Quote lookup")]))
-
-      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["quote"])
-      invalid = %{"type" => "function", "name" => "broken", "allowed_callers" => []}
-
-      assert {:error, {:invalid_tool_contract, {:invalid_allowed_callers, "broken", []}}} =
-               ToolSearch.load_tools(plan, provider_request["tools"], [loaded, invalid])
-
-      assert plan.loaded_identities == MapSet.new()
     end
 
     test "keeps root and namespace identities separate before terminal adapters" do
@@ -1122,7 +1109,10 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                  base_request(context.tools, [context.root, context.program_output, context.call])
                )
 
-      assert {:error, {:invalid_program, {:late_program_call_output, "prog", "nested"}}} =
+      assert {:error,
+              {:invalid_program,
+               {:orphan_call_output, {:call, {:program, "prog"}, "nested"},
+                "function_call_output"}}} =
                ToolSearch.plan(
                  base_request(context.tools, [
                    context.root,
@@ -1137,13 +1127,16 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       wrong_name = Map.put(context.output, "name", "other")
 
       assert {:error,
-              {:invalid_program, {:invalid_program_call_output, "prog", "nested", :type_mismatch}}} =
+              {:invalid_program,
+               {:mismatched_call_output, {:call, {:program, "prog"}, "nested"},
+                "custom_tool_call"}}} =
                ToolSearch.plan(
                  base_request(context.tools, [context.root, context.call, custom_output])
                )
 
       assert {:error,
-              {:invalid_program, {:invalid_program_call_output, "prog", "nested", :name_mismatch}}} =
+              {:invalid_program,
+               {:mismatched_call_output_name, {:call, {:program, "prog"}, "nested"}}}} =
                ToolSearch.plan(
                  base_request(context.tools, [context.root, context.call, wrong_name])
                )
@@ -1171,10 +1164,10 @@ defmodule Ankole.AIGateway.ToolSearchTest do
     end
 
     test "root paths resolve exactly", %{plan: plan} do
-      assert {:ok, [%{"name" => "bx_dragon_tiger"} = tool]} =
+      assert {:ok, [%Ankole.AIGateway.ToolContract.Descriptor{name: "bx_dragon_tiger"} = tool]} =
                ToolSearch.search_paths(plan, ["bx_dragon_tiger"])
 
-      assert tool["defer_loading"] == true
+      assert tool.deferred? == true
     end
 
     test "uses owner-supplied metadata only for bounded namespace ranking" do
@@ -1204,8 +1197,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         )
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["market"])
-      assert loaded["namespace"] == "market"
-      assert loaded["name"] == "opaque_tool"
+      assert loaded.namespace == "market"
+      assert loaded.name == "opaque_tool"
 
       output =
         ToolSearch.public_search_output(
@@ -1237,7 +1230,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         ToolSearch.plan(base_request([namespace, %{"type" => "tool_search"}]))
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__e2e_ptc"])
-      assert loaded["namespace_description"] == ""
+      assert loaded.namespace_description == ""
 
       assert {:ok, _loaded_plan, provider_tools} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
@@ -1338,24 +1331,122 @@ defmodule Ankole.AIGateway.ToolSearchTest do
     end
   end
 
-  describe "parse_search_arguments/1" do
-    test "parses object and string arguments with limit bounds" do
-      assert %{query: "行情", limit: 3} =
-               ToolSearch.parse_search_arguments(%{
-                 "arguments" => %{"query" => "行情", "limit" => 3}
-               })
+  test "reserved names retain their owner and ordered collision result" do
+    brain = %Ankole.AIGateway.HostedTools.Brain.Plan{operations: ["recall", "learn"]}
+    passthrough = fn name -> %{"type" => "web_search", "name" => name} end
+    search = %{"type" => "tool_search", "execution" => "client"}
+    program = %{"type" => "programmatic_tool_calling"}
 
-      assert %{query: "calendar create", limit: 8} =
-               ToolSearch.parse_search_arguments(%{
-                 "arguments" => ~s({"query":"calendar create"})
-               })
+    cases = [
+      {[search, passthrough.("tool_search")], [],
+       {:invalid_tool_search, {:tool_name_collision, "tool_search"}}},
+      {[Map.put(search, "name", "find_tools"), passthrough.("find_tools")], [],
+       {:invalid_tool_search, {:tool_name_collision, "find_tools"}}},
+      {[program, passthrough.("program")], [],
+       {:invalid_program, {:tool_name_collision, "program"}}},
+      {[search, passthrough.("program")], [], :ok},
+      {[passthrough.("recall")], [brain: brain],
+       {:invalid_brain_tool, {:tool_name_collision, "recall"}}},
+      {[%{"type" => "function", "name" => "recall"}], [brain: brain, native_tools?: true],
+       {:invalid_brain_tool, {:tool_name_collision, "recall"}}},
+      {[search, program, passthrough.("program"), passthrough.("tool_search")], [],
+       {:invalid_tool_search, {:tool_name_collision, "tool_search"}}},
+      {[program, passthrough.("recall"), passthrough.("program")], [brain: brain],
+       {:invalid_program, {:tool_name_collision, "program"}}},
+      {[passthrough.("learn"), passthrough.("recall")], [brain: brain],
+       {:invalid_brain_tool, {:tool_name_collision, "recall"}}}
+    ]
 
-      assert %{query: "", limit: 8} = ToolSearch.parse_search_arguments(%{})
+    for {tools, opts, expected} <- cases do
+      case expected do
+        :ok -> assert {:ok, _request, _plan} = ToolSearch.plan(base_request(tools), opts)
+        reason -> assert {:error, ^reason} = ToolSearch.plan(base_request(tools), opts)
+      end
+    end
+  end
 
-      assert %{limit: 50} =
-               ToolSearch.parse_search_arguments(%{
-                 "arguments" => %{"query" => "q", "limit" => 999}
-               })
+  describe "descriptor catalog projections" do
+    test "public JSON, live text and the description match the recorded catalog" do
+      golden =
+        __DIR__
+        |> Path.join("../../fixtures/ai_gateway/tool_search_golden.json")
+        |> File.read!()
+        |> Ankole.JSON.decode!()
+
+      {:ok, provider, plan} = ToolSearch.plan(golden["request"])
+      {:ok, loaded} = ToolSearch.search_paths(plan, ["foo", "crm", "functions"])
+
+      call = %{
+        "type" => "function_call",
+        "name" => "tool_search",
+        "call_id" => "golden-search",
+        "arguments" => ~s({"paths":["foo","crm","functions"]})
+      }
+
+      assert Ankole.JSON.encode!(ToolSearch.public_search_output(plan, call, loaded)) ==
+               golden["public_json"]
+
+      assert ToolSearch.downstream_search_output(call, loaded)["output"] ==
+               golden["downstream_text"]
+
+      assert hd(provider["tools"])["description"] == golden["description"]
+      budget_tools = Enum.map(1..60, &deferred_tool("tool_#{&1}", String.duplicate("能力", 80)))
+      {:ok, budget_provider, _plan} = ToolSearch.plan(base_request(budget_tools))
+      assert hd(budget_provider["tools"])["description"] == golden["budget_description"]
+    end
+
+    test "server replay uses the live root and explicit namespace names" do
+      golden =
+        __DIR__
+        |> Path.join("../../fixtures/ai_gateway/tool_search_golden.json")
+        |> File.read!()
+        |> Ankole.JSON.decode!()
+
+      request = golden["request"]
+      {:ok, _provider, plan} = ToolSearch.plan(request)
+
+      for {path, expected_name, identity} <- [
+            {"foo", "foo", {nil, "foo"}},
+            {"functions", "functions.x", {"functions", "x"}}
+          ] do
+        {:ok, [loaded]} = ToolSearch.search_paths(plan, [path])
+
+        call = %{
+          "type" => "function_call",
+          "name" => "tool_search",
+          "call_id" => "replay-search",
+          "arguments" => Ankole.JSON.encode!(%{"paths" => [path]})
+        }
+
+        live = ToolSearch.downstream_search_output(call, [loaded])["output"]
+        public_call = ToolSearch.public_search_call(plan, call)
+        public_output = ToolSearch.public_search_output(plan, call, [loaded])
+
+        {:ok, replay, replay_plan} =
+          ToolSearch.plan(Map.put(request, "input", [public_call, public_output]))
+
+        assert List.last(replay["input"])["output"] == live
+        assert %{"tools" => [%{"name" => ^expected_name}]} = Ankole.JSON.decode!(live)
+        assert replay_plan.loaded_identities == MapSet.new([identity])
+      end
+    end
+
+    test "shape errors retain the history error owner" do
+      call = @codex_tool_search_call
+
+      for {tools, reason} <- [
+            {[nil], :loaded_tools_must_be_objects},
+            {[%{"type" => "namespace", "name" => "crm", "tools" => [nil]}],
+             :namespace_children_must_be_objects}
+          ] do
+        assert {:error, {:invalid_tool_search_history, ^reason}} =
+                 ToolSearch.plan(
+                   base_request(
+                     [%{"type" => "tool_search", "execution" => "client"}],
+                     [call, client_search_output("search-1", tools)]
+                   )
+                 )
+      end
     end
   end
 
@@ -1387,7 +1478,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       assert {:ok, loaded} = ToolSearch.search_paths(plan, ["crm", "get_weather"])
 
-      assert Enum.map(loaded, &{&1["namespace"], &1["name"]}) == [
+      assert Enum.map(loaded, &{&1.namespace, &1.name}) == [
                {"crm", "get_customer"},
                {"crm", "list_orders"},
                {nil, "get_weather"}

@@ -11,16 +11,8 @@ defmodule AnkoleWeb.Router do
 
   use AnkoleWeb, :router
 
-  # Four request surfaces, each with its own protection profile:
-  #
-  #   :browser     — the HTML shells that boot the React SPAs. Full browser
-  #                  hardening (session, flash, CSRF, secure headers).
-  #   :session_api — setup/auth JSON that mutates server state. Deliberately
-  #                  keeps the browser session + CSRF rather than going
-  #                  stateless, because only the same-origin SPAs call it.
-  #   :openapi     — serves the spec document itself.
-  #   :console_api — the stateless bearer-token REST API for the console.
-  #   :ai_gateway_api — Agent, Console, and authorized OIDC Human runtime AI API.
+  # Browser shells and Console JSON APIs use the sealed browser cookie and CSRF.
+  # Runtime AI APIs accept Agent and OIDC Human bearer credentials.
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -35,10 +27,7 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :session_api do
-    # JSON endpoints that mutate setup or auth state still use the browser
-    # session and CSRF protection. They are API-shaped, not public stateless APIs:
-    # the setup wizard and sign-in SPA call them from the same origin, so the
-    # sealed session cookie carries the auth state and CSRF blocks cross-site POSTs.
+    # Setup, authentication, and Console JSON requests share cookie and CSRF protection.
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
@@ -46,25 +35,24 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :oauth_protocol do
-    # The public token endpoint must accept Client requests without CSRF, while
-    # its Console grant performs its own session, Origin, and CSRF checks after
-    # the request shape has selected that branch.
+    # Public OIDC Client requests use their declared Client authentication.
     plug :fetch_session
     plug :put_secure_browser_headers
     plug AnkoleWeb.Plugs.OIDCCORS
   end
 
-  pipeline :console_api do
-    # No session/CSRF here. Each request must present its own bearer token, which
-    # RequireConsoleAccessToken verifies and resolves to an active human admin.
-    plug :accepts, ["json"]
+  pipeline :site_admin do
     plug PutAPISpec, module: AnkoleWeb.APISpec
-    plug AnkoleWeb.Plugs.RequireConsoleAccessToken
+    plug AnkoleWeb.Plugs.RequireSiteAdminSession
+  end
+
+  pipeline :data_context do
+    plug AnkoleWeb.Plugs.PutDataContext
   end
 
   pipeline :ai_gateway_api do
     # Runtime AI calls are stateless HTTP requests authenticated as an Agent,
-    # an active Console administrator, or an authorized OIDC Human.
+    # an authorized OIDC Human.
     plug :accepts, ["json", "event-stream"]
     plug PutAPISpec, module: AnkoleWeb.APISpec
     plug AnkoleWeb.Plugs.OIDCCORS
@@ -131,20 +119,92 @@ defmodule AnkoleWeb.Router do
     get "/openapi.json", OpenAPISpex.Plug.RenderSpec, []
   end
 
-  scope "/api/v1", AnkoleWeb do
-    pipe_through :console_api
+  scope "/api/v1/site", AnkoleWeb do
+    pipe_through [:session_api, :site_admin]
 
     get "/app-configurations", AppConfigurationController, :index
     get "/app-configurations/:key", AppConfigurationController, :show
     put "/app-configurations/:key", AppConfigurationController, :update
     delete "/app-configurations/:key", AppConfigurationController, :delete
     post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
-
     get "/worker-envs", WorkerEnvController, :index
-    get "/worker-envs/:name", WorkerEnvController, :show
     put "/worker-envs/:name", WorkerEnvController, :update
     delete "/worker-envs/:name", WorkerEnvController, :delete
     post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt
+    get "/control-plane-plugins", ControlPlanePluginController, :index
+    put "/control-plane-plugins", ControlPlanePluginController, :update
+    get "/worker-provider-kinds", WorkerProviderController, :kinds
+    get "/worker-providers", WorkerProviderController, :index
+    post "/worker-providers", WorkerProviderController, :create
+    patch "/worker-providers/:provider_id", WorkerProviderController, :update
+    get "/worker-providers/:provider_id/check", WorkerProviderController, :check
+    delete "/worker-providers/:provider_id", WorkerProviderController, :delete
+    get "/ai-gateway/models", AIGatewayProviderController, :models
+    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
+    get "/ai-gateway/providers", AIGatewayProviderController, :index
+    get "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :show
+    put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
+    delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
+
+    post "/ai-gateway/providers/:provider_id/enable",
+         AIGatewayProviderController,
+         :enable_provider
+
+    post "/ai-gateway/providers/:provider_id/credentials",
+         AIGatewayProviderController,
+         :add_credential
+
+    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
+        AIGatewayProviderController,
+        :put_credential
+
+    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
+           AIGatewayProviderController,
+           :delete_credential
+
+    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
+        AIGatewayProviderController,
+        :put_credential_strategy
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login",
+         AIGatewayProviderController,
+         :start_chatgpt_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
+         AIGatewayProviderController,
+         :poll_chatgpt_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
+         AIGatewayProviderController,
+         :complete_chatgpt_browser_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
+         AIGatewayProviderController,
+         :add_chatgpt_enterprise_credential
+
+    get "/tenants", TenantController, :index
+    post "/tenants", TenantController, :create
+    patch "/tenants/:tenant_id", TenantController, :update
+    delete "/tenants/:tenant_id", TenantController, :delete
+    put "/tenants/:tenant_id/suspension", TenantController, :suspend
+    delete "/tenants/:tenant_id/suspension", TenantController, :resume
+    get "/privileged-tenant", TenantController, :privileged
+    put "/privileged-tenant", TenantController, :transfer
+  end
+
+  scope "/api/v1", AnkoleWeb do
+    pipe_through [:session_api, :site_admin, :data_context]
+
+    get "/app-configurations", AppConfigurationController, :index_tenant
+    get "/app-configurations/:key", AppConfigurationController, :show_tenant
+    put "/app-configurations/:key", AppConfigurationController, :update_tenant
+    delete "/app-configurations/:key", AppConfigurationController, :delete_tenant
+    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt_tenant
+
+    get "/worker-envs", WorkerEnvController, :index_tenant
+    put "/worker-envs/:name", WorkerEnvController, :update_tenant
+    delete "/worker-envs/:name", WorkerEnvController, :delete_tenant
+    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt_tenant
 
     get "/agents/:agent_uid/worker-envs", WorkerEnvController, :index_for_agent
     put "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :update_for_agent
@@ -215,14 +275,15 @@ defmodule AnkoleWeb.Router do
     post "/brain/objects", BrainController, :create_object
     put "/brain/objects", BrainController, :update_object
     post "/brain/search-preview", BrainController, :search_preview
+    post "/brain/objects/fork", BrainController, :fork_object
+    get "/brain/suggestions", BrainController, :list_suggestions
+    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
     get "/brain/claims", BrainController, :list_claims
     post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
     post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
     post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
     get "/brain/contradictions", BrainController, :list_contradictions
     post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
-    get "/brain/suggestions", BrainController, :list_suggestions
-    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
     get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
 
     post "/brain/merge-suggestions/:suggestion_id/decide",
@@ -243,7 +304,6 @@ defmodule AnkoleWeb.Router do
     post "/brain/objects/rollback", BrainController, :rollback_object
     post "/brain/objects/forget", BrainController, :forget_object
     post "/brain/objects/restore", BrainController, :restore_object
-    post "/brain/objects/fork", BrainController, :fork_object
 
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
@@ -251,6 +311,7 @@ defmodule AnkoleWeb.Router do
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
     post "/agents/:agent_uid/enable", AgentController, :enable
+    put "/agents/:agent_uid/worker-provider", WorkerProviderController, :assign
 
     get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
 
@@ -273,9 +334,6 @@ defmodule AnkoleWeb.Router do
     put "/agents/:agent_uid/library-capabilities/skills/:id",
         AgentLibraryCapabilityController,
         :put_agent_skill_override
-
-    get "/control-plane-plugins", ControlPlanePluginController, :index
-    put "/control-plane-plugins", ControlPlanePluginController, :update
 
     get "/agents/:agent_uid/library-documents", AgentLibraryController, :index
 
@@ -316,60 +374,11 @@ defmodule AnkoleWeb.Router do
         AIGatewayConversationController,
         :messages
 
-    get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
-
-    get "/agent-computer-workers/:worker_id/files/content",
-        WorkerFileController,
-        :download
-
-    post "/agent-computer-workers/:worker_id/files", WorkerFileController, :upload
-    post "/agent-computer-workers/:worker_id/file-moves", WorkerFileController, :move
-
-    delete "/agent-computer-workers/:worker_id/files",
-           WorkerFileController,
-           :delete
-
-    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-    get "/ai-gateway/providers", AIGatewayProviderController, :index
-    get "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :show
-    put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
-    delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
-
-    post "/ai-gateway/providers/:provider_id/enable",
-         AIGatewayProviderController,
-         :enable_provider
-
-    post "/ai-gateway/providers/:provider_id/credentials",
-         AIGatewayProviderController,
-         :add_credential
-
-    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-        AIGatewayProviderController,
-        :put_credential
-
-    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-           AIGatewayProviderController,
-           :delete_credential
-
-    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
-        AIGatewayProviderController,
-        :put_credential_strategy
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login",
-         AIGatewayProviderController,
-         :start_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
-         AIGatewayProviderController,
-         :poll_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
-         AIGatewayProviderController,
-         :complete_chatgpt_browser_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
-         AIGatewayProviderController,
-         :add_chatgpt_enterprise_credential
+    get "/agents/:agent_uid/files", AgentFileController, :index
+    get "/agents/:agent_uid/files/content", AgentFileController, :download
+    post "/agents/:agent_uid/files", AgentFileController, :upload
+    post "/agents/:agent_uid/file-moves", AgentFileController, :move
+    delete "/agents/:agent_uid/files", AgentFileController, :delete
 
     get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
 
@@ -493,8 +502,8 @@ defmodule AnkoleWeb.Router do
     post "/web_fetch", AIGatewayController, :web_fetch
   end
 
-  # Worker file relay. The one-time signed token in the query string is the
-  # only credential, so this route has no session, CSRF, bearer token, or
+  # Worker file relay. The one-time token in the query string is the only
+  # credential, so this route has no session, CSRF, bearer token, or
   # Accept negotiation. `Ankole.WorkerFiles.Relay` owns the session it names.
   scope "/internal/runtime-fabric", AnkoleWeb do
     get "/file-relay/:transfer_id", WorkerFileRelayController, :pull
@@ -523,7 +532,7 @@ defmodule AnkoleWeb.Router do
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
-  # client-side routing: any deep link under /console or /setup returns the same
+  # client-side routing: any deep link under the console mount or /setup returns the same
   # shell, and the React router takes over. SpaController re-checks setup/auth
   # state on every shell request, so the access gate stays server-side rather
   # than trusting the SPA to redirect.
@@ -539,8 +548,8 @@ defmodule AnkoleWeb.Router do
     # The OIDC redirect lands here as a top-level browser navigation (not via the
     # SPA), so it carries the session cookie holding the pending OIDC state.
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
-    get "/console", SpaController, :console
-    get "/console/*path", SpaController, :console
+    get "/site-admin-console", SpaController, :console
+    get "/site-admin-console/*path", SpaController, :console
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end

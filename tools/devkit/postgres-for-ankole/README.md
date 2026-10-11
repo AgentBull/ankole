@@ -4,7 +4,7 @@ Ankole Agent development PostgreSQL image based on PostgreSQL 18.
 
 Included extensions:
 
-- `pg_search`
+- `pg_search` 0.25.11, from the ParadeDB PostgreSQL 18 RPM
 - `vector`
 - `pg_trgm` (PostgreSQL contrib, present in the base image)
 
@@ -49,12 +49,33 @@ WHERE name IN ('pg_search', 'vector', 'pg_trgm')
 ORDER BY name;
 ```
 
-The BrainV3 migration installs `vector`, `pg_search`, and `pg_trgm` in the
-application database, so a fully migrated database has all three installed.
-The packages must be available in this image for the migration to run.
+The fresh-install baseline installs `vector` in `public` before `pg_search`;
+`pg_search` requires it. The BrainV3 migration also installs `pg_trgm`. The
+packages must be available in this image for the migrations to run.
 
 Apply pending migrations the usual way:
 
 ```sh
 bun run kit app-db migrate
 ```
+
+For an existing database, changing the image does not update the installed
+extension SQL. Back up the database and stop the control plane for a
+maintenance window. Start PostgreSQL with this image, then run in the
+application database:
+
+```sql
+ALTER EXTENSION pg_search UPDATE TO '0.25.11';
+
+SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+SELECT * FROM paradedb.version_info();
+```
+
+Both the installed extension and the loaded library must be 0.25.11. Then
+apply Ankole migrations and repeat a Brain text recall before you start the
+control plane. Existing BM25 indexes that contain only text do not need a
+rebuild for this version change. For a failed native index reader, use the
+[Brain index recovery procedure](../../../docs/design-docs/BrainV3.md#retrieval-index-recovery).
+
+The image has no optional LLVM JIT provider. PostgreSQL does not use JIT when
+the provider is absent; no configuration change is required.

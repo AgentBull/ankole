@@ -16,17 +16,17 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   import Ecto.Query, warn: false
 
-  alias Ecto.Adapters.SQL
-  alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
-  alias Ankole.Plugins.MapHelpers
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
+  alias Ankole.Plugins.{ChannelSync, MapHelpers}
   alias Ankole.Plugins.Microsoft365Adapter.{Config, Conversations}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
     Binding,
-    BindingMembership,
     Channel,
     IMGroupMembers,
+    IMGroupProjection,
     Projection
   }
 
@@ -34,46 +34,16 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
   def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, _config) do
-    case enqueue_binding_full_sync(agent_uid, binding_name,
+    case ChannelSync.enqueue_binding(
+           Ankole.Plugins.Microsoft365Adapter.Jobs.SyncChannels,
+           agent_uid,
+           binding_name,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
       {:ok, _job} -> :ok
       {:error, _reason} = error -> error
     end
-  end
-
-  @spec enqueue_full_syncs(keyword()) :: {:ok, map()} | {:error, term()}
-  def enqueue_full_syncs(opts \\ []) do
-    SignalsGateway.list_enabled_bindings("teams", Keyword.take(opts, [:repo]))
-    |> Enum.reduce_while({:ok, %{enqueued: [], skipped: []}}, fn binding, {:ok, acc} ->
-      case enqueue_binding_full_sync(binding.agent_uid, binding.name,
-             reason: Keyword.get(opts, :reason, "startup"),
-             source: Keyword.get(opts, :source, "startup")
-           ) do
-        {:ok, %Oban.Job{conflict?: true}} ->
-          {:cont, {:ok, %{acc | skipped: [{binding.agent_uid, binding.name} | acc.skipped]}}}
-
-        {:ok, %Oban.Job{} = job} ->
-          {:cont, {:ok, %{acc | enqueued: [job | acc.enqueued]}}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @spec enqueue_binding_full_sync(String.t(), String.t(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_binding_full_sync(agent_uid, binding_name, opts \\ []) do
-    %{
-      "agent_uid" => String.downcase(agent_uid),
-      "binding_name" => binding_name,
-      "reason" => to_string(Keyword.get(opts, :reason, "manual")),
-      "source" => to_string(Keyword.get(opts, :source, "manual"))
-    }
-    |> Ankole.Plugins.Microsoft365Adapter.Jobs.SyncChannels.new()
-    |> Oban.insert()
   end
 
   @spec enqueue_conversation_refresh(AdapterContext.t(), map(), String.t(), keyword()) ::
@@ -97,7 +67,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def sync_binding(agent_uid, binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, team_channels} <- sync_mirrored_teams(context, config),
          {:ok, group_chats} <- sync_mirrored_group_chats(context, config) do
@@ -114,7 +84,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           {:ok, map()} | {:error, term()}
   def refresh_conversation(agent_uid, binding_name, conversation_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, mirror} <- mirrored_conversation(conversation_id),
          {:ok, result} <- sync_conversation(context, config, mirror) do
@@ -139,14 +109,23 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         enqueue_refresh_result(consumer, conversation_id, "bot_added")
 
       bot_removed?(consumer, activity) ->
-        mark_participant_left(consumer.config, conversation_id, consumer.context)
+        IMGroupProjection.mark_left(
+          Config.subject_namespace(consumer.config),
+          Conversations.base_conversation_id(conversation_id),
+          consumer.context
+        )
+        |> left_result(:all_participants_left)
 
       event_type in ["channelCreated", "channelRenamed"] ->
         upsert_event_channel_mirror(consumer.config, activity)
         {:ok, %{status: :channel_mirror_updated}}
 
       event_type == "channelDeleted" ->
-        mark_all_participants_left(consumer.config, event_channel_id(activity) || conversation_id)
+        IMGroupProjection.mark_all_left(
+          Config.subject_namespace(consumer.config),
+          Conversations.base_conversation_id(event_channel_id(activity) || conversation_id)
+        )
+        |> left_result(:conversation_gone)
 
       event_type in ["teamDeleted", "teamArchived"] ->
         mark_team_channels_left(consumer.config, team_id(activity))
@@ -242,20 +221,27 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp sync_conversation(context, config, mirror) do
     client = Config.chat_client(config)
 
-    with_conversation_lock(Config.subject_namespace(config), mirror.conversation_id, fn ->
-      with {:ok, group} <- ensure_conversation_group(context, config, mirror),
-           {:ok, members} <- list_members(client, mirror),
-           {:ok, uids} <- member_principal_uids(config, members),
-           {:ok, replace} <- IMGroupMembers.replace_members(group.id, uids) do
-        {:ok,
-         %{
-           conversation_id: mirror.conversation_id,
-           group_id: group.id,
-           synced_members: length(uids),
-           removed_memberships: replace.removed_memberships
-         }}
-      end
-    end)
+    external_id = Conversations.base_conversation_id(mirror.conversation_id)
+
+    with {:ok, group} <-
+           IMGroupProjection.ensure_group(
+             Config.subject_namespace(config),
+             external_id,
+             %{"name" => mirror[:name]},
+             context,
+             group_projection_options(config, mirror)
+           ),
+         {:ok, members} <- list_members(client, mirror),
+         {:ok, uids} <- member_principal_uids(config, members),
+         {:ok, replace} <- IMGroupMembers.replace_members(group.id, uids) do
+      {:ok,
+       %{
+         conversation_id: mirror.conversation_id,
+         group_id: group.id,
+         synced_members: length(uids),
+         removed_memberships: replace.removed_memberships
+       }}
+    end
   end
 
   defp list_members(client, mirror) do
@@ -313,62 +299,43 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp ensure_conversation_group(context, config, mirror) do
-    base_conversation_id = Conversations.base_conversation_id(mirror.conversation_id)
-    provider = Config.subject_namespace(config)
-
-    group_result =
-      case AuthZ.external_group_ids(provider, :im_group, base_conversation_id) do
-        [group_id | _rest] ->
-          AuthZ.get_principal_group(group_id)
-
-        [] ->
-          AuthZ.create_principal_group(%{
-            name: "#{provider}:im_group:#{String.downcase(base_conversation_id)}",
-            display_name: mirror[:name] || "Teams Conversation #{base_conversation_id}",
-            domain: :im_group,
-            kind: :static,
-            metadata: BindingMembership.project(%{}, context, :joined)
-          })
-      end
-
-    with {:ok, group} <- group_result,
-         {:ok, group} <- maybe_update_group(group, context, mirror),
-         {:ok, _binding} <-
-           AuthZ.upsert_external_binding(%{
-             provider: provider,
-             external_kind: :im_group,
-             external_id: base_conversation_id,
-             group_id: group.id,
-             metadata: %{
-               "provider" => provider,
-               "externalKind" => "im_group",
-               "externalID" => base_conversation_id,
-               "name" => mirror[:name]
-             }
-           }),
-         {:ok, _projection} <- upsert_channel_projection(mirror, group.id) do
-      {:ok, group}
-    end
-  end
-
-  defp maybe_update_group(group, context, mirror) do
-    attrs = %{metadata: BindingMembership.project(group.metadata, context, :joined)}
-
-    attrs =
-      if is_binary(mirror[:name]),
-        do: Map.put(attrs, :display_name, mirror[:name]),
-        else: attrs
-
-    AuthZ.update_principal_group(group, attrs)
-  end
-
   @doc false
   @spec upsert_channel_projection(map(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def upsert_channel_projection(mirror, group_id) do
+    fact = channel_fact(mirror, group_id)
+
+    Repo.transact(fn repo ->
+      Projection.upsert_channel(repo, fact, DateTime.utc_now(:microsecond))
+    end)
+  end
+
+  defp left_result({:ok, %{status: :all_left_members_cleared} = result}, status),
+    do: {:ok, %{result | status: status}}
+
+  defp left_result({:ok, %{status: :participant_marked_left} = result}, _status),
+    do: {:ok, Map.drop(result, [:removed_memberships])}
+
+  defp left_result(result, _status), do: result
+
+  defp group_projection_options(config, mirror) do
+    external_id = Conversations.base_conversation_id(mirror.conversation_id)
+
+    [
+      default_display_name: "Teams Conversation #{external_id}",
+      binding_metadata: %{
+        "provider" => Config.subject_namespace(config),
+        "externalKind" => "im_group",
+        "externalID" => external_id,
+        "name" => mirror[:name]
+      },
+      channel: %{on_conflict: :replace, fact: channel_fact(mirror, nil)}
+    ]
+  end
+
+  defp channel_fact(mirror, group_id) do
     base_conversation_id = Conversations.base_conversation_id(mirror.conversation_id)
 
-    fact = %{
+    %{
       signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
       channel_kind: if(mirror.conversation_type == "personal", do: :im_dm, else: :im_group),
       reply_mode: :entry,
@@ -387,10 +354,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         }),
       channel_raw_payload: mirror[:raw] || %{}
     }
-
-    Repo.transact(fn repo ->
-      Projection.upsert_channel(repo, fact, DateTime.utc_now(:microsecond))
-    end)
   end
 
   defp upsert_conversation_mirror(config, activity) do
@@ -456,7 +419,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     signal_channel_id =
       conversation_id |> Conversations.base_conversation_id() |> Conversations.signal_channel_id()
 
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{} = channel ->
         metadata = channel.metadata || %{}
 
@@ -570,7 +533,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           {:cont, {:ok, count}}
 
         conversation_id ->
-          case mark_all_participants_left(config, conversation_id) do
+          case IMGroupProjection.mark_all_left(
+                 Config.subject_namespace(config),
+                 Conversations.base_conversation_id(conversation_id)
+               )
+               |> left_result(:conversation_gone) do
             {:ok, _result} -> {:cont, {:ok, count + 1}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
@@ -581,91 +548,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       error -> error
     end
   end
-
-  defp mark_participant_left(config, conversation_id, %AdapterContext{} = context) do
-    base_conversation_id = Conversations.base_conversation_id(conversation_id)
-    provider = Config.subject_namespace(config)
-
-    with_conversation_lock(provider, base_conversation_id, fn ->
-      case fetch_group(provider, base_conversation_id) do
-        {:ok, group} ->
-          metadata = BindingMembership.project(group.metadata, context, :left)
-
-          with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
-            if BindingMembership.all_left?(metadata) do
-              with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
-                {:ok,
-                 %{
-                   status: :all_participants_left,
-                   group_id: group.id,
-                   removed_memberships: result.removed_memberships
-                 }}
-              end
-            else
-              # A leaving Agent loses its mirrored membership row at once,
-              # the same way a leaving human does.
-              with {:ok, _delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
-                {:ok, %{status: :participant_marked_left, group_id: group.id}}
-              end
-            end
-          end
-
-        {:error, :not_found} ->
-          {:ok, %{status: :ignored_missing_group}}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end)
-  end
-
-  defp mark_all_participants_left(config, conversation_id) do
-    base_conversation_id = Conversations.base_conversation_id(conversation_id)
-    provider = Config.subject_namespace(config)
-
-    with_conversation_lock(provider, base_conversation_id, fn ->
-      case fetch_group(provider, base_conversation_id) do
-        {:ok, group} ->
-          metadata = BindingMembership.mark_all_left(group.metadata)
-
-          with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}),
-               {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
-            {:ok,
-             %{
-               status: :conversation_gone,
-               group_id: group.id,
-               removed_memberships: result.removed_memberships
-             }}
-          end
-
-        {:error, :not_found} ->
-          {:ok, %{status: :ignored_missing_group}}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end)
-  end
-
-  defp fetch_group(provider, base_conversation_id) do
-    case AuthZ.external_group_ids(provider, :im_group, base_conversation_id) do
-      [id | _rest] -> AuthZ.get_principal_group(id)
-      [] -> {:error, :not_found}
-    end
-  end
-
-  defp with_conversation_lock(provider, conversation_id, fun) when is_binary(conversation_id) do
-    Repo.transact(fn repo ->
-      SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [
-        "teams_conversation:#{provider}:#{conversation_id}"
-      ])
-
-      fun.()
-    end)
-  end
-
-  defp with_conversation_lock(_provider, _conversation_id, _fun),
-    do: {:error, :missing_conversation_id}
 
   defp enqueue_refresh_result(consumer, conversation_id, reason) do
     case enqueue_conversation_refresh(consumer.context, consumer.config, conversation_id,

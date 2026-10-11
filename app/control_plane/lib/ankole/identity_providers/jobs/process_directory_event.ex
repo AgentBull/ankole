@@ -1,6 +1,7 @@
 defmodule Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent do
   @moduledoc false
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 20,
     unique: [
@@ -9,7 +10,7 @@ defmodule Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent do
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"event_id" => id}}),
+  @impl Ankole.Job
+  def run(%Oban.Job{args: %{"event_id" => id}}),
     do: Ankole.IdentityProviders.DirectoryAccess.process_event(id)
 end

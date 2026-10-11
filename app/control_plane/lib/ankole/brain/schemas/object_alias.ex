@@ -5,7 +5,7 @@ defmodule Ankole.Brain.Schemas.ObjectAlias do
   handle ambiguity explicitly.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 

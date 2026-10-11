@@ -101,10 +101,7 @@ export function PasswordChangeForm({ model }: { model: InstanceType<typeof Login
         {change.isPending ? t('auth.change_saving') : t('auth.change_submit')}
         {change.isPending ? <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" /> : null}
       </Button>
-      <button
-        className="justify-self-start text-sm leading-5 text-link underline underline-offset-4 hover:text-link/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-        type="button"
-        onClick={() => model.backToLogin()}>
+      <button className="link justify-self-start text-sm leading-5" type="button" onClick={() => model.backToLogin()}>
         {t('auth.back_to_sign_in')}
       </button>
     </Form>

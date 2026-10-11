@@ -21,7 +21,7 @@ defmodule AnkoleWeb.AgentSkillLessonControllerTest do
 
   test "admin lists, adds, and retires skill lessons", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/agents/#{agent.uid}/skill-lessons")
     assert %{"skill_lessons" => []} = json_response(conn, 200)
@@ -70,7 +70,7 @@ defmodule AnkoleWeb.AgentSkillLessonControllerTest do
   test "skill lesson endpoints reject blank content, URLs, unknown agents, and disabled skills",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/agents/missing-agent/skill-lessons")
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)

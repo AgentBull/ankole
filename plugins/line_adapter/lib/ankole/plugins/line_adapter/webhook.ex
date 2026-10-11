@@ -11,6 +11,7 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
   `webhookEventId` is the source event id.
   """
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.{Logging, SignalsGateway}
   alias Ankole.Plugins.LineAdapter.{Config, Inbound, Signature}
   alias Ankole.Plugins.MapHelpers
@@ -23,7 +24,12 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
         signature = Map.get(request.headers, "x-line-signature")
 
         if Signature.valid?(request.raw_body, signature, Config.channel_secret(consumer.config)) do
-          dispatch(request.body_params, consumer, channel_id)
+          case Ankole.Tenants.dispatch_inbound(consumer.tenant_id, fn ->
+                 dispatch(request.body_params, consumer, channel_id)
+               end) do
+            {:ok, []} -> {:ok, %{status: 200, body: %{}}}
+            result -> result
+          end
         else
           Logging.warning(
             "line_adapter.webhook.unauthorized",
@@ -81,14 +87,18 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
     do: {:ok, [%{status: :ignored_invalid_event}]}
 
   defp consumer_for_channel(channel_id) do
-    "line"
-    |> SignalsGateway.list_enabled_bindings()
-    |> Enum.find_value(:error, &binding_consumer(&1, channel_id))
+    Ankole.Repo.across_tenants(fn ->
+      "line"
+      |> SignalsGateway.list_enabled_bindings()
+      |> Enum.find_value(:error, &binding_consumer(&1, channel_id))
+    end)
   end
 
   defp binding_consumer(binding, channel_id) do
-    case Config.load_config_ref(binding.config_ref) do
-      {:ok, %Config.Runtime{channel_id: ^channel_id} = config} ->
+    case Bindings.binding_config(binding, Config) do
+      {:ok, %{"channelId" => ^channel_id} = config} ->
+        config = Config.runtime_config(config)
+
         context =
           AdapterContext.new(
             agent_uid: binding.agent_uid,
@@ -97,7 +107,7 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
             user_name: "LINE"
           )
 
-        {:ok, Inbound.chat_consumer(context, config)}
+        {:ok, Map.put(Inbound.chat_consumer(context, config), :tenant_id, binding.tenant_id)}
 
       {:ok, _other_channel} ->
         nil

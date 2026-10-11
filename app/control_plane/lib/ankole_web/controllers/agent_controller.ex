@@ -14,6 +14,7 @@ defmodule AnkoleWeb.AgentController do
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
@@ -31,7 +32,7 @@ defmodule AnkoleWeb.AgentController do
   alias AnkoleWeb.Schemas.ConsoleAPI.TokenQuotaWriteRequest
 
   tags(["Agents"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -40,8 +41,7 @@ defmodule AnkoleWeb.AgentController do
     summary: "List agents, including disabled agents",
     responses: [
       ok: {"Agents", "application/json", AgentListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -50,9 +50,7 @@ defmodule AnkoleWeb.AgentController do
     request_body: {"Agent", "application/json", AgentCreateRequest, required: true},
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid agent", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -61,9 +59,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -73,10 +69,7 @@ defmodule AnkoleWeb.AgentController do
     request_body: {"Agent", "application/json", AgentUpdateRequest, required: true},
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid agent", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -85,9 +78,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -96,9 +87,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -107,7 +96,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Model profiles", "application/json", ModelProfilesResponse},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -119,7 +108,7 @@ defmodule AnkoleWeb.AgentController do
        required: true},
     responses: [
       ok: {"Provider hosted capabilities", "application/json", ProviderHostedResponse},
-      unprocessable_entity: {"Invalid capability", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -132,7 +121,7 @@ defmodule AnkoleWeb.AgentController do
     request_body: {"Model profile", "application/json", ModelProfileWriteRequest, required: true},
     responses: [
       ok: {"Model profile", "application/json", ModelProfileResponse},
-      unprocessable_entity: {"Invalid model profile", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -144,7 +133,7 @@ defmodule AnkoleWeb.AgentController do
     ],
     responses: [
       ok: {"Model profile", "application/json", ModelProfileResponse},
-      unprocessable_entity: {"Profile cannot be cleared", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -153,7 +142,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Token quota", "application/json", TokenQuotaResponse},
-      unprocessable_entity: {"Unknown agent", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -163,7 +152,7 @@ defmodule AnkoleWeb.AgentController do
     request_body: {"Token quota", "application/json", TokenQuotaWriteRequest, required: true},
     responses: [
       ok: {"Token quota", "application/json", TokenQuotaResponse},
-      unprocessable_entity: {"Invalid token quota", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -172,7 +161,7 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Token quota", "application/json", TokenQuotaResponse},
-      unprocessable_entity: {"Unknown agent", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -181,13 +170,15 @@ defmodule AnkoleWeb.AgentController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Token quota", "application/json", TokenQuotaResponse},
-      unprocessable_entity: {"No token quota to reset", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
-      json(conn, %{agents: Enum.map(Principals.list_agents(), &agent_json/1)})
+      agents = Principals.list_agents()
+      providers = Providers.provider_ids(Enum.map(agents, & &1.principal.uid))
+      json(conn, %{agents: Enum.map(agents, &agent_json(&1, providers))})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -195,7 +186,7 @@ defmodule AnkoleWeb.AgentController do
 
   def create(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "update"),
-         {:ok, attrs} <- create_attrs(conn.body_params, conn.assigns.current_principal_uid),
+         {:ok, attrs} <- create_attrs(conn.body_params, conn.assigns.current_principal),
          {:ok, result} <- Principals.create_agent(attrs) do
       json(conn, %{agent: agent_json(result)})
     else
@@ -370,12 +361,12 @@ defmodule AnkoleWeb.AgentController do
     }
   end
 
-  defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
+  defp create_attrs(attrs, current_principal) when is_map(attrs) do
     with {:ok, display_name} <- required_text(attrs, :display_name) do
       {:ok,
        attrs
        |> Map.put(:display_name, display_name)
-       |> Map.put(:created_by_principal_uid, current_principal_uid)}
+       |> Map.put(:created_by, Ankole.ActorRef.from_principal(current_principal))}
     end
   end
 
@@ -384,7 +375,7 @@ defmodule AnkoleWeb.AgentController do
   defp update_attrs(attrs) when is_map(attrs) do
     attrs =
       attrs
-      |> Map.drop([:uid, :created_by_principal_uid])
+      |> Map.drop([:uid, :created_by])
 
     normalize_optional_display_name(attrs)
   end
@@ -430,9 +421,13 @@ defmodule AnkoleWeb.AgentController do
     |> Map.put("configured", true)
   end
 
-  defp agent_json(%{principal: %Principal{} = principal, agent: %Agent{} = agent}) do
+  defp agent_json(result), do: agent_json(result, Providers.provider_ids([result.principal.uid]))
+
+  defp agent_json(%{principal: %Principal{} = principal, agent: %Agent{} = agent}, providers) do
     %{
       uid: principal.uid,
+      handle: agent.handle,
+      worker_provider_id: Map.get(providers, principal.uid),
       status: Atom.to_string(principal.status),
       display_name: principal.display_name,
       avatar_url: principal.avatar_url,
@@ -441,11 +436,24 @@ defmodule AnkoleWeb.AgentController do
       options: agent.options || %{},
       owner_principal_uid: agent.owner_principal_uid,
       group_memory_disclosure_mode: Atom.to_string(agent.group_memory_disclosure_mode),
-      created_by_principal_uid: agent.created_by_principal_uid,
+      created_by: agent.created_by && Map.from_struct(agent.created_by),
       inserted_at: DateTime.to_iso8601(agent.inserted_at),
       updated_at: DateTime.to_iso8601(agent.updated_at)
     }
   end
+
+  defp error(conn, :worker_provider_required),
+    do:
+      error(
+        conn,
+        422,
+        "worker_provider_required",
+        "Select a Worker provider or set a default provider"
+      )
+
+  defp error(conn, :worker_provider_not_found),
+    do:
+      error(conn, 422, "worker_provider_not_found", "The selected Worker provider was not found")
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")

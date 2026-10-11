@@ -8,7 +8,8 @@ defmodule Ankole.Brain.Jobs.ApplySkillLessons do
   on the Library's normalized-equality gate.
   """
 
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 5,
     unique: [
@@ -17,8 +18,12 @@ defmodule Ankole.Brain.Jobs.ApplySkillLessons do
       states: Oban.Job.states() -- [:completed, :cancelled, :discarded]
     ]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"job_id" => job_id}}) do
+  @impl Ankole.Job
+  def run(job) do
+    if Ankole.Tenants.accepting_work?(Ankole.Repo.tenant_id!()), do: run_active(job), else: :ok
+  end
+
+  defp run_active(%Oban.Job{args: %{"job_id" => job_id}}) do
     Ankole.Brain.SkillLessons.apply_reflection_output(job_id)
   end
 end

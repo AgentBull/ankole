@@ -8,7 +8,6 @@ defmodule AnkoleWeb.SetupControllerTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
   alias Ankole.IdentityProviders
   alias Ankole.Plugins.Config, as: PluginsConfig
@@ -17,11 +16,13 @@ defmodule AnkoleWeb.SetupControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
-  setup do
+  setup %{tenant: tenant} do
+    :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
+    :ok = Ankole.Tenants.ensure_scaffold(tenant)
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -161,7 +162,7 @@ defmodule AnkoleWeb.SetupControllerTest do
 
   test "bootstrap repairs console admin grants once when setup is complete" do
     human = human_fixture(%{uid: unique_uid("setup-bootstrap-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
+    assert {:ok, _root} = Ankole.PrincipalsFixtures.first_site_admin_fixture(human.principal.uid)
 
     Repo.delete_all(
       from grant in Grant,
@@ -253,7 +254,10 @@ defmodule AnkoleWeb.SetupControllerTest do
   end
 
   describe "POST /.internal-apis/setup/local-admin" do
-    test "creates the administrator, completes setup, and signs the browser in", %{conn: conn} do
+    test "creates the administrator, completes setup, and signs the browser in", %{
+      conn: conn,
+      tenant: tenant
+    } do
       setup_conn =
         conn
         |> init_test_session(%{})
@@ -274,7 +278,7 @@ defmodule AnkoleWeb.SetupControllerTest do
           "password" => "hunter2-long"
         })
 
-      assert %{"returnTo" => "/console"} = json_response(conn, 200)
+      assert %{"returnTo" => "/site-admin-console"} = json_response(conn, 200)
       assert {:ok, true} = SetupConfig.completed?()
       assert get_session(conn, :setup_session) == nil
 
@@ -282,17 +286,20 @@ defmodule AnkoleWeb.SetupControllerTest do
 
       assert %{
                "authenticated" => true,
-               "principalUID" => "admin@example.com",
+               "principalUID" => uid,
                "providerID" => "local-main"
              } = json_response(conn, 200)
 
-      assert Ankole.AdminAuth.active_human_admin?("admin@example.com")
+      assert {:ok, _} = Ecto.UUID.cast(uid)
+      assert Ankole.SiteAdminAuth.active_human_site_admin?(uid)
 
       assert {:ok, %{must_change_password: false}} =
-               Ankole.IdentityProviders.LocalPassword.authenticate(
-                 "admin@example.com",
-                 "hunter2-long"
-               )
+               Ankole.Repo.with_tenant(tenant.id, fn ->
+                 Ankole.IdentityProviders.LocalPassword.authenticate(
+                   "admin@example.com",
+                   "hunter2-long"
+                 )
+               end)
     end
 
     test "requires the local provider, a valid email, and a six-character password", %{

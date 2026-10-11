@@ -1,11 +1,13 @@
 defmodule Ankole.IdentityProviders.LocalPassword do
+  def platform_application(_config), do: {:ok, nil}
+
   @moduledoc """
   Built-in email-and-password identity provider.
 
   This adapter is part of the control plane, not a plugin, so setup and the
-  console always list it. One installation holds at most one local provider
+  console always list it. Each tenant holds at most one local provider
   instance (`save_provider` rejects a second one), because every instance
-  would read and write the same `human_user_local_credentials` table.
+  in that tenant would read and write the same credentials.
 
   Sign-in verifies an Argon2id hash through the kernel. Accounts only come
   from the console, setup, or the rescue command; there is no self-service
@@ -52,6 +54,8 @@ defmodule Ankole.IdentityProviders.LocalPassword do
           | {:error, :invalid_credentials}
           | {:error, :account_disabled}
           | {:error, {:retry_locked, pos_integer()}}
+          | {:error, {:retry_busy, pos_integer()}}
+          | {:error, :password_verification_failed}
           | {:error, :no_local_provider}
 
   @doc """
@@ -109,8 +113,10 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   @spec app_config_pattern() :: AppConfigure.PatternDefinition.t()
   def app_config_pattern do
     AppConfigure.define_pattern(
+      scope: :tenant,
       id: "principals.identity_providers.local.*",
       key_pattern: @config_key_pattern,
+      console_writable: false,
       # The local provider config holds one boolean and no secret.
       encrypted: false,
       schema: Schema.new(&validate_config/1),
@@ -288,37 +294,37 @@ defmodule Ankole.IdentityProviders.LocalPassword do
       account_key = Principals.normalize_email(email) || ""
       login = fetch_local_login(account_key)
 
-      # The attempt is reserved before the hash verification runs, so
-      # concurrent requests cannot all pass the limit first and verify
-      # without bound. A successful verify releases the reservation.
-      with :ok <- register_attempt(retry_protection?, account_key, login) do
-        verify_login(provider, login, account_key, password)
+      password_hash =
+        case login do
+          {:ok, %{credential: %LocalCredential{} = credential}} -> credential.password_hash
+          _missing_login_or_credential -> @dummy_password_hash
+        end
+
+      case RetryGuard.verify_password(Repo.tenant_id!(), account_key, password, password_hash,
+             retry_protection?: retry_protection?,
+             clear_on_match?: match?({:ok, %{credential: %LocalCredential{}}}, login),
+             not_before_ms: credential_written_at_ms(login)
+           ) do
+        {:ok, true} -> verified_login(provider, login, account_key)
+        {:ok, false} -> {:error, :invalid_credentials}
+        {:locked, seconds} -> {:error, {:retry_locked, seconds}}
+        {:busy, seconds} -> {:error, {:retry_busy, seconds}}
+        {:error, reason} -> {:error, reason}
       end
     end
   end
 
   def authenticate(_email, _password, _opts), do: {:error, :invalid_credentials}
 
-  defp verify_login(
+  defp verified_login(
          provider,
          {:ok, %{credential: %LocalCredential{} = credential} = login},
-         account_key,
-         password
-       ) do
-    case NativeKernel.argon2id_verify(password, credential.password_hash) do
-      true ->
-        RetryGuard.clear(account_key)
-        authenticated_result(provider, login, credential, account_key)
+         account_key
+       ),
+       do: authenticated_result(provider, login, credential, account_key)
 
-      _false_or_error ->
-        {:error, :invalid_credentials}
-    end
-  end
-
-  defp verify_login(_provider, _missing_account_or_credential, _account_key, password) do
-    NativeKernel.argon2id_verify(password, @dummy_password_hash)
-    {:error, :invalid_credentials}
-  end
+  defp verified_login(_provider, _missing_login_or_credential, _account_key),
+    do: {:error, :invalid_credentials}
 
   defp authenticated_result(
          provider,
@@ -381,26 +387,6 @@ defmodule Ankole.IdentityProviders.LocalPassword do
       on: credential.principal_uid == human_user.principal_uid,
       where: human_user.email == ^email,
       select: %{principal: principal, human_user: human_user, credential: credential}
-  end
-
-  defp register_attempt(false, _account_key, _login), do: :ok
-
-  defp register_attempt(true, account_key, login) do
-    opts =
-      case login do
-        # Attempts against a replaced password do not count. The credential
-        # timestamp also lets a reset in another OS process unlock the account.
-        {:ok, %{credential: %LocalCredential{}}} ->
-          [not_before_ms: credential_written_at_ms(login)]
-
-        _missing_login_or_credential ->
-          []
-      end
-
-    case RetryGuard.register_attempt(account_key, opts) do
-      :ok -> :ok
-      {:locked, retry_after_seconds} -> {:error, {:retry_locked, retry_after_seconds}}
-    end
   end
 
   defp credential_written_at_ms(

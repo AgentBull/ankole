@@ -1,18 +1,24 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { isRecord } from '@agentbull/active-support'
 
-import { ChildProcessExitError, repoRootPath, runChild, runChildCaptured } from './utils'
+import { ChildProcessExitError, repoRootPath, runChild, runChildCaptured, styledWarn } from './utils'
 
 export type LocalWorkerImageScope = 'source-mounted' | 'complete'
 
+/** The Agent OS base of local Worker builds, and the commit whose Dockerfile.base built it. */
+export type WorkerBaseImageLock = { image: string; revision: string }
+
 const upstreamWorkerRepository = 'ghcr.io/agentbull/ankole-agent-computer-worker'
 const localWorkerRepository = 'ankole-agent-computer'
+const baseImageRepository = 'ghcr.io/agentbull/ankole-agent-os-base'
 const inputHashLabel = 'io.ankole.local-worker.input-hash'
 const inputScopeLabel = 'io.ankole.local-worker.input-scope'
 const releaseRevisionLabel = 'org.opencontainers.image.revision'
 const baseDigestLabel = 'io.ankole.agent-os-base.digest'
 const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
+const workerBaseDockerfile = 'app/agent_computer/Dockerfile.base'
 
 const sharedInputRoots = [
   '.dockerignore',
@@ -20,9 +26,9 @@ const sharedInputRoots = [
   'app/agent_computer/base-image.lock',
   'app/agent_computer/matplotlibrc',
   'app/agent_computer/package.json',
+  'app/agent_computer/scripts',
   'app/agent_computer/tsconfig.json',
   'app/ankole-browser',
-  'app/kernel',
   'app/library',
   'package.json',
   'bun.lock',
@@ -42,6 +48,7 @@ export async function resolveLocalWorkerImage(options: {
     if (await pullAndVerifyUpstreamImage(upstreamImage, revision)) return upstreamImage
   }
 
+  await warnIfBaseImageLockIsStale(baseImage)
   const inputHash = await workerImageInputHash(options.scope)
   const localImage = localWorkerImageRef(options.scope, inputHash)
   if (await localImageMatches(localImage, options.scope, inputHash)) return localImage
@@ -50,7 +57,7 @@ export async function resolveLocalWorkerImage(options: {
     throw new Error(`Worker image ${localImage} is missing and local builds are disabled.`)
   }
 
-  await runChild('docker', buildWorkerImageBuildArgs(localImage, options.scope, inputHash, baseImage), {
+  await runChild('docker', buildWorkerImageBuildArgs(localImage, options.scope, inputHash, baseImage.image), {
     cwd: repoRootPath
   })
   if (!(await localImageMatches(localImage, options.scope, inputHash))) {
@@ -135,7 +142,7 @@ async function workerInputsMatchHEAD(scope: LocalWorkerImageScope): Promise<bool
   return untracked.stdout.length === 0
 }
 
-function workerInputRoots(scope: LocalWorkerImageScope): string[] {
+export function workerInputRoots(scope: LocalWorkerImageScope): string[] {
   return scope === 'complete' ? [...sharedInputRoots, 'app/agent_computer/src'] : sharedInputRoots
 }
 
@@ -194,12 +201,88 @@ async function dockerImageLabels(image: string): Promise<Record<string, string> 
   return parsed as Record<string, string>
 }
 
-function readWorkerBaseImageLock(): string {
+function readWorkerBaseImageLock(): WorkerBaseImageLock {
   const image = readFileSync(workerBaseImageLock, 'utf8').trim()
-  if (!/^ghcr\.io\/agentbull\/ankole-agent-os-base@sha256:[0-9a-f]{64}$/.test(image)) {
-    throw new Error(`Worker base image lock is invalid: ${workerBaseImageLock}`)
+  const revision = /^ghcr\.io\/agentbull\/ankole-agent-os-base:([0-9a-f]{40})@sha256:[0-9a-f]{64}$/.exec(image)?.[1]
+  if (!revision) throw new Error(`Worker base image lock is invalid: ${workerBaseImageLock}`)
+  return { image, revision }
+}
+
+/**
+ * Pins the Agent OS base that the runtime-images workflow published for a
+ * commit. The commit must be in the history of HEAD and have the
+ * Dockerfile.base of HEAD, so the lock cannot name a base of another recipe.
+ */
+export async function pinWorkerBaseImage(revisionName: string): Promise<WorkerBaseImageLock> {
+  const revision = await gitOutput(['rev-parse', '--verify', '--quiet', `${revisionName}^{commit}`])
+  if (!revision) throw new Error(`${revisionName} is not a commit`)
+  if ((await gitOutput(['merge-base', '--is-ancestor', revision, 'HEAD'])) === null) {
+    throw new Error(`${revision} is not in the history of HEAD`)
   }
-  return image
+
+  const [recipe, headRecipe] = await Promise.all([committedBaseRecipe(revision), committedBaseRecipe('HEAD')])
+  if (recipe !== headRecipe) {
+    throw new Error(
+      `${revision} has a different ${workerBaseDockerfile} than HEAD; pin a commit that has the current one`
+    )
+  }
+
+  const lock = { image: `${baseImageRepository}:${revision}@${await publishedBaseDigest(revision)}`, revision }
+  writeFileSync(workerBaseImageLock, `${lock.image}\n`)
+  return lock
+}
+
+/** Warns when the pinned base was built from a Dockerfile.base other than the one in the working tree. */
+export async function warnIfBaseImageLockIsStale(lock: WorkerBaseImageLock): Promise<void> {
+  const [pinnedRecipe, currentRecipe] = await Promise.all([
+    committedBaseRecipe(lock.revision),
+    gitOutput(['hash-object', '--', workerBaseDockerfile])
+  ])
+  if (pinnedRecipe === currentRecipe) return
+
+  const pin = `app/agent_computer/base-image.lock pins the Agent OS base of commit ${lock.revision.slice(0, 9)}`
+  console.warn(
+    styledWarn(
+      pinnedRecipe === null
+        ? `${pin}, which is not in the local Git history, so devkit cannot compare it with ${workerBaseDockerfile}.`
+        : `${pin}, which has a different ${workerBaseDockerfile}. Local Worker images build on that base until ` +
+            `\`bun run kit pin-base-image\` pins the base that CI publishes for the current one.`
+    )
+  )
+}
+
+function committedBaseRecipe(revision: string): Promise<string | null> {
+  return gitOutput(['rev-parse', '--verify', '--quiet', `${revision}:${workerBaseDockerfile}`])
+}
+
+async function publishedBaseDigest(revision: string): Promise<string> {
+  const image = `${baseImageRepository}:${revision}`
+  const result = await runChildCaptured('docker', [
+    'buildx',
+    'imagetools',
+    'inspect',
+    image,
+    '--format',
+    '{{json .Manifest}}'
+  ])
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || result.error?.message || '').trim()
+    throw new Error(
+      `cannot read ${image}; CI publishes it when its runtime-images workflow builds that commit: ${detail}`
+    )
+  }
+
+  const manifest: unknown = JSON.parse(result.stdout)
+  const digest = isRecord(manifest) ? manifest.digest : undefined
+  if (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(`${image} has no sha256 manifest digest`)
+  }
+  return digest
+}
+
+async function gitOutput(args: string[]): Promise<string | null> {
+  const result = await runChildCaptured('git', args, { cwd: repoRootPath })
+  return result.status === 0 ? result.stdout.trim() : null
 }
 
 async function requireDocker(): Promise<void> {

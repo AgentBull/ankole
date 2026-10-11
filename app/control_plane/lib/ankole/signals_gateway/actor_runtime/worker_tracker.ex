@@ -4,9 +4,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerTracker do
 
   Every admitted `AnkoleWeb.WorkerChannel` tracks itself under the topic of
   its Worker with its `connection_id` as the key. The metadata holds only
-  stable connection identity: `worker_id`, `incarnation_id`,
-  `connection_id`, `channel_pid`, and `node`. Heartbeat, load, and capacity
-  stay in the PostgreSQL projection, never here.
+  `incarnation_id`. The topic names the Worker, the key names the connection,
+  and the entry supplies the process and node. Heartbeat, load, and capacity
+  stay in the PostgreSQL projection.
 
   The tracker is an eventually consistent directory. `WorkerRoute` reads it
   with `get_by_key/3` to find the process for one route; it never drives a

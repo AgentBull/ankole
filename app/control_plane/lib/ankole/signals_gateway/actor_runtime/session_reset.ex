@@ -8,7 +8,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.Repo
   alias Ankole.SystemConfig
@@ -199,9 +198,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
     Repo.transact(fn repo ->
       with :ok <- Actors.lock_actor_session_in_tx(repo, input.agent_uid, input.session_id),
-           _activation = TurnLifecycle.lock_live_activation(repo, actor_key),
            %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
-           false <- TurnLifecycle.live_delivery_for_session?(repo, actor_key),
            {:ok, closed_conversation} <- close_current_session_for_reset(repo, actor_key, now),
            {:ok, conversation} <-
              ensure_successor_conversation(repo, actor_key, closed_conversation),
@@ -222,10 +219,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
         nil ->
           {:ok, %{status: :idle}}
 
-        true ->
-          {:ok,
-           %{status: :waiting_for_generation, reason: :session_reset_due, actor_event: input}}
-
         {:error, _reason} = error ->
           error
       end
@@ -233,23 +226,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   end
 
   defp close_current_session_for_reset(repo, actor_key, now) do
-    actor_event_id = current_actor_event_id_for_actor(repo, actor_key)
-
     case AIGatewayLink.active_conversation_for_update(
            repo,
            actor_key.agent_uid,
            actor_key.session_id
          ) do
       %{} ->
-        with {:ok, _cancelled_turn} <-
-               TurnLifecycle.cancel_started_turn_in_tx(
-                 repo,
-                 actor_key,
-                 actor_event_id,
-                 now,
-                 "session.reset_due"
-               ),
-             {:ok, conversation} <-
+        with {:ok, conversation} <-
                AIGateway.end_active_conversation_in_tx(
                  repo,
                  actor_key.agent_uid,
@@ -261,13 +244,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
       nil ->
         {:ok, nil}
-    end
-  end
-
-  defp current_actor_event_id_for_actor(repo, actor_key) do
-    case TurnLifecycle.lock_live_activation(repo, actor_key) do
-      %{current_actor_event_id: actor_event_id} when is_binary(actor_event_id) -> actor_event_id
-      _activation -> nil
     end
   end
 

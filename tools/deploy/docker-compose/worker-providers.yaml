@@ -1,0 +1,14 @@
+# Imported only when worker_providers is empty. After that, edit in Console.
+providers:
+  - provider_id: docker
+    kind: docker
+    display_name: Local Docker
+    is_default: true
+    # This provider receives the old Agent Homes copied by migrate-agent-homes.
+    # Keep its ID equal to WORKER_PROVIDER in compose.yaml during the upgrade.
+    legacy_agents: true
+    config: |
+      socket: /var/run/docker.sock
+      network: ankole_workers
+      stopGraceSeconds: 60
+      idleReleaseAfter: 15m

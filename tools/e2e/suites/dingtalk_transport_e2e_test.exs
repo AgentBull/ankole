@@ -1,5 +1,6 @@
 defmodule Ankole.E2E.DingTalkTransportTest do
   use ExUnit.Case, async: false
+  @moduletag plugin_transport: true
 
   alias Ankole.E2E.FakeDingTalk.{Server, State}
   alias DingTalkOpenAPI.Stream.Client, as: StreamClient

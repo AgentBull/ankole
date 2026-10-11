@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BUILTIN_SKILLS_ROOT, WORKER_SHARE_ROOT } from '../src/core/agent-home-paths'
+import { mkdirAgentSync } from '../src/common/agent-user'
 import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   createContainerComputer,
   type CommandFinished,
-  type CommandOutputMode,
   type ContainerComputer,
   type ReadFileWindow
 } from '../src/tools/computer/computer'
+import { type CommandOutputMode } from '../src/tools/computer/commands'
 import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createComputerTools } from '../src/tools/computer'
 import { createApplyPatchTool } from '../src/tools/computer/apply-patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
-import { createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
+import { FakeDrive } from './support/fake-drive'
+import { workerToolDeclarations, workerToolsPath } from '../scripts/export-worker-tools'
+import { computerToolsForContext } from '../src/tools/computer'
 
 class FakeFinishedCommand implements CommandFinished {
   constructor(
@@ -38,11 +41,10 @@ class FakeComputer implements ContainerComputer {
     return this.runImpl(input)
   }
 
-  statCalls: string[] = []
-
-  async fileSize(input: { path: string }): Promise<number | null> {
-    this.statCalls.push(input.path)
-    return this.files.get(input.path)?.byteLength ?? null
+  async readFileBytes(input: { path: string; maxBytes: number }): Promise<{ bytes: Buffer } | { size: number } | null> {
+    const buffer = this.files.get(input.path)
+    if (!buffer) return null
+    return buffer.byteLength > input.maxBytes ? { size: buffer.byteLength } : { bytes: buffer }
   }
 
   async readFileWindow(input: { path: string; offset: number; limit: number }): Promise<ReadFileWindow | null> {
@@ -56,22 +58,14 @@ class FakeComputer implements ContainerComputer {
       lines: lines.slice(input.offset - 1, input.offset - 1 + input.limit)
     }
   }
-
-  fs = {
-    writeFiles: async (files: Array<{ path: string; content: string | Buffer }>): Promise<void> => {
-      for (const file of files) {
-        this.files.set(file.path, Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content))
-      }
-    }
-  }
 }
 
 function contextFor(computer: ContainerComputer, overrides: Partial<ComputerToolContext> = {}): ComputerToolContext {
   return {
     agentHome: '/agents/agent-1',
     workspaceRoot: '/agents/agent-1/sessions/session-1',
-    userFilesRoot: '/agents/agent-1/user-files',
-    getComputer: async () => computer,
+    drive: new FakeDrive('/agents/agent-1').drive(),
+    computer,
     ...overrides
   }
 }
@@ -83,11 +77,16 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 }
 
 describe('computer tools', () => {
+  it('pins schemas and safe replay declarations to the control-plane catalog (G3, G4)', () => {
+    const declarations = workerToolDeclarations(computerToolsForContext(contextFor(new FakeComputer())))
+    expect(declarations).toEqual(JSON.parse(readFileSync(workerToolsPath, 'utf8')))
+  })
+
   it('exposes only foreground, stateless computer tools to the main agent', () => {
     const tools = createComputerTools({
       agentHome: '/agents/agent-1',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
-      userFilesRoot: '/agents/agent-1/user-files'
+      drive: new FakeDrive('/agents/agent-1').drive()
     })
     const names = tools.map(tool => tool.name)
 
@@ -114,7 +113,6 @@ describe('computer tools', () => {
     const context = contextFor(computer)
     const readFile = createReadFileTool(context)
     const applyPatch = createApplyPatchTool(context)
-    const attachment = createReplyAttachmentTool(context)
     const command = createCommandTool(context)
 
     expect(
@@ -125,14 +123,6 @@ describe('computer tools', () => {
     })
     const patchBodySummary = applyPatch.describeActivity(applyPatch.schema.parse('private patch body'))
     expect(patchBodySummary).toEqual({ key: 'signals_gateway.reply.activity.file_update' })
-    const attachmentSummary = attachment.describeActivity(
-      attachment.schema.parse({ path: '/agents/agent-1/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
-    )
-    expect(attachmentSummary).toEqual({
-      key: 'signals_gateway.reply.activity.attachment_prepare_target',
-      bindings: { path: 'reports/weekly.pdf' }
-    })
-
     const commandSummaries = [
       command.describeActivity(
         command.schema.parse({
@@ -172,37 +162,6 @@ describe('computer tools', () => {
     expect(text).toContain('exit_code_note: rg exit 1 = no matches found (not an error)')
   })
 
-  it('records reply attachments only for files under the Agent user-files directory', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('/agents/agent-1/user-files/report.txt', Buffer.from('report'))
-    const tool = createReplyAttachmentTool(contextFor(computer))
-
-    const result = await tool.execute('call-reply-attachment', { path: '/agents/agent-1/user-files/report.txt' })
-
-    expect(result.details.delivery_state).toBe('queued')
-    expect(result.details.attachments).toEqual([
-      {
-        agent_computer_path: '/agents/agent-1/user-files/report.txt',
-        user_files_relative_path: 'report.txt',
-        name: 'report.txt',
-        size: 6
-      }
-    ])
-  })
-
-  it('rejects reply attachment paths that normalize outside Agent user-files', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('/agents/agent-1/user-files/../temp/secret.txt', Buffer.from('secret'))
-    const tool = createReplyAttachmentTool(contextFor(computer))
-
-    await expect(
-      tool.execute('call-reply-attachment-escape', { path: '/agents/agent-1/user-files/../temp/secret.txt' })
-    ).rejects.toThrow('reply_attachment only accepts files under /agents/agent-1/user-files')
-    // The rejected path never reaches the sandbox: the size lookup runs only
-    // after the path is known to be inside user-files.
-    expect(computer.statCalls).toEqual([])
-  })
-
   it('explains foreground timeout recovery when a command hits exit 124', async () => {
     const computer = new FakeComputer()
     computer.runImpl = async () => new FakeFinishedCommand(124, 'partial output')
@@ -226,12 +185,12 @@ describe('computer tools', () => {
     expect(tool.schema.safeParse({ action: 'list' }).success).toBe(false)
   })
 
-  it('passes system-root traversal commands through to the sandboxed command runner', async () => {
+  it('passes system-root traversal commands through to the command runner', async () => {
     const computer = new FakeComputer()
     let runCalled = false
     computer.runImpl = async () => {
       runCalled = true
-      return new FakeFinishedCommand(0, 'sandbox result')
+      return new FakeFinishedCommand(0, 'command result')
     }
     const tool = createCommandTool(contextFor(computer))
 
@@ -240,7 +199,7 @@ describe('computer tools', () => {
 
     expect(runCalled).toBe(true)
     expect(result.details.exitCode).toBe(0)
-    expect(text).toContain('sandbox result')
+    expect(text).toContain('command result')
     expect(text).not.toContain('Refused command')
   })
 
@@ -255,6 +214,37 @@ describe('computer tools', () => {
 
     const full = await tool.execute('call-2', { path: 'demo.txt', limit: 10 })
     expect(textOf(full)).toContain('[3 lines total]')
+  })
+
+  it('returns an image file as an image part with a caption', async () => {
+    const computer = new FakeComputer()
+    // The Worker recognizes the format by its signature; the control plane decodes the pixels.
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)])
+    computer.files.set('chart.png', png)
+    const tool = createReadFileTool(contextFor(computer))
+
+    const result = await tool.execute('call-1', { path: 'chart.png' })
+
+    expect(result.content).toEqual([
+      { type: 'text', text: `Image file: chart.png (image/png, ${png.byteLength} bytes)` },
+      { type: 'image', image: png, mimeType: 'image/png' }
+    ])
+    expect(result.details).toEqual({ path: 'chart.png', found: true, totalLines: 0, truncated: false })
+  })
+
+  it('names the size limit for a large image and keeps other binaries as text', async () => {
+    const computer = new FakeComputer()
+    const header = Buffer.from([0xff, 0xd8, 0xff, 0xe0])
+    computer.files.set('photo.jpg', Buffer.concat([header, Buffer.alloc(8 * 1024 * 1024)]))
+    computer.files.set('report.pdf', Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(16)]))
+    computer.files.set('notes.txt', Buffer.from('BMW and BMX notes\n'))
+    const tool = createReadFileTool(contextFor(computer))
+
+    expect(textOf(await tool.execute('call-1', { path: 'photo.jpg' }))).toContain(
+      'Image is too large to view: photo.jpg'
+    )
+    expect(textOf(await tool.execute('call-2', { path: 'report.pdf' }))).toContain('convert it to PNG first')
+    expect(textOf(await tool.execute('call-3', { path: 'notes.txt' }))).toContain('1|BMW and BMX notes')
   })
 
   it('passes the raw patch to the native apply_patch command', async () => {
@@ -299,90 +289,59 @@ describe('computer tools', () => {
     )
   })
 
-  it('edits files through the native apply_patch binary inside bubblewrap', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-native-apply-patch-')
+  it('reads whole files on the container computer within a byte limit', async () => {
+    const agentHome = mkdtempSync(join(tmpdir(), 'ankole-read-file-bytes-'))
+    mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     mkdirSync(workspaceRoot, { recursive: true })
-    writeFileSync(join(workspaceRoot, 'report.md'), 'old\n')
-    writeFileSync(join(workspaceRoot, 'stale.md'), 'remove\n')
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a, 0xff])
+    writeFileSync(join(workspaceRoot, 'chart.png'), bytes)
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const tool = createApplyPatchTool(
-        contextFor(computer, {
-          agentHome,
-          workspaceRoot,
-          userFilesRoot: join(agentHome, 'user-files')
-        })
-      )
-
-      await tool.execute(
-        'call-native-apply-patch',
-        [
-          '*** Begin Patch',
-          '*** Update File: report.md',
-          '@@',
-          '-old',
-          '+new',
-          '*** Add File: created.md',
-          '+created',
-          '*** Delete File: stale.md',
-          '*** End Patch',
-          ''
-        ].join('\n')
-      )
-
-      expect(readFileSync(join(workspaceRoot, 'report.md'), 'utf8')).toBe('new\n')
-      expect(readFileSync(join(workspaceRoot, 'created.md'), 'utf8')).toBe('created\n')
-      expect(() => readFileSync(join(workspaceRoot, 'stale.md'), 'utf8')).toThrow()
+      expect(await computer.readFileBytes({ path: 'chart.png', maxBytes: 1024 })).toEqual({ bytes })
+      expect(await computer.readFileBytes({ path: 'chart.png', maxBytes: 4 })).toEqual({ size: bytes.byteLength })
+      expect(await computer.readFileBytes({ path: 'missing.png', maxBytes: 1024 })).toBeNull()
     } finally {
       rmSync(agentHome, { recursive: true, force: true })
     }
   })
 
-  it('lets the current bubblewrap view decide which absolute paths filesystem tools can use', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-computer-paths-')
+  it("reads absolute paths outside the Agent Home on the Agent's own computer", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-computer-paths-'))
+    mkdirAgentSync(root, 0o700)
+    const agentHome = join(root, 'agent')
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
-    const sharePath = join(WORKER_SHARE_ROOT, `ankole-computer-paths-${process.pid}`)
+    const sharePath = join(root, 'shared.txt')
     mkdirSync(workspaceRoot, { recursive: true })
     writeFileSync(sharePath, 'before\n')
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const context = {
-        agentHome,
-        workspaceRoot,
-        userFilesRoot: join(agentHome, 'user-files'),
-        getComputer: async () => computer
-      }
+      const context = contextFor(computer, { agentHome, workspaceRoot })
       const readTool = createReadFileTool(context)
 
       const sharedFile = await readTool.execute('call-1', { path: sharePath })
       expect(textOf(sharedFile)).toContain('before')
       expect(readFileSync(sharePath, 'utf8')).toBe('before\n')
       const builtinSkill = await readTool.execute('call-2', {
-        path: join(BUILTIN_SKILLS_ROOT, 'skills', 'pdf', 'SKILL.md'),
+        path: join(import.meta.dir, '..', '..', 'library', 'skills', 'pdf', 'SKILL.md'),
         limit: 20
       })
       expect(textOf(builtinSkill)).toContain('name: pdf')
-      await expect(
-        computer.fs.writeFiles([{ path: '/usr/ankole-file-tool-write-probe', content: 'blocked' }])
-      ).rejects.toThrow('write file failed')
     } finally {
-      rmSync(sharePath, { force: true })
-      rmSync(agentHome, { recursive: true, force: true })
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
   it('keeps the model-visible truncation contract for multi-megabyte command output', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-bounded-output-')
+    const agentHome = mkdtempSync(join(tmpdir(), 'ankole-bounded-output-'))
+    mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     mkdirSync(workspaceRoot, { recursive: true })
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const tool = createCommandTool(
-        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
-      )
+      const tool = createCommandTool(contextFor(computer, { agentHome, workspaceRoot }))
 
       const result = await tool.execute('call-huge-output', {
         command: 'yes 0123456789abcdef | head -c 3000000; echo; echo TAIL_SENTINEL'
@@ -399,7 +358,8 @@ describe('computer tools', () => {
   }, 30000)
 
   it('reads a deep window of a large file with exact numbering, totals, and line clipping', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-read-window-')
+    const agentHome = mkdtempSync(join(tmpdir(), 'ankole-read-window-'))
+    mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     mkdirSync(workspaceRoot, { recursive: true })
     const totalLines = 60000
@@ -409,9 +369,7 @@ describe('computer tools', () => {
     writeFileSync(join(workspaceRoot, 'big.txt'), `${content}\n`)
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const tool = createReadFileTool(
-        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
-      )
+      const tool = createReadFileTool(contextFor(computer, { agentHome, workspaceRoot }))
 
       const page = await tool.execute('call-deep-window', { path: 'big.txt', offset: 59990, limit: 5 })
       const text = textOf(page)
@@ -427,14 +385,13 @@ describe('computer tools', () => {
   }, 30000)
 
   it('kills a TERM-immune command after the timeout and explains the budget', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-timeout-kill-')
+    const agentHome = mkdtempSync(join(tmpdir(), 'ankole-timeout-kill-'))
+    mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     mkdirSync(workspaceRoot, { recursive: true })
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const tool = createCommandTool(
-        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
-      )
+      const tool = createCommandTool(contextFor(computer, { agentHome, workspaceRoot }))
 
       const result = await tool.execute('call-term-immune', {
         command: "trap '' TERM; while :; do :; done",
@@ -451,19 +408,24 @@ describe('computer tools', () => {
   }, 30000)
 
   it('keeps relative and home-relative file tool paths', async () => {
-    const agentHome = mkdtempSync('/agents/ankole-computer-relative-paths-')
+    const agentHome = mkdtempSync(join(tmpdir(), 'ankole-computer-relative-paths-'))
+    mkdirAgentSync(agentHome, 0o700)
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
-    const userFilesRoot = join(agentHome, 'user-files')
+    const notesRoot = join(agentHome, 'notes')
     mkdirSync(workspaceRoot, { recursive: true })
-    mkdirSync(userFilesRoot, { recursive: true })
+    mkdirSync(notesRoot, { recursive: true })
     writeFileSync(join(workspaceRoot, 'workspace.txt'), 'workspace')
-    writeFileSync(join(userFilesRoot, 'allowed.txt'), 'allowed')
+    writeFileSync(join(notesRoot, 'allowed.txt'), 'allowed')
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      expect(await computer.fileSize({ path: 'workspace.txt' })).toBe(9)
-      expect(await computer.fileSize({ path: '~/user-files/allowed.txt' })).toBe(7)
-      expect(await computer.fileSize({ path: 'missing.txt' })).toBeNull()
+      expect((await computer.readFileWindow({ path: 'workspace.txt', offset: 1, limit: 10 }))?.lines).toEqual([
+        'workspace'
+      ])
+      expect((await computer.readFileWindow({ path: '~/notes/allowed.txt', offset: 1, limit: 10 }))?.lines).toEqual([
+        'allowed'
+      ])
+      expect(await computer.readFileWindow({ path: 'missing.txt', offset: 1, limit: 10 })).toBeNull()
     } finally {
       rmSync(agentHome, { recursive: true, force: true })
     }

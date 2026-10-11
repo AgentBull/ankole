@@ -40,52 +40,9 @@ export function isTerminalBackgroundAgentJobStatus(status: string): boolean {
 export type BackgroundAgentJobTurnStatus = 'in_progress' | 'completed' | 'failed' | 'interrupted'
 export type BackgroundAgentJobTurnKind = 'agent' | 'compaction'
 
-export type BackgroundAgentJobTurnTrajectoryContentPart = JSONObject & {
-  type: string
-}
-
-export type BackgroundAgentJobTurnTrajectoryToolCall = JSONObject & {
-  id: string
-  type: 'function'
-  function: JSONObject & {
-    name: string
-    arguments: string
-  }
-}
-
-export type BackgroundAgentJobTurnTrajectoryMessage =
-  | (JSONObject & {
-      id?: string
-      role: 'user' | 'developer'
-      content: string | BackgroundAgentJobTurnTrajectoryContentPart[]
-      metadata?: JSONObject
-    })
-  | (JSONObject & {
-      id?: string
-      role: 'assistant'
-      content: string
-      tool_calls?: BackgroundAgentJobTurnTrajectoryToolCall[]
-      metadata?: JSONObject
-    })
-  | (JSONObject & {
-      id?: string
-      role: 'tool'
-      tool_call_id: string
-      name: string
-      content: string
-      metadata?: JSONObject
-    })
-
 export type BackgroundAgentJobTurnTrajectoryMetadata = JSONObject & {
   redacted?: boolean
   content_truncated?: boolean
-}
-
-export type BackgroundAgentJobTurnTrajectory = JSONObject & {
-  format: 'ankole_chatml'
-  version: 1
-  messages: BackgroundAgentJobTurnTrajectoryMessage[]
-  metadata?: BackgroundAgentJobTurnTrajectoryMetadata
 }
 
 export type BackgroundAgentJobTurnTrajectoryHeader = JSONObject & {
@@ -93,21 +50,6 @@ export type BackgroundAgentJobTurnTrajectoryHeader = JSONObject & {
   version: 1
   metadata?: BackgroundAgentJobTurnTrajectoryMetadata
 }
-
-/** Tolerant read-side check for one stored trajectory document. */
-export const BackgroundAgentJobTrajectorySchema = z.object({
-  format: z.literal('ankole_chatml'),
-  version: z.literal(1),
-  metadata: z
-    .object({
-      redacted: z.boolean().optional(),
-      content_truncated: z.boolean().optional()
-    })
-    .optional(),
-  messages: z.array(z.record(z.string(), z.unknown()))
-})
-
-export type BackgroundAgentJobTrajectory = z.output<typeof BackgroundAgentJobTrajectorySchema>
 
 /**
  * One sanitized semantic thread item pending checkpoint. The control plane
@@ -172,22 +114,4 @@ export type BackgroundAgentJobTurnProgress = JSONObject & {
   skills_used?: string[]
   plan?: BackgroundAgentJobTurnPlan
   active_item?: BackgroundAgentJobTurnActiveItem
-}
-
-export type BackgroundAgentJobExecution = {
-  attempt: number
-  current?: {
-    runtime_turn_id: string
-    kind: BackgroundAgentJobTurnKind
-    status: BackgroundAgentJobTurnStatus
-  }
-  lead_turn_number: number
-  threads: { total: number; child: number }
-  turns: { lead: number; child: number; compaction: number; active: number }
-  progress: Omit<BackgroundAgentJobTurnProgress, 'active_item'> & {
-    active_items: Array<{ scope: 'lead' | 'child'; namespace?: string; name: string }>
-  }
-  usage?: BackgroundAgentJobTurnUsage
-  trajectory_page: BackgroundAgentJobTurnTrajectory & { next_cursor?: string }
-  updated_at: string
 }

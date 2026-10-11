@@ -65,7 +65,7 @@ defmodule Ankole.AuthZ.Store do
       %ExternalBinding{}
       |> ExternalBinding.changeset(attrs)
       |> repo.insert(
-        conflict_target: [:provider, :external_kind, :external_id],
+        conflict_target: [:tenant_id, :provider, :external_kind, :external_id],
         on_conflict: {:replace, [:group_id, :metadata, :updated_at]},
         returning: true
       )
@@ -145,18 +145,6 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def clear_static_group_members(repo, group_id, expected_domain)
-      when expected_domain in [:directory, :im_group, :signal_source] do
-    with {:ok, group} <- lock_group(repo, group_id),
-         :ok <- ensure_static_group(group),
-         :ok <- ensure_group_domain(group, expected_domain) do
-      {removed_memberships, _rows} =
-        repo.delete_all(from membership in Membership, where: membership.group_id == ^group.id)
-
-      {:ok, %{removed_memberships: removed_memberships}}
-    end
-  end
-
   def external_directory_group_index(repo, provider) do
     with {:ok, provider} <- Input.normalize_provider(provider) do
       {:ok, build_external_directory_group_index(repo, provider, "department")}
@@ -197,7 +185,8 @@ defmodule Ankole.AuthZ.Store do
   # The admin group lock comes before the principal lock unconditionally, in
   # the one installation-wide admin lock order (group, then principal).
   def ensure_can_disable_principal(principal_uid, repo, admin_group_name) do
-    with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
+    with {:ok, _} <- Ankole.Tenants.lock_administration(repo),
+         {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          admin_group <- lock_built_in_admin_group_for_update(repo, admin_group_name),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
       case {principal, admin_group} do
@@ -229,7 +218,7 @@ defmodule Ankole.AuthZ.Store do
       nil ->
         changeset = Group.changeset(%Group{}, Map.put(attrs, :name, name))
 
-        case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:name]) do
+        case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:tenant_id, :name]) do
           {:ok, _maybe_stale} ->
             case repo.get_by(Group, name: name) do
               %Group{} = group -> {:ok, group}

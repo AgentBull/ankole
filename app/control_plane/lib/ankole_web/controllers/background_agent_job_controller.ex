@@ -22,7 +22,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   @statuses Job.statuses()
 
   tags(["Background Agent Jobs"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -47,9 +47,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     ],
     responses: [
       ok: {"Background Agent Jobs", "application/json", BackgroundAgentJobListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -57,8 +55,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     summary: "Read installation-wide background Agent Job reliability metrics",
     responses: [
       ok: {"Background Agent Job health", "application/json", BackgroundAgentJobHealthResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -80,10 +77,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     ],
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid cursor", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -107,10 +101,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
        }},
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Job already failed or stopped", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -125,9 +116,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     ],
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -175,12 +164,14 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   def complete(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "update"),
          %Job{} = job <- job(params),
-         {:ok, %{job: completed}} <-
+         {:ok, %{job: completed, turn: turn}} <-
            BackgroundAgentJobs.request_complete(job.id, %{
              "agent_uid" => job.agent_uid,
-             "completed_by" => "operator:#{conn.assigns.current_principal_uid}",
+             "completed_by" =>
+               to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal)),
              "result_summary" => conn.body_params.result_summary
            }),
+         :ok <- Ankole.Conversations.stop_job_turn(completed, turn),
          {:ok, detail} <- detail_projection(completed, nil) do
       json(conn, %{job: detail})
     else
@@ -193,12 +184,14 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   def cancel(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "delete"),
          %Job{} = job <- job(params),
-         {:ok, %{job: cancelled}} <-
+         {:ok, %{job: cancelled, turn: turn}} <-
            BackgroundAgentJobs.request_stop(job.id, %{
              "agent_uid" => job.agent_uid,
-             "cancel_requested_by" => "operator:#{conn.assigns.current_principal_uid}",
+             "cancel_requested_by" =>
+               to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal)),
              "reason" => "Cancelled from the operator console"
            }),
+         :ok <- Ankole.Conversations.stop_job_turn(cancelled, turn),
          {:ok, detail} <- detail_projection(cancelled, nil) do
       json(conn, %{job: detail})
     else

@@ -1,6 +1,6 @@
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
-import { zodToJSONSchema } from '../../llm/tool-schema'
+import { zodToJSONSchema } from '../../tool-schema'
 import type { DynamicToolCallParams } from '../generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolSpec } from '../generated/protocol/v2/DynamicToolSpec'
 import type { JsonValue as JSONValue } from '../generated/protocol/serde_json/JsonValue'

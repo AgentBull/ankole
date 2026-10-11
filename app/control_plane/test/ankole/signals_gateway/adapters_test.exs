@@ -4,7 +4,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
@@ -15,7 +14,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.OutboxAdapter
@@ -129,6 +127,33 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
              })
   end
 
+  test "only one application binding is a supported declaration and needs a config module" do
+    declaration = %{
+      id: "application-owner",
+      adapter_category: "consumer_im",
+      config_module: Ankole.Plugins.LineAdapter.Config,
+      application_bindings: :one
+    }
+
+    assert :ok = Adapters.validate_declaration(declaration)
+    assert :ok = Adapters.validate_declaration(Map.delete(declaration, :application_bindings))
+
+    assert {:error, {:invalid_application_bindings, :many}} =
+             Adapters.validate_declaration(%{declaration | application_bindings: :many})
+
+    assert {:error, {:missing_adapter_module, :config_module}} =
+             Adapters.validate_declaration(Map.delete(declaration, :config_module))
+
+    assert {:ok, definitions} = Adapters.list()
+
+    assert for(
+             definition <- definitions,
+             definition.application_bindings == :one,
+             do: definition.id
+           )
+           |> Enum.sort() == ["email", "lark", "line", "whatsapp"]
+  end
+
   test "classifies existing enterprise adapters and Telegram without changing their contract" do
     assert {:ok, definitions} = Adapters.list()
 
@@ -205,8 +230,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{"created_source_entry_id" => "provider-id"}} end,
-      update_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request -> {:ok, %{"created_source_entry_id" => "provider-id"}} end,
       finalize_fun: fn _request -> {:ok, %{}} end,
       refresh_fun: nil
     }
@@ -218,14 +242,13 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     }
 
     assert {:error, {:invalid_reply_preview_adapter_result_key, "created_source_entry_id"}} =
-             ReplyPreviewAdapter.open(adapter, request)
+             ReplyPreviewAdapter.update(adapter, request)
   end
 
-  test "filters only exact runtime secret values before outbox delivery" do
+  test "filters only exact WorkerEnv secret values before outbox delivery" do
     %{principal: agent} = agent_fixture()
 
-    {worker_auth_key, worker_env_secret, visible_env_value} =
-      configure_runtime_secrets!(agent.uid)
+    {worker_env_secret, visible_env_value} = configure_runtime_secrets!(agent.uid)
 
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZ2VudCJ9.signature123"
     bearer = "Bearer example-token-for-documentation"
@@ -240,7 +263,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
              })
 
     text =
-      "fabric #{worker_auth_key}; custom #{worker_env_secret}; " <>
+      "custom #{worker_env_secret}; " <>
         "visible #{visible_env_value}; jwt #{jwt}; #{bearer}; #{assignment}\n#{private_key}\n" <>
         "the #{short_secret} deployment"
 
@@ -265,7 +288,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     assert_receive {:filtered_outbox, %OutboxEntry{} = filtered}
 
     rendered = inspect(filtered)
-    refute rendered =~ worker_auth_key
     refute rendered =~ worker_env_secret
     assert rendered =~ "[REDACTED]"
 
@@ -293,14 +315,13 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
         })
       )
 
-    {worker_auth_key, worker_env_secret, _visible_env_value} =
-      configure_runtime_secrets!(agent.uid)
+    {worker_env_secret, _visible_env_value} = configure_runtime_secrets!(agent.uid)
 
     # The reloaded checkpoint feeds `checkpoint`, `previous_presentation`, and
     # the ActorEvent copy, so the stored secret must vanish from all three.
     {:ok, _event} =
       Actors.put_reply_preview_checkpoint(event.id, %{
-        "presentation" => %{"answer" => "#{worker_auth_key} #{worker_env_secret}"}
+        "presentation" => %{"answer" => "#{worker_env_secret} #{worker_env_secret}"}
       })
 
     parent = self()
@@ -308,27 +329,26 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn request ->
+      update_fun: fn request ->
         send(parent, {:filtered_preview, request})
         {:ok, %{}}
       end,
-      update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end,
       refresh_fun: nil
     }
 
     request = %ReplyPreviewAdapter.Request{
       actor_event: event,
-      presentation: %{"answer" => "answer #{worker_auth_key} #{worker_env_secret}"},
+      presentation: %{"answer" => "answer #{worker_env_secret}"},
       outbox: %OutboxEntry{
         agent_uid: agent.uid,
-        payload: %{"text" => worker_auth_key},
+        payload: %{"text" => worker_env_secret},
         fallback_visible_text: worker_env_secret
       },
       mode: :working
     }
 
-    assert {:ok, %{}} = ReplyPreviewAdapter.open(adapter, request)
+    assert {:ok, %{}} = ReplyPreviewAdapter.update(adapter, request)
     assert_receive {:filtered_preview, %ReplyPreviewAdapter.Request{} = filtered}
 
     assert filtered.actor_event.id == event.id
@@ -336,7 +356,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     assert filtered.previous_presentation == %{"answer" => "[REDACTED] [REDACTED]"}
 
     rendered = inspect(filtered)
-    refute rendered =~ worker_auth_key
     refute rendered =~ worker_env_secret
     assert rendered =~ "[REDACTED]"
   end
@@ -355,12 +374,8 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   end
 
   defp configure_runtime_secrets!(agent_uid) do
-    worker_auth_key = "fabric-runtime-value-#{System.unique_integer([:positive])}"
     worker_env_secret = "custom-runtime-value-#{System.unique_integer([:positive])}"
     visible_env_value = "visible-runtime-value-#{System.unique_integer([:positive])}"
-
-    assert {:ok, ^worker_auth_key} =
-             AppConfigure.put_global(WorkerAuthKey.definition(), worker_auth_key)
 
     assert {:ok, _item} =
              WorkerEnv.console_put_for_agent(agent_uid, "EXAMPLE_CREDENTIAL", %{
@@ -374,6 +389,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
                "secret" => false
              })
 
-    {worker_auth_key, worker_env_secret, visible_env_value}
+    {worker_env_secret, visible_env_value}
   end
 end

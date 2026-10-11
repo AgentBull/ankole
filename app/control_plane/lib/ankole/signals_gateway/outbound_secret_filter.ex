@@ -2,20 +2,18 @@ defmodule Ankole.SignalsGateway.OutboundSecretFilter do
   @moduledoc """
   Removes installation secrets before provider-visible output leaves SignalsGateway.
 
-  The filter replaces exact values of the RuntimeFabric worker authentication
-  key and the operator-configured WorkerEnv secrets that the current Agent
-  Computer can receive. It does not classify output by syntax. JWTs,
-  bearer-token examples, private-key examples, and credential assignments remain
-  unchanged unless their value equals one of those secrets.
+  The filter replaces exact values of the operator-configured WorkerEnv
+  secrets that the Agent's Worker can receive; no other installation secret
+  reaches a Worker. It does not classify output by syntax. JWTs, bearer-token
+  examples, private-key examples, and credential assignments remain unchanged
+  unless their value equals one of those secrets.
 
   Short values and adapter-minted provider tokens stay outside the set. Reading
   a provider token here would make every reply depend on provider health, and a
   short value cannot be replaced without corrupting normal text.
   """
 
-  alias Ankole.AppConfigure
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -74,20 +72,9 @@ defmodule Ankole.SignalsGateway.OutboundSecretFilter do
   end
 
   defp secret_values(agent_uid) do
-    with {:ok, worker_auth_values} <- worker_auth_values(),
-         {:ok, worker_env_values} <- WorkerEnv.sensitive_values(agent_uid) do
-      {:ok, normalize_secret_values(worker_auth_values ++ worker_env_values)}
-    else
+    case WorkerEnv.sensitive_values(agent_uid) do
+      {:ok, worker_env_values} -> {:ok, normalize_secret_values(worker_env_values)}
       {:error, reason} -> {:error, {:outbound_secret_filter_unavailable, reason}}
-    end
-  end
-
-  defp worker_auth_values do
-    case AppConfigure.get(WorkerAuthKey.definition()) do
-      {:ok, value} when is_binary(value) -> {:ok, [value]}
-      :error -> {:ok, []}
-      {:error, reason} -> {:error, {:worker_auth_key_unavailable, reason}}
-      {:ok, _value} -> {:error, :invalid_worker_auth_key}
     end
   end
 

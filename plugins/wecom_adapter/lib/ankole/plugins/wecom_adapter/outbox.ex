@@ -22,16 +22,16 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.WorkerFiles
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Error
 
@@ -62,12 +62,11 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     case fetch_list(outbox.payload, "attachments") do
       [] -> deliver_text(outbox)
       [attachment] -> deliver_attachment(outbox, attachment)
-      _attachments -> {:error, :multiple_outbound_attachments_not_supported}
     end
   end
 
   defp deliver_text(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          {:ok, client} <- ConnectionOwner.bot_client(config),
          {:ok, delivery} <- resolve_delivery(outbox) do
       chunks =
@@ -102,7 +101,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   # card
 
   defp deliver_card(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          {:ok, client} <- ConnectionOwner.bot_client(config),
          {:ok, delivery} <- resolve_delivery(outbox) do
       client
@@ -114,14 +113,14 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   # attachment
 
   defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          {:ok, client} <- ConnectionOwner.bot_client(config),
          {:ok, delivery} <- resolve_delivery(outbox),
          # Media rides the respond channel only: `aibot_send_msg` documents
          # markdown and template_card, so a proactive media send has no
          # verified carrier.
          :ok <- ensure_respond_channel(delivery),
-         {:ok, content, name} <- read_attachment(attachment, outbox.agent_uid),
+         {:ok, content, name} <- read_attachment(attachment),
          {:ok, media_type} <- media_type(name, byte_size(content)),
          {:ok, media_id} <- Bot.upload_media(client, media_type, name, content) do
       client
@@ -137,15 +136,9 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   defp ensure_respond_channel(%{respond_req_id: req_id}) when is_binary(req_id), do: :ok
   defp ensure_respond_channel(_delivery), do: {:error, :no_reply_anchor}
 
-  defp read_attachment(attachment, agent_uid) do
-    with relative_path when is_binary(relative_path) <-
-           attachment_relative_path(attachment, agent_uid),
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path) do
-      {:ok, content, attachment_name(attachment, relative_path)}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
-      _other -> {:error, :outbound_attachment_read_failed}
+  defp read_attachment(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
+      {:ok, content, attachment_name(attachment)}
     end
   end
 
@@ -222,7 +215,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   def resolve_delivery(signal_channel_id) when is_binary(signal_channel_id) do
     decoded_target = decode_channel(signal_channel_id)
 
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{kind: :im_dm, metadata: metadata} ->
         case optional_text(metadata, "dm_user_id") do
           user_id when is_binary(user_id) ->
@@ -259,36 +252,9 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
 
   # helpers
 
-  defp config_for_outbox(%OutboxEntry{} = outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp attachment_relative_path(attachment, agent_uid) do
-    case optional_text(attachment, "user_files_relative_path") do
-      relative when is_binary(relative) ->
-        Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-      _missing ->
-        user_files = Ankole.AgentHomePaths.user_files(agent_uid) <> "/"
-
-        case optional_text(attachment, "agent_computer_path") || optional_text(attachment, "path") do
-          ^user_files <> relative ->
-            Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-          _outside ->
-            nil
-        end
-    end
-  end
-
-  defp attachment_name(attachment, relative_path) do
-    optional_text(attachment, "name") || Path.basename(relative_path)
+  defp attachment_name(attachment) do
+    optional_text(attachment, "name") ||
+      Path.basename(optional_text(attachment, "path") || "file")
   end
 
   @doc false

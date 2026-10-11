@@ -350,6 +350,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     answer = String.trim(presentation["answer"] || "")
 
     cond do
+      presentation["state"] == "awaiting_input" and
+          presentation["interaction_status"] == "pending" ->
+        pending_interaction_text(presentation, answer)
+
       answer != "" ->
         answer
 
@@ -365,6 +369,50 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       true ->
         I18n.t("signals_gateway.reply.no_content")
     end
+  end
+
+  @doc "Renders a question, numbered choices, and an optional instruction for text delivery."
+  @spec clarification_text(String.t(), [map()], String.t() | nil) :: String.t()
+  def clarification_text(question, choices, hint) do
+    options =
+      choices
+      |> Enum.with_index(1)
+      |> Enum.map_join("\n", fn {choice, index} ->
+        description =
+          case choice["description"] do
+            text when is_binary(text) and text != "" -> " — #{text}"
+            _value -> ""
+          end
+
+        "#{index}. #{choice["label"]}#{description}"
+      end)
+
+    [question, options, hint]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join("\n\n")
+  end
+
+  defp pending_interaction_text(presentation, answer) do
+    actions = Enum.reject(presentation["actions"], &(&1["disabled"] == true))
+    choices = Enum.filter(actions, &(&1["type"] == "button"))
+    free_input? = Enum.any?(actions, &(&1["type"] == "form"))
+    prompt = text(presentation, "prompt") || I18n.t("signals_gateway.reply.needs_input")
+
+    question =
+      [answer, prompt]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.join("\n\n")
+
+    hint =
+      case {choices, free_input?} do
+        {[], false} -> nil
+        {[], true} -> I18n.t("signals_gateway.cardkit.free_input_placeholder")
+        {_, false} -> I18n.t("signals_gateway.reply.choose_option")
+        {_, true} -> I18n.t("signals_gateway.cardkit.awaiting_input")
+      end
+
+    clarification_text(question, choices, hint)
   end
 
   @spec terminal_state?(t()) :: boolean()

@@ -2,24 +2,30 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   @moduledoc """
   WebSocket entry for Agent Computer Workers.
 
-  One Worker holds one socket. The global RuntimeFabric worker key travels as
-  the Phoenix auth token (`Sec-WebSocket-Protocol`), never in the URL, and is
-  checked here before any channel exists. The `worker_id` parameter is the
-  operator-chosen Worker slot; it is public and only binds the socket to one
-  Worker Channel topic.
+  One Worker holds one socket. The `worker_id` parameter is the Agent UID of
+  the Worker, and the Phoenix auth token (`Sec-WebSocket-Protocol`, never the
+  URL) is the random credential that the control plane created for that
+  Agent's current generation. `AgentWorkers.authenticate/2` compares its
+  digest with the Agent's row, so a credential of one Agent cannot connect as
+  another, and a credential of a former generation, or of a stopped,
+  draining, or deleted Worker, cannot connect at all.
   """
 
   use Phoenix.Socket
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
-  channel "worker/installation/*", AnkoleWeb.WorkerChannel
+  channel "worker", AnkoleWeb.WorkerChannel
 
   @impl true
   def connect(params, socket, connect_info) do
     with {:ok, worker_id} <- worker_id(params),
-         :ok <- authenticate(Map.get(connect_info, :auth_token)) do
-      {:ok, assign(socket, :worker_id, worker_id)}
+         {:ok, %{generation: generation, tenant_id: tenant_id}} <-
+           Ankole.Repo.across_tenants(fn ->
+             AgentWorkers.authenticate(worker_id, Map.get(connect_info, :auth_token))
+           end) do
+      {:ok,
+       assign(socket, %{worker_id: worker_id, worker_generation: generation, tenant_id: tenant_id})}
     else
       _error -> :error
     end
@@ -36,10 +42,4 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   end
 
   defp worker_id(_params), do: :error
-
-  defp authenticate(token) when is_binary(token) and token != "" do
-    if Plug.Crypto.secure_compare(token, WorkerAuthKey.ensure!()), do: :ok, else: :error
-  end
-
-  defp authenticate(_token), do: :error
 end

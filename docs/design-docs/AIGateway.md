@@ -1,5 +1,10 @@
 # AIGateway
 
+Provider pools and credentials belong to the site. Conversations, messages and
+files belong to the authenticated Principal's tenant. HTTP and WebSocket entry
+points establish that context before accessing them. OIDC Human access is rejected
+for suspended tenants; Agent access remains available to finish admitted work.
+
 The control plane uses AIGateway for every model request. AIGateway stores
 provider rows and credentials, selects a model and one credential, prepares the
 request, and records Responses. It also owns provider retry and the end of one
@@ -10,7 +15,8 @@ and Google AI Studio do not receive it because support for that OpenAI field is
 not portable. Google AI Studio rejects a whole request that contains it.
 
 AIGateway does not run the Agent model loop and does not complete Actor work.
-Agent Computer runs the loop. SignalsGateway completes the ActorEvent and sends
+Conversations.Driver runs ordinary and Workflow loops on the control plane.
+Codex runs Job turns on the Worker. SignalsGateway completes input and sends
 the final reply to the external platform.
 
 ## What Runs in Each Process
@@ -43,20 +49,22 @@ AIGateway supports these capability names:
 
 Agent model profiles include `primary`, `light`, `heavy`, `coding`,
 `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. Embedding
-and rerank are instance-wide Brain settings, not Agent profiles. A caller can
-also select `provider_id/raw-model-id` directly. Every profile and direct
+is a site-wide Brain setting; rerank is a tenant Brain setting. Neither is an
+Agent profile. A caller can also select `provider_id/raw-model-id` directly.
+Every profile and direct
 selector points to one provider row. Neither form selects a member of its
 credential pool.
 
-Brain selects one maintainer Agent. Its `light` profile runs extraction, its
-`heavy` profile runs Dreaming, and its `web_fetch` profile is the provider path
+Each tenant's Brain selects one maintainer Agent. Its `light` profile runs
+extraction, its `heavy` profile runs Dreaming, and its `web_fetch` profile is the provider path
 for URL Source learning. If `web_fetch` is absent or its provider request
-fails, the Worker uses the same local `ankole-browser` fallback as an Agent
-turn. Every Brain model request uses the maintainer Agent as its `subject_uid`,
+fails, URL Source learning returns a fetch error. Brain fetches URL sources
+through AIGateway and does not request a Worker. Every Brain model request uses the maintainer Agent as its `subject_uid`,
 so execution policy and observed usage belong to that Agent. Brain embedding
-and rerank calls use that identity but keep their instance-wide selectors.
+and rerank calls use that identity while retaining the site's embedding
+selector and the tenant's rerank selector.
 The maintainer Agent must be active. If it is disabled, Brain reports the
-identity as unhealthy and stops every model request and local URL fetch until
+identity as unhealthy and stops model requests and URL fetching until
 the Agent is enabled or replaced. Stored knowledge and pure-text recall do not
 depend on that execution identity and remain available.
 
@@ -147,6 +155,19 @@ fallback exists or that request fails, AIGateway replaces the image with an
 explicit unavailable marker. Stateful history stores the replacement text, so
 later turns do not replay an unsupported image to the text model.
 
+A Worker tool can also return an image: `read_file` returns a PNG, JPEG, GIF,
+WebP, or BMP file of at most 8 MiB, so that its base64 copy fits the Worker
+channel frame. The control plane converts the image with the same kernel
+function as a received chat image, into a WebP data URL of at most 4 MiB. The
+image follows the tool output in one user message whose caption repeats that
+output. Before the round enters stateful history, the control plane applies the
+same image rule as above with the same binding: a model that accepts images
+keeps the image, and for a text-only model the frozen fallback describes it or
+the unavailable marker replaces it. History stores the result. Because the
+fallback is a model request, the Driver records such a round in a task. A round
+that a stop or dead letter ends records the image unchanged, so a later replay
+to a text-only model replaces it with a removal marker.
+
 The same path handles API-key providers and `chatgpt_subscription`. Agent
 Computer does not resolve, store, refresh, or write back provider
 authentication.
@@ -155,8 +176,11 @@ authentication.
 
 Provider modules use `Ankole.AIGateway.ProviderDSL`. Each module declares its
 identifier, settings, default endpoint, transport options, and capabilities.
-Each capability selects an upstream protocol, a Rust API resolver, and an
-Elixir prepare function.
+Each capability selects a Rust API resolver and an Elixir prepare function. The
+capability kind sets the upstream wire shape: Server-Sent Events for a language
+model and one JSON body for every other kind. A request that needs another
+transport, such as the OpenAI WebSocket mode, selects it when it builds the
+upstream request.
 
 A setting has one scope:
 
@@ -240,18 +264,15 @@ strategy while its credential is usable. After eviction, the next selection
 uses the configured strategy and can choose a different credential. Eviction
 does not change credentials already selected for requests in progress.
 
-Runtime health is process-local and has three states. It uses the provider row,
-credential ID, and health revision as its key. `ok` entries can be selected.
-`exhausted` means temporarily unavailable, not necessarily out of quota.
-These entries stay out of selection until their recovery time. `dead`
-entries stay out until an operator replaces or reauthenticates them, or
-re-enables their disabled provider. Each of these operations writes a new
-health revision. An automatic OAuth token refresh keeps the current revision.
-Thus, a late result from an old credential changes only the old revision's
-health, affinity, and rate-limit state. Enabling an active provider does not
-change the revision or health. Disabled entries also stay out. PostgreSQL
-stores the credential revision, but it does not store these rebuildable health
-facts.
+PostgreSQL owns credential health through `cooldown_until` and its recorded
+cause. `ok` entries can be selected. `exhausted` entries stay out until their
+recovery time. `dead` entries stay out until an operator replaces or
+reauthenticates them, or re-enables their disabled provider. These operations
+write a new health revision; automatic OAuth refresh keeps the revision.
+A late result from an old revision cannot change its replacement's health or
+rate-limit state. Selection filters the current persisted health before it
+checks process-local affinity. A failure retains affinity; another selection
+can replace it when it selects a usable credential. Disabled entries stay out.
 
 `Retry-After` accepts delay seconds or an HTTP date. The Codex reset header
 also sets a recovery time. When both are valid, the later deadline wins.
@@ -259,7 +280,7 @@ Without a valid header, HTTP 401 waits five minutes. HTTP 429 waits one second
 unless its code or type explicitly reports `insufficient_quota`,
 `usage_limit_reached`, or `billing_hard_limit_reached`; these quota failures
 wait one hour. Unknown 429 codes use the short wait. A later failure cannot
-shorten an active cooldown. A process restart can cause one additional probe.
+shorten an active cooldown. A process restart keeps the stored deadline.
 
 The selected credential entry stays in the private request context until
 success or failure. This entry supplies both the credential ID and its health
@@ -276,6 +297,14 @@ until that credential's recovery time and uses the existing backoff. It runs
 only when the delay is at most four seconds. A longer wait or a quota failure
 returns immediately with the recovery time. This does not limit the number
 of requests that independent callers can submit to the provider.
+
+`UniversalAIRequest` constructs one `ProviderFailure` from a native error.
+`FailureDiagnostics` owns classification, public projection, route retry,
+provider error extraction, and quota detection. Credential attempts and hosted
+image requests read these results. A terminal `response.failed` constructs the
+same failure for credential health without its body excerpt. Stored public
+error maps keep their existing reader. Native errors after a stream is ready
+keep the public terminal projection of that stream.
 
 Connection, read, and timeout failures and HTTP 502, 503, and 504 responses
 belong to the route or Provider endpoint. Before the first Provider event,
@@ -300,9 +329,8 @@ known future recovery time. The public error retains the bounded upstream
 message, code, and type, without exposing credential IDs or response bodies.
 Pool unavailability alone never becomes `usage_limit_reached`; temporary rate
 limits use `rate_limit_error`. Interactive requests receive HTTP 429. A
-Background Agent Job with that recovery time returns to `queued` and releases
-its Worker assignment until then, but its acquired execution attempt stays
-consumed. A stale or missing `retry_at`, an empty pool, or a pool with only
+Background Agent Job with that recovery time returns to `queued` until then,
+but its acquired execution attempt stays consumed. A stale or missing `retry_at`, an empty pool, or a pool with only
 disabled or dead entries uses the ordinary Job retry ladder. AIGateway does not
 fall back to a different provider.
 
@@ -459,17 +487,14 @@ The current routes are:
 
 ## Identify Every Caller
 
-The runtime API accepts an Agent token, an active administrator Console token,
-or an authorized OIDC Human token. All access tokens use the installation's
+The runtime API accepts an Agent token or an authorized OIDC Human token. All access tokens use the installation's
 RS256 key and the `at+jwt` type. Agent tokens have the audience
 `ankole.ai_gateway`, the scope `ai_gateway`, and a default lifetime of 30 days.
-Console access tokens include both `ankole.web_console` and
-`ankole.ai_gateway` audiences. OIDC Human access tokens include the AIGateway
+OIDC Human access tokens include the AIGateway
 audience only when they have the `ai_gateway.write` scope.
 
 `Ankole.AIGateway.Tokens` owns Agent token minting and claims.
-`AnkoleWeb.ConsoleTokens` owns Console tokens, and `Ankole.OIDC.Tokens` owns
-OIDC Human access tokens. They all use `Ankole.TokenSigning`. The Phoenix
+`Ankole.OIDC.Tokens` owns OIDC Human access tokens. They all use `Ankole.TokenSigning`. The Phoenix
 authentication plug verifies one raw token once for the AIGateway audience,
 then selects one domain claim validator from the signed `subject_type` and
 `client_id`. The RuntimeFabric broker and other token-specific consumers use
@@ -518,9 +543,9 @@ HTTP Responses calls are stateless.
 They do not write `ai_gateway_conversations` or `ai_gateway_messages`.
 
 Codex uses this `store=false` path and replays the Responses items that it
-needs. The main Agent does not use this path. It opens a stateful WebSocket
-Response with `store=true`, records client tool results through
-`response.tool_results.record`, and continues from the returned durable anchor.
+needs. The main Agent opens stored Responses through the in-process API. Its
+Driver records the complete tool round and input consumption in one PostgreSQL
+transaction, then continues from the durable anchor.
 
 HTTP accepts `store=false`.
 It rejects `store=true`, `conversation`, and `previous_response_id`.
@@ -933,16 +958,14 @@ or `failed`, and the JSON `output` the model receives as a
 `function_call_output` in the next provider round. The pair identity is the
 `call_id`. A failed operation fails only its own call. History replays the
 public pair as function items, and the pair takes the built-in tool budget as a
-gateway effect. Every executed operation emits the telemetry event
-`[:ankole, :ai_gateway, :hosted_brain]` with the operation, the result, the
-failure code, the subject, and the latency, and never the arguments or output.
+gateway effect.
 
 The request subject is the querier and the writer. An Agent request that
 carries `metadata.actor_event_id` runs with its Turn's conversation:
 `Ankole.SignalsGateway.BrainContext` checks that the event belongs to that
 Agent and derives the disclosure recipients, the default write scope, the
 channel parent, and the write fence. The fence requires that the event is still
-the current event of a live activation of the Agent. A request without an actor
+open input of that Agent. A request without an actor
 event, such as an OIDC Human, runs as the subject alone: disclosure is open to
 the subject's own knowledge boundary, the default write scope is the subject's
 principal scope, and the parent fallback is the subject's canonical page. A
@@ -960,9 +983,11 @@ injection failure leaves the request unchanged.
 
 ## Record Tool Results before the Next Model Call
 
-The Worker can send `response.tool_results.record` before the next model call.
-The command requires a completed `previous_response_id` and at least one client
-tool output.
+The Driver records a whole round through the existing transaction-owned tool
+result API. The anchor must be a completed `previous_response_id`, with at
+least one client tool output. The same transaction completes satisfied wait
+input and deletes the round's control-plane tool receipts. This is a direct
+control-plane call, not a WebSocket command.
 
 AIGateway matches each result to an executable tool call of the same type on
 the anchor. It supports `function_call` with `function_call_output` and
@@ -980,6 +1005,13 @@ replays the current input.
 
 Explicit continuation does not rewrite the caller-selected branch.
 
+`conversation_tail/2` returns the run's visible Response segment, current leaf,
+and recorded call IDs. Recovery executes only unrecorded calls. Error and
+retracted request rows retain the input IDs that the model read; those IDs
+remain consumption facts even when the request is no longer visible. A model
+Response creation checks the Driver epoch in the same transaction. Its later
+terminal commit belongs to the Response itself.
+
 ## Store the Result before Reporting Completion
 
 The stream stores terminal content before it sends a public terminal event. If
@@ -988,10 +1020,13 @@ that write fails, AIGateway tries to store a failure instead. It sends
 cancels the provider stream and closes the transport without a terminal event.
 
 A generating row receives heartbeat updates during a live response.
-RuntimeEvents schedules an orphan check after each heartbeat.
+The heartbeat transaction schedules `ReconcileOrphanedResponse` through Oban.
 
 A row becomes stale after five minutes without a heartbeat. The cleanup handler
-changes it to `error` and records a retryable failure.
+changes it to `error` and records a retryable failure. A new Driver can use
+`reconcile_orphaned_response/2` with `force: true` after its epoch check to end
+the old generating request immediately. A late stream terminal commit uses
+that Response ID and cannot replace its error state.
 
 A failure update affects only the named generating Response. AIGateway never
 uses metadata to select an ActorEvent.
@@ -1051,9 +1086,9 @@ trigger to the Provider and returns the Provider's own compaction item. The `ups
 `ai_gateway.compaction` settings selects between them, next to every other
 compaction field. It defaults to `false`, because Ankole can always compact
 locally, and because a Provider-owned compaction item binds the rest of that
-history to the same upstream. It is an instance decision, not a per-Agent
-capability: one Ankole instance serves one enterprise, and the binding it
-creates outlives the Agent that triggered it.
+history to the same upstream. It is a tenant configuration decision, inherited
+from the site's default; the binding it creates outlives the Agent that
+triggered it.
 
 Pass-through needs two structural preconditions: an effective Responses wire,
 because no other protocol carries this item, and a connection that declares
@@ -1308,13 +1343,24 @@ values. An exporter initialization, network, or receiver failure never changes
 a model request result. Traces are best effort and have no database outbox or
 delivery retry owner.
 
-One `turn {actor_event.type}` root span covers each persisted TurnStart. The
-control plane starts it after the dispatch transaction and ends it after the
-normal, noop, or error terminal transaction. The root records the bounded and
+One `turn {actor_event.type}` root span covers a Driver execution attempt. The
+control-plane Driver starts it after admission and keeps the span handle in its
+state. It ends the span on finalization, retry, or process termination. A rebuilt
+Driver starts a new span for its attempt. The root records the bounded and
 sanitized triggering event and final reply. The `langfuse` Provider marks it as
 an agent observation. A Background Job root also records its Job identifier and
-attempt count. A node-local ETS table holds open roots; its cleanup ends a root
-that has no terminal outcome with `error.type=turn_outcome_lost`.
+attempt count.
+
+The conversation caller stores its Driver epoch and input availability snapshot
+in request metadata. Before a new admission, that caller can find a committed
+capacity error from the previous epoch and commit its retry through the same
+conversation retry owner. AIGateway keeps this metadata opaque.
+
+If profile resolution finds an exhausted credential pool before model I/O,
+conversation admission commits the attempt and capacity retry together. It
+returns the same deferred input contract, without starting a model request or
+charging the execution failure budget. The next admission resolves the model
+profile and metadata through the usual provider path.
 
 The control plane derives one `user.id` for the complete Turn trace:
 
@@ -1331,7 +1377,7 @@ attribution fact. It does not change the accountable Agent, authorization,
 routing, or session identity.
 
 The control plane writes the root's W3C `traceparent` and derived user
-attribution into the existing `request_context_json`. Agent Computer uses the
+attribution into the turn request context. Agent Computer uses the
 traceparent as the explicit remote parent for Main Agent tools, the
 `invoke_agent codex` span, and `execute_tool` Codex spans. It applies the same
 `user.id`, or the same omission, to each Worker span. It sends the traceparent
@@ -1359,7 +1405,9 @@ stays inside the same generation, and each credential-pool retry adds one
 `ankole.ai_gateway.credential_retry` event with the classified `error.type` and
 the planned delay. Tool Search or a program continuation starts another
 generation under the same Turn or Response parent. A provider-native compact
-call is one `compact {model}` root generation of its own. A provider terminal
+call runs in the same response stream. Its provider round is the
+`compact {model}` generation, under that stream's `ai_gateway.response` root,
+or under the Turn root for a traced Agent request. A provider terminal
 ends the generation before image persistence, stateful commit, or public
 projection settles the request, so provider completion is not confused with
 durable Response completion or ActorEvent delivery. The generation output is
@@ -1482,6 +1530,27 @@ absent, a caller infers retryability from compatible status, code, and message
 signals. A provider capacity failure stays retryable whichever alias the
 provider uses, including a `server_error` code or a `service_unavailable_error`,
 `server_error`, or `overloaded_error` type without an HTTP status.
+The kernel reports each failure that it finds in a Provider stream with the
+OpenAI type `server_error`. That type is not a Provider alias or a Provider
+error type. Only the Provider status, the Provider error type, and the error
+body in such a failure are Provider evidence. An AWS eventstream frame can
+report an error after the HTTP 200 response starts. For an exception frame, the
+kernel reports the `:exception-type` header as the Provider error type, and the
+HTTP status that the Bedrock Runtime API declares for that exception as the
+Provider status. For example, `throttlingException` (429),
+`serviceUnavailableException` (503), and `internalServerException` (500) are
+retryable, `validationException` (400) is a Provider validation error, and
+`modelStreamErrorException` (424) is not retryable. For an error frame, the
+kernel reports the `:error-code` header as the Provider error type and no
+Provider status. An Anthropic Messages stream can send an `error` event after
+the HTTP 200 response starts. The kernel then ends the Response with a Provider
+failure. The event, with the Anthropic error type and message, is the error
+body. The HTTP status that Anthropic documents for that type is the Provider
+status. For example, `overloaded_error` (529), `rate_limit_error` (429), and
+`api_error` (500) are retryable, and `invalid_request_error` (400) is a
+Provider validation error. An undocumented type has no Provider status. An
+event that is not valid JSON (`invalid_provider_event`) has no such evidence,
+so its failure is not retryable.
 
 The public stream rejects a provider completion that contains an incomplete
 client tool call. If a terminal output omits its item identity, AIGateway

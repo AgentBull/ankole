@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import { createTurnWebTools } from '../src/core/turns/turn_web_tools'
-import { turnStartForTest } from './support/llm'
+import { createTurnWebTools } from '../src/core/web-tools'
 
 describe('turn web tools', () => {
   it('declares no local web_search when the Agent leaves search to its model Provider', async () => {
     const toolNames = async (aiAgent: Record<string, unknown>) => {
-      const turnStart = turnStartForTest() as TurnStart
-      turnStart.request_context = { ai_agent: aiAgent }
+      const turnStart: TurnStart = {
+        mode: 'start',
+        fetch_runtime_config: { ssrfFilter: true },
+        turn: {
+          actor: { session_id: 'job:1000' },
+          job_id: 1000,
+          attempt: 1,
+          actor_event_id: 'event-1'
+        },
+        actor_event: {
+          actor_event_id: 'event-1',
+          type: 'background_agent_job.turn'
+        },
+        request_context: { ai_agent: aiAgent }
+      }
       const tools = await createTurnWebTools({
         turnStart,
         aiGateway: { baseURL: 'https://control.test/api/v1/ai-gateway', fetch: async () => new Response('{}') },

@@ -72,7 +72,9 @@ defmodule Ankole.Brain.Forget do
   defp validate_eligibility(_claim, :admin), do: :ok
 
   defp validate_eligibility(%Claim{} = claim, caller) when is_binary(caller) do
-    if claim.author_uid == caller or Scope.satisfied_by?(claim.audience_scope, caller),
+    reference = Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: caller})
+
+    if claim.author == reference or Scope.satisfied_by?(claim.audience_scope, caller),
       do: :ok,
       else: {:error, :forget_not_eligible}
   end

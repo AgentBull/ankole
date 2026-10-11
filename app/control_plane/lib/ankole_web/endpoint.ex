@@ -31,6 +31,7 @@ defmodule AnkoleWeb.Endpoint do
   # `x-forwarded-proto` from every caller, so the Installation must terminate TLS
   # at an ingress that sets this header. A direct-to-BEAM deployment must not
   # accept requests from outside that ingress.
+  plug AnkoleWeb.Plugs.ResetTenant
   plug Plug.RewriteOn, [:x_forwarded_proto]
 
   # One WebSocket per Agent Computer Worker. The worker auth key arrives as
@@ -76,5 +77,6 @@ defmodule AnkoleWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug AnkoleWeb.SiteAdminConsole
   plug AnkoleWeb.Router
 end

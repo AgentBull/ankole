@@ -1,44 +1,40 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { loadWorkerConfig, parseWorkerEnv } from '../src/worker/config'
-import { commandEnv, injectableWorkerEnv } from '../src/sandbox/command-env'
+import { parseWorkerEnv } from '../src/worker/config'
+import { commandEnv } from '../src/core/execution/command-env'
 import { resolveAgentWorkerEnvParts } from '../src/core/execution/worker_env'
-import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
-import type { TurnStart } from '../src/lanes/actor_lane'
-
-const turnStart = {
-  turn: { actor: { agent_uid: 'agent-a', session_id: 'session-1' } }
-} as unknown as TurnStart
+import { type RPCRequester } from '../src/lanes/rpc_lane'
 
 describe('parseWorkerEnv Skill roots', () => {
   const requiredEnv = {
     ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'ws://127.0.0.1:4000/runtime-fabric/worker',
     ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ' secret with / symbols ',
-    WORKER_ID: 'worker-a'
+    WORKER_ID: 'worker-a',
+    ANKOLE_BUILTIN_SKILLS_ROOT: '/repo/app/library',
+    ANKOLE_BROWSER_DAEMON_ENTRY: '/opt/ankole-browser/dist/daemon/main.js',
+    ANKOLE_BROWSER_RUNNER: '/opt/ankole-browser/dist/runner/bootstrap.js',
+    ANKOLE_BROWSER_CHROMIUM_EXECUTABLE: '/opt/ankole-browser/browsers/chromium/chrome-headless-shell'
   }
 
   it('keeps endpoint and auth as separate bootstrap facts', () => {
     expect(parseWorkerEnv(requiredEnv)).toMatchObject({
       endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
-      transport: 'channel',
       workerAuthKey: ' secret with / symbols '
     })
-    expect(parseWorkerEnv({ ...requiredEnv, ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010' })).toMatchObject({
-      endpoint: 'tcp://127.0.0.1:6010',
-      transport: 'zmq'
-    })
-  })
-
-  it('removes the auth key before child processes start', () => {
-    const env = { ...requiredEnv }
-
-    expect(loadWorkerConfig(env).workerAuthKey).toBe(' secret with / symbols ')
-    expect(env.ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY).toBeUndefined()
   })
 
   it('does not require an internal Skill root from the base image', () => {
     expect(parseWorkerEnv(requiredEnv).internalSkillsRoot).toBeUndefined()
+  })
+
+  it('uses the launch owner declaration and refuses a missing built-in root', () => {
+    expect(parseWorkerEnv({ ...requiredEnv, ANKOLE_BUILTIN_SKILLS_ROOT: '/opt/library' }).builtinSkillsRoot).toBe(
+      '/opt/library'
+    )
+    expect(() => parseWorkerEnv({ ...requiredEnv, ANKOLE_BUILTIN_SKILLS_ROOT: undefined })).toThrow(
+      'ANKOLE_BUILTIN_SKILLS_ROOT is required'
+    )
   })
 
   it('uses an internal Skill root only when the image configures it', () => {
@@ -48,79 +44,52 @@ describe('parseWorkerEnv Skill roots', () => {
   })
 })
 
-describe('injectableWorkerEnv', () => {
-  it('keeps operator variables and drops reserved or malformed names', () => {
-    const entries = injectableWorkerEnv({
-      NPM_TOKEN: 'token',
-      GITHUB_TOKEN: 'gh',
-      PATH: '/evil',
-      HOME: '/evil',
-      BASH_ENV: '/evil.sh',
-      ANKOLE_AGENT_UID: 'spoof',
-      ANKOLE_AGENTS_ROOT: '/spoof',
-      'BAD-NAME': 'x',
-      '1BAD': 'x'
-    })
-
-    expect(Object.fromEntries(entries)).toEqual({ NPM_TOKEN: 'token', GITHUB_TOKEN: 'gh' })
-  })
-})
-
 describe('commandEnv worker env layering', () => {
+  const agentHome = '/agents/agent-a'
+
   it('applies operator env above the base and below the caller env', () => {
-    const env = commandEnv({ OVERLAP: 'from-command' }, { workerEnv: { OVERLAP: 'from-operator', NPM_TOKEN: 'token' } })
+    const env = commandEnv(
+      { OVERLAP: 'from-command' },
+      { agentHome, workerEnv: { OVERLAP: 'from-operator', NPM_TOKEN: 'token' } }
+    )
 
     expect(env.NPM_TOKEN).toBe('token')
     expect(env.OVERLAP).toBe('from-command')
   })
 
-  it('never lets operator env displace sandbox bootstrap variables', () => {
-    const env = commandEnv(undefined, {
-      workerEnv: { PATH: '/evil', HOME: '/evil', ANKOLE_AGENTS_ROOT: '/spoof', SAFE_VAR: 'ok' }
-    })
-
-    expect(env.PATH).not.toBe('/evil')
-    expect(env.HOME).not.toBe('/evil')
-    expect(env.ANKOLE_AGENTS_ROOT).not.toBe('/spoof')
-    expect(env.SAFE_VAR).toBe('ok')
-  })
-
-  it('accepts only trusted runtime names and keeps them above caller env', () => {
+  it('keeps runtime names above caller env and the Agent Home above both', () => {
     const env = commandEnv(
-      { ANKOLE_RUNTIME_TURN: 'from-command' },
-      { runtimeEnv: { ANKOLE_RUNTIME_TURN: 'from-control-plane' } }
+      { ANKOLE_RUNTIME_TURN: 'from-command', HOME: '/spoof' },
+      { agentHome, runtimeEnv: { ANKOLE_RUNTIME_TURN: 'from-control-plane' } }
     )
 
     expect(env.ANKOLE_RUNTIME_TURN).toBe('from-control-plane')
-    expect(() => commandEnv(undefined, { runtimeEnv: { NOT_RUNTIME: 'value' } })).toThrow(
-      /invalid turn runtime environment variable/
-    )
-    expect(() => commandEnv(undefined, { runtimeEnv: { ANKOLE_RUNTIME_BAD: 'bad\0value' } })).toThrow(
-      /invalid turn runtime environment variable/
-    )
+    expect(env.HOME).toBe(agentHome)
+    expect(env.ANKOLE_AGENT_HOME).toBe(agentHome)
   })
 })
 
 describe('resolveAgentWorkerEnvParts', () => {
-  it('resolves the owned maps for one agent and drops non-string values', async () => {
-    const requests: unknown[] = []
+  it('resolves the maps of the connected Agent', async () => {
+    const frames: unknown[] = []
     const payloads: unknown[] = []
     const rpc = (async (method: unknown, payload: unknown, frame: unknown) => {
-      expect(method).toBe(rpcMethods.workerEnvResolve)
+      expect(method).toBe('worker_env.resolve')
       payloads.push(payload)
-      requests.push(frame)
+      frames.push(frame)
       return create(WorkerEnvResolveResponseSchema, {
-        vars: { NPM_TOKEN: 'token', BROKEN: 42 as unknown as string }
+        vars: { NPM_TOKEN: 'token' }
       })
     }) as RPCRequester
 
-    expect(await resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, rpc, 'lark-secondary')).toEqual({
+    expect(await resolveAgentWorkerEnvParts(rpc, 'lark-secondary')).toEqual({
       vars: { NPM_TOKEN: 'token' },
       operatorVars: {},
       bindingVars: {}
     })
     expect(payloads).toEqual([{ bindingName: 'lark-secondary' }])
-    expect(requests).toHaveLength(1)
-    expect((requests[0] as { agentUid: string }).agentUid).toBe('agent-a')
+    // The control plane takes the Agent from the Worker connection, so the
+    // request has no turn frame.
+    expect(frames).toEqual([undefined])
   })
 })

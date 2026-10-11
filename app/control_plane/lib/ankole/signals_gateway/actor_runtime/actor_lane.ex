@@ -1,76 +1,40 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
   @moduledoc """
-  Domain dispatcher for authenticated worker turn envelopes.
-
-  Transport only decides that an envelope belongs to the actor lane. This
-  module resolves its actor key, checks the worker route against the durable
-  turn fence, and invokes the matching ActorRuntime transition with the
-  generated payload struct.
+  Routes authenticated Job and environment messages to the current Driver.
+  Environment messages do not read storage: the Driver matches the run and
+  pending call, and Fence rejects closed inputs at the next durable write.
+  Job messages keep their persisted attempt check.
   """
-
-  alias Ankole.Logging
-  alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.{Driver, RunRef, JobTurnRef}
+  alias Ankole.RuntimeFabric.V1, as: Proto
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
 
-  # Actor lane accepts asynchronous Turn updates. Terminal transitions use
-  # typed RPCs.
-  @turn_types ~w(
-    turn_accepted
-    worker_progress
-  )a
+  @job_types [:turn_accepted, :worker_progress]
+  @workspace_types [:workspace_ready, :tool_status, :tool_progress, :tool_result]
+  def turn_type?(type), do: type in @job_types or type in @workspace_types
+  def workspace_type?(type), do: type in @workspace_types
 
-  @spec turn_type?(term()) :: boolean()
-  def turn_type?(type), do: type in @turn_types
+  def handle(%Proto.Envelope{body: {type, payload}}, %{worker_id: uid}) when type in @job_types do
+    with {:ok, ref} <- JobTurnRef.from_proto(payload.turn, uid),
+         :ok <- WorkerRouteAuth.authorize_turn(ref, uid, :read),
+         do: forward(ref, type, payload)
+  end
 
-  @spec actor_key(FabricProto.Envelope.t()) ::
-          {:ok, %{agent_uid: String.t(), session_id: String.t()}} | {:error, term()}
-  def actor_key(%FabricProto.Envelope{body: {type, payload}}) when type in @turn_types do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
-      {:ok, TurnRef.actor_key(turn_ref)}
+  def handle(%Proto.Envelope{body: {type, payload}}, %{worker_id: uid})
+      when type in @workspace_types do
+    with {:ok, ref} <- RunRef.from_proto(payload.run, uid), do: forward(ref, type, payload)
+  end
+
+  def handle(_envelope, _connection), do: {:error, :unsupported_envelope}
+
+  defp forward(ref, type, payload) do
+    case Driver.whereis(%{agent_uid: ref.agent_uid, session_id: ref.session_id}) do
+      :undefined ->
+        :ok
+
+      pid ->
+        send(pid, {:worker, type, payload})
+        :ok
     end
-  end
-
-  def actor_key(_envelope), do: {:error, :missing_turn_ref}
-
-  @spec handle(FabricProto.Envelope.t(), String.t()) :: {:ok, term()} | {:error, term()}
-  def handle(%FabricProto.Envelope{body: {type, payload}}, route)
-      when type in @turn_types and is_binary(route) do
-    payload
-    |> authorize_turn(route, :write)
-    |> dispatch(type)
-    |> log_result(type, route)
-  end
-
-  defp authorize_turn(payload, route, effect) do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
-      {:ok, payload}
-    end
-  end
-
-  defp dispatch({:ok, payload}, :turn_accepted),
-    do: ActorRuntime.handle_turn_accepted(payload)
-
-  defp dispatch({:ok, payload}, :worker_progress),
-    do: ActorRuntime.handle_worker_progress(payload)
-
-  defp dispatch({:error, _reason} = error, _type), do: error
-
-  defp log_result({:ok, _result} = result, _type, _route), do: result
-
-  defp log_result({:error, reason} = error, type, route) do
-    Logging.warning(
-      "runtime_fabric.actor_lane_handling_failed",
-      "runtime fabric actor lane handling failed",
-      %{
-        type: type,
-        route: route,
-        reason: inspect(reason)
-      }
-    )
-
-    error
   end
 end

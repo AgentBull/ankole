@@ -19,6 +19,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   defstruct client: nil,
             dispatcher: nil,
+            expected_app_id: nil,
             task_supervisor: nil,
             auto_reconnect: true,
             conn: nil,
@@ -71,6 +72,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
     state = %__MODULE__{
       client: Keyword.fetch!(opts, :client),
       dispatcher: Keyword.fetch!(opts, :dispatcher),
+      expected_app_id: Keyword.get(opts, :expected_app_id),
       task_supervisor: Keyword.get(opts, :task_supervisor, SlackOpenAPI.EventTaskSupervisor),
       auto_reconnect: Keyword.get(opts, :auto_reconnect, true)
     }
@@ -310,8 +312,14 @@ defmodule SlackOpenAPI.SocketMode.Client do
     info =
       Map.take(hello, ["num_connections", "connection_info", "debug_info"])
 
-    emit([:connected], %{duration_ms: 0}, info)
-    %{state | status: :connected, connection_info: info}
+    if is_nil(state.expected_app_id) or
+         get_in(hello, ["connection_info", "app_id"]) == state.expected_app_id do
+      emit([:connected], %{duration_ms: 0}, info)
+      %{state | status: :connected, connection_info: info}
+    else
+      send(self(), {:shutdown_socket, :application_identity_mismatch})
+      drop_conn(state)
+    end
   end
 
   defp route_envelope(%{"type" => "disconnect", "reason" => "link_disabled"}, state) do
@@ -323,6 +331,12 @@ defmodule SlackOpenAPI.SocketMode.Client do
     emit([:disconnected], %{duration_ms: 0}, %{reason: reason})
     state |> drop_conn() |> reconnect_immediately(reason)
   end
+
+  # An authenticated bot and an app-level Socket Mode token must identify the
+  # same application before any envelope can reach the configured consumer.
+  defp route_envelope(%{"envelope_id" => _}, %{expected_app_id: id, status: status} = state)
+       when is_binary(id) and status != :connected,
+       do: state
 
   defp route_envelope(%{"envelope_id" => envelope_id} = envelope, state) do
     started_at = System.monotonic_time(:millisecond)
@@ -454,7 +468,14 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   defp validate_opts!(opts) when is_list(opts) do
     opts =
-      Keyword.validate!(opts, [:client, :dispatcher, :auto_reconnect, :name, :task_supervisor])
+      Keyword.validate!(opts, [
+        :client,
+        :dispatcher,
+        :expected_app_id,
+        :auto_reconnect,
+        :name,
+        :task_supervisor
+      ])
 
     unless match?(%Client{}, Keyword.fetch!(opts, :client)),
       do: raise(ArgumentError, ":client must be a SlackOpenAPI.Client")

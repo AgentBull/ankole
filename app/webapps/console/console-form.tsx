@@ -18,11 +18,13 @@ import {
 } from '@ankole/uikit'
 import {
   RiBracesLine,
+  RiAlertLine,
   RiCheckboxCircleLine,
+  RiCloseCircleLine,
   RiDeleteBin6Line,
-  RiErrorWarningLine,
   RiInformationLine,
   RiLoaderLine,
+  RiQuestionLine,
   RiSave3Line
 } from '@remixicon/react'
 import {
@@ -520,7 +522,7 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   return (
     <div
       className={cn(
-        'flex min-h-10 cursor-default items-center border-b border-input bg-muted px-4 py-2 text-sm leading-5 text-muted-foreground',
+        'flex min-h-8 cursor-default items-center rounded-control border border-field-edge border-b-input bg-muted px-3 py-1.5 text-sm leading-5 text-muted-foreground',
         mono && 'font-mono text-xs leading-5'
       )}>
       {children === null || children === undefined || children === '' ? '—' : children}
@@ -528,30 +530,25 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   )
 }
 
-/** Semantic status treatment. Brand color stays reserved for selection and primary actions. */
-export function StatusIndicator({
-  children,
-  tone = 'neutral'
-}: {
-  children: ReactNode
-  tone?: 'danger' | 'info' | 'neutral' | 'positive' | 'warning'
-}) {
-  const Icon =
-    tone === 'positive'
-      ? RiCheckboxCircleLine
-      : tone === 'danger' || tone === 'warning'
-        ? RiErrorWarningLine
-        : RiInformationLine
-  const variant =
-    tone === 'positive'
-      ? 'success'
-      : tone === 'danger'
-        ? 'destructive'
-        : tone === 'warning'
-          ? 'warning'
-          : tone === 'info'
-            ? 'info'
-            : 'secondary'
+export type StatusTone = 'danger' | 'info' | 'neutral' | 'positive' | 'waiting' | 'warning'
+
+/**
+ * Status colors follow the common convention: red is failure, amber is something that needs a person (a
+ * warning, or a question that waits for an answer), green is success, blue is work in progress or
+ * information, and gray is the rest. Each tone also has its own icon, because amber and red marks look
+ * alike to people with red-green color blindness. Berry is never a status: next to red it reads as an error.
+ */
+const STATUS_TONES = {
+  danger: { Icon: RiCloseCircleLine, variant: 'destructive' },
+  warning: { Icon: RiAlertLine, variant: 'warning' },
+  waiting: { Icon: RiQuestionLine, variant: 'warning' },
+  positive: { Icon: RiCheckboxCircleLine, variant: 'success' },
+  info: { Icon: RiInformationLine, variant: 'info' },
+  neutral: { Icon: RiInformationLine, variant: 'secondary' }
+} as const satisfies Record<StatusTone, unknown>
+
+export function StatusIndicator({ children, tone = 'neutral' }: { children: ReactNode; tone?: StatusTone }) {
+  const { Icon, variant } = STATUS_TONES[tone]
 
   return (
     <Badge variant={variant}>

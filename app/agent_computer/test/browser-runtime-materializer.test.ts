@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BrowserRouteMaterializer, withoutBrowserMaterialSourceEnv } from '../src/browser-runtime/materializer'
-import { browserSandboxRuntime } from '../src/browser-runtime/sandbox-runtime'
+import { browserRuntimeEnv } from '../src/browser-runtime/runtime-env'
 
 const roots: string[] = []
 
@@ -15,6 +15,7 @@ describe('rendered web_fetch fallback materialization', () => {
     const root = await temporaryRoot()
     const materializer = new BrowserRouteMaterializer({
       root: join(root, 'runtime'),
+      runnerPath: '/bin/true',
       localChromiumExecutable: '/bin/true'
     })
     const renderedSettings = { ssrfFilter: true, idleTtlMs: 5 * 60 * 1_000 }
@@ -28,7 +29,7 @@ describe('rendered web_fetch fallback materialization', () => {
 
     expect(ephemeral.material.idle_ttl_ms).toBe(5 * 60 * 1_000)
     expect(persistent.material.idle_ttl_ms).toBe(30 * 60 * 1_000)
-    await Promise.all([ephemeral.cleanup(), persistent.cleanup()])
+    await persistent.cleanup()
   })
 
   test('creates a new ephemeral route for every fetch', async () => {
@@ -36,6 +37,7 @@ describe('rendered web_fetch fallback materialization', () => {
     const materializer = new BrowserRouteMaterializer({
       root: join(root, 'runtime'),
       socketPath: join(root, 'socket', 'browser.sock'),
+      runnerPath: '/bin/true',
       localChromiumExecutable: '/bin/true'
     })
     const settings = {
@@ -57,8 +59,7 @@ describe('rendered web_fetch fallback materialization', () => {
     expect(first.material.navigation.ssrf_filter).toBe(false)
     expect(first.material.backend).toMatchObject({ args: ['--fallback-only'] })
     expect(first.artifactRoot).toContain('ephemeral-artifacts')
-    expect(first.materialPath).not.toContain('/agents/')
-    await Promise.all([first.cleanup(), second.cleanup()])
+    expect(await readdir(join(root, 'runtime', 'materials')).catch(() => [])).toEqual([])
   })
 
   test('does not forward renderer source configuration into model-visible worker env', async () => {
@@ -68,6 +69,7 @@ describe('rendered web_fetch fallback materialization', () => {
     await writeFile(join(seed, 'Preferences'), 'one')
     const materializer = new BrowserRouteMaterializer({
       root: join(root, 'runtime'),
+      runnerPath: '/bin/true',
       localChromiumExecutable: '/bin/true'
     })
     const runtime = await materializer.materializeEphemeral({
@@ -83,7 +85,6 @@ describe('rendered web_fetch fallback materialization', () => {
         BROWSER_PROFILE_SEED_FINGERPRINT: 'renderer fingerprint'
       })
     ).toEqual({ SAFE_VALUE: 'kept' })
-    await runtime.cleanup()
   })
 })
 
@@ -94,6 +95,7 @@ describe('persistent Codex browser materialization', () => {
     const materializer = new BrowserRouteMaterializer({
       root: join(root, 'runtime'),
       socketPath: join(root, 'socket', 'browser.sock'),
+      runnerPath: '/bin/true',
       localChromiumExecutable: '/bin/true'
     })
     const first = await materializer.materializePersistent({
@@ -145,7 +147,11 @@ describe('persistent Codex browser materialization', () => {
     const seed = join(root, 'seed')
     await mkdir(seed, { recursive: true })
     await writeFile(join(seed, 'Preferences'), 'seed')
-    const materializer = new BrowserRouteMaterializer({ root: join(root, 'runtime') })
+    const materializer = new BrowserRouteMaterializer({
+      root: join(root, 'runtime'),
+      runnerPath: '/bin/true',
+      localChromiumExecutable: '/bin/true'
+    })
     const first = await materializer.materializePersistent({
       scopeRoot,
       artifactRoot: join(scopeRoot, 'browser'),
@@ -187,9 +193,9 @@ describe('persistent Codex browser materialization', () => {
       artifactRoot: join(scopeRoot, 'browser'),
       settings: { ssrfFilter: true }
     })
-    const sandbox = browserSandboxRuntime(runtime)
+    const env = browserRuntimeEnv(runtime)
 
-    expect(sandbox.env).toEqual({
+    expect(env).toEqual({
       ANKOLE_BROWSER_ROUTE: runtime.route,
       ANKOLE_BROWSER_SOCKET: join(root, 'socket', 'browser.sock'),
       ANKOLE_BROWSER_SESSION: 'default',
@@ -197,19 +203,7 @@ describe('persistent Codex browser materialization', () => {
       ANKOLE_BROWSER_ARTIFACT_ROOT: join(scopeRoot, 'browser'),
       ANKOLE_BROWSER_RUNNER: '/opt/ankole-browser/dist/runner/bootstrap.js'
     })
-    expect(sandbox.env.BROWSER_BACKEND_JSON).toBeUndefined()
-    expect(sandbox.binds).toEqual([
-      {
-        source: join(root, 'socket'),
-        target: join(root, 'socket'),
-        readonly: true
-      },
-      {
-        source: runtime.materialPath,
-        target: runtime.materialPath,
-        readonly: true
-      }
-    ])
+    expect(env.BROWSER_BACKEND_JSON).toBeUndefined()
     await runtime.cleanup()
   })
 })

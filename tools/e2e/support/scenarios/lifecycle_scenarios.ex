@@ -15,7 +15,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       wait_for_actor_event_completed: 3,
       wait_for_completed_final_reply: 3,
       wait_for_turn_status: 4,
-      wait_for_worker_projection: 3,
+      wait_for_worker: 2,
       ai_messages_for_actor_event: 1
     ]
 
@@ -50,8 +50,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_malformed_stream_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, %Message{status: "error"} = failed_message} =
              wait_for_turn_status(container, input.id, "failed", deadline(45_000))
@@ -86,7 +86,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   def run_recall_during_generation(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        worker_id: worker_id,
         container: container
       }) do
     mention = lark_bot_mention()
@@ -105,8 +104,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_recall_slow_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert_receive {:fake_llm_request, :slow_recall_stream, 1, _request}, 15_000
 
@@ -130,14 +129,13 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     assert_actor_event_finished!(input.id)
 
-    assert {:ok, _worker} = wait_for_worker_projection(worker_id, container, deadline(30_000))
+    assert {:ok, _worker} = wait_for_worker(container, deadline(30_000))
     %{input: input, message: cancelled_message}
   end
 
   def run_stop_command_abort(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        worker_id: worker_id,
         container: container
       }) do
     mention = lark_bot_mention()
@@ -156,8 +154,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_stop_slow_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert_receive {:fake_llm_request, :slow_stop_stream, 1, _request}, 15_000
 
@@ -176,18 +174,13 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     stop_input = actor_event_by_source_entry_id!(agent.uid, "om_stop_1")
     assert stop_input.type == "command.stop"
 
-    assert {:ok,
-            %{
-              status: :command_consumed,
-              feedback: "Stopped.",
-              control_outcomes: [%{send_outcome: "sent_or_queued"}]
-            }} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                stop_input,
                DateTime.add(stop_input.available_at, 1, :second)
              )
 
-    assert {:ok, _worker} = wait_for_worker_projection(worker_id, container, deadline(15_000))
+    assert {:ok, _worker} = wait_for_worker(container, deadline(15_000))
 
     assert {:ok, %Message{status: "error"} = cancelled_message} =
              wait_for_turn_status(container, input.id, "cancelled", deadline(30_000))
@@ -210,7 +203,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   def run_new_during_generation(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        worker_id: worker_id,
         container: container
       }) do
     mention = lark_bot_mention()
@@ -229,8 +221,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     old_input = actor_event_by_source_entry_id!(agent.uid, "om_new_slow_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                old_input,
                DateTime.add(old_input.available_at, 1, :second)
              )
@@ -252,28 +244,11 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     new_input = actor_event_by_source_entry_id!(agent.uid, "om_new_active_1")
     assert new_input.type == "command.new"
 
-    case process_ready_event_for_actor!(
-           new_input,
-           DateTime.add(new_input.available_at, 1, :second)
-         ) do
-      {:ok, %{send_outcome: "sent_or_queued"}} ->
-        :ok
-
-      {:ok,
-       %{
-         status: :waiting_for_worker,
-         command: "command.new",
-         control_outcomes: [%{send_outcome: "sent_or_queued"}]
-       }} ->
-        assert {:ok, _worker} =
-                 wait_for_worker_projection(worker_id, container, deadline(30_000))
-
-        assert {:ok, %{send_outcome: "sent_or_queued"}} =
-                 process_ready_event_for_actor!(
-                   new_input,
-                   DateTime.add(new_input.available_at, 2, :second)
-                 )
-    end
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
+               new_input,
+               DateTime.add(new_input.available_at, 1, :second)
+             )
 
     assert {:ok, %Message{status: "error"} = old_message} =
              wait_for_turn_status(container, old_input.id, "cancelled", deadline(30_000))
@@ -306,7 +281,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   def run_steer_during_tool_boundary(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        worker_id: worker_id,
         container: container
       }) do
     mention = lark_bot_mention()
@@ -326,8 +300,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_steer_tool_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert_receive {:fake_llm_request, :steer_tool, 1, _request}, 15_000
 
@@ -346,20 +320,12 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     steer_input = actor_event_by_source_entry_id!(agent.uid, "om_steer_1")
     assert steer_input.type == "command.steer"
 
-    assert {:ok,
-            %{
-              status: :active_steer_nudged,
-              send_outcome: "sent_or_queued",
-              turn_ref: steered_turn_ref
-            }} =
-             process_ready_event_for_actor!(
-               steer_input,
-               DateTime.add(steer_input.available_at, 1, :second)
-             )
+    assert {:ok, %{status: :driving, pid: steer_driver}} =
+             ensure_input_driver!(steer_input, DateTime.add(steer_input.available_at, 1, :second))
 
-    assert steered_turn_ref.actor_event_id == input.id
+    assert steer_driver == Ankole.Conversations.Driver.whereis(input)
 
-    # A steer that reached the Worker owns the final reply and its outbox, so the
+    # A steer injected by the Driver owns the final reply and its outbox, so the
     # completion is observed on the steer event rather than the event that opened
     # the Turn. That is also the reply target asserted below.
     assert {:ok, reply, _message} =
@@ -371,7 +337,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert command_tool_succeeded?(messages)
     assert_actor_event_completed!(input.id)
     assert_actor_event_finished!(steer_input.id)
-    assert {:ok, _worker} = wait_for_worker_projection(worker_id, container, deadline(30_000))
+    assert {:ok, _worker} = wait_for_worker(container, deadline(30_000))
 
     assert_lark_final_reply(
       fake_feishu,
@@ -400,8 +366,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     input = actor_event_by_source_entry_id!(agent.uid, "om_idle_steer_1")
     assert input.type == "command.steer"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
@@ -438,8 +404,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     input = actor_event_by_source_entry_id!(agent.uid, "om_ambient_1")
     assert input.type == "im.message.may_intervene"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
@@ -502,8 +468,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert first_text =~ "deploy finished"
     assert second_text =~ "no reply needed"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert_receive {:fake_llm_request, :ambient_noop_decision, 1, _request}, 15_000
 
@@ -536,11 +502,11 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     input = actor_event_by_source_entry_id!(agent.uid, "om_new_1")
     assert input.type == "command.new"
 
-    assert {:ok, %{status: :command_consumed, feedback: "Started a new conversation."}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert Repo.get!(Conversation, old_conversation_id).ended_at
     assert_actor_event_finished!(input.id)
+    assert Repo.get!(Conversation, old_conversation_id).ended_at
 
     outbox = Repo.get_by!(OutboxEntry, source_actor_event_id: input.id)
     assert outbox.payload == %{"text" => "Started a new conversation."}
@@ -567,13 +533,15 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                  DateTime.to_unix(DateTime.add(@base_time, 12, :second), :millisecond)
              )
 
+    wait_for_signal_entry_removed!("lark:oc_chaos_direct", "om_direct_1")
+
     input = actor_event_by_source_entry_id!(agent.uid, "om_direct_1")
     assert input.type == "signal.entry.removed"
 
-    wait_for_signal_entry_removed!("lark:oc_chaos_direct", "om_direct_1")
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, %{status: :entry_lifecycle_ignored, cancelled_checkbacks: 0}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert_actor_event_finished!(input.id)
 
     refute Repo.exists?(
              Message
@@ -587,8 +555,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                fragment("?->>'source_entry_id'", message.metadata) == "om_direct_1"
              )
            )
-
-    assert_actor_event_finished!(input.id)
 
     # A late duplicate of the recalled entry must stay tombstoned.
     assert :ok =
@@ -634,8 +600,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     old_input = actor_event_by_source_entry_id!(agent.uid, "om_old_recall_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                old_input,
                DateTime.add(old_input.available_at, 1, :second)
              )
@@ -668,8 +634,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     new_input = actor_event_by_source_entry_id!(agent.uid, "om_old_recall_new_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                new_input,
                DateTime.add(new_input.available_at, 1, :second)
              )
@@ -705,17 +671,12 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     lifecycle_event = actor_event_by_source_entry_id!(agent.uid, "om_old_recall_1")
 
-    assert {:ok,
-            %{
-              status: :entry_lifecycle_ignored,
-              lifecycle_event: processed_input
-            }} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                lifecycle_event,
                DateTime.add(lifecycle_event.available_at, 1, :second)
              )
 
-    assert processed_input.id == lifecycle_event.id
     assert_actor_event_finished!(lifecycle_event.id)
 
     # Recalling an entry of an already-ended conversation must not rewrite any
@@ -755,8 +716,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     seed_input = actor_event_by_source_entry_id!(agent.uid, "om_daily_reset_seed_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                seed_input,
                DateTime.add(seed_input.available_at, 1, :second)
              )
@@ -775,21 +736,20 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       "om_daily_reset_seed_1"
     )
 
-    reset_at = DateTime.add(seed_input.available_at, 2, :second)
+    reset_at = DateTime.utc_now(:microsecond)
     reset_event = append_session_reset_due!(agent.uid, seed_input.session_id, reset_at)
 
-    assert {:ok,
-            %{
-              status: :session_reset,
-              closed_conversation: closed_conversation,
-              conversation: next_conversation
-            }} =
-             process_ready_event_for_actor!(reset_event, DateTime.add(reset_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(reset_event, DateTime.add(reset_at, 1, :second))
 
-    assert closed_conversation.id == seed_message.conversation_id
-    assert next_conversation.id != closed_conversation.id
-    assert Repo.get!(Conversation, closed_conversation.id).ended_at
     assert_actor_event_finished!(reset_event.id)
+    closed_conversation = Repo.get!(Conversation, seed_message.conversation_id)
+
+    next_conversation =
+      Ankole.SignalsGateway.AIGatewayLink.active_conversation(agent.uid, seed_input.session_id)
+
+    assert next_conversation.id != closed_conversation.id
+    assert closed_conversation.ended_at
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -806,8 +766,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     after_input = actor_event_by_source_entry_id!(agent.uid, "om_daily_reset_after_1")
     assert after_input.session_id == seed_input.session_id
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                after_input,
                DateTime.add(after_input.available_at, 1, :second)
              )
@@ -835,6 +795,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     assert {:ok, reset_event} =
              SignalsGateway.append_actor_event(%{
+               source_work: Ankole.Principals.WorkAccess.service(),
                agent_uid: agent_uid,
                binding_name: "control-plane:session-lifecycle",
                session_id: session_id,

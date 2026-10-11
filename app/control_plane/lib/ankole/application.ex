@@ -5,7 +5,8 @@ defmodule Ankole.Application do
 
   @impl true
   def start(_type, _args) do
-    runtime_events_opts = Application.get_env(:ankole, :runtime_events, [])
+    :ok = AnkoleWeb.SiteAdminConsole.validate!()
+    :ok = AnkoleWeb.RequestLogger.attach()
 
     identity_provider_startup_sync_opts =
       Application.get_env(:ankole, :identity_provider_startup_sync, [])
@@ -14,6 +15,7 @@ defmodule Ankole.Application do
     # failed child in place, but the initial boot still proceeds top to bottom, so
     # anything later may assume earlier children are already up.
     #
+    #   - The request log handler attaches before any child starts.
     #   - Repo before AppConfigure: durable config is read from PostgreSQL.
     #   - AppConfigure.Registry + Cache before Plugins/I18n: those subsystems read
     #     and register AppConfigure definitions during their own `init/1`.
@@ -35,24 +37,23 @@ defmodule Ankole.Application do
     #     their restart escalation inside the SignalsGateway failure domain.
     #   - Workflow after SignalsGateway: recovered runs can enqueue durable Actor
     #     work only after the ActorRuntime supervision tree exists.
-    #   - RuntimeEvents after Workflow: LISTEN is followed by a snapshot of
-    #     durable rows into exact per-key timers, including active Workflow runs.
     #   - Endpoint last: accept web traffic only after every subsystem it serves
     #     (auth, config, plugins, actors, i18n) is ready.
     children =
       [
-        AnkoleWeb.Telemetry,
         Ankole.Repo,
+        {Phoenix.PubSub, name: Ankole.PubSub},
         Ankole.OIDC.SigningKey,
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
         Ankole.Observability,
         Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
+        Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Config,
+        Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Seed,
         {Oban, Application.fetch_env!(:ankole, Oban)},
         Ankole.Plugins.Cohort,
-        {Phoenix.PubSub, name: Ankole.PubSub},
-        Ankole.IdentityProviders.LocalPassword.RetryGuard,
+        Ankole.IdentityProviders.LocalPassword.RetryGuard.Supervisor,
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor, name: Ankole.AIGateway.BrainTaskSupervisor, max_children: 64},
@@ -69,13 +70,6 @@ defmodule Ankole.Application do
       |> maybe_add_child(
         {Ankole.IdentityProviders.StartupSync, child_opts(identity_provider_startup_sync_opts)},
         enabled?(identity_provider_startup_sync_opts, true)
-      )
-
-    children =
-      children
-      |> maybe_add_child(
-        {Ankole.RuntimeEvents.Supervisor, child_opts(runtime_events_opts)},
-        enabled?(runtime_events_opts, true)
       )
 
     children =

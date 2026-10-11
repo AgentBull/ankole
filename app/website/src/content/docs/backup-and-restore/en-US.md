@@ -1,89 +1,53 @@
 ---
 title: Backup and restore
-description: The two things you must back up — PostgreSQL and Agent Home — how to back them up, how to restore them, and why an untested backup is not a backup.
+description: Back up PostgreSQL, the file store, persistent Agent Homes, and the deployment secrets. Test them together.
 section: Guides
 order: 315
 ---
 
-An Ankole deployment instance holds two things you cannot reconstruct: the PostgreSQL database and the Agent Home volume. PostgreSQL stores durable control-plane state. Agent Home stores workspaces, durable Agent documents, installed Skills, and conversation and Job files.
+Back up three data stores together: PostgreSQL, the control-plane file store, and every Agent's persistent Home. Keep the deployment secrets in your secret manager. A Worker instance and its cache can be replaced; its Home must be restored.
 
-The decisive property, stated up front: a database migration cannot be reversed by rolling the image back. A backup you have not restored is a hope, not a backup. The whole point of this page is the restore step — test it, on a separate host, before you rely on it.
+## Backup contents
 
-## What to back up, and what not to
-
-| Back up | Why | How |
+| Data | Contents | Backup source |
 |---|---|---|
-| **PostgreSQL** (`ankole_postgresql_data` on Compose; your external server on Helm) | all durable semantic truth | `pg_dump -Fc` archive |
-| **Agent Home** (`ankole_agents_data` on Compose; the RWX claim on Helm) | per-Agent workspaces, durable documents, installed Skills, conversation and Job files | volume snapshot or filesystem-level backup, taken while Ankole is stopped |
+| PostgreSQL | Principals, Sessions, Jobs, provider configuration, encrypted credentials, generation and storage references | `pg_dump -Fc` |
+| File store | Attachments, published files, installed Skills, Automation scripts | Compose `files_data`, the file-store PVC, or the S3 bucket |
+| Agent Home | Workspaces, local packages, Codex threads in `/workspace/.codex` | Each provider's persistent volumes, shared directories, Drives, EFS, or Cloudflare R2 backups |
+| Deployment secrets | `ANKOLE_SECRET_BASE` and other startup credentials | A separate secret manager |
 
-Do **not** back up the container images — they are rebuildable from the registry. Do not back up the Caddy data or the ephemeral worker state; neither holds anything you cannot recreate. And do not back up only one of the two — PostgreSQL references files in Agent Home, and Agent Home without the database rows that point at it is an orphan.
+`/var/cache/ankole` and container images are rebuildable. Home is not a cache. Docker Home volumes depend on the host, so copy their backups to another host. For Cloudflare, the database backup must include the `storage_ref` for the corresponding R2 backup. A forced stop can lose writes after the last completed backup.
 
-## Back up PostgreSQL
+## Take a consistent backup
 
-Take a custom-format archive (it is what the restore steps expect):
+1. Stop new requests and scheduled work. Disable the Agents and wait for their active work to finish. Keep the control plane running during Worker shutdown.
+2. Use each platform's normal stop or delete operation to end its Worker instances, including paused instances. Do not force-remove containers, set Kubernetes grace to zero, or delete Agents. Wait for the control plane to observe absence and save the current storage references. For Cloudflare, confirm the directory backup completed. An unresolved create must settle before this backup procedure can continue.
+3. Stop the control plane. Stopping it alone does not stop separately managed Workers. Confirm that no Worker can still write the Homes.
+4. Keep PostgreSQL running and take its archive. Back up the file store and all persistent Homes while writers remain stopped. Preserve volume names, provider configuration, Agent UIDs, ownership, and file modes.
+5. Start the control plane, enable the Agents, and verify a known Home file and a drive file.
+
+For Compose, take the database archive with:
 
 ```bash
 docker compose exec -T postgresql \
-  pg_dump -U ankole -d ankole -Fc \
-  > "ankole-$(date +%Y%m%d).dump"
+  pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-On Helm with the bundled PostgreSQL, `kubectl exec` into the PostgreSQL pod and run the same `pg_dump`. With an external PostgreSQL, run `pg_dump` wherever you run it for that server — the command shape is the same.
+Use the storage system's backup mechanism for each volume or bucket. Take backups before upgrades and destructive maintenance. A database migration cannot be undone by changing the image. Keep an old pooled Agent Home volume until the one-time Compose migration completes and the migrated files have been checked.
 
-Take this backup before every upgrade, before any destructive operation (`kit app-db rebuild`, `docker compose down -v`), and on whatever cadence your data-loss tolerance demands. A daily archive is a reasonable default for a small deployment instance.
+## Restore and verify
 
-## Back up Agent Home
-
-Agent Home is a filesystem, not a database — back it up while Ankole is **stopped**, so no worker is writing to it during the backup:
+Keep all control planes and Workers stopped while restoring. On the target database:
 
 ```bash
-# Compose: snapshot the named volume, or copy it while the stack is down
-docker compose down
-# take your volume snapshot or filesystem-level backup of ankole_agents_data
-docker compose up -d
-```
-
-On Helm, the Agent Home is the RWX claim; use whatever snapshot mechanism your StorageClass provides. A filesystem-level copy (rsync, restic, a cloud volume snapshot) all work, as long as it is consistent — taken at one point in time, not racing a writer.
-
-The reason to stop the stack (or at least quiesce the workers) is that a worker writing a file mid-backup produces a torn copy. PostgreSQL's `pg_dump` gives you a transactionally-consistent archive; Agent Home has no such guarantee, so you provide it with timing.
-
-## Restore PostgreSQL
-
-Restore to a separate host first, every time. A restore you have not tested is the most expensive thing you can own in an incident.
-
-```bash
-# on a test host with a fresh Ankole database
 docker compose exec -T postgresql \
-  pg_restore -U ankole -d ankole --clean --if-exists \
-  < "ankole-YYYYMMDD.dump"
+  pg_restore -U ankole -d ankole --clean --if-exists < ankole-backup.dump
 ```
 
-Then run the migrations (`bun run control-plane:setup` locally, or let the Helm init container do it) to bring the schema to the image's level, since a backup taken before a migration restores to the pre-migration schema. Confirm the data — Principals, agents, a known session — is what you expect before declaring the restore good.
+Restore the matching file store, persistent Homes, provider locations, and original `ANKOLE_SECRET_BASE` before starting the control plane. This key decrypts provider credentials and the credential needed to retry an unsettled generation. Generating a new key is not a complete recovery procedure.
 
-## Restore Agent Home
+Restore to the same storage layout and preserve uid 1000 ownership. An Agent cannot switch provider, and provider location and persistent-storage keys are immutable. A move to another storage layout requires a separate migration plan.
 
-Restore the volume to the same path (`/agents`, mounted from `ankole_agents_data` on Compose or the RWX claim on Helm) from your snapshot. The directory structure is per-agent-key, so a correct restore recreates `/agents/<agent-key>/...` exactly. Pair it with the database restore — the database rows reference files under Agent Home, and a mismatched pair produces a deployment that looks alive but points at missing or stale files.
+A recovery rehearsal must isolate its restored platform resources from production. Two control planes must never manage the same Agent storage independently. Do not clear generations to bypass an uncertain platform result.
 
-## Test the pair together
-
-The README's instruction is the rule: "test database and Agent Home restore together on a separate host." The two are a pair; restoring one without the other proves nothing. A monthly cadence on a throwaway host — restore last night's PostgreSQL and Agent Home, start the stack, run one real turn — is the difference between a backup and a hope.
-
-If the restore works on the test host, your production backup is real. If it does not, you have found out on the test host, not during an incident.
-
-## When backups are not optional
-
-A few operations make a backup mandatory, not advisable:
-
-- **Every upgrade** — a migration cannot be reversed; the backup is your only rollback path for the schema.
-- **`kit app-db rebuild --yes`** — drops the local `ankole_dev` database. Only run it when the data is genuinely disposable, and back it up first if any of it matters.
-- **`docker compose down -v`** — deletes the named volumes, including PostgreSQL and Agent Home. This is a delete, not a restart.
-- **Any fault that can affect durable state** — make the backup before you repair or roll back.
-
-## What this guide is not
-
-It is not a backup product recommendation — use whatever volume-snapshot, restic, or cloud-snapshot tooling you already run. It is not a substitute for testing the restore; the restore step is the whole point. And it is not a way to back up only the parts you care about — PostgreSQL and Agent Home are the pair, and partial backups restore to a broken deployment.
-
-## Next steps
-
-- For cross-host recovery and rehearsals, read [Disaster recovery](../disaster-recovery/).
-- For the deployment layout that names these volumes, read the [deployment section of Quick start](../quickstart/#deployment).
+Verify that a known workspace file and a drive file can be read, that a Background Job can resume from its Home, and that a real Turn completes. Repeat this restore test after changes to the storage layout or backup procedure. See [Disaster recovery](../disaster-recovery/) and [Workers](../worker-management/).

@@ -9,13 +9,9 @@ defmodule Ankole.SignalsGateway do
   """
 
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime
-  alias Ankole.SignalsGateway.ActorRuntime.SessionController
-  alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
@@ -33,16 +29,7 @@ defmodule Ankole.SignalsGateway do
   @spec append_actor_event(map()) :: {:ok, ActorEvent.t()} | {:error, term()}
   def append_actor_event(attrs) when is_map(attrs) do
     Repo.transact(fn repo -> append_actor_event_in_tx(repo, attrs) end)
-  end
-
-  @doc """
-  Returns the stable Agent Home workspace identity for one actor session.
-  """
-  @spec ensure_actor_session_workspace(String.t(), String.t()) ::
-          {:ok, Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace.t()}
-          | {:error, term()}
-  def ensure_actor_session_workspace(agent_uid, session_id) do
-    SessionWorkspaces.ensure(agent_uid, session_id)
+    |> Ankole.Conversations.deliver_committed(&[&1])
   end
 
   @doc """
@@ -64,25 +51,13 @@ defmodule Ankole.SignalsGateway do
     as: :mark_event_completed_in_tx
 
   @doc false
-  defdelegate process_actor_session_ready(actor_key), to: SessionController, as: :process_ready
-
-  @doc false
   defdelegate recover_reply_preview(actor_event_id), to: AIReplyPreview, as: :recover
 
   @doc false
   defdelegate cleanup_reply_preview(actor_event_id), to: AIReplyPreview, as: :cleanup_due
 
   @doc false
-  defdelegate list_workers(), to: ActorRuntime
-
-  @doc false
-  defdelegate mark_worker_stale_if_due(worker_id, opts \\ []), to: ActorRuntime
-
-  @doc false
-  defdelegate delete_worker_if_due(worker_id, opts \\ []), to: ActorRuntime
-
-  @doc false
-  defdelegate fail_activation_if_expired(activation_uid, opts \\ []), to: ActorRuntime
+  defdelegate list_workers(), to: Ankole.SignalsGateway.ActorRuntime.AgentWorkers, as: :list
 
   @doc """
   Creates or updates a per-agent signal binding.
@@ -143,21 +118,6 @@ defmodule Ankole.SignalsGateway do
   """
   @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   defdelegate list_enabled_bindings(adapter, opts \\ []), to: Bindings
-
-  @doc """
-  Resolves the globally unique, stable address of one mirrored source entry.
-  """
-  @spec get_entry_by_document_id(String.t()) :: Entry.t() | nil
-  def get_entry_by_document_id(document_id) when is_binary(document_id) do
-    Ankole.Repo.get_by(Entry, document_id: document_id)
-  end
-
-  @doc """
-  Returns the binding config ref for an outbox row's route.
-  """
-  @spec outbox_binding_config_ref(OutboxEntry.t(), keyword()) ::
-          {:ok, String.t()} | {:error, term()}
-  defdelegate outbox_binding_config_ref(outbox, opts \\ []), to: Bindings
 
   @doc """
   Returns recent mirrored entry attachments for one channel actor.
@@ -255,16 +215,9 @@ defmodule Ankole.SignalsGateway do
   defdelegate signal_session_id(signal_channel_id), to: Utils
 
   @doc false
-  @spec finalize_inbound_batch_by_id(String.t(), non_neg_integer(), keyword()) ::
+  @spec finalize_inbound_batch_by_id(String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def finalize_inbound_batch_by_id(batch_id, batch_revision, opts \\ []) do
-    InboundBatches.finalize_inbound_batch_by_id(batch_id, batch_revision, opts)
-  end
-
-  @doc false
-  @spec runtime_event_snapshot() :: [{String.t(), map()}]
-  def runtime_event_snapshot do
-    ActorRuntime.runtime_event_snapshot() ++
-      InboundBatches.runtime_event_snapshot() ++ Outbox.runtime_event_snapshot()
+  def finalize_inbound_batch_by_id(batch_id, opts \\ []) do
+    InboundBatches.finalize_inbound_batch_by_id(batch_id, opts)
   end
 end

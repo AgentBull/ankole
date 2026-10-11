@@ -1,6 +1,8 @@
 defmodule Ankole.AIGateway.HostedImageGenerationTest do
   use Ankole.AIGatewayCase
 
+  import ExUnit.CaptureLog
+
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
@@ -13,10 +15,11 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
   test "maps a hosted OpenRouter rate limit to the public 429 envelope" do
     error =
-      ImageGeneration.normalize_execution_error(
-        {:universal_ai_request_failed,
-         %{"code" => "provider_status_rejected", "provider_status" => 429}}
-      )
+      ImageGeneration.normalize_execution_error(%Ankole.AIGateway.ProviderFailure{
+        kind: :other,
+        code: "provider_status_rejected",
+        provider_status: 429
+      })
 
     assert error.status == 429
     assert error.type == "rate_limit_error"
@@ -26,10 +29,14 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
   test "maps OpenRouter image-reference failures to the stable user error" do
     error =
-      ImageGeneration.normalize_execution_error(
-        {:upstream_response_failed, 400,
-         %{"error_type" => "image_download_failed", "message" => "private URL detail"}}
-      )
+      ImageGeneration.normalize_execution_error(%Ankole.AIGateway.ProviderFailure{
+        kind: :status_rejected,
+        provider_status: 400,
+        provider_body: %{
+          "error_type" => "image_download_failed",
+          "message" => "private URL detail"
+        }
+      })
 
     assert error.status == 400
     assert error.type == "image_generation_user_error"
@@ -37,9 +44,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     refute error.message =~ "private URL detail"
 
     kernel_error =
-      ImageGeneration.normalize_execution_error(
-        {:universal_ai_request_failed, %{"code" => "moderation_blocked"}}
-      )
+      ImageGeneration.normalize_execution_error(%Ankole.AIGateway.ProviderFailure{
+        kind: :other,
+        code: "moderation_blocked"
+      })
 
     assert kernel_error.status == 400
     assert kernel_error.type == "image_generation_user_error"
@@ -486,7 +494,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+                 "transport" => %{}
                },
                credential_pool: %{
                  "entries" => [%{"label" => "Hosted test", "api_key" => "sk-hosted-test"}]
@@ -740,7 +748,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+                 "transport" => %{}
                },
                credential_pool: %{
                  "entries" => [
@@ -760,7 +768,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+                 "transport" => %{}
                },
                credential_pool: %{
                  "entries" => [
@@ -820,19 +828,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   test "streams official partial-image events and persists before output_item.done" do
     %{principal: agent} = agent_fixture()
     test_pid = self()
-    telemetry_handler = "hosted-stream-owner-#{System.unique_integer([:positive])}"
-
-    :ok =
-      :telemetry.attach(
-        telemetry_handler,
-        [:ankole, :ai_gateway, :hosted_image_generation],
-        fn _event, measurements, metadata, pid ->
-          send(pid, {:hosted_stream_telemetry, measurements, metadata})
-        end,
-        test_pid
-      )
-
-    on_exit(fn -> :telemetry.detach(telemetry_handler) end)
 
     base_url =
       start_upstream_server(fn request ->
@@ -927,9 +922,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert artifact.payload == Base.decode64!(@png_base64)
 
-    assert_receive {:hosted_stream_telemetry, _measurements, %{result: "success"}}, 1_000
-    refute_receive {:hosted_stream_telemetry, _measurements, _metadata}, 100
-
     assert_receive {:streaming_image_request, image_request}
     assert image_request["stream"] == true
     refute Map.has_key?(image_request, "partial_images")
@@ -942,20 +934,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
   test "stream persistence failure cancels the owner and emits one failed terminal" do
     %{principal: agent} = agent_fixture()
-    test_pid = self()
-    telemetry_handler = "hosted-stream-failure-#{System.unique_integer([:positive])}"
-
-    :ok =
-      :telemetry.attach(
-        telemetry_handler,
-        [:ankole, :ai_gateway, :hosted_image_generation],
-        fn _event, _measurements, metadata, pid ->
-          send(pid, {:hosted_stream_failure_telemetry, metadata})
-        end,
-        test_pid
-      )
-
-    on_exit(fn -> :telemetry.detach(telemetry_handler) end)
 
     base_url =
       start_upstream_server(fn request ->
@@ -1006,7 +984,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                "tool_choice" => %{"type" => "image_generation"}
              })
 
-    assert %{telemetry_spec: %{hosted_tools: %{image_generation: %{}}}} =
+    assert %{hosted_image_spec: %{hosted_tools: %{image_generation: %{}}}} =
              :sys.get_state(stream.pid)
 
     events = collect_response_events(stream, [])
@@ -1022,9 +1000,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     monitor = Process.monitor(stream.pid)
     assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 2_000
-
-    assert_receive {:hosted_stream_failure_telemetry, %{result: "failure"}}, 1_000
-    refute_receive {:hosted_stream_failure_telemetry, _metadata}, 100
   end
 
   test "hosted provider failures keep a safe status for Worker retry classification" do
@@ -1075,7 +1050,28 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                "tool_choice" => %{"type" => "image_generation"}
              })
 
-    events = collect_response_events(stream, [])
+    failure_log =
+      capture_log(
+        [
+          metadata: [
+            :event,
+            :image_model,
+            :image_provider_tag,
+            :image_provider_slug,
+            :image_failure_reason
+          ]
+        ],
+        fn ->
+          send(self(), {:z16a_events, collect_response_events(stream, [])})
+        end
+      )
+
+    assert_receive {:z16a_events, events}
+    assert length(Regex.scan(~r/event=ai_gateway.response_failed(?:\s|$)/, failure_log)) == 1
+    assert failure_log =~ "image_model=openai/gpt-image-2"
+    assert failure_log =~ "image_provider_tag=openai/gpt-image-2:openai"
+    assert failure_log =~ "image_provider_slug=openai"
+    refute failure_log =~ "private provider detail"
 
     assert [%{"response" => %{"error" => error}}] =
              Enum.filter(events, &(&1["type"] == "response.failed"))
@@ -1090,6 +1086,84 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     refute_receive :hosted_route_main_attempt
     refute_receive :hosted_route_image_attempt
 
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
+  end
+
+  test "a non-streaming hosted failure writes one safe routing log" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        case {request.method, request.path} do
+          {:get, "api/v1/models"} ->
+            {:json, 200, %{"data" => []}}
+
+          {:get, "api/v1/images/models"} ->
+            {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+
+          {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
+            {:json, 200,
+             %{
+               "endpoints" => [
+                 %{
+                   "provider_slug" => "openai",
+                   "provider_tag" => "openai/gpt-image-2:openai",
+                   "supports_streaming" => false,
+                   "allowed_passthrough_parameters" => [],
+                   "supported_parameters" => %{}
+                 }
+               ]
+             }}
+
+          {:post, "api/v1/chat/completions"} ->
+            send(test_pid, :hosted_route_main_attempt)
+            main_model_response(request.body)
+
+          {:post, "api/v1/images"} ->
+            send(test_pid, :hosted_route_image_attempt)
+            {:json, 503, %{"error" => %{"message" => "private provider detail"}}}
+        end
+      end)
+
+    provider_id = configure_openrouter_profiles(agent.uid, base_url, "nonstream-log-failure")
+
+    failure_log =
+      capture_log(
+        [
+          metadata: [
+            :event,
+            :image_model,
+            :image_provider_tag,
+            :image_provider_slug,
+            :image_failure_reason
+          ]
+        ],
+        fn ->
+          assert {:error, error} =
+                   AIGateway.create_response(agent.uid, %{
+                     "model" => "primary",
+                     "input" => "Generate an image.",
+                     "tools" => [%{"type" => "image_generation"}],
+                     "tool_choice" => %{"type" => "image_generation"}
+                   })
+
+          assert error.status == 502
+          assert error.code == "upstream_error"
+        end
+      )
+
+    assert length(Regex.scan(~r/event=ai_gateway.request_failed(?:\s|$)/, failure_log)) == 1
+    refute failure_log =~ "event=ai_gateway.hosted_image_generation_failed"
+    assert failure_log =~ "image_model=openai/gpt-image-2"
+    assert failure_log =~ "image_provider_tag=openai/gpt-image-2:openai"
+    assert failure_log =~ "image_provider_slug=openai"
+    refute failure_log =~ "private provider detail"
+    assert_receive :hosted_route_main_attempt
+    assert_receive :hosted_route_image_attempt
+    refute_receive :hosted_route_main_attempt
+    refute_receive :hosted_route_image_attempt
     assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
     assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
   end
@@ -1278,7 +1352,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+                 "transport" => %{}
                },
                credential_pool: %{
                  "entries" => entries

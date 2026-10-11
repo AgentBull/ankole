@@ -1,6 +1,6 @@
 defmodule Ankole.IdentityProviders.DirectoryState do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
   schema "identity_directory_states" do
@@ -19,7 +19,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
     field :last_started_at, :utc_datetime_usec
     field :last_success_at, :utc_datetime_usec
     field :last_error, :string
-    field :reviewed_by, Ankole.Ecto.PrincipalKey
+    field :reviewed_by, Ankole.Ecto.ActorRef
     field :reviewed_at, :utc_datetime_usec
     field :review_reason, :string
     timestamps()

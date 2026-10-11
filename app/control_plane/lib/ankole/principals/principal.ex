@@ -3,7 +3,7 @@ defmodule Ankole.Principals.Principal do
   Durable accountable subject shared by humans, agents, and installation services.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -43,6 +43,7 @@ defmodule Ankole.Principals.Principal do
     |> normalize_blank([:uid, :display_name, :avatar_url])
     |> validate_required([:uid, :type, :status])
     |> unique_constraint(:uid, name: :principals_pkey)
+    |> unique_constraint(:type, name: :principals_one_system_per_tenant_index)
     |> check_constraint(:uid, name: :principals_uid_present)
     |> check_constraint(:uid, name: :principals_uid_lowercase)
     |> check_constraint(:display_name, name: :principals_agent_display_name_present)

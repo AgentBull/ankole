@@ -2,15 +2,14 @@ import { match } from '@agentbull/active-support'
 import { Input, Progress, ProgressLabel, ProgressValue, Skeleton, cn, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteTokenQuotaMutation,
   ankoleWebAgentControllerPutTokenQuotaMutation,
   ankoleWebAgentControllerResetTokenQuotaMutation,
-  ankoleWebAgentControllerShowTokenQuotaOptions,
-  ankoleWebAgentControllerShowTokenQuotaQueryKey
+  ankoleWebAgentControllerShowTokenQuotaOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
@@ -36,7 +35,6 @@ import { useEditorDraft } from '../use-editor-draft'
 export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
   useSignals()
   const { t, i18n } = useTranslation()
-  const queryClient = useQueryClient()
   // The picker edits wall-clock time in the browser's zone; the hint names that
   // zone so the operator knows which midnight a date means.
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -60,11 +58,6 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
     source: draftSource
   })
 
-  const refresh = () =>
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebAgentControllerShowTokenQuotaQueryKey({ path: { agent_uid: agentUID } })
-    })
-
   // The save failure renders in the section's ErrorBlock, next to the fields
   // that caused it. The removal and the reset carry no field context, so they
   // report through a toast instead.
@@ -73,7 +66,6 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
     onSuccess: response => {
       toast.success(t('console.agents.token_quota_saved'))
       model.markSaved(draftFromTokenQuota(response.token_quota))
-      refresh()
     }
   })
   const clear = useMutation({
@@ -81,7 +73,6 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
     onSuccess: () => {
       toast.success(t('console.agents.token_quota_cleared'))
       model.markSaved(emptyTokenQuotaDraft())
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -92,7 +83,6 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
     onSuccess: response => {
       toast.success(t('console.agents.token_quota_reset_done'))
       model.markSaved(draftFromTokenQuota(response.token_quota))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -319,7 +309,9 @@ function QuotaUsageBar({
         </span>
         {exceeded ? <StatusIndicator tone="danger">{exceededLabel}</StatusIndicator> : null}
       </ProgressLabel>
-      <ProgressValue className={cn(tone === 'danger' && 'text-destructive')}>{() => `${percent}%`}</ProgressValue>
+      <ProgressValue className={cn(tone === 'danger' && 'text-destructive-foreground')}>
+        {() => `${percent}%`}
+      </ProgressValue>
     </Progress>
   )
 }

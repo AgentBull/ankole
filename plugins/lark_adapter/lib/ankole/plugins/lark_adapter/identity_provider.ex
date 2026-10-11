@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.LarkAdapter.Config
+
   @moduledoc """
   Lark / Feishu identity-provider adapter functions for Principals.
   """

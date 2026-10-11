@@ -11,7 +11,7 @@ This page documents the real routes, request shapes, and the boundary between st
 
 ## Where it fits
 
-AIGateway sits between callers and providers. A caller — an agent's model loop, a console operator, or an external integration — presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the request, fans it out to the bound provider, and returns either a single JSON body or a stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through the same boundary.
+AIGateway sits between callers and providers. A caller — an agent's model loop, an OIDC Human, or an external integration — presents a bearer token and sends an OpenResponses-shaped request. AIGateway resolves the selector, prepares the request, fans it out to the bound provider, and returns either a single JSON body or a stream. LLM, embedding, rerank, web-search, and web-fetch capabilities all flow through the same boundary.
 
 The decisive property: a caller never sees a provider credential. The control plane owns the credentials and the routing policy; the caller owns only its token and its selector.
 
@@ -20,7 +20,9 @@ The decisive property: a caller never sees a provider credential. The control pl
 Every endpoint under `/api/v1/ai-gateway` runs through the `:ai_gateway_api` pipeline and the `RequireAIGatewayAccessToken` plug. A request must present a bearer token in the `Authorization` header, and the plug accepts exactly two kinds:
 
 - **an agent token** — an AIGateway API key whose subject is an active agent Principal; the call is scoped to that agent's model bindings and selectors, with `subject_type = "agent"`;
-- **an admin token** — an active human admin console token; the call is scoped to the operator's view of providers, with `subject_type = "admin_human"`.
+- **OIDC Human token** — issued to an active Human by an OIDC Client with `ai_gateway.write`; the request uses that Client's model aliases, with `subject_type = "oidc_human"`.
+
+To get an OIDC Human token, create an OIDC Client in the Console with the `ai_gateway.write` scope. Configure its allowed groups and model aliases, then sign in with Authorization Code and PKCE. For long sessions, request `offline_access` and use the rotating Refresh Token. The Human must belong to an allowed group and can use only the Client's model aliases; raw `provider_id/model` selectors are not accepted.
 
 A missing or unverifiable token returns `401` with `code: "invalid_token"`. There is no anonymous path.
 
@@ -117,7 +119,7 @@ Both paths use the same public stream events and generated-image persistence. Mo
 
 The same subject and token drive the adjacent capabilities. `POST /web_search` takes a length-bounded `query` and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. These calls can use `web_search.default` and `web_fetch.default`, which resolve the current Agent profiles.
 
-`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the instance-wide `brain.embedding_model` and `brain.rerank_model` settings from [AppConfigure](../app-configuration/) when it calls these capabilities. See [Brain](../brain/) for the retrieval behavior.
+`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the site `brain.embedding_model` setting and the tenant `brain.rerank_model` setting from [AppConfigure](../app-configuration/) when it calls these capabilities. See [Brain](../brain/) for the retrieval behavior.
 
 Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:id` and `GET /files/:id/content` read metadata and bytes, and `DELETE /files/:id` removes one. All are scoped to the subject.
 

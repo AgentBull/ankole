@@ -1,10 +1,11 @@
 defmodule Ankole.BrowserSessions.LoginTransaction do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "browser_login_transactions" do
+    field :tenant_id, Ankole.Ecto.UUIDv7
     field :browser_id, Ankole.Ecto.UUIDv7
     field :generation, :integer
     field :purpose, Ecto.Enum, values: [:console, :oauth]

@@ -42,7 +42,7 @@ kernel はバックグラウンド Job の間、起動したままです。Job �
 
 1. `jupyter-live-kernel` skill が有効であることを確認します（デフォルトで有効です）。
 2. agent を作成し、`MISSION.md` を作成します: 「channel に CSV が現れたら、DataFrame にロードし、スキーマと要約統計を検査し、異常を特定し、プロット付きの所見を報告してください。」
-3. channel で CSV をアップロードします（worker-file ルート経由、または URL を提供）。
+3. channel で CSV を添付するか、Console で Agent のドライブにアップロードしてそのパスを伝えます。
 4. agent はバックグラウンド Job に委任し、kernel を起動して CSV をロードし、反復的に検査し、プロットを生成して、結果を報告します。
 
 ## このガイドではないもの

@@ -7,7 +7,7 @@ order: 309
 
 Ankole での自動化は、3 種類のトリガーのいずれかと、2 種類のコンシューマのいずれかを組み合わせます。Agent session は判断、memory、または会話を必要とする作業を処理します。automation job は機械的な処理を決定性スクリプトで実行します。このページでは、よくある形にそのまま使えるブループリントを紹介します。
 
-Automation job は、ワークフロー言語やステップグラフではありません。Agent Home 内にある通常の Bun の `main.ts` です。トリガーの owner が時刻または入り口を管理し続け、選択したコンシューマが変わらないイベントを処理します。Agent が戻るのは、スクリプトがイベントを発火したとき、または失敗ポリシーが Agent を起こしたときだけです。
+Automation job は、ワークフロー言語やステップグラフではありません。Agent のドライブのフォルダーにある通常の Bun の `main.ts` です。トリガーの owner が時刻または入り口を管理し続け、選択したコンシューマが変わらないイベントを処理します。Agent が戻るのは、スクリプトがイベントを発火したとき、または失敗ポリシーが Agent を起こしたときだけです。
 
 [Workflow](../workflows/) は別の実行形態です。メイン Agent が Turn の中で、固定された有界のサブエージェント編成を開始します。schedule や webhook のコンシューマではなく、外部状態をポーリングしません。1 回の delivery または会話リクエストに、並行実行できる有限の独立した判断が含まれる場合に使います。
 
@@ -36,9 +36,12 @@ Automation job は、ワークフロー言語やステップグラフではあ�
 
 schedule が 1 日に 1 回 Agent を起こします。Agent は依頼された情報を収集して要約し、結果をバインドされた chat channel に投稿します。[スケジュール](../schedules/) で作成してテストしてから、毎日の cron 式を設定してください。
 
+この Console request の前に、ログイン済み browser から session cookie と `x-csrf-token` の値を取得してください。
+
 ```bash
 curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
+  -H "Cookie: $CONSOLE_COOKIE" \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "owner_session_id": "<session_id>",

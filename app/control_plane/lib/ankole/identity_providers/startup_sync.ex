@@ -24,7 +24,7 @@ defmodule Ankole.IdentityProviders.StartupSync do
     reason = Keyword.get(opts, :reason, "control_plane_started")
     source = Keyword.get(opts, :source, "startup")
 
-    case DirectorySync.enqueue_directory_syncs(reason: reason, source: source) do
+    case DirectorySync.enqueue_site_directory_syncs(reason: reason, source: source) do
       {:ok, _result} = ok ->
         ok
 

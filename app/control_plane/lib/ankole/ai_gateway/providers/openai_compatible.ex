@@ -48,7 +48,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
     end

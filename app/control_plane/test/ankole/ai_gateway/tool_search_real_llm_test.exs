@@ -143,7 +143,10 @@ defmodule Ankole.AIGateway.ToolSearchRealLLMTest do
     [search_output] =
       Enum.filter(outcome.public_items, &(&1["type"] == "tool_search_output"))
 
-    loaded_names = Enum.map(search_output["tools"], & &1["name"])
+    assert [%{"type" => "namespace", "name" => "functions", "tools" => loaded_tools}] =
+             search_output["tools"]
+
+    loaded_names = Enum.map(loaded_tools, & &1["name"])
     assert "bx_stock_price" in loaded_names
     assert length(loaded_names) < 6
 

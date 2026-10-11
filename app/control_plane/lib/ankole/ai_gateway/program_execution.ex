@@ -62,7 +62,9 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
     start_result =
       try do
-        Task.Supervisor.start_child(supervisor, task, restart: :temporary)
+        Task.Supervisor.start_child(supervisor, Ankole.Repo.bind_tenant(task),
+          restart: :temporary
+        )
       catch
         :exit, reason -> {:task_supervisor_exit, reason}
       end

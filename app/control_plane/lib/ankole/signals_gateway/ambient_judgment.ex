@@ -9,7 +9,7 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
   attribution passed worker validation (`accepted`) or failed it (`degraded`).
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

@@ -5,7 +5,7 @@ section: User guide
 order: 22
 ---
 
-Cron, Checkback, webhook endpoint의 세 가지 트리거는 기본적으로 Agent 대화를 깨웁니다. automation job은 두 번째 소비자입니다. Agent가 작성하여 자신의 Agent Home 안에 유지하는 결정적 스크립트입니다. 트리거를 여기에 바인딩하면, 시스템은 Agent 턴을 시작하는 대신 실행 시점에 스크립트를 실행합니다.
+Cron, Checkback, webhook endpoint의 세 가지 트리거는 기본적으로 Agent 대화를 깨웁니다. automation job은 두 번째 소비자입니다. Agent가 작성하여 자신의 드라이브에 보관하는 결정적 스크립트입니다. 트리거를 여기에 바인딩하면, 시스템은 Agent 턴을 시작하는 대신 실행 시점에 스크립트를 실행합니다.
 
 스크립트는 무엇이 사용자의 주의를 받을 만한지 결정합니다. 조용히 끝날 수도 있고, `emitEvent`를 호출하여 소유자 대화로 이벤트를 보낼 수도 있습니다. 그러면 Agent는 스크립트가 준비한 바로 그 컨텍스트로 깨어납니다. 코드가 기계적인 감시를 맡고, 모델은 판단이 필요한 지점에만 남습니다.
 
@@ -25,7 +25,7 @@ only when it drops below 3.5. Stay silent otherwise. After market
 close, report once whether the day's checks ran normally.
 ```
 
-Agent는 스크립트를 Agent Home 안에 작성하고, 직접 검증한 후 automation job으로 등록하고, 여기에 바인딩된 Cron을 만들고, 시장 마감 정산용 Checkback을 설정합니다. 스크립트 편집은 재등록 없이 즉시 적용됩니다. 각 실행은 디스크에 있는 현재 파일을 실행합니다.
+Agent는 작업 공간에서 스크립트를 작성하고, 직접 검증한 후 automation job으로 등록하고, 여기에 바인딩된 Cron을 만들고, 시장 마감 정산용 Checkback을 설정합니다. 등록할 때 스크립트 디렉터리가 Agent의 드라이브로 복사됩니다. 각 실행은 실행 시점에 그 드라이브 폴더에 있는 내용을 새 실행 디렉터리로 복사하므로, 스크립트가 자기 옆에 쓴 파일은 다음 실행까지 남지 않습니다. 스크립트를 바꿀 때는 Agent가 수정한 디렉터리를 같은 드라이브 폴더에 다시 넣습니다. 다시 등록할 필요는 없습니다.
 
 ## 실행 기록과 실패
 

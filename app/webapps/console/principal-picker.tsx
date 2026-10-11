@@ -11,7 +11,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../common/request-errors'
 
-export type PrincipalCandidate = { id: string; label?: string | null }
+export type PrincipalCandidate = { id: string; label?: string | null; description?: string | null }
 
 /**
  * Single-value principal picker, following the `AddMembershipPicker` combobox
@@ -51,7 +51,9 @@ export function SinglePrincipalPicker({
   const [inputValue, setInputValue] = useState('')
   const normalized = inputValue.trim().toLowerCase()
   const visible = normalized
-    ? candidates.filter(candidate => `${candidate.label ?? ''}\n${candidate.id}`.toLowerCase().includes(normalized))
+    ? candidates.filter(candidate =>
+        `${candidate.label ?? ''}\n${candidate.description ?? ''}\n${candidate.id}`.toLowerCase().includes(normalized)
+      )
     : candidates
   // A stored selection that the candidate query has not returned yet must
   // still render as the selection instead of a cleared field.
@@ -62,8 +64,8 @@ export function SinglePrincipalPicker({
       items={visible}
       value={selected}
       inputValue={inputValue}
-      // `visible` already matches label AND uid; the built-in filter would
-      // re-filter by label only and hide uid matches.
+      // The page supplies human-readable identity text; UID stays the value.
+      // Keep filtering that text and exact IDs in this owner.
       filter={null}
       itemToStringLabel={candidate => candidate.label ?? candidate.id}
       itemToStringValue={candidate => candidate.id}
@@ -98,10 +100,8 @@ export function SinglePrincipalPicker({
               <ComboboxItem key={candidate.id} value={candidate}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{candidate.label ?? candidate.id}</span>
-                  {/* The id line earns its row only when it adds information;
-                      a label equal to the id would repeat itself. */}
-                  {candidate.label != null && candidate.label !== candidate.id ? (
-                    <span className="truncate font-mono text-xs text-muted-foreground">{candidate.id}</span>
+                  {candidate.description && candidate.description !== candidate.label ? (
+                    <span className="truncate text-xs text-muted-foreground">{candidate.description}</span>
                   ) : null}
                 </span>
               </ComboboxItem>

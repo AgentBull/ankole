@@ -24,18 +24,18 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     :ok
   end
 
-  test "missing bearer token returns 401 before request body validation", %{conn: conn} do
+  test "missing browser session returns 401 before request body validation", %{conn: conn} do
     conn =
       put(conn, ~p"/api/v1/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "config" => "not an object"
       })
 
-    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
-  test "bearer-authenticated callers without resource grants are forbidden", %{conn: conn} do
-    conn = bearer_conn(conn)
+  test "session-authenticated callers without resource grants are forbidden", %{conn: conn} do
+    conn = console_conn(conn)
     revoke_console_grants()
 
     conn = get(conn, ~p"/api/v1/identity-provider-adapters")
@@ -46,7 +46,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   test "admin manages identity providers and enqueues manual full sync", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/identity-provider-adapters")
 
     assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
@@ -139,7 +139,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   test "saving an existing provider preserves blank secret fields", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
@@ -188,7 +188,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   test "manual full sync returns a clear error when directory sync is disabled", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
@@ -217,7 +217,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   test "a missing required adapter config field names the field in the error", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
@@ -234,7 +234,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   end
 
   test "write and manual sync error paths return explicit envelopes", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
       put(conn, ~p"/api/v1/identity-providers/lark-main", %{

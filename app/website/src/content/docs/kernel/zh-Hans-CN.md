@@ -1,58 +1,33 @@
 ---
 title: Rust Kernel
-description: 共享的原生层——对授权、RuntimeFabric 传输和 AI 数据面原语的一份 Rust 实现，同时被 Elixir 控制面和 Bun worker 加载。
+description: 由 Elixir 控制面通过 Rustler 加载的原生能力与 AI 传输库。
 section: Developer guide
 order: 109
 ---
 
-Ankole 跑在两个宿主运行时上——一个 Elixir 控制面和一个 Bun worker——有几样行为必须在两边意味着同一件事。Rust Kernel 就是这些共享原生语义的所在。本页对照 `app/kernel` 里的真实代码，画出这个 kernel。
+Rust Kernel 是控制面的原生库，由 Elixir 通过 Rustler 加载。Bun Worker 使用自己生成的 protobuf 编解码器，不加载 Kernel 原生模块。
 
-先说明最关键的一点：kernel 是一个 Rust crate，通过两层绑定被两个宿主加载，不是一个带 Elixir 适配的 Bun 包，也不是一个带 Bun 适配的 Elixir NIF。Rust 拥有底层语义；绑定只翻译宿主的类型、命名和错误。如果一样行为必须被两个运行时同时信任，它就先以 Rust 的形态在这里落地，绑定在后。
+## 原生能力
 
-## 两个宿主，一份实现
+`app/kernel` 提供以下能力：
 
-这个 crate 在互斥的 feature flag 下编译——`napi` 对 Bun 的 N-API，`nif_dev`/`nif_prod` 对 Elixir 的 Rustler——于是同一份源码编出两个原生 addon。一个全局 mimalloc 分配器被显式设定，因为一个被长时宿主运行时加载的原生 addon，必须在 N-API 和 NIF 构建之间保持分配器行为一致。
+- **`common/`**：加密、密钥派生、密码哈希、编码、UUIDv7 标识符、JWT 工具和电话号码规范化。
+- **`authz/`**：基于显式快照的权限求值、CEL 校验和资源模式匹配。控制面提供[Principal 与 AuthZ](../principal-authz/)所述的数据。
+- **`universal_ai_client/`**：上游 HTTP SSE/EventStream 与 WebSocket 传输、响应规范化、下游 JSON 文本块编码、需求额度、取消和超时。
+- **`object_store/`**：基于本地目录或 S3 兼容桶的文件服务存储。
+- **`program_runner/`**、**`brain_markdoc/`** 和 **`model_image/`**：程序化工具执行、Brain 正文分析和模型图像转换。
+- **`signals_gateway/`**：基于传入上下文的路由策略求值。
 
-绑定面与此对应。Elixir 这边，`Ankole.Kernel` 是一个 Rustler 模块，在原生 crate 加载之前，它的函数都回退到 `:erlang.nif_error(:nif_not_loaded)`——`aead_encrypt`、`authz_authorize`、`runtime_fabric_router_start`、`universal_ai_client_open_nif`、`gen_uuid_v7`。Bun 这边，同一个 crate 输出为 N-API addon。名字不同；行为一致。
+## 所有权
 
-## 为什么要有共享 kernel
+控制面拥有持久状态、权限数据、提供方选择、凭证和领域提交权。Kernel 接收已准备的输入，不查询 PostgreSQL、不调度 Agent，也不拥有 Worker socket。
 
-kernel 的存在，是为了阻止 Bun 这边和 Elixir 这边对同一种原生行为发展出各自的含义。没有它，授权求值、fabric 组帧和 AI 流式会在两份实现之间漂移，两边做出的决定可能彼此相左。把受信任的行为用 Rust 写一次、绑定在后，正是让两个运行时彼此诚实的做法。
+RuntimeFabric 的结构和协议版本 9 在 `proto/ankole/runtime_fabric/v1/envelope.proto` 中声明。Elixir 使用 Protox，Worker 使用 protobuf-es。两端在发送时写入声明的版本，在接收时检查版本。领域消费者检查执行权限；跨语言 golden fixture 校验编解码一致性。
 
-## 共享面
+## 构建与传输
 
-四个模块承载共享语义：
+开发、测试和生产共用 Cargo feature `nif`。Rustler 在 `src/nif_exports.rs` 中转换 BEAM 值和错误。JSON 形状的值与二进制数据在边界上保留各自表示。
 
-- **`common/`**——宿主中立的原语：AEAD token 加密与解密、密钥派生、哈希、编码、UUID 帮助函数（含 `gen_uuid_v7`，对 Elixir 暴露为 `gen_uuid_v7/0`，对 Bun 暴露为 `genUUIDv7()`）、JWT 帮助函数、电话号码归一化。这些是两个运行时都会用到的小型受信任操作。
-- **`authz/`**——只根据快照执行授权求值。`authorize` 和 `authorize_all` 接收 `AuthzSnapshot` 并返回 `AuthzDecision`；CEL 条件校验和资源模式匹配也在这里完成。这就是 [主体与 AuthZ](../principal-authz/) 中描述的确定性求值器，控制面负责为它组装快照。
-- **`runtime_fabric/`**——`ankole.runtime_fabric.v1` protobuf 命名空间和当前 wire protocol version 5：lane、持久性等级、关联规则，以及回合/控制/进度/RPC 体语义，全部对宿主编码的 protobuf 字节做校验。唯一的结构声明是 `proto/envelope.proto`；每个宿主从它派生自己的编解码——Rust 用 `prost-build`，Elixir 用 `protox`，TypeScript 用 `protoc-gen-es`。没有哪个宿主自己发明结构。
-- **`universal_ai_client/`**——一个 feature 门控的原生异步流式客户端，用于已准备好的 AI provider 请求：上游的 HTTP SSE/EventStream 和 WebSocket 传输、provider 响应归一化、下游的 SSE/WebSocket 分块编码、需求信用、取消。这就是 [AIGateway](../ai-gateway/) 用来与 provider 通信的 AI 数据面原语。
+各环境的共享 reqwest client 都使用 HTTP/1.1 和 aws-lc-rs TLS。上游 WebSocket 使用独立连接。提供方策略和 transcript 提交仍由 [AIGateway](../ai-gateway/)负责。
 
-## ZeroMQ 传输
-
-在 `runtime_fabric/transport/` 里，kernel 拥有 ZeroMQ ROUTER/DEALER 传输，按 auth、config、router、dealer 和 framing 模块拆分。控制面到 worker 的实时 fabric 真正跑在这里：
-
-- **ZAP/PLAIN worker 鉴权**——一个 worker 用它的认证 key 鉴权之后，fabric 才接受它的流量。
-- **强制路由发送**——一条无法被路由的发送会显式失败，而不是悄悄丢弃。
-- **有界 socket 选项**——socket 的配置阻止无界队列及其带来的失败模式。
-- **原始 `ANKOLE_FILE/1` worker 文件多部帧**——控制面与 worker 之间的文件传输复用同一条传输，作为区别于 RPC lane 的原始多部帧。
-
-传输由 Rust 拥有，这是刻意的。丢一帧或错路由一次发送，就会让一条 worker 回复落到错误的 session 上，所以受信任的行为在这里实现，两个宿主都来调用它。
-
-## 边界
-
-kernel 与两个运行时的边界是清晰的，每一条都是共享语义规则的推论：
-
-- **与 Actor Runtime。** 控制面拥有 actor 状态、activation 隔离栏和持久转写。kernel 拥有确定性的授权求值，以及承载回合、进度和 RPC 信封的传输。Actor Runtime 把一条 worker 回复拿去和隔离栏核对时，授权该 principal 的决定逻辑是 kernel 代码；隔离栏行本身则是控制面状态。
-- **与 Agent Computer Worker。** worker 拥有实时执行。kernel 拥有 worker 回合用来触及 provider 的 AI 流式客户端，以及承载 worker 进度帧和文件帧回来的传输。worker 不重新实现流式或组帧；它调用的是同一个原生面——控制面在对称方向上也会调用它。
-- **与 AIGateway。** 网关拥有 provider 路由和凭证。kernel 拥有线上字节：HTTP 和 WebSocket 传输、响应归一化、调用方最终收到的分块编码。
-
-## kernel 不是什么
-
-它不是宿主特定行为的归宿。任何一个运行时单独需要的东西——一个 Phoenix plug、一个 Bun 工具、一条 console 路由——都留在那个运行时里；kernel 只取两者都必须信任的那部分。它不是 actor 状态或 provider 凭证的另一套权威；那些归控制面。它也不是宿主可以替换的可选管线。整件事的意义在于：两个运行时对那些跨越彼此边界的行为共享同一个含义，而这个含义是 Rust。
-
-## 下一步
-
-- Kernel 执行的授权求值，见 [主体与 AuthZ](../principal-authz/)。
-- kernel 承载信封所用的传输，读 [Actor Runtime](../actor-runtime/) 和 [Agent Computer Worker](../agent-computer-worker/)。
-- kernel 所提供的 AI 流式，读 [AIGateway API](../ai-gateway/)。
+Worker 生命周期和消息路由见 [Actor Runtime](../actor-runtime/)与 [Agent Computer Worker](../agent-computer-worker/)。

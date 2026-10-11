@@ -4,7 +4,7 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
   soft deletes, and status write-backs create no version.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   alias Ankole.Brain.Schemas.Object
 
@@ -12,7 +12,7 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
 
   schema "brain_object_versions" do
     belongs_to :object, Object, type: Ankole.Ecto.UUIDv7
-    field :author_uid, :string
+    field :author, Ankole.Ecto.ActorRef
     field :body, :string
     field :meta, :map, default: %{}
     field :snapshot_at, :utc_datetime_usec

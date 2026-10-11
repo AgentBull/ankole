@@ -353,8 +353,6 @@ function agentPluginCatalog(libraryRoot: string, ids: string[]): AgentPluginCata
   return ids.map(id =>
     create(AgentPluginCatalogEntrySchema, {
       id,
-      description: `${id} plugin`,
-      hasWorkspaceTemplate: existsSync(join(libraryRoot, id, 'workspace-template')),
       skills: [{ catalogName: `${id}-skill` }]
     })
   )

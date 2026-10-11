@@ -4,7 +4,7 @@ defmodule Ankole.Brain.SelfHealing do
 
   One sweep rechunks objects whose chunking signature is stale, re-embeds
   chunks and claims whose embedding state is missing, failed, or built with
-  another model signature, rebuilds the recoverable search indexes, and
+  another model signature, and
   enqueues extraction for idle channels and stored OIDC Client conversations.
   """
 
@@ -21,7 +21,6 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.SearchIndexes
   alias Ankole.Brain.SignalsLearning
   alias Ankole.Logging
   alias Ankole.Repo
@@ -41,7 +40,6 @@ defmodule Ankole.Brain.SelfHealing do
       library_knowledge = sync_library_knowledge()
       rechunked = rechunk_stale_objects()
       embedded = embed_pending()
-      indexes = ensure_indexes()
       slices = sweep_idle_channels()
       oidc_sources = OIDCClientLearning.sweep()
 
@@ -50,7 +48,6 @@ defmodule Ankole.Brain.SelfHealing do
          library_knowledge: library_knowledge,
          rechunked: rechunked,
          embedded: embedded,
-         indexes: indexes,
          slices: slices,
          oidc_sources: oidc_sources
        }}
@@ -117,15 +114,12 @@ defmodule Ankole.Brain.SelfHealing do
   end
 
   defp embed_pending_claims(signature) do
-    internal_prefix = Claims.internal_provenance_prefix() <> "%"
-
     Claim
     |> Claims.filter_live_parents()
     |> where(
       [claim],
       is_nil(claim.embedded_at) or claim.embedding_signature != ^signature
     )
-    |> where([claim], not like(claim.provenance, ^internal_prefix))
     |> where(
       [claim],
       (claim.claim_type == "fact" and is_nil(claim.expired_at)) or
@@ -177,13 +171,6 @@ defmodule Ankole.Brain.SelfHealing do
         end)
 
         0
-    end
-  end
-
-  defp ensure_indexes do
-    case SearchIndexes.ensure_current() do
-      {:ok, actions} -> actions
-      {:error, reason} -> [%{error: inspect(reason)}]
     end
   end
 

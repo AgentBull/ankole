@@ -8,13 +8,13 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
   alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.Jobs.OutboxDispatch
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyAttachment
   alias Ankole.SignalsGateway.ReplyInteractionState
@@ -48,6 +48,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   @reply_preview_finalization_sources ~w(
     actor_dead_letter_notice
     actor_model_profile_unavailable_notice
+    actor_tenant_suspended_notice
+    actor_token_quota_exceeded_notice
     actor_turn_stopped
     ai_gateway_clarify
     ai_gateway_final_reply
@@ -64,12 +66,12 @@ defmodule Ankole.SignalsGateway.Outbox do
   something to the provider, transactionally, without performing it yet. The
   `on_conflict: :nothing` upsert on `{agent_uid, binding_name, outbound_key}` is
   the idempotency contract — committing the same `outbound_key` twice yields the
-  same single row (and therefore at most one provider side effect). Actual
-  delivery happens later via exact runtime events and `dispatch_outbox`.
+  same single row (and therefore at most one provider side effect).
+  Delivery uses durable Oban jobs and `dispatch_outbox`.
   """
   @spec commit_outbox(map()) :: {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_outbox(attrs) when is_map(attrs) do
-    commit_outbox_in_tx(Repo, attrs)
+    Repo.transact(fn repo -> commit_outbox_in_tx(repo, attrs) end)
   end
 
   @doc """
@@ -77,7 +79,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   """
   @spec commit_outbox_in_tx(module(), map()) :: {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_outbox_in_tx(repo, attrs) when is_map(attrs) do
-    with {:ok, %OutboxEntry{} = outbox} <-
+    with :ok <- verify_attachment_destination(attrs),
+         {:ok, %OutboxEntry{} = outbox} <-
            %OutboxEntry{}
            |> OutboxEntry.changeset(default_outbox_attrs(attrs))
            |> repo.insert(
@@ -86,9 +89,36 @@ defmodule Ankole.SignalsGateway.Outbox do
              returning: true
            )
            |> outbox_insert_result(repo, attrs),
+         :ok <- reference_attachments(repo, outbox),
          :ok <- notify_outbox_deadline(repo, outbox) do
       {:ok, outbox}
     end
+  end
+
+  defp verify_attachment_destination(attrs) do
+    payload = attrs[:payload] || %{}
+    channel_id = attrs[:signal_channel_id]
+
+    Enum.reduce_while(payload["attachments"] || [], :ok, fn attachment, :ok ->
+      case Ankole.Files.verify_delivery(attachment["path"] || "", channel_id) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp reference_attachments(_repo, %OutboxEntry{status: :succeeded}), do: :ok
+
+  defp reference_attachments(repo, %OutboxEntry{payload: payload}) do
+    references =
+      payload
+      |> Map.get("attachments", [])
+      |> Enum.flat_map(fn
+        %{"blob_ref" => reference} -> [reference]
+        _legacy_attachment -> []
+      end)
+
+    Ankole.Files.reference_contents_in_tx(repo, references)
   end
 
   @doc """
@@ -114,7 +144,8 @@ defmodule Ankole.SignalsGateway.Outbox do
         opts \\ []
       )
       when is_binary(ai_message_id) and is_list(attachments) do
-    with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments) do
+    with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments),
+         :ok <- ReplyAttachment.verify_in_drive(actor_event.agent_uid, attachments) do
       for target <- reply_targets(actor_event, opts),
           {attachment, index} <- Enum.with_index(attachments) do
         commit_reply_attachment_outbox_in_tx(
@@ -130,6 +161,28 @@ defmodule Ankole.SignalsGateway.Outbox do
       |> collect_results()
     end
   end
+
+  @doc """
+  Reads the bytes of one outbox attachment.
+
+  The attachment names its content by `blob_ref`, so the bytes are the ones the
+  Agent attached. `{:error, :attachment_file_missing}` means that the content is
+  missing or unreadable. Uncompleted Outbox references normally prevent
+  collection even when the drive path is removed.
+  An adapter returns that error as it is, and the outbox blocks the delivery
+  instead of retrying it.
+  """
+  @spec attachment_content(map()) :: {:ok, binary()} | {:error, term()}
+  def attachment_content(%{"blob_ref" => blob_ref}) when is_binary(blob_ref) do
+    case Ankole.Files.read_content(blob_ref) do
+      {:ok, content} -> {:ok, content}
+      {:error, :not_found} -> {:error, :attachment_file_missing}
+      {:error, {:invalid_sha256, _value}} -> {:error, :attachment_file_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def attachment_content(_attachment), do: {:error, :attachment_file_missing}
 
   @doc """
   Commits the durable final replies adopted by an explicit Agent Turn completion.
@@ -336,6 +389,19 @@ defmodule Ankole.SignalsGateway.Outbox do
     )
   end
 
+  @doc "Commits the notice for an input rejected before its first attempt."
+  def commit_tenant_suspended_notice_outbox_in_tx(repo, %ActorEvent{} = event, text) do
+    commit_actor_notice_outbox_in_tx(
+      repo,
+      event,
+      text,
+      "ai-tenant-suspended",
+      :empty_tenant_suspended_notice_text,
+      %{"source" => "actor_tenant_suspended_notice"},
+      "failed"
+    )
+  end
+
   defp commit_actor_notice_outbox_in_tx(
          repo,
          %ActorEvent{} = actor_event,
@@ -368,7 +434,12 @@ defmodule Ankole.SignalsGateway.Outbox do
                 payload: %{
                   "text" => final_text,
                   "reply_presentation" =>
-                    actor_notice_reply_presentation(actor_event, terminal_state, final_text),
+                    actor_notice_reply_presentation(
+                      actor_event,
+                      terminal_state,
+                      final_text,
+                      metadata
+                    ),
                   "metadata" => Map.put(metadata, "actor_event_id", actor_event.id)
                 },
                 fallback_visible_text: final_text,
@@ -381,7 +452,12 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp actor_notice_reply_presentation(actor_event, "stopped", _fallback_text) do
+  defp actor_notice_reply_presentation(_actor_event, "stopped", text, %{
+         "reason" => "context_withdrawn"
+       }),
+       do: ReplyPresentation.new() |> ReplyPresentation.terminal("stopped", text)
+
+  defp actor_notice_reply_presentation(actor_event, "stopped", _fallback_text, _metadata) do
     presentation = reply_presentation_checkpoint(actor_event) |> ReplyPresentation.normalize()
     partial_answer = presentation["answer"] || ""
 
@@ -390,7 +466,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> Map.put("answer", partial_answer)
   end
 
-  defp actor_notice_reply_presentation(actor_event, terminal_state, text),
+  defp actor_notice_reply_presentation(actor_event, terminal_state, text, _metadata),
     do: terminal_reply_presentation(actor_event, terminal_state, text)
 
   @doc """
@@ -451,6 +527,63 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   def effective_outbox_operation(operation, _capabilities), do: operation
+
+  @doc "Restores missing dispatch jobs for due outbox rows that can still recover."
+  @spec reconcile_wakeups(DateTime.t()) :: :ok | {:error, term()}
+  def reconcile_wakeups(now \\ DateTime.utc_now(:microsecond)) do
+    recovery_before = DateTime.add(now, -@outbox_in_flight_recovery_seconds, :second)
+
+    active_jobs =
+      from job in Oban.Job,
+        where: job.worker == ^Oban.Worker.to_string(OutboxDispatch),
+        where: job.state in ["available", "scheduled", "retryable", "executing"],
+        where:
+          fragment(
+            "? @> jsonb_build_object('agent_uid', ?, 'binding_name', ?, 'outbound_key', ?)",
+            job.args,
+            parent_as(:outbox).agent_uid,
+            parent_as(:outbox).binding_name,
+            parent_as(:outbox).outbound_key
+          ),
+        select: 1
+
+    keys =
+      Repo.across_tenants(fn ->
+        from(entry in OutboxEntry,
+          as: :outbox,
+          where:
+            entry.status == :created or
+              (entry.status in [:failed, :unknown_after_send] and entry.next_attempt_at <= ^now and
+                 entry.attempt_count < entry.max_attempts and
+                 fragment("coalesce(?->>'state', '')", entry.recovery_state) not in [
+                   "blocked",
+                   "permanent",
+                   "exhausted"
+                 ]) or
+              (entry.status == :sending and entry.platform_send_started_at <= ^recovery_before),
+          where: not exists(subquery(active_jobs)),
+          select: map(entry, [:agent_uid, :binding_name, :outbound_key, :tenant_id])
+        )
+        |> Repo.all()
+      end)
+
+    Enum.reduce_while(keys, :ok, fn key, :ok ->
+      result =
+        Repo.with_tenant(key.tenant_id, fn ->
+          # Recovery must not add a successor to a job that started after the query.
+          key
+          |> OutboxDispatch.new(
+            unique: [states: [:available, :scheduled, :retryable, :executing]]
+          )
+          |> Oban.insert()
+        end)
+
+      case result do
+        {:ok, _job} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
 
   @doc """
   Dispatches one outbox row through a concrete adapter runtime.
@@ -514,24 +647,6 @@ defmodule Ankole.SignalsGateway.Outbox do
       nil -> {:error, :outbox_not_found}
       {:error, _reason} = error -> error
     end
-  end
-
-  @doc false
-  @spec runtime_event_snapshot() :: [{String.t(), map()}]
-  def runtime_event_snapshot do
-    OutboxEntry
-    |> where([entry], entry.status == :created)
-    |> or_where(
-      [entry],
-      entry.status in [:failed, :unknown_after_send] and
-        not is_nil(entry.next_attempt_at) and entry.attempt_count < entry.max_attempts
-    )
-    |> or_where(
-      [entry],
-      entry.status == :sending and not is_nil(entry.platform_send_started_at)
-    )
-    |> Repo.all()
-    |> Enum.map(&outbox_runtime_event/1)
   end
 
   @doc false
@@ -805,8 +920,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   # waiting to acquire the ActorEvent row lock. Wait for the preview owner to
   # stop before claiming terminal delivery, then re-read the ActorEvent under
   # the outbox lock so the final operation edits that preview instead of posting
-  # a duplicate reply. The timeout leaves the durable row in `created`; the
-  # runtime snapshot will retry it without risking a second provider message.
+  # a duplicate reply. A timeout leaves the durable row in `created`, so Outbox
+  # reconciliation can restore its wakeup after the dispatch job is discarded.
   defp await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
     case fetch_outbox(agent_uid, binding_name, outbound_key) do
       %OutboxEntry{} = outbox ->
@@ -820,7 +935,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
           # The durable terminal intent is also the recovery owner. If the
           # lifecycle process exited after commit but before its best-effort
-          # stop cast, startup hydration can still complete the handoff.
+          # stop cast, a recovered dispatch job can still complete the handoff.
           AIReplyPreview.stop(outbox.source_actor_event_id)
           await_reply_preview_stop(outbox.source_actor_event_id, timeout_ms)
         else
@@ -834,7 +949,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp await_reply_preview_stop(actor_event_id, timeout_ms)
        when is_binary(actor_event_id) and is_integer(timeout_ms) and timeout_ms >= 0 do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+    case Ankole.SignalsGateway.AIReplyPreview.lookup(actor_event_id) do
       [{pid, _value}] ->
         monitor = Process.monitor(pid)
 
@@ -867,7 +982,12 @@ defmodule Ankole.SignalsGateway.Outbox do
     if reply_preview_finalization?(outbox) do
       case repo.get(ActorEvent, outbox.source_actor_event_id) do
         %ActorEvent{} = event ->
-          refreshed = terminal_presentation_from_latest_checkpoint(event, original)
+          refreshed =
+            terminal_presentation_from_latest_checkpoint(
+              event,
+              original,
+              outbox.payload["metadata"]
+            )
 
           if refreshed == original do
             {:ok, outbox}
@@ -889,7 +1009,12 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp refresh_late_reply_presentation(_repo, %OutboxEntry{} = outbox), do: {:ok, outbox}
 
-  defp terminal_presentation_from_latest_checkpoint(event, original) do
+  defp terminal_presentation_from_latest_checkpoint(_event, original, %{
+         "reason" => "context_withdrawn"
+       }),
+       do: original
+
+  defp terminal_presentation_from_latest_checkpoint(event, original, _metadata) do
     latest = reply_presentation_checkpoint(event)
     state = Map.get(original, "state") || "completed"
 
@@ -979,11 +1104,9 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> normalize_agent_uid_attr()
   end
 
-  # `on_conflict: :nothing` returns a struct with nil fields when the row already
-  # existed (the commit was a duplicate). That's success for an idempotent
-  # commit, so re-read the existing row by its key and return it instead of the
-  # empty conflict struct.
-  defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, repo, attrs) do
+  # With explicit primary keys, a skipped insert may return the requested
+  # values. Read the committed intent so retries adopt its payload and status.
+  defp outbox_insert_result({:ok, %OutboxEntry{}}, repo, attrs) do
     attrs = default_outbox_attrs(attrs)
 
     case repo.get_by(OutboxEntry,
@@ -996,7 +1119,6 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _repo, _attrs), do: {:ok, entry}
   defp outbox_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
 
   defp commit_reply_attachment_outbox_in_tx(
@@ -1288,7 +1410,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     do: {:error, :signal_channel_id_missing}
 
   defp outbox_route_channel(repo, %ActorEvent{signal_channel_id: signal_channel_id}) do
-    case repo.get(Channel, signal_channel_id) do
+    case repo.get_by(Channel, id: signal_channel_id) do
       %Channel{} = channel -> {:ok, channel}
       nil -> {:error, {:signal_channel_not_found, signal_channel_id}}
     end
@@ -1326,7 +1448,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp outbox_channel(_repo, %OutboxEntry{signal_channel_id: nil}), do: {:ok, nil}
 
   defp outbox_channel(repo, %OutboxEntry{signal_channel_id: signal_channel_id}) do
-    case repo.get(Channel, signal_channel_id) do
+    case repo.get_by(Channel, id: signal_channel_id) do
       %Channel{} = channel -> {:ok, channel}
       nil -> {:error, :signal_channel_not_found}
     end
@@ -1338,6 +1460,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   # held by the caller, so two dispatchers can't both claim the same row.
   defp prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now) do
     with :ok <- dispatchable_outbox?(outbox, now),
+         :ok <- attachments_migrated(outbox),
          {:ok, outbox} <- degrade_threaded_reply(repo, outbox, adapter),
          :ok <- outbox_supported?(outbox, channel, adapter),
          {:ok, sending_outbox} <- mark_outbox_sending(repo, outbox, now) do
@@ -1346,6 +1469,19 @@ defmodule Ankole.SignalsGateway.Outbox do
       {:unsupported, outbox} -> mark_outbox_unsupported(repo, outbox)
       {:error, _reason} = error -> error
     end
+  end
+
+  # Legacy bytes must enter Files through AgentHomeImport before a new send.
+  # This gate keeps the stored attempt count and recovery evidence unchanged.
+  defp attachments_migrated(%OutboxEntry{payload: payload}) do
+    legacy? =
+      Enum.any?(Map.get(payload, "attachments", []), fn attachment ->
+        not is_binary(attachment["blob_ref"]) and
+          (Map.has_key?(attachment, "user_files_relative_path") or
+             Map.has_key?(attachment, "agent_computer_path"))
+      end)
+
+    if legacy?, do: {:error, :attachment_migration_required}, else: :ok
   end
 
   # The committed intent names what the channel wants; the bound adapter decides
@@ -1503,15 +1639,9 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp require_fallback_text(outbox), do: {:unsupported, outbox}
 
-  # Recovery for a row found in :sending — meaning a previous dispatch told the
-  # adapter to send and the node died before recording the outcome. A blind
-  # resend risks a duplicate provider post, so:
-  #   - if the adapter can reconcile AND we already captured a created_source_entry_id,
-  #     reconcile to learn whether the send actually landed;
-  #   - otherwise we cannot safely tell, so park the row as unknown_after_send
-  #     for an operator rather than guess.
-  # (This is the durable counterpart to "streaming is progress; committed work is
-  # truth" — an unconfirmed send is neither, so it is never silently retried.)
+  # Reconcile durable AI replies that have a reply presentation and a provider
+  # reconciliation capability. Other sends have no provable outcome after a
+  # crash, so recovery marks them unknown instead of repeating the operation.
   defp in_flight_recovery_action(
          %OutboxEntry{status: :sending, platform_send_started_at: %DateTime{} = started_at} =
            outbox,
@@ -1542,21 +1672,6 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp stale_in_flight_recovery_action(
-         %OutboxEntry{created_source_entry_id: created_source_entry_id} = outbox,
-         adapter
-       )
-       when is_binary(created_source_entry_id) do
-    capabilities = OutboxAdapter.capabilities(adapter)
-
-    case MapSet.member?(capabilities, :outbound_reconciliation) do
-      true -> {:reconcile, outbox}
-      false -> {:unknown, outbox, %{"reason" => "provider send started before restart"}}
-    end
-  end
-
-  # Same situation but no created_source_entry_id was captured, so even a
-  # reconciliation-capable adapter has nothing to look up → mark unknown.
   defp stale_in_flight_recovery_action(outbox, _adapter),
     do:
       {:unknown, outbox,
@@ -1575,7 +1690,6 @@ defmodule Ankole.SignalsGateway.Outbox do
            |> OutboxEntry.changeset(%{
              status: :sending,
              platform_send_started_at: now,
-             last_attempted_at: now,
              attempt_count: outbox.attempt_count + 1,
              next_attempt_at: nil
            })
@@ -1839,6 +1953,13 @@ defmodule Ankole.SignalsGateway.Outbox do
         )
       )
       |> repo.update()
+      |> case do
+        {:ok, succeeded} ->
+          with :ok <- notify_outbox_deadline(repo, succeeded), do: {:ok, succeeded}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -1869,6 +1990,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp delivered_operation_attrs(_outbox, _result), do: %{}
 
   defp mark_outbox_failed(repo, outbox, reason, now) do
+    reason = delivery_failure(reason)
     {last_error, next_attempt_at, recovery_state} = failure_recovery(outbox, reason, now)
 
     with {:ok, %OutboxEntry{} = outbox} <-
@@ -1885,6 +2007,13 @@ defmodule Ankole.SignalsGateway.Outbox do
       {:ok, outbox}
     end
   end
+
+  # A drive content that is gone stays gone, so every adapter blocks on it at
+  # once instead of retrying; `attachment_content/1` names it.
+  defp delivery_failure(:attachment_file_missing),
+    do: {:reply_delivery, :operator_action_required, %{"code" => "attachment_file_missing"}}
+
+  defp delivery_failure(reason), do: reason
 
   defp failure_recovery(
          outbox,
@@ -2224,20 +2353,18 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp retry_after_seconds(detail), do: Utils.reply_delivery_retry_after_seconds(detail)
 
   defp notify_outbox_deadline(repo, %OutboxEntry{} = outbox) do
-    RuntimeEvents.notify_outbox_due(repo, outbox, outbox_due_at(outbox))
+    Ankole.SignalsGateway.Jobs.OutboxDispatch.schedule_in_tx(
+      repo,
+      %{
+        agent_uid: outbox.agent_uid,
+        binding_name: outbox.binding_name,
+        outbound_key: outbox.outbound_key
+      },
+      outbox_due_at(outbox)
+    )
   end
 
-  defp outbox_runtime_event(%OutboxEntry{} = outbox) do
-    {RuntimeEvents.outbox_due_channel(),
-     %{
-       "agent_uid" => outbox.agent_uid,
-       "binding_name" => outbox.binding_name,
-       "outbound_key" => outbox.outbound_key,
-       "due_at" => RuntimeEvents.encode_datetime(outbox_due_at(outbox))
-     }}
-  end
-
-  defp outbox_due_at(%OutboxEntry{status: :created}), do: nil
+  defp outbox_due_at(%OutboxEntry{status: :created}), do: DateTime.utc_now(:microsecond)
 
   defp outbox_due_at(%OutboxEntry{status: :failed, next_attempt_at: next_attempt_at}),
     do: next_attempt_at
@@ -2326,10 +2453,24 @@ defmodule Ankole.SignalsGateway.Outbox do
             :ok
 
           _ai_message_id ->
-            %Entry{}
-            |> Entry.changeset(final_reply_insert_attrs(outbox, result, now))
-            |> repo.insert()
-            |> case do
+            fact = %{
+              signal_channel_id: outbox.signal_channel_id,
+              source_entry_id: outbox.target_source_entry_id,
+              reply_to_source_entry_id: outbox.reply_to_source_entry_id,
+              provider_thread_id: outbox.provider_thread_id,
+              text: outbox.fallback_visible_text,
+              formatted_content: json_map(outbox.payload, "formatted_content", %{}),
+              attachments: [],
+              links: [],
+              author: %{"agent_uid" => outbox.agent_uid},
+              mentions: [],
+              metadata: final_reply_entry_metadata(%{}, outbox),
+              raw_payload: result_map(result, :raw_payload, %{}),
+              provider_time: nil,
+              ai_message_id: outbox.ai_message_id
+            }
+
+            case Projection.mirror_receive_entry(repo, fact, now) do
               {:ok, _entry} -> :ok
               {:error, _changeset} = error -> error
             end
@@ -2430,47 +2571,6 @@ defmodule Ankole.SignalsGateway.Outbox do
         ]),
       ai_message_id: outbox.ai_message_id || entry.ai_message_id,
       last_seen_at: now
-    }
-  end
-
-  defp final_reply_insert_attrs(%OutboxEntry{} = outbox, result, now) do
-    metadata = final_reply_entry_metadata(%{}, outbox)
-    author = %{"agent_uid" => outbox.agent_uid}
-    text = outbox.fallback_visible_text
-
-    rich_content =
-      Projection.rich_content(text, json_map(outbox.payload, "formatted_content", %{}))
-
-    %{
-      signal_channel_id: outbox.signal_channel_id,
-      source_entry_id: outbox.target_source_entry_id,
-      reply_to_source_entry_id: outbox.reply_to_source_entry_id,
-      provider_thread_id: outbox.provider_thread_id,
-      text: text,
-      rich_content: rich_content,
-      attachments: [],
-      links: [],
-      author: author,
-      mentions: [],
-      metadata: metadata,
-      raw_payload: result_map(result, :raw_payload, %{}),
-      document_id:
-        Projection.entry_document_id(outbox.signal_channel_id, outbox.target_source_entry_id),
-      content_hash:
-        Projection.entry_content_hash([
-          text,
-          rich_content,
-          [],
-          [],
-          author,
-          [],
-          metadata,
-          outbox.reply_to_source_entry_id,
-          outbox.provider_thread_id
-        ]),
-      first_seen_at: now,
-      last_seen_at: now,
-      ai_message_id: outbox.ai_message_id
     }
   end
 

@@ -1,0 +1,10 @@
+<workflow_policy>
+# Bounded subagent fanout
+Use workflow when one request contains a bounded batch or staged analysis whose independent units benefit from parallel subagent turns and local JavaScript control flow, such as map, filter, verify, and synthesize. Use direct work or one Background Agent Job for a single stateful task.
+Each attempt is one real subagent turn; one agent() call can use up to three attempts. Give each call a meaningful unit of work — batch wide fanout into one task per group, not one task per item — choose a bounded concurrency, and set max_agent_calls to the smallest safe ceiling.
+The script must terminate from its fixed args: use finite arrays and explicit loop bounds, never poll or wait for external state, and handle a failed agent() result as null. Use Promise.all when calls can run in parallel.
+A task can itself delegate one or more Background Agent Jobs and hibernate until they finish, so an agent() call may legitimately take hours; the memo result stays bounded by its schema.
+workflow returns a run_id immediately, and completion or failure wakes this conversation automatically. Do not poll. If an interim update is actually required, schedule one check_back_later instead of looping on show_workflow or list_workflows.
+show_workflow lists live tasks: a sleeping task is still executing and its note states what it waits for. A workflow.run.attention wakeup means at least one task cannot proceed without your input; read the waiting notes and answer each with send_message_to_workflow_task. The send is asynchronous, and a running task sees it only after its current turn ends.
+When the completion preview is not enough, call show_workflow with result_offset 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.
+</workflow_policy>

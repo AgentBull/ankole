@@ -41,13 +41,17 @@ defmodule Ankole.Plugins.DiscordAdapter.Dispatcher do
   def acknowledge(_type, _data, _client), do: :ok
 
   @spec dispatch(String.t(), map(), map(), map(), keyword()) :: {:ok, term()} | {:error, term()}
-  def dispatch(type, data, consumer, bot, opts \\ [])
+  def dispatch(type, data, consumer, bot, opts \\ []) do
+    Ankole.Tenants.dispatch_inbound(fn ->
+      dispatch_active(type, data, consumer, bot, opts)
+    end)
+  end
 
-  def dispatch("MESSAGE_CREATE", data, consumer, bot, opts) do
+  defp dispatch_active("MESSAGE_CREATE", data, consumer, bot, opts) do
     Inbound.handle_message_receive("MESSAGE_CREATE", event(data, "message", bot, opts), [consumer])
   end
 
-  def dispatch("MESSAGE_REACTION_ADD", data, consumer, bot, opts) do
+  defp dispatch_active("MESSAGE_REACTION_ADD", data, consumer, bot, opts) do
     Inbound.handle_reaction_created(
       "MESSAGE_REACTION_ADD",
       event(data, "reaction", bot, opts),
@@ -55,7 +59,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Dispatcher do
     )
   end
 
-  def dispatch("MESSAGE_REACTION_REMOVE", data, consumer, bot, opts) do
+  defp dispatch_active("MESSAGE_REACTION_REMOVE", data, consumer, bot, opts) do
     Inbound.handle_reaction_deleted(
       "MESSAGE_REACTION_REMOVE",
       event(data, "reaction", bot, opts),
@@ -66,19 +70,19 @@ defmodule Ankole.Plugins.DiscordAdapter.Dispatcher do
   # Discord delivers every interaction on the same event. Only a message
   # component carries an Ankole action token; slash commands and modals belong
   # to features this adapter does not declare.
-  def dispatch(
-        "INTERACTION_CREATE",
-        %{"type" => @message_component_interaction} = data,
-        consumer,
-        bot,
-        opts
-      ) do
+  defp dispatch_active(
+         "INTERACTION_CREATE",
+         %{"type" => @message_component_interaction} = data,
+         consumer,
+         bot,
+         opts
+       ) do
     Inbound.handle_card_action("INTERACTION_CREATE", event(data, "interaction", bot, opts), [
       consumer
     ])
   end
 
-  def dispatch(_type, _data, _consumer, _bot, _opts),
+  defp dispatch_active(_type, _data, _consumer, _bot, _opts),
     do: {:ok, %{status: :ignored_unsupported_event}}
 
   defp event(data, key, bot, opts) do

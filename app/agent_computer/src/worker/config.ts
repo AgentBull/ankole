@@ -1,61 +1,52 @@
 import { existsSync } from 'node:fs'
-import { AGENTS_ROOT, BUILTIN_SKILLS_ROOT } from '../core/agent-home-paths'
-
-/** Physical RuntimeFabric transport, chosen by the endpoint URL scheme. */
-export type RuntimeFabricTransport = 'zmq' | 'channel'
-
-export type RuntimeFabricEndpoint = {
-  transport: RuntimeFabricTransport
-  endpoint: string
-}
+import { AGENT_HOME } from '../core/agent-home-paths'
 
 export type WorkerConfig = {
   endpoint: string
-  transport: RuntimeFabricTransport
   workerAuthKey: string
   workerID: string
   incarnationID: string
-  agentsRoot: string
+  agentHomeRoot: string
   builtinSkillsRoot: string
   internalSkillsRoot?: string
-  maxConcurrentTurns: number
+  /** Browser runtime files. The Worker image names each file in its environment. */
+  browser: { daemonEntry: string; runnerPath: string; localChromiumExecutable: string }
+  maxConcurrentSlots: number
 }
 
+/** The part of the config that names the bound Agent's home, without the credential. */
+export type AgentHomeConfig = Pick<WorkerConfig, 'agentHomeRoot'>
+
 /** Default admission limit for one Worker when the operator sets no override. */
-const defaultMaxConcurrentTurns = 9
-/** Actor-scoped variables that a pooled Worker process must not inherit. */
-const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH']
+const defaultMaxConcurrentSlots = 12
 /** Marker that identifies the packaged Agent Computer runtime. */
 const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
 
 /**
  * Parses the worker process environment into the stable computer-worker config.
  *
- * A worker is not launched for one actor session. Actor identity must come from
- * each `turn_start` envelope so the same image can serve any actor in the pool.
+ * A Worker serves the one Agent that `WORKER_ID` names. The session and the
+ * Turn come from each `turn_start` envelope.
  */
 export function parseWorkerEnv(env: Record<string, string | undefined>): WorkerConfig {
-  assertContainerRuntime(defaultContainerMarkerPath)
-
   if (env.DATABASE_URL) {
     throw new Error('DATABASE_URL must not be set on an agent computer worker')
   }
 
-  for (const key of actorSpecificEnv) {
-    if (env[key]) {
-      throw new Error(`${key} must not be set on an agent computer worker`)
-    }
-  }
-
   return {
-    ...parseRuntimeFabricEndpoint(requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT')),
+    endpoint: parseRuntimeFabricEndpoint(requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT')),
     workerAuthKey: requiredRawEnv(env, 'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY'),
     workerID: requiredEnv(env, 'WORKER_ID'),
     incarnationID: crypto.randomUUID(),
-    agentsRoot: optionalEnv(env, 'ANKOLE_AGENTS_ROOT', AGENTS_ROOT),
-    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', BUILTIN_SKILLS_ROOT),
+    agentHomeRoot: AGENT_HOME,
+    builtinSkillsRoot: requiredEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT'),
     internalSkillsRoot: optionalEnv(env, 'ANKOLE_INTERNAL_SKILLS_ROOT'),
-    maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
+    browser: {
+      daemonEntry: requiredEnv(env, 'ANKOLE_BROWSER_DAEMON_ENTRY'),
+      runnerPath: requiredEnv(env, 'ANKOLE_BROWSER_RUNNER'),
+      localChromiumExecutable: requiredEnv(env, 'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE')
+    },
+    maxConcurrentSlots: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_SLOTS', defaultMaxConcurrentSlots)
   }
 }
 
@@ -63,6 +54,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined>): WorkerC
  * Loads process bootstrap config and removes the auth key from child-process inheritance.
  */
 export function loadWorkerConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
+  assertContainerRuntime(defaultContainerMarkerPath)
   const config = parseWorkerEnv(env)
   delete env.ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
   return config
@@ -71,7 +63,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
 /**
  * Rejects execution outside the Worker image.
  *
- * The image supplies the native kernel, sandbox tools, browser runtime,
+ * The image supplies the Worker, command tools, browser runtime,
  * Chromium, and the Agent Home filesystem contract. A source mount does not
  * relax this boundary.
  */
@@ -83,6 +75,10 @@ function assertContainerRuntime(containerMarkerPath: string): void {
   if (!existsSync(containerMarkerPath)) {
     throw new Error('Agent Computer worker must run inside the Ankole Agent Computer Docker image')
   }
+
+  if (process.getuid?.() !== 0) {
+    throw new Error('Worker must run as root; model processes run as uid 1000')
+  }
 }
 
 function optionalEnv(env: Record<string, string | undefined>, key: string, fallback: string): string
@@ -93,16 +89,13 @@ function optionalEnv(env: Record<string, string | undefined>, key: string, fallb
 }
 
 /**
- * Validates and normalizes the RuntimeFabric endpoint and selects the transport.
+ * Validates and normalizes the Worker Channel endpoint.
  *
- * One Worker uses one physical transport. `tcp://host:port` selects the
- * ZeroMQ DEALER (no path, query, or credentials). `ws://host:port/path` or
- * `wss://host:port/path` selects the Phoenix Channel; the value is the socket
- * path on the control plane, for example
- * `ws://control-plane:4000/runtime-fabric/worker`, and the client appends the
- * transport segment. Credentials never travel in the URL.
+ * The value is the `ws://` or `wss://` socket path on the control plane, for
+ * example `ws://control-plane:4000/runtime-fabric/worker`; the client appends
+ * the transport segment. Credentials never travel in the URL.
  */
-export function parseRuntimeFabricEndpoint(value: string): RuntimeFabricEndpoint {
+export function parseRuntimeFabricEndpoint(value: string): string {
   let url: URL
 
   try {
@@ -115,13 +108,6 @@ export function parseRuntimeFabricEndpoint(value: string): RuntimeFabricEndpoint
     throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must not include credentials')
   }
 
-  if (url.protocol === 'tcp:') {
-    if (!url.hostname || !url.port || !['', '/'].includes(url.pathname) || url.search || url.hash) {
-      throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
-    }
-    return { transport: 'zmq', endpoint: `tcp://${url.host}` }
-  }
-
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
     throw new Error(endpointFormatMessage)
   }
@@ -131,11 +117,10 @@ export function parseRuntimeFabricEndpoint(value: string): RuntimeFabricEndpoint
     throw new Error(endpointFormatMessage)
   }
 
-  return { transport: 'channel', endpoint: `${url.protocol}//${url.host}${path}` }
+  return `${url.protocol}//${url.host}${path}`
 }
 
-const endpointFormatMessage =
-  'ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port, ws://host:port/path, or wss://host:port/path'
+const endpointFormatMessage = 'ANKOLE_RUNTIME_FABRIC_ENDPOINT must be ws://host:port/path or wss://host:port/path'
 
 function requiredEnv(env: Record<string, string | undefined>, key: string): string {
   const value = env[key]?.trim()

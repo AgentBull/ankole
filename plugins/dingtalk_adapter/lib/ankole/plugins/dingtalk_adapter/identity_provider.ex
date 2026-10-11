@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.DingTalkAdapter.Config
+
   @moduledoc """
   DingTalk identity-provider adapter functions for Principals.
 

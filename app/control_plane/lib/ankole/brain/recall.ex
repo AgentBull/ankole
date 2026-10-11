@@ -18,11 +18,11 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.LazySkillVisibility
-  alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
@@ -35,6 +35,7 @@ defmodule Ankole.Brain.Recall do
   @recency_halflife_days 30
   @evergreen_prefix "concepts/"
   @salience_strength 0.15
+  @high_emotion_tags ~w(family marriage wedding loss death grief relationship love mental-health health illness birth children kids parents)
   @rerank_timeout_ms 5_000
   @max_chunks_per_page 2
   @retrieved_throttle_seconds 300
@@ -72,16 +73,14 @@ defmodule Ankole.Brain.Recall do
         claims = Access.filter_disclosable(claims, & &1.audience_scope, disclosure)
         chunks = Access.filter_disclosable(chunks, & &1.chunk.audience_scope, disclosure)
 
-        {claim_payload, chunk_payload, sanitized_count} =
-          assemble(claims, chunks, budget)
+        {claim_payload, chunk_payload} = assemble(claims, chunks, budget)
 
         touch_retrieved(chunk_payload, claim_payload)
 
         {:ok,
          %{
            claims: claim_payload,
-           chunks: chunk_payload,
-           sanitized_count: sanitized_count
+           chunks: chunk_payload
          }}
       end
     end
@@ -337,15 +336,39 @@ defmodule Ankole.Brain.Recall do
       |> where([claim], claim.claim_type == "take" and claim.active == true)
       |> where([claim], claim.object_slug in ^slugs)
       |> group_by([claim], claim.object_slug)
-      |> select([claim], {claim.object_slug, count(claim.id)})
+      |> select([claim], {
+        claim.object_slug,
+        count(claim.id),
+        sum(fragment("LEAST(GREATEST(?, 0.0), 1.0)", claim.weight)),
+        filter(count(claim.id), like(claim.holder, "people/%") or like(claim.holder, "agents/%"))
+      })
       |> Repo.all()
-      |> Map.new()
+      |> Map.new(fn {slug, count, weight_sum, members} ->
+        {slug, {count, weight_sum, members}}
+      end)
+
+    tagged =
+      Tag
+      |> where(
+        [tag],
+        tag.object_slug in ^slugs and fragment("lower(?)", tag.tag) in ^@high_emotion_tags
+      )
+      |> select([tag], tag.object_slug)
+      |> distinct(true)
+      |> Repo.all()
+      |> MapSet.new()
 
     today = Date.utc_today()
 
     Enum.map(hits, fn hit ->
       recency = recency_factor(hit.object, today)
-      salience = salience_factor(hit.object, Map.get(take_counts, hit.object.slug, 0))
+
+      salience =
+        salience_factor(
+          Map.get(take_counts, hit.object.slug, {0, 0.0, 0}),
+          MapSet.member?(tagged, hit.object.slug)
+        )
+
       %{hit | score: hit.score * recency * salience}
     end)
   end
@@ -358,8 +381,17 @@ defmodule Ankole.Brain.Recall do
     1.0 + 0.5 * :math.exp(-@ln2 * age_days / @recency_halflife_days)
   end
 
-  defp salience_factor(%Object{emotional_weight: weight}, take_count) do
-    raw = weight * 5 + :math.log(1 + take_count)
+  defp take_salience(0, _weight_sum, _members), do: 0.0
+
+  defp take_salience(count, weight_sum, members) do
+    (min(count * 0.1, 0.3) + weight_sum / count * 0.1 + members / count * 0.1)
+    |> max(0.0)
+    |> min(1.0)
+  end
+
+  defp salience_factor({count, weight_sum, members}, tagged?) do
+    weight = min(take_salience(count, weight_sum, members) + if(tagged?, do: 0.5, else: 0.0), 1.0)
+    raw = weight * 5 + :math.log(1 + count)
     1.0 + @salience_strength * :math.log(1 + raw)
   end
 
@@ -377,23 +409,25 @@ defmodule Ankole.Brain.Recall do
         # not escape it: fail open means a raise degrades to the fusion
         # order exactly like a timeout does.
         task =
-          Task.async(fn ->
-            try do
-              with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
-                AIGateway.create_rerank(subject_uid, %{
-                  "model" => model["provider_id"] <> "/" <> model["model"],
-                  "query" => query,
-                  "documents" => documents,
-                  "top_n" => length(documents),
-                  "provider_options" => model["provider_options"] || %{}
-                })
+          Task.async(
+            Ankole.Repo.bind_tenant(fn ->
+              try do
+                with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+                  AIGateway.create_rerank(subject_uid, %{
+                    "model" => model["provider_id"] <> "/" <> model["model"],
+                    "query" => query,
+                    "documents" => documents,
+                    "top_n" => length(documents),
+                    "provider_options" => model["provider_options"] || %{}
+                  })
+                end
+              rescue
+                error -> {:error, error}
+              catch
+                :exit, reason -> {:error, reason}
               end
-            rescue
-              error -> {:error, error}
-            catch
-              :exit, reason -> {:error, reason}
-            end
-          end)
+            end)
+          )
 
         case Task.yield(task, @rerank_timeout_ms) || Task.shutdown(task) do
           {:ok, {:ok, %{body: %{"results" => results}}}} when is_list(results) ->
@@ -419,18 +453,17 @@ defmodule Ankole.Brain.Recall do
   # Claims take the budget first; chunks fill the remainder with at most two
   # chunks per page.
   defp assemble(claims, chunks, budget) do
-    {claim_payload, used_tokens, sanitized_claims} =
-      Enum.reduce_while(claims, {[], 0, 0}, fn %{claim: claim}, {acc, used, sanitized} ->
-        {text, matched} = Sanitize.sanitize(claim.claim)
-        tokens = Chunker.estimate_tokens(text)
+    {claim_payload, used_tokens} =
+      Enum.reduce_while(claims, {[], 0}, fn %{claim: claim}, {acc, used} ->
+        tokens = Chunker.estimate_tokens(claim.claim)
 
         if used + tokens > budget do
-          {:halt, {acc, used, sanitized}}
+          {:halt, {acc, used}}
         else
           payload = %{
             id: claim.id,
             claim_type: claim.claim_type,
-            claim: text,
+            claim: claim.claim,
             kind: claim.kind,
             holder: claim.holder,
             confidence: claim.confidence,
@@ -446,23 +479,21 @@ defmodule Ankole.Brain.Recall do
             audience_scope: claim.audience_scope
           }
 
-          {:cont, {[payload | acc], used + tokens, sanitized + sanitized_count(matched)}}
+          {:cont, {[payload | acc], used + tokens}}
         end
       end)
 
-    {chunk_payload, _used, sanitized_chunks, _per_page} =
-      Enum.reduce_while(chunks, {[], used_tokens, 0, %{}}, fn hit,
-                                                              {acc, used, sanitized, per_page} ->
+    {chunk_payload, _used, _per_page} =
+      Enum.reduce_while(chunks, {[], used_tokens, %{}}, fn hit, {acc, used, per_page} ->
         slug = hit.object.slug
 
         if Map.get(per_page, slug, 0) >= @max_chunks_per_page do
-          {:cont, {acc, used, sanitized, per_page}}
+          {:cont, {acc, used, per_page}}
         else
-          {text, matched} = Sanitize.sanitize(hit.chunk.chunk_text)
-          tokens = Chunker.estimate_tokens(text)
+          tokens = Chunker.estimate_tokens(hit.chunk.chunk_text)
 
           if used + tokens > budget do
-            {:halt, {acc, used, sanitized, per_page}}
+            {:halt, {acc, used, per_page}}
           else
             payload = %{
               object_slug: slug,
@@ -470,23 +501,17 @@ defmodule Ankole.Brain.Recall do
               type: hit.object.type,
               chunk_index: hit.chunk.chunk_index,
               content_kind: hit.chunk.content_kind,
-              text: text,
+              text: hit.chunk.chunk_text,
               audience_scope: hit.chunk.audience_scope
             }
 
-            {:cont,
-             {[payload | acc], used + tokens, sanitized + sanitized_count(matched),
-              Map.update(per_page, slug, 1, &(&1 + 1))}}
+            {:cont, {[payload | acc], used + tokens, Map.update(per_page, slug, 1, &(&1 + 1))}}
           end
         end
       end)
 
-    {Enum.reverse(claim_payload), Enum.reverse(chunk_payload),
-     sanitized_claims + sanitized_chunks}
+    {Enum.reverse(claim_payload), Enum.reverse(chunk_payload)}
   end
-
-  defp sanitized_count([]), do: 0
-  defp sanitized_count(_matched), do: 1
 
   # Retrieved pages remember the hit for freshness maintenance; a five-minute
   # throttle keeps hot pages from writing on every recall.

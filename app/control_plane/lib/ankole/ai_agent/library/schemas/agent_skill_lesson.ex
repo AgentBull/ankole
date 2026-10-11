@@ -8,7 +8,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   deleted, so the table is its own audit trail.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
@@ -33,11 +33,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     field(:content, :string)
     field(:author_kind, :string)
 
-    belongs_to(:author, Principal,
-      foreign_key: :author_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-    )
+    field(:author, Ankole.Ecto.ActorRef)
 
     field(:evidence_job_ids, {:array, :integer}, default: [])
     field(:checked_release, :string)
@@ -64,7 +60,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       :skill_name,
       :content,
       :author_kind,
-      :author_uid,
+      :author,
       :evidence_job_ids,
       :checked_release,
       :checked_skill_hash,
@@ -72,7 +68,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       :retired_at,
       :retire_reason
     ])
-    |> normalize_blank([:agent_uid, :skill_name, :content, :author_kind, :author_uid])
+    |> normalize_blank([:agent_uid, :skill_name, :content, :author_kind])
     |> normalize_lower(:skill_name)
     |> validate_required([:agent_uid, :skill_name, :content, :author_kind])
     |> validate_format(:skill_name, @skill_name_format)
@@ -80,7 +76,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     |> validate_inclusion(:retire_reason, @retire_reasons)
     |> validate_lease_shape()
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:author_uid)
     |> check_constraint(:author_kind, name: :agent_skill_lessons_author_kind)
     |> check_constraint(:skill_name, name: :agent_skill_lessons_skill_name_format)
     |> check_constraint(:content, name: :agent_skill_lessons_content_present)

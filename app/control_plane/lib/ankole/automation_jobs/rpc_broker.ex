@@ -8,35 +8,28 @@ defmodule Ankole.AutomationJobs.RPCBroker do
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.RunRef
 
-  @spec handle_create(TurnRef.t(), FabricProto.AutomationJobCreateRequest.t(), map()) ::
+  @spec handle_create(RunRef.t(), FabricProto.AutomationJobCreateRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_create(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_create(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, source} <- ReplyRoute.source(turn_ref),
-           {:ok, directory_path} <- required_text(request.directory_path, :directory_path),
+      with {:ok, %{source: source, owner_session_id: owner_session_id, reply_route: route}} <-
+             ReplyRoute.long_lived_source(turn_ref),
+           {:ok, drive_prefix} <- required_text(request.drive_prefix, :drive_prefix),
            {:ok, label} <- required_text(request.label, :label),
            {:ok, job} <-
              AutomationJobs.create_job(%{
                agent_uid: turn_ref.agent_uid,
-               owner_session_id: turn_ref.session_id,
+               owner_session_id: owner_session_id,
                source_actor_event_id: source.actor_event_id,
                source_entry_id: source.source_entry_id,
                source_provenance: %{
                  "rpc_request_id" => ctx.request_id,
-                 "transport_route" => ctx.route,
-                 "activation_uid" => turn_ref.activation_uid,
-                 "actor_epoch" => turn_ref.actor_epoch,
-                 "revision" => turn_ref.revision
+                 "transport_route" => ctx.route
                },
-               reply_route: %{
-                 "binding_name" => source.binding_name,
-                 "signal_channel_id" => source.signal_channel_id,
-                 "provider_thread_id" => source.provider_thread_id,
-                 "source_entry_id" => source.source_entry_id
-               },
-               directory_path: directory_path,
+               reply_route: route,
+               drive_prefix: drive_prefix,
                label: label,
                wake_on_failure: request.wake_on_failure
              }) do
@@ -49,30 +42,33 @@ defmodule Ankole.AutomationJobs.RPCBroker do
     end)
   end
 
-  @spec handle_list(TurnRef.t(), FabricProto.AutomationJobListRequest.t(), map()) ::
+  @spec handle_list(RunRef.t(), FabricProto.AutomationJobListRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_list(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_list(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      jobs =
-        AutomationJobs.list_jobs(turn_ref.agent_uid, turn_ref.session_id,
-          limit: list_limit(request.limit)
-        )
+      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id) do
+        jobs =
+          AutomationJobs.list_jobs(turn_ref.agent_uid, owner.session_id,
+            limit: list_limit(request.limit)
+          )
 
-      {:ok,
-       %{
-         "status" => "ok",
-         "automation_jobs" => Enum.map(jobs, &AutomationJobs.model_projection/1)
-       }}
+        {:ok,
+         %{
+           "status" => "ok",
+           "automation_jobs" => Enum.map(jobs, &AutomationJobs.model_projection/1)
+         }}
+      end
     end)
   end
 
-  @spec handle_show(TurnRef.t(), FabricProto.AutomationJobShowRequest.t(), map()) ::
+  @spec handle_show(RunRef.t(), FabricProto.AutomationJobShowRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_show(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_show(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
+      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
+           {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
            {:ok, %{automation_job: job, runs: runs}} <-
-             AutomationJobs.show_job(turn_ref.agent_uid, turn_ref.session_id, job_id,
+             AutomationJobs.show_job(turn_ref.agent_uid, owner.session_id, job_id,
                runs: run_limit(request.runs)
              ) do
         {:ok,
@@ -84,13 +80,14 @@ defmodule Ankole.AutomationJobs.RPCBroker do
     end)
   end
 
-  @spec handle_cancel(TurnRef.t(), FabricProto.AutomationJobTargetRequest.t(), map()) ::
+  @spec handle_cancel(RunRef.t(), FabricProto.AutomationJobTargetRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_cancel(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_cancel(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
+      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
+           {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
            {:ok, %{status: status, automation_job: job}} <-
-             AutomationJobs.cancel_job(turn_ref.agent_uid, turn_ref.session_id, job_id) do
+             AutomationJobs.cancel_job(turn_ref.agent_uid, owner.session_id, job_id) do
         {:ok,
          %{
            "status" => Atom.to_string(status),

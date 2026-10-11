@@ -178,7 +178,7 @@ defmodule Ankole.AIGateway.RateLimitIntegrationTest do
                credential_pool: %{
                  "entries" => [%{"id" => "only", "label" => "Only", "api_key" => "sk-test"}]
                },
-               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+               connection_options: %{"transport" => %{}}
              })
 
     {agent, %{"model" => "#{id}/gpt-5.5", "input" => "hello"}}

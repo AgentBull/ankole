@@ -1,54 +1,28 @@
 ---
 title: Todo and clarify
-description: How an Ankole agent plans a complex task and resolves a real ambiguity mid-task — the todo tool (per-session, at most one item in progress) and the clarify tool (one decision question, durably recorded, ends the turn). What the agent uses each for, and what an operator should not expect them to do.
 section: Developer guide
 order: 124
+description: Control-plane task lists, decision questions, and the separate Codex Job input path.
 ---
 
-`todo` and `clarify` are the agent's structured planning tools. One keeps the plan inside a session; the other asks you a single question when the answer genuinely changes the result. Both ship with the worker in `app/agent_computer/src/tools/`. They are not memory and they are not a chat surface — they are how the agent keeps its own footing and how it asks for one decision.
+`todo` and `clarify` are control-plane tools owned by `Ankole.Conversations.Tools.Session`. The Driver validates their arguments, stores their model-visible results through AIGateway, and applies their effects to the current run. The Worker does not own these main-turn tools.
 
-The decisive property, stated up front: the todo list is ephemeral and per-session, and a `clarify` call ends the turn. The list does not survive across sessions, and once the agent asks, it waits for your reply as the next message. Neither tool is durable truth — that role belongs to Memory.
+## Task list
 
-## What each tool is
+`todo` reads, replaces, or merges the current list by item ID. Its states are `pending`, `in_progress`, `completed`, and `cancelled`; the declaration accepts at most 256 items. The instructions call for a list on complex tasks of three or more steps, priority order, one item in progress, immediate completion marking, and a revised item after a failed step.
 
-- **`todo`** (`tools/todo/todo-tool.ts`, line 182) — manage the task list for the current session. Use it for complex tasks with three or more steps, or when the user provides multiple tasks. List order is priority. Only one item is `in_progress` at a time. Mark items completed the moment they are done; if something fails, cancel it and add a revised item.
-- **`clarify`** (`tools/clarify/clarify-tool.ts`) — ask the user one question only when the answer is necessary to choose the intended result or next action. The agent first uses the request and prior conversation, and it does not ask about a preference you already gave or when a safe low-risk default is available. On success it records the normalized question and choices durably and ends the current turn.
+The list is working state in `Ankole.Conversations.Run`, not organizational knowledge. Recovery reconstructs it from successful recorded tool calls in the current run's history. A new Session does not inherit another Session's list. Knowledge that must be shared across Sessions belongs to [Brain](../brain/).
 
-The todo list lives in a `TodoStore` that is scoped to the session. It is working state, not a record. Four states are allowed: `pending`, `in_progress`, `completed`, `cancelled`.
+## One decision question
 
-## When the agent uses todo
+`clarify` asks one self-contained question when its answer is necessary to choose the result or next action. The Agent uses the request and prior conversation before asking. It does not repeat an existing preference or interrupt work when a safe low-risk default is available.
 
-The agent reaches for `todo` when the work has enough steps that holding them in context alone becomes a liability. Three or more steps, or multiple tasks handed over at once, are the trigger. Once the list exists, the agent follows three rules:
+The question can be open-ended or provide two to four distinct choices. The question limit is 2,000 characters, each label 200, and each optional description 500. An action that the user can decline includes a no-action choice.
 
-1. **List order is priority.** The first item is the one the agent means to do next.
-2. **At most one item in progress.** The agent does not start the second step before it finishes or cancels the first.
-3. **Mark items completed immediately.** A step that is done leaves the list as `completed`, not as the current item. A step that fails is `cancelled` and a revised item is added.
+A successful result records the normalized question and choices and ends the current turn. The Agent calls no further tools and adds no final answer; the user's next message starts the continuation. The question and reply remain in the durable conversation record.
 
-What the todo list is not: it is not a durable plan, and it is not a way to hand work to the next session. A fresh session starts with an empty list. If a plan must outlive the session, it goes into Memory, not into `todo`.
+## Background Jobs and operation
 
-## When the agent uses clarify
+Native Codex Jobs use their own input-request path. A request for human input puts a Job into `waiting_on_user` and releases its running slot; the owner's reply resumes it. This is a Job lifecycle contract, rather than execution of the main Agent's `clarify` in the Worker. See [Background Agent Jobs](../background-agent-jobs/).
 
-`clarify` is for the one question whose answer is necessary to choose the intended result or next action. The contract is narrow on purpose. The agent asks one self-contained question and either accepts an open-ended answer or presents two to four materially different choices. Each choice identifies its result or tradeoff, and an action that you can decline includes a no-action choice. The agent then stops. On a successful call three things happen:
-
-- the normalized question and choices are recorded durably, so the decision is traceable later;
-- the current turn ends — the agent emits no further answer and calls no further tools;
-- your reply arrives as the next user message, and the agent picks the work back up from there.
-
-This means a `clarify` call is a clean hand-back, not a pause in a longer turn. You answer in your own time, and the turn that continues is a new turn that begins with your answer.
-
-Before the agent asks, it uses your request and prior conversation. It does not repeat a preference you already gave, and it does not interrupt you when a safe, low-risk default is available. It asks for post-task feedback only when your answer decides whether to accept, revise, or continue the work.
-
-## How clarify connects to background jobs
-
-Inside a [background job](../background-jobs/), a `clarify` call moves the job into the `waiting_on_user` state. The job does not run further until you reply, and your reply is what moves it back to running. From your side, this looks like the job pausing to ask exactly one question. From the agent's side, it is the same contract — ask, end the turn, wait for the next message — applied inside a job lifecycle. See [Background Agent Jobs](../background-jobs/) for the state model and how you spot a job that is waiting on you.
-
-## What the operator does not touch
-
-The todo store, the clarify durable record, and the turn-ending behavior are worker internals, not Console-tunable settings. If an agent never asks when it should, or asks too often, the fix is in the agent's persona and capability set — see [Agents](../agents/) — not in a worker flag. The recorded decisions are auditable through the same worker surface that wrote them; an operator does not edit them by hand.
-
-## Next steps
-
-- For the persona and capabilities that shape when an agent plans versus asks, read [Agents](../agents/).
-- Durable knowledge that does survive a session belongs to Memory.
-- For the `waiting_on_user` Job state and how a clarify inside a Job pauses it, read [Background Agent Jobs](../background-jobs/).
-- For the worker that runs these tools during a turn, read the [Agent Computer Worker](../agent-computer-worker/) developer page.
+Planning state and turn termination have no Console tuning flags. Change the Agent's guidance and capabilities when its choice to plan or ask needs adjustment. See [Agents](../agents/) and [The agent loop](../agent-loop/).

@@ -11,7 +11,7 @@ defmodule Ankole.SignalsGateway.Binding do
   the gateway's routing key.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

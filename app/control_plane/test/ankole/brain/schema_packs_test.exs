@@ -6,8 +6,6 @@ defmodule Ankole.Brain.SchemaPacksTest do
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.SchemaPacks
 
-  @vocabulary_path Path.expand("../../../../library/schema-pack/vocabulary.yml", __DIR__)
-
   describe "seed loading" do
     test "loads every pack seed" do
       for name <- [SchemaPacks.base_pack() | SchemaPacks.industry_packs()] do
@@ -49,30 +47,6 @@ defmodule Ankole.Brain.SchemaPacksTest do
       assert "fund" in merged.types["company"]["subtypes"]
       assert "earnings" in merged.types["event"]["subtypes"]
       assert "release" in merged.types["event"]["subtypes"]
-    end
-  end
-
-  describe "vocabulary admission" do
-    test "no vocabulary term collides with a pack type or subtype name" do
-      {:ok, vocabulary} = YamlElixir.read_from_file(@vocabulary_path)
-
-      terms =
-        vocabulary
-        |> Map.fetch!("sections")
-        |> Enum.flat_map(fn section -> Enum.map(section["entries"], & &1["term"]) end)
-
-      assert {:ok, merged} = SchemaPacks.validate_selection(SchemaPacks.industry_packs())
-
-      declared =
-        merged.types
-        |> Map.values()
-        |> Enum.flat_map(fn type -> [type["name"] | type["subtypes"]] end)
-        |> MapSet.new()
-
-      collisions = Enum.filter(terms, &MapSet.member?(declared, &1))
-
-      assert collisions == [],
-             "vocabulary terms shadowed by pack declarations: #{inspect(collisions)}"
     end
   end
 

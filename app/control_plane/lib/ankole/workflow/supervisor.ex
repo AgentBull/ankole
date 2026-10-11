@@ -11,7 +11,6 @@ defmodule Ankole.Workflow.Supervisor do
   @impl true
   def init(_opts) do
     children = [
-      {Registry, keys: :unique, name: Ankole.Workflow.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Ankole.Workflow.RunSupervisor},
       {Task.Supervisor, name: Ankole.Workflow.ReplayTaskSupervisor, max_children: 4}
     ]

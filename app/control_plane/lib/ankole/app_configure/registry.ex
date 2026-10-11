@@ -188,9 +188,6 @@ defmodule Ankole.AppConfigure.Registry do
       Map.has_key?(definitions, key) ->
         {:halt, {:error, {:duplicate_key, key}}}
 
-      duplicate_worker_env_name?(definitions, definition) ->
-        {:halt, {:error, {:duplicate_worker_env_name, definition.worker_env_name}}}
-
       true ->
         {:cont,
          {:ok,
@@ -200,14 +197,6 @@ defmodule Ankole.AppConfigure.Registry do
               definition_sources: Map.put(state.definition_sources, key, source)
           }}}
     end
-  end
-
-  # One shell variable name cannot be fed by two configuration keys; which key
-  # wins would otherwise depend on registration order.
-  defp duplicate_worker_env_name?(_definitions, %Definition{worker_env_name: nil}), do: false
-
-  defp duplicate_worker_env_name?(definitions, %Definition{worker_env_name: name}) do
-    Enum.any?(Map.values(definitions), &(&1.worker_env_name == name))
   end
 
   defp put_patterns(state, patterns, source \\ :runtime) do

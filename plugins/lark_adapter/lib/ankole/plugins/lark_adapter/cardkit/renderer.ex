@@ -50,61 +50,38 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     validate_budget(card, mode)
   end
 
-  @doc """
-  Builds a single CardKit batch-update action list from two semantic snapshots.
-  """
-  @spec batch_actions(map(), map(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def batch_actions(previous, current, opts \\ []) do
-    mode = Keyword.get(opts, :mode, :working)
-    previous_opts = Keyword.get(opts, :previous, [])
-    current_opts = Keyword.get(opts, :current, [])
+  @doc "Builds CardKit mutation actions from two rendered cards."
+  @spec diff(map(), map()) :: [map()]
+  def diff(previous_card, current_card) do
+    previous_elements = get_in(previous_card, ["body", "elements"])
+    current_elements = get_in(current_card, ["body", "elements"])
+    previous_by_id = index_elements(previous_elements)
+    current_by_id = index_elements(current_elements)
+    previous_ids = previous_by_id |> Map.keys() |> MapSet.new()
+    current_ids = Map.keys(current_by_id) |> MapSet.new()
 
-    with {:ok, previous_card} <-
-           render(previous, Keyword.put(previous_opts, :mode, previous_mode(previous, mode))),
-         {:ok, current_card} <- render(current, Keyword.put(current_opts, :mode, mode)) do
-      previous_elements = get_in(previous_card, ["body", "elements"])
-      current_elements = get_in(current_card, ["body", "elements"])
-      previous_by_id = index_elements(previous_elements)
-      current_by_id = index_elements(current_elements)
-      previous_ids = previous_by_id |> Map.keys() |> MapSet.new()
-      current_ids = Map.keys(current_by_id) |> MapSet.new()
+    removed = MapSet.difference(previous_ids, current_ids) |> MapSet.to_list()
+    common = MapSet.intersection(previous_ids, current_ids) |> MapSet.to_list()
+    added_ids = MapSet.difference(current_ids, previous_ids)
 
-      removed = MapSet.difference(previous_ids, current_ids) |> MapSet.to_list()
-      common = MapSet.intersection(previous_ids, current_ids) |> MapSet.to_list()
-      added_ids = MapSet.difference(current_ids, previous_ids)
-
-      actions =
-        []
-        |> maybe_delete(removed)
-        |> append_updates(common, previous_by_id, current_by_id)
-        |> append_additions(current_elements, added_ids)
-
-      {:ok, actions}
-    end
+    []
+    |> maybe_delete(removed)
+    |> append_updates(common, previous_by_id, current_by_id)
+    |> append_additions(current_elements, added_ids)
   end
 
-  @spec element_ids(map(), keyword()) :: [String.t()]
-  def element_ids(presentation, opts \\ []) do
-    case render(presentation, opts) do
-      {:ok, card} -> card |> get_in(["body", "elements"]) |> Enum.map(& &1["element_id"])
-      {:error, _reason} -> []
-    end
-  end
+  @spec card_element_ids(map()) :: [String.t()]
+  def card_element_ids(card),
+    do: card |> get_in(["body", "elements"]) |> Enum.map(& &1["element_id"])
 
-  @spec answer_content(map(), keyword()) :: String.t()
-  def answer_content(presentation, opts \\ []) do
-    case render(presentation, opts) do
-      {:ok, card} ->
-        card
-        |> get_in(["body", "elements"])
-        |> Enum.find(&(&1["element_id"] == "answer"))
-        |> case do
-          %{"content" => content} when is_binary(content) -> content
-          _missing -> " "
-        end
-
-      {:error, _reason} ->
-        " "
+  @spec card_answer_content(map()) :: String.t()
+  def card_answer_content(card) do
+    card
+    |> get_in(["body", "elements"])
+    |> Enum.find(&(&1["element_id"] == "answer"))
+    |> case do
+      %{"content" => content} when is_binary(content) -> content
+      _missing -> " "
     end
   end
 
@@ -119,12 +96,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp normalize_for_mode(presentation, _mode), do: ReplyPresentation.normalize(presentation)
-
-  defp previous_mode(previous, :terminal) do
-    if ReplyPresentation.terminal_state?(previous), do: :terminal, else: :working
-  end
-
-  defp previous_mode(_previous, mode), do: mode
 
   defp config(presentation, mode) do
     streaming? =
@@ -1062,21 +1033,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp append_updates(actions, ids, previous, current) do
-    ids
-    |> Enum.sort()
-    |> Enum.reduce(actions, fn id, acc ->
-      if previous[id] == current[id] do
-        acc
-      else
-        acc ++
-          [
-            %{
-              "action" => "update_element",
-              "params" => %{"element_id" => id, "element" => current[id]}
-            }
-          ]
-      end
-    end)
+    updates =
+      for id <- Enum.sort(ids),
+          previous[id] != current[id],
+          do: %{
+            "action" => "update_element",
+            "params" => %{"element_id" => id, "element" => current[id]}
+          }
+
+    actions ++ updates
   end
 
   defp append_additions(actions, elements, added_ids) do
@@ -1096,25 +1061,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       Enum.reduce(elements, {[], [], nil}, fn element, {runs, pending, last_existing_id} ->
         id = element["element_id"]
 
-        if MapSet.member?(added_ids, id) do
-          {runs, [element | pending], last_existing_id}
-        else
-          runs =
-            case pending do
-              [] -> runs
-              pending -> runs ++ [{Enum.reverse(pending), "insert_before", id}]
-            end
-
-          {runs, [], id}
+        cond do
+          MapSet.member?(added_ids, id) -> {runs, [element | pending], last_existing_id}
+          pending == [] -> {runs, [], id}
+          true -> {[{Enum.reverse(pending), "insert_before", id} | runs], [], id}
         end
       end)
 
     case pending do
       [] ->
-        runs
+        Enum.reverse(runs)
 
       pending when is_binary(last_existing_id) ->
-        runs ++ [{Enum.reverse(pending), "insert_after", last_existing_id}]
+        Enum.reverse([{Enum.reverse(pending), "insert_after", last_existing_id} | runs])
     end
   end
 

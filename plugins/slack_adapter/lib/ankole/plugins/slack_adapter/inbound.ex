@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.{Logging, Principals, SignalsGateway, WorkerFiles}
+  alias Ankole.{Logging, Principals, SignalsGateway}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.{Channels, Config, Emoji}
   alias Ankole.SignalsGateway.{AdapterContext, Ingress}
@@ -168,16 +168,22 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp emit_message(consumer, event) do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
-        observed_at = DateTime.utc_now(:microsecond)
+        client = Config.client(consumer.config)
 
-        with {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
-             {:ok, attachments} <-
-               maybe_materialize_attachments(input.attachments, event.content || %{}, consumer) do
-          input
-          |> Map.put(:attachments, attachments)
-          |> put_materialization_result(consumer, observed_at)
-          |> emit_normalized_message(consumer)
-        end
+        result =
+          Ingress.emit_entry_with_attachments(
+            consumer.context.agent_uid,
+            consumer.context.binding_name,
+            input,
+            &Ingress.materialize_attachments(&1, "slack", fn attachment ->
+              download_attachment(attachment, client)
+            end)
+          )
+
+        if match?({:ok, _}, result),
+          do: Channels.maybe_enqueue_missing_channel_refresh(consumer, input)
+
+        result
 
       {:ignore, reason} ->
         {:ok, %{status: ignored_status(reason), reason: reason}}
@@ -185,41 +191,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp emit_pending_attachments(input, consumer, observed_at) do
-    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments) do
-      input
-      |> put_attachment_materialization("pending", observed_at)
-      |> emit_normalized_message(consumer, false)
-      |> case do
-        {:ok, %{signal_entry: %{attachments: attachments}}}
-        when is_list(attachments) ->
-          {:ok, Map.put(input, :attachments, attachments)}
-
-        {:ok, result} ->
-          {:error, {:pending_attachment_projection_missing, result}}
-
-        {:error, _reason} = error ->
-          error
-      end
-    else
-      {:ok, input}
-    end
-  end
-
-  defp emit_normalized_message(input, consumer, refresh_channel? \\ true) do
-    result =
-      Ingress.emit_entry(
-        consumer.context.agent_uid,
-        consumer.context.binding_name,
-        input
-      )
-
-    if refresh_channel? and match?({:ok, _}, result),
-      do: Channels.maybe_enqueue_missing_channel_refresh(consumer, input)
-
-    result
   end
 
   defp emit_removed(consumer, event) do
@@ -472,78 +443,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     {:ok, attachments}
   end
 
-  defp maybe_materialize_attachments(attachments, message, consumer) do
-    if Ingress.attachments_need_bytes?(consumer.context.agent_uid, attachments),
-      do: materialize_attachments(attachments, message, consumer),
-      else: {:ok, attachments}
-  end
-
-  defp put_materialization_result(%{attachments: []} = input, _consumer, _observed_at), do: input
-
-  defp put_materialization_result(input, consumer, observed_at) do
-    state =
-      if Ingress.attachments_need_bytes?(consumer.context.agent_uid, input.attachments),
-        do: "failed",
-        else: "complete"
-
-    put_attachment_materialization(input, state, observed_at)
-  end
-
-  defp put_attachment_materialization(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialize_attachments(attachments, _message, %{
-         config: config,
-         context: %{agent_uid: agent_uid}
-       }) do
-    client = Config.client(config)
-    {:ok, Enum.map(attachments, &materialize_attachment(&1, client, agent_uid))}
-  end
-
-  defp materialize_attachment(attachment, client, agent_uid) do
-    with {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
-         relative <- materialized_path(attachment, download.filename),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      reason ->
-        Logging.warning(
-          "slack_adapter.attachment.materialization_skipped",
-          "Slack attachment materialization skipped",
-          %{provider_ref: attachment["provider_ref"], reason: inspect(reason)}
-        )
-
-        attachment
+  defp download_attachment(attachment, client) do
+    with {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]) do
+      {:ok, %{body: download.body, filename: download.filename, content_type: nil, put: %{}}}
     end
-  rescue
-    exception ->
-      Logging.warning(
-        "slack_adapter.attachment.materialization_failed",
-        "Slack attachment materialization failed",
-        %{provider_ref: attachment["provider_ref"], error: Exception.message(exception)}
-      )
-
-      attachment
-  end
-
-  defp materialized_path(attachment, downloaded_name) do
-    Path.join([
-      "inbox",
-      Integer.to_string(attachment["attachment_id"]),
-      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
-    ])
   end
 
   defp maybe_backfill_attachments(

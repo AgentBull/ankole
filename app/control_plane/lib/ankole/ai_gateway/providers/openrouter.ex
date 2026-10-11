@@ -39,26 +39,22 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
     end
 
     embedding_model do
-      upstream(:json)
       api_resolver(:openrouter_embeddings)
       prepare(:prepare_embedding_model)
     end
 
     rerank_model do
-      upstream(:json)
       api_resolver(:openrouter_rerank)
       prepare(:prepare_rerank_model)
     end
 
     image_generate do
-      upstream(:json)
       api_resolver(:openrouter_images)
       timeout_ms(300_000)
       prepare(:prepare_image_generate)
@@ -286,7 +282,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
   @impl true
   def prepare_connection_check(ctx) when is_map(ctx) do
     path =
-      case Map.get(ctx, :capability) || Map.get(ctx, "capability") do
+      case Map.get(ctx, :capability) do
         capability when capability in ["embedding", :embedding, :embedding_model] ->
           "embeddings/models"
 

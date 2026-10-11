@@ -58,14 +58,14 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     %__MODULE__{
       subject_uid: subject_uid,
       stateful: stateful,
-      issuer: Map.get(meta, "issuer") || Map.get(meta, :issuer),
+      issuer: Map.get(meta, "issuer"),
       local_response_id: "resp_#{UUIDv7.autogenerate()}",
       image_persistence:
         ImageStreamPersistence.new(subject_uid, message_id: stateful_message_id(stateful)),
       max_tool_calls:
         MaxToolCalls.new(
           Map.get(request, "max_tool_calls"),
-          Map.get(meta, "api_resolver") || Map.get(meta, :api_resolver),
+          Map.get(meta, "api_resolver"),
           force: StreamLoop.gateway_effects?(tool_loop)
         ),
       tool_loop: tool_loop
@@ -214,19 +214,18 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp ensure_public_lifecycle(%__MODULE__{tool_loop: %StreamLoop{}} = state) do
     response_id = cleanup_response_id(state)
-    tool_loop = StreamLoop.bump(state.tool_loop)
+    sequence = next_public_sequence(state)
 
     state = %{
       state
-      | tool_loop: tool_loop,
-        public_lifecycle_started?: true,
+      | public_lifecycle_started?: true,
         provider_response_id: state.provider_response_id || response_id,
-        sequence_number: tool_loop.sequence
+        sequence_number: sequence
     }
 
     event = %{
       "type" => "response.created",
-      "sequence_number" => tool_loop.sequence,
+      "sequence_number" => sequence,
       "response" => %{
         "id" => response_id,
         "object" => "response",
@@ -272,38 +271,56 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     do: observe_planned_public_event(state, event, fallback_sequence)
 
   defp observe_planned_public_event(state, event, fallback_sequence) do
-    sequence = public_sequence_number(event, fallback_sequence)
-    previous_sequence = state.sequence_number
+    terminal? = event["type"] in @terminal_event_types
 
-    state =
-      state
-      |> remember_provider_response_id(event)
-      |> then(&%{&1 | sequence_number: sequence})
-      |> account_tool_calls(event)
+    {event, sequence} =
+      case state.tool_loop do
+        %StreamLoop{} when terminal? ->
+          {event, nil}
 
-    if event["type"] in @terminal_event_types do
+        %StreamLoop{} ->
+          if is_nil(event["sequence_number"]) do
+            {event, nil}
+          else
+            sequence = next_public_sequence(state)
+            {Map.put(event, "sequence_number", sequence), sequence}
+          end
+
+        nil ->
+          {event, public_sequence_number(event, fallback_sequence)}
+      end
+
+    state = state |> remember_provider_response_id(event) |> account_tool_calls(event)
+
+    if terminal? do
+      state = if is_nil(state.tool_loop), do: put_public_sequence(state, sequence), else: state
       event = reconcile_terminal_item_snapshots(state, event)
       event = filter_unadmitted_tool_items(state, event)
       observe_terminal_event(state, event, sequence)
     else
-      observe_non_terminal_event(state, event, sequence, previous_sequence)
+      observe_non_terminal_event(state, event, sequence)
     end
   end
+
+  defp put_public_sequence(%{tool_loop: %StreamLoop{}} = state, nil), do: state
+  defp put_public_sequence(state, sequence), do: %{state | sequence_number: sequence}
 
   defp observe_non_terminal_event(
          state,
          %{"item" => %{} = _item} = event,
-         sequence,
-         previous_sequence
+         sequence
        ) do
     if MaxToolCalls.event_item_admitted?(state.max_tool_calls, event, budget_scope(state)) do
       {state, event} = map_provider_item_identity(state, event)
       {state, event} = map_provider_output_index(state, event)
-      state = remember_non_terminal_event(state, event, sequence)
+
+      state =
+        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+
       public_event = rewrite_response_id(event, state)
       {state, [public_event], :continue}
     else
-      {rollback_rejected_sequence(state, event, previous_sequence), [], :continue}
+      {state, [], :continue}
     end
   end
 
@@ -316,8 +333,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
            "type" => "response.image_generation_call.completed",
            "item_id" => upstream_id
          } = event,
-         sequence,
-         previous_sequence
+         sequence
        )
        when is_binary(upstream_id) and upstream_id != "" do
     item = %{"type" => "image_generation_call", "id" => upstream_id}
@@ -326,22 +342,27 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       {state, public_id} = provider_public_item_id(state, upstream_id)
       {state, event} = map_provider_output_index(state, event)
       event = Map.put(event, "item_id", public_id)
-      state = remember_non_terminal_event(state, event, sequence)
+
+      state =
+        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+
       {state, [rewrite_response_id(event, state)], :continue}
     else
-      {rollback_rejected_sequence(state, event, previous_sequence), [], :continue}
+      {state, [], :continue}
     end
   end
 
-  defp observe_non_terminal_event(state, event, sequence, previous_sequence) do
+  defp observe_non_terminal_event(state, event, sequence) do
     with {:ok, event} <- mapped_provider_output_index(state, event),
          {:ok, event} <- mapped_provider_item_identity(state, event) do
-      state = remember_non_terminal_event(state, event, sequence)
+      state =
+        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+
       public_event = rewrite_response_id(event, state)
       {state, [public_event], :continue}
     else
       _unadmitted_reference ->
-        {rollback_rejected_sequence(state, event, previous_sequence), [], :continue}
+        {state, [], :continue}
     end
   end
 
@@ -410,22 +431,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp filter_unadmitted_tool_items(_state, event), do: event
-
-  defp rollback_rejected_sequence(
-         %{tool_loop: %StreamLoop{} = loop} = state,
-         %{"sequence_number" => sequence_number},
-         previous_sequence
-       )
-       when is_integer(sequence_number) do
-    %{
-      state
-      | tool_loop: %{loop | sequence: max(loop.sequence - 1, -1)},
-        sequence_number: previous_sequence
-    }
-  end
-
-  defp rollback_rejected_sequence(state, _event, previous_sequence),
-    do: %{state | sequence_number: previous_sequence}
 
   defp observe_terminal_event(%{tool_loop: %StreamLoop{}} = state, event, _sequence) do
     response = Map.get(event, "response", %{})
@@ -650,7 +655,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       finalize_terminal(
         state,
         event,
-        StreamLoop.next_sequence(tool_loop),
+        next_public_sequence(state),
         :keep_upstream
       )
 
@@ -682,21 +687,20 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     {state, events} =
       Enum.reduce(items, {state, []}, fn item, {state, events} ->
         {state, item} = register_local_item_identity(state, item)
-        tool_loop = StreamLoop.bump(state.tool_loop)
+        sequence = next_public_sequence(state)
 
         event =
           %{
             "type" => "response.output_item.done",
             "item" => item,
             "output_index" => state.next_output_index,
-            "sequence_number" => tool_loop.sequence
+            "sequence_number" => sequence
           }
           |> rewrite_response_id(state)
 
         state = %{
           state
-          | tool_loop: tool_loop,
-            sequence_number: tool_loop.sequence,
+          | sequence_number: sequence,
             next_output_index: state.next_output_index + 1,
             public_items: [item | state.public_items],
             durable_items: [ImageStreamPersistence.storage_item(item) | state.durable_items]
@@ -737,18 +741,18 @@ defmodule Ankole.AIGateway.ResponseStream.State do
                   Map.put(identity_event, "output_index", provider_index)
                 )
 
-              tool_loop = StreamLoop.bump(state.tool_loop)
+              sequence = next_public_sequence(state)
 
               event =
                 event
                 |> Map.put("type", "response.output_item.done")
-                |> Map.put("sequence_number", tool_loop.sequence)
+                |> Map.put("sequence_number", sequence)
                 |> rewrite_response_id(state)
 
               state =
                 state
-                |> then(&%{&1 | tool_loop: tool_loop, sequence_number: tool_loop.sequence})
-                |> remember_non_terminal_event(event, tool_loop.sequence)
+                |> put_public_sequence(sequence)
+                |> remember_non_terminal_event(event, sequence)
 
               {recorded_ids, recorded_anonymous} =
                 remember_terminal_item(item, recorded_ids, recorded_anonymous)
@@ -914,6 +918,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         state = %{
           state
           | terminal?: true,
+            sequence_number: sequence,
             terminal_response: public_event["response"]
         }
 
@@ -942,6 +947,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       state
       | public_items: Enum.reverse(public_items),
         terminal?: true,
+        sequence_number: sequence,
         terminal_response: public_event["response"],
         terminal_error: terminal_error
     }
@@ -1634,6 +1640,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
        do: sequence
 
   defp public_sequence_number(_event, fallback), do: fallback
+
+  defp next_public_sequence(state), do: (state.sequence_number || -1) + 1
 
   defp next_sequence_number(%{sequence_number: sequence}) when is_integer(sequence),
     do: sequence + 1

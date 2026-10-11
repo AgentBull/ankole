@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT="${SCRIPT:-/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py}"
-NOTEBOOK_DIR="${NOTEBOOK_DIR:-${HOME}/user-files/notebooks}"
+NOTEBOOK_DIR="${NOTEBOOK_DIR:-${HOME}/notebooks}"
 SESSION_TEMP="${SESSION_TEMP:-${PWD}/temp}"
 JUPYTER_SOCKET="${JUPYTER_SOCKET:-${SESSION_TEMP}/jupyter-smoke.sock}"
 NOTEBOOK_PATH="${NOTEBOOK_PATH:-scratch.ipynb}"
@@ -48,7 +48,7 @@ import json
 import os
 import pathlib
 
-notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks")))
+notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "notebooks")))
 path = notebook_dir / os.environ.get("NOTEBOOK_PATH", "scratch.ipynb")
 path.write_text(json.dumps({
     "cells": [{"cell_type": "code", "execution_count": None, "id": "smoke-cell", "metadata": {}, "outputs": [], "source": ""}],
@@ -94,7 +94,7 @@ servers = json.load(open(session_temp / "jupyter-smoke-servers.json"))["servers"
 expected_socket = os.environ.get("JUPYTER_SOCKET", str(session_temp / "jupyter-smoke.sock"))
 assert any(server["server"]["socket"] == expected_socket for server in servers), servers
 
-notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks")))
+notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "notebooks")))
 notebook = json.load(open(notebook_dir / os.environ.get("NOTEBOOK_PATH", "scratch.ipynb")))
 cell = next(cell for cell in notebook["cells"] if cell.get("id") == "smoke-cell")
 stream_output = next(output for output in cell["outputs"] if output["output_type"] == "stream")

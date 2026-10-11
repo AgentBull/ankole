@@ -44,14 +44,12 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
     setting(:autoTruncate, type: :boolean, scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
     end
 
     embedding_model do
-      upstream(:json)
       api_resolver(:google_embeddings)
       prepare(:prepare_embedding_model)
     end

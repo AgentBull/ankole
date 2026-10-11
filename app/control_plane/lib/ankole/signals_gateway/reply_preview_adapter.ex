@@ -98,9 +98,8 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
           }
   end
 
-  @enforce_keys [:open_fun, :update_fun, :finalize_fun, :surface_ids_fun, :surface_open_fun]
+  @enforce_keys [:update_fun, :finalize_fun, :surface_ids_fun, :surface_open_fun]
   defstruct [
-    :open_fun,
     :update_fun,
     :finalize_fun,
     :refresh_fun,
@@ -113,7 +112,6 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
   @type degraded_result :: {:error, {:degraded, :plain_text, term()}}
   @type surface_id :: {:entry, String.t()} | {:handle, String.t()}
   @type t :: %__MODULE__{
-          open_fun: (Request.t() -> term()),
           update_fun: (Request.t() -> term()),
           finalize_fun: (Request.t() -> term()),
           refresh_fun: (Request.t() -> term()) | nil,
@@ -121,7 +119,6 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
           surface_open_fun: (map() -> boolean())
         }
 
-  @callback open(Request.t()) :: adapter_result() | degraded_result() | term()
   @callback update(Request.t()) :: adapter_result() | degraded_result() | term()
   @callback finalize(Request.t()) :: finalize_result() | degraded_result() | term()
   @callback refresh(Request.t()) :: adapter_result() | degraded_result() | term()
@@ -132,14 +129,12 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
   @spec from_module(module()) :: {:ok, t()} | {:error, term()}
   def from_module(module) when is_atom(module) do
     with true <- Code.ensure_loaded?(module) || {:error, :invalid_reply_preview_adapter},
-         :ok <- Utils.validate_module_callback(module, :open, 1),
          :ok <- Utils.validate_module_callback(module, :update, 1),
          :ok <- Utils.validate_module_callback(module, :finalize, 1),
          :ok <- Utils.validate_module_callback(module, :surface_ids, 1),
          :ok <- Utils.validate_module_callback(module, :surface_open?, 1) do
       {:ok,
        %__MODULE__{
-         open_fun: Function.capture(module, :open, 1),
          update_fun: Function.capture(module, :update, 1),
          finalize_fun: Function.capture(module, :finalize, 1),
          refresh_fun:
@@ -235,10 +230,6 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
       Map.drop(checkpoint, [@adapter_state_key | @host_checkpoint_keys])
     )
   end
-
-  @spec open(t(), Request.t()) :: adapter_result()
-  def open(%__MODULE__{open_fun: fun}, %Request{} = request),
-    do: fun |> call_adapter(request) |> normalize_result()
 
   @spec update(t(), Request.t()) :: adapter_result()
   def update(%__MODULE__{update_fun: fun}, %Request{} = request),

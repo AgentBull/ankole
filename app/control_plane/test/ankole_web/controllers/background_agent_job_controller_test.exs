@@ -42,7 +42,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     api_spec = AnkoleWeb.APISpec.spec()
 
-    conn = bearer_conn(conn)
+    {conn, admin_uid} = console_conn_with_principal(conn)
     first_page = conn |> get(~p"/api/v1/background-agent-jobs?limit=2") |> json_response(200)
 
     assert_schema(first_page, "BackgroundAgentJobListResponse", api_spec)
@@ -71,7 +71,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     second_page =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?limit=2&cursor=#{first_page["next_cursor"]}")
       |> json_response(200)
 
@@ -80,7 +80,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     filtered =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?agent=#{agent.uid}&status=queued")
       |> json_response(200)
 
@@ -88,7 +88,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     name_search =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?agent=#{agent.uid}&q=MIDDLE&limit=1")
       |> json_response(200)
 
@@ -96,7 +96,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     id_search =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?q=#{oldest.id}&limit=1")
       |> json_response(200)
 
@@ -104,7 +104,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     detail_response =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs/#{middle.id}")
       |> json_response(200)
 
@@ -136,7 +136,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     cancelled_response =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> post(~p"/api/v1/background-agent-jobs/#{middle.id}/cancel")
       |> json_response(200)
 
@@ -144,7 +144,11 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     cancelled = Map.fetch!(cancelled_response, "job")
 
     assert cancelled["status"] == "stopped"
-    assert cancelled["metadata"]["cancel_requested_by"] =~ "operator:"
+
+    assert cancelled["metadata"]["cancel_requested_by"] ==
+             to_string(
+               Ankole.ActorRef.from_principal(%{uid: admin_uid, tenant_id: Repo.tenant_id!()})
+             )
   end
 
   test "external completion reads its result summary from the JSON body", %{conn: conn} do
@@ -154,7 +158,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     response =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> post(~p"/api/v1/background-agent-jobs/#{job.id}/complete", %{
         "result_summary" => "EXTERNALLY-VERIFIED"
       })
@@ -174,7 +178,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     underscore = create_job!(agent.uid, "literal-underscore", "Console under_marker")
     _underscore_wildcard = create_job!(agent.uid, "underscore-wildcard", "Console underXmarker")
     backslash = create_job!(agent.uid, "literal-backslash", "Console slash\\marker")
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     assert search_job_ids(conn, "percent%marker") == [percent.id]
     assert search_job_ids(conn, "under_marker") == [underscore.id]
@@ -189,18 +193,18 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     queued_at = ~U[2026-07-10 04:00:00.000000Z]
     Enum.each(jobs, &set_queued_at(&1, queued_at))
 
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     first = conn |> get(~p"/api/v1/background-agent-jobs?limit=1") |> json_response(200)
 
     second =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{first["next_cursor"]}")
       |> json_response(200)
 
     third =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{second["next_cursor"]}")
       |> json_response(200)
 
@@ -212,7 +216,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert MapSet.new(paged_ids) == MapSet.new(Enum.map(jobs, & &1.id))
   end
 
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     assert conn |> get(~p"/api/v1/background-agent-jobs") |> json_response(401)
   end
 
@@ -241,7 +245,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     detail =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/background-agent-jobs/#{job.id}")
       |> json_response(200)
       |> Map.fetch!("job")
@@ -285,7 +289,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
         started_at: DateTime.add(base, 2, :second)
       )
 
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     first =
       conn
@@ -302,7 +306,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     second =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=#{first["turns_next_cursor"]}")
       |> json_response(200)
       |> Map.fetch!("job")
@@ -316,7 +320,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert %{"error" => %{"code" => "invalid_background_agent_job_request"}} =
              conn
-             |> recycle_bearer()
+             |> recycle_api()
              |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=not-a-cursor")
              |> json_response(422)
   end
@@ -343,7 +347,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     query = URI.encode_query(%{"q" => search, "limit" => 100})
 
     conn
-    |> recycle_bearer()
+    |> recycle_api()
     |> get("/api/v1/background-agent-jobs?#{query}")
     |> json_response(200)
     |> Map.fetch!("jobs")
@@ -421,14 +425,5 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   defp set_queued_at(job, queued_at) do
     from(row in Job, where: row.id == ^job.id)
     |> Repo.update_all(set: [queued_at: queued_at])
-  end
-
-  defp recycle_bearer(conn) do
-    authorization = get_req_header(conn, "authorization") |> List.first()
-
-    conn
-    |> recycle()
-    |> put_req_header("authorization", authorization)
-    |> put_req_header("content-type", "application/json")
   end
 end

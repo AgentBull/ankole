@@ -1,15 +1,6 @@
 import Config
 
-# Configure your database
-#
-# The MIX_TEST_PARTITION environment variable can be used
-# to provide built-in test partitioning in CI environment.
-# Run `mix help test` for more information.
-database_url = URI.parse(Ankole.Config.Bootstrap.env!("DATABASE_URL"))
-test_database = "ankole_test#{Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")}"
-
 config :ankole, Ankole.Repo,
-  url: URI.to_string(%{database_url | path: "/" <> test_database}),
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
   ownership_timeout: 3_600_000,
@@ -26,6 +17,23 @@ config :boruta, Boruta.Oauth, issuer: "http://localhost:4002"
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 
 config :ankole, Ankole.AIAgent.Library, source_cache_ttl_ms: 0
+
+# Unit tests replace HTTP at the provider boundary when they create Workers.
+config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
+  image: "ankole-agent-computer:test",
+  runtime_fabric_endpoint: "ws://127.0.0.1:4002/runtime-fabric/worker",
+  installation: "test"
+
+# Each test partition gets its own file-service directory.
+config :ankole, Ankole.ObjectStore,
+  spec: %{
+    scheme: "fs",
+    root:
+      Path.join(
+        System.tmp_dir!(),
+        "ankole-test-files#{System.get_env("MIX_TEST_PARTITION")}"
+      )
+  }
 
 # Print only warnings and errors during test
 config :logger, level: :warning
@@ -46,7 +54,15 @@ config :ankole, :identity_provider_realtime_reconcile, on_save: false
 # borrow the current test's shared SQL Sandbox owner after it exits.
 config :ankole, :signal_connection_reconcile_interval_ms, nil
 
-config :ankole, :runtime_events, enabled: false
+# Lark clients send requests to port 0 of the loopback address and do not
+# retry. No server can listen on port 0, so a Lark request without a test stub
+# fails immediately and does not go to Feishu. A stub that a test sets with
+# `Req.default_options(plug: ...)` still gets the request.
+config :ankole, Ankole.Plugins.LarkAdapter.Config,
+  client_opts: [base_url: "http://127.0.0.1:0", req_options: [retry: false]]
+
+# Compile the local Worker fixture transport only in the test build.
+config :ankole, :test_worker_routes, true
 
 # The limiter test uses a real interval. Other tests do not need wall-clock waits.
 

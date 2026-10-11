@@ -15,7 +15,7 @@ defmodule AnkoleWeb.ConsoleReadinessController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["Console"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -24,8 +24,7 @@ defmodule AnkoleWeb.ConsoleReadinessController do
     summary: "Read the console readiness snapshot",
     responses: [
       ok: {"Console readiness", "application/json", ConsoleReadinessResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

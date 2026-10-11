@@ -255,7 +255,6 @@ fn adapter_routes_remove_aigateway_encrypted_tool_markers() {
     for kind in [
         APIResolverKind::OpenAIChatCompletions,
         APIResolverKind::AnthropicMessages,
-        APIResolverKind::GeminiGenerateContent,
         APIResolverKind::BedrockConverse,
     ] {
         let resolver = APIResolver::new(
@@ -456,63 +455,6 @@ fn openai_responses_stream_preserves_provider_encrypted_function_arguments() {
         json!(["message"])
     );
     for (expected, event) in public_events.iter().enumerate() {
-        assert_eq!(event["sequence_number"], expected as u64);
-    }
-}
-
-#[test]
-fn aigateway_buffers_and_encodes_gemini_encrypted_tool_streams() {
-    let mut resolver = APIResolver::new(
-        APIResolverKind::GeminiGenerateContent,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({"tools": [encrypted_send_message_tool()]}),
-            provider_options: json!({}),
-            stream: Some(true),
-            include_model: true,
-        },
-    );
-
-    let events = resolver
-        .ingest(json!({
-            "candidates": [{
-                "content": {
-                    "parts": [{
-                        "functionCall": {
-                            "name": "send_message",
-                            "args": {
-                                "message": "gemini stream secret",
-                                "task_name": "gemini"
-                            }
-                        }
-                    }]
-                },
-                "finishReason": "STOP"
-            }]
-        }))
-        .unwrap();
-
-    assert!(
-        events
-            .iter()
-            .all(|event| !event.to_string().contains("gemini stream secret"))
-    );
-    let terminal = events.last().unwrap();
-    let call = terminal["response"]["output"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["type"] == "function_call")
-        .unwrap();
-    let arguments: Value = sonic_rs::from_str(call["arguments"].as_str().unwrap()).unwrap();
-    assert_eq!(arguments["task_name"], "gemini");
-    assert!(
-        arguments["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("ankole-aigateway-opaque-v1:")
-    );
-    for (expected, event) in events.iter().enumerate() {
         assert_eq!(event["sequence_number"], expected as u64);
     }
 }
@@ -3680,156 +3622,6 @@ fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
 }
 
 #[test]
-fn gemini_generate_content_accumulates_text_tool_and_usage() {
-    let mut resolver = APIResolver::new(
-        APIResolverKind::GeminiGenerateContent,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({}),
-            provider_options: json!({}),
-            stream: None,
-            include_model: true,
-        },
-    );
-
-    let events = resolver
-        .ingest(json!({
-            "candidates": [{
-                "content": {
-                    "parts": [
-                        {"text": "hello gemini"},
-                        {"functionCall": {"name": "lookup", "args": {"query": "weather"}}}
-                    ]
-                },
-                "finishReason": "STOP"
-            }],
-            "usageMetadata": {
-                "promptTokenCount": 4,
-                "candidatesTokenCount": 6,
-                "totalTokenCount": 10,
-                "cachedContentTokenCount": 3
-            }
-        }))
-        .unwrap();
-    let terminal = events.last().unwrap();
-    let output = terminal["response"]["output"].as_array().unwrap();
-
-    assert_eq!(terminal["type"], "response.completed");
-    assert_eq!(output[0]["content"][0]["text"], "hello gemini");
-    assert!(
-        output
-            .iter()
-            .any(|item| item["type"] == "function_call" && item["name"] == "lookup")
-    );
-    assert_eq!(terminal["response"]["usage"]["total_tokens"], 10);
-    assert_eq!(
-        terminal["response"]["usage"]["input_tokens_details"]["cached_tokens"],
-        3
-    );
-}
-
-#[test]
-fn gemini_terminal_reasons_map_to_incomplete_or_failed() {
-    let mut resolver = APIResolver::new(
-        APIResolverKind::GeminiGenerateContent,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({}),
-            provider_options: json!({}),
-            stream: None,
-            include_model: true,
-        },
-    );
-
-    let events = resolver
-        .ingest(json!({"candidates": [{"finishReason": "MAX_TOKENS"}]}))
-        .unwrap();
-    let terminal = events.last().unwrap();
-    assert_eq!(terminal["type"], "response.incomplete");
-    assert_eq!(
-        terminal["response"]["incomplete_details"]["reason"],
-        "max_output_tokens"
-    );
-
-    let mut resolver = APIResolver::new(
-        APIResolverKind::GeminiGenerateContent,
-        ResponseContext::default(),
-    );
-    let events = resolver
-        .ingest(json!({"candidates": [{"finishReason": "SAFETY"}]}))
-        .unwrap();
-    let terminal = events.last().unwrap();
-    assert_eq!(terminal["type"], "response.failed");
-    assert_eq!(
-        terminal["response"]["error"]["code"],
-        "provider_terminal_rejected"
-    );
-}
-
-#[test]
-fn bedrock_converse_accumulates_eventstream_text_and_usage() {
-    let mut resolver = APIResolver::new(
-        APIResolverKind::BedrockConverse,
-        ResponseContext {
-            model: "bedrock-test".to_string(),
-            request: json!({}),
-            provider_options: json!({}),
-            stream: None,
-            include_model: true,
-        },
-    );
-
-    resolver
-        .ingest(json!({
-            "contentBlockDelta": {"delta": {"text": "hello bedrock"}}
-        }))
-        .unwrap();
-    resolver
-        .ingest(json!({
-            "metadata": {
-                "usage": {"inputTokens": 3, "outputTokens": 5, "totalTokens": 8}
-            }
-        }))
-        .unwrap();
-    let events = resolver.ingest(json!({"messageStop": {}})).unwrap();
-    let terminal = events.last().unwrap();
-
-    assert_eq!(terminal["type"], "response.completed");
-    assert_eq!(
-        terminal["response"]["output"][0]["content"][0]["text"],
-        "hello bedrock"
-    );
-    assert_eq!(terminal["response"]["usage"]["total_tokens"], 8);
-}
-
-#[test]
-fn bedrock_stop_reasons_map_to_incomplete_or_failed() {
-    let mut resolver =
-        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
-    let events = resolver
-        .ingest(json!({"messageStop": {"stopReason": "max_tokens"}}))
-        .unwrap();
-    let terminal = events.last().unwrap();
-    assert_eq!(terminal["type"], "response.incomplete");
-    assert_eq!(
-        terminal["response"]["incomplete_details"]["reason"],
-        "max_output_tokens"
-    );
-
-    let mut resolver =
-        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
-    let events = resolver
-        .ingest(json!({"messageStop": {"stopReason": "content_filtered"}}))
-        .unwrap();
-    let terminal = events.last().unwrap();
-    assert_eq!(terminal["type"], "response.failed");
-    assert_eq!(
-        terminal["response"]["error"]["code"],
-        "provider_terminal_rejected"
-    );
-}
-
-#[test]
 fn openai_chat_stream_length_finish_reason_maps_to_incomplete() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
@@ -3919,6 +3711,63 @@ fn anthropic_stream_max_tokens_stop_reason_maps_to_incomplete() {
         "max_output_tokens"
     );
     assert!(terminal["response"]["completed_at"].is_null());
+}
+
+#[test]
+fn anthropic_stream_error_event_is_a_provider_failure_with_the_documented_status() {
+    for (error_type, status) in [
+        ("overloaded_error", Some(529)),
+        ("rate_limit_error", Some(429)),
+        ("api_error", Some(500)),
+        ("invalid_request_error", Some(400)),
+        ("undocumented_error", None),
+    ] {
+        let mut resolver = APIResolver::new(
+            APIResolverKind::AnthropicMessages,
+            ResponseContext::default(),
+        );
+        for event in [
+            json!({
+                "type": "message_start",
+                "message": {"id": "msg_error", "model": "claude-test"}
+            }),
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""}
+            }),
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "partial"}
+            }),
+        ] {
+            resolver.ingest(event).unwrap();
+        }
+        let event = json!({
+            "type": "error",
+            "error": {"type": error_type, "message": "provider message"}
+        });
+
+        let error = resolver.ingest(event.clone()).unwrap_err();
+
+        assert_eq!(error.code, "provider_status_rejected");
+        assert_eq!(error.message, "provider message");
+        assert_eq!(error.provider_status, status, "{error_type}");
+        let excerpt = error.provider_body_excerpt.as_deref().unwrap();
+        assert_eq!(sonic_rs::from_str::<Value>(excerpt).unwrap(), event);
+
+        let events = resolver.fail(&error);
+        let failed = &events[1]["response"];
+        assert_eq!(events[0]["type"], "error");
+        assert_eq!(events[1]["type"], "response.failed");
+        assert_eq!(
+            failed["error"]["details_json"]["provider_status"],
+            json!(status)
+        );
+        assert_eq!(failed["output"][0]["status"], "incomplete");
+        assert_eq!(failed["output"][0]["content"][0]["text"], "partial");
+    }
 }
 
 #[test]

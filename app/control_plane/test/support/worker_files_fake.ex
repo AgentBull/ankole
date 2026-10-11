@@ -6,16 +6,21 @@ defmodule Ankole.WorkerFilesFake do
   file map, and performs the relay `GET`/`PUT` against `AnkoleWeb.Endpoint`
   with `Phoenix.ConnTest`, so tests exercise the real signed-URL relay path.
 
+  Files are keyed by their path in the Agent Home.
+
   Options:
 
-    * `:files` — initial `%{"/root/relative" => content}` map;
-    * `:notify` — pid that receives `{:materialized_attachment_path, path}`
-      after each successful pull;
-    * `:on_read` — `(virtual_path -> {:ok, content} | {:error, {code, message}})`
+    * `:files` — initial `%{home_relative_path => content}` map;
+    * `:on_read` — `(home_relative_path -> {:ok, content} | {:error, {code, message}})`
       override for push;
+    * `:on_bundle` — `(request -> {:ok, body} | {:error, {code, message}})`
+      override for the body of a bundle push;
     * `:fail` — `%{operation => {code, message}}` that makes an operation
       answer with `rpc_error`;
     * `:tamper_token` — when true, the relay request carries a wrong token.
+
+  A push with `bundle_paths` answers with the bundle of those files, as the
+  Worker relay does.
   """
 
   import Phoenix.ConnTest, only: [build_conn: 0, dispatch: 5]
@@ -35,8 +40,9 @@ defmodule Ankole.WorkerFilesFake do
       route: route,
       files: Keyword.get(opts, :files, %{}),
       writes: [],
-      notify: Keyword.get(opts, :notify),
+      pushes: [],
       on_read: Keyword.get(opts, :on_read),
+      on_bundle: Keyword.get(opts, :on_bundle),
       fail: Keyword.get(opts, :fail, %{}),
       tamper_token: Keyword.get(opts, :tamper_token, false)
     }
@@ -48,16 +54,22 @@ defmodule Ankole.WorkerFilesFake do
   end
 
   @doc """
-  Returns the current `%{"/root/relative" => content}` map.
+  Returns the current `%{home_relative_path => content}` map.
   """
   @spec files(pid()) :: map()
   def files(pid), do: call(pid, :files)
 
   @doc """
-  Returns every completed pull as `%{path: virtual_path, content: binary}`, oldest first.
+  Returns every completed pull as `%{path: home_relative_path, content: binary}`, oldest first.
   """
   @spec writes(pid()) :: [map()]
   def writes(pid), do: call(pid, :writes)
+
+  @doc """
+  Returns every push request as `%{home_relative_path: path, bundle_paths: paths}`, oldest first.
+  """
+  @spec pushes(pid()) :: [map()]
+  def pushes(pid), do: call(pid, :pushes)
 
   defp call(pid, request) do
     ref = make_ref()
@@ -78,6 +90,10 @@ defmodule Ankole.WorkerFilesFake do
 
       {:writes, from, ref} ->
         send(from, {ref, Enum.reverse(state.writes)})
+        loop(state)
+
+      {:pushes, from, ref} ->
+        send(from, {ref, Enum.reverse(state.pushes)})
         loop(state)
 
       {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, request}}} ->
@@ -103,20 +119,13 @@ defmodule Ankole.WorkerFilesFake do
 
   defp operate("pull", payload, state) do
     {:ok, request} = FabricProto.WorkerFileTransferRequest.decode(payload)
-    path = virtual_path(request.root, request.relative_path)
+    path = request.home_relative_path
     conn = dispatch(build_conn(), @endpoint, :get, relay_path(state, request.url), nil)
 
     if conn.status == 200 do
       content = conn.resp_body
-      if state.notify, do: send(state.notify, {:materialized_attachment_path, path})
 
-      {{:ok,
-        %FabricProto.WorkerFileTransferResponse{
-          root: request.root,
-          relative_path: request.relative_path,
-          size: byte_size(content),
-          xxh3_128: "8db84f6b892cfa6bdad930c907ecb808"
-        }},
+      {{:ok, %FabricProto.WorkerFileTransferResponse{size: byte_size(content)}},
        %{
          state
          | files: Map.put(state.files, path, content),
@@ -129,9 +138,16 @@ defmodule Ankole.WorkerFilesFake do
 
   defp operate("push", payload, state) do
     {:ok, request} = FabricProto.WorkerFileTransferRequest.decode(payload)
-    path = virtual_path(request.root, request.relative_path)
 
-    case read(state, path) do
+    state = %{
+      state
+      | pushes: [
+          %{home_relative_path: request.home_relative_path, bundle_paths: request.bundle_paths}
+          | state.pushes
+        ]
+    }
+
+    case push_content(state, request) do
       {:ok, content} when byte_size(content) > request.max_bytes ->
         {{:error, "file_too_large", "file exceeds #{request.max_bytes} bytes"}, state}
 
@@ -143,13 +159,7 @@ defmodule Ankole.WorkerFilesFake do
           |> dispatch(@endpoint, :put, relay_path(state, request.url), content)
 
         if conn.status == 200 do
-          {{:ok,
-            %FabricProto.WorkerFileTransferResponse{
-              root: request.root,
-              relative_path: request.relative_path,
-              size: byte_size(content),
-              xxh3_128: ""
-            }}, state}
+          {{:ok, %FabricProto.WorkerFileTransferResponse{size: byte_size(content)}}, state}
         else
           {{:error, "relay_failed", "relay PUT answered #{conn.status}"}, state}
         end
@@ -159,63 +169,32 @@ defmodule Ankole.WorkerFilesFake do
     end
   end
 
-  defp operate("list", payload, state) do
-    {:ok, request} = FabricProto.WorkerFileListRequest.decode(payload)
-    prefix = virtual_path(request.root, request.relative_path)
+  defp push_content(state, %{bundle_paths: []} = request),
+    do: read(state, request.home_relative_path)
 
-    entries =
-      state.files
-      |> Enum.filter(fn {path, _content} -> String.starts_with?(path, prefix <> "/") end)
-      |> Enum.sort()
-      |> Enum.map(fn {path, content} ->
-        %FabricProto.WorkerFileListEntry{
-          relative_path: String.replace_prefix(path, "/#{request.root}/", ""),
-          kind: "file",
-          size: byte_size(content),
-          modified_unix_ms: 1_772_000_000_000
-        }
-      end)
+  defp push_content(%{on_bundle: on_bundle}, request) when is_function(on_bundle, 1),
+    do: on_bundle.(request)
 
-    {{:ok,
-      %FabricProto.WorkerFileListResponse{
-        root: request.root,
-        relative_path: request.relative_path,
-        truncated: false,
-        entries: entries
-      }}, state}
-  end
+  defp push_content(state, request) do
+    Enum.reduce_while(request.bundle_paths, {:ok, []}, fn path, {:ok, parts} ->
+      case read(state, request.home_relative_path <> "/" <> path) do
+        {:ok, content} ->
+          entry = [
+            <<byte_size(path)::32-big>>,
+            path,
+            <<byte_size(content)::64-big>>,
+            content
+          ]
 
-  defp operate("move", payload, state) do
-    {:ok, request} = FabricProto.WorkerFileMoveRequest.decode(payload)
-    from = virtual_path(request.root, request.from_relative_path)
-    to = virtual_path(request.root, request.to_relative_path)
+          {:cont, {:ok, [entry | parts]}}
 
-    case Map.pop(state.files, from) do
-      {nil, _files} ->
-        {{:error, "file_not_found", "path does not exist: #{from}"}, state}
-
-      {content, files} ->
-        {{:ok,
-          %FabricProto.WorkerFileMoveResponse{
-            root: request.root,
-            from_relative_path: request.from_relative_path,
-            to_relative_path: request.to_relative_path
-          }}, %{state | files: Map.put(files, to, content)}}
-    end
-  end
-
-  defp operate("delete", payload, state) do
-    {:ok, request} = FabricProto.WorkerFileDeleteRequest.decode(payload)
-    path = virtual_path(request.root, request.relative_path)
-
-    if Map.has_key?(state.files, path) do
-      {{:ok,
-        %FabricProto.WorkerFileDeleteResponse{
-          root: request.root,
-          relative_path: request.relative_path
-        }}, %{state | files: Map.delete(state.files, path)}}
-    else
-      {{:error, "file_not_found", "path does not exist: #{path}"}, state}
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, parts} -> {:ok, parts |> Enum.reverse() |> IO.iodata_to_binary()}
+      error -> error
     end
   end
 
@@ -232,9 +211,6 @@ defmodule Ankole.WorkerFilesFake do
     %URI{path: path, query: query} = URI.parse(url)
     if state.tamper_token, do: path <> "?" <> query <> "x", else: path <> "?" <> query
   end
-
-  defp virtual_path(root, ""), do: "/" <> root
-  defp virtual_path(root, relative_path), do: "/" <> root <> "/" <> relative_path
 
   defp encode({:ok, response}, request) do
     {iodata, _size} = response.__struct__.encode!(response)
@@ -262,13 +238,9 @@ defmodule Ankole.WorkerFilesFake do
     )
   end
 
-  defp reply_envelope(request, body) do
+  defp reply_envelope(_request, body) do
     Ankole.Kernel.RuntimeFabric.encode_envelope(%FabricProto.Envelope{
       message_id: "worker-files-fake-#{System.unique_integer([:positive])}",
-      correlation_id: request.request_id,
-      lane: :LANE_RPC,
-      durability: :CONTROL_EPHEMERAL,
-      sent_at_unix_ms: System.system_time(:millisecond),
       body: body
     })
   end

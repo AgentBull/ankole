@@ -12,6 +12,11 @@ defmodule Ankole.SignalsGateway.UtilsTest do
       assert Utils.reply_delivery_retry_after_seconds(%{retry_after_seconds: 5}) == 5
     end
 
+    test "SDK errors without a retry hint use the normal retry schedule" do
+      error = %FeishuOpenAPI.Error{code: 500_100, msg: "upstream failure", http_status: 200}
+      assert Utils.reply_delivery_retry_after_seconds(error) == 0
+    end
+
     test "defaults to zero when missing, non-positive, or not a map" do
       assert Utils.reply_delivery_retry_after_seconds(%{}) == 0
       assert Utils.reply_delivery_retry_after_seconds(%{"retry_after_seconds" => 0}) == 0

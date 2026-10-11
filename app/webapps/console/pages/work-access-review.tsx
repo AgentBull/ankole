@@ -11,8 +11,9 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 import {
   ankoleWebHumanAccessControllerUnresolvedWorkOptions,
   ankoleWebHumanAccessControllerClassifyWorkMutation
@@ -46,12 +47,14 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AccessReviewModel)
-  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const classify = useMutation({
     ...ankoleWebHumanAccessControllerClassifyWorkMutation(),
     onSuccess: () => {
-      void queryClient.invalidateQueries()
       toast.success(t('console.human_access.saved'))
+      if (work.kind === 'cron') {
+        void navigate(`/schedules/new?agent=${encodeURIComponent(work.agent_uid)}&cron=${encodeURIComponent(work.id)}`)
+      }
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -61,61 +64,72 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
         {work.kind} · {work.agent_uid} · {work.status}
       </p>
       <code className="text-xs break-all">{work.id}</code>
-      <LabeledField label={t('console.human_access.authority')}>
-        <Select
-          value={model.authorizationKind.value}
-          onValueChange={value => {
-            model.authorizationKind.value = value === 'service' ? 'service' : 'human'
-          }}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="human">{t('console.principals.type_human')}</SelectItem>
-            <SelectItem value="service">{t('console.human_access.service')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </LabeledField>
-      {model.authorizationKind.value === 'human' ? (
-        <LabeledField label={t('console.principals.uid')}>
-          <Input
-            value={model.humanUID.value}
-            onChange={e => {
-              model.humanUID.value = e.target.value
-            }}
-          />
-        </LabeledField>
+      {work.human_uid ? (
+        <p className="text-sm break-all">
+          {t('console.human_access.authority')}: <code>{work.human_uid}</code>
+        </p>
       ) : null}
-      <LabeledField label={t('console.human_access.reason')}>
-        <Textarea
-          rows={2}
-          value={model.reason.value}
-          onChange={e => {
-            model.reason.value = e.target.value
-          }}
-        />
-      </LabeledField>
-      <Button
-        type="button"
-        className="justify-self-start"
-        disabled={
-          classify.isPending ||
-          !model.hasReason.value ||
-          (model.authorizationKind.value === 'human' && !model.humanUID.value.trim())
-        }
-        onClick={() =>
-          classify.mutate({
-            body: {
-              kind: work.kind,
-              id: work.id,
-              authorization_kind: model.authorizationKind.value,
-              human_uid: model.authorizationKind.value === 'human' ? model.humanUID.value.trim() : null,
-              reason: model.reason.value.trim()
+      {work.can_reauthorize ? (
+        <>
+          <LabeledField label={t('console.human_access.authority')}>
+            <Select
+              value={model.authorizationKind.value}
+              onValueChange={value => {
+                model.authorizationKind.value = value === 'service' ? 'service' : 'human'
+              }}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="human">{t('console.principals.type_human')}</SelectItem>
+                {work.authorization_kind !== 'human' ? (
+                  <SelectItem value="service">{t('console.human_access.service')}</SelectItem>
+                ) : null}
+              </SelectContent>
+            </Select>
+          </LabeledField>
+          {model.authorizationKind.value === 'human' ? (
+            <LabeledField label={t('console.principals.uid')}>
+              <Input
+                value={model.humanUID.value}
+                onChange={e => {
+                  model.humanUID.value = e.target.value
+                }}
+              />
+            </LabeledField>
+          ) : null}
+          <LabeledField label={t('console.human_access.reason')}>
+            <Textarea
+              rows={2}
+              value={model.reason.value}
+              onChange={e => {
+                model.reason.value = e.target.value
+              }}
+            />
+          </LabeledField>
+          <Button
+            type="button"
+            className="justify-self-start"
+            disabled={
+              classify.isPending ||
+              !model.hasReason.value ||
+              (model.authorizationKind.value === 'human' && !model.humanUID.value.trim())
             }
-          })
-        }>
-        {t('console.human_access.classify')}
-      </Button>
+            onClick={() =>
+              classify.mutate({
+                body: {
+                  kind: work.kind,
+                  id: work.id,
+                  authorization_kind: model.authorizationKind.value,
+                  human_uid: model.authorizationKind.value === 'human' ? model.humanUID.value.trim() : null,
+                  reason: model.reason.value.trim()
+                }
+              })
+            }>
+            {t('console.human_access.classify')}
+          </Button>
+        </>
+      ) : null}
     </div>
   )
 }

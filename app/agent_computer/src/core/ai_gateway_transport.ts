@@ -1,9 +1,7 @@
-import { match, ms } from '@agentbull/active-support'
+import { ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
-import type { TurnModelRef } from '../lanes/actor_lane'
 import type { AIGatewayAPIKeyResponse } from '../lanes/rpc_lane'
 import type { TurnTracePropagation } from '../observability/turn-tracing'
-import { createModel, type ModelConfig } from './llm'
 
 export const aiGatewayAPIKeyRefreshSkewMs = ms('1m')
 const aiGatewayHTTPMaxAttempts = 3
@@ -11,7 +9,6 @@ const aiGatewayHTTPRefreshedKeyBackoffMs = ms('5s')
 const noObservabilityUserID = 'none'
 
 export const AIGATEWAY_OBSERVABILITY_USER_ID_HEADER = 'x-ankole-observability-user-id'
-export const AIGATEWAY_SESSION_ID_HEADER = 'Session-Id'
 
 export type AIGatewayAPIKeyRefreshOptions = {
   forceRefresh?: boolean
@@ -30,58 +27,16 @@ export interface AIGatewayHTTPClient {
 }
 
 /**
- * Creates a ModelConfig pointed at AIGateway for the selected worker model.
- *
- * HTTP and WebSocket transports share the same refresh callback and stable
- * Actor Session identity. Thus, a reconnect or retry cannot change the
- * Provider's logical session.
- */
-export function modelConfigFromAIGatewayAPIKey(
-  modelRef: TurnModelRef,
-  apiKey: AIGatewayAPIKeyResponse,
-  refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation,
-  actorSessionID?: string
-): ModelConfig {
-  const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(
-    apiKey,
-    refreshAPIKey,
-    turnTracePropagation,
-    actorSessionID
-  )
-  const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
-  const turnHeaders = aiGatewayTurnHeaders(turnTracePropagation, actorSessionID)
-
-  return createModel({
-    apiKey: apiKey.apiKey,
-    baseURL,
-    selector,
-    name: modelRef.model,
-    provider: modelRef.provider_id,
-    providerOptions: modelRef.provider_options,
-    fetch: gatewayFetch as never,
-    responseWebSocket: {
-      kind: 'aigateway-websocket',
-      url: aiGatewayWebSocketURL(baseURL),
-      authorization,
-      ...(Object.keys(turnHeaders).length > 0 ? { headers: turnHeaders } : {})
-    }
-  })
-}
-
-/**
  * Builds the small HTTP client used by worker tools that call AIGateway.
  */
 export function httpClientFromAIGatewayAPIKey(
   apiKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation,
-  actorSessionID?: string
+  turnTracePropagation?: TurnTracePropagation
 ): AIGatewayHTTPClient {
   return {
     baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation, actorSessionID)
+    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation)
   }
 }
 
@@ -103,47 +58,22 @@ export function aiGatewayTurnTraceHeaders(turnTracePropagation?: TurnTracePropag
   }
 }
 
-/** Builds the stable request identity headers shared by one Actor Session. */
-export function aiGatewayTurnHeaders(
-  turnTracePropagation?: TurnTracePropagation,
-  actorSessionID?: string
-): Record<string, string> {
-  return {
-    ...aiGatewayTurnTraceHeaders(turnTracePropagation),
-    ...(actorSessionID ? { [AIGATEWAY_SESSION_ID_HEADER]: actorSessionID } : {})
-  }
-}
-
-/**
- * Converts the control-plane model reference into the selector accepted by
- * AIGateway.
- */
-export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
-  if (modelRef.provider_id === 'ai_gateway') {
-    return modelRef.model
-  }
-
-  return `${modelRef.provider_id}/${modelRef.model}`
-}
-
 /**
  * Wraps fetch with proactive and reactive AIGateway bearer-token refresh.
  */
 function aiGatewayFetch(
   initialAPIKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation,
-  actorSessionID?: string
+  turnTracePropagation?: TurnTracePropagation
 ): AIGatewayFetch {
   let currentAPIKey = initialAPIKey
-  const turnHeaders = aiGatewayTurnHeaders(turnTracePropagation, actorSessionID)
+  const turnHeaders = aiGatewayTurnTraceHeaders(turnTracePropagation)
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set('authorization', `Bearer ${currentAPIKey.apiKey}`)
     headers.delete('traceparent')
     headers.delete(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
-    headers.delete(AIGATEWAY_SESSION_ID_HEADER)
     for (const [name, value] of Object.entries(turnHeaders)) headers.set(name, value)
     return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
@@ -196,31 +126,6 @@ function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<v
 }
 
 /**
- * Returns the WebSocket authorization header value for the current key.
- *
- * The stateful WebSocket path can request a forced refresh after pre-open
- * failures where no response.create was sent.
- */
-function aiGatewayAuthorization(initialAPIKey: AIGatewayAPIKeyResponse, refreshAPIKey?: AIGatewayAPIKeyRefresher) {
-  let currentAPIKey = initialAPIKey
-
-  return async (options?: AIGatewayAPIKeyRefreshOptions) => {
-    const refreshed = await match({
-      force: Boolean(options?.forceRefresh && refreshAPIKey),
-      stale: Number(currentAPIKey.expiresAt) * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs
-    })
-      .with({ force: true }, () => refreshAPIKeyOrThrow(refreshAPIKey, { forceRefresh: true }))
-      .with({ stale: true }, () => refreshAPIKeyOrThrow(refreshAPIKey))
-      .otherwise(() => undefined)
-    if (refreshed) {
-      currentAPIKey = refreshed
-    }
-
-    return `Bearer ${currentAPIKey.apiKey}`
-  }
-}
-
-/**
  * Refreshes the key or reports the missing refresh capability.
  */
 async function refreshAPIKeyOrThrow(
@@ -231,20 +136,4 @@ async function refreshAPIKeyOrThrow(
     throw new Error('AIGateway API key expired and no refresh callback is available')
   }
   return await refreshAPIKey(options)
-}
-
-/**
- * Derives the stateful Responses WebSocket URL from the AIGateway base URL.
- */
-function aiGatewayWebSocketURL(baseURL: string): string {
-  const url = new URL(`${baseURL.replace(/\/+$/, '')}/responses`)
-  match(url.protocol)
-    .with('http:', () => {
-      url.protocol = 'ws:'
-    })
-    .with('https:', () => {
-      url.protocol = 'wss:'
-    })
-    .otherwise(() => undefined)
-  return url.toString()
 }

@@ -8,9 +8,9 @@ lives. Follow the links when you need the detailed contract for one module.
 ## Product Boundary
 
 Ankole is a private, self-hosted system for Agents that do long-running digital
-work. Each enterprise operates one private deployment instance. That instance
-contains its Agents, accounts, provider connections, configuration, and stored
-data.
+work. One site can contain several tenants. Each tenant owns its Agents,
+accounts, provider connections, configuration, and stored data. Site operators
+manage shared infrastructure. See [Tenants](design-docs/Tenants.md).
 
 A Principal identifies the person or Agent responsible for an action. AuthZ
 decides what that Principal can do.
@@ -25,21 +25,25 @@ the data that Ankole needs after a restart.
 Providers and schedules
           |
           v
-SignalsGateway ---- PostgreSQL ---- AIGateway ---- model providers
-          |                              ^
-          | turn_start                   | response.create
-          v                              |
-     Agent Computer ---------------------+
-     model loop and tools
+SignalsGateway --> Conversations --> AIGateway --> model providers
+                          |               |
+                          +-- PostgreSQL -+
+                          |
+                   environment tools / Codex
+                          v
+                     Agent Computer
 ```
 
 | Part | What it does | Detailed document |
 | --- | --- | --- |
 | SignalsGateway | Receives provider events, starts Agent turns, and sends replies | [SignalsGateway](design-docs/SignalsGateway.md) |
+| Conversations | Drives the main model loop and recovers durable steps | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | AIGateway | Selects model providers and stores Responses for each Principal | [AIGateway](design-docs/AIGateway.md) |
-| Brain | Stores instance-shared knowledge and finds it when an Agent needs it | [BrainV3](design-docs/BrainV3.md) |
-| RuntimeFabric | Carries live messages, RPC calls, and files between processes | [RuntimeFabric](design-docs/RuntimeFabric.md) |
-| Agent Computer | Runs the model loop, Codex, and tools | `app/agent_computer/` |
+| Brain | Stores tenant-shared knowledge and finds it when an Agent needs it | [BrainV3](design-docs/BrainV3.md) |
+| RuntimeFabric | Carries live messages and RPC calls; coordinates HTTP file relay | [RuntimeFabric](design-docs/RuntimeFabric.md) |
+| Files | Keeps each Agent's durable files in a drive in the control plane | [Files](design-docs/Files.md) |
+| Agent Workers | Creates, stops, and replaces the one Worker of each Agent | [Agent Workers](design-docs/AgentWorkers.md) |
+| Agent Computer | Runs Codex and environment tools | `app/agent_computer/` |
 | PostgreSQL | Stores facts that must survive a restart | Migrations in `app/control_plane/priv/repo/migrations/` |
 
 Schedule creates an `ActorEvent` when work becomes due. A `BackgroundAgentJob`
@@ -52,32 +56,35 @@ The Elixir control plane runs Phoenix and OTP. It writes to PostgreSQL, supervis
 services, stores provider credentials, and serves the public APIs.
 
 The Rust kernel provides shared native functions. These functions handle
-cryptography, CEL evaluation, protobuf validation, and compression. The kernel does not decide or store a work item's state.
+cryptography, CEL evaluation, protobuf validation, compression, and object storage. The kernel does not decide or store a work item's state.
 
-Agent Computer runs in a Bun worker. It executes one turn, runs tools and
-sandboxes, and manages Codex sessions. Its local state can be rebuilt.
-It does not write control-plane records.
+Agent Computer runs in the Worker of one Agent: a Bun process in its own
+container. It runs environment tools and manages Codex sessions. Its local
+execution state can be rebuilt; its Home files are persistent. It does not write control-plane records.
 
 RuntimeFabric carries live traffic. PostgreSQL records completed decisions and
 work. The worker connection cannot provide earlier traffic during recovery.
 
 ## Agent Filesystem
 
-Agent Home is `/agents/<agent-key>`. The directory contains these shared
-resources:
+Agent Home is `/workspace` on storage that survives Worker instance deletion
+and image changes. It contains:
 
-- `.codex` for Agent-scoped Codex state
 - `SOUL.md`, `MISSION.md`, and `DESIGN.md`
-- `user-files` for user artifacts
-- `installed-skills` for copies of installed Skills that the worker can use
-- `sessions/<workspace-id>` for Session workspaces; PostgreSQL allocates IDs from 10000
-- `jobs/<job-id>` for private BackgroundAgentJob workspaces
+- `.codex/` for Codex configuration and thread files
+- `installed-skills/` for copies of the drive's `skills/` files
+- `sessions/<workspace-id>/` for Session workspaces; PostgreSQL allocates IDs from 10000
+- `jobs/<workspace-owner-job-id>/` for BackgroundAgentJob workspaces
 
-Agent Home contains Session and Job workspaces. `/workspace` is not an
-Agent path. Jobs for the same Agent share that Agent's `.codex` state.
+`/agents/<agent_uid>` links to Home so persisted old paths still work. Path
+checks resolve symbolic links. Codex SQLite is rebuildable and lives at
+`/var/cache/ankole/codex`, outside persistent Home.
 
-PostgreSQL stores domain documents and work state. The control plane materializes
-some of those records as Agent Home files that workers can use.
+PostgreSQL stores domain documents and work state. The Worker materializes
+some records as Home files at each turn. The Agent's drive separately holds
+attachments, generated images, published files, installed Skills, and
+Automation scripts, and is available while its Worker is absent. See
+[Files](design-docs/Files.md) and [Agent Workers](design-docs/AgentWorkers.md).
 
 ## Repository Map
 
@@ -88,7 +95,7 @@ some of those records as Agent Home files that workers can use.
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
 | `app/webapps/` | Auth, setup, and console React applications |
 | `app/library/` | Built-in Skills, Agent Plugins, and Agent templates |
-| `app/locales/` | Shared English and Simplified Chinese catalogs |
+| `app/locales/` | Shared translation catalogs |
 | `plugins/` | First-party control-plane plugins |
 | `libs/` | Provider clients and shared UI code |
 | `tools/devkit/` | Workspace development commands |
@@ -107,17 +114,18 @@ The China-market provider plugin contributes AIGateway providers.
 
 ## Control-Plane Boot Order
 
-`Ankole.Application` starts children in this order:
+`Ankole.Application` attaches the request log handler before it starts the children.
+It starts the children in this order:
 
-1. Telemetry and Repo
+1. Repo, PubSub, and OIDC signing key
 2. AppConfigure registry and cache
-3. I18n catalog and setup bootstrap
-4. Oban
-5. Plugin registry and plugin supervisor
-6. PubSub and AIGateway response-stream supervisor
-7. SignalsGateway supervisor
-8. Optional identity startup sync and RuntimeEvents
-9. AIGateway model metadata cache
+3. Observability, I18n catalog, and setup bootstrap
+4. Worker provider configuration and seed, then Oban
+5. Plugin cohort and local-password retry guard
+6. AIGateway credential pool, task and response-stream supervisors, and WorkerFiles supervisor
+7. SignalsGateway and Workflow supervisors
+8. Optional identity startup sync
+9. AIGateway model metadata cache and DNSCluster
 10. Phoenix endpoint
 
 This order is a contract. A later child can use a service that started before
@@ -134,9 +142,10 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 - AIGateway conversations, messages, compaction artifacts, and provider rows
 - Brain pages, versions, chunks, claims, timelines, links, sources, schema packs, contradictions, and skill lessons
 - BackgroundAgentJob rows and their turn records
+- Conversation workspace epochs and tool receipts
 
-Ankole can rebuild deliveries, activations, worker assignments, and
-connected-worker rows. Losing those rows does not delete the work history.
+Conversation drivers rebuild their progress from these facts. A process exit
+does not delete the work history.
 
 ## Message Lifecycle
 
@@ -145,18 +154,16 @@ This sequence shows how Ankole handles a provider message addressed to an Agent.
 1. The provider adapter converts the event to Ankole's common format.
 2. SignalsGateway checks the Agent's message policy and updates its copy of the provider message.
 3. SignalsGateway groups related input and writes one `ActorEvent` work item.
-4. ActorRuntime assigns a worker and sends a `turn_start` message with the turn fence for this attempt.
-5. Agent Computer prepares the Agent files, Session workspace, context, and tools.
-6. The worker asks AIGateway to create a stateful Response.
-7. AIGateway stores the Response and streams its live events to current subscribers.
-8. The worker runs tool calls and links each later Response to the previous one.
-9. The worker reports the final Response ID when the turn ends.
-10. SignalsGateway checks the turn fence and the Response chain.
-11. One database transaction completes the `ActorEvent` and records the replies to send.
-12. The provider adapter sends each reply and records the provider's result.
+4. Conversations starts or wakes the conversation driver. Admission claims the input and advances the workspace epoch.
+5. The driver prepares the Agent context and asks AIGateway to create a stateful Response.
+6. AIGateway stores the Response and streams its live events to current subscribers.
+7. The driver runs control-plane tools in database transactions. It requests a Worker only for environment tools or Codex Jobs.
+8. One transaction records a complete tool round, consumes applied input, and removes its tool receipts. The next Response continues that tape.
+9. At the end of the run, one transaction checks the epoch, completes the input, and records replies in the outbox.
+10. The provider adapter sends each reply and records the provider's result.
 
-A terminal Response does not complete an Actor turn. If ActorRuntime does not
-receive the completion message, it can assign the work again.
+A terminal Response does not complete a conversation run. After a driver exits,
+the next driver recovers the run from the stored input, tape, and tool receipts.
 
 Live previews can disappear. The final reply always comes from a stored outbox
 row. Ankole records the provider's success before it treats the reply as sent.
@@ -188,8 +195,9 @@ and runs Skills without help from a Control Plane Plugin.
 
 - Add a model provider under `app/control_plane/lib/ankole/ai_gateway/providers/`
   or through the `ai_gateway.provider` plugin contract.
-- Add a worker tool under `app/agent_computer/src/tools/` and register it in the
-  code that assembles the tool list for a turn.
+- Add a main Agent tool under `app/control_plane/lib/ankole/conversations/tools/`.
+  Add an environment or Codex Job tool under `app/agent_computer/src/tools/`
+  and regenerate its declared Worker catalog.
 - Add a signal provider as a plugin with declared ingress and outbox modules.
 - Add a worker RPC in the ActorRuntime RPC lane and its worker requester.
 - Add a runtime setting through AppConfigure in the owning subsystem.
@@ -234,13 +242,15 @@ credentials.
 
 | Document | Subject |
 | --- | --- |
+| [Tenants](design-docs/Tenants.md) | Site administration, data contexts, isolation and tenant lifecycle |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
-| [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
+| [BrainV3](design-docs/BrainV3.md) | Tenant-shared knowledge, scoped disclosure, learning, and Dreaming |
 | [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console (Chinese) |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | Worker channel messages, RPC calls, and file relay |
+| [Agent Workers](design-docs/AgentWorkers.md) | The one Worker of each Agent: providers, lifecycle, persistent Home, and cache |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |
 | [Automation Jobs](design-docs/AutomationJobs.md) | Agent-owned scripts that consume a trigger without a model turn |

@@ -1,0 +1,363 @@
+defmodule Ankole.RepoTenancyTest do
+  use Ankole.DataCase, async: true
+
+  alias Ankole.ActorRef
+  alias Ankole.AuthZ.Group
+  alias Ankole.Principals.Principal
+  alias Ankole.SignalsGateway.{Channel, Entry}
+  alias Ankole.Tenants.Tenant
+
+  test "Ecto can record and remove schema versions without a tenant context" do
+    version = 9_900_000_000_000_000 + System.unique_integer([:positive])
+
+    Repo.without_tenant(fn ->
+      assert {:ok, %{version: ^version}} =
+               Ecto.Migration.SchemaMigration.up(Repo, Repo.config(), version, [])
+
+      assert Repo.get_by!(Ecto.Migration.SchemaMigration, version: version).version == version
+      assert {1, nil} = Ecto.Migration.SchemaMigration.down(Repo, Repo.config(), version, [])
+      refute Repo.get_by(Ecto.Migration.SchemaMigration, version: version)
+    end)
+  end
+
+  test "context blocks and child closures restore the caller on success and failure", %{
+    tenant: tenant
+  } do
+    other = new_tenant()
+    assert Repo.tenant_id!() == tenant.id
+
+    Repo.across_tenants(fn ->
+      assert Repo.tenant_id() == nil
+      assert Repo.with_tenant(other.id, &Repo.tenant_id!/0) == other.id
+      assert Repo.tenant_id() == nil
+    end)
+
+    assert_raise RuntimeError, fn ->
+      Repo.with_tenant(other.id, fn -> raise "interrupted" end)
+    end
+
+    assert Repo.tenant_id!() == tenant.id
+    assert Keyword.get(Logger.metadata(), :tenant_id) == tenant.id
+    assert Task.async(Repo.bind_tenant(&Repo.tenant_id!/0)) |> Task.await() == tenant.id
+    assert Task.async(&Repo.tenant_id/0) |> Task.await() == nil
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(Principal) end
+
+      assert_raise Ankole.TenantContextMissing, fn ->
+        %Principal{}
+        |> Principal.changeset(%{uid: "missing-context", type: :human})
+        |> Repo.insert!()
+      end
+
+      assert Repo.aggregate(Tenant, :count) >= 1
+    end)
+  end
+
+  test "a system Principal is unique within its tenant, with one allowed in another tenant" do
+    attrs = fn ->
+      %{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :system, display_name: "System"}
+    end
+
+    assert {:ok, _} = %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+    other = new_tenant()
+
+    assert {:ok, _} =
+             Repo.with_tenant(other.id, fn ->
+               %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+             end)
+
+    assert {:error, changeset} = %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+    assert %{type: [_]} = errors_on(changeset)
+  end
+
+  test "per-call context overrides an all-tenant block for reads and deletes", %{tenant: tenant} do
+    other = new_tenant()
+    group("shared")
+    Repo.with_tenant(other.id, fn -> group("shared") end)
+
+    Repo.across_tenants(fn ->
+      assert [%Group{tenant_id: tenant_id}] = Repo.all(Group, tenant: {:id, tenant.id})
+      assert tenant_id == tenant.id
+      assert {1, nil} = Repo.delete_all(Group, tenant: {:id, tenant.id})
+      query = from g in Group, where: g.tenant_id in ^[tenant.id, other.id]
+      assert [%Group{tenant_id: other_id}] = Repo.all(query)
+      assert other_id == other.id
+    end)
+  end
+
+  test "a tenant's same-name row does not suppress another tenant through EXISTS", %{
+    tenant: tenant
+  } do
+    other = new_tenant()
+    group("candidate")
+    Repo.with_tenant(other.id, fn -> group("excluded") end)
+
+    query =
+      from g in Group,
+        where: not exists(from other in Group, where: other.name == "excluded", select: 1)
+
+    assert [%Group{name: "candidate", tenant_id: tenant_id}] = Repo.all(query)
+    assert tenant_id == tenant.id
+
+    source_query = from(g in subquery(from g in Group, select: %{name: g.name}))
+    assert [%{name: "candidate"}] = Repo.all(source_query)
+  end
+
+  test "a site root still checks the tenant context of its subquery" do
+    query = from t in Tenant, where: exists(from g in Group, select: 1)
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
+      assert is_list(Repo.across_tenants(fn -> Repo.all(query) end))
+    end)
+  end
+
+  test "composite primary keys protect struct writes and natural-key preloads", %{tenant: tenant} do
+    other = new_tenant()
+    channel = channel("lark:same", "first")
+    entry(channel.id, "first")
+
+    Repo.with_tenant(other.id, fn ->
+      channel("lark:same", "second")
+      entry(channel.id, "second")
+    end)
+
+    channel |> Ecto.Changeset.change(name: "changed") |> Repo.update!()
+    loaded = Repo.preload(channel, :entries)
+    assert [%Entry{text: "first", tenant_id: tenant_id}] = loaded.entries
+    assert tenant_id == tenant.id
+
+    Repo.with_tenant(other.id, fn ->
+      assert Repo.get_by!(Channel, id: channel.id).name == "second"
+    end)
+
+    Repo.delete!(channel)
+    assert Repo.get_by(Channel, id: channel.id) == nil
+
+    assert Repo.with_tenant(other.id, fn -> Repo.get_by!(Channel, id: channel.id).name end) ==
+             "second"
+  end
+
+  test "site and subquery roots reject direct tenant joins unless all tenants are explicit" do
+    first = group("joined")
+    other = new_tenant()
+    second = Repo.with_tenant(other.id, fn -> group("joined") end)
+    ids = [first.id, second.id]
+
+    for source <- [Tenant, subquery(Tenant)] do
+      query =
+        from t in source,
+          join: g in Group,
+          on: g.tenant_id == t.id,
+          where: g.id in ^ids,
+          select: g
+
+      assert_raise ArgumentError, ~r/tenant-scoped subquery/, fn -> Repo.all(query) end
+
+      Repo.without_tenant(fn ->
+        assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
+      end)
+
+      assert Repo.across_tenants(fn -> Repo.all(query) end) |> Enum.map(& &1.id) |> Enum.sort() ==
+               Enum.sort([first.id, second.id])
+    end
+  end
+
+  test "site and subquery roots join tenant-scoped subqueries without exposing another tenant" do
+    first = group("joined")
+    other = new_tenant()
+    second = Repo.with_tenant(other.id, fn -> group("joined") end)
+    ids = [first.id, second.id]
+
+    for source <- [Tenant, subquery(Tenant)] do
+      query =
+        from t in source,
+          join: g in subquery(Group),
+          on: g.tenant_id == t.id,
+          where: g.id in ^ids,
+          select: g
+
+      assert Repo.all(query) == [first]
+
+      Repo.without_tenant(fn ->
+        assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
+      end)
+
+      assert Repo.across_tenants(fn -> Repo.all(query) end) |> Enum.map(& &1.id) |> Enum.sort() ==
+               Enum.sort([first.id, second.id])
+    end
+  end
+
+  test "raw table queries use the explicit tenant context", %{tenant: tenant} do
+    group("raw")
+
+    assert [tenant.id] ==
+             Repo.all(from g in "principal_groups", select: type(g.tenant_id, Ecto.UUID))
+  end
+
+  test "Oban options cannot bypass business queries or nested tenant sources", %{tenant: tenant} do
+    own = group("oban-option")
+    other = new_tenant()
+    Repo.with_tenant(other.id, fn -> group("oban-option") end)
+
+    assert Repo.all(Group, oban: true) == [own]
+
+    queries = [
+      from(g in Group),
+      from(j in Oban.Job, where: exists(from(g in Group, select: 1))),
+      from(j in Oban.Job, join: g in Group, on: true),
+      Oban.Job |> with_cte("tenant_groups", as: ^from(g in Group))
+    ]
+
+    Repo.without_tenant(fn ->
+      for query <- queries do
+        assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query, oban: true) end
+      end
+    end)
+
+    assert Repo.tenant_id!() == tenant.id
+  end
+
+  test "struct writes reject another tenant and missing context" do
+    own = group("struct-write")
+    other = new_tenant()
+    changeset = Ecto.Changeset.change(own, name: "changed")
+
+    for {context, exception} <- [
+          {fn fun -> Repo.with_tenant(other.id, fun) end, ArgumentError},
+          {&Repo.without_tenant/1, Ankole.TenantContextMissing}
+        ],
+        operation <- [
+          :insert,
+          :insert!,
+          :insert_or_update,
+          :insert_or_update!,
+          :update,
+          :update!,
+          :delete,
+          :delete!
+        ] do
+      context.(fn -> assert_raise exception, fn -> apply(Repo, operation, [changeset]) end end)
+    end
+
+    assert Repo.get!(Group, own.id) == own
+  end
+
+  test "per-call insert context supplies ownership without changing the caller", %{tenant: tenant} do
+    other = new_tenant()
+
+    inserted =
+      Repo.insert!(%Group{name: "per-call-write", display_name: "Per-call write"},
+        tenant: {:id, other.id}
+      )
+
+    assert inserted.tenant_id == other.id
+    assert Repo.get(Group, inserted.id) == nil
+    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, inserted.id) end) == inserted
+    assert Repo.tenant_id!() == tenant.id
+  end
+
+  test "struct writes include ownership in their database filters", %{tenant: tenant} do
+    own = group("write-filter")
+    other = new_tenant()
+    wrong_owner = %{own | tenant_id: other.id}
+
+    Repo.with_tenant(other.id, fn ->
+      assert_raise Ecto.StaleEntryError, fn ->
+        wrong_owner |> Ecto.Changeset.change(name: "changed") |> Repo.update!()
+      end
+
+      assert_raise Ecto.StaleEntryError, fn -> Repo.delete!(wrong_owner) end
+
+      assert_raise ArgumentError, fn ->
+        Repo.insert!(%Group{tenant_id: tenant.id, name: "foreign"})
+      end
+    end)
+
+    assert_raise ArgumentError, fn ->
+      own |> Ecto.Changeset.change(tenant_id: other.id) |> Repo.update!()
+    end
+
+    assert Repo.get!(Group, own.id) == own
+  end
+
+  test "batch inserts validate every row's tenant", %{tenant: tenant} do
+    own = group("batch-source")
+    other = new_tenant()
+
+    row =
+      own
+      |> Map.from_struct()
+      |> Map.take(Group.__schema__(:fields))
+      |> Map.merge(%{id: Ankole.Ecto.UUIDv7.autogenerate(), name: "batch"})
+
+    foreign_row = %{row | id: Ankole.Ecto.UUIDv7.autogenerate(), tenant_id: other.id}
+    assert_raise ArgumentError, fn -> Repo.insert_all(Group, [row, foreign_row]) end
+    assert_raise ArgumentError, fn -> Repo.insert_all(Group, [Map.delete(row, :tenant_id)]) end
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.insert_all(Group, [row]) end
+    end)
+
+    assert {1, nil} = Repo.insert_all(Group, [row])
+    assert Repo.get!(Group, row.id).tenant_id == tenant.id
+
+    Repo.across_tenants(fn ->
+      assert {1, nil} = Repo.insert_all(Group, [foreign_row])
+    end)
+
+    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign_row.id).tenant_id end) ==
+             other.id
+  end
+
+  test "actor references preserve an existing uid and reject malformed attribution", %{
+    tenant: tenant
+  } do
+    reference = ActorRef.from_principal(%{tenant_id: tenant.id, uid: "legacy@example.com"})
+    assert {:ok, ^reference} = ActorRef.cast(to_string(reference))
+    assert {:ok, ^reference} = Ankole.Ecto.ActorRef.load(to_string(reference))
+    assert {:ok, text} = Ankole.Ecto.ActorRef.dump(reference)
+    assert text == "ankole:#{tenant.id}:principal/legacy@example.com"
+    assert :error = ActorRef.cast("legacy@example.com")
+    assert :error = ActorRef.cast("ankole:invalid:principal/legacy")
+    assert :error = ActorRef.cast("ankole:#{tenant.id}:principal/")
+  end
+
+  defp new_tenant do
+    %Tenant{}
+    |> Tenant.changeset(%{
+      slug: "other-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+      display_name: "Other"
+    })
+    |> Repo.insert!()
+  end
+
+  defp group(name) do
+    %Group{} |> Group.changeset(%{name: name, display_name: name}) |> Repo.insert!()
+  end
+
+  defp channel(id, name) do
+    now = DateTime.utc_now(:microsecond)
+
+    %Channel{}
+    |> Channel.changeset(%{id: id, name: name, first_seen_at: now, last_seen_at: now})
+    |> Repo.insert!()
+  end
+
+  defp entry(channel_id, text) do
+    now = DateTime.utc_now(:microsecond)
+
+    %Entry{}
+    |> Entry.changeset(%{
+      document_id: "same-document",
+      signal_channel_id: channel_id,
+      source_entry_id: "same-message",
+      text: text,
+      content_hash: "hash",
+      first_seen_at: now,
+      last_seen_at: now
+    })
+    |> Repo.insert!()
+  end
+end

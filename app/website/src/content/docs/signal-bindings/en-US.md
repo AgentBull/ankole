@@ -72,7 +72,7 @@ A routing rule controls message delivery, not knowledge scope. When Brain learns
 - **Group chat:** members and Agents in the channel's current member group can use the learned knowledge. Brain does not learn from a group that has no member group.
 - **Direct message:** the human counterpart and the Agent bound to the rule can use the learned knowledge. Other Agents cannot use it by default.
 
-Public facts can become instance-wide knowledge. Content with an explicit confidentiality requirement can be limited to the relevant speaker. All other learned content keeps the group-chat or direct-message access above. See [Brain](../brain/) for model requirements and retrieval behavior.
+Public facts can become knowledge shared within the tenant. Content with an explicit confidentiality requirement can be limited to the relevant speaker. All other learned content keeps the group-chat or direct-message access above. See [Brain](../brain/) for model requirements and retrieval behavior.
 
 ## Edit, disable, or enable a rule
 

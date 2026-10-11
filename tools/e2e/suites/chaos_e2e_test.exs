@@ -1,9 +1,10 @@
 defmodule Ankole.E2E.ChaosE2ETest do
   @moduledoc """
-  Chaos scenarios: worker death mid-turn, RuntimeFabric restart, WS redelivery
-  dedup, and provider-send failure consistency. Recovery must always come from
-  PostgreSQL facts (fences, pending events, outbox state machine) — never from
-  transport state.
+  Worker drain, process death, instance replacement, persistent Home and
+  cache, control-plane restart, and message recovery through real Docker.
+  PostgreSQL owns fences, pending events, and outbox state. The supervisor
+  restarts a failed process inside its instance; the control plane replaces
+  a deleted instance with a new generation and the same persistent Home.
   """
 
   use Ankole.DataCase, async: false
@@ -16,24 +17,297 @@ defmodule Ankole.E2E.ChaosE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_until: 2, wait_for_completed_final_reply: 3]
 
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime
-  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.SignalsGateway.Entry
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.Workflow
   alias Ankole.Workflow.RunServer, as: WorkflowRunServer
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run, as: WorkflowRun
 
+  @tag timeout: 900_000
+  @tag ownership_timeout: 900_000
+  @tag :real_llm
+  @tag :real_llm_chaos
+  test "real DeepSeek recovers an admitted command after Driver death while the tenant is suspended",
+       %{tenant: tenant} do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    command = real_command_inflight!(ctx, "driver")
+    assert {:ok, suspended} = Ankole.Tenants.suspend(tenant)
+    monitor = Process.monitor(command.pid)
+    Process.exit(command.pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 5_000
+    assert Repo.reload!(command.input).completed_at == nil
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_live_suspended",
+               message_id: "om_live_suspended",
+               chat_id: command.attrs[:chat_id],
+               chat_type: "p2p",
+               text: "Reply NEW_WORK_MUST_NOT_START."
+             )
+
+    assert wait_for_event_ack!(ctx.fake_feishu, "evt_live_suspended") == 200
+    refute Repo.get_by(Entry, source_entry_id: "om_live_suspended")
+    refute Repo.get_by(ActorEvent, source_entry_id: "om_live_suspended")
+
+    # The same recovery owner used by the periodic job must recover admitted work.
+    assert :ok = Ankole.Conversations.Reconciler.reconcile()
+    %{failure: 0} = Oban.drain_queue(queue: :conversations)
+    assert_real_command_recovered!(ctx, command)
+
+    assert {:ok, _} = Ankole.Tenants.resume(suspended)
+    initial_connections = FakeFeishu.State.connection_count(ctx.fake_feishu.state)
+    assert initial_connections > 0
+    assert :ok = FakeFeishu.State.drop_ws_connections(ctx.fake_feishu.state)
+
+    for _ <- 1..initial_connections do
+      assert_receive {:fake_feishu, {:ws_disconnected, _}}, 15_000
+    end
+
+    assert {:ok, true} =
+             wait_until(deadline(30_000), fn ->
+               FakeFeishu.State.connection_count(ctx.fake_feishu.state) >= initial_connections
+             end)
+
+    # Keep the provider message identity and use a fresh delivery event so its
+    # acknowledgement cannot be confused with the original delivery.
+    assert :ok =
+             FakeFeishu.State.user_sends_message(
+               ctx.fake_feishu.state,
+               Keyword.put(command.attrs, :event_id, "evt_live_driver_redelivery")
+             )
+
+    assert wait_for_event_ack!(ctx.fake_feishu, "evt_live_driver_redelivery") == 200
+    finalize_due_inbound_batch_events!()
+    assert_one_real_reply!(command.input)
+    assert DockerWorker.exec!(ctx.container, ["cat", command.path]) == command.nonce <> "\n"
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_live_resumed",
+               message_id: "om_live_resumed",
+               chat_id: command.attrs[:chat_id],
+               chat_type: "p2p",
+               text: "Reply exactly REAL_CHAOS_RESUMED. Do not call tools."
+             )
+
+    resumed_input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_live_resumed")
+    assert {:ok, _} = ensure_input_driver!(resumed_input, resumed_input.available_at)
+
+    assert {:ok, reply, _} =
+             wait_for_completed_final_reply(ctx.container, resumed_input.id, deadline(180_000))
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      reply,
+      "REAL_CHAOS_RESUMED",
+      :reply,
+      "om_live_resumed"
+    )
+  end
+
+  @tag timeout: 900_000
+  @tag ownership_timeout: 900_000
+  @tag :real_llm
+  @tag :real_llm_chaos
+  test "real DeepSeek checks a persisted file after Worker death without repeating the interrupted write" do
+    ctx =
+      start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), replaces_workers: true)
+
+    command = real_command_inflight!(ctx, "worker")
+    generation = Repo.get!(AgentWorker, ctx.agent.uid).generation
+    volumes = DockerWorker.storage_volumes(ctx.agent.uid)
+    assert :ok = DockerWorker.kill_docker_worker!(ctx.container)
+
+    messages = assert_real_command_recovered!(ctx, command)
+
+    assert %AgentWorker{state: "ready", generation: next_generation} =
+             Repo.get!(AgentWorker, ctx.agent.uid)
+
+    assert is_binary(next_generation)
+    refute next_generation == generation
+    assert DockerWorker.storage_volumes(ctx.agent.uid) == volumes
+
+    assert Enum.any?(tool_results(messages, "command"), fn result ->
+             tool_result_error?(result) and
+               String.contains?(Ankole.JSON.encode!(result.result), "result is unknown")
+           end)
+  end
+
+  @tag timeout: 900_000
+  @tag ownership_timeout: 900_000
+  @tag :real_llm
+  @tag :real_llm_chaos
+  @tag :deepseek_tenant_isolation
+  @tag sandbox: false
+  test "real DeepSeek keeps identical platform identities and private files separate across tenants",
+       %{tenant: tenant_a} do
+    assert :ok = Ankole.Tenants.ensure_scaffold(tenant_a)
+    cleanup_committed_fixtures_on_exit!()
+    fake_feishu = start_fake_feishu!()
+    domain_a = setup_lark_real_llm_domain!(openrouter_api_key!(), fake_feishu)
+    tenant_b = Ankole.DataCase.create_tenant()
+
+    agent_b =
+      Repo.with_tenant(tenant_b.id, fn ->
+        assert :ok = Ankole.Tenants.ensure_scaffold(tenant_b)
+        cleanup_committed_fixtures_on_exit!()
+
+        %{principal: agent} =
+          create_e2e_agent!(%{display_name: "Second tenant Agent", role: "Isolation test Agent"})
+
+        for profile <- ["primary", "light"] do
+          assert {:ok, _} =
+                   Ankole.AIAgent.ModelProfiles.put_model_profile(agent.uid, profile, %{
+                     provider_id: domain_a.provider_id,
+                     model: "deepseek/deepseek-v4.1-flash"
+                   })
+        end
+
+        upsert_lark_binding!(agent.uid, "lark-real-isolation", :ignore, fake_feishu,
+          app_id: secondary_app_id(),
+          group_message_mode: "addressed_only"
+        )
+
+        agent
+      end)
+
+    start_lark_connections!(fake_feishu, connections: 4)
+    worker_a = start_worker!([domain_a.agent.uid])
+    worker_b = Repo.with_tenant(tenant_b.id, fn -> request_worker!(agent_b.uid) end)
+
+    subjects =
+      [
+        %{
+          tenant: tenant_a,
+          agent: domain_a.agent,
+          app_id: primary_app_id(),
+          binding_name: domain_a.primary_binding.name,
+          container: worker_a.container,
+          reference: "A#{100_000 + :rand.uniform(899_999)}"
+        },
+        %{
+          tenant: tenant_b,
+          agent: agent_b,
+          app_id: secondary_app_id(),
+          binding_name: "lark-real-isolation",
+          container: worker_b,
+          reference: "B#{100_000 + :rand.uniform(899_999)}"
+        }
+      ]
+      |> Enum.map(fn subject ->
+        Map.put(
+          subject,
+          :report,
+          "Shipment reference: #{subject.reference}. Ready items: #{:rand.uniform(99)}."
+        )
+      end)
+
+    # The platform inputs are identical. Only the app's owning tenant and its
+    # private computer file differ, so the fake platform need not invent IDs.
+    attrs = [
+      event_id: "evt_live_same_identity",
+      create_time_ms: System.system_time(:millisecond),
+      message_id: "om_live_same_identity",
+      chat_id: "oc_live_same_identity",
+      chat_type: "p2p",
+      sender_user_id: "ou_live_same_sender",
+      sender_open_id: "ou_live_same_sender",
+      text:
+        "I placed a synthetic shipment report in /workspace/private.txt. " <>
+          "It contains fictional business data, no credentials or personal data. " <>
+          "Use read_file to read the report and reply with its shipment reference."
+    ]
+
+    inputs =
+      Enum.map(subjects, fn subject ->
+        Repo.with_tenant(subject.tenant.id, fn ->
+          DockerWorker.exec!(subject.container, [
+            "sh",
+            "-c",
+            "printf '%s' '#{subject.report}' > /workspace/private.txt"
+          ])
+
+          assert :ok =
+                   FakeFeishu.State.user_sends_message(
+                     fake_feishu.state,
+                     Keyword.put(attrs, :to_app, subject.app_id)
+                   )
+
+          input = actor_event_by_source_entry_id!(subject.agent.uid, attrs[:message_id])
+          assert {:ok, _} = ensure_input_driver!(input, input.available_at)
+          Map.put(subject, :input, input)
+        end)
+      end)
+
+    results =
+      Enum.map(inputs, fn subject ->
+        Repo.with_tenant(subject.tenant.id, fn ->
+          assert {:ok, reply, _} =
+                   wait_for_completed_final_reply(
+                     subject.container,
+                     subject.input.id,
+                     deadline(240_000)
+                   )
+
+          assert_lark_final_reply(
+            fake_feishu,
+            reply,
+            subject.reference,
+            :reply,
+            attrs[:message_id]
+          )
+
+          messages = Ankole.E2E.WaitHelpers.ai_messages_for_actor_event(subject.input.id)
+          reads = successful_tool_results(messages, "read_file")
+          assert Enum.any?(reads, &String.contains?(Ankole.JSON.encode!(&1), subject.report))
+          assert_one_real_reply!(subject.input)
+          entry = Repo.get_by!(Entry, source_entry_id: attrs[:message_id])
+          assert entry.tenant_id == subject.tenant.id
+          assert subject.input.tenant_id == subject.tenant.id
+          assert reply.tenant_id == subject.tenant.id
+
+          assert {:ok, %{config: config}} =
+                   Ankole.SignalsGateway.Bindings.get_binding_configuration(
+                     subject.agent.uid,
+                     subject.binding_name
+                   )
+
+          namespace = Ankole.Plugins.LarkAdapter.Config.subject_namespace(config)
+
+          assert {:ok, human} =
+                   Ankole.Principals.resolve_platform_subject(namespace, "ou_live_same_sender")
+
+          for other <- inputs, other.tenant.id != subject.tenant.id do
+            refute reply.text =~ other.reference
+            refute Ankole.JSON.encode!(reads) =~ other.reference
+            refute Repo.get(ActorEvent, other.input.id)
+            assert {:error, :not_found} = Ankole.Principals.get_agent(other.agent.uid)
+          end
+
+          %{entry: entry, human_uid: human.uid, reply: reply}
+        end)
+      end)
+
+    [result_a, result_b] = results
+    assert result_a.entry.document_id == result_b.entry.document_id
+    refute result_a.human_uid == result_b.human_uid
+    refute result_a.reply.source_entry_id == result_b.reply.source_entry_id
+  end
+
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "SIGTERM drains an active turn through completion acknowledgement without replay" do
-    ctx = start_worker_e2e_stack!()
+  @tag :conversation_recovery
+  test "Worker shutdown leaves the control-plane model turn running without replay" do
+    ctx = start_worker_e2e_stack!(replaces_workers: true)
 
     assert :ok =
              FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
@@ -48,14 +322,11 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_drain_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: input.agent_uid, session_id: input.session_id},
-               now: DateTime.add(input.available_at, 1, :second),
-               lease_seconds: 120
-             )
+    assert {:ok, %{status: :driving}} = ensure_input_driver!(input, input.available_at)
 
     assert_receive {:fake_llm_request, :followup_slow, 1, _request}, 15_000
+    %AgentWorker{generation: generation} = Repo.get!(AgentWorker, ctx.agent.uid)
+    signalled_at = DateTime.add(DateTime.utc_now(), -1, :second)
     assert :ok = DockerWorker.signal_docker_worker!(ctx.container, "TERM")
 
     assert {:ok, %ActorEvent{completed_at: %DateTime{}, final_response_id: "resp_" <> _}} =
@@ -66,23 +337,26 @@ defmodule Ankole.E2E.ChaosE2ETest do
                end
              end)
 
-    assert_receive {port, {:exit_status, 0}} when port == ctx.container.port, 30_000
+    # The drained Worker exits 0, and its container stops.
+    assert {:ok, [0]} =
+             wait_until(deadline(30_000), fn ->
+               case DockerWorker.exit_codes_since(ctx.container, signalled_at) do
+                 [] -> nil
+                 codes -> codes
+               end
+             end)
 
-    replacement_worker_id = "chaos-drain-replacement-#{System.unique_integer([:positive])}"
-
-    replacement =
-      start_additional_worker!(ctx.endpoint, replacement_worker_id, ctx.worker_auth_key)
-
-    assert {:ok, %{status: :idle}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: input.agent_uid, session_id: input.session_id},
-               now: DateTime.utc_now(:microsecond)
-             )
+    assert {:ok, :idle} = Ankole.Conversations.Run.rebuild(input)
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
 
     assert FakeOpenAIState.counters()[:followup_slow] == 1
+
+    # A request replaces the exited instance after confirming its absence.
+    request_worker!(ctx.agent.uid)
+    assert %AgentWorker{generation: next_generation} = Repo.get!(AgentWorker, ctx.agent.uid)
+    refute next_generation == generation
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -95,7 +369,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "worker killed mid-turn leaves no partial commit and the input replays on a new worker" do
+  @tag :conversation_recovery
+  test "a suspended tenant recovers accepted input after Driver death and resumes new work", %{
+    tenant: tenant
+  } do
     ctx = start_worker_e2e_stack!()
 
     assert :ok =
@@ -104,62 +381,44 @@ defmodule Ankole.E2E.ChaosE2ETest do
                message_id: "om_chaos_kill_1",
                chat_id: "oc_chaos_kill",
                chat_type: "p2p",
-               text:
-                 "@_user_1 Trigger CHAOS_FOLLOWUP_SLOW and reply exactly CHAOS_FOLLOWUP_FIRST_OK.",
+               text: "@_user_1 Trigger CHAOS_FOLLOWUP_SLOW.",
                mentions: [lark_bot_mention()]
              )
 
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_kill_1")
+    assert {:ok, %{pid: pid}} = ensure_input_driver!(input, input.available_at)
+    assert_receive {:fake_llm_request, :followup_slow, 1, _request}, 15_000
+    assert Repo.reload!(input).attempt_count == 1
+    assert {:ok, suspended} = Ankole.Tenants.suspend(tenant)
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 5_000
+    assert Repo.reload!(input).completed_at == nil
 
-    # Short lease: after the worker dies, the activation must expire instead of
-    # blocking the session forever.
-    assert {:ok, %{activation: activation, send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: input.agent_uid, session_id: input.session_id},
-               now: DateTime.add(input.available_at, 1, :second),
-               lease_seconds: 5
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_chaos_suspended",
+               message_id: "om_chaos_suspended",
+               chat_id: "oc_chaos_kill",
+               chat_type: "p2p",
+               text: "@_user_1 Trigger CHAOS_FOLLOWUP_SECOND_OK.",
+               mentions: [lark_bot_mention()]
              )
 
-    # The fake upstream delays this scenario's completion by 1.5s, so the kill
-    # lands while the turn is provably in flight.
-    assert_receive {:fake_llm_request, :followup_slow, 1, _request}, 15_000
-    DockerWorker.kill_docker_worker!(ctx.container)
+    assert wait_for_event_ack!(ctx.fake_feishu, "evt_chaos_suspended") == 200
+    refute Repo.get_by(Entry, source_entry_id: "om_chaos_suspended")
+    refute Repo.get_by(ActorEvent, source_entry_id: "om_chaos_suspended")
+    refute FakeOpenAIState.counters()[:followup_second]
 
-    # PG stays the source of truth: the input is still pending and nothing was
-    # partially committed by the dead worker.
-    assert %ActorEvent{completed_at: nil} = Repo.get(ActorEvent, input.id)
-
-    assert [] =
-             OutboxEntry
-             |> where([outbox], outbox.source_actor_event_id == ^input.id)
-             |> Repo.all()
-
-    activation = Repo.reload(activation)
-    replay_now = DateTime.add(activation.lease_expires_at, 1, :microsecond)
-
-    case ActorRuntime.fail_activation_if_expired(activation.activation_uid, now: replay_now) do
-      {:ok, _failed_activation} ->
-        :ok
-
-      {:error, :activation_not_due} ->
-        assert Repo.reload(activation).status in ["failed", "stopped"]
-    end
-
-    replacement_worker_id = "chaos-replacement-#{System.unique_integer([:positive])}"
-
-    replacement =
-      start_additional_worker!(ctx.endpoint, replacement_worker_id, ctx.worker_auth_key)
-
-    # Re-dispatch after the lease expired. The first attempts may still pick the
-    # dead worker's route; that failure marks the route unusable and the retry
-    # lands on the replacement.
-    retry_until_sent!(input, replay_now)
+    reconcile_at = DateTime.add(DateTime.utc_now(:microsecond), 61)
+    assert :ok = Ankole.Conversations.Reconciler.reconcile(reconcile_at)
+    Oban.drain_queue(queue: :conversations, with_scheduled: reconcile_at)
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
 
-    assert reply.text =~ "CHAOS_FOLLOWUP_FIRST_OK"
-    assert_actor_event_completed!(input.id)
+    assert Repo.reload!(input).attempt_count == 2
+    assert FakeOpenAIState.counters()[:followup_slow] == 2
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -168,12 +427,297 @@ defmodule Ankole.E2E.ChaosE2ETest do
       :reply,
       "om_chaos_kill_1"
     )
+
+    assert {:ok, _resumed} = Ankole.Tenants.resume(suspended)
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_chaos_resumed",
+               message_id: "om_chaos_resumed",
+               chat_id: "oc_chaos_kill",
+               chat_type: "p2p",
+               text: "@_user_1 Trigger CHAOS_FOLLOWUP_SECOND_OK.",
+               mentions: [lark_bot_mention()]
+             )
+
+    resumed_input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_resumed")
+
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(resumed_input, resumed_input.available_at)
+
+    assert {:ok, resumed_reply, _message} =
+             wait_for_completed_final_reply(ctx.container, resumed_input.id, deadline(60_000))
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      resumed_reply,
+      "CHAOS_FOLLOWUP_SECOND_OK",
+      :reply,
+      "om_chaos_resumed"
+    )
   end
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "worker killed mid Workflow-task turn requeues the call and a new worker completes the run" do
-    ctx = start_worker_e2e_stack!()
+  test "a crashed Worker process starts again in its container and ends the processes it left" do
+    ctx = start_worker_e2e_stack!(replaces_workers: true)
+
+    %AgentWorker{generation: generation, incarnation_id: incarnation} =
+      Repo.get!(AgentWorker, ctx.agent.uid)
+
+    # A process in its own session, like a command that the Worker started.
+    DockerWorker.exec!(ctx.container, ["sh", "-c", "setsid sleep 1000 >/dev/null 2>&1 &"])
+    assert DockerWorker.exec!(ctx.container, ["pgrep", "-x", "sleep"]) =~ ~r/^\d+/
+
+    crashed_at = DateTime.add(DateTime.utc_now(), -1, :second)
+    DockerWorker.exec!(ctx.container, ["pkill", "-KILL", "-f", "^bun .*src/main.ts"])
+
+    # The supervisor in the image starts the Worker again in the same
+    # container: a new incarnation of the same generation joins.
+    assert {:ok, %AgentWorker{generation: ^generation}} =
+             wait_until(deadline(60_000), fn ->
+               case Repo.get(AgentWorker, ctx.agent.uid) do
+                 %AgentWorker{state: "ready", incarnation_id: id} = worker
+                 when is_binary(id) and id != incarnation ->
+                   worker
+
+                 _worker ->
+                   nil
+               end
+             end)
+
+    assert [] = DockerWorker.exit_codes_since(ctx.container, crashed_at)
+    assert DockerWorker.exec!(ctx.container, ["sh", "-c", "pgrep -x sleep || true"]) == ""
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :worker_storage_lifecycle
+  @tag sandbox: false
+  test "idle release deletes the instance, wake restores Home and cache, and tenant deletion removes both",
+       %{tenant: tenant} do
+    assert {:ok, privileged} = Ankole.Tenants.privileged()
+    refute tenant.id == privileged.id
+    assert :ok = Ankole.Tenants.ensure_scaffold(tenant)
+    cleanup_committed_fixtures_on_exit!()
+    ctx = start_worker_e2e_stack!(replaces_workers: true)
+    agent_uid = ctx.agent.uid
+    generation = Repo.get!(AgentWorker, agent_uid).generation
+    first_container = DockerWorker.container_name(agent_uid)
+    volumes = DockerWorker.storage_volumes(agent_uid)
+    marker = "/agents/#{agent_uid}/persistent-marker"
+    cache_marker = "/var/cache/ankole/cache-marker"
+
+    DockerWorker.exec!(ctx.container, [
+      "sh",
+      "-ec",
+      "echo kept > #{marker}; echo cached > #{cache_marker}"
+    ])
+
+    put_idle_release_after!(agent_uid, "1s")
+    stop_idle_worker!(agent_uid)
+    assert DockerWorker.container_info(first_container) == nil
+    assert DockerWorker.volume_exists?(volumes.home)
+    assert DockerWorker.volume_exists?(volumes.cache)
+
+    input = send_file_message!(ctx, "om_chaos_absent_file_1", "oc_chaos_absent_file")
+    [%{"path" => path}] = get_in(input.payload, ["data", "entry", "attachments"])
+    assert {:ok, _file, "CHAOS_INBOUND_FILE_BYTES deck"} = Ankole.Files.read(agent_uid, path)
+    assert %AgentWorker{state: "absent"} = Repo.get!(AgentWorker, agent_uid)
+    retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
+
+    assert {:ok, reply, _message} =
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
+
+    assert reply.text =~ "CHAOS_GENERIC_OK"
+    assert %AgentWorker{state: "absent"} = Repo.get!(AgentWorker, agent_uid)
+
+    # This reply needs no computer. A separate execution demand wakes it.
+    request_worker!(agent_uid)
+
+    assert %AgentWorker{state: "ready", generation: next_generation} =
+             Repo.get!(AgentWorker, agent_uid)
+
+    assert is_binary(next_generation)
+    refute next_generation == generation
+    assert DockerWorker.storage_volumes(agent_uid) == volumes
+    assert DockerWorker.exec!(ctx.container, ["cat", marker, cache_marker]) == "kept\ncached\n"
+
+    assert Enum.any?(FakeOpenAIState.requests(), fn entry ->
+             String.contains?(Ankole.JSON.encode!(entry.request), path)
+           end)
+
+    last_container = DockerWorker.container_name(agent_uid)
+    assert {:ok, _} = Ankole.Tenants.delete(tenant)
+
+    assert {:ok, true} =
+             wait_until(deadline(60_000), fn ->
+               result =
+                 Oban.drain_queue(
+                   queue: :default,
+                   with_scheduled: DateTime.add(DateTime.utc_now(), 5, :second),
+                   with_limit: 20
+                 )
+
+               assert result.failure == 0, inspect(result)
+               Ankole.Tenants.get(tenant.id) == {:error, :not_found}
+             end)
+
+    refute Repo.get(AgentWorker, agent_uid)
+
+    assert DockerWorker.container_info(last_container) == nil
+    refute DockerWorker.volume_exists?(volumes.home)
+    refute DockerWorker.volume_exists?(volumes.cache)
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag sandbox: false
+  @tag :worker_job_recovery
+  test "a waiting Codex Job resumes its thread and files after idle instance deletion" do
+    Ankole.E2E.Scenarios.WorkerJobRecovery.run()
+  end
+
+  for max_slots <- [1, 9] do
+    @tag timeout: 180_000
+    @tag ownership_timeout: 180_000
+    @tag sandbox: false
+    @tag :worker_job_reconnect
+    test "a running Codex Job resumes after a disconnect with #{max_slots} Worker slots" do
+      Ankole.E2E.Scenarios.WorkerJobRecovery.reconnect(unquote(max_slots))
+    end
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag sandbox: false
+  @tag :worker_image_replacement
+  test "an image change waits for an active Turn, preserves storage, and applies on the next wake" do
+    cleanup_committed_fixtures_on_exit!()
+    ctx = start_worker_e2e_stack!(replaces_workers: true)
+    agent_uid = ctx.agent.uid
+    old = Repo.get!(AgentWorker, agent_uid)
+    old_container = DockerWorker.container_name(agent_uid)
+    new_image = DockerWorker.tag_image!("switch")
+    volumes = DockerWorker.storage_volumes(agent_uid)
+
+    DockerWorker.exec!(ctx.container, [
+      "sh",
+      "-ec",
+      "printf home > /workspace/image-marker; printf cache > /var/cache/ankole/image-marker"
+    ])
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_chaos_switch_1",
+               message_id: "om_chaos_switch_1",
+               chat_id: "oc_chaos_switch",
+               chat_type: "p2p",
+               text: "@_user_1 Trigger CHAOS_LONG_TURN and reply exactly CHAOS_LONG_TURN_OK.",
+               mentions: [lark_bot_mention()]
+             )
+
+    input = actor_event_by_source_entry_id!(agent_uid, "om_chaos_switch_1")
+
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
+
+    assert_receive {:fake_llm_request, :long_turn, 1, _request}, 15_000
+
+    assert {:ok, true} =
+             wait_until(deadline(30_000), fn ->
+               DockerWorker.exec!(ctx.container, [
+                 "sh",
+                 "-c",
+                 "test -e /workspace/image-command-started && echo started || true"
+               ]) == "started\n"
+             end)
+
+    # An environment command holds a Worker slot until the workspace closes.
+    DockerWorker.switch_image!(new_image)
+
+    assert :ok =
+             ReconcileJob.perform(%Oban.Job{
+               args: %{"agent_uid" => agent_uid, "tenant_id" => Repo.tenant_id!()}
+             })
+
+    assert %AgentWorker{state: "ready", generation: generation, image: image} =
+             Repo.get!(AgentWorker, agent_uid)
+
+    assert {generation, image} == {old.generation, old.image}
+
+    assert {:ok, reply, _message} =
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
+
+    assert reply.text =~ "CHAOS_LONG_TURN_OK"
+
+    # Idle now, it is replaced by a Worker of the new image.
+    assert {:ok, %AgentWorker{generation: new_generation}} =
+             wait_until(deadline(120_000), fn ->
+               case Repo.get!(AgentWorker, agent_uid) do
+                 %AgentWorker{state: "ready", image: ^new_image} = worker -> worker
+                 _worker -> nil
+               end
+             end)
+
+    assert new_generation != old.generation
+    assert DockerWorker.container_info(old_container) == nil
+    new_container = DockerWorker.container_name(agent_uid)
+    assert %{image: ^new_image, status: "running"} = DockerWorker.container_info(new_container)
+
+    assert {:error, old_route_error} =
+             WorkerRoute.connection_pid(%{
+               worker_id: agent_uid,
+               transport_route: old.transport_route
+             })
+
+    assert old_route_error in [:stale_route, :unknown_route]
+    replacement = Repo.get!(AgentWorker, agent_uid)
+
+    assert {:error, %{"code" => "unknown_rpc_method"}} =
+             WorkerRoute.request_rpc(
+               %{worker_id: agent_uid, transport_route: replacement.transport_route},
+               "worker.no_such_method",
+               <<>>,
+               timeout_ms: 10_000
+             )
+
+    assert DockerWorker.storage_volumes(agent_uid) == volumes
+
+    assert DockerWorker.exec!(ctx.container, [
+             "cat",
+             "/workspace/image-marker",
+             "/var/cache/ankole/image-marker"
+           ]) == "homecache"
+
+    put_idle_release_after!(agent_uid, "1s")
+    stop_idle_worker!(agent_uid)
+    DockerWorker.switch_image!(old.image)
+
+    assert {:ok, _worker} =
+             wait_until(deadline(60_000), fn ->
+               case Repo.get!(AgentWorker, agent_uid) do
+                 %AgentWorker{state: "absent", generation: nil} = worker -> worker
+                 _worker -> nil
+               end
+             end)
+
+    assert DockerWorker.container_info(new_container) == nil
+    request_worker!(agent_uid)
+    assert Repo.get!(AgentWorker, agent_uid).image == old.image
+
+    assert DockerWorker.exec!(ctx.container, [
+             "cat",
+             "/workspace/image-marker",
+             "/var/cache/ankole/image-marker"
+           ]) == "homecache"
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  @tag :conversation_recovery
+  test "Worker death does not replay a Workflow model task or consume its call budget" do
+    ctx = start_worker_e2e_stack!(replaces_workers: true)
 
     assert :ok =
              FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
@@ -188,12 +732,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_wf_kill_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: input.agent_uid, session_id: input.session_id},
-               now: DateTime.add(input.available_at, 1, :second),
-               lease_seconds: long_lease_seconds()
-             )
+    assert {:ok, %{status: :driving}} = ensure_input_driver!(input, input.available_at)
 
     assert {:ok, start_reply, _message} =
              wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
@@ -224,93 +763,11 @@ defmodule Ankole.E2E.ChaosE2ETest do
         source_event_id: "workflow:call:#{call.id}:dispatch"
       )
 
-    # Short lease: the dead worker's activation must expire instead of holding
-    # the task session.
-    assert {:ok, %{activation: activation, send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: ctx.agent.uid, session_id: dispatch_event.session_id},
-               now: DateTime.add(dispatch_event.available_at, 1, :second),
-               lease_seconds: 5
-             )
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(dispatch_event, dispatch_event.available_at)
 
-    # The fake upstream delays the task turn by 1.5s, so the kill lands while
-    # the submit_result turn is provably in flight.
     assert_receive {:fake_llm_request, :workflow_kill_task, 1, _request}, 30_000
     DockerWorker.kill_docker_worker!(ctx.container)
-
-    # PostgreSQL still owns the truth: the claimed call stays running with no
-    # committed result.
-    assert %AgentCall{status: "running", attempts: 1, result: nil} = Repo.get!(AgentCall, call.id)
-
-    # The RunServer watchdog reconciles stale running tasks in production; run
-    # the same function with the stale window logically elapsed.
-    reconcile_now = DateTime.add(DateTime.utc_now(:microsecond), 6, :second)
-
-    assert {:ok, %{reconciled: 1}} =
-             Workflow.reconcile_stale_tasks(run.id, reconcile_now, reconcile_now)
-
-    assert %AgentCall{status: "queued", attempts: 1} = Repo.get!(AgentCall, call.id)
-
-    # The session activation still belongs to the dead worker until its lease
-    # expiry is enforced, exactly as in the main-turn kill scenario.
-    activation = Repo.reload(activation)
-    expiry_now = DateTime.add(activation.lease_expires_at, 1, :microsecond)
-
-    case ActorRuntime.fail_activation_if_expired(activation.activation_uid, now: expiry_now) do
-      {:ok, _failed_activation} ->
-        :ok
-
-      {:error, :activation_not_due} ->
-        assert Repo.reload(activation).status in ["failed", "stopped"]
-    end
-
-    replacement =
-      start_additional_worker!(
-        ctx.endpoint,
-        "chaos-wf-replacement-#{System.unique_integer([:positive])}",
-        ctx.worker_auth_key
-      )
-
-    # The retry clock must move past the dead activation's lease and follow the
-    # +30s defer that an unsent Workflow dispatch writes into available_at.
-    retry_result =
-      wait_until(deadline(120_000), fn ->
-        event = Repo.reload(dispatch_event)
-        wall_now = DateTime.utc_now(:microsecond)
-
-        base =
-          if DateTime.compare(event.available_at, wall_now) == :gt,
-            do: event.available_at,
-            else: wall_now
-
-        retry_now = DateTime.add(base, 1, :second)
-
-        outcome =
-          ReadyEventProcessor.process_ready_event_for_actor(
-            %{agent_uid: ctx.agent.uid, session_id: event.session_id},
-            now: retry_now,
-            lease_seconds: long_lease_seconds()
-          )
-
-        Process.put(:wf_chaos_retry_outcome, outcome)
-
-        case outcome do
-          {:ok, %{send_outcome: "sent_or_queued"} = result} -> result
-          {:ok, _other} -> nil
-          {:error, _reason} -> nil
-        end
-      end)
-
-    case retry_result do
-      {:ok, _sent} ->
-        :ok
-
-      :timeout ->
-        flunk(
-          "the requeued Workflow task was never accepted by the replacement worker; " <>
-            "last outcome: #{inspect(Process.get(:wf_chaos_retry_outcome), limit: 20)}"
-        )
-    end
 
     assert {:ok, %AgentCall{} = call} =
              wait_until(deadline(120_000), fn ->
@@ -323,7 +780,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     assert call.status == "succeeded"
     assert call.result == %{"ok" => true, "value" => "killed-and-recovered"}
-    assert call.attempts == 2
+    assert call.attempts == 1
+    assert FakeOpenAIState.counters()[:workflow_kill_task] == 1
 
     assert :ok = WorkflowRunServer.poke(run.id)
 
@@ -340,15 +798,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     assert Repo.get!(WorkflowRun, run.id).status == "completed"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: ctx.agent.uid, session_id: completion.session_id},
-               now: DateTime.add(completion.available_at, 1, :second),
-               lease_seconds: long_lease_seconds()
-             )
+    assert {:ok, %{status: :driving}} = ensure_input_driver!(completion, completion.available_at)
 
     assert {:ok, done_reply, _message} =
-             wait_for_completed_final_reply(replacement, completion.id, deadline(120_000))
+             wait_for_completed_final_reply(ctx.container, completion.id, deadline(120_000))
 
     assert done_reply.text =~ "CHAOS_WF_KILL_DONE_OK"
 
@@ -363,23 +816,27 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "control-plane server restart re-routes the reconnected worker and a live worker completes turns" do
+  test "control-plane server restart re-routes the reconnected worker and it completes turns" do
     ctx = start_worker_e2e_stack!()
+    before = Repo.get!(AgentWorker, ctx.agent.uid)
 
     restart_control_plane_http_server!(ctx.server_port)
 
-    replacement_worker_id = "router-replacement-#{System.unique_integer([:positive])}"
+    # The same Worker process joins again on a new connection.
+    assert {:ok, %AgentWorker{} = rejoined} =
+             wait_until(deadline(60_000), fn ->
+               case Repo.get!(AgentWorker, ctx.agent.uid) do
+                 %AgentWorker{state: "ready", transport_route: route} = worker
+                 when route != before.transport_route ->
+                   worker
 
-    replacement =
-      start_additional_worker!(ctx.endpoint, replacement_worker_id, ctx.worker_auth_key)
-
-    assert {:ok, %AgentComputerWorker{status: "ready", stop_reason: nil}} =
-             wait_until(deadline(30_000), fn ->
-               case Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id) do
-                 %AgentComputerWorker{status: "ready"} = worker -> worker
-                 _worker -> nil
+                 _worker ->
+                   nil
                end
              end)
+
+    assert rejoined.generation == before.generation
+    assert rejoined.incarnation_id == before.incarnation_id
 
     assert :ok =
              FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
@@ -392,13 +849,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
              )
 
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_router_restart_1")
-
-    # The worker reconnects on its own; dispatch retries until its re-admitted
-    # route accepts the turn.
     retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
 
     assert reply.text =~ "CHAOS_DIRECT_OK"
 
@@ -411,134 +865,20 @@ defmodule Ankole.E2E.ChaosE2ETest do
     )
   end
 
-  @tag timeout: 120_000
-  @tag ownership_timeout: 120_000
-  test "ZeroMQ router restart reauthenticates a legacy worker route and it completes turns" do
-    case DockerWorker.legacy_zmq_image() do
-      nil ->
-        IO.puts("skipping ZeroMQ router restart: the legacy Worker image is not present locally")
-
-      image ->
-        ctx = start_worker_e2e_stack!(worker: false)
-        # The legacy worker resolves AIGateway through this host-bound server.
-        _port = start_ai_gateway_test_http_server!()
-        endpoint = start_zmq_router!()
-        %URI{port: router_port} = URI.parse(endpoint)
-        worker_id = "zmq-chaos-worker-#{System.unique_integer([:positive])}"
-
-        container =
-          start_additional_worker!(endpoint, worker_id, WorkerAuthKey.ensure!(),
-            image: image,
-            mount_source: false
-          )
-
-        safe_stop_router()
-        restart_zmq_router_on_port!(router_port)
-
-        assert {:ok, %AgentComputerWorker{status: "ready", stop_reason: nil}} =
-                 wait_until(deadline(30_000), fn ->
-                   case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
-                     %AgentComputerWorker{status: "ready"} = worker -> worker
-                     _worker -> nil
-                   end
-                 end)
-
-        assert :ok =
-                 FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
-                   event_id: "evt_chaos_zmq_router_restart_1",
-                   message_id: "om_chaos_zmq_router_restart_1",
-                   chat_id: "oc_chaos_zmq_router_restart",
-                   chat_type: "p2p",
-                   text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
-                   mentions: [lark_bot_mention()]
-                 )
-
-        input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_zmq_router_restart_1")
-        retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
-
-        assert {:ok, reply, _message} =
-                 wait_for_completed_final_reply(container, input.id, deadline(120_000))
-
-        assert reply.text =~ "CHAOS_DIRECT_OK"
-    end
-  end
-
-  test "live worker heartbeat rebuilds its missing volatile registry row" do
-    ctx = start_worker_e2e_stack!()
-    worker = Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
-
-    assert {:ok, _deleted} = Repo.delete(worker)
-    assert is_nil(Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id))
-
-    assert {:ok, %AgentComputerWorker{} = recovered} =
-             wait_until(deadline(30_000), fn ->
-               case Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id) do
-                 %AgentComputerWorker{id: id, status: "ready"} = current
-                 when id != worker.id ->
-                   current
-
-                 _worker ->
-                   nil
-               end
-             end)
-
-    assert recovered.incarnation_id == worker.incarnation_id
-    assert recovered.transport_route == worker.transport_route
-    assert recovered.version == worker.version
-    assert recovered.capacity == worker.capacity
-    assert recovered.load == %{"active_turns" => 0}
-    assert recovered.metadata == worker.metadata
-    assert DateTime.after?(recovered.last_worker_heartbeat_at, worker.last_worker_heartbeat_at)
-  end
-
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "an attachment removed after the turn commits blocks delivery without a phantom file message" do
+  test "an attachment whose local file is removed after the turn still delivers the pinned bytes" do
     ctx = start_worker_e2e_stack!()
     %{outbox: outbox} = run_reply_attachment_tool_loop(ctx)
 
-    assert [
-             %{"user_files_relative_path" => relative_path}
-           ] = outbox.payload["attachments"]
+    # reply_attachment pinned the file under sent/ in the drive at tool time,
+    # so removing the local copy afterwards changes nothing that is delivered.
+    pattern = "/agents/#{ctx.agent.uid}/sessions/*/reports/chaos-report.txt"
 
-    host_path =
-      Path.join([
-        ctx.container.agents_root,
-        ctx.agent.uid,
-        "user-files",
-        relative_path
-      ])
+    assert DockerWorker.exec!(ctx.container, ["sh", "-c", "rm -v #{pattern}"]) =~
+             "chaos-report.txt"
 
-    assert File.regular?(host_path)
-    assert :ok = File.rm(host_path)
-
-    results = run_outbox_dispatch!()
-    key = outbox.outbound_key
-
-    failed_row =
-      Enum.find_value(results, fn
-        {_status, %OutboxEntry{outbound_key: ^key} = row} -> row
-        _other -> nil
-      end)
-
-    assert failed_row, "outbox row missing from dispatch results: #{inspect(results)}"
-    assert failed_row.status == :failed
-    assert failed_row.attempt_count == 1
-    assert failed_row.next_attempt_at == nil
-
-    assert failed_row.recovery_state == %{
-             "reason" => "operator_action_required",
-             "state" => "blocked"
-           }
-
-    assert get_in(failed_row.last_error, ["reason", "code"]) == "attachment_file_missing"
-    assert get_in(failed_row.last_error, ["reason", "worker_file_code"]) == "file_not_found"
-
-    refute_receive {:fake_feishu, {:file_uploaded, _file_key}}, 100
-
-    refute ctx.fake_feishu.state
-           |> FakeFeishu.State.visible_messages("oc_chaos_reply_attachment")
-           |> Enum.any?(&(&1.sender == :bot and &1.msg_type == "file"))
+    dispatch_and_assert_lark_file_outbox(ctx.fake_feishu, outbox, "om_reply_attachment_1")
   end
 
   @tag timeout: 120_000
@@ -610,8 +950,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_sendfail_1")
     assert input.type == "command.new"
 
-    assert {:ok, %{status: :command_consumed, feedback: "Started a new conversation."}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert_actor_event_finished!(input.id)
     outbox = Repo.get_by!(OutboxEntry, source_actor_event_id: input.id)
@@ -621,16 +961,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # the dispatch attempt must fail without a visible message.
     FakeFeishu.State.fail_next(ctx.fake_feishu.state, :reply_message, {:code, 500_100})
 
-    results = run_outbox_dispatch!()
-    key = outbox.outbound_key
-
-    failed_row =
-      Enum.find_value(results, fn
-        {_status, %OutboxEntry{outbound_key: ^key} = row} -> row
-        _other -> nil
-      end)
-
-    assert failed_row, "outbox row missing from dispatch results: #{inspect(results)}"
+    run_outbox_dispatch!()
+    failed_row = Repo.reload!(outbox)
     refute failed_row.status == :succeeded
 
     bot_visible =
@@ -676,22 +1008,173 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert bot_visible_after == []
   end
 
-  # Re-dispatches one pending input until a live worker accepts it. Routes to
-  # dead workers fail first and get marked unusable; that is the recovery path
-  # under test, so the retry loop tolerates those outcomes.
-  defp retry_until_sent!(input, now) do
-    assert {:ok, _result} =
-             wait_until(deadline(90_000), fn ->
-               case ReadyEventProcessor.process_ready_event_for_actor(
-                      %{agent_uid: input.agent_uid, session_id: input.session_id},
-                      now: now,
-                      lease_seconds: long_lease_seconds()
-                    ) do
-                 {:ok, %{send_outcome: "sent_or_queued"} = result} -> result
-                 {:ok, _other} -> nil
-                 {:error, _reason} -> nil
-               end
-             end),
-           "input #{input.id} was never accepted by a live worker"
+  defp put_idle_release_after!(agent_uid, duration) do
+    {:ok, provider} = Providers.load(Repo.get!(AgentWorker, agent_uid).provider_id)
+    config = provider.settings |> Map.put("idleReleaseAfter", duration) |> Ankole.JSON.encode!()
+    assert {:ok, _provider} = Providers.update(provider.provider_id, %{config: config})
   end
+
+  defp real_command_inflight!(ctx, label) do
+    nonce = "AUDIT_" <> Ecto.UUID.generate()
+    path = "/workspace/real-chaos-#{label}.log"
+    shell = "printf '%s\\n' '#{nonce}' >> '#{path}'; sleep 30; cat '#{path}'"
+
+    attrs = [
+      event_id: "evt_live_#{label}",
+      message_id: "om_live_#{label}",
+      chat_id: "oc_live_#{label}",
+      chat_type: "p2p",
+      text: """
+      Record this operations handoff exactly once in the isolated Agent computer.
+      Call command exactly once with command #{Ankole.JSON.encode!(shell)} and timeout 60.
+      The append records a real effect: do not execute that command a second time.
+      If execution is interrupted or its result is unknown, check the existing file instead
+      of repeating the write. In either case use read_file on #{path} to verify its content.
+      Only after the file proves there is exactly one record, reply with REAL_CHAOS_RECOVERED
+      followed by the record. If you cannot verify that fact, report the problem honestly.
+      """
+    ]
+
+    assert :ok = FakeFeishu.State.user_sends_message(ctx.fake_feishu.state, attrs)
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, attrs[:message_id])
+    assert {:ok, %{pid: pid}} = ensure_input_driver!(input, input.available_at)
+
+    assert {:ok, true} =
+             wait_until(deadline(180_000), fn ->
+               DockerWorker.exec!(ctx.container, [
+                 "sh",
+                 "-c",
+                 "if [ -f '#{path}' ]; then cat '#{path}'; fi"
+               ]) == nonce <> "\n"
+             end)
+
+    assert Repo.reload!(input).completed_at == nil
+    %{input: input, pid: pid, path: path, nonce: nonce, attrs: attrs}
+  end
+
+  defp assert_real_command_recovered!(ctx, command) do
+    assert {:ok, reply, _} =
+             wait_for_completed_final_reply(ctx.container, command.input.id, deadline(360_000))
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      reply,
+      "REAL_CHAOS_RECOVERED",
+      :reply,
+      command.attrs[:message_id]
+    )
+
+    assert reply.text =~ command.nonce
+    assert DockerWorker.exec!(ctx.container, ["cat", command.path]) == command.nonce <> "\n"
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_actor_event(command.input.id)
+    assert [_] = tool_call_items(messages, "command")
+    assert tool_result_succeeded?(messages, "read_file")
+    assert_actor_event_completed!(command.input.id)
+    assert_one_real_reply!(command.input)
+    messages
+  end
+
+  defp assert_one_real_reply!(input) do
+    assert Repo.aggregate(
+             from(event in ActorEvent,
+               where: event.agent_uid == ^input.agent_uid,
+               where: event.source_entry_id == ^input.source_entry_id
+             ),
+             :count
+           ) == 1
+
+    assert [%OutboxEntry{status: :succeeded}] =
+             Repo.all(
+               from(outbox in OutboxEntry,
+                 where: outbox.source_actor_event_id == ^input.id,
+                 where: outbox.delivery_class == :durable_ai_reply
+               )
+             )
+  end
+
+  # Let the real five-minute demand window expire before idle release.
+  defp stop_idle_worker!(agent_uid) do
+    case wait_until(deadline(360_000), fn ->
+           case Repo.get!(AgentWorker, agent_uid) do
+             %AgentWorker{state: "absent"} = worker -> worker
+             _worker -> nil
+           end
+         end) do
+      {:ok, worker} ->
+        worker
+
+      :timeout ->
+        flunk(
+          "the idle Worker did not release: #{inspect(Repo.get!(AgentWorker, agent_uid))}; open events: #{inspect(open_actor_events(agent_uid))}"
+        )
+    end
+  end
+
+  defp open_actor_events(agent_uid) do
+    Repo.all(
+      from(event in ActorEvent,
+        where: event.agent_uid == ^agent_uid and is_nil(event.completed_at),
+        select: map(event, [:id, :type, :session_id, :input_state, :available_at])
+      )
+    )
+  end
+
+  # Sends a rich post with one file and returns its ActorEvent once the event
+  # carries the stored attachment.
+  defp send_file_message!(ctx, message_id, chat_id) do
+    assert :ok =
+             FakeFeishu.State.put_inbound_file(
+               ctx.fake_feishu.state,
+               "file_1",
+               "CHAOS_INBOUND_FILE_BYTES deck",
+               "deck.pdf"
+             )
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_" <> message_id,
+               message_id: message_id,
+               chat_id: chat_id,
+               chat_type: "p2p",
+               message_type: "post",
+               content: %{
+                 "title" => "",
+                 "content" => [[%{"tag" => "text", "text" => "Please read the attached report."}]],
+                 "files" => [%{"file_key" => "file_1", "file_name" => "deck.pdf"}]
+               },
+               mentions: []
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, message_id)
+
+    assert {:ok, %Entry{attachments: [attachment]}} =
+             wait_until(deadline(10_000), fn ->
+               case Repo.get_by(Entry,
+                      signal_channel_id: "lark:" <> chat_id,
+                      source_entry_id: message_id
+                    ) do
+                 %Entry{attachments: [%{"blob_ref" => blob_ref, "path" => path}]} = entry
+                 when is_binary(blob_ref) and is_binary(path) ->
+                   entry
+
+                 _entry ->
+                   nil
+               end
+             end)
+
+    assert {:ok, %ActorEvent{} = input} =
+             wait_until(deadline(10_000), fn ->
+               refreshed = Repo.get!(ActorEvent, input.id)
+
+               if get_in(refreshed.payload, ["data", "entry", "attachments"]) == [attachment],
+                 do: refreshed
+             end)
+
+    input
+  end
+
+  # Re-dispatches one pending input until the Agent's Worker accepts it. Sends
+  # fail while the Worker restarts, and each failed placement requests the
+  # Worker again; that is the recovery path under test, so the retry loop
+  # tolerates those outcomes.
 end

@@ -1,0 +1,4 @@
+<ambient_route>
+The trusted ambient router identified NEW_WORK, but no human request or standing order authorizes it.
+Only ask whether the Agent should take on the concrete work. Do not begin the work, call a tool, create or change a background job, modify state, or claim that work has started.
+</ambient_route>

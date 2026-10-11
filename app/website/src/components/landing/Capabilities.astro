@@ -27,9 +27,9 @@ const read = (key: string) => ({
 })
 
 /*
- * Two capabilities establish the decision loop and six support it. Printing all
- * eight at one size in one boxed grid asks the reader to weigh them equally, which is
- * the wrong answer and reads as a spec sheet.
+ * Two capabilities carry the argument and six support it. Printing all eight at one
+ * size in one boxed grid asks the reader to weigh them equally, which is the wrong
+ * answer and reads as a spec sheet.
  */
 const lead = [
 	{ icon: RiTimerFlashLine, ...read('async') },
@@ -46,9 +46,9 @@ const rest = [
 ]
 ---
 
-<Section>
+<Section tone="raised">
 	<SectionHeading
-		index="03"
+		index="04"
 		eyebrow={t(lang, 'section.capabilities')}
 		title={t(lang, 'capabilities.title')}
 		subtitle={t(lang, 'capabilities.subtitle')}

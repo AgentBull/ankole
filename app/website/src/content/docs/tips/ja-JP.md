@@ -16,7 +16,7 @@ bun run dev   # 1 つのターミナルで
 bun run kit logs pretty < /path/to/log-stream   # またはログファイルをパイプする
 ```
 
-本番では `ANKOLE_LOG_FORMAT=json` のままにし、書式設定はログインジェスターに任せます。pretty printer はローカル用の便利機能であり、本番設定ではありません。
+本番では構造化ログをログ収集システムに送信します。pretty printer はローカルで使用します。
 
 ## バグ調査の前にログレベルを絞る
 
@@ -42,7 +42,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 - **`light`** には本当に安くて速いものをバインドします — これは高頻度・低リスクの経路のために存在します。
 - agent が画像を見る場合にだけ **`vision_fallback`** を設定します。それ以外は未バインドのままにしてスロットを節約します。
 - **`web_search`** と **`web_fetch`** は独立しています — agent が web に触れる必要があるときだけバインドします。
-- Brain の検索モデルは Agent profile ではなく、**AppConfigure** で一度設定します。`brain.embedding_model` はすべての Agent のベクトル検索に適用され、`brain.rerank_model` は rerank に適用されます。embedding モデルが空の場合はベクトル検索が無効になり、rerank モデルが空の場合は融合後の順序を保ちます。詳しくは [Brain](../brain/) を参照してください。
+- Brain の検索モデルは **AppConfigure** で設定します。サイトの `brain.embedding_model` はすべての Agent のベクトル検索に適用され、各テナントの `brain.rerank_model` はそのテナントの rerank に適用されます。embedding モデルが空の場合はベクトル検索が無効になり、rerank モデルが空の場合は融合後の順序を保ちます。詳しくは [Brain](../brain/) を参照してください。
 
 「遅い」と感じる agent は、実際に行っている仕事に対して重すぎる `primary` がバインドされていることがよくあります。
 

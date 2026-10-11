@@ -13,14 +13,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.Workflow
 
-  @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
   @supported_create_fields ~w(
     agent_uid
     created_by
@@ -84,8 +80,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   defp prepare_new_job(attrs, agent_uid, now) do
-    with :ok <- reject_caller_local_task_paths(Attrs.text(attrs, "task")),
-         {:ok, reply_route} <- reply_route(attrs),
+    with {:ok, reply_route} <- reply_route(attrs),
          {:ok, model_profile} <- requested_model_profile(agent_uid, attrs) do
       attrs
       |> Map.put("reply_route", reply_route)
@@ -93,17 +88,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       |> create_new_job(agent_uid, now)
     end
   end
-
-  defp reject_caller_local_task_paths(task) when is_binary(task) do
-    if Regex.match?(@legacy_workspace_path_pattern, task),
-      do:
-        {:error,
-         {:background_agent_job_legacy_workspace_path,
-          "/workspace is no longer a valid Agent path; use the real /agents/<agent-key>/... path shown in the current runtime context"}},
-      else: :ok
-  end
-
-  defp reject_caller_local_task_paths(_task), do: :ok
 
   defp create_new_job(attrs, agent_uid, now) do
     with {:ok, workspace_template_id} <- validate_workspace_template_id(agent_uid, attrs),
@@ -123,8 +107,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   defp prepare_respawn(source_job_id, attrs, agent_uid, now) do
-    with :ok <- reject_caller_local_task_paths(Map.get(attrs, "message")),
-         {:ok, reply_route} <- reply_route(attrs),
+    with {:ok, reply_route} <- reply_route(attrs),
          %Job{} = source_job <- BackgroundAgentJobs.get_job_for_agent(source_job_id, agent_uid),
          {:ok, model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
          {:ok, metadata} <- job_metadata(attrs, false) do
@@ -166,7 +149,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     Repo.transact(fn repo ->
       attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
-      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+      with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+           :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
            :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
           {:ok, job} ->
@@ -195,7 +179,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     Repo.transact(fn repo ->
       attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
-      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+      with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+           :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
            :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
           {:ok, job} ->
@@ -215,8 +200,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                  attrs <- respawn_job_attrs(attrs, source_job, now),
                  {:ok, attrs} <- pin_owner_conversation(repo, attrs),
                  {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
-                 {:ok, dispatch_event} <- append_dispatch_event(repo, job, now),
-                 :ok <- inherit_worker_assignment(repo, source_job, job, now) do
+                 {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
               {:ok, %{job: job, dispatch_event: dispatch_event}}
             end
         end
@@ -263,27 +247,16 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  # The continued Job inherits the source's Codex thread only while the source
-  # assignment is still live. Terminal finalize releases that assignment, so a
-  # respawn normally finds none, places by capacity, and relies on the replay
-  # ladder; this inherit covers the narrow window before that release.
-  defp inherit_worker_assignment(repo, %Job{} = source_job, %Job{} = successor, now) do
-    WorkerPool.inherit_assignment_in_tx(
-      repo,
-      %{
-        agent_uid: source_job.agent_uid,
-        session_id: BackgroundAgentJobs.job_session_id(source_job.id)
-      },
-      %{
-        agent_uid: successor.agent_uid,
-        session_id: BackgroundAgentJobs.job_session_id(successor.id)
-      },
-      now
-    )
-  end
-
   defp respawn_job_attrs(attrs, source_job, now) do
+    metadata = Map.get(attrs, "metadata", %{})
+
+    metadata =
+      if source_job.metadata["legacy_thread_replay"] == true,
+        do: Map.put(metadata, "legacy_thread_replay", true),
+        else: Map.delete(metadata, "legacy_thread_replay")
+
     attrs
+    |> Map.put("metadata", metadata)
     |> Map.delete("message")
     |> Map.put("title", source_job.title)
     |> Map.put("task", Map.get(attrs, "message"))
@@ -319,10 +292,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
              |> ActorEvent.changeset(%{available_at: available_at})
              |> repo.update(),
            :ok <-
-             RuntimeEvents.notify_actor_session_ready(
+             Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
                repo,
-               actor_event.agent_uid,
-               actor_event.session_id,
+               %{agent_uid: actor_event.agent_uid, session_id: actor_event.session_id},
                available_at
              ) do
         {:ok, actor_event}
@@ -344,23 +316,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
           {:ok, actor_event}
       end
     end)
-  end
-
-  @spec complete_open_dispatch(pos_integer(), String.t()) :: :ok | {:error, term()}
-  def complete_open_dispatch(job_id, agent_uid) do
-    Repo.transact(fn repo ->
-      complete_open_events_in_tx(
-        repo,
-        job_id,
-        agent_uid,
-        ["background_agent_job.dispatch"],
-        now()
-      )
-    end)
-    |> case do
-      {:ok, :ok} -> :ok
-      {:error, _reason} = error -> error
-    end
   end
 
   @doc false
@@ -394,7 +349,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   # index also makes commit replays idempotent.
   @doc false
   @spec seed_steer_successor_in_tx(module(), Job.t(), [ActorEvent.t()], DateTime.t()) ::
-          {:ok, Job.t()} | {:error, term()}
+          {:ok, %{job: Job.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
   def seed_steer_successor_in_tx(repo, %Job{} = source_job, [first | _rest] = steers, now) do
     task = steers |> Enum.map(&steer_text/1) |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
 
@@ -421,8 +376,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
            |> Ankole.Principals.WorkAccess.merge(first),
          {:ok, attrs} <- pin_owner_conversation(repo, attrs),
          {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
-         {:ok, _dispatch_event} <- append_dispatch_event(repo, job, now) do
-      {:ok, job}
+         {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
+      {:ok, %{job: job, dispatch_event: dispatch_event}}
     end
   end
 
@@ -434,34 +389,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       text when is_binary(text) and text != "" -> text
       _missing -> nil
     end
-  end
-
-  @doc false
-  def pending_steer_events(job_id, agent_uid, excluded_event_id) do
-    Repo.transact(fn repo ->
-      {:ok, pending_steer_events_in_tx(repo, job_id, agent_uid, excluded_event_id)}
-    end)
-  end
-
-  defp pending_steer_events_in_tx(repo, job_id, agent_uid, excluded_event_id) do
-    ActorEvent
-    |> where([event], event.agent_uid == ^agent_uid)
-    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
-    |> where([event], event.type == "command.steer")
-    |> where([event], event.input_state == "open")
-    |> where([event], is_nil(event.completed_at))
-    |> where([event], event.id != ^excluded_event_id)
-    |> order_by([event], asc: event.queue_sequence)
-    |> lock("FOR UPDATE")
-    |> repo.all()
-    |> Enum.reject(&live_delivery_for_event?(repo, &1.id))
-  end
-
-  defp live_delivery_for_event?(repo, actor_event_id) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id == ^actor_event_id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> repo.exists?()
   end
 
   defp complete_open_events_in_tx(repo, job_id, agent_uid, types, completed_at) do
@@ -642,10 +569,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  # The Worker resolves every Job turn's conversation context from
-  # `metadata.owner_conversation_id`, so a Job without it fails only at runtime
-  # inside the Worker. Creation pins it here, on every insert path, from the
-  # owner session's active conversation; callers do not supply it.
+  # Admission resolves the Job context from metadata.owner_conversation_id.
+  # Creation pins the owner session's conversation on every insert path.
+  # Callers do not supply this identity.
   defp pin_owner_conversation(repo, attrs) do
     case Attrs.text(attrs, "owner_session_id") do
       session_id when is_binary(session_id) ->

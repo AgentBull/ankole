@@ -3,6 +3,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.MapHelpers
 
   alias Ankole.Plugins.DiscordAdapter.{
@@ -13,14 +14,14 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
     Presentation
   }
 
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.WorkerFiles
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
 
   @impl true
   def send(%OutboxEntry{} = outbox) do
     result =
-      with {:ok, config} <- config_for_outbox(outbox),
+      with {:ok, config} <- Bindings.outbox_config(outbox, Config),
+           config = Config.runtime_config(config),
            client <- Config.client(config),
            {:ok, requests} <- requests_for_outbox(outbox) do
         perform_requests(requests, client, outbox)
@@ -44,7 +45,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
         |> maybe_put("content", content)
         |> maybe_reply(if(index == 0, do: reply_id(outbox)))
         |> message_body()
-        |> post_request(channel, if(index == 0, do: attachments, else: []), outbox.agent_uid)
+        |> post_request(channel, if(index == 0, do: attachments, else: []))
       end)
       |> MapHelpers.collect_results()
     end
@@ -144,16 +145,16 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
     end
   end
 
-  defp post_request(body, channel, [], _agent_uid) do
+  defp post_request(body, channel, []) do
     {:ok, request(:post, "/channels/#{channel.channel_id}/messages", body)}
   end
 
   # Discord carries an upload as one multipart request whose `payload_json`
   # part holds the ordinary message body and whose `files[n]` parts hold the
   # bytes, so text and attachments arrive as one message rather than two.
-  defp post_request(body, channel, attachments, agent_uid) do
+  defp post_request(body, channel, attachments) do
     attachments
-    |> Enum.map(&attachment_file(&1, agent_uid))
+    |> Enum.map(&attachment_file/1)
     |> MapHelpers.collect_results()
     |> case do
       {:ok, files} ->
@@ -170,21 +171,14 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
     end
   end
 
-  defp attachment_file(attachment, agent_uid) do
-    relative = MapHelpers.optional_text(attachment, "user_files_relative_path")
-    lane_path = if relative, do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-    with path when is_binary(path) <- lane_path,
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", path) do
+  defp attachment_file(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
       {:ok,
        %{
          content: content,
-         filename: attachment["name"] || Path.basename(relative),
+         filename: attachment["name"] || Path.basename(attachment["path"] || "attachment"),
          content_type: attachment["mime_type"]
        }}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
     end
   end
 
@@ -324,14 +318,4 @@ defmodule Ankole.Plugins.DiscordAdapter.Outbox do
     do: true
 
   defp idempotent_absence?(_method, _error), do: false
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 end

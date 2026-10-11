@@ -16,7 +16,7 @@ import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -95,9 +95,7 @@ export function IdentityProvidersListPage() {
       {rows.map(provider => (
         <TableRow key={provider.provider_id}>
           <TableCell className="font-mono text-xs">
-            <Link
-              className="text-foreground hover:text-link hover:underline"
-              to={encodeURIComponent(provider.provider_id)}>
+            <Link data-row-link className="text-foreground" to={encodeURIComponent(provider.provider_id)}>
               {provider.provider_id}
             </Link>
           </TableCell>
@@ -123,7 +121,6 @@ export function IdentityProviderEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(IdentityEditorModel)
   const params = useParams()
   const providerID = params.providerID
@@ -168,7 +165,6 @@ export function IdentityProviderEditorPage() {
     absent: () => mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected
   })
 
-  const refresh = () => void queryClient.invalidateQueries()
   const saveProvider = useMutation({
     ...ankoleWebIdentityProviderControllerPutProviderMutation(),
     onSuccess: response => {
@@ -176,7 +172,7 @@ export function IdentityProviderEditorPage() {
       // Stay on the editor so the operator can continue to change the
       // configuration after each save.
       model.markSaved(formFromProvider(response.identity_provider))
-      refresh()
+
       if (mode === 'new') navigate(`/identity/${encodeURIComponent(response.identity_provider.provider_id)}`)
     }
   })
@@ -184,7 +180,6 @@ export function IdentityProviderEditorPage() {
     ...ankoleWebIdentityProviderControllerRunSyncMutation(),
     onSuccess: () => {
       toast.success(t('console.identity.sync_started'))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

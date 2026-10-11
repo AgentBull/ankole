@@ -15,7 +15,7 @@ resolver、provider モジュール、kernel はそれぞれ 1 つの段階を�
 
 Agent には 8 つの組み込みモデルプロファイルがあります。`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate` です。`coding` は、ユーザー向けの Background Agent Jobs プロファイルが API と保存時に使う名前です。最初の 5 つは言語モデルを選択し、最後の 3 つは web 検索、web fetch、画像生成の各能力を選択します。
 
-Embedding と rerank は Agent プロファイルではありません。これらの能力を AIGateway から直接呼び出す場合は、明示的な `provider_id/model` selector が必要です。Brain は、[AppConfigure](../app-configuration/) の `brain.embedding_model` と `brain.rerank_model` からインスタンス共通のモデルを読み取ります。検索への影響については [Brain](../brain/) を参照してください。
+Embedding と rerank は Agent プロファイルではありません。これらの能力を AIGateway から直接呼び出す場合は、明示的な `provider_id/model` selector が必要です。Brain は、[AppConfigure](../app-configuration/) の `brain.embedding_model` からサイト単位の embedding モデルを、`brain.rerank_model` からテナント単位の rerank モデルを読み取ります。検索への影響については [Brain](../brain/) を参照してください。
 
 provider 行を解決した後、resolver は使用可能な credential を 1 つ選択します。thread affinity は、その行の `fill_first`、`round_robin`、`least_used`、`random` 戦略より優先されます。ランタイムマップは正確な credential ID を後続のすべての失敗パスに運びます。ChatGPT サブスクリプションの OAuth メンバーについては、resolver は provider 行のロック下で、有効期限が近いか古い token を refresh します。永続的な refresh 失敗はそのメンバーを `dead` にし、一時的な失敗は `exhausted` にします。どちらも次の使用可能なメンバーを選択します。
 

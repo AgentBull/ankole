@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": ["$TURBO_ROOT$/app/control_plane/priv/static/assets/**"],
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/app/locales/**",
+        "$TURBO_ROOT$/tools/openapi-client-generator/package.json"
+      ]
+    },
+    "type-check": {
+      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+    },
+    "test": {
+      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+    },
+    "lint": {
+      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+    }
+  }
+}

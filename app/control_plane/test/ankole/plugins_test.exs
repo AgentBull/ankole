@@ -33,6 +33,15 @@ defmodule Ankole.PluginsTest do
     allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
+
+    # A fixture Registry replaces the global AppConfigure plugin declarations.
+    # Reset them after each test, so that later test modules find the live
+    # plugin keys.
+    on_exit(fn ->
+      AppConfigureRegistry.clear_for_test()
+      Cache.clear_for_test()
+    end)
+
     {:ok, true} = SetupConfig.put_completed(true)
 
     :ok

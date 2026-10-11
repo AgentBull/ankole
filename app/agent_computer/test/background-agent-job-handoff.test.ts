@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test'
 import {
   BACKGROUND_AGENT_JOB_HANDOFF_MAX_PATH_BYTES,
   BACKGROUND_AGENT_JOB_HANDOFF_MAX_PATHS,
-  backgroundAgentJobPathHandoff,
   boundedBackgroundAgentJobPaths
 } from '../src/core/background-agent-job-handoff'
 import { boundedFilesChangedFromCodexDiff } from '../src/core/codex-runner/protocol'
@@ -10,11 +9,7 @@ import { boundedFilesChangedFromCodexDiff } from '../src/core/codex-runner/proto
 describe('@ankole/agent-computer BackgroundAgentJob path handoff', () => {
   it('bounds hostile path sets by count and serialized bytes without hiding the total', () => {
     const manyPaths = Array.from({ length: 50_000 }, (_, index) => `/agents/agent-1/user-files/report-${index}.pdf`)
-    const countBounded = backgroundAgentJobPathHandoff({
-      total_count: manyPaths.length,
-      paths: manyPaths,
-      truncated: false
-    })
+    const countBounded = boundedBackgroundAgentJobPaths(manyPaths)
 
     expect(countBounded).toMatchObject({ total_count: 50_000, truncated: true })
     expect(countBounded?.paths).toHaveLength(BACKGROUND_AGENT_JOB_HANDOFF_MAX_PATHS)

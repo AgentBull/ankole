@@ -14,7 +14,7 @@ defmodule AnkoleWeb.AIGatewayConversationControllerTest do
   test "a malformed conversation id yields an empty message page", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/ai-gateway/conversations/not-a-uuid/messages")
 
     assert %{"messages" => [], "next_cursor" => nil} = json_response(conn, 200)
@@ -23,7 +23,7 @@ defmodule AnkoleWeb.AIGatewayConversationControllerTest do
   test "a malformed conversation id is not found on show", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> get(~p"/api/v1/ai-gateway/conversations/not-a-uuid")
 
     assert %{"error" => %{"code" => "not_found", "message" => message}} = json_response(conn, 404)

@@ -17,7 +17,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       excluded from normal history/anchor projection.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

@@ -4,15 +4,17 @@ export type EditorDraftStatus = 'loading' | 'absent' | 'ready'
 
 export type EditorDraftIdentity =
   | { resource: 'agent'; uid?: string }
+  | { resource: 'tenant'; tenantID?: string }
   | { resource: 'oidc-client'; clientID?: string }
   | { resource: 'ai-provider'; providerID?: string }
+  | { resource: 'worker-provider'; providerID?: string }
   | { resource: 'identity-provider'; providerID?: string }
   | { resource: 'principal'; uid?: string }
   | { resource: 'principal-group'; name?: string }
   | { resource: 'permission-grant'; id?: string }
-  | { resource: 'worker-env'; name?: string }
+  | { resource: 'worker-env'; name?: string; scope: 'global' | 'tenant' }
   | { resource: 'schedule'; id?: string }
-  | { resource: 'setting'; key: string }
+  | { resource: 'setting'; key: string; scope: 'global' | 'tenant' }
   | { resource: 'signal-binding'; agentUID: string; adapterID?: string; name?: string }
   | { resource: 'brain-object'; slug?: string }
   | { resource: 'agent-library'; agentUID: string }
@@ -32,11 +34,14 @@ type ResolvedEditorDraftIdentity = {
 
 export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): ResolvedEditorDraftIdentity {
   switch (identity.resource) {
+    case 'tenant':
+      return sameKey(identity.tenantID ? `tenant:${identity.tenantID}` : 'new')
     case 'oidc-client':
       return sameKey(identity.clientID ? `client:${identity.clientID}` : 'new')
     case 'agent':
       return sameKey(identity.uid ? `agent:${identity.uid}` : 'new')
     case 'ai-provider':
+    case 'worker-provider':
     case 'identity-provider':
       return sameKey(identity.providerID ? `provider:${identity.providerID}` : 'new')
     case 'principal':
@@ -46,11 +51,11 @@ export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): Resol
     case 'permission-grant':
       return sameKey(identity.id ? `grant:${identity.id}` : 'new')
     case 'worker-env':
-      return sameKey(`worker-env:${identity.name ?? 'new'}`)
+      return sameKey(`worker-env:${identity.scope}:${identity.name ?? 'new'}`)
     case 'schedule':
       return sameKey(`cron:${identity.id ?? 'new'}`)
     case 'setting':
-      return sameKey(`setting:${identity.key}`)
+      return sameKey(`setting:${identity.scope}:${identity.key}`)
     case 'signal-binding':
       return sameKey(`binding:${identity.agentUID}:${identity.adapterID ?? ''}:${identity.name ?? 'new'}`)
     case 'brain-object':
@@ -64,16 +69,6 @@ export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): Resol
     case 'token-quota':
       return sameKey(`agent:${identity.agentUID}`)
   }
-}
-
-/** Seed a draft only when the selected resource identity changes. */
-export function seedEditorDraft<Source>(
-  model: EditorDraftModel<Source>,
-  identity: EditorDraftIdentity,
-  source: Source | undefined,
-  absent = false
-): void {
-  seedResolvedEditorDraft(model, resolveEditorDraftIdentity(identity), source, absent)
 }
 
 export function useEditorDraft<Source>(
@@ -92,7 +87,7 @@ export function useEditorDraft<Source>(
   const isAbsent = absent?.() ?? false
 
   useEffect(() => {
-    seedResolvedEditorDraft(model, { sourceKey, initializeKey }, source, isAbsent)
+    seedEditorDraft(model, { sourceKey, initializeKey }, source, isAbsent)
   }, [initializeKey, isAbsent, model, source, sourceKey])
 
   if (isAbsent) return 'absent'
@@ -104,7 +99,7 @@ function sameKey(sourceKey: string): ResolvedEditorDraftIdentity {
   return { sourceKey, initializeKey: sourceKey }
 }
 
-function seedResolvedEditorDraft<Source>(
+export function seedEditorDraft<Source>(
   model: EditorDraftModel<Source>,
   identity: ResolvedEditorDraftIdentity,
   source: Source | undefined,

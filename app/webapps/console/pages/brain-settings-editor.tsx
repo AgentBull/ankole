@@ -1,3 +1,4 @@
+import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
 import {
   CreatableCombobox,
   CronEditor,
@@ -17,7 +18,7 @@ import type { TFunction } from 'i18next'
 import { Link } from 'react-router'
 import {
   ankoleWebAgentControllerIndexOptions,
-  ankoleWebAiGatewayControllerModelsOptions,
+  ankoleWebAiGatewayProviderControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
@@ -95,7 +96,7 @@ export function BrainSettingsEditor({
   const cronLabels = cronEditorLabels(t)
   const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
-  const modelCatalog = useQuery(ankoleWebAiGatewayControllerModelsOptions())
+  const modelCatalog = useQuery(ankoleWebAiGatewayProviderControllerModelsOptions())
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const providerList = providers.data?.ai_gateway_providers ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
@@ -156,7 +157,7 @@ export function BrainSettingsEditor({
             <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_empty')}>
               {selectableAgents.map(agent => (
                 <SelectItem key={agent.uid} value={agent.uid}>
-                  {agent.display_name} · {agent.uid}
+                  {agent.display_name} · {agent.handle}
                   {agent.status === 'disabled' ? ` · ${t('console.status.disabled')}` : ''}
                 </SelectItem>
               ))}
@@ -164,7 +165,7 @@ export function BrainSettingsEditor({
           </Select>
           {maintainerAgentUID ? (
             <Link
-              className="w-fit text-sm text-primary underline-offset-4 hover:underline"
+              className="link w-fit text-sm"
               to={`/agents/${encodeURIComponent(maintainerAgentUID)}#model-profiles`}>
               {t('console.settings.brain_maintainer_agent_models', {
                 agent: selectedAgent?.display_name ?? maintainerAgentUID
@@ -178,7 +179,7 @@ export function BrainSettingsEditor({
         models[key] ? (
           <BrainModelFieldGroup
             key={key}
-            catalog={modelCatalog.data}
+            catalog={modelCatalog.data?.models ?? []}
             configurationKey={key}
             draft={models[key]}
             item={itemsByKey.get(key)}
@@ -308,7 +309,7 @@ function BrainModelFieldGroup({
   providersLoading,
   saving
 }: {
-  catalog: unknown
+  catalog: AIGatewayModelCatalogEntry[]
   configurationKey: string
   draft: BrainModelDraft
   item?: AppConfigurationItem

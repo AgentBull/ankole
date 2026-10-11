@@ -6,7 +6,7 @@ defmodule AnkoleWeb.DirectoryAccessController do
   alias AnkoleWeb.{ConsoleErrors, ConsolePolicy}
   alias AnkoleWeb.Schemas.HumanAccessAPI
   tags(["Identity Providers"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
   plug OpenApiSpex.Plug.CastAndValidate, render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:show,
@@ -62,7 +62,7 @@ defmodule AnkoleWeb.DirectoryAccessController do
            DirectoryAccess.approve_snapshot(
              id,
              body.snapshot_fingerprint,
-             conn.assigns.current_principal_uid,
+             Ankole.ActorRef.from_principal(conn.assigns.current_principal),
              body.reason,
              body.confirm_removals
            ) do
@@ -81,7 +81,7 @@ defmodule AnkoleWeb.DirectoryAccessController do
          result when result == :ok or elem(result, 0) == :ok <-
            DirectoryAccess.review_event(
              event_id,
-             conn.assigns.current_principal_uid,
+             Ankole.ActorRef.from_principal(conn.assigns.current_principal),
              body.reason,
              action
            ) do
@@ -137,8 +137,16 @@ defmodule AnkoleWeb.DirectoryAccessController do
         ])
       )
 
+    snapshot = if snapshot, do: Map.update!(snapshot, :reviewed_by, &actor_projection/1)
+
+    events =
+      Enum.map(events, &Map.update!(&1, :reviewed_by, fn actor -> actor_projection(actor) end))
+
     json(conn, Ankole.JSON.plain(%{snapshot: snapshot, events: events}))
   end
+
+  defp actor_projection(nil), do: nil
+  defp actor_projection(reference), do: Map.from_struct(reference)
 
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "Access denied")
 

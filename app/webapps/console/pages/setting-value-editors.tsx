@@ -293,7 +293,7 @@ function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
         {undiscoveredIDs.map(pluginID => (
           <label
             key={pluginID}
-            className="flex min-w-0 items-start gap-3 border border-warning/50 bg-warning/5 px-4 py-4">
+            className="flex min-w-0 items-start gap-3 border border-warning/50 bg-warning-subtle px-4 py-4">
             <Checkbox checked onCheckedChange={checked => update(pluginID, checked === true)} />
             <span className="grid min-w-0 flex-1 gap-2">
               <span className="break-all font-mono text-sm font-semibold">{pluginID}</span>

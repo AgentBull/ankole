@@ -5,17 +5,11 @@ section: Reference
 order: 203
 ---
 
-이 페이지는 Console API의 REST 참조입니다. 인증 게이트, `/api/v1` 아래의 라우트, 각 라우트의 권한 동작을 다룹니다.
+Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdminSession`은 매 요청에서 Console context, Human 취소 상태, 현재 site administrator membership을 확인합니다. 인증 실패는 `401`을 반환합니다. GET과 HEAD 이외의 요청에는 shell의 `x-csrf-token` header가 필요합니다. CSRF 증명이 없거나 유효하지 않으면 `403`을 반환합니다.
 
-결정적인 속성을 먼저 말하면, Console API는 무상태(stateless)이며 bearer 인증을 사용하고, 매 요청마다 호출자가 여전히 활성 관리자(admin)인지 다시 확인합니다. 사용자을 대신해 일하는 세션 쿠키는 없으며, 비활성화된 admin은 다음 로그인이 아니라 즉시 작동을 멈춥니다.
+표의 경로는 `/api/v1`에 대한 상대 경로입니다. 사이트 관리 라우트는 `/site/*` 아래에서 `:session_api` + `:site_admin` 파이프라인을 사용합니다. 테넌트 데이터 라우트는 `:session_api` + `:site_admin` + `:data_context` 파이프라인과 `PutDataContext`를 사용합니다. 테넌트 라우트에서는 `x-ankole-tenant: <테넌트 UUID>`로 데이터 테넌트를 선택합니다. 헤더가 없으면 호출자의 테넌트를 사용합니다. 유효하지 않거나 사용할 수 없거나 삭제 중인 테넌트는 `404`와 `data_tenant_unavailable`을 반환합니다. 이 헤더는 호출자의 신원이나 사이트 관리 권한을 바꾸지 않으며 사이트 라우트의 범위도 선택하지 않습니다.
 
-`/api/v1` 아래의 모든 라우트는 `:console_api` 파이프라인과 `RequireConsoleAccessToken` plug를 거칩니다. 이 plug는 모두 필수인 세 가지 독립 검사를 실행합니다.
-
-1. 형식이 올바른 `Authorization: Bearer` 헤더;
-2. 검증되는 console JWT;
-3. JWT가 가리키는 principal이 여전히 활성 admin일 것.
-
-성공하면 이후의 정책 검사를 위해 principal과 claims를 conn assigns로 보관합니다. 실패하면 `401`로 중단합니다. 이것은 브라우저 화면에서 세션과 CSRF가 하는 일을 쿠키 없이 요청 단위로 수행하는 것과 같습니다. 이 라우트로 들어가는 더 약한 경로는 없습니다.
+공개 `/api/v1/openapi.json`, 런타임 AI 호출, 웹훅은 각각의 인증 규칙을 사용합니다.
 
 ## 구성 표면
 
@@ -27,19 +21,20 @@ order: 203
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/ai-gateway/provider-kinds` | 이 배포 인스턴스가 구성할 수 있는 프로바이더 종류 목록 |
-| `GET` | `/ai-gateway/providers` | 구성된 프로바이더 목록 |
-| `GET` | `/ai-gateway/providers/:provider_id` | 프로바이더 하나와 자격 증명 풀 상태 읽기 |
-| `PUT` | `/ai-gateway/providers/:provider_id` | 프로바이더 생성 또는 교체 |
-| `DELETE` | `/ai-gateway/providers/:provider_id` | 프로바이더 제거 |
-| `POST` | `/ai-gateway/providers/:provider_id/credentials` | 자격 증명 풀 멤버 추가 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 갱신 또는 재인증 |
-| `DELETE` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 제거 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credential-pool/strategy` | 풀 선택 전략 설정 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT device 또는 브라우저 로그인 하나 시작 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device 로그인 하나 폴링 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 브라우저 붙여넣기 폴백 완료 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise 액세스 토큰 추가 |
+| `GET` | `/site/ai-gateway/provider-kinds` | 이 배포 인스턴스가 구성할 수 있는 프로바이더 종류 목록 |
+| `GET` | `/site/ai-gateway/models` | Console 설정용 capability가 포함된 provider model 목록 |
+| `GET` | `/site/ai-gateway/providers` | 구성된 프로바이더 목록 |
+| `GET` | `/site/ai-gateway/providers/:provider_id` | 프로바이더 하나와 자격 증명 풀 상태 읽기 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id` | 프로바이더 생성 또는 교체 |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id` | 프로바이더 제거 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/credentials` | 자격 증명 풀 멤버 추가 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 갱신 또는 재인증 |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 제거 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | 풀 선택 전략 설정 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT device 또는 브라우저 로그인 하나 시작 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device 로그인 하나 폴링 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 브라우저 붙여넣기 폴백 완료 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise 액세스 토큰 추가 |
 | `GET` | `/agents/:agent_uid/model-profiles` | 에이전트의 모델 프로파일 목록 |
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | 프로파일 생성 또는 교체 |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | 프로파일 제거 |
@@ -59,6 +54,20 @@ order: 203
 | `POST` | `/agents/:agent_uid/enable` | 비활성화된 에이전트 다시 활성화 |
 | `DELETE` | `/agents/:agent_uid` | 활성 에이전트는 비활성화하고, 이미 비활성화된 에이전트는 영구 삭제 |
 
+### Worker 프로바이더
+
+각 Agent는 생성할 때 Worker 프로바이더 하나를 선택하며 이후에는 변경할 수 없습니다. 프로바이더의 YAML 설정과 암호화된 자격 증명은 별도로 저장합니다. 수명 주기와 스토리지 계약은 [Worker 관리](../worker-management/)를 참조하세요.
+
+| 메서드 | 경로 | 용도 |
+|---|---|---|
+| `GET` | `/site/worker-provider-kinds` | 프로바이더 종류, YAML 예시, 자격 증명 요구 사항 목록 |
+| `GET` | `/site/worker-providers` | 설정된 Worker 프로바이더 목록 |
+| `POST` | `/site/worker-providers` | Worker 프로바이더 생성 |
+| `PATCH` | `/site/worker-providers/:provider_id` | 설정 또는 자격 증명 갱신 |
+| `GET` | `/site/worker-providers/:provider_id/check` | 연결과 권한 확인 |
+| `DELETE` | `/site/worker-providers/:provider_id` | Agent가 사용하지 않는 프로바이더 삭제 |
+| `PUT` | `/agents/:agent_uid/worker-provider` | 마이그레이션 후 프로바이더가 없는 Agent에 할당 |
+
 ### 시그널 라우팅 규칙
 
 시그널 라우팅 규칙(API 스키마의 `Signal Binding`)은 프로바이더 어댑터를 Agent에 연결하여 공유 작업이 Agent에 도달할 수 있게 합니다.
@@ -77,7 +86,7 @@ order: 203
 
 ### Agent Library 능력
 
-Agent Library는 에이전트가 할 수 있는 일, 즉 플러그인과 스킬입니다. Console은 전역 기본값과 에이전트별 재정의(override)라는 두 범위를 제공합니다.
+Library 기본값은 선택한 테넌트에 속합니다. Agent 재정의도 해당 테넌트 안에서 적용됩니다.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
@@ -97,27 +106,31 @@ Agent Library는 에이전트가 할 수 있는 일, 즉 플러그인과 스킬�
 
 ### 환경 변수(WorkerEnv)
 
-Agent Computer Worker는 API 키나 토큰 같은 환경 변수가 필요할 수 있습니다. Console은 이 기능을 **Environment variables**라고 부릅니다. API는 리소스 이름으로 `WorkerEnv`를 사용합니다.
+WorkerEnv는 사이트 기본값, 테넌트 재정의, Agent 연결을 제공합니다. 다음 라우트는 메타데이터를 반환합니다. 평문은 별도의 감사 대상 복호화 작업으로 가져옵니다.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/worker-envs` | 이름 있는 WorkerEnv 항목 목록 |
-| `GET` | `/worker-envs/:name` | 항목 하나 읽기(메타데이터, 평문 아님) |
-| `PUT` | `/worker-envs/:name` | 항목 생성 또는 갱신 |
-| `DELETE` | `/worker-envs/:name` | 항목 제거 |
-| `GET` | `/agents/:agent_uid/worker-envs` | 에이전트에 연결된 항목 목록 |
-| `PUT` | `/agents/:agent_uid/worker-envs/:name` | 항목을 에이전트에 연결 |
-| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | 항목 연결 해제 |
-| `POST` | `/worker-envs/:name/decryptions` | 항목 하나 복호화(감사 대상, 권한 필요) |
+| `GET` | `/site/worker-envs` | 사이트 기본값 목록 |
+| `PUT` | `/site/worker-envs/:name` | 사이트 기본값 설정 |
+| `DELETE` | `/site/worker-envs/:name` | 사이트 기본값 제거 |
+| `POST` | `/site/worker-envs/:name/decryptions` | 사이트 값 복호화 |
+| `GET` | `/worker-envs` | 테넌트 값 목록 |
+| `PUT` | `/worker-envs/:name` | 테넌트 값 설정 |
+| `DELETE` | `/worker-envs/:name` | 테넌트 값 제거 |
+| `POST` | `/worker-envs/:name/decryptions` | 테넌트 값 복호화 |
+| `GET` | `/agents/:agent_uid/worker-envs` | Agent 연결 목록 |
+| `PUT` | `/agents/:agent_uid/worker-envs/:name` | Agent에 값 연결 또는 재정의 |
+| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | Agent 연결 제거 |
+| `POST` | `/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 값 복호화 |
 
-복호화는 별도의 감사 대상 작업입니다. 목록과 읽기는 비밀 값이 아니라 메타데이터를 반환합니다. Worker는 turn이 시작될 때만 환경을 받습니다. 변경 사항은 이미 실행 중인 turn이 아니라 다음 turn에 적용됩니다.
+Agent 연결은 전용 값을 사용하거나 테넌트 값, 사이트 기본값 순으로 상속합니다. Worker 작업 시작 시 환경 값을 해석합니다. 기존 작업공간은 생성 시 환경을 유지합니다.
 
 ### Control Plane Plugins
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
-| `PUT` | `/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
+| `GET` | `/site/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
+| `PUT` | `/site/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
 
 Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터가 그 예입니다.
 
@@ -129,25 +142,42 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 | `GET` | `/identity-providers` | 구성된 identity provider 목록 |
 | `PUT` | `/identity-providers/:provider_id` | IdP 생성 또는 교체 |
 | `POST` | `/identity-providers/:provider_id/sync-runs` | IdP에서 디렉터리 그룹 동기화 |
+| `GET` | `/site/app-configurations` | 사이트 구성 키 목록 |
+| `PUT` | `/site/app-configurations/:key` | 사이트 값 설정 |
+| `POST` | `/site/app-configurations/:key/decryptions` | 사이트 비밀 복호화 |
 | `GET` | `/app-configurations` | 운영자 관리 구성 키 목록 |
 | `PUT` | `/app-configurations/:key` | 구성 값 설정 |
 | `POST` | `/app-configurations/:key/decryptions` | 비밀 구성 값 하나 복호화 |
 
-`AppConfiguration`은 운영자가 관리하는 설정, 즉 선언된 `Ankole.AppConfigure` 키를 위한 것입니다. 부트스트랩 구성(프로세스 시작 사실과 자격 증명)은 프로젝트 경계 요구 사항대로 여기에 포함되지 않고 환경 또는 시크릿 마운트에 남아 있습니다.
+`AppConfiguration`은 선언된 운영 설정을 사이트 또는 테넌트 범위에 저장합니다. `/site/app-configurations`는 사이트 키를, `/app-configurations`는 테넌트 키를 관리합니다. 두 경로 모두 목록, 개별 키 읽기, 설정, 재정의 삭제, 감사 대상 복호화를 지원합니다. 시작 자격 증명과 시작 정보는 환경 변수나 시크릿 마운트에 둡니다.
+
+### 테넌트 관리
+
+| 메서드 | 경로 | 용도 |
+|---|---|---|
+| `GET` | `/site/tenants` | 테넌트 목록 |
+| `POST` | `/site/tenants` | 테넌트 생성 |
+| `PATCH` | `/site/tenants/:tenant_id` | 테넌트 업데이트 |
+| `DELETE` | `/site/tenants/:tenant_id` | 테넌트 삭제 요청 |
+| `PUT` | `/site/tenants/:tenant_id/suspension` | 테넌트 일시 중지 |
+| `DELETE` | `/site/tenants/:tenant_id/suspension` | 테넌트 재개 |
+| `GET` | `/site/privileged-tenant` | 특권 테넌트 읽기 |
+| `PUT` | `/site/privileged-tenant` | 다른 테넌트로 사이트 관리 이전 |
 
 ## 읽기 표면
 
 구성과 함께, Console은 나머지 시스템의 관찰 경로이기도 합니다. 이미 문서화된 각 하위 시스템은 여기에 읽기 표면을 가집니다.
 
-- **실행 중인 Agents**: `/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback 관리. 목록 엔드포인트는 설치 전체 범위이며 `agent` 필터를 받습니다.
-- **Workers**: `/agent-computer-workers`, Worker별 파일 업로드, 이동, 목록.
+- **실행 중인 Agents**: `/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback 관리. 목록 엔드포인트는 테넌트 전체 범위이며 `agent` 필터를 받습니다.
+- **Workers**: `/agent-computer-workers`에서 각 Agent의 Worker 상태를 확인합니다.
+- **Agent 드라이브**: `/agents/:agent_uid/files`에서 파일 목록, 업로드, 삭제를 처리하고, `/agents/:agent_uid/files/content`에서 다운로드하며, `/agents/:agent_uid/file-moves`에서 이동합니다. 이 파일은 컨트롤 플레인이 관리합니다.
 - **Jobs**: `/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/ai-gateway/conversations`, 대화별 메시지.
 - **Principals 및 AuthZ**: `/principals`, `/principal-groups`, `/permission-grants` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델.
 
 ## 여기에 없는 것에 대한 참고
 
-`/webhooks/*`와 `/api/v1/ai-gateway/*` 라우트는 의도적으로 `console_api` 아래에 있지 않습니다. 웹훅 수신은 admin이 아니라 프로바이더를 인증하고, AIGateway 런타임 API는 라이브 AI 호출을 위해 에이전트 또는 admin 토큰을 인증합니다. Console은 운영자의 구성 표면이며, 배포 인스턴스의 동작을 바꾸기 위해 admin bearer 토큰을 신뢰하는 유일한 표면입니다.
+`/webhooks/*`는 provider를 인증합니다. runtime `/api/v1/ai-gateway/*`는 AIGateway 인증을 사용하고 Console configuration route는 이 페이지의 session 및 CSRF 검사를 사용합니다.
 
 ## 다음 단계
 

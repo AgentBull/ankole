@@ -6,9 +6,9 @@ defmodule Ankole.Brain.SignalsLearning do
   message mirror, independent of Agent turn history. One instance-level task
   processes one slice with the maintainer Agent's `light` profile; the same
   slice is never processed per Agent, because the knowledge space is shared.
-  Slice identity is a stable version token; real claims and the internal
-  terminal claim commit in one final short transaction, so a slice without a
-  matching terminal can always rerun safely.
+  Slice identity is a stable version token. Memory writes and the Source's
+  extraction watermark commit together under the Source row lock. A failed
+  slice leaves the watermark unchanged and can run again.
   """
 
   import Ecto.Query, warn: false
@@ -20,6 +20,7 @@ defmodule Ankole.Brain.SignalsLearning do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectAlias
+  alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Timelines
@@ -47,18 +48,16 @@ defmodule Ankole.Brain.SignalsLearning do
          {:ok, channel} <- fetch_channel(channel_id),
          {:ok, learning_context} <- learning_context(channel),
          {:ok, source} <- ensure_active_source(channel) do
-      case pending_slice(channel_id) do
+      start = Sources.extraction_watermark(source)
+
+      case slice_after(channel_id, start, @max_slice_entries) do
         [] ->
           {:ok, %{status: :no_pending_entries}}
 
         entries ->
           token = slice_version_token(channel_id, entries)
 
-          if Claims.extraction_terminal(channel_id, token) do
-            {:ok, %{status: :already_processed, token: token}}
-          else
-            process_slice(channel, source, learning_context, entries, token, model)
-          end
+          process_slice(channel, source, start, learning_context, entries, token, model)
       end
     else
       {:skip, reason} -> {:ok, %{status: :skipped, reason: reason}}
@@ -70,8 +69,8 @@ defmodule Ankole.Brain.SignalsLearning do
   Returns the channel's unprocessed entries in stable
   `(first_seen_at, source_entry_id)` order.
 
-  The watermark is the newest terminal claim's boundary: `valid_from` holds
-  the arrival time of the last covered entry and `context` its entry id.
+  The Source watermark holds the arrival time and entry id of the last
+  covered entry.
   Filtering compares that same total order on the same arrival axis, so a
   late provider delivery (whose `first_seen_at` is assigned at mirror time)
   always lands after the watermark, and entries that share the boundary
@@ -81,8 +80,10 @@ defmodule Ankole.Brain.SignalsLearning do
   """
   @spec pending_slice(String.t(), pos_integer()) :: [Entry.t()]
   def pending_slice(channel_id, limit \\ @max_slice_entries) do
-    watermark = latest_terminal_watermark(channel_id)
+    slice_after(channel_id, Sources.channel_extraction_watermark(channel_id), limit)
+  end
 
+  defp slice_after(channel_id, watermark, limit) do
     Entry
     |> where([entry], entry.signal_channel_id == ^channel_id)
     |> maybe_after_watermark(watermark)
@@ -121,19 +122,24 @@ defmodule Ankole.Brain.SignalsLearning do
     idle_seconds = Config.signal_channel_batch_idle_time()
     threshold = DateTime.add(DateTime.utc_now(), -idle_seconds, :second)
 
-    terminal =
-      terminal_watermark_query()
-      |> where([claim], claim.signal_gateway_channel_id == parent_as(:channel).id)
+    watermark =
+      Source
+      |> where([source], source.kind == "signal_channel")
+      |> where([source], source.upstream_id == parent_as(:channel).id)
+      |> select([source], %{
+        at: source.extracted_through_at,
+        entry_id: source.extracted_through_entry_id
+      })
 
     first_entry =
       Entry
       |> where([entry], entry.signal_channel_id == parent_as(:channel).id)
       |> where(
         [entry],
-        is_nil(parent_as(:terminal).valid_from) or
-          entry.first_seen_at > parent_as(:terminal).valid_from or
-          (entry.first_seen_at == parent_as(:terminal).valid_from and
-             entry.source_entry_id > parent_as(:terminal).context)
+        is_nil(parent_as(:watermark).at) or
+          entry.first_seen_at > parent_as(:watermark).at or
+          (entry.first_seen_at == parent_as(:watermark).at and
+             entry.source_entry_id > parent_as(:watermark).entry_id)
       )
       |> order_by([entry], asc: entry.first_seen_at, asc: entry.source_entry_id)
       |> limit(1)
@@ -143,9 +149,9 @@ defmodule Ankole.Brain.SignalsLearning do
     |> from(as: :channel)
     |> where([channel], channel.kind in [:im_dm, :im_group])
     |> where([channel], channel.last_seen_at < ^threshold)
-    |> join(:left_lateral, [], terminal in subquery(terminal), as: :terminal, on: true)
+    |> join(:left_lateral, [], watermark in subquery(watermark), as: :watermark, on: true)
     |> join(:inner_lateral, [], entry in subquery(first_entry), on: true)
-    |> select([channel, _terminal, entry], %{
+    |> select([channel, _watermark, entry], %{
       channel_id: channel.id,
       first_seen_at: entry.first_seen_at
     })
@@ -154,12 +160,12 @@ defmodule Ankole.Brain.SignalsLearning do
 
   # Slice processing
 
-  defp process_slice(channel, source, learning_context, entries, token, model) do
+  defp process_slice(channel, source, start, learning_context, entries, token, model) do
     transcript = build_transcript(entries)
     boundary = slice_boundary(entries)
 
     if String.trim(transcript.text) == "" do
-      finalize(source, channel.id, token, :not_applicable, [], learning_context, boundary)
+      finalize(source, start, channel.id, token, :not_applicable, [], learning_context, boundary)
     else
       prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
 
@@ -167,12 +173,12 @@ defmodule Ankole.Brain.SignalsLearning do
         {:ok, %{"items" => items}} when is_list(items) ->
           # The input version is recomputed over the same entries after the
           # model call: an in-slice edit or delete during the run writes no
-          # terminal and reruns. Entries that only arrived later belong to
+          # memory or watermark and runs again. Entries that only arrived later belong to
           # the next slice and do not invalidate this one — otherwise a
           # continuously active channel could never commit any slice.
           if slice_still_current?(channel.id, entries, token) do
             outcome = if items == [], do: :not_applicable, else: :complete
-            finalize(source, channel.id, token, outcome, items, learning_context, boundary)
+            finalize(source, start, channel.id, token, outcome, items, learning_context, boundary)
           else
             {:ok, %{status: :slice_changed, token: token}}
           end
@@ -187,7 +193,7 @@ defmodule Ankole.Brain.SignalsLearning do
   end
 
   # The boundary is the last covered entry in slice order; it becomes the
-  # next slice's watermark through the terminal claim.
+  # next slice's Source watermark.
   defp slice_boundary(entries) do
     last = List.last(entries)
     {last.first_seen_at, last.source_entry_id}
@@ -209,28 +215,25 @@ defmodule Ankole.Brain.SignalsLearning do
       slice_version_token(channel_id, refetched) == token
   end
 
-  # Real memory writes and the terminal claim commit in one final short
+  # Real memory writes and the Source watermark commit in one final short
   # transaction. Embeddings prepare in one batched call before it, so the
   # transaction holds no network I/O while write-time semantic dedup keeps
   # its vectors. The locked Source re-read is the archive fence: a channel
   # archived during the model call must not gain new memory. Mixed
   # item-level validation rejects stay visible in the report and the log.
   # If every non-empty model item is rejected, the transaction rolls back
-  # without a terminal so Oban can retry the slice instead of losing it.
+  # without advancing the watermark, so Oban can retry the slice.
   # Infrastructure failures follow the same rollback contract.
-  defp finalize(source, channel_id, token, outcome, items, learning_context, boundary) do
+  defp finalize(source, start, channel_id, token, outcome, items, learning_context, boundary) do
     prepared = prepare_embeddings(items)
 
     result =
       Repo.transact(fn repo ->
-        with :ok <- lock_active_source(repo, source),
+        with {:ok, current} <- lock_active_source(repo, source),
+             :ok <- ensure_same_watermark(Sources.extraction_watermark(current), start),
              written = write_items(repo, channel_id, items, learning_context, prepared),
              :ok <- ensure_extraction_written(items, written),
-             {:ok, _terminal} <-
-               Claims.write_extraction_terminal(channel_id, token, outcome,
-                 repo: repo,
-                 boundary: boundary
-               ) do
+             :ok <- Sources.record_extraction_watermark(repo, current, boundary) do
           {:ok, %{status: outcome, token: token, written: written}}
         end
       end)
@@ -360,7 +363,7 @@ defmodule Ankole.Brain.SignalsLearning do
 
     case Claims.write_fact(attrs, :system,
            repo: repo,
-           author_uid: learning_context.author_uid,
+           author: learning_context.author,
            embedding: Map.get(prepared, item["claim"], {nil, nil})
          ) do
       {:ok, _result} -> {:ok, :claims}
@@ -386,7 +389,7 @@ defmodule Ankole.Brain.SignalsLearning do
 
     case Claims.write_take(attrs, :system,
            repo: repo,
-           author_uid: learning_context.author_uid,
+           author: learning_context.author,
            embedding: Map.get(prepared, item["claim"], {nil, nil})
          ) do
       {:ok, _claim} -> {:ok, :claims}
@@ -408,7 +411,7 @@ defmodule Ankole.Brain.SignalsLearning do
 
     case Timelines.write_timeline(attrs, :system,
            repo: repo,
-           author_uid: learning_context.author_uid
+           author: learning_context.author
          ) do
       {:ok, _timeline} -> {:ok, :timelines}
       {:error, reason} -> {:rejected, reason}
@@ -451,26 +454,18 @@ defmodule Ankole.Brain.SignalsLearning do
   # Deterministic default scope and author attribution; this path never
   # reads ConfidentialityPolicy.md.
   defp learning_context(%Channel{kind: :im_group} = channel) do
-    case channel.principal_group_id do
-      nil ->
+    case Scope.member_group_scope(channel.principal_group_id) do
+      {:ok, scope} ->
+        {:ok,
+         %{
+           kind: :im_group,
+           default_scope: scope,
+           author: nil,
+           speaker_uids: speaker_uids(channel.id)
+         }}
+
+      {:error, :im_group_without_member_group} ->
         {:skip, :im_group_without_member_group}
-
-      group_id ->
-        case Ankole.AuthZ.get_principal_group(group_id) do
-          {:ok, group} ->
-            {:ok,
-             %{
-               kind: :im_group,
-               default_scope: Scope.group(group.name),
-               # Group knowledge is reachable through the member-group scope;
-               # the mirrored Agent membership covers the Agents.
-               author_uid: nil,
-               speaker_uids: speaker_uids(channel.id)
-             }}
-
-          {:error, :not_found} ->
-            {:skip, :im_group_without_member_group}
-        end
     end
   end
 
@@ -499,7 +494,8 @@ defmodule Ankole.Brain.SignalsLearning do
            # DM learning is the binding Agent's first-hand conversational
            # memory: author accessibility keeps it recallable for the Agent,
            # and the counterpart reaches it through the scope.
-           author_uid: agent_uid,
+           author:
+             Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: agent_uid}),
            speaker_uids: speaker_uids(channel.id)
          }}
     end
@@ -585,22 +581,33 @@ defmodule Ankole.Brain.SignalsLearning do
   # descriptive paraphrase — so the match is the exact-alias containment
   # that volunteer pointers already use.
   defp known_pages(text) do
-    text
-    |> Links.match_aliases_in_text()
-    |> Enum.take(@known_page_limit)
-    |> Enum.map(&Repo.get_by(Object, slug: &1))
-    |> Enum.filter(&match?(%Object{deleted_at: nil}, &1))
-    |> Enum.map(fn object ->
-      aliases =
-        ObjectAlias
-        |> where([alias], alias.object_slug == ^object.slug)
-        |> order_by([alias], asc: alias.alias_norm)
-        |> limit(@known_page_alias_limit)
-        |> select([alias], alias.alias_norm)
-        |> Repo.all()
+    slugs = text |> Links.match_aliases_in_text() |> Enum.take(@known_page_limit)
 
-      %{slug: object.slug, title: object.title, aliases: aliases}
-    end)
+    objects =
+      Repo.all(from o in Object, where: o.slug in ^slugs and is_nil(o.deleted_at))
+      |> Map.new(&{&1.slug, &1})
+
+    ranked_aliases =
+      from a in ObjectAlias,
+        where: a.object_slug in ^slugs,
+        select: %{
+          slug: a.object_slug,
+          name: a.alias_norm,
+          rank: over(row_number(), partition_by: a.object_slug, order_by: a.alias_norm)
+        }
+
+    aliases =
+      Repo.all(
+        from a in subquery(ranked_aliases),
+          where: a.rank <= ^@known_page_alias_limit,
+          order_by: a.name,
+          select: {a.slug, a.name}
+      )
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+    for slug <- slugs, object = objects[slug], not is_nil(object) do
+      %{slug: slug, title: object.title, aliases: Map.get(aliases, slug, [])}
+    end
   end
 
   defp known_pages_section([]), do: ""
@@ -704,7 +711,7 @@ defmodule Ankole.Brain.SignalsLearning do
   end
 
   defp fetch_channel(channel_id) do
-    case Repo.get(Channel, channel_id) do
+    case Repo.get_by(Channel, id: channel_id) do
       %Channel{} = channel -> {:ok, channel}
       nil -> {:error, :channel_not_found}
     end
@@ -733,30 +740,24 @@ defmodule Ankole.Brain.SignalsLearning do
   # model call, following the SourceLearning.commit_run pattern.
   defp lock_active_source(repo, source) do
     case Sources.lock_active(repo, source) do
-      {:ok, _source} -> :ok
+      {:ok, current} -> {:ok, current}
       {:error, reason} when reason in [:not_found, :source_archived] -> {:error, :source_archived}
     end
   end
 
-  defp latest_terminal_watermark(channel_id) do
-    terminal_watermark_query()
-    |> where([claim], claim.signal_gateway_channel_id == ^channel_id)
-    |> Repo.one()
+  defp ensure_same_watermark(nil, nil), do: :ok
+
+  defp ensure_same_watermark({current_at, current_id}, {start_at, start_id}) do
+    if DateTime.compare(current_at, start_at) == :eq and current_id == start_id,
+      do: :ok,
+      else: {:error, :extraction_watermark_moved}
   end
 
-  defp terminal_watermark_query do
-    prefix = Claims.internal_provenance_prefix() <> "%"
-
-    Ankole.Brain.Schemas.Claim
-    |> where([claim], like(claim.provenance, ^prefix))
-    |> order_by([claim], desc: claim.valid_from, desc: claim.created_at)
-    |> limit(1)
-    |> select([claim], %{valid_from: claim.valid_from, context: claim.context})
-  end
+  defp ensure_same_watermark(_current, _start), do: {:error, :extraction_watermark_moved}
 
   defp maybe_after_watermark(query, nil), do: query
 
-  defp maybe_after_watermark(query, %{valid_from: boundary_at, context: boundary_entry_id}) do
+  defp maybe_after_watermark(query, {boundary_at, boundary_entry_id}) do
     where(
       query,
       [entry],

@@ -20,7 +20,19 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
   end
 
   defp record_judgment(agent_uid, actor_event_id, attrs, now \\ @base_time) do
-    AmbientCuration.record_judgment(agent_uid, actor_event_id, attrs, now: now)
+    event = Repo.get(ActorEvent, actor_event_id)
+
+    key = %{
+      agent_uid: agent_uid,
+      session_id: if(event, do: event.session_id, else: "missing-session")
+    }
+
+    attrs =
+      attrs
+      |> Map.put_new(:handoff_job_id, nil)
+      |> Map.put_new(:asked_by_state, if(attrs[:asked_by_source_entry_id], do: "accepted"))
+
+    AmbientCuration.record_judgment(key, actor_event_id, attrs, now: now)
   end
 
   test "a silent judgment persists the reason and advances the channel cursor" do
@@ -50,7 +62,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
     assert judgment.signal_channel_id == @channel_id
     assert is_nil(judgment.asked_by_source_entry_id)
 
-    channel = Repo.get!(Channel, @channel_id)
+    channel = Repo.get_by!(Channel, id: @channel_id)
     assert DateTime.compare(channel.ambient_judged_until, @base_time) == :eq
 
     assert is_nil(Repo.get!(ActorEvent, event.id).ambient_asked_source_entry_id)
@@ -110,7 +122,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
     assert judgment.asked_by_state == "degraded"
   end
 
-  test "a worker-degraded asked_by stays degraded even when the entry exists" do
+  test "a recognizer-degraded asked_by stays degraded even when the entry exists" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -127,7 +139,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
                authority: "NONE",
                reason: "asker is no longer the latest speaker",
                asked_by_source_entry_id: "msg-stale",
-               asked_by_degraded: true
+               asked_by_state: "degraded"
              })
 
     assert is_nil(Repo.get!(ActorEvent, event.id).ambient_asked_source_entry_id)
@@ -162,11 +174,11 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
     assert judgment.action == "NOOP"
     assert judgment.reason == "first attempt"
 
-    channel = Repo.get!(Channel, @channel_id)
+    channel = Repo.get_by!(Channel, id: @channel_id)
     assert DateTime.compare(channel.ambient_judged_until, @base_time) == :eq
   end
 
-  test "record_judgment rejects unknown events, foreign agents, and bad routes" do
+  test "record_judgment rejects unknown events and foreign agents" do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
@@ -178,9 +190,6 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
         now: @base_time
       )
 
-    assert {:error, {:invalid_ambient_action, nil}} =
-             record_judgment(agent.uid, event.id, %{reason: "no route"})
-
     assert {:error, :actor_event_not_found} =
              record_judgment(agent.uid, Ecto.UUID.generate(), %{
                action: "NOOP",
@@ -189,6 +198,23 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
 
     assert {:error, :actor_event_agent_mismatch} =
              record_judgment(other_agent.uid, event.id, %{action: "NOOP", authority: "NONE"})
+  end
+
+  test "judgment cannot lock an event from another Session" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :may_intervene)
+    event = ambient_event!(agent.uid, %{text: "Which benchmark?"}, now: @base_time)
+
+    assert {:error, :ambient_event_unavailable} =
+             AmbientCuration.record_judgment(
+               %{agent_uid: agent.uid, session_id: "another-session"},
+               event.id,
+               %{action: "NOOP", authority: "NONE", handoff_job_id: nil},
+               now: @base_time
+             )
+
+    assert is_nil(Repo.get(AmbientJudgment, event.id))
+    assert is_nil(Repo.get_by!(Channel, id: @channel_id).ambient_judged_until)
   end
 
   test "new routes persist action and authority without starting work" do
@@ -201,18 +227,6 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
         %{source_entry_id: "msg-new-work", text: "This investigation may be useful."},
         now: @base_time
       )
-
-    assert {:error, {:invalid_ambient_action, "MAYBE"}} =
-             record_judgment(agent.uid, event.id, %{
-               action: "MAYBE",
-               authority: "NONE"
-             })
-
-    assert {:error, {:invalid_ambient_authority, "EXPLICIT_REQUEST"}} =
-             record_judgment(agent.uid, event.id, %{
-               action: "FOREGROUND_REPLY",
-               authority: "EXPLICIT_REQUEST"
-             })
 
     assert {:ok, %{action: "NEW_WORK", authority: "NONE", handoff_job_id: nil}} =
              record_judgment(agent.uid, event.id, %{
@@ -375,6 +389,12 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
       )
 
     job = create_job!(agent.uid, event, "handoff")
+
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(job.id)
+    })
+
     handler_id = {__MODULE__, make_ref()}
     test_pid = self()
 
@@ -396,7 +416,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
              record_judgment(agent.uid, event.id, %{
                action: "HANDOFF",
                authority: "NONE",
-               handoff_job_id: Integer.to_string(job.id),
+               handoff_job_id: job.id,
                reason: "The message updates the active deploy investigation."
              })
 
@@ -431,6 +451,8 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
              )
 
     handoff_text = get_in(steer.payload, ["data", "command", "argsText"])
+    steer_id = steer.id
+    assert_receive {:inbox, ^steer_id}
     assert handoff_text =~ "database timeout"
     refute handoff_text =~ "updates the active deploy investigation"
 
@@ -440,7 +462,7 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
              record_judgment(agent.uid, event.id, %{
                action: "HANDOFF",
                authority: "NONE",
-               handoff_job_id: Integer.to_string(other_job.id),
+               handoff_job_id: other_job.id,
                reason: "A retry selected another target."
              })
 
@@ -451,9 +473,11 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
              record_judgment(agent.uid, event.id, %{
                action: "HANDOFF",
                authority: "NONE",
-               handoff_job_id: Integer.to_string(missing_job_id),
+               handoff_job_id: missing_job_id,
                reason: "A retry selected a missing target."
              })
+
+    refute_receive {:inbox, _}, 20
 
     assert 1 ==
              Repo.aggregate(
@@ -546,14 +570,14 @@ defmodule Ankole.SignalsGateway.AmbientCurationTest do
                "Only speak when CI turns red."
              )
 
-    channel = Repo.get!(Channel, @channel_id)
+    channel = Repo.get_by!(Channel, id: @channel_id)
     assert channel.ambient_standing_orders == "Only speak when CI turns red."
     assert channel.ambient_standing_orders_set_by == "Alice"
 
     assert {:ok, %{orders: nil, active: false}} =
              AmbientCuration.set_standing_orders(agent.uid, event.id, "   ")
 
-    assert is_nil(Repo.get!(Channel, @channel_id).ambient_standing_orders)
+    assert is_nil(Repo.get_by!(Channel, id: @channel_id).ambient_standing_orders)
 
     too_long = String.duplicate("a", 4_001)
 

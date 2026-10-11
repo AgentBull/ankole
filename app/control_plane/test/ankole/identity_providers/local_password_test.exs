@@ -9,7 +9,6 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.IdentityProviders.Login
-  alias Ankole.Principals
   alias Ankole.Principals.LocalCredential
 
   setup do
@@ -64,7 +63,65 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
     end
   end
 
+  test "the verification limit is a positive site setting" do
+    definition = RetryGuard.concurrency_definition()
+    assert definition.scope == :global
+    assert {:ok, 2} = Ankole.AppConfigure.get(definition)
+    assert {:error, :expected_positive_integer} = Ankole.AppConfigure.put_global(definition, 0)
+    assert {:error, :expected_positive_integer} = Ankole.AppConfigure.put_global(definition, 1.5)
+    assert {:ok, 3} = Ankole.AppConfigure.put_global(definition, 3)
+    assert {:ok, 3} = Ankole.AppConfigure.get(definition)
+
+    start_supervised!(
+      {RetryGuard.Supervisor,
+       name: :b16_config_supervisor, guard: :b16_config_guard, task_supervisor: :b16_config_tasks}
+    )
+
+    assert :sys.get_state(:b16_config_guard).max_concurrency == 3
+  end
+
   describe "authenticate/3" do
+    test "a saturated tenant cannot lock an equal email in another tenant" do
+      save_local_provider()
+      email = "same-#{System.unique_integer([:positive])}@example.com"
+      %{principal: principal} = human_fixture(%{email: email})
+      assert {:ok, _} = LocalPassword.set_local_password(principal.uid, "tenant-a-pass", false)
+      other = create_tenant()
+
+      Repo.with_tenant(other.id, fn ->
+        save_local_provider()
+        %{principal: human} = human_fixture(%{email: email})
+        assert {:ok, _} = LocalPassword.set_local_password(human.uid, "tenant-b-pass", false)
+      end)
+
+      for _ <- 1..5,
+          do: assert({:error, :invalid_credentials} = LocalPassword.authenticate(email, "wrong"))
+
+      assert {:error, {:retry_locked, _}} = LocalPassword.authenticate(email, "tenant-a-pass")
+
+      cheap_hash =
+        "$argon2id$v=19$m=8,t=1,p=1$lN2XWliZcQl4gHsXITedAg$DDmr4D0bb5laGYLf46hR2ubMwUfsd5HD1Oz71V/yDAo"
+
+      for index <- 1..9_999 do
+        assert {:ok, false} =
+                 RetryGuard.verify_password(
+                   Repo.tenant_id!(),
+                   "spray-#{index}@example.com",
+                   "wrong",
+                   cheap_hash
+                 )
+      end
+
+      assert {:error, {:retry_locked, _}} =
+               LocalPassword.authenticate("overflow@example.com", "wrong")
+
+      Repo.with_tenant(other.id, fn ->
+        assert {:ok, %{email: ^email}} = LocalPassword.authenticate(email, "tenant-b-pass")
+      end)
+
+      assert {:error, {:retry_locked, _}} = LocalPassword.authenticate(email, "tenant-a-pass")
+    end
+
     test "fails when no local provider is enabled" do
       assert {:error, :no_local_provider} = LocalPassword.authenticate("a@example.com", "secret1")
     end
@@ -122,7 +179,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
     test "refuses a disabled account after the password verifies" do
       save_local_provider()
       %{principal: principal, email: email} = local_user("correct-horse")
-      {:ok, _principal} = Principals.disable_principal(principal.uid)
+      {:ok, _principal} = Ankole.PrincipalsFixtures.disable_principal_fixture(principal.uid)
 
       assert {:error, :account_disabled} = LocalPassword.authenticate(email, "correct-horse")
     end

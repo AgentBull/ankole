@@ -2,7 +2,7 @@ defmodule Ankole.Brain.AcceptanceTest do
   @moduledoc """
   Integration tests for the BrainV3 acceptance criteria that run without a
   model provider: decay ordering, purge TTL, consolidation idempotency, and
-  slice terminal idempotency.
+  slice watermark idempotency.
   """
 
   use Ankole.DataCase, async: true
@@ -18,6 +18,7 @@ defmodule Ankole.Brain.AcceptanceTest do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.SignalsLearning
+  alias Ankole.Brain.Sources
   alias Ankole.Ecto.UUIDv7
 
   setup do
@@ -287,7 +288,7 @@ defmodule Ankole.Brain.AcceptanceTest do
     end
   end
 
-  describe "acceptance 2: slice terminals" do
+  describe "acceptance 2: slice watermarks" do
     test "version tokens identify processed slices and allow safe reruns" do
       channel = insert_channel!()
 
@@ -300,17 +301,21 @@ defmodule Ankole.Brain.AcceptanceTest do
       token = SignalsLearning.slice_version_token(channel.id, slice)
       assert SignalsLearning.slice_version_token(channel.id, slice) == token
 
-      # No terminal: the slice is unprocessed and safe to rerun.
-      assert Claims.extraction_terminal(channel.id, token) == nil
-
       last = List.last(slice)
 
-      {:ok, _terminal} =
-        Claims.write_extraction_terminal(channel.id, token, :complete,
-          boundary: {last.first_seen_at, last.source_entry_id}
-        )
+      {:ok, source} =
+        Sources.get_or_create(%{
+          kind: "signal_channel",
+          upstream_id: channel.id,
+          name: channel.id
+        })
 
-      assert Claims.extraction_terminal(channel.id, token)
+      :ok =
+        Sources.record_extraction_watermark(
+          Repo,
+          source,
+          {last.first_seen_at, last.source_entry_id}
+        )
 
       # The watermark moves: the same entries never re-enter a slice.
       assert SignalsLearning.pending_slice(channel.id) == []
@@ -322,7 +327,6 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       next_token = SignalsLearning.slice_version_token(channel.id, next_slice)
       refute next_token == token
-      assert Claims.extraction_terminal(channel.id, next_token) == nil
     end
 
     test "the watermark keeps entries that share the boundary arrival instant" do
@@ -336,10 +340,14 @@ defmodule Ankole.Brain.AcceptanceTest do
       insert_entry!(channel.id, "m2", "第二条", shared_at)
       insert_entry!(channel.id, "m3", "第三条", shared_at)
 
-      {:ok, _terminal} =
-        Claims.write_extraction_terminal(channel.id, "token-a", :complete,
-          boundary: {shared_at, "m2"}
-        )
+      {:ok, source} =
+        Sources.get_or_create(%{
+          kind: "signal_channel",
+          upstream_id: channel.id,
+          name: channel.id
+        })
+
+      :ok = Sources.record_extraction_watermark(Repo, source, {shared_at, "m2"})
 
       assert Enum.map(SignalsLearning.pending_slice(channel.id), & &1.source_entry_id) == ["m3"]
     end
@@ -349,10 +357,15 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       insert_entry!(channel.id, "m1", "第一条", ~U[2026-08-20 10:00:00.000000Z])
 
-      {:ok, _terminal} =
-        Claims.write_extraction_terminal(channel.id, "token-b", :complete,
-          boundary: {~U[2026-08-20 10:00:00.000000Z], "m1"}
-        )
+      {:ok, source} =
+        Sources.get_or_create(%{
+          kind: "signal_channel",
+          upstream_id: channel.id,
+          name: channel.id
+        })
+
+      :ok =
+        Sources.record_extraction_watermark(Repo, source, {~U[2026-08-20 10:00:00.000000Z], "m1"})
 
       # The provider sent this message before the watermark instant, but it
       # arrived after: the watermark compares arrival order only, so the
@@ -427,26 +440,6 @@ defmodule Ankole.Brain.AcceptanceTest do
                Dreaming.phase_extract_links()
 
       assert Repo.get_by!(Object, slug: object.slug).links_extracted_at == nil
-    end
-
-    test "status writebacks do not outrun the extraction watermark", %{human: human} do
-      {:ok, object} =
-        Objects.create_object(
-          %{slug: "concepts/watermark", type: "concept", title: "Watermark", body: "Body."},
-          human.uid
-        )
-
-      stamp = DateTime.utc_now(:microsecond)
-
-      {:ok, _stamped} =
-        object |> Ecto.Changeset.change(links_extracted_at: stamp) |> Repo.update()
-
-      # The salience recompute is a status writeback: it must not bump
-      # `updated_at`, or the whole corpus re-enters phase 3 every round.
-      assert %{status: :ok} = Dreaming.phase_emotional_weight()
-
-      refreshed = Repo.get_by!(Object, slug: "concepts/watermark")
-      refute DateTime.compare(refreshed.updated_at, refreshed.links_extracted_at) == :gt
     end
   end
 

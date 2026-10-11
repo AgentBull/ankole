@@ -6,6 +6,8 @@ defmodule Ankole.TextTest do
   test "UTF-8 prefixes and suffixes end at character boundaries" do
     assert Text.utf8_prefix("开终", 4) == "开"
     assert Text.utf8_suffix("开终", 4) == "终"
+    window = binary_part("开终", 0, 4)
+    assert Text.utf8_prefix(window, byte_size(window)) == "开"
   end
 
   test "bounded windows preserve valid UTF-8 at both ends" do

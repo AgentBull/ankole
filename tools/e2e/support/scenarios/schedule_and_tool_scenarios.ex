@@ -10,7 +10,6 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
   import Ankole.E2E.WaitHelpers,
     only: [
-      cron_event_for_schedule!: 1,
       deadline: 1,
       wait_until: 2,
       wait_for_completed_actor_event_message: 3,
@@ -47,8 +46,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_checkback_tool_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
@@ -68,20 +67,26 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert checkback.source_entry_id == "om_checkback_tool_1"
     assert checkback.wake_payload["reason"] == "Lark chaos checkback"
     assert checkback.wake_payload["check"] == "Confirm CHAOS_CHECKBACK_WAKE_OK"
-    assert DateTime.diff(checkback.due_at, checkback.requested_at, :second) in 295..305
+    assert DateTime.diff(checkback.due_at, checkback.requested_at, :second) == 5
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply, checkback: checkback}
   end
 
   def run_checkback_fire(%{fake_feishu: _fake_feishu, container: container}, checkback) do
+    assert {:ok, :due} =
+             wait_until(deadline(60_000), fn ->
+               if DateTime.compare(checkback.due_at, DateTime.utc_now(:microsecond)) != :gt,
+                 do: :due
+             end)
+
     assert {:ok, %{status: :fired, actor_event: wake_input}} =
-             Schedule.fire_due_event(checkback.id, now: checkback.due_at)
+             Schedule.fire_due_event(checkback.id)
 
     assert wake_input.type == "check_back_later.wakeup"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                wake_input,
                DateTime.add(checkback.due_at, 1, :second)
              )
@@ -112,8 +117,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_cron_tool_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
@@ -135,11 +140,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert primary_target["signal_channel_id"] == "lark:oc_chaos_schedule"
     assert is_nil(primary_target["provider_thread_id"])
 
-    cron_event = cron_event_for_schedule!(cron_schedule.id)
-    assert cron_event.status == "scheduled"
-    assert cron_event.signal_channel_id == "lark:oc_chaos_schedule"
-    assert is_nil(cron_event.provider_thread_id)
-    assert cron_event.wake_payload["payload"] == %{"task" => "CHAOS_CRON_WAKE_OK"}
+    assert %DateTime{} = cron_schedule.next_fire_at
+    assert Schedule.list_cron_runs(cron_schedule.id) == []
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply, cron_schedule: cron_schedule}
@@ -167,7 +169,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert %Entry{} =
              wait_for_signal_entry!(secondary_channel_id, "om_cron_target_secondary_1")
 
-    assert %Channel{reply_mode: :entry} = Repo.get!(Channel, secondary_channel_id)
+    assert %Channel{reply_mode: :entry} = Repo.get_by!(Channel, id: secondary_channel_id)
 
     targets = [
       %{
@@ -187,27 +189,42 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     assert updated.delivery == %{"targets" => targets}
 
-    cron_event = cron_event_for_schedule!(updated.id)
-    assert cron_event.binding_name == primary.name
-    assert cron_event.signal_channel_id == "lark:oc_chaos_schedule"
-    assert cron_event.wake_payload["delivery"] == %{"targets" => targets}
+    assert updated.binding_name == primary.name
+    assert updated.next_fire_at == cron_schedule.next_fire_at
+    assert Schedule.list_cron_runs(updated.id) == []
 
     updated
   end
 
   def run_cron_fire(%{fake_feishu: fake_feishu, container: container}, cron_schedule) do
-    cron_event = cron_event_for_schedule!(cron_schedule.id)
+    due_at = cron_schedule.next_fire_at
+
+    assert {:ok, :due} =
+             wait_until(deadline(60_000), fn ->
+               if DateTime.compare(due_at, DateTime.utc_now(:microsecond)) != :gt,
+                 do: :due
+             end)
 
     assert {:ok, %{status: :fired, actor_event: fire_input}} =
-             Schedule.fire_due_event(cron_event.id, now: cron_event.due_at)
+             Schedule.fire_cron(cron_schedule.id)
 
     assert fire_input.type == "cron.fire"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                fire_input,
-               DateTime.add(cron_event.due_at, 1, :second)
+               DateTime.add(due_at, 1, :second)
              )
+
+    # This scenario owns delivery attempts. Wait without draining the outbox
+    # queue before the provider fault and retry assertions are in place.
+    assert {:ok, %ActorEvent{}} =
+             wait_until(deadline(60_000), fn ->
+               case Repo.get(ActorEvent, fire_input.id) do
+                 %ActorEvent{completed_at: %DateTime{}} = event -> event
+                 _other -> nil
+               end
+             end)
 
     assert {:ok, message} =
              wait_for_completed_actor_event_message(container, fire_input.id, deadline(60_000))
@@ -308,7 +325,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   end
 
   def run_file_attachment_roundtrip(
-        %{fake_feishu: fake_feishu, agent: agent, container: container},
+        %{fake_feishu: fake_feishu, agent: agent},
         message_type \\ "file"
       ) do
     file = %{"file_key" => "file_1", "file_name" => "deck.pdf"}
@@ -360,8 +377,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                       signal_channel_id: "lark:oc_chaos_file",
                       source_entry_id: "om_file_1"
                     ) do
-                 %Entry{attachments: [%{"agent_computer_path" => path}]} = entry
-                 when is_binary(path) ->
+                 %Entry{attachments: [%{"blob_ref" => blob_ref, "path" => path}]} = entry
+                 when is_binary(blob_ref) and is_binary(path) ->
                    entry
 
                  %Entry{} ->
@@ -369,7 +386,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                end
              end)
 
-    # Materialized attachments carry extra worker-file keys on top of the
+    # Stored attachments carry `blob_ref`, `path`, and `size` on top of the
     # provider identity, so assert the provider identity as a subset.
     assert %{
              "provider_ref" => "lark:file:file_1",
@@ -394,11 +411,11 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  else: nil
              end)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, input.id, deadline(60_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(60_000))
 
     assert reply.text =~ "CHAOS_GENERIC_OK"
     assert_actor_event_completed!(input.id)
@@ -427,8 +444,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_reply_attachment_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, outbox, message} =
              wait_for_completed_outbox(container, input.id, deadline(90_000))
@@ -446,19 +463,22 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert final_reply.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
     assert is_nil(outbox.payload["text"])
 
-    expected_attachment_path =
-      Ankole.AgentHomePaths.user_files(agent.uid) <> "/reports/chaos-report.txt"
+    # reply_attachment pins the file it read under sent/ in the Agent's drive.
+    content = "CHAOS_REPLY_ATTACHMENT_FILE"
+    blob_ref = Base.encode16(:crypto.hash(:sha256, content), case: :lower)
+    expected_path = "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt"
 
     assert [
              %{
-               "agent_computer_path" => ^expected_attachment_path,
-               "user_files_relative_path" => "reports/chaos-report.txt",
+               "path" => ^expected_path,
+               "blob_ref" => ^blob_ref,
                "name" => "chaos-report.txt",
                "mime_type" => "text/plain"
              } = attachment
            ] = outbox.payload["attachments"]
 
-    assert attachment["size"] > 0
+    assert attachment["size"] == byte_size(content)
+    assert {:ok, _file, ^content} = Ankole.Files.read(agent.uid, expected_path)
 
     messages = ai_messages_for_actor_event(input.id)
     assert command_tool_succeeded?(messages)
@@ -468,7 +488,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     %{input: input, outbox: outbox}
   end
 
-  def run_todo_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_todo_tool_loop(%{fake_feishu: fake_feishu, agent: agent}) do
     mention = lark_bot_mention()
 
     assert :ok =
@@ -486,11 +506,11 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_todo_tool_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
     assert reply.text =~ "CHAOS_TODO_OK"
 
@@ -505,7 +525,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   end
 
   @doc """
-  Runs `read_file` after a command-created file inside the Docker worker workspace.
+  Runs `read_file` after a command creates a file in the Worker workspace.
   """
   def run_read_file_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
     mention = lark_bot_mention()
@@ -525,8 +545,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_read_file_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
@@ -563,8 +583,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_patch_tool_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
@@ -585,7 +605,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   end
 
   @doc """
-  Verifies Agent `user-files` survives across separate Docker worker turns.
+  Verifies that a folder put in the Agent's drive arrives in one bundled
+  transfer and that its file comes back in a later turn.
   """
   def run_workspace_file_persistence(%{
         fake_feishu: fake_feishu,
@@ -609,8 +630,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     write_input = actor_event_by_source_entry_id!(agent.uid, "om_workspace_write_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                write_input,
                DateTime.add(write_input.available_at, 1, :second)
              )
@@ -621,6 +642,13 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert write_reply.text =~ "CHAOS_WORKSPACE_WRITE_OK"
     assert command_tool_succeeded?(ai_messages_for_actor_event(write_input.id))
     assert_actor_event_completed!(write_input.id)
+
+    # The two files of the folder travel in one bundled transfer.
+    assert {:ok, _file, "CHAOS_WORKSPACE_PERSISTED\n"} =
+             Ankole.Files.read(agent.uid, "chaos/persisted.txt")
+
+    assert {:ok, _file, "CHAOS_WORKSPACE_SECOND\n"} =
+             Ankole.Files.read(agent.uid, "chaos/second.txt")
 
     assert_lark_final_reply(
       fake_feishu,
@@ -645,8 +673,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     read_input = actor_event_by_source_entry_id!(agent.uid, "om_workspace_read_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                read_input,
                DateTime.add(read_input.available_at, 1, :second)
              )

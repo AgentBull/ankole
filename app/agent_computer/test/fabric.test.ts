@@ -1,6 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { describe, expect, it } from 'bun:test'
-import { runtimeFabricSealEnvelope } from '@ankole/kernel'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import {
   createChannelTransport,
@@ -11,20 +10,20 @@ import {
   type ChannelSocketLike
 } from '../src/fabric/channel_transport'
 import {
-  ActorKeySchema,
-  ActorTurnRefSchema,
+  JobTurnRefSchema,
   AgentComputerWorkerHeartbeatSchema,
-  AgentComputerWorkerReadySchema,
   createEnvelope,
   decodeEnvelope,
   encodeEnvelope,
+  ProtocolVersion,
   envelopeHeader,
   Stream,
   RPCRequestSchema,
   RPCResponseSchema,
-  TurnControlSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
+import { TurnControlSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
+import { workerLogger } from '../src/worker/logging'
 import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 
 const config = {
@@ -35,20 +34,17 @@ const config = {
 }
 
 describe('RuntimeFabric channel transport', () => {
-  it('joins the worker topic, sends ready on control, and opens the windows after the ack', async () => {
+  it('join success opens the windows without a second admission message', async () => {
     const { socket, fabric } = connect()
     const channel = socket.current!
     // main.ts hands `sendEnvelope` and `receive` around as plain functions.
     const { sendEnvelope } = fabric
 
-    expect(channel.topic).toBe(runtimeFabricWorkerTopic('worker-a'))
+    expect(channel.topic).toBe(runtimeFabricWorkerTopic)
     expect(channel.params).toEqual({
-      worker_id: 'worker-a',
       incarnation_id: 'incarnation-a',
-      runtime: 'bun',
-      version: 'test',
-      max_turns: 4,
-      available_turn_slots: 4
+      max_slots: 4,
+      available_slots: 4
     })
 
     const send = sendEnvelope(heartbeatEnvelope())
@@ -59,15 +55,8 @@ describe('RuntimeFabric channel transport', () => {
     await tick()
     expect(channel.pushes).toHaveLength(1)
     expect(channel.pushes[0]!.event).toBe('control')
-    expect(decodeEnvelope(channel.pushes[0]!.bytes()).body.case).toBe('workerReady')
-
+    expect(decodeEnvelope(channel.pushes[0]!.bytes()).body.case).toBe('workerHeartbeat')
     channel.pushes[0]!.reply('ok')
-    await tick()
-    expect(channel.pushes).toHaveLength(2)
-    expect(channel.pushes[1]!.event).toBe('control')
-    expect(decodeEnvelope(channel.pushes[1]!.bytes()).body.case).toBe('workerHeartbeat')
-
-    channel.pushes[1]!.reply('ok')
     await send
     fabric.stop()
   })
@@ -89,7 +78,30 @@ describe('RuntimeFabric channel transport', () => {
     fabric.stop()
   })
 
-  it('acknowledges replies on the shared inbound sequence and rejects bytes the kernel refuses', async () => {
+  it('rejects an older protocol before queueing the envelope', async () => {
+    const { socket, fabric } = await connectReady()
+    const log = spyOn(workerLogger, 'error').mockImplementation(() => undefined)
+    try {
+      const bytes = encodeEnvelope({
+        ...turnControlEnvelope('old-protocol'),
+        protocolVersion: 5,
+        stream: Stream.DURABLE,
+        transportSeq: 1n
+      })
+      socket.current!.emit('command', arrayBuffer(bytes))
+      expect(await fabric.receive(5)).toEqual({ kind: 'timeout' })
+      expect(log).toHaveBeenCalledWith(
+        'worker.fabric_decode_failed',
+        'runtime fabric envelope rejected',
+        expect.objectContaining({ event: 'command' })
+      )
+    } finally {
+      log.mockRestore()
+      fabric.stop()
+    }
+  })
+
+  it('acknowledges replies on the shared inbound sequence and rejects invalid protobuf bytes', async () => {
     const { socket, fabric } = await connectReady()
     const channel = socket.current!
     const reply = sealed(rpcResponseEnvelope('request-1'), 1)
@@ -116,15 +128,15 @@ describe('RuntimeFabric channel transport', () => {
     const second = socket.current!
     expect(second).not.toBe(first)
     expect(second.joinPush).toBeDefined()
+    expect(await fabric.receive(5)).toMatchObject({ kind: 'disconnected', connectionID: 'connection-1' })
     expect(await fabric.receive(5)).toEqual({ kind: 'timeout' })
     fabric.stop()
   })
 
-  it('numbers each stream from 1 per join and resolves pushes cumulatively', async () => {
+  it('numbers streams per join and keeps each push business outcome separate from cumulative ACK', async () => {
     const { socket, fabric } = await connectReady()
     const channel = socket.current!
-    const ready = channel.pushes[0]!
-    expect(seqOf(ready)).toBe(1)
+    expect(channel.pushes).toHaveLength(0)
 
     const first = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete'))
     const second = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete'))
@@ -133,11 +145,12 @@ describe('RuntimeFabric channel transport', () => {
 
     const durable = channel.pushes.filter(push => push.event === 'durable')
     expect(durable.map(seqOf)).toEqual([1, 2])
-    expect(seqOf(channel.pushes.filter(push => push.event === 'control').at(-1)!)).toBe(2)
+    expect(seqOf(channel.pushes.filter(push => push.event === 'control').at(-1)!)).toBe(1)
 
     durable[1]!.reply('ok', { stream: 'durable', acked_seq: 2, message_credit: 62, byte_credit: 1024 })
-    await first
     await second
+    durable[0]!.reply('error', { reason: 'run_closed', acked_seq: 2 })
+    expect(await first.catch(error => error)).toMatchObject({ code: 'rejected', reason: 'run_closed' })
     channel.pushes
       .filter(push => push.event === 'control')
       .at(-1)!
@@ -248,7 +261,7 @@ describe('RuntimeFabric channel transport', () => {
     fabric.stop()
   })
 
-  it('fails in-flight pushes on disconnect and sends ready again after the rejoin', async () => {
+  it('fails in-flight pushes and resumes queued sends after the rejoin', async () => {
     const { socket, fabric } = await connectReady()
     const channel = socket.current!
 
@@ -264,18 +277,114 @@ describe('RuntimeFabric channel transport', () => {
     socket.open()
     channel.joinPush!.reply('ok', { connection_id: 'connection-2' })
     await tick()
-    const ready = channel.pushes.at(-1)!
     expect(channel.pushes).toHaveLength(pushesBeforeRejoin + 1)
-    expect(ready.event).toBe('control')
-    expect(decodeEnvelope(ready.bytes()).body.case).toBe('workerReady')
-
-    ready.reply('ok')
-    await tick()
     const durable = channel.pushes.at(-1)!
     expect(durable.event).toBe('durable')
+    expect(seqOf(durable)).toBe(1)
     durable.reply('ok')
     await afterDrop
     fabric.stop()
+  })
+
+  it('does not let a late old push callback settle a rejoined push with the same sequence', async () => {
+    const { socket, fabric } = await connectReady()
+    const channel = socket.current!
+    const before = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete')).catch(error => error)
+    await tick()
+    const oldPush = channel.pushes.at(-1)!
+    socket.close()
+    expect(await before).toMatchObject({ code: 'socket_closed' })
+    socket.open()
+    channel.joinPush!.reply('ok', { connection_id: 'connection-2' })
+    let settled = false
+    const after = fabric.sendEnvelope(rpcRequestEnvelope('actor_turn.complete')).finally(() => {
+      settled = true
+    })
+    await tick()
+    const newPush = channel.pushes.at(-1)!
+    expect(seqOf(oldPush)).toBe(1)
+    expect(seqOf(newPush)).toBe(1)
+    oldPush.reply('timeout')
+    oldPush.reply('ok', { acked_seq: 9, message_credit: 0, byte_credit: 0 })
+    oldPush.reply('error', { reason: 'bad_sequence', expected: 10 })
+    await tick()
+    expect(settled).toBe(false)
+    expect(socket.current).toBe(channel)
+    expect(fabric.isReady).toBe(true)
+    newPush.reply('ok')
+    await after
+    fabric.stop()
+  })
+
+  it('delivers queued and already-handed replies before the connection loss event', async () => {
+    for (const waiting of [false, true]) {
+      const { socket, fabric } = await connectReady()
+      const receive = waiting ? fabric.receive(50) : undefined
+      const reply = sealed(rpcResponseEnvelope('reply-before-close'))
+      socket.current!.emit('reply', arrayBuffer(reply))
+      socket.close()
+      expect(await (receive ?? fabric.receive(50))).toEqual({ kind: 'envelope', envelope: decodeEnvelope(reply) })
+      expect(await fabric.receive(50)).toMatchObject({ kind: 'disconnected', connectionID: 'connection-1' })
+      fabric.stop()
+    }
+  })
+
+  it('cancels a send waiting for reconnect and never sends it after rejoin', async () => {
+    const { socket, fabric } = await connectReady()
+    const channel = socket.current!
+    socket.close()
+    const cancellation = new AbortController()
+    const send = fabric
+      .sendEnvelope(rpcRequestEnvelope('actor_turn.complete'), { signal: cancellation.signal })
+      .catch(error => error)
+    await tick()
+    cancellation.abort(new DOMException('deadline', 'AbortError'))
+    expect(await send).toMatchObject({ name: 'AbortError' })
+    socket.open()
+    channel.joinPush!.reply('ok', { connection_id: 'connection-2' })
+    await tick()
+    expect(channel.pushes.filter(push => push.event === 'durable')).toHaveLength(0)
+    fabric.stop()
+  })
+
+  it('reconnects after the server closes the socket with a normal close', async () => {
+    const lostConnections: string[] = []
+    const { socket, fabric } = await connectReady({
+      reconnectDelayMs: () => 0,
+      onDisconnected: reason => lostConnections.push(reason)
+    })
+    const channel = socket.current!
+    expect(socket.connects).toBe(1)
+
+    // Phoenix does not reconnect after code 1000, which the control plane's
+    // server sends to every socket when it shuts down.
+    socket.close(1000)
+    expect(lostConnections).toEqual(['socket_closed'])
+    await afterTimers()
+    expect(socket.disconnects).toBe(1)
+    expect(socket.connects).toBe(2)
+
+    socket.open()
+    channel.joinPush!.reply('ok', { connection_id: 'connection-2' })
+    await tick()
+    expect(fabric.isolationReason(0)).toBeUndefined()
+    socket.close(1006)
+    socket.close(1006)
+    expect(lostConnections).toEqual(['socket_closed', 'socket_closed'])
+    fabric.stop()
+  })
+
+  it('leaves the reconnect after an abnormal close to Phoenix and stops reconnecting after stop', async () => {
+    const { socket, fabric } = await connectReady({ reconnectDelayMs: () => 0 })
+
+    socket.close(1006)
+    await afterTimers()
+    expect(socket.connects).toBe(1)
+
+    fabric.stop()
+    socket.close(1000)
+    await afterTimers()
+    expect(socket.connects).toBe(1)
   })
 
   it('replaces a channel the server closed and joins again', async () => {
@@ -290,6 +399,100 @@ describe('RuntimeFabric channel transport', () => {
     expect(second.topic).toBe(first.topic)
     expect(second.joinPush).toBeDefined()
     fabric.stop()
+  })
+
+  it('reports no_channel only after the channel stays down for the limit', async () => {
+    const { socket, fabric } = connect()
+    // A process that never joined counts from its start.
+    expect(fabric.isolationReason(0)).toBe('no_channel')
+    expect(fabric.isolationReason(60_000)).toBeUndefined()
+
+    socket.current!.joinPush!.reply('ok', { connection_id: 'connection-1' })
+    await tick()
+    expect(fabric.isolationReason(0)).toBeUndefined()
+
+    socket.close()
+    expect(fabric.isolationReason(0)).toBe('no_channel')
+    expect(fabric.isolationReason(60_000)).toBeUndefined()
+    fabric.stop()
+  })
+
+  it('isolates at once when the control plane refuses the join for a stale generation', async () => {
+    const { socket, fabric } = connect()
+
+    socket.current!.joinPush!.reply('error', { reason: 'protocol_mismatch' })
+    await tick()
+    expect(fabric.isolationReason(60_000)).toBeUndefined()
+
+    socket.current!.joinPush!.reply('error', { reason: 'stale_worker_generation' })
+    await tick()
+    expect(fabric.isolationReason(60_000)).toBe('stale_worker_generation')
+    fabric.stop()
+  })
+
+  it('reconnects the same process after a clock gap even when the old socket appears connected', async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, 'now').mockImplementation(() => now)
+    const { socket, fabric } = await connectReady()
+    try {
+      now += 300_001
+      expect(fabric.isolationReason(300_000)).toBeUndefined()
+      expect(fabric.isReady).toBe(false)
+      expect(socket.disconnects).toBe(1)
+      expect(socket.connects).toBe(2)
+
+      socket.open()
+      const channel = socket.current!
+      expect(channel.params).toMatchObject({ incarnation_id: 'incarnation-a' })
+      channel.joinPush!.reply('ok', { connection_id: 'connection-after-resume' })
+      await tick()
+      expect(fabric.isReady).toBe(true)
+      expect(fabric.isolationReason(0)).toBeUndefined()
+    } finally {
+      fabric.stop()
+      clock.mockRestore()
+    }
+  })
+
+  it('resets isolation after a paused disconnected process resumes but still limits a continuous outage', () => {
+    let now = Date.now()
+    const clock = spyOn(Date, 'now').mockImplementation(() => now)
+    const { socket, fabric } = connect()
+    try {
+      socket.close()
+      now += 300_001
+      expect(fabric.isolationReason(300_000)).toBeUndefined()
+      expect(socket.connects).toBe(2)
+
+      for (let i = 1; i <= 10; i++) {
+        now += 30_000
+        expect(fabric.isolationReason(300_000)).toBe(i === 10 ? 'no_channel' : undefined)
+      }
+      expect(socket.connects).toBe(2)
+    } finally {
+      fabric.stop()
+      clock.mockRestore()
+    }
+  })
+
+  it('does not revive a refused or stopped process after a clock gap', () => {
+    for (const state of ['refused', 'stopped']) {
+      let now = Date.now()
+      const clock = spyOn(Date, 'now').mockImplementation(() => now)
+      const { socket, fabric } = connect()
+      try {
+        if (state === 'refused') socket.current!.joinPush!.reply('error', { reason: 'stale_worker_generation' })
+        else fabric.stop()
+
+        now += 300_001
+        const reason = fabric.isolationReason(300_000)
+        if (state === 'refused') expect(reason).toBe('stale_worker_generation')
+        expect(socket.connects).toBe(1)
+      } finally {
+        fabric.stop()
+        clock.mockRestore()
+      }
+    }
   })
 
   it('rejects every operation after stop', async () => {
@@ -311,7 +514,7 @@ type Options = Parameters<typeof createChannelTransport>[1]
 function connect(options: Partial<Options> = {}) {
   const socket = new FakeSocket()
   const fabric = createChannelTransport(config, {
-    readyEnvelope: () => readyEnvelope(),
+    joinParams: () => ({ incarnation_id: config.incarnationID, max_slots: 4, available_slots: 4 }),
     createSocket: () => socket,
     pushTimeoutMs: 50,
     readyWaitMs: 200,
@@ -325,14 +528,18 @@ async function connectReady(options: Partial<Options> = {}) {
   const connected = connect(options)
   connected.socket.current!.joinPush!.reply('ok', { connection_id: 'connection-1' })
   await tick()
-  connected.socket.current!.pushes.at(-1)!.reply('ok')
-  await tick()
   return connected
 }
 
 async function tick(): Promise<void> {
   await Bun.sleep(0)
   await Bun.sleep(0)
+}
+
+/** Lets timers that are due now run, such as a reconnect with no delay. */
+async function afterTimers(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await tick()
 }
 
 class FakePush implements ChannelPushLike {
@@ -431,6 +638,7 @@ class FakeChannel implements ChannelLike {
 
 class FakeSocket implements ChannelSocketLike {
   current?: FakeChannel
+  connects = 0
   disconnects = 0
   private connected = false
   private readonly openHandlers: Array<() => void> = []
@@ -442,6 +650,7 @@ class FakeSocket implements ChannelSocketLike {
   }
 
   connect(): void {
+    this.connects += 1
     this.connected = true
   }
 
@@ -466,10 +675,10 @@ class FakeSocket implements ChannelSocketLike {
   onError(): void {}
 
   /** Simulates a lost connection: the channel drops to errored and awaits a rejoin. */
-  close(): void {
+  close(code = 1006): void {
     this.connected = false
     if (this.current) this.current.state = 'errored'
-    for (const handler of this.closeHandlers) handler({ code: 1006 })
+    for (const handler of this.closeHandlers) handler({ code })
   }
 
   /** Simulates a reconnect: Phoenix resends the join push of every channel. */
@@ -482,7 +691,12 @@ class FakeSocket implements ChannelSocketLike {
 
 function sealed(envelope: Envelope, seq = 1): Buffer {
   return Buffer.from(
-    runtimeFabricSealEnvelope(encodeEnvelope({ ...envelope, stream: Stream.DURABLE, transportSeq: BigInt(seq) }))
+    encodeEnvelope({
+      ...envelope,
+      protocolVersion: ProtocolVersion.CURRENT,
+      stream: Stream.DURABLE,
+      transportSeq: BigInt(seq)
+    })
   )
 }
 
@@ -494,37 +708,16 @@ function arrayBuffer(bytes: Buffer): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
-function readyEnvelope(): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerReady',
-      value: create(AgentComputerWorkerReadySchema, {
-        workerId: 'worker-a',
-        incarnationId: 'incarnation-a',
-        runtime: 'bun',
-        version: 'test',
-        maxTurns: 4,
-        availableTurnSlots: 4
-      })
-    }
-  })
-}
-
 function heartbeatEnvelope(): Envelope {
   return createEnvelope({
     ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
     body: {
       case: 'workerHeartbeat',
       value: create(AgentComputerWorkerHeartbeatSchema, {
-        workerId: 'worker-a',
         incarnationId: 'incarnation-a',
-        monotonicMs: 1n,
-        activeTurns: 0,
-        runtime: 'bun',
-        version: 'test',
-        maxTurns: 4,
-        availableTurnSlots: 4
+        activeSlots: 0,
+        maxSlots: 4,
+        availableSlots: 4
       })
     }
   })
@@ -533,17 +726,17 @@ function heartbeatEnvelope(): Envelope {
 function rpcRequestEnvelope(method: string): Envelope {
   const requestID = `request-${crypto.randomUUID()}`
   return createEnvelope({
-    ...envelopeHeader(`rpc-${requestID}`, requestID),
+    ...envelopeHeader(`rpc-${requestID}`),
     body: {
       case: 'rpcRequest',
-      value: create(RPCRequestSchema, { requestId: requestID, method, payload: new Uint8Array(), agentUid: 'agent-a' })
+      value: create(RPCRequestSchema, { requestId: requestID, method, payload: new Uint8Array() })
     }
   })
 }
 
 function rpcResponseEnvelope(requestID: string): Envelope {
   return createEnvelope({
-    ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, requestID),
+    ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`),
     body: {
       case: 'rpcResponse',
       value: create(RPCResponseSchema, { requestId: requestID, payload: new Uint8Array() })
@@ -553,16 +746,14 @@ function rpcResponseEnvelope(requestID: string): Envelope {
 
 function turnControlEnvelope(messageID: string): Envelope {
   return createEnvelope({
-    ...envelopeHeader(messageID, 'turn-1'),
+    ...envelopeHeader(messageID),
     body: {
       case: 'turnControl',
       value: create(TurnControlSchema, {
-        turn: create(ActorTurnRefSchema, {
-          actor: create(ActorKeySchema, { agentUid: 'agent-a', sessionId: 'session-1' }),
-          activationUid: 'activation-1',
-          actorEpoch: 1n,
-          actorEventId: '00000000-0000-0000-0000-000000000101',
-          revision: 0
+        turn: create(JobTurnRefSchema, {
+          jobId: 1000n,
+          attempt: 1,
+          actorEventId: '00000000-0000-0000-0000-000000000101'
         }),
         command: 'retry'
       })

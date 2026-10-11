@@ -215,9 +215,10 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               className={cn(
-                'block min-w-0 max-w-64 truncate text-foreground hover:text-link hover:underline',
+                'block min-w-0 max-w-64 truncate text-foreground',
                 hasDisplayName ? 'font-medium' : 'font-mono text-xs'
               )}
+              data-row-link
               title={displayName}
               to={encodeURIComponent(conversation.id)}>
               {displayName}

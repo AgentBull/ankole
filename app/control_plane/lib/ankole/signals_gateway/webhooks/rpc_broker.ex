@@ -2,57 +2,49 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBroker do
   @moduledoc """
   RuntimeFabric RPC entry point for worker-originated webhook endpoint requests.
 
-  The broker captures the current ActorEvent route. It returns a plaintext
+  The broker keeps the current ActorEvent source and resolves its long-lived
+  recipient. It returns a plaintext
   callback URL only from create and never stores that URL or its token.
   """
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.RunRef
   alias Ankole.SignalsGateway.Webhooks
 
-  @spec handle_create(TurnRef.t(), FabricProto.WebhookEndpointCreateRequest.t(), map()) ::
+  @spec handle_create(RunRef.t(), FabricProto.WebhookEndpointCreateRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_create(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_create(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      reply_route = Common.decode_json_bytes(request.reply_route_json)
-
-      with {:ok, token} <- required_text(request.token, :token),
-           {:ok, label} <- required_text(request.label, :label),
+      with {:ok, label} <- required_text(request.label, :label),
            {:ok, mode} <- mode(request.mode),
            {:ok, expires_at} <- datetime(request.expires_at, :expires_at),
            {:ok, automation_job_id} <-
              optional_positive_integer(request.automation_job_id, :automation_job_id),
-           {:ok, source} <- ReplyRoute.validate(turn_ref, reply_route),
-           {:ok, %{status: status, webhook_endpoint: endpoint}} <-
-             Webhooks.create_endpoint(
-               %{
-                 agent_uid: turn_ref.agent_uid,
-                 binding_name: source.binding_name,
-                 session_id: turn_ref.session_id,
-                 signal_channel_id: source.signal_channel_id,
-                 provider_thread_id: source.provider_thread_id,
-                 source_actor_event_id: source.actor_event_id,
-                 source_entry_id: source.source_entry_id,
-                 source_provenance: %{
-                   "rpc_request_id" => ctx.request_id,
-                   "transport_route" => ctx.route,
-                   "activation_uid" => turn_ref.activation_uid,
-                   "actor_epoch" => turn_ref.actor_epoch,
-                   "revision" => turn_ref.revision
-                 },
-                 label: label,
-                 mode: mode,
-                 automation_job_id: automation_job_id,
-                 expires_at: expires_at
+           {:ok, %{source: source, owner_session_id: owner_session_id, reply_route: route}} <-
+             ReplyRoute.long_lived_source(turn_ref),
+           {:ok, %{webhook_endpoint: endpoint, token: token}} <-
+             Webhooks.create_endpoint(%{
+               agent_uid: turn_ref.agent_uid,
+               binding_name: route["binding_name"],
+               session_id: owner_session_id,
+               signal_channel_id: route["signal_channel_id"],
+               provider_thread_id: route["provider_thread_id"],
+               source_actor_event_id: source.actor_event_id,
+               source_entry_id: source.source_entry_id,
+               source_provenance: %{
+                 "rpc_request_id" => ctx.request_id,
+                 "transport_route" => ctx.route
                },
-               token
-             ) do
+               label: label,
+               mode: mode,
+               automation_job_id: automation_job_id,
+               expires_at: expires_at
+             }) do
         {:ok,
          %{
-           "status" => create_status(status),
+           "status" => "created",
            "webhook_endpoint" =>
              endpoint
              |> Webhooks.model_projection()
@@ -62,31 +54,34 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBroker do
     end)
   end
 
-  @spec handle_list(TurnRef.t(), FabricProto.WebhookEndpointListRequest.t(), map()) ::
+  @spec handle_list(RunRef.t(), FabricProto.WebhookEndpointListRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_list(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_list(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      {:ok,
-       %{
-         "status" => "ok",
-         "webhook_endpoints" =>
-           turn_ref.agent_uid
-           |> Webhooks.list_endpoints(turn_ref.session_id,
-             active_only: true,
-             limit: list_limit(request.limit)
-           )
-           |> Enum.map(&Webhooks.model_projection/1)
-       }}
+      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id) do
+        {:ok,
+         %{
+           "status" => "ok",
+           "webhook_endpoints" =>
+             turn_ref.agent_uid
+             |> Webhooks.list_endpoints(owner.session_id,
+               active_only: true,
+               limit: list_limit(request.limit)
+             )
+             |> Enum.map(&Webhooks.model_projection/1)
+         }}
+      end
     end)
   end
 
-  @spec handle_cancel(TurnRef.t(), FabricProto.WebhookEndpointTargetRequest.t(), map()) ::
+  @spec handle_cancel(RunRef.t(), FabricProto.WebhookEndpointTargetRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
-  def handle_cancel(%TurnRef{} = turn_ref, request, ctx) do
+  def handle_cancel(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, endpoint_id} <- uuid(request.webhook_endpoint_id, :webhook_endpoint_id),
+      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
+           {:ok, endpoint_id} <- uuid(request.webhook_endpoint_id, :webhook_endpoint_id),
            {:ok, %{status: status, webhook_endpoint: endpoint}} <-
-             Webhooks.cancel_endpoint(turn_ref.agent_uid, turn_ref.session_id, endpoint_id) do
+             Webhooks.cancel_endpoint(turn_ref.agent_uid, owner.session_id, endpoint_id) do
         {:ok,
          %{
            "status" => cancel_status(status),
@@ -166,8 +161,6 @@ defmodule Ankole.SignalsGateway.Webhooks.RPCBroker do
   defp list_limit(value) when is_integer(value) and value > 0, do: min(value, 100)
   defp list_limit(_value), do: 100
 
-  defp create_status(:created), do: "created"
-  defp create_status(:already_exists), do: "already_exists"
   defp cancel_status(:cancelled), do: "cancelled"
   defp cancel_status(:already_terminal), do: "already_terminal"
 

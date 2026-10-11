@@ -8,6 +8,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
   alias Ankole.OIDC.SigningKey
   alias Ankole.OIDC.Tokens
   alias Ankole.TokenSigning
+  alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
 
   @redirect_uri "https://spa.example.test/callback"
@@ -382,7 +383,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert %{"error" => "invalid_grant"} = json_response(refresh, 400)
   end
 
-  test "shared token endpoint dispatches Console and OIDC refresh by credential shape", %{
+  test "OIDC refresh requires the declared Client credentials", %{
     conn: conn
   } do
     {admin_conn, admin_uid} = active_admin_conn_with_principal(conn)
@@ -398,25 +399,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
     code = authorize_code!(admin_conn, admin_uid, client.id, verifier, "openid offline_access")
     oidc_tokens = exchange_public_code(conn, client.id, code, verifier)
 
-    console_tokens =
-      admin_conn
-      |> with_console_csrf()
-      |> post("/oauth/token", %{
-        "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-      })
-      |> json_response(200)
-
-    console_with_client_credentials =
-      admin_conn
-      |> with_console_csrf()
-      |> post("/oauth/token", %{
-        "grant_type" => "refresh_token",
-        "client_id" => client.id,
-        "refresh_token" => console_tokens["refresh_token"]
-      })
-
-    assert %{"error" => "invalid_request"} = json_response(console_with_client_credentials, 400)
-
     oidc_without_client_credentials =
       admin_conn
       |> with_console_csrf()
@@ -425,7 +407,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "refresh_token" => oidc_tokens["refresh_token"]
       })
 
-    assert %{"error" => "invalid_grant"} = json_response(oidc_without_client_credentials, 400)
+    assert %{"error" => "invalid_client"} = json_response(oidc_without_client_credentials, 400)
 
     oidc_with_admin_cookie =
       admin_conn
@@ -437,40 +419,15 @@ defmodule AnkoleWeb.OIDCControllerTest do
       })
 
     assert %{"error" => "invalid_client"} = json_response(oidc_with_admin_cookie, 400)
-
-    console_with_oidc_credentials =
-      admin_conn
-      |> with_console_csrf()
-      |> post("/oauth/token", %{
-        "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session",
-        "client_id" => client.id
-      })
-
-    assert %{"error" => "invalid_request"} = json_response(console_with_oidc_credentials, 400)
   end
 
-  test "Console grants require the active session, same Origin, and CSRF", %{conn: conn} do
-    {admin_conn, _admin_uid} = active_admin_conn_with_principal(conn)
-    grant = %{"grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"}
+  test "the token endpoint rejects the removed Console grant", %{conn: conn} do
+    result =
+      post(conn, "/oauth/token", %{
+        "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
+      })
 
-    missing_origin = post(admin_conn, "/oauth/token", grant)
-    assert %{"error" => "invalid_request"} = json_response(missing_origin, 403)
-
-    wrong_origin =
-      admin_conn
-      |> with_console_csrf()
-      |> delete_req_header("origin")
-      |> put_req_header("origin", "https://attacker.example")
-      |> post("/oauth/token", grant)
-
-    assert %{"error" => %{"code" => "origin_not_allowed"}} = json_response(wrong_origin, 403)
-
-    missing_csrf =
-      admin_conn
-      |> put_req_header("origin", request_origin(admin_conn))
-      |> post("/oauth/token", grant)
-
-    assert %{"error" => "invalid_request"} = json_response(missing_csrf, 403)
+    assert %{"error" => "unsupported_grant_type"} = json_response(result, 400)
   end
 
   test "prompt and max_age require fresh proof and preserve the actual authentication time", %{
@@ -604,7 +561,10 @@ defmodule AnkoleWeb.OIDCControllerTest do
              |> post("/oauth/introspect", %{"token" => tokens["access_token"]})
              |> json_response(401)
 
-    {:ok, _} = Ankole.Principals.disable_principal(human.principal.uid)
+    {:ok, _} =
+      Repo.with_tenant(human.principal.tenant_id, fn ->
+        Ankole.PrincipalsFixtures.disable_principal_fixture(human.principal.uid)
+      end)
 
     assert %{"active" => false} ==
              conn
@@ -760,7 +720,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
       Tokens.verify_access(refreshed["access_token"], Tokens.userinfo_audience())
 
     assert refreshed_claims["sid"] == verify_id_token!(tokens["id_token"], client.id)["sid"]
-    {:ok, _} = Ankole.Principals.disable_principal(human.principal.uid)
+    {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(human.principal.uid)
 
     assert {:error, _} =
              Tokens.verify_access(refreshed["access_token"], Tokens.userinfo_audience())
@@ -824,6 +784,96 @@ defmodule AnkoleWeb.OIDCControllerTest do
                "refresh_token" => tokens["refresh_token"]
              })
              |> json_response(400)
+  end
+
+  test "gateway refresh rejects a disabled Human with invalid_grant", %{conn: conn} do
+    {human, _group, client} = gateway_authorization_fixture()
+    scope = "openid offline_access ai_gateway.write"
+    code = authorize_code!(conn, human.principal.uid, client.id, pkce_verifier(), scope)
+    tokens = exchange_public_code(conn, client.id, code, pkce_verifier())
+    assert {:ok, _} = disable_principal_fixture(human.principal.uid)
+
+    assert %{"error" => "invalid_grant"} =
+             conn
+             |> recycle()
+             |> post("/oauth/token", %{
+               "grant_type" => "refresh_token",
+               "client_id" => client.id,
+               "refresh_token" => tokens["refresh_token"]
+             })
+             |> json_response(400)
+  end
+
+  test "gateway authorization redirects access_denied after group removal", %{conn: conn} do
+    {human, group, client} = gateway_authorization_fixture()
+    session = oauth_session_conn(conn, human.principal.uid)
+
+    assert {:ok, :deleted} =
+             Ankole.AuthZ.remove_principal_from_group(human.principal.uid, group.id)
+
+    response =
+      get(
+        session,
+        "/oauth/authorize",
+        authorization_request(client.id, "openid ai_gateway.write")
+      )
+
+    assert redirect_query(response)["error"] == "access_denied"
+    refute redirect_query(response)["code"]
+  end
+
+  test "gateway authorization redirects access_denied after tenant suspension", %{conn: conn} do
+    {human, _group, client} = gateway_authorization_fixture()
+    session = oauth_session_conn(conn, human.principal.uid)
+    tenant = Repo.get!(Ankole.Tenants.Tenant, Repo.tenant_id!())
+    Repo.update!(Ecto.Changeset.change(tenant, suspended_at: DateTime.utc_now(:microsecond)))
+
+    response =
+      get(
+        session,
+        "/oauth/authorize",
+        authorization_request(client.id, "openid ai_gateway.write")
+      )
+
+    assert redirect_query(response)["error"] == "access_denied"
+    refute redirect_query(response)["code"]
+  end
+
+  defp gateway_authorization_fixture do
+    human = human_fixture()
+    name = "r50-" <> Ecto.UUID.generate()
+
+    assert {:ok, group} =
+             Ankole.AuthZ.create_principal_group(%{
+               name: name,
+               display_name: "Gateway users",
+               kind: "static"
+             })
+
+    assert {:ok, _} = Ankole.AuthZ.add_principal_to_group(human.principal.uid, group.id)
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: name,
+               provider_kind: "openai",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    client =
+      create_client!(%{
+        scopes: ["openid", "offline_access", "ai_gateway.write"],
+        allowed_group_ids: [group.id],
+        allowed_models: %{
+          "assistant" => %{
+            "provider_id" => name,
+            "model" => "model",
+            "description" => "Gateway model",
+            "provider_options" => %{}
+          }
+        }
+      })
+
+    {human, group, client}
   end
 
   defp authorization_request(client_id, scope) do
@@ -963,8 +1013,4 @@ defmodule AnkoleWeb.OIDCControllerTest do
   end
 
   defp basic(client_id, secret), do: "Basic " <> Base.encode64("#{client_id}:#{secret}")
-
-  defp request_origin(conn) do
-    URI.to_string(%URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port})
-  end
 end

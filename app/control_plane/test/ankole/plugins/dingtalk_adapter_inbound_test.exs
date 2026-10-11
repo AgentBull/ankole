@@ -1,5 +1,5 @@
 defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.DingTalkAdapter.Inbound
   alias Ankole.SignalsGateway.AdapterContext

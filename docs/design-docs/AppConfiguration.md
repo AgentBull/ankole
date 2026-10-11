@@ -31,7 +31,7 @@ flows, Ankole subsystems, and trusted Plugins can use them.
 Examples include:
 
 - the default locale
-- Agent runtime limits and Agent overrides
+- tenant Agent execution limits
 - plugin setup values
 - chat and identity-provider settings that are not bootstrap requirements
 
@@ -48,20 +48,16 @@ An `Ankole.AppConfigure.Definition` tells AppConfigure how to handle one key:
 - a stable key
 - a value schema
 - the `encrypted` storage policy
-- the `scoped` or `global` scope policy
+- the ownership policy: `global` values only, or `tenant` values with Agent overrides
 - an optional default value
 - an optional generator
 - an optional description
 - the `console_writable` policy
-- an optional `worker_env_name`
 
 The schema accepts only JSON-compatible values. AppConfigure checks values
 before a write, after a read, and when it loads a default.
 
-`worker_env_name` sends the chosen value to Agent Computer as a POSIX
-environment variable.
-
-The registry rejects duplicate exact keys. It also rejects duplicate `worker_env_name` values.
+The registry rejects duplicate exact keys.
 
 ## Declare a Family of Keys
 
@@ -71,12 +67,11 @@ IDs make the full key list unknown at startup.
 An exact definition takes priority over a pattern. The registry rejects a key
 when two patterns match it.
 
-A pattern uses the same schema, encryption, default, generator, scope, and Console policies. Patterns do not declare `worker_env_name` exports.
+A pattern uses the same schema, encryption, default, generator, scope, and Console policies.
 
 `console_writable: false` lets only the responsible subsystem change a value.
 The Console can still read it. Use it when a Console edit would break the
-deployment instance, as it would for `runtime_fabric.worker_auth_key`, which the release
-bootstrap generates and every Worker authenticates with, and for
+identity-provider configuration, as it would for
 `principals.identity_providers.active`, which the identity-provider pages write.
 A client-side rule is not sufficient, because the REST API accepts a write that
 only the Console refuses.
@@ -100,34 +95,27 @@ complete input is a valid JSON object or array. Thus, a secret such as `1234`,
 array is structured data, not an opaque string. A subsystem that needs another
 encrypted value shape must provide its own editor.
 
-## Global Values and Agent Overrides
+## Site and Tenant Values
 
-Each row applies either to the complete deployment instance or to one Agent:
+Rows use `global`, `tenant:<tenant_id>`, or `agent:<agent_uid>` scopes. A
+`global` definition permits only site values. A `tenant` definition resolves
+an Agent override first when the caller passes `agent_id`, then the current
+tenant, the site value, and the code default. The Agent must belong to the
+process's tenant. Tenant reads require that context; a value payload cannot
+select another tenant.
 
-- `global` identifies the Ankole deployment instance.
-- `agent:<agent_uid>` identifies one Agent override.
+The multi-tenant migration adds the default tenant's ownership to existing
+Agent rows. It keeps their scope, key, and encrypted value unchanged, so the
+original encryption binding remains valid.
 
-A scoped definition allows both forms. A global definition rejects Agent
-overrides.
-
-The Agent UID stays in the row's scope, not in its key. The global value and
-Agent overrides use the same key.
-
-## How AppConfigure Chooses a Value
-
-For an Agent, AppConfigure checks these values in order:
-
-1. the current Agent row
-2. the global row
-3. the code default
-
-A read without an Agent starts with the global row. A global definition never
-checks an Agent row.
+The settings page shows the site value and current tenant value in separate
+columns. Site writes use `/api/v1/site/app-configurations`; tenant writes use
+`/api/v1/app-configurations`. Both use the same validation and encryption owner.
 
 AppConfigure tries the next choice only when a row is absent. A corrupt or
 undecryptable row returns an error instead of hiding the problem.
 
-`Ankole.AppConfigure.Resolution` returns the value and its `agent`, `global`, or `default` source.
+`Ankole.AppConfigure.Resolution` returns the value and its `agent`, `tenant`, `global`, or `default` source.
 
 Environment variables never override an AppConfigure value.
 
@@ -136,6 +124,7 @@ Environment variables never override an AppConfigure value.
 The `app_configurations` table stores one row for each `{scope, key}` pair. The table has these fields:
 
 - `scope`
+- `tenant_id`, null for global rows and a tenant foreign key for other rows
 - `key`
 - JSONB `value`
 - `inserted_at`
@@ -187,8 +176,9 @@ typed read or an authorized Console request.
 Exact definitions use these public functions:
 
 - `resolve/2` and `get/2`
-- `put_global/2` and `put_for_agent/3`
-- `delete_global/1` and `delete_for_agent/2`
+- `put_global/2`
+- `delete_global/1`
+- `put_tenant_by_key/2`, `delete_tenant_by_key/1`, and their transaction forms
 - `generate/1`
 
 Runtime keys use the corresponding `*_by_key` functions. The registry must match each runtime key before the operation continues.
@@ -202,7 +192,7 @@ After the commit, AppConfigure reloads the row into its cache. If that fails,
 it removes the old cache entry and logs the error. The database write remains
 successful, and a later read can load it again.
 
-Deleting an Agent row restores global or default inheritance. Deleting a global row restores the code default when one exists.
+Deleting a tenant row restores global or default inheritance. Deleting a global row restores the code default when one exists.
 
 ## Cache Behavior
 
@@ -210,7 +200,9 @@ Deleting an Agent row restores global or default inheritance. Deleting a global 
 each copy by `{scope, key}`.
 
 At startup, the cache tries to load every row. A cache miss reads the requested
-row from PostgreSQL.
+row from PostgreSQL. The cache keeps that result only if no refresh started
+after the miss began, because the result can be older than the write that
+started the refresh.
 
 The cache has no TTL and no public refresh operation. AppConfigure writes and deletes refresh the affected key.
 
@@ -225,25 +217,21 @@ but does not store it.
 The setup flow or responsible subsystem must store an accepted value. A read
 never creates a row.
 
-ActorRuntime reads `runtime_fabric.worker_auth_key` through AppConfigure before
-it prepares Worker startup data.
+`runtime_fabric.worker_auth_key` is the installation key used for opaque Lark
+profile names. It stays in the control plane. Each Worker generation uses its
+own random credential, stored by AgentWorkers. Console writes to the profile
+key are disabled because a replacement would change existing profile names.
 
-## Send Selected Values to Agent Computer
+## Custom Agent Computer Environment Variables
 
-An exact definition can send its chosen value to one Agent Computer environment
-variable. `worker_env_name` names that variable.
+WorkerEnv stores operator-managed environment variables separately from
+AppConfigure. Site values apply first, then tenant values, then Agent values.
+Binding variables and explicit command variables apply afterwards. A WorkerEnv
+value is a string; secret values use encrypted storage.
 
-WorkerEnv combines these values with custom operator entries before each Agent
-execution. It then applies the correct Agent override.
-
-WorkerEnv controls reserved names, merge order, custom secrets, and process
-injection. AppConfigure supplies only its declared values.
-
-WorkerEnv contains static operator-managed values. It does not carry facts that
-change for each Actor Turn. RuntimeFabric `turn_start` carries those facts in a
-separate runtime environment map. Runtime environment names use the
-`ANKOLE_RUNTIME_` prefix, and operator WorkerEnv entries cannot use that
-namespace.
+AppConfigure declarations do not export environment variables. RuntimeFabric
+carries per-turn runtime facts separately. Runtime names use the
+`ANKOLE_RUNTIME_` prefix, and operator WorkerEnv entries cannot use that namespace.
 
 ## Startup Order
 
@@ -278,3 +266,10 @@ setting must apply it after the write.
 - Reads never store generated values.
 - A successful PostgreSQL commit means that a write succeeded.
 - Ankole can rebuild the ETS cache from PostgreSQL.
+
+Identity-provider settings belong to the tenant. Their encrypted rows move from
+`global` to `tenant:<id>` in the release migration, which decrypts and encrypts
+them with the new scope in one transaction. Generic settings cannot write these
+keys; the identity-provider owner validates platform application assignment.
+Signal binding secrets remain global because their key includes a hash of the
+globally unique Agent UID and binding name. The binding lifecycle deletes them.

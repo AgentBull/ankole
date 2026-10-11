@@ -9,24 +9,25 @@ Agent는 명령을 실행하거나, MCP 서버를 호출하거나, Agent Compute
 
 자격 증명을 Skill, Agent 문서, 채팅 메시지에 넣지 마세요.
 
-Agent와 Agent가 시작한 프로그램은 이 변수들을 읽을 수 있습니다. Agent가 사용해야 하는 자격 증명만 저장하세요. LLM Provider, identity provider, 채팅 채널의 자격 증명은 각각의 Console 페이지에서 구성하세요.
+Agent와 Agent가 시작한 프로그램은 이 변수들을 읽을 수 있습니다. Agent가 실행하는 각 명령은 이 값들을 담은 새 환경에서 시작하며, Worker 프로세스의 환경을 상속하지 않습니다. Agent가 사용해야 하는 자격 증명만 저장하세요. LLM Provider, identity provider, 채팅 채널의 자격 증명은 각각의 Console 페이지에서 구성하세요.
 
 ## 먼저 스코프를 선택하세요
 
 | 변수가 필요한 대상 | 설정 위치 | 스코프 |
 |---|---|---|
-| 모든 Agent | **Console → Environment variables** | 기본적으로 모든 Agent가 사용 가능 |
-| 하나의 Agent | **Console → Agents → Agent 선택 → Environment variables** | 해당 Agent만 사용 가능; 같은 이름의 값은 전역 값을 덮어씀 |
+| 사이트 전체 Agent | **Console → Environment variables → New site variable** | 사이트 기본값 |
+| 한 테넌트의 Agent | **Console → 테넌트 선택 → Environment variables → New tenant variable** | 해당 테넌트에서 사이트 값 재정의 |
+| 하나의 Agent | **Console → Agents → Agent 선택 → Environment variables** | 해당 Agent에서 테넌트와 사이트 값 재정의 |
 
-Agent 값을 지우면 같은 이름의 전역 값이 다시 활성화됩니다. 전역 값이 없으면 Agent는 더 이상 변수를 받지 않습니다.
+Agent 재정의, 테넌트 값, 사이트 기본값 순으로 해석합니다. 재정의를 지우면 다음 사용 가능한 값으로 돌아갑니다. 어느 범위에도 값이 없으면 변수를 전달하지 않습니다.
 
-## 모든 Agent용 변수 추가
+## 사이트 또는 테넌트 변수 추가
 
-1. **Console → Environment variables**를 열고 **New variable**을 선택합니다.
+1. **Console → Environment variables**를 열고 테넌트를 선택합니다. 필요한 범위에 맞춰 **New site variable** 또는 **New tenant variable**을 선택합니다.
 2. 이름을 입력합니다. 문자, 숫자, 밑줄을 포함할 수 있지만 숫자로 시작할 수 없습니다. 예를 들어 `MY_API_KEY`처럼 사용하세요.
 3. 값을 입력합니다. API 키, 토큰, 비밀번호 등 민감한 값에는 **Store as secret**을 켠 상태로 유지하세요.
 4. 해당 변수를 사용하는 도구나 서비스를 식별할 수 있는 메모를 선택적으로 추가합니다. 이 메모는 Agent에게 전달되지 않습니다.
-5. 변수를 저장합니다. Agent의 다음 턴부터 사용할 수 있습니다.
+5. 변수를 저장합니다.
 
 런타임은 `PATH`, `HOME`, `SHELL`, `TERM`, `LANG`, `BASH_ENV`, `ENV`, `WORKER_ID`, `DATABASE_URL`, `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, 그리고 `ANKOLE_`로 시작하는 이름을 예약합니다. 이 이름들은 여기서 설정할 수 없습니다.
 
@@ -37,16 +38,11 @@ Agent 값을 지우면 같은 이름의 전역 값이 다시 활성화됩니다.
 3. 변수를 추가하거나 기존 변수에서 **Override**를 선택합니다.
 4. 값을 입력하고 저장합니다.
 
-이 섹션에는 기본값, 전역 값, 이 Agent의 값이 표시됩니다. **Source** 열은 어떤 값이 활성 상태인지 보여 줍니다. **Clear**를 선택하면 Agent 값을 제거하고 전역 값이나 기본값을 복원합니다.
+이 섹션은 사이트, 테넌트, Agent 값을 표시합니다. **Source** 열은 적용된 값의 출처를 보여 줍니다. **Clear**는 Agent 재정의만 제거하며 이후 테넌트 또는 사이트 값이 적용될 수 있습니다.
 
 ## 변수 유형 이해
 
-| 유형 | 의미 | 가능한 작업 |
-|---|---|---|
-| Custom | 관리자가 Console에서 추가한 변수 | 편집 또는 삭제 |
-| Declared | Ankole 또는 활성화된 플러그인이 제공하는 변수 | 값 편집 또는 기본값으로 재설정 |
-
-declared 변수는 이름과 데이터 형식이 고정되어 있습니다. 값도 기본값도 없는 변수는 **Unset**으로 표시됩니다.
+WorkerEnv 항목은 모두 운영자가 추가한 사용자 지정 값입니다. Ankole과 Plugin은 WorkerEnv를 통해 AppConfigure 키를 내보내지 않습니다. 런타임 예약 변수와 binding 자격 증명은 각 도메인이 관리합니다.
 
 ## 값 암호화, 표시, 순환
 
@@ -58,13 +54,13 @@ declared 변수는 이름과 데이터 형식이 고정되어 있습니다. 값�
 
 ## 변경 사항이 적용되는 시점
 
-변경은 이미 시작된 실행에는 영향을 주지 않습니다. 새 값은 Agent의 다음 턴, 이후의 Background Agent Job 실행, 이후의 Automation Job 시도에서 사용할 수 있습니다.
+변경은 이후 Worker 작업에 적용됩니다. 이미 환경을 가져온 실행이나 작업공간은 이전 값을 유지합니다. 주 모델 추론은 컨트롤 플레인에서 실행하며 WorkerEnv를 해당 프로세스 환경으로 받지 않습니다.
 
 Agent가 기대한 값을 받지 못하면 다음 항목을 순서대로 확인하세요.
 
-1. 이름이 Skill, 스크립트 또는 `bearer_token_env_var` 선언의 이름과 정확히 일치하는지. 이름은 대소문자를 구분합니다.
-2. Agent가 같은 이름의 값을 가지고 있는지. Agent 값은 전역 값을 덮어씁니다.
-3. 변수가 **Unset**으로 표시되지 않는지.
-4. 변경 후 새 Agent 턴이 시작되었는지.
+1. 이름이 Skill, 스크립트 또는 `bearer_token_env_var` 선언과 정확히 일치하는지 확인합니다. 대소문자를 구분합니다.
+2. 사이트 기본값보다 먼저 Agent와 테넌트 재정의를 확인합니다.
+3. 적어도 한 범위에 값이 존재하는지 확인합니다.
+4. 변경 후 새 Worker 작업을 시작합니다. 기존 작업공간은 가져온 환경을 유지합니다.
 
 MCP 기반 Skill에서는 `bearer_token_env_var`에 환경 변수 이름만 넣으세요. 토큰은 여기에 저장합니다. 선언 계약은 [MCP](../mcp/)를 참조하세요.

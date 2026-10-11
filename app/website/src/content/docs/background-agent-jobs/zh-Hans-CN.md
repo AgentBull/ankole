@@ -83,7 +83,7 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 | `GET` | `/background-agent-jobs/:job_id` | 读取一个任务 |
 | `POST` | `/background-agent-jobs/:job_id/cancel` | 取消一个任务 |
 
-取消把任务推到 `stopped`；它不会从正在运行的回合底下突然抽走 worker。回合自行结束或失败，受每一次 worker 写入都要经过的同一套 activation 和 revision 校验约束。
+取消将 Job 转为 `stopped`，并请求取消实时执行。PostgreSQL 中的 Job 状态、attempt 身份与 Turn revision 决定后续 Worker 结果能否提交。
 
 ## Background Agent Jobs 不是什么
 

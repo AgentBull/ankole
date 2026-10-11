@@ -40,15 +40,23 @@ const identities: Array<{
     identity: { resource: 'permission-grant', id: 'grant-1' },
     sourceKey: 'grant:grant-1'
   },
-  { name: 'new worker environment variable', identity: { resource: 'worker-env' }, sourceKey: 'worker-env:new' },
+  {
+    name: 'new worker environment variable',
+    identity: { resource: 'worker-env', scope: 'tenant' },
+    sourceKey: 'worker-env:tenant:new'
+  },
   {
     name: 'worker environment variable',
-    identity: { resource: 'worker-env', name: 'API_TOKEN' },
-    sourceKey: 'worker-env:API_TOKEN'
+    identity: { resource: 'worker-env', scope: 'tenant', name: 'API_TOKEN' },
+    sourceKey: 'worker-env:tenant:API_TOKEN'
   },
   { name: 'new schedule', identity: { resource: 'schedule' }, sourceKey: 'cron:new' },
   { name: 'schedule', identity: { resource: 'schedule', id: 'daily' }, sourceKey: 'cron:daily' },
-  { name: 'setting', identity: { resource: 'setting', key: 'time.zone' }, sourceKey: 'setting:time.zone' },
+  {
+    name: 'setting',
+    identity: { resource: 'setting', scope: 'tenant', key: 'time.zone' },
+    sourceKey: 'setting:tenant:time.zone'
+  },
   {
     name: 'new signal binding',
     identity: { resource: 'signal-binding', agentUID: 'ada', adapterID: 'slack' },
@@ -125,23 +133,28 @@ describe('useEditorDraft', () => {
     const model = recordingModel()
     const identity = { resource: 'model-profiles', agentUID: 'ada' } as const
 
-    seedEditorDraft(model, identity, 'cached')
-    seedEditorDraft(model, identity, 'refetched')
+    seedEditorDraft(model, resolveEditorDraftIdentity(identity), 'cached', false)
+    seedEditorDraft(model, resolveEditorDraftIdentity(identity), 'refetched', false)
 
     expect(model.initializations).toEqual([{ key: 'agent:ada', source: 'cached' }])
   })
 
   test('seeds a new identity and preserves the agent-library initializer contract', () => {
     const ordinary = recordingModel()
-    seedEditorDraft(ordinary, { resource: 'agent', uid: 'ada' }, 'Ada')
-    seedEditorDraft(ordinary, { resource: 'agent', uid: 'grace' }, 'Grace')
+    seedEditorDraft(ordinary, resolveEditorDraftIdentity({ resource: 'agent', uid: 'ada' }), 'Ada', false)
+    seedEditorDraft(ordinary, resolveEditorDraftIdentity({ resource: 'agent', uid: 'grace' }), 'Grace', false)
     expect(ordinary.initializations).toEqual([
       { key: 'agent:ada', source: 'Ada' },
       { key: 'agent:grace', source: 'Grace' }
     ])
 
     const library = recordingModel(key => `agent:${key}`)
-    seedEditorDraft(library, { resource: 'agent-library', agentUID: 'ada' }, 'documents')
+    seedEditorDraft(
+      library,
+      resolveEditorDraftIdentity({ resource: 'agent-library', agentUID: 'ada' }),
+      'documents',
+      false
+    )
     expect(library.initializations).toEqual([{ key: 'ada', source: 'documents' }])
     expect(library.sourceKey.value).toBe('agent:ada')
   })

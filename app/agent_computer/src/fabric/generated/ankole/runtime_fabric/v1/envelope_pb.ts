@@ -4,23 +4,20 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { AgentConversationContextResponse } from "./rpc_pb";
+import { file_ankole_runtime_fabric_v1_rpc } from "./rpc_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file ankole/runtime_fabric/v1/envelope.proto.
  */
 export const file_ankole_runtime_fabric_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIxCghBY3RvcktleRIRCglhZ2VudF91aWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCSKYAQoMQWN0b3JUdXJuUmVmEjEKBWFjdG9yGAEgASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yS2V5EhYKDmFjdGl2YXRpb25fdWlkGAIgASgJEhMKC2FjdG9yX2Vwb2NoGAMgASgEEhYKDmFjdG9yX2V2ZW50X2lkGAQgASgJEhAKCHJldmlzaW9uGAUgASgNItoICghFbnZlbG9wZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhIKCm1lc3NhZ2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSLAoEbGFuZRgFIAEoDjIeLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5MYW5lEhcKD3NlbnRfYXRfdW5peF9tcxgGIAEoAxI9CgpkdXJhYmlsaXR5GAcgASgOMikuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkR1cmFiaWxpdHlDbGFzcxIwCgZzdHJlYW0YBCABKA4yIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU3RyZWFtEhUKDXRyYW5zcG9ydF9zZXEYCCABKAQSSgoMd29ya2VyX3JlYWR5GBQgASgLMjIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50Q29tcHV0ZXJXb3JrZXJSZWFkeUgAElIKEHdvcmtlcl9oZWFydGJlYXQYFSABKAsyNi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb21wdXRlcldvcmtlckhlYXJ0YmVhdEgAElAKD3dvcmtlcl9jYXBhY2l0eRgWIAEoCzI1LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudENvbXB1dGVyV29ya2VyQ2FwYWNpdHlIABI5Cgp0dXJuX3N0YXJ0GB4gASgLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydEgAEkMKD21haWxib3hfdXBkYXRlZBgfIAEoCzIoLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5NYWlsYm94VXBkYXRlZEgAEj8KDXR1cm5fYWNjZXB0ZWQYISABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkFjY2VwdGVkSAASPQoMdHVybl9jb250cm9sGCIgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5Db250cm9sSAASQwoPd29ya2VyX3Byb2dyZXNzGCMgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlclByb2dyZXNzSAASRQoQY29udHJvbF9zaHV0ZG93bhgyIAEoCzIpLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Db250cm9sU2h1dGRvd25IABI7CgtycGNfcmVxdWVzdBhGIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SUENSZXF1ZXN0SAASPQoMcnBjX3Jlc3BvbnNlGEcgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ1Jlc3BvbnNlSAASNwoJcnBjX2Vycm9yGEggASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ0Vycm9ySABCBgoEYm9keSKYAQoYQWdlbnRDb21wdXRlcldvcmtlclJlYWR5EhEKCXdvcmtlcl9pZBgBIAEoCRIPCgdydW50aW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhwKFGF2YWlsYWJsZV90dXJuX3Nsb3RzGAcgASgNIsgBChxBZ2VudENvbXB1dGVyV29ya2VySGVhcnRiZWF0EhEKCXdvcmtlcl9pZBgBIAEoCRIUCgxtb25vdG9uaWNfbXMYAiABKAMSFgoOaW5jYXJuYXRpb25faWQYBCABKAkSFAoMYWN0aXZlX3R1cm5zGAUgASgNEg8KB3J1bnRpbWUYBiABKAkSDwoHdmVyc2lvbhgHIAEoCRIRCgltYXhfdHVybnMYCCABKA0SHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYCSABKA0ijwEKG0FnZW50Q29tcHV0ZXJXb3JrZXJDYXBhY2l0eRIRCgl3b3JrZXJfaWQYASABKAkSHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYBCABKA0SFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhQKDGFjdGl2ZV90dXJucxgHIAEoDSLnAQoSQWN0b3JFdmVudEVudmVsb3BlEhYKDmFjdG9yX2V2ZW50X2lkGAEgASgJEhYKDnF1ZXVlX3NlcXVlbmNlGAIgASgEEgwKBHR5cGUYAyABKAkSFwoPc291cmNlX2V2ZW50X2lkGAQgASgJEhcKD3NvdXJjZV9lbnRyeV9pZBgFIAEoCRIUCgxwYXlsb2FkX2pzb24YBiABKAwSFAoMYmluZGluZ19uYW1lGAcgASgJEhkKEXNpZ25hbF9jaGFubmVsX2lkGAggASgJEhoKEnByb3ZpZGVyX3RocmVhZF9pZBgJIAEoCSKLAwoJVHVyblN0YXJ0EjQKBHR1cm4YASABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAIgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZRI5Cgltb2RlbF9yZWYYAyABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEhwKFHJlcXVlc3RfY29udGV4dF9qc29uGAQgASgMEhkKEWhvc3RlZF90b29sc19qc29uGAUgASgMEkgKC3J1bnRpbWVfZW52GAYgAygLMjMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydC5SdW50aW1lRW52RW50cnkSFAoMd29ya3NwYWNlX2lkGAcgASgEGjEKD1J1bnRpbWVFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIvICCgxUdXJuTW9kZWxSZWYSDwoHcHJvZmlsZRgBIAEoCRITCgtwcm92aWRlcl9pZBgCIAEoCRINCgVtb2RlbBgDIAEoCRIVCg1wcm92aWRlcl9raW5kGAQgASgJEhgKEGlucHV0X21vZGFsaXRpZXMYBSADKAkSSQoZdmlzaW9uX2ZhbGxiYWNrX21vZGVsX3JlZhgGIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuTW9kZWxSZWYSIgoVbWF4X2NvbXBsZXRpb25fdG9rZW5zGAcgASgNSACIAQESHQoVcHJvdmlkZXJfb3B0aW9uc19qc29uGAggASgMEiQKHHN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMYCSABKAgSGwoOY29udGV4dF9sZW5ndGgYCiABKA1IAYgBAUIYChZfbWF4X2NvbXBsZXRpb25fdG9rZW5zQhEKD19jb250ZXh0X2xlbmd0aCKZAQoOTWFpbGJveFVwZGF0ZWQSDgoGcmVhc29uGAEgASgJEjQKBHR1cm4YAiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAMgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZSJECgxUdXJuQWNjZXB0ZWQSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYiagoLVHVybkNvbnRyb2wSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDwoHY29tbWFuZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwieAoOV29ya2VyUHJvZ3Jlc3MSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDAoEa2luZBgCIAEoCRIPCgdzdW1tYXJ5GAMgASgJEhEKCXJlZnNfanNvbhgEIAEoDCIhCg9Db250cm9sU2h1dGRvd24SDgoGcmVhc29uGAEgASgJIqQBCgpSUENSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGbWV0aG9kGAIgASgJEhgKEGRlYWRsaW5lX3VuaXhfbXMYAyABKAMSDwoHcGF5bG9hZBgEIAEoDBI0CgR0dXJuGAUgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yVHVyblJlZhIRCglhZ2VudF91aWQYBiABKAkiMgoLUlBDUmVzcG9uc2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdwYXlsb2FkGAIgASgMIlMKCFJQQ0Vycm9yEhIKCnJlcXVlc3RfaWQYASABKAkSDAoEY29kZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJEhQKDGRldGFpbHNfanNvbhgEIAEoDCpeCgRMYW5lEhQKEExBTkVfVU5TUEVDSUZJRUQQABIQCgxMQU5FX0NPTlRST0wQARINCglMQU5FX1RVUk4QAhIRCg1MQU5FX1BST0dSRVNTEAMSDAoITEFORV9SUEMQBCpeCgZTdHJlYW0SFgoSU1RSRUFNX1VOU1BFQ0lGSUVEEAASEgoOU1RSRUFNX0NPTlRST0wQARISCg5TVFJFQU1fRFVSQUJMRRACEhQKEFNUUkVBTV9URUxFTUVUUlkQAypxCg9EdXJhYmlsaXR5Q2xhc3MSGgoWRFVSQUJJTElUWV9VTlNQRUNJRklFRBAAEhMKD0NPTlRST0xfRFVSQUJMRRABEhYKEkNPTlRST0xfUkVQTEFZQUJMRRACEhUKEUNPTlRST0xfRVBIRU1FUkFMEANiBnByb3RvMw");
+  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIeCghBY3RvcktleRISCgpzZXNzaW9uX2lkGAIgASgJIlMKBlJ1blJlZhIxCgVhY3RvchgBIAEoCzIiLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvcktleRIWCg5hY3Rvcl9ldmVudF9pZBgCIAEoCSJFCgpKb2JUdXJuUmVmEhYKDmFjdG9yX2V2ZW50X2lkGAIgASgJEg4KBmpvYl9pZBgDIAEoBBIPCgdhdHRlbXB0GAQgASgNIpwKCghFbnZlbG9wZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhIKCm1lc3NhZ2VfaWQYAiABKAkSMAoGc3RyZWFtGAQgASgOMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlN0cmVhbRIVCg10cmFuc3BvcnRfc2VxGAggASgEElIKEHdvcmtlcl9oZWFydGJlYXQYFSABKAsyNi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb21wdXRlcldvcmtlckhlYXJ0YmVhdEgAEjkKCnR1cm5fc3RhcnQYHiABKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVyblN0YXJ0SAASQwoPbWFpbGJveF91cGRhdGVkGB8gASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLk1haWxib3hVcGRhdGVkSAASPwoNdHVybl9hY2NlcHRlZBghIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuQWNjZXB0ZWRIABI9Cgx0dXJuX2NvbnRyb2wYIiABKAsyJS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkNvbnRyb2xIABJDCg93b3JrZXJfcHJvZ3Jlc3MYIyABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyUHJvZ3Jlc3NIABJBCg53b3Jrc3BhY2Vfb3BlbhgkIAEoCzInLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VPcGVuSAASQwoPd29ya3NwYWNlX3JlYWR5GCUgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtzcGFjZVJlYWR5SAASQwoPd29ya3NwYWNlX2Nsb3NlGCYgASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtzcGFjZUNsb3NlSAASNwoJdG9vbF9jYWxsGCcgASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xDYWxsSAASOwoLdG9vbF9jYW5jZWwYKCABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVG9vbENhbmNlbEgAEjsKC3Rvb2xfc3RhdHVzGCkgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xTdGF0dXNIABI/Cg10b29sX3Byb2dyZXNzGCogASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xQcm9ncmVzc0gAEjsKC3Rvb2xfcmVzdWx0GCsgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlRvb2xSZXN1bHRIABJFChBjb250cm9sX3NodXRkb3duGDIgASgLMikuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkNvbnRyb2xTaHV0ZG93bkgAEjsKC3JwY19yZXF1ZXN0GEYgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ1JlcXVlc3RIABI9CgxycGNfcmVzcG9uc2UYRyABKAsyJS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUlBDUmVzcG9uc2VIABI3CglycGNfZXJyb3IYSCABKAsyIi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUlBDRXJyb3JIAEIGCgRib2R5Ik0KEkZldGNoUnVudGltZUNvbmZpZxITCgtzc3JmX2ZpbHRlchgBIAEoCBIiChpyZW5kZXJlZF9mZXRjaF9pZGxlX3R0bF9tcxgCIAEoDSLEAwoNV29ya3NwYWNlT3BlbhItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhQKDHdvcmtzcGFjZV9pZBgCIAEoBBJMCgtydW50aW1lX2VudhgDIAMoCzI3LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VPcGVuLlJ1bnRpbWVFbnZFbnRyeRJRCg1hZ2VudF9jb250ZXh0GAQgASgLMjouYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50Q29udmVyc2F0aW9uQ29udGV4dFJlc3BvbnNlEhQKDGJpbmRpbmdfbmFtZRgFIAEoCRJKChRmZXRjaF9ydW50aW1lX2NvbmZpZxgIIAEoCzIsLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5GZXRjaFJ1bnRpbWVDb25maWcSFwoPaWRsZV90aW1lb3V0X21zGAcgASgEGjEKD1J1bnRpbWVFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBSgQIBhAHUhlmZXRjaF9ydW50aW1lX2NvbmZpZ19qc29uItgBCg5Xb3Jrc3BhY2VSZWFkeRItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEg0KBWVycm9yGAIgASgJEj8KBnJlYXNvbhgDIAEoDjIvLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3Jrc3BhY2VSZWFkeS5SZWFzb24iRwoGUmVhc29uEgkKBVJFQURZEAASDAoIQ0FQQUNJVFkQARIMCghEUkFJTklORxACEhYKElBSRVBBUkFUSU9OX0ZBSUxFRBADIj8KDldvcmtzcGFjZUNsb3NlEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYipgEKCFRvb2xDYWxsEi0KA3J1bhgBIAEoCzIgLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW5SZWYSEwoLcmVzcG9uc2VfaWQYAiABKAkSDwoHY2FsbF9pZBgDIAEoCRIRCgluYW1lc3BhY2UYBCABKAkSDAoEbmFtZRgFIAEoCRIWCg5hcmd1bWVudHNfanNvbhgGIAEoDBIMCgRtb2RlGAcgASgJImEKClRvb2xDYW5jZWwSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhITCgtyZXNwb25zZV9pZBgCIAEoCRIPCgdjYWxsX2lkGAMgASgJInAKClRvb2xTdGF0dXMSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhITCgtyZXNwb25zZV9pZBgCIAEoCRIPCgdjYWxsX2lkGAMgASgJEg0KBXN0YXRlGAQgASgJIn4KDFRvb2xQcm9ncmVzcxItCgNydW4YASABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEhMKC3Jlc3BvbnNlX2lkGAIgASgJEg8KB2NhbGxfaWQYAyABKAkSGQoRcHJlc2VudGF0aW9uX2pzb24YBCABKAwixQEKClRvb2xSZXN1bHQSLQoDcnVuGAEgASgLMiAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1blJlZhITCgtyZXNwb25zZV9pZBgCIAEoCRIPCgdjYWxsX2lkGAMgASgJEhQKDGNvbnRlbnRfanNvbhgEIAEoDBIUCgxkZXRhaWxzX2pzb24YBSABKAwSEAoIaXNfZXJyb3IYBiABKAgSFAoMZmFpbHVyZV9raW5kGAcgASgJEg4KBmltYWdlcxgIIAMoDCKjAQocQWdlbnRDb21wdXRlcldvcmtlckhlYXJ0YmVhdBIWCg5pbmNhcm5hdGlvbl9pZBgEIAEoCRIUCgxhY3RpdmVfc2xvdHMYBSABKA0SEQoJbWF4X3Nsb3RzGAggASgNEhcKD2F2YWlsYWJsZV9zbG90cxgJIAEoDRIUCgxhY3RpdmVfdGFza3MYCiABKA0SEwoLaWRsZV9mb3JfbXMYCyABKAQiZgoSQWN0b3JFdmVudEVudmVsb3BlEhYKDmFjdG9yX2V2ZW50X2lkGAEgASgJEgwKBHR5cGUYAyABKAkSFAoMcGF5bG9hZF9qc29uGAYgASgMEhQKDGJpbmRpbmdfbmFtZRgHIAEoCSL7BAoJVHVyblN0YXJ0EjIKBHR1cm4YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZhJBCgthY3Rvcl9ldmVudBgCIAEoCzIsLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvckV2ZW50RW52ZWxvcGUSOQoJbW9kZWxfcmVmGAMgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5Nb2RlbFJlZhIcChRyZXF1ZXN0X2NvbnRleHRfanNvbhgEIAEoDBI6Cgxob3N0ZWRfdG9vbHMYDCADKA4yJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSG9zdGVkVG9vbBJKChRmZXRjaF9ydW50aW1lX2NvbmZpZxgLIAEoCzIsLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5GZXRjaFJ1bnRpbWVDb25maWcSSAoLcnVudGltZV9lbnYYBiADKAsyMy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVyblN0YXJ0LlJ1bnRpbWVFbnZFbnRyeRIMCgRtb2RlGAggASgJElEKDWFnZW50X2NvbnRleHQYCiABKAsyOi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb252ZXJzYXRpb25Db250ZXh0UmVzcG9uc2UaMQoPUnVudGltZUVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgFEAZKBAgJEApSEWhvc3RlZF90b29sc19qc29uUhlmZXRjaF9ydW50aW1lX2NvbmZpZ19qc29uIqkCCgxUdXJuTW9kZWxSZWYSEwoLcHJvdmlkZXJfaWQYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNcHJvdmlkZXJfa2luZBgEIAEoCRIYChBpbnB1dF9tb2RhbGl0aWVzGAUgAygJEkkKGXZpc2lvbl9mYWxsYmFja19tb2RlbF9yZWYYBiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEh0KFXByb3ZpZGVyX29wdGlvbnNfanNvbhgIIAEoDBIkChxzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzGAkgASgIEhsKDmNvbnRleHRfbGVuZ3RoGAogASgNSACIAQFCEQoPX2NvbnRleHRfbGVuZ3RoSgQIBxAIIocBCg5NYWlsYm94VXBkYXRlZBIyCgR0dXJuGAIgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkpvYlR1cm5SZWYSQQoLYWN0b3JfZXZlbnQYAyABKAsyLC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JFdmVudEVudmVsb3BlIkIKDFR1cm5BY2NlcHRlZBIyCgR0dXJuGAEgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkpvYlR1cm5SZWYiaAoLVHVybkNvbnRyb2wSMgoEdHVybhgBIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Kb2JUdXJuUmVmEg8KB2NvbW1hbmQYAiABKAkSFAoMcGF5bG9hZF9qc29uGAMgASgMIkQKDldvcmtlclByb2dyZXNzEjIKBHR1cm4YASABKAsyJC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuSm9iVHVyblJlZiIhCg9Db250cm9sU2h1dGRvd24SDgoGcmVhc29uGAEgASgJIt8BCgpSUENSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGbWV0aG9kGAIgASgJEhgKEGRlYWRsaW5lX3VuaXhfbXMYAyABKAMSDwoHcGF5bG9hZBgEIAEoDBItCgNydW4YByABKAsyIC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVuUmVmEjYKCGpvYl90dXJuGAggASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkpvYlR1cm5SZWZKBAgFEAZKBAgGEAdSBHR1cm5SCWFnZW50X3VpZCIyCgtSUENSZXNwb25zZRISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB3BheWxvYWQYAiABKAwiZgoIUlBDRXJyb3ISEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRjb2RlGAIgASgJEg8KB21lc3NhZ2UYAyABKAkSFAoMZGV0YWlsc19qc29uGAQgASgMEhEKCXJldHJ5YWJsZRgFIAEoCCpeCgZTdHJlYW0SFgoSU1RSRUFNX1VOU1BFQ0lGSUVEEAASEgoOU1RSRUFNX0NPTlRST0wQARISCg5TVFJFQU1fRFVSQUJMRRACEhQKEFNUUkVBTV9URUxFTUVUUlkQAypRCg9Qcm90b2NvbFZlcnNpb24SIAocUFJPVE9DT0xfVkVSU0lPTl9VTlNQRUNJRklFRBAAEhwKGFBST1RPQ09MX1ZFUlNJT05fQ1VSUkVOVBAJKn4KCkhvc3RlZFRvb2wSGwoXSE9TVEVEX1RPT0xfVU5TUEVDSUZJRUQQABIgChxIT1NURURfVE9PTF9JTUFHRV9HRU5FUkFUSU9OEAESGgoWSE9TVEVEX1RPT0xfV0VCX1NFQVJDSBACEhUKEUhPU1RFRF9UT09MX0JSQUlOEANiBnByb3RvMw", [file_ankole_runtime_fabric_v1_rpc]);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ActorKey
  */
 export type ActorKey = Message<"ankole.runtime_fabric.v1.ActorKey"> & {
-  /**
-   * @generated from field: string agent_uid = 1;
-   */
-  agentUid: string;
-
   /**
    * @generated from field: string session_id = 2;
    */
@@ -35,46 +32,55 @@ export const ActorKeySchema: GenMessage<ActorKey> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_envelope, 0);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.ActorTurnRef
+ * The control plane owns admission and epoch. Workers echo this run identity.
+ *
+ * @generated from message ankole.runtime_fabric.v1.RunRef
  */
-export type ActorTurnRef = Message<"ankole.runtime_fabric.v1.ActorTurnRef"> & {
+export type RunRef = Message<"ankole.runtime_fabric.v1.RunRef"> & {
   /**
-   * The control plane checks this fence before accepting worker output. Actor
-   * identity, activation, epoch, and the actor-event id identify the run; revision
-   * is an exact acceptance guard for first delivery and a monotonic guard across
-   * later mailbox/retry updates. One worker execution processes one actor event.
-   *
    * @generated from field: ankole.runtime_fabric.v1.ActorKey actor = 1;
    */
   actor?: ActorKey | undefined;
 
   /**
-   * @generated from field: string activation_uid = 2;
+   * @generated from field: string actor_event_id = 2;
    */
-  activationUid: string;
+  actorEventId: string;
+};
 
-  /**
-   * @generated from field: uint64 actor_epoch = 3;
-   */
-  actorEpoch: bigint;
+/**
+ * Describes the message ankole.runtime_fabric.v1.RunRef.
+ * Use `create(RunRefSchema)` to create a new message.
+ */
+export const RunRefSchema: GenMessage<RunRef> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 1);
 
+/**
+ * @generated from message ankole.runtime_fabric.v1.JobTurnRef
+ */
+export type JobTurnRef = Message<"ankole.runtime_fabric.v1.JobTurnRef"> & {
   /**
-   * @generated from field: string actor_event_id = 4;
+   * @generated from field: string actor_event_id = 2;
    */
   actorEventId: string;
 
   /**
-   * @generated from field: uint32 revision = 5;
+   * @generated from field: uint64 job_id = 3;
    */
-  revision: number;
+  jobId: bigint;
+
+  /**
+   * @generated from field: uint32 attempt = 4;
+   */
+  attempt: number;
 };
 
 /**
- * Describes the message ankole.runtime_fabric.v1.ActorTurnRef.
- * Use `create(ActorTurnRefSchema)` to create a new message.
+ * Describes the message ankole.runtime_fabric.v1.JobTurnRef.
+ * Use `create(JobTurnRefSchema)` to create a new message.
  */
-export const ActorTurnRefSchema: GenMessage<ActorTurnRef> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 1);
+export const JobTurnRefSchema: GenMessage<JobTurnRef> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 2);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.Envelope
@@ -82,8 +88,8 @@ export const ActorTurnRefSchema: GenMessage<ActorTurnRef> = /*@__PURE__*/
 export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
   /**
    * Additive fields keep the current version. Changing an existing field's
-   * wire meaning requires another bump so the kernel rejects a mismatched
-   * image before host dispatch.
+   * wire meaning requires another bump so the receiving host rejects a
+   * mismatched image before dispatch.
    *
    * @generated from field: uint32 protocol_version = 1;
    */
@@ -95,31 +101,8 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
   messageId: string;
 
   /**
-   * @generated from field: string correlation_id = 3;
-   */
-  correlationId: string;
-
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.Lane lane = 5;
-   */
-  lane: Lane;
-
-  /**
-   * Host wall-clock metadata for logs and metrics; not a replay or ordering
-   * fence.
-   *
-   * @generated from field: int64 sent_at_unix_ms = 6;
-   */
-  sentAtUnixMs: bigint;
-
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.DurabilityClass durability = 7;
-   */
-  durability: DurabilityClass;
-
-  /**
-   * Channel transport only: per-stream sequence, strictly increasing from 1 per
-   * connection; cumulative acknowledgements refer to it. Zero on ZeroMQ.
+   * Per-stream sequence, strictly increasing from 1 per connection; cumulative
+   * acknowledgements refer to it.
    *
    * @generated from field: ankole.runtime_fabric.v1.Stream stream = 4;
    */
@@ -135,28 +118,13 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
    */
   body: {
     /**
-     * Worker lifecycle messages describe homogeneous computer workers. They do
-     * not negotiate per-worker features.
-     *
-     * @generated from field: ankole.runtime_fabric.v1.AgentComputerWorkerReady worker_ready = 20;
-     */
-    value: AgentComputerWorkerReady;
-    case: "workerReady";
-  } | {
-    /**
      * @generated from field: ankole.runtime_fabric.v1.AgentComputerWorkerHeartbeat worker_heartbeat = 21;
      */
     value: AgentComputerWorkerHeartbeat;
     case: "workerHeartbeat";
   } | {
     /**
-     * @generated from field: ankole.runtime_fabric.v1.AgentComputerWorkerCapacity worker_capacity = 22;
-     */
-    value: AgentComputerWorkerCapacity;
-    case: "workerCapacity";
-  } | {
-    /**
-     * Turn messages carry the local computer AI loop contract.
+     * Commands and results for Worker execution.
      *
      * @generated from field: ankole.runtime_fabric.v1.TurnStart turn_start = 30;
      */
@@ -186,6 +154,54 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
      */
     value: WorkerProgress;
     case: "workerProgress";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.WorkspaceOpen workspace_open = 36;
+     */
+    value: WorkspaceOpen;
+    case: "workspaceOpen";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.WorkspaceReady workspace_ready = 37;
+     */
+    value: WorkspaceReady;
+    case: "workspaceReady";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.WorkspaceClose workspace_close = 38;
+     */
+    value: WorkspaceClose;
+    case: "workspaceClose";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.ToolCall tool_call = 39;
+     */
+    value: ToolCall;
+    case: "toolCall";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.ToolCancel tool_cancel = 40;
+     */
+    value: ToolCancel;
+    case: "toolCancel";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.ToolStatus tool_status = 41;
+     */
+    value: ToolStatus;
+    case: "toolStatus";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.ToolProgress tool_progress = 42;
+     */
+    value: ToolProgress;
+    case: "toolProgress";
+  } | {
+    /**
+     * @generated from field: ankole.runtime_fabric.v1.ToolResult tool_result = 43;
+     */
+    value: ToolResult;
+    case: "toolResult";
   } | {
     /**
      * @generated from field: ankole.runtime_fabric.v1.ControlShutdown control_shutdown = 50;
@@ -218,104 +234,379 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
  * Use `create(EnvelopeSchema)` to create a new message.
  */
 export const EnvelopeSchema: GenMessage<Envelope> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 2);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 3);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.AgentComputerWorkerReady
+ * @generated from message ankole.runtime_fabric.v1.FetchRuntimeConfig
  */
-export type AgentComputerWorkerReady = Message<"ankole.runtime_fabric.v1.AgentComputerWorkerReady"> & {
+export type FetchRuntimeConfig = Message<"ankole.runtime_fabric.v1.FetchRuntimeConfig"> & {
   /**
-   * @generated from field: string worker_id = 1;
+   * @generated from field: bool ssrf_filter = 1;
    */
-  workerId: string;
+  ssrfFilter: boolean;
 
   /**
-   * Runtime and version are observability metadata. Scheduling assumes workers
-   * are equivalent because they boot from the same image.
-   *
-   * @generated from field: string runtime = 2;
+   * @generated from field: uint32 rendered_fetch_idle_ttl_ms = 2;
    */
-  runtime: string;
-
-  /**
-   * @generated from field: string version = 3;
-   */
-  version: string;
-
-  /**
-   * Identifies one concrete process lifetime behind the stable worker id.
-   *
-   * @generated from field: string incarnation_id = 5;
-   */
-  incarnationId: string;
-
-  /**
-   * @generated from field: uint32 max_turns = 6;
-   */
-  maxTurns: number;
-
-  /**
-   * @generated from field: uint32 available_turn_slots = 7;
-   */
-  availableTurnSlots: number;
+  renderedFetchIdleTtlMs: number;
 };
 
 /**
- * Describes the message ankole.runtime_fabric.v1.AgentComputerWorkerReady.
- * Use `create(AgentComputerWorkerReadySchema)` to create a new message.
+ * Describes the message ankole.runtime_fabric.v1.FetchRuntimeConfig.
+ * Use `create(FetchRuntimeConfigSchema)` to create a new message.
  */
-export const AgentComputerWorkerReadySchema: GenMessage<AgentComputerWorkerReady> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 3);
+export const FetchRuntimeConfigSchema: GenMessage<FetchRuntimeConfig> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 4);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.WorkspaceOpen
+ */
+export type WorkspaceOpen = Message<"ankole.runtime_fabric.v1.WorkspaceOpen"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: uint64 workspace_id = 2;
+   */
+  workspaceId: bigint;
+
+  /**
+   * @generated from field: map<string, string> runtime_env = 3;
+   */
+  runtimeEnv: { [key: string]: string };
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AgentConversationContextResponse agent_context = 4;
+   */
+  agentContext?: AgentConversationContextResponse | undefined;
+
+  /**
+   * @generated from field: string binding_name = 5;
+   */
+  bindingName: string;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.FetchRuntimeConfig fetch_runtime_config = 8;
+   */
+  fetchRuntimeConfig?: FetchRuntimeConfig | undefined;
+
+  /**
+   * @generated from field: uint64 idle_timeout_ms = 7;
+   */
+  idleTimeoutMs: bigint;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.WorkspaceOpen.
+ * Use `create(WorkspaceOpenSchema)` to create a new message.
+ */
+export const WorkspaceOpenSchema: GenMessage<WorkspaceOpen> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 5);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.WorkspaceReady
+ */
+export type WorkspaceReady = Message<"ankole.runtime_fabric.v1.WorkspaceReady"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string error = 2;
+   */
+  error: string;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.WorkspaceReady.Reason reason = 3;
+   */
+  reason: WorkspaceReady_Reason;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.WorkspaceReady.
+ * Use `create(WorkspaceReadySchema)` to create a new message.
+ */
+export const WorkspaceReadySchema: GenMessage<WorkspaceReady> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 6);
+
+/**
+ * @generated from enum ankole.runtime_fabric.v1.WorkspaceReady.Reason
+ */
+export enum WorkspaceReady_Reason {
+  /**
+   * @generated from enum value: READY = 0;
+   */
+  READY = 0,
+
+  /**
+   * @generated from enum value: CAPACITY = 1;
+   */
+  CAPACITY = 1,
+
+  /**
+   * @generated from enum value: DRAINING = 2;
+   */
+  DRAINING = 2,
+
+  /**
+   * @generated from enum value: PREPARATION_FAILED = 3;
+   */
+  PREPARATION_FAILED = 3,
+}
+
+/**
+ * Describes the enum ankole.runtime_fabric.v1.WorkspaceReady.Reason.
+ */
+export const WorkspaceReady_ReasonSchema: GenEnum<WorkspaceReady_Reason> = /*@__PURE__*/
+  enumDesc(file_ankole_runtime_fabric_v1_envelope, 6, 0);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.WorkspaceClose
+ */
+export type WorkspaceClose = Message<"ankole.runtime_fabric.v1.WorkspaceClose"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.WorkspaceClose.
+ * Use `create(WorkspaceCloseSchema)` to create a new message.
+ */
+export const WorkspaceCloseSchema: GenMessage<WorkspaceClose> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 7);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.ToolCall
+ */
+export type ToolCall = Message<"ankole.runtime_fabric.v1.ToolCall"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string response_id = 2;
+   */
+  responseId: string;
+
+  /**
+   * @generated from field: string call_id = 3;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: string namespace = 4;
+   */
+  namespace: string;
+
+  /**
+   * @generated from field: string name = 5;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bytes arguments_json = 6;
+   */
+  argumentsJson: Uint8Array;
+
+  /**
+   * @generated from field: string mode = 7;
+   */
+  mode: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.ToolCall.
+ * Use `create(ToolCallSchema)` to create a new message.
+ */
+export const ToolCallSchema: GenMessage<ToolCall> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 8);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.ToolCancel
+ */
+export type ToolCancel = Message<"ankole.runtime_fabric.v1.ToolCancel"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string response_id = 2;
+   */
+  responseId: string;
+
+  /**
+   * @generated from field: string call_id = 3;
+   */
+  callId: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.ToolCancel.
+ * Use `create(ToolCancelSchema)` to create a new message.
+ */
+export const ToolCancelSchema: GenMessage<ToolCancel> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 9);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.ToolStatus
+ */
+export type ToolStatus = Message<"ankole.runtime_fabric.v1.ToolStatus"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string response_id = 2;
+   */
+  responseId: string;
+
+  /**
+   * @generated from field: string call_id = 3;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: string state = 4;
+   */
+  state: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.ToolStatus.
+ * Use `create(ToolStatusSchema)` to create a new message.
+ */
+export const ToolStatusSchema: GenMessage<ToolStatus> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 10);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.ToolProgress
+ */
+export type ToolProgress = Message<"ankole.runtime_fabric.v1.ToolProgress"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string response_id = 2;
+   */
+  responseId: string;
+
+  /**
+   * @generated from field: string call_id = 3;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: bytes presentation_json = 4;
+   */
+  presentationJson: Uint8Array;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.ToolProgress.
+ * Use `create(ToolProgressSchema)` to create a new message.
+ */
+export const ToolProgressSchema: GenMessage<ToolProgress> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 11);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.ToolResult
+ */
+export type ToolResult = Message<"ankole.runtime_fabric.v1.ToolResult"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 1;
+   */
+  run?: RunRef | undefined;
+
+  /**
+   * @generated from field: string response_id = 2;
+   */
+  responseId: string;
+
+  /**
+   * @generated from field: string call_id = 3;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: bytes content_json = 4;
+   */
+  contentJson: Uint8Array;
+
+  /**
+   * @generated from field: bytes details_json = 5;
+   */
+  detailsJson: Uint8Array;
+
+  /**
+   * @generated from field: bool is_error = 6;
+   */
+  isError: boolean;
+
+  /**
+   * @generated from field: string failure_kind = 7;
+   */
+  failureKind: string;
+
+  /**
+   * @generated from field: repeated bytes images = 8;
+   */
+  images: Uint8Array[];
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.ToolResult.
+ * Use `create(ToolResultSchema)` to create a new message.
+ */
+export const ToolResultSchema: GenMessage<ToolResult> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 12);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentComputerWorkerHeartbeat
  */
 export type AgentComputerWorkerHeartbeat = Message<"ankole.runtime_fabric.v1.AgentComputerWorkerHeartbeat"> & {
   /**
-   * @generated from field: string worker_id = 1;
-   */
-  workerId: string;
-
-  /**
-   * Worker-local monotonic timestamp for observability only. It must not be
-   * compared across workers or process restarts.
-   *
-   * @generated from field: int64 monotonic_ms = 2;
-   */
-  monotonicMs: bigint;
-
-  /**
    * @generated from field: string incarnation_id = 4;
    */
   incarnationId: string;
 
   /**
-   * @generated from field: uint32 active_turns = 5;
+   * @generated from field: uint32 active_slots = 5;
    */
-  activeTurns: number;
+  activeSlots: number;
 
   /**
-   * A heartbeat is a complete worker snapshot so the control plane can rebuild
-   * its UNLOGGED worker registry without restarting the worker process.
+   * @generated from field: uint32 max_slots = 8;
+   */
+  maxSlots: number;
+
+  /**
+   * @generated from field: uint32 available_slots = 9;
+   */
+  availableSlots: number;
+
+  /**
+   * Tasks tracked by the Worker, including Jobs and control-plane RPCs.
    *
-   * @generated from field: string runtime = 6;
+   * @generated from field: uint32 active_tasks = 10;
    */
-  runtime: string;
+  activeTasks: number;
 
   /**
-   * @generated from field: string version = 7;
+   * Milliseconds since active_tasks last became 0; 0 while it is not 0.
+   *
+   * @generated from field: uint64 idle_for_ms = 11;
    */
-  version: string;
-
-  /**
-   * @generated from field: uint32 max_turns = 8;
-   */
-  maxTurns: number;
-
-  /**
-   * @generated from field: uint32 available_turn_slots = 9;
-   */
-  availableTurnSlots: number;
+  idleForMs: bigint;
 };
 
 /**
@@ -323,44 +614,7 @@ export type AgentComputerWorkerHeartbeat = Message<"ankole.runtime_fabric.v1.Age
  * Use `create(AgentComputerWorkerHeartbeatSchema)` to create a new message.
  */
 export const AgentComputerWorkerHeartbeatSchema: GenMessage<AgentComputerWorkerHeartbeat> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 4);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.AgentComputerWorkerCapacity
- */
-export type AgentComputerWorkerCapacity = Message<"ankole.runtime_fabric.v1.AgentComputerWorkerCapacity"> & {
-  /**
-   * @generated from field: string worker_id = 1;
-   */
-  workerId: string;
-
-  /**
-   * @generated from field: uint32 available_turn_slots = 4;
-   */
-  availableTurnSlots: number;
-
-  /**
-   * @generated from field: string incarnation_id = 5;
-   */
-  incarnationId: string;
-
-  /**
-   * @generated from field: uint32 max_turns = 6;
-   */
-  maxTurns: number;
-
-  /**
-   * @generated from field: uint32 active_turns = 7;
-   */
-  activeTurns: number;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AgentComputerWorkerCapacity.
- * Use `create(AgentComputerWorkerCapacitySchema)` to create a new message.
- */
-export const AgentComputerWorkerCapacitySchema: GenMessage<AgentComputerWorkerCapacity> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 5);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ActorEventEnvelope
@@ -375,24 +629,9 @@ export type ActorEventEnvelope = Message<"ankole.runtime_fabric.v1.ActorEventEnv
   actorEventId: string;
 
   /**
-   * @generated from field: uint64 queue_sequence = 2;
-   */
-  queueSequence: bigint;
-
-  /**
    * @generated from field: string type = 3;
    */
   type: string;
-
-  /**
-   * @generated from field: string source_event_id = 4;
-   */
-  sourceEventId: string;
-
-  /**
-   * @generated from field: string source_entry_id = 5;
-   */
-  sourceEntryId: string;
 
   /**
    * @generated from field: bytes payload_json = 6;
@@ -403,16 +642,6 @@ export type ActorEventEnvelope = Message<"ankole.runtime_fabric.v1.ActorEventEnv
    * @generated from field: string binding_name = 7;
    */
   bindingName: string;
-
-  /**
-   * @generated from field: string signal_channel_id = 8;
-   */
-  signalChannelId: string;
-
-  /**
-   * @generated from field: string provider_thread_id = 9;
-   */
-  providerThreadId: string;
 };
 
 /**
@@ -420,18 +649,18 @@ export type ActorEventEnvelope = Message<"ankole.runtime_fabric.v1.ActorEventEnv
  * Use `create(ActorEventEnvelopeSchema)` to create a new message.
  */
 export const ActorEventEnvelopeSchema: GenMessage<ActorEventEnvelope> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 6);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnStart
  */
 export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
   /**
-   * Starts one local computer run for a single actor event.
+   * Starts or adopts one Codex Job attempt.
    *
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef turn = 1;
    */
-  turn?: ActorTurnRef | undefined;
+  turn?: JobTurnRef | undefined;
 
   /**
    * @generated from field: ankole.runtime_fabric.v1.ActorEventEnvelope actor_event = 2;
@@ -449,9 +678,14 @@ export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
   requestContextJson: Uint8Array;
 
   /**
-   * @generated from field: bytes hosted_tools_json = 5;
+   * @generated from field: repeated ankole.runtime_fabric.v1.HostedTool hosted_tools = 12;
    */
-  hostedToolsJson: Uint8Array;
+  hostedTools: HostedTool[];
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.FetchRuntimeConfig fetch_runtime_config = 11;
+   */
+  fetchRuntimeConfig?: FetchRuntimeConfig | undefined;
 
   /**
    * Trusted ephemeral facts for this execution. These variables never come
@@ -462,11 +696,14 @@ export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
   runtimeEnv: { [key: string]: string };
 
   /**
-   * PostgreSQL-owned model-visible directory name under the Agent's sessions tree.
-   *
-   * @generated from field: uint64 workspace_id = 7;
+   * @generated from field: string mode = 8;
    */
-  workspaceId: bigint;
+  mode: string;
+
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.AgentConversationContextResponse agent_context = 10;
+   */
+  agentContext?: AgentConversationContextResponse | undefined;
 };
 
 /**
@@ -474,17 +711,12 @@ export type TurnStart = Message<"ankole.runtime_fabric.v1.TurnStart"> & {
  * Use `create(TurnStartSchema)` to create a new message.
  */
 export const TurnStartSchema: GenMessage<TurnStart> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 7);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnModelRef
  */
 export type TurnModelRef = Message<"ankole.runtime_fabric.v1.TurnModelRef"> & {
-  /**
-   * @generated from field: string profile = 1;
-   */
-  profile: string;
-
   /**
    * @generated from field: string provider_id = 2;
    */
@@ -511,14 +743,6 @@ export type TurnModelRef = Message<"ankole.runtime_fabric.v1.TurnModelRef"> & {
   visionFallbackModelRef?: TurnModelRef | undefined;
 
   /**
-   * Provider model output-token ceiling for the worker-side defensive clamp.
-   * Absent means the control plane has no limit metadata for this model.
-   *
-   * @generated from field: optional uint32 max_completion_tokens = 7;
-   */
-  maxCompletionTokens?: number | undefined;
-
-  /**
    * Request-scoped provider settings from the resolved profile.
    *
    * @generated from field: bytes provider_options_json = 8;
@@ -541,7 +765,7 @@ export type TurnModelRef = Message<"ankole.runtime_fabric.v1.TurnModelRef"> & {
  * Use `create(TurnModelRefSchema)` to create a new message.
  */
 export const TurnModelRefSchema: GenMessage<TurnModelRef> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 8);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.MailboxUpdated
@@ -550,14 +774,9 @@ export type MailboxUpdated = Message<"ankole.runtime_fabric.v1.MailboxUpdated"> 
   /**
    * Mid-run injections carry exactly one already-journaled actor event.
    *
-   * @generated from field: string reason = 1;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef turn = 2;
    */
-  reason: string;
-
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 2;
-   */
-  turn?: ActorTurnRef | undefined;
+  turn?: JobTurnRef | undefined;
 
   /**
    * @generated from field: ankole.runtime_fabric.v1.ActorEventEnvelope actor_event = 3;
@@ -570,21 +789,19 @@ export type MailboxUpdated = Message<"ankole.runtime_fabric.v1.MailboxUpdated"> 
  * Use `create(MailboxUpdatedSchema)` to create a new message.
  */
 export const MailboxUpdatedSchema: GenMessage<MailboxUpdated> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 9);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 17);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnAccepted
  */
 export type TurnAccepted = Message<"ankole.runtime_fabric.v1.TurnAccepted"> & {
   /**
-   * Confirms the delivery revision the worker accepted. Terminal commits may
-   * race ahead on the AIGateway path, so acceptance is used to decide which
-   * mid-run mailbox events can be completed with the current turn, not as a
-   * hard prerequisite for the final commit itself.
+   * Confirms acceptance or adoption of this Job attempt. The terminal commit
+   * acknowledges consumed mailbox events through applied_actor_event_ids.
    *
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef turn = 1;
    */
-  turn?: ActorTurnRef | undefined;
+  turn?: JobTurnRef | undefined;
 };
 
 /**
@@ -592,16 +809,16 @@ export type TurnAccepted = Message<"ankole.runtime_fabric.v1.TurnAccepted"> & {
  * Use `create(TurnAcceptedSchema)` to create a new message.
  */
 export const TurnAcceptedSchema: GenMessage<TurnAccepted> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 10);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 18);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.TurnControl
  */
 export type TurnControl = Message<"ankole.runtime_fabric.v1.TurnControl"> & {
   /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef turn = 1;
    */
-  turn?: ActorTurnRef | undefined;
+  turn?: JobTurnRef | undefined;
 
   /**
    * @generated from field: string command = 2;
@@ -619,31 +836,16 @@ export type TurnControl = Message<"ankole.runtime_fabric.v1.TurnControl"> & {
  * Use `create(TurnControlSchema)` to create a new message.
  */
 export const TurnControlSchema: GenMessage<TurnControl> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 11);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 19);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerProgress
  */
 export type WorkerProgress = Message<"ankole.runtime_fabric.v1.WorkerProgress"> & {
   /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef turn = 1;
    */
-  turn?: ActorTurnRef | undefined;
-
-  /**
-   * @generated from field: string kind = 2;
-   */
-  kind: string;
-
-  /**
-   * @generated from field: string summary = 3;
-   */
-  summary: string;
-
-  /**
-   * @generated from field: bytes refs_json = 4;
-   */
-  refsJson: Uint8Array;
+  turn?: JobTurnRef | undefined;
 };
 
 /**
@@ -651,7 +853,7 @@ export type WorkerProgress = Message<"ankole.runtime_fabric.v1.WorkerProgress"> 
  * Use `create(WorkerProgressSchema)` to create a new message.
  */
 export const WorkerProgressSchema: GenMessage<WorkerProgress> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 12);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 20);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ControlShutdown
@@ -668,7 +870,7 @@ export type ControlShutdown = Message<"ankole.runtime_fabric.v1.ControlShutdown"
  * Use `create(ControlShutdownSchema)` to create a new message.
  */
 export const ControlShutdownSchema: GenMessage<ControlShutdown> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 21);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCRequest
@@ -699,18 +901,14 @@ export type RPCRequest = Message<"ankole.runtime_fabric.v1.RPCRequest"> & {
   payload: Uint8Array;
 
   /**
-   * Turn fence for turn-scoped methods, checked before payload decode.
-   *
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 5;
+   * @generated from field: ankole.runtime_fabric.v1.RunRef run = 7;
    */
-  turn?: ActorTurnRef | undefined;
+  run?: RunRef | undefined;
 
   /**
-   * Trusted subject for worker_agent-scoped methods.
-   *
-   * @generated from field: string agent_uid = 6;
+   * @generated from field: ankole.runtime_fabric.v1.JobTurnRef job_turn = 8;
    */
-  agentUid: string;
+  jobTurn?: JobTurnRef | undefined;
 };
 
 /**
@@ -718,7 +916,7 @@ export type RPCRequest = Message<"ankole.runtime_fabric.v1.RPCRequest"> & {
  * Use `create(RPCRequestSchema)` to create a new message.
  */
 export const RPCRequestSchema: GenMessage<RPCRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 22);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCResponse
@@ -742,7 +940,7 @@ export type RPCResponse = Message<"ankole.runtime_fabric.v1.RPCResponse"> & {
  * Use `create(RPCResponseSchema)` to create a new message.
  */
 export const RPCResponseSchema: GenMessage<RPCResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 23);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCError
@@ -767,6 +965,11 @@ export type RPCError = Message<"ankole.runtime_fabric.v1.RPCError"> & {
    * @generated from field: bytes details_json = 4;
    */
   detailsJson: Uint8Array;
+
+  /**
+   * @generated from field: bool retryable = 5;
+   */
+  retryable: boolean;
 };
 
 /**
@@ -774,47 +977,11 @@ export type RPCError = Message<"ankole.runtime_fabric.v1.RPCError"> & {
  * Use `create(RPCErrorSchema)` to create a new message.
  */
 export const RPCErrorSchema: GenMessage<RPCError> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
-
-/**
- * @generated from enum ankole.runtime_fabric.v1.Lane
- */
-export enum Lane {
-  /**
-   * @generated from enum value: LANE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: LANE_CONTROL = 1;
-   */
-  CONTROL = 1,
-
-  /**
-   * @generated from enum value: LANE_TURN = 2;
-   */
-  TURN = 2,
-
-  /**
-   * @generated from enum value: LANE_PROGRESS = 3;
-   */
-  PROGRESS = 3,
-
-  /**
-   * @generated from enum value: LANE_RPC = 4;
-   */
-  RPC = 4,
-}
-
-/**
- * Describes the enum ankole.runtime_fabric.v1.Lane.
- */
-export const LaneSchema: GenEnum<Lane> = /*@__PURE__*/
-  enumDesc(file_ankole_runtime_fabric_v1_envelope, 0);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 24);
 
 /**
  * Logical stream of one envelope on the Worker Channel. The channel event
- * name carries the same value; ZeroMQ transport ignores it.
+ * name carries the same value.
  *
  * @generated from enum ankole.runtime_fabric.v1.Stream
  */
@@ -844,38 +1011,58 @@ export enum Stream {
  * Describes the enum ankole.runtime_fabric.v1.Stream.
  */
 export const StreamSchema: GenEnum<Stream> = /*@__PURE__*/
-  enumDesc(file_ankole_runtime_fabric_v1_envelope, 1);
+  enumDesc(file_ankole_runtime_fabric_v1_envelope, 0);
 
 /**
- * @generated from enum ankole.runtime_fabric.v1.DurabilityClass
+ * Each host writes CURRENT and rejects an envelope with another version.
+ *
+ * @generated from enum ankole.runtime_fabric.v1.ProtocolVersion
  */
-export enum DurabilityClass {
+export enum ProtocolVersion {
   /**
-   * @generated from enum value: DURABILITY_UNSPECIFIED = 0;
+   * @generated from enum value: PROTOCOL_VERSION_UNSPECIFIED = 0;
    */
-  DURABILITY_UNSPECIFIED = 0,
+  UNSPECIFIED = 0,
 
   /**
-   * CONTROL_* means the control plane owns durable truth, replay, or ephemeral
-   * observability for this message. It is not a separate transport lane.
-   *
-   * @generated from enum value: CONTROL_DURABLE = 1;
+   * @generated from enum value: PROTOCOL_VERSION_CURRENT = 9;
    */
-  CONTROL_DURABLE = 1,
-
-  /**
-   * @generated from enum value: CONTROL_REPLAYABLE = 2;
-   */
-  CONTROL_REPLAYABLE = 2,
-
-  /**
-   * @generated from enum value: CONTROL_EPHEMERAL = 3;
-   */
-  CONTROL_EPHEMERAL = 3,
+  CURRENT = 9,
 }
 
 /**
- * Describes the enum ankole.runtime_fabric.v1.DurabilityClass.
+ * Describes the enum ankole.runtime_fabric.v1.ProtocolVersion.
  */
-export const DurabilityClassSchema: GenEnum<DurabilityClass> = /*@__PURE__*/
+export const ProtocolVersionSchema: GenEnum<ProtocolVersion> = /*@__PURE__*/
+  enumDesc(file_ankole_runtime_fabric_v1_envelope, 1);
+
+/**
+ * @generated from enum ankole.runtime_fabric.v1.HostedTool
+ */
+export enum HostedTool {
+  /**
+   * @generated from enum value: HOSTED_TOOL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: HOSTED_TOOL_IMAGE_GENERATION = 1;
+   */
+  IMAGE_GENERATION = 1,
+
+  /**
+   * @generated from enum value: HOSTED_TOOL_WEB_SEARCH = 2;
+   */
+  WEB_SEARCH = 2,
+
+  /**
+   * @generated from enum value: HOSTED_TOOL_BRAIN = 3;
+   */
+  BRAIN = 3,
+}
+
+/**
+ * Describes the enum ankole.runtime_fabric.v1.HostedTool.
+ */
+export const HostedToolSchema: GenEnum<HostedTool> = /*@__PURE__*/
   enumDesc(file_ankole_runtime_fabric_v1_envelope, 2);

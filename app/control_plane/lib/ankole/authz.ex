@@ -520,15 +520,6 @@ defmodule Ankole.AuthZ do
     end)
   end
 
-  @doc false
-  @spec clear_static_group_members(String.t(), :directory | :im_group | :signal_source) ::
-          {:ok, %{removed_memberships: non_neg_integer()}} | {:error, term()}
-  def clear_static_group_members(group_id, expected_domain) when is_binary(group_id) do
-    Repo.transact(fn repo ->
-      Store.clear_static_group_members(repo, group_id, expected_domain)
-    end)
-  end
-
   @doc """
   Ensures a convention-named synced group exists and the principal is a member.
 
@@ -711,30 +702,6 @@ defmodule Ankole.AuthZ do
   def build_authorization_batch_snapshot(principal_uid, resource, actions, context \\ %{}) do
     Snapshot.build_authorization_batch_snapshot(principal_uid, resource, actions, context)
   end
-
-  @doc """
-  Returns true once AuthZ storage is ready and the built-in groups exist.
-  """
-  @spec root_initialized?() :: boolean()
-  defdelegate root_initialized?, to: Root
-
-  @doc """
-  Ensures the built-in admin group has the coarse console grants.
-  """
-  @spec ensure_console_admin_grants() :: :ok | {:error, term()}
-  defdelegate ensure_console_admin_grants, to: Root
-
-  @doc """
-  Returns `:ok` while the first root admin claim is still open.
-  """
-  @spec ensure_root_init_open() :: :ok | {:error, :root_init_closed}
-  defdelegate ensure_root_init_open, to: Root
-
-  @doc """
-  Initializes built-in AuthZ groups and assigns the first active human admin.
-  """
-  @spec root_init_admin(String.t()) :: {:ok, map()} | {:error, term()}
-  defdelegate root_init_admin(principal_uid), to: Root
 
   @doc false
   @spec root_init_admin(String.t(), term()) :: {:ok, map()} | {:error, term()}

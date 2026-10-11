@@ -1,10 +1,9 @@
 defmodule Ankole.SignalsGateway.Actors do
   @moduledoc """
-  The actor event journal: durable inbox shared by SignalsGateway and ActorRuntime.
+  The durable conversation inbox owned by SignalsGateway.
 
-  SignalsGateway appends normalized events for an actor session. ActorRuntime
-  leases and delivers one executable event at a time; durable response facts live
-  in AIGateway-owned tables.
+  SignalsGateway appends normalized events for an actor session. Conversations
+  wakes its single Driver. AIGateway owns the durable response facts.
 
   Append is idempotent on the source ingress key. Every append takes the actor
   session's PostgreSQL advisory lock; `queue_sequence` allocation and
@@ -18,11 +17,8 @@ defmodule Ankole.SignalsGateway.Actors do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
-  alias Ankole.SignalsGateway.ActorEventTypes
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyInteractionState
@@ -65,15 +61,20 @@ defmodule Ankole.SignalsGateway.Actors do
              returning: true
            )
            |> inserted_or_existing(repo, attrs),
-         :ok <-
-           RuntimeEvents.notify_actor_session_ready(
-             repo,
-             event.agent_uid,
-             event.session_id,
-             event.available_at
-           ) do
+         :ok <- schedule_future_input(repo, event) do
       {:ok, event}
     end
+  end
+
+  defp schedule_future_input(repo, event) do
+    if DateTime.compare(event.available_at, DateTime.utc_now(:microsecond)) == :gt,
+      do:
+        Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
+          repo,
+          %{agent_uid: event.agent_uid, session_id: event.session_id},
+          event.available_at
+        ),
+      else: :ok
   end
 
   @doc """
@@ -129,20 +130,8 @@ defmodule Ankole.SignalsGateway.Actors do
                 (is_binary(provider_thread_id) and provider_thread_id != "")) do
     case Repo.transact(fn repo ->
            case lock_actor_event_in_tx(repo, actor_event_id) do
-             %ActorEvent{reply_preview_source_entry_id: nil} = event ->
-               event
-               |> ActorEvent.changeset(preview_source_attrs(source_entry_id, provider_thread_id))
-               |> repo.update()
-               |> case do
-                 {:ok, _event} -> {:ok, :recorded}
-                 {:error, _changeset} = error -> error
-               end
-
-             %ActorEvent{reply_preview_source_entry_id: ^source_entry_id} = event ->
-               record_preview_thread(repo, event, provider_thread_id)
-
-             %ActorEvent{} ->
-               {:error, :reply_preview_source_entry_already_recorded}
+             %ActorEvent{} = event ->
+               record_reply_preview_source_in_tx(repo, event, source_entry_id, provider_thread_id)
 
              nil ->
                {:error, :actor_event_not_found}
@@ -154,6 +143,31 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   def record_reply_preview_source_entry(_actor_event_id, _source_entry_id, _provider_thread_id),
+    do: {:error, :invalid_reply_preview_source_entry}
+
+  defp record_reply_preview_source_in_tx(repo, event, source_entry_id, provider_thread_id)
+       when is_binary(source_entry_id) and source_entry_id != "" and
+              (is_nil(provider_thread_id) or
+                 (is_binary(provider_thread_id) and provider_thread_id != "")) do
+    case event do
+      %ActorEvent{reply_preview_source_entry_id: nil} ->
+        event
+        |> ActorEvent.changeset(preview_source_attrs(source_entry_id, provider_thread_id))
+        |> repo.update()
+        |> case do
+          {:ok, _event} -> {:ok, :recorded}
+          {:error, _changeset} = error -> error
+        end
+
+      %ActorEvent{reply_preview_source_entry_id: ^source_entry_id} ->
+        record_preview_thread(repo, event, provider_thread_id)
+
+      %ActorEvent{} ->
+        {:error, :reply_preview_source_entry_already_recorded}
+    end
+  end
+
+  defp record_reply_preview_source_in_tx(_repo, _event, _source_entry_id, _provider_thread_id),
     do: {:error, :invalid_reply_preview_source_entry}
 
   defp preview_source_attrs(source_entry_id, nil),
@@ -201,23 +215,42 @@ defmodule Ankole.SignalsGateway.Actors do
   allocation remains a separate atomic operation so a restarted process can
   safely lease a strictly higher range before a provider mutation.
   """
-  @spec put_reply_preview_checkpoint(Ecto.UUID.t(), map()) ::
+  @spec put_reply_preview_checkpoint(Ecto.UUID.t(), map(), {String.t(), String.t() | nil} | nil) ::
           {:ok, ActorEvent.t()} | {:error, term()}
-  def put_reply_preview_checkpoint(actor_event_id, checkpoint)
-      when is_binary(actor_event_id) and is_map(checkpoint) do
-    Repo.transact(fn repo ->
-      case lock_actor_event_in_tx(repo, actor_event_id) do
-        %ActorEvent{} = event ->
-          put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+  def put_reply_preview_checkpoint(actor_event_id, checkpoint, source \\ nil)
 
-        nil ->
-          {:error, :actor_event_not_found}
-      end
-    end)
+  def put_reply_preview_checkpoint(actor_event_id, checkpoint, source)
+      when is_binary(actor_event_id) and is_map(checkpoint) do
+    case Repo.transact(fn repo ->
+           with %ActorEvent{} = event <- lock_actor_event_in_tx(repo, actor_event_id),
+                {:ok, event} <- put_reply_preview_checkpoint_in_tx(repo, event, checkpoint) do
+             checkpoint_source_result(repo, event, source)
+           else
+             nil -> {:error, :actor_event_not_found}
+             {:error, _reason} = error -> error
+           end
+         end) do
+      {:ok, result} -> result
+      {:error, _reason} = error -> error
+    end
   end
 
-  def put_reply_preview_checkpoint(_actor_event_id, _checkpoint),
+  def put_reply_preview_checkpoint(_actor_event_id, _checkpoint, _source),
     do: {:error, :invalid_reply_preview_checkpoint}
+
+  defp checkpoint_source_result(_repo, event, nil), do: {:ok, {:ok, event}}
+
+  defp checkpoint_source_result(repo, event, {source_entry_id, provider_thread_id}) do
+    case record_reply_preview_source_in_tx(repo, event, source_entry_id, provider_thread_id) do
+      {:ok, _recorded} ->
+        {:ok, {:ok, event}}
+
+      # Commit the checkpoint even when its source conflicts. A retry must
+      # not repeat the completed provider operation.
+      {:error, reason} ->
+        {:ok, {:error, {:reply_preview_source_entry, reason}}}
+    end
+  end
 
   @doc false
   @spec put_reply_preview_checkpoint_in_tx(module(), ActorEvent.t(), map()) ::
@@ -250,16 +283,13 @@ defmodule Ankole.SignalsGateway.Actors do
         end)
         |> ReplyPreviewAdapter.persisted_checkpoint()
 
-      cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
-
       with {:ok, updated} <-
              event
              |> ActorEvent.changeset(%{
-               reply_preview_checkpoint: checkpoint,
-               reply_preview_cleanup_at: cleanup_at
+               reply_preview_checkpoint: checkpoint
              })
              |> repo.update(),
-           :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
+           :ok <- notify_preview_in_tx(repo, updated) do
         {:ok, updated}
       end
     end
@@ -413,47 +443,10 @@ defmodule Ankole.SignalsGateway.Actors do
                reply_preview_sequence_high_water: sequence
              })
              |> repo.update(),
-           :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
+           :ok <- notify_preview_in_tx(repo, updated) do
         {:ok, mutation}
       end
     end
-  end
-
-  @doc false
-  @spec recoverable_reply_preview_events() :: [ActorEvent.t()]
-  def recoverable_reply_preview_events do
-    ActorEvent
-    |> where([event], not is_nil(event.reply_preview_checkpoint))
-    |> where(
-      [event],
-      fragment(
-        "COALESCE(?->'recovery_state'->>'state', '') NOT IN ('blocked', 'permanent')",
-        event.reply_preview_checkpoint
-      )
-    )
-    |> where(
-      [event],
-      fragment(
-        "COALESCE((?->>'presentation_owner')::boolean, true) OR COALESCE((?->>'refresh_pending')::boolean, false)",
-        event.reply_preview_checkpoint,
-        event.reply_preview_checkpoint
-      )
-    )
-    |> where(
-      [event],
-      (((event.input_state == "open" and is_nil(event.completed_at)) or
-          not is_nil(event.completed_at)) and
-         fragment(
-           "COALESCE(?->>'streaming_state', 'open') NOT IN ('closed', 'replaced')",
-           event.reply_preview_checkpoint
-         )) or
-        fragment(
-          "COALESCE((?->>'refresh_pending')::boolean, false)",
-          event.reply_preview_checkpoint
-        )
-    )
-    |> order_by([event], asc: event.inserted_at)
-    |> Repo.all()
   end
 
   @doc """
@@ -497,22 +490,6 @@ defmodule Ankole.SignalsGateway.Actors do
   def wake_blocked_reply_previews(_agent_uid, _binding_name),
     do: {:error, :invalid_signal_binding}
 
-  @doc false
-  @spec reply_preview_runtime_event(ActorEvent.t()) :: {String.t(), map()}
-  def reply_preview_runtime_event(%ActorEvent{} = event) do
-    {RuntimeEvents.reply_preview_checkpoint_channel(), %{"actor_event_id" => event.id}}
-  end
-
-  @doc false
-  @spec reply_preview_cleanup_runtime_event(ActorEvent.t()) :: {String.t(), map()}
-  def reply_preview_cleanup_runtime_event(%ActorEvent{} = event) do
-    {RuntimeEvents.reply_preview_cleanup_channel(),
-     %{
-       "actor_event_id" => event.id,
-       "due_at" => RuntimeEvents.encode_datetime(event.reply_preview_cleanup_at)
-     }}
-  end
-
   @doc """
   Completes a locked actor event inside a caller-owned transaction.
 
@@ -531,13 +508,6 @@ defmodule Ankole.SignalsGateway.Actors do
              repo,
              actor_event,
              Keyword.put(opts, :completed_at, completed_at)
-           ),
-         :ok <-
-           RuntimeEvents.notify_actor_session_ready(
-             repo,
-             completed_event.agent_uid,
-             completed_event.session_id,
-             completed_at
            ) do
       {:ok, completed_event}
     end
@@ -568,7 +538,7 @@ defmodule Ankole.SignalsGateway.Actors do
   open and never pass through `complete_actor_event_in_tx/3`.
   """
   @spec ensure_event_source_live_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
-          :ok | {:error, :actor_event_canceled}
+          :ok | {:error, :actor_event_canceled | :actor_event_context_canceled}
   def ensure_event_source_live_in_tx(repo, %ActorEvent{} = actor_event, %DateTime{} = now) do
     reject_tombstoned_event_source(repo, actor_event, now)
   end
@@ -613,14 +583,7 @@ defmodule Ankole.SignalsGateway.Actors do
 
   def mark_event_completed_in_tx(repo, %ActorEvent{} = actor_event, completed_at) do
     with {:ok, %ActorEvent{} = event} <-
-           mark_event_completed(repo, actor_event, %{completed_at: completed_at}),
-         :ok <-
-           RuntimeEvents.notify_actor_session_ready(
-             repo,
-             event.agent_uid,
-             event.session_id,
-             completed_at
-           ) do
+           mark_event_completed(repo, actor_event, %{completed_at: completed_at}) do
       {:ok, event}
     end
   end
@@ -645,14 +608,7 @@ defmodule Ankole.SignalsGateway.Actors do
              completed_at: completed_at,
              final_response_id: final_response_id,
              turn_outcome: turn_outcome
-           }),
-         :ok <-
-           RuntimeEvents.notify_actor_session_ready(
-             repo,
-             event.agent_uid,
-             event.session_id,
-             completed_at
-           ) do
+           }) do
       {:ok, event}
     end
   end
@@ -683,14 +639,7 @@ defmodule Ankole.SignalsGateway.Actors do
              dead_letter_at: dead_letter_at,
              dead_letter_reason: dead_letter_reason(reason)
            })
-           |> repo.update(),
-         :ok <-
-           RuntimeEvents.notify_actor_session_ready(
-             repo,
-             event.agent_uid,
-             event.session_id,
-             dead_letter_at
-           ) do
+           |> repo.update() do
       {:ok, event}
     end
   end
@@ -712,22 +661,6 @@ defmodule Ankole.SignalsGateway.Actors do
 
   defp maybe_put_completion_anchor(attrs, _key, nil), do: attrs
   defp maybe_put_completion_anchor(attrs, key, value), do: Map.put(attrs, key, value)
-
-  @doc """
-  Returns actor events for a provider entry.
-  """
-  @spec actor_events_for_entry(String.t(), String.t(), String.t(), String.t()) :: [
-          ActorEvent.t()
-        ]
-  def actor_events_for_entry(agent_uid, binding_name, signal_channel_id, source_entry_id) do
-    actor_events_for_entry_in_tx(
-      Repo,
-      agent_uid,
-      binding_name,
-      signal_channel_id,
-      source_entry_id
-    )
-  end
 
   @doc """
   Returns completed actor events for a provider entry inside a caller-owned transaction.
@@ -782,173 +715,54 @@ defmodule Ankole.SignalsGateway.Actors do
       ),
       do: []
 
-  @doc """
-  Reads the next executable actor event for one actor session.
-  """
-  @spec next_ready_event(String.t(), String.t(), DateTime.t(), keyword()) :: ActorEvent.t() | nil
-  def next_ready_event(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
-    candidate_limit = Keyword.get(opts, :candidate_limit, 100)
-    live_delivery? = Keyword.get(opts, :live_delivery?, false)
-    strict_queue_order? = Keyword.get(opts, :strict_queue_order?, false)
+  def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
+    query =
+      from(e in ActorEvent,
+        where:
+          e.agent_uid == ^uid and e.session_id == ^session and e.input_state == "open" and
+            is_nil(e.completed_at),
+        order_by: [asc: e.queue_sequence],
+        limit: 1
+      )
 
-    cond do
-      live_delivery? ->
-        next_live_turn_command_event(agent_uid, session_id, now) ||
-          next_ready_queue_barrier(agent_uid, session_id, now)
+    query =
+      if Keyword.get(opts, :strict_queue_order?, false),
+        do: query,
+        else: where(query, [e], e.available_at <= ^now)
 
-      strict_queue_order? ->
-        next_strict_queue_event(agent_uid, session_id, now)
-
-      true ->
-        agent_uid
-        |> ready_event_candidates(session_id, now)
-        |> limit(^candidate_limit)
-        |> Repo.all()
-        |> select_next_ready_event(false)
+    case Repo.one(query) do
+      %ActorEvent{} = event -> if DateTime.compare(event.available_at, now) != :gt, do: event
+      nil -> nil
     end
   end
 
   @doc false
-  @spec next_ready_steer_event(String.t(), String.t(), DateTime.t()) :: ActorEvent.t() | nil
-  def next_ready_steer_event(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond)) do
-    agent_uid
-    |> ready_event_candidates(session_id, now)
-    |> where([input, _delivery], input.type == "command.steer")
-    |> limit(1)
-    |> Repo.one()
-  end
+  def reply_preview_cleanup_at(%ActorEvent{reply_preview_checkpoint: checkpoint})
+      when is_map(checkpoint),
+      do: parse_datetime(checkpoint["cleanup_at"])
 
-  defp ready_event_candidates(agent_uid, session_id, now) do
-    agent_uid
-    |> event_candidates(session_id)
-    |> where([input, _delivery], input.available_at <= ^now)
-  end
+  def reply_preview_cleanup_at(%ActorEvent{}), do: nil
 
-  defp event_candidates(agent_uid, session_id) do
-    delivery_states = ["created", "sent", "accepted"]
-
-    ActorEvent
-    |> where([input], input.agent_uid == ^agent_uid)
-    |> where([input], input.session_id == ^session_id)
-    |> where([input], input.input_state == "open")
-    |> where([input], is_nil(input.completed_at))
-    |> join(:left, [input], delivery in "actor_event_deliveries",
-      on: delivery.actor_event_id == input.id and delivery.state in ^delivery_states
-    )
-    |> where([_input, delivery], is_nil(delivery.id))
-    |> order_by([input], asc: input.queue_sequence)
-  end
-
-  defp next_strict_queue_event(agent_uid, session_id, now) do
-    event =
-      agent_uid
-      |> event_candidates(session_id)
-      |> limit(1)
-      |> Repo.one()
-
-    case event do
-      %ActorEvent{available_at: available_at} = event ->
-        if DateTime.compare(available_at, now) in [:lt, :eq], do: event
-
-      nil ->
-        nil
-    end
-  end
-
-  defp select_next_ready_event([], _live_delivery?), do: nil
-
-  defp select_next_ready_event([first_event | _rest], false), do: first_event
-
-  defp hard_queue_barrier?(%ActorEvent{type: "session.reset_due"}), do: true
-  defp hard_queue_barrier?(_event), do: false
-
-  defp next_live_turn_command_event(agent_uid, session_id, now) do
-    command_types = ActorEventTypes.live_turn_command_types()
-
-    agent_uid
-    |> ready_event_candidates(session_id, now)
-    |> where([input, _delivery], input.type in ^command_types)
-    |> exclude(:order_by)
-    |> order_by([input, _delivery],
-      asc:
-        fragment(
-          "CASE ? WHEN 'command.stop' THEN 0 WHEN 'command.retry' THEN 1 WHEN 'command.new' THEN 2 WHEN 'command.steer' THEN 3 WHEN 'command.compress' THEN 4 ELSE 5 END",
-          input.type
-        ),
-      asc: input.queue_sequence
-    )
-    |> limit(1)
-    |> Repo.one()
-  end
-
-  defp next_ready_queue_barrier(agent_uid, session_id, now) do
-    agent_uid
-    |> ready_event_candidates(session_id, now)
-    |> limit(1)
-    |> Repo.one()
-    |> case do
-      %ActorEvent{} = event ->
-        if hard_queue_barrier?(event), do: event
-
-      nil ->
-        nil
-    end
-  end
-
-  @doc false
-  @spec runtime_event_snapshot() :: [{String.t(), map()}]
-  def runtime_event_snapshot do
-    actor_session_runtime_events() ++
-      Enum.map(recoverable_reply_preview_events(), &reply_preview_runtime_event/1) ++
-      reply_preview_cleanup_runtime_events()
-  end
-
-  defp reply_preview_cleanup_runtime_events do
-    ActorEvent
-    |> where([event], not is_nil(event.reply_preview_cleanup_at))
-    |> order_by([event], asc: event.reply_preview_cleanup_at)
-    |> Repo.all()
-    |> Enum.map(&reply_preview_cleanup_runtime_event/1)
-  end
-
-  defp actor_session_runtime_events do
-    # A Job queue head is a causal barrier. Other sessions can wake for any due
-    # event, including one after an older event that is not due.
-    job_session_pattern = BackgroundAgentJobs.job_session_prefix() <> "%"
-
-    ActorEvent
-    |> where([input], input.input_state == "open")
-    |> where([input], is_nil(input.completed_at))
-    |> group_by([input], [input.agent_uid, input.session_id])
-    |> select([input], %{
-      agent_uid: input.agent_uid,
-      session_id: input.session_id,
-      due_at:
-        type(
-          fragment(
-            "CASE WHEN ? LIKE ? THEN (ARRAY_AGG(? ORDER BY ?))[1] ELSE MIN(?) END",
-            input.session_id,
-            ^job_session_pattern,
-            input.available_at,
-            input.queue_sequence,
-            input.available_at
+  defp notify_preview_in_tx(repo, event) do
+    with :ok <-
+           Ankole.SignalsGateway.Jobs.ReplyPreviewCheckpoint.schedule_in_tx(
+             repo,
+             %{actor_event_id: event.id},
+             DateTime.utc_now(:microsecond)
+           ) do
+      if cleanup_at = reply_preview_cleanup_at(event),
+        do:
+          Ankole.SignalsGateway.Jobs.ReplyPreviewCleanup.schedule_in_tx(
+            repo,
+            %{actor_event_id: event.id},
+            cleanup_at
           ),
-          :utc_datetime_usec
-        )
-    })
-    |> Repo.all()
-    |> Enum.map(fn %{agent_uid: agent_uid, session_id: session_id, due_at: due_at} ->
-      {RuntimeEvents.actor_session_ready_channel(),
-       %{
-         "agent_uid" => agent_uid,
-         "session_id" => session_id,
-         "due_at" => RuntimeEvents.encode_datetime(due_at)
-       }}
-    end)
+        else: :ok
+    end
   end
 
   defp checkpoint_sequence(checkpoint) do
-    case Map.get(checkpoint, "sequence_high_water") || Map.get(checkpoint, :sequence_high_water) do
+    case Map.get(checkpoint, "sequence_high_water") do
       value when is_integer(value) and value >= 0 -> value
       _value -> 0
     end
@@ -1055,10 +869,18 @@ defmodule Ankole.SignalsGateway.Actors do
         |> where([tombstone], tombstone.signal_channel_id == ^event.signal_channel_id)
         |> where([tombstone], tombstone.source_entry_id in ^source_entry_ids)
         |> where([tombstone], tombstone.tombstoned_until > ^now)
-        |> repo.exists?()
+        |> select([tombstone], tombstone.source_entry_id)
+        |> repo.all()
         |> case do
-          true -> {:error, :actor_event_canceled}
-          false -> :ok
+          [] ->
+            :ok
+
+          withdrawn ->
+            inputs = MapSet.new(ActorEvent.input_source_entry_ids(event))
+
+            if Enum.any?(withdrawn, &MapSet.member?(inputs, &1)),
+              do: {:error, :actor_event_canceled},
+              else: {:error, :actor_event_context_canceled}
         end
     end
   end
@@ -1094,16 +916,11 @@ defmodule Ankole.SignalsGateway.Actors do
   defp insert_outbox_intent(_repo, _actor_event, _attrs), do: {:error, :invalid_outbox_intent}
 
   def stop_human_work_in_tx(repo, uid, version, now) do
-    live =
-      from d in Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery,
-        where: d.state in ["created", "sent", "accepted"],
-        select: d.actor_event_id
-
     repo.update_all(
       from(e in ActorEvent,
         where:
           e.human_uid == ^uid and e.human_access_version < ^version and e.input_state == "open" and
-            is_nil(e.completed_at) and e.id not in subquery(live)
+            is_nil(e.completed_at) and is_nil(e.last_attempt_at)
       ),
       set: [
         input_state: "dead_letter",

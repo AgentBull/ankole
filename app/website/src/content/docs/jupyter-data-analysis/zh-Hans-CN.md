@@ -42,7 +42,7 @@ kernel 在后台任务期间保持存活。任务结束时 kernel 停止、其�
 
 1. 确认 `jupyter-live-kernel` skill 已启用（默认是）。
 2. 创建 agent，撰写 `MISSION.md`："当频道里出现 CSV，把它加载进 DataFrame，检查 schema 和汇总统计，识别异常，用图表报告发现。"
-3. 在频道里上传一个 CSV（通过 worker-file 路由或提供 URL）。
+3. 在频道里附上一个 CSV，或在 Console 中把它上传到 Agent 的云盘并给出路径。
 4. agent 委派给后台任务，启动 kernel，加载 CSV，迭代检查，生成图表，回报。
 
 ## 本指南不是什么

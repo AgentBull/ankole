@@ -3,19 +3,18 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   import Ecto.Query, warn: false
 
-  alias Ecto.Adapters.SQL
-  alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
-  alias Ankole.AuthZ.{ExternalBinding, Group, Store}
-  alias Ankole.Plugins.MapHelpers
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
+  alias Ankole.AuthZ.Store
+  alias Ankole.Plugins.{ChannelSync, MapHelpers}
   alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Inbound}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
     Binding,
-    BindingMembership,
     Channel,
     IMGroupMembers,
-    Projection
+    IMGroupProjection
   }
 
   alias SlackOpenAPI.{Event, Pagination}
@@ -34,46 +33,16 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
   def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, _config) do
-    case enqueue_binding_full_sync(agent_uid, binding_name,
+    case ChannelSync.enqueue_binding(
+           Ankole.Plugins.SlackAdapter.Jobs.SyncChannels,
+           agent_uid,
+           binding_name,
            reason: "binding_saved",
            source: "signal_binding"
          ) do
       {:ok, _job} -> ConnectionReconciler.reconcile_async()
       {:error, _reason} = error -> error
     end
-  end
-
-  @spec enqueue_full_syncs(keyword()) :: {:ok, map()} | {:error, term()}
-  def enqueue_full_syncs(opts \\ []) do
-    SignalsGateway.list_enabled_bindings("slack", Keyword.take(opts, [:repo]))
-    |> Enum.reduce_while({:ok, %{enqueued: [], skipped: []}}, fn binding, {:ok, acc} ->
-      case enqueue_binding_full_sync(binding.agent_uid, binding.name,
-             reason: Keyword.get(opts, :reason, "startup"),
-             source: Keyword.get(opts, :source, "startup")
-           ) do
-        {:ok, %Oban.Job{conflict?: true}} ->
-          {:cont, {:ok, %{acc | skipped: [{binding.agent_uid, binding.name} | acc.skipped]}}}
-
-        {:ok, %Oban.Job{} = job} ->
-          {:cont, {:ok, %{acc | enqueued: [job | acc.enqueued]}}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @spec enqueue_binding_full_sync(String.t(), String.t(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_binding_full_sync(agent_uid, binding_name, opts \\ []) do
-    %{
-      "agent_uid" => String.downcase(agent_uid),
-      "binding_name" => binding_name,
-      "reason" => to_string(Keyword.get(opts, :reason, "manual")),
-      "source" => to_string(Keyword.get(opts, :source, "manual"))
-    }
-    |> Ankole.Plugins.SlackAdapter.Jobs.SyncChannels.new()
-    |> Oban.insert()
   end
 
   @spec enqueue_channel_refresh(AdapterContext.t(), map(), String.t(), keyword()) ::
@@ -94,7 +63,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
         channel: %{kind: :im_group},
         signal_channel_id: signal_channel_id
       }) do
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 
@@ -117,13 +86,17 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def sync_binding(agent_uid, binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, channels} <- list_channels(config),
          {:ok, bot_ids} <- list_bot_ids(config),
          context <- binding_context(binding, config),
          {:ok, count} <- sync_channels(context, config, channels, bot_ids),
          {:ok, marked_left} <-
-           mark_missing_channels_left(context, config, Enum.map(channels, & &1["id"])) do
+           IMGroupProjection.mark_missing_left(
+             namespace(config),
+             Enum.map(channels, & &1["id"]),
+             context
+           ) do
       {:ok,
        %{
          binding: %{agent_uid: binding.agent_uid, binding_name: binding.name},
@@ -136,26 +109,28 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   @spec refresh_channel(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def refresh_channel(agent_uid, binding_name, channel_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, channel} <- fetch_channel(config, channel_id),
          {:ok, bot_ids} <- list_bot_ids(config),
-         {:ok, result} <-
-           with_channel_lock(namespace(config), channel_id, fn ->
-             with {:ok, group} <- ensure_channel_group(context, config, channel),
-                  {:ok, members} <- list_members(config, channel_id),
-                  {:ok, principal_uids} <- member_principal_uids(config, members, bot_ids),
-                  {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
-               {:ok,
-                %{
-                  channel_id: channel_id,
-                  group_id: group.id,
-                  synced_members: length(principal_uids),
-                  removed_memberships: replace.removed_memberships
-                }}
-             end
-           end) do
-      {:ok, result}
+         {:ok, group} <-
+           IMGroupProjection.ensure_group(
+             namespace(config),
+             channel_id,
+             %{"name" => channel["name"]},
+             context,
+             group_projection_options(config, channel)
+           ),
+         {:ok, members} <- list_members(config, channel_id),
+         {:ok, principal_uids} <- member_principal_uids(config, members, bot_ids),
+         {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
+      {:ok,
+       %{
+         channel_id: channel_id,
+         group_id: group.id,
+         synced_members: length(principal_uids),
+         removed_memberships: replace.removed_memberships
+       }}
     end
   end
 
@@ -175,7 +150,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     if user_id == runtime_bot_user_id(consumer.config) do
       enqueue_refresh_result(consumer, channel_id, "bot_joined")
     else
-      with {:ok, group} <- fetch_group(namespace(consumer.config), channel_id),
+      with {:ok, group} <- IMGroupProjection.get_group(namespace(consumer.config), channel_id),
            {:ok, observed} <- upsert_member(consumer.config, user_id),
            {:ok, _membership} <-
              Repo.transact(fn repo ->
@@ -198,9 +173,10 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     user_id = Map.get(content, "user")
 
     if user_id == runtime_bot_user_id(consumer.config) do
-      mark_participant_left(consumer.context, consumer.config, channel_id)
+      IMGroupProjection.mark_left(namespace(consumer.config), channel_id, consumer.context)
+      |> left_result(:all_participants_left)
     else
-      with {:ok, group} <- fetch_group(namespace(consumer.config), channel_id),
+      with {:ok, group} <- IMGroupProjection.get_group(namespace(consumer.config), channel_id),
            {:ok, principal_uid} <-
              Principals.resolve_platform_subject_uid(namespace(consumer.config), user_id) do
         case Repo.transact(fn repo ->
@@ -226,7 +202,9 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   defp handle_event(consumer, event_type, event)
        when event_type in ["channel_deleted", "channel_archive"] do
     channel_id = Map.get(event.content || %{}, "channel")
-    mark_all_participants_left(consumer.config, channel_id)
+
+    IMGroupProjection.mark_all_left(namespace(consumer.config), channel_id)
+    |> left_result(:channel_gone)
   end
 
   defp handle_event(_consumer, _event_type, _event),
@@ -237,14 +215,19 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     |> Enum.reject(&Map.get(&1, "is_im", false))
     |> Enum.reduce_while({:ok, 0}, fn channel, {:ok, count} ->
       result =
-        with_channel_lock(namespace(config), channel["id"], fn ->
-          with {:ok, group} <- ensure_channel_group(context, config, channel),
-               {:ok, members} <- list_members(config, channel["id"]),
-               {:ok, uids} <- member_principal_uids(config, members, bot_ids),
-               {:ok, _result} <- IMGroupMembers.replace_members(group.id, uids) do
-            {:ok, group}
-          end
-        end)
+        with {:ok, group} <-
+               IMGroupProjection.ensure_group(
+                 namespace(config),
+                 channel["id"],
+                 %{"name" => channel["name"]},
+                 context,
+                 group_projection_options(config, channel)
+               ),
+             {:ok, members} <- list_members(config, channel["id"]),
+             {:ok, uids} <- member_principal_uids(config, members, bot_ids),
+             {:ok, _result} <- IMGroupMembers.replace_members(group.id, uids) do
+          {:ok, group}
+        end
 
       case result do
         {:ok, _group} -> {:cont, {:ok, count + 1}}
@@ -313,79 +296,43 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  defp ensure_channel_group(context, config, channel) do
-    channel_id = Map.fetch!(channel, "id")
+  defp left_result({:ok, %{status: :all_left_members_cleared} = result}, status),
+    do: {:ok, %{result | status: status}}
+
+  defp left_result({:ok, %{status: :participant_marked_left} = result}, _status),
+    do: {:ok, Map.drop(result, [:removed_memberships])}
+
+  defp left_result(result, _status), do: result
+
+  defp group_projection_options(config, channel) do
     provider = namespace(config)
 
-    group_result =
-      case AuthZ.external_group_ids(provider, :im_group, channel_id) do
-        [group_id | _rest] ->
-          AuthZ.get_principal_group(group_id)
-
-        [] ->
-          AuthZ.create_principal_group(%{
-            name: "#{provider}:im_group:#{String.downcase(channel_id)}",
-            display_name: channel["name"] || "Slack Channel #{channel_id}",
-            domain: :im_group,
-            kind: :static,
-            metadata: participant_metadata(context)
-          })
-      end
-
-    with {:ok, group} <- group_result,
-         {:ok, group} <- maybe_update_group(group, context, channel),
-         {:ok, _binding} <-
-           AuthZ.upsert_external_binding(%{
-             provider: provider,
-             external_kind: :im_group,
-             external_id: channel_id,
-             group_id: group.id,
-             metadata: %{
-               "provider" => provider,
-               "externalKind" => "im_group",
-               "externalID" => channel_id,
-               "name" => channel["name"]
-             }
-           }),
-         {:ok, _projection} <- upsert_channel_projection(channel, group.id) do
-      {:ok, group}
-    end
-  end
-
-  defp maybe_update_group(group, context, channel) do
-    metadata = BindingMembership.project(group.metadata, context, :joined)
-    attrs = %{metadata: metadata}
-
-    attrs =
-      if is_binary(channel["name"]),
-        do: Map.put(attrs, :display_name, channel["name"]),
-        else: attrs
-
-    AuthZ.update_principal_group(group, attrs)
-  end
-
-  defp participant_metadata(context), do: BindingMembership.project(%{}, context, :joined)
-
-  defp upsert_channel_projection(channel, group_id) do
-    fact = %{
-      signal_channel_id: Inbound.signal_channel_id(channel["id"]),
-      channel_kind: if(channel["is_im"], do: :im_dm, else: :im_group),
-      reply_mode: :entry,
-      channel_name: channel["name"],
-      channel_visibility: if(channel["is_private"], do: "private", else: "public"),
-      principal_group_id: group_id,
-      channel_metadata:
-        MapHelpers.compact_metadata_map(%{
-          "channel_id" => channel["id"],
-          "team_id" => channel["context_team_id"],
-          "visibility" => if(channel["is_private"], do: "private", else: "public")
-        }),
-      channel_raw_payload: channel
-    }
-
-    Repo.transact(fn repo ->
-      Projection.upsert_channel(repo, fact, DateTime.utc_now(:microsecond))
-    end)
+    [
+      default_display_name: "Slack Channel #{channel["id"]}",
+      binding_metadata: %{
+        "provider" => provider,
+        "externalKind" => "im_group",
+        "externalID" => channel["id"],
+        "name" => channel["name"]
+      },
+      channel: %{
+        on_conflict: :replace,
+        fact: %{
+          signal_channel_id: Inbound.signal_channel_id(channel["id"]),
+          channel_kind: if(channel["is_im"], do: :im_dm, else: :im_group),
+          reply_mode: :entry,
+          channel_name: channel["name"],
+          channel_visibility: if(channel["is_private"], do: "private", else: "public"),
+          channel_metadata:
+            MapHelpers.compact_metadata_map(%{
+              "channel_id" => channel["id"],
+              "team_id" => channel["context_team_id"],
+              "visibility" => if(channel["is_private"], do: "private", else: "public")
+            }),
+          channel_raw_payload: channel
+        }
+      }
+    ]
   end
 
   defp member_principal_uids(config, members, bot_ids) do
@@ -411,110 +358,6 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   end
 
   defp upsert_member(_config, _user_id), do: {:error, :missing_user_id}
-
-  defp fetch_group(provider, channel_id) do
-    case AuthZ.external_group_ids(provider, :im_group, channel_id) do
-      [id | _rest] -> AuthZ.get_principal_group(id)
-      [] -> {:error, :not_found}
-    end
-  end
-
-  defp mark_participant_left(context, config, channel_id) do
-    with_channel_lock(namespace(config), channel_id, fn ->
-      case fetch_group(namespace(config), channel_id) do
-        {:ok, group} ->
-          metadata = BindingMembership.project(group.metadata, context, :left)
-
-          with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
-            if BindingMembership.all_left?(metadata) do
-              clear_group_members(group, :all_participants_left)
-            else
-              # A leaving Agent loses its mirrored membership row at once,
-              # the same way a leaving human does.
-              with {:ok, _delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
-                {:ok, %{status: :participant_marked_left, group_id: group.id}}
-              end
-            end
-          end
-
-        {:error, :not_found} ->
-          {:ok, %{status: :ignored_missing_group}}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end)
-  end
-
-  defp mark_all_participants_left(config, channel_id) do
-    with_channel_lock(namespace(config), channel_id, fn ->
-      case fetch_group(namespace(config), channel_id) do
-        {:ok, group} ->
-          metadata = BindingMembership.mark_all_left(group.metadata)
-
-          with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
-            clear_group_members(group, :channel_gone)
-          end
-
-        {:error, :not_found} ->
-          {:ok, %{status: :ignored_missing_group}}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end)
-  end
-
-  defp clear_group_members(%Group{} = group, reason) do
-    with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
-      {:ok,
-       %{
-         status: reason,
-         group_id: group.id,
-         removed_memberships: result.removed_memberships
-       }}
-    end
-  end
-
-  defp mark_missing_channels_left(context, config, observed_channel_ids) do
-    observed = MapSet.new(observed_channel_ids)
-    provider = namespace(config)
-
-    groups =
-      ExternalBinding
-      |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
-      |> where(
-        [binding, group],
-        binding.provider == ^provider and binding.external_kind == :im_group and
-          group.domain == :im_group
-      )
-      |> select([binding, group], {binding.external_id, group.metadata})
-      |> Repo.all()
-
-    groups
-    |> Enum.reject(fn {channel_id, _metadata} -> MapSet.member?(observed, channel_id) end)
-    |> Enum.filter(fn {_channel_id, metadata} ->
-      BindingMembership.joined?(metadata, context)
-    end)
-    |> Enum.reduce_while({:ok, 0}, fn {channel_id, _metadata}, {:ok, count} ->
-      case mark_participant_left(context, config, channel_id) do
-        {:ok, _result} -> {:cont, {:ok, count + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp with_channel_lock(provider, channel_id, fun) when is_binary(channel_id) do
-    Repo.transact(fn repo ->
-      SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [
-        "slack_channel:#{provider}:#{channel_id}"
-      ])
-
-      fun.()
-    end)
-  end
-
-  defp with_channel_lock(_provider, _channel_id, _fun), do: {:error, :missing_channel_id}
 
   defp enqueue_refresh_result(consumer, channel_id, reason) when is_binary(channel_id) do
     case enqueue_channel_refresh(consumer.context, consumer.config, channel_id, reason: reason) do

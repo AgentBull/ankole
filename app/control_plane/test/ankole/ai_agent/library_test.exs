@@ -1,6 +1,7 @@
 defmodule Ankole.AIAgent.LibraryTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
@@ -10,6 +11,8 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.AppConfigure.Cache
+  alias Ankole.Files
+  alias Ankole.ObjectStore
   alias Ankole.Repo
 
   test "Skill frontmatter supports YAML block scalars, quotes, and lists" do
@@ -186,7 +189,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                agent.uid,
                "pdf",
                "Verify totals against the source table before delivery.",
-               agent.uid
+               Ankole.ActorRef.from_principal(agent)
              )
 
     assert {:ok, skill} = Library.skill_view(agent.uid, "pdf")
@@ -210,7 +213,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                agent.uid,
                "pdf",
                "Prefer page-by-page verification.",
-               agent.uid
+               Ankole.ActorRef.from_principal(agent)
              )
 
     assert {:ok, _lesson} =
@@ -218,7 +221,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                agent.uid,
                "create-deep-research",
                "Name the disconfirming evidence first.",
-               agent.uid
+               Ankole.ActorRef.from_principal(agent)
              )
 
     assert {:ok, lessons} = Library.list_skill_lessons(agent.uid)
@@ -228,7 +231,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert pdf["agent_plugin_id"] == nil
     assert pdf["content"] == "Prefer page-by-page verification."
     assert pdf["author_kind"] == "human"
-    assert pdf["author_uid"] == agent.uid
+    assert pdf["author"] == %{tenant_id: agent.tenant_id, uid: agent.uid}
     assert pdf["effective_enabled"]
     assert pdf["review_after"] == nil
 
@@ -238,7 +241,12 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", false)
 
     assert {:error, :skill_not_enabled} =
-             Library.create_skill_lesson(agent.uid, "pdf", "unreachable", agent.uid)
+             Library.create_skill_lesson(
+               agent.uid,
+               "pdf",
+               "unreachable",
+               Ankole.ActorRef.from_principal(agent)
+             )
 
     assert {:ok, lessons} = Library.list_skill_lessons(agent.uid)
     disabled = Enum.find(lessons, &(&1["skill_name"] == "pdf"))
@@ -272,7 +280,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                agent.uid,
                "pdf",
                "Prefer page-by-page verification.",
-               agent.uid
+               Ankole.ActorRef.from_principal(agent)
              )
 
     assert {:ok, %{"pdf" => pdf, "xlsx" => xlsx}} =
@@ -303,87 +311,123 @@ defmodule Ankole.AIAgent.LibraryTest do
     Cache.clear_for_test()
 
     assert {:ok, %AgentSkillLesson{content: "Cold-cache guidance."}} =
-             Library.create_skill_lesson(agent.uid, "pdf", "Cold-cache guidance.", agent.uid)
+             Library.create_skill_lesson(
+               agent.uid,
+               "pdf",
+               "Cold-cache guidance.",
+               Ankole.ActorRef.from_principal(agent)
+             )
   end
 
-  test "agent-installed skills are recorded from worker file observations" do
+  test "agent-installed Skills are discovered from the drive without a Worker observation" do
     %{principal: agent} = agent_fixture()
-
-    assert {:ok, _} =
-             Library.replace_installed_skill_observations(agent.uid, [
-               %{
-                 skill_name: "agent-notes",
-                 description: "Agent-installed note-taking skill.",
-                 default_enabled: true,
-                 tags: ["notes"],
-                 category: "custom"
-               }
-             ])
-
-    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
-
-    installed = Enum.find(skills, &(&1["skill_name"] == "agent-notes"))
-    assert installed["source_kind"] == "installed"
-    assert installed["relative_path"] == "agent-notes"
-    assert installed["category"] == "custom"
+    installed_skill_fixture(agent.uid, "agent-notes")
 
     assert {:ok, runtime_skills} = Library.runtime_skills_for_agent(agent.uid)
-    runtime_installed = Enum.find(runtime_skills, &(&1["skill_name"] == "agent-notes"))
-    assert runtime_installed["metadata"]["category"] == "custom"
+    installed = Enum.find(runtime_skills, &(&1["skill_name"] == "agent-notes"))
+    assert installed["source_kind"] == "installed"
+    assert installed["relative_path"] == "agent-notes"
+    assert installed["metadata"]["category"] == "custom"
+    assert installed["metadata"]["tags"] == ["notes"]
 
-    assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
+    assert {:ok, %{"base_content" => "Take notes.", "source_kind" => "installed"}} =
+             Library.skill_view(agent.uid, "agent-notes")
 
-    assert {:ok, _} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:ok, 1} = Files.delete(agent.uid, "skills/agent-notes")
+    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
+    refute Enum.any?(skills, &(&1["skill_name"] == "agent-notes"))
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
   test "installed Skills reject an invalid runtime declaration" do
     %{principal: agent} = agent_fixture()
+    installed_skill_fixture(agent.uid, "invalid-runtime", "ankole-runtime: worker")
 
-    assert {:error, {:invalid_ankole_runtime, "worker"}} =
-             Library.replace_installed_skill_observations(agent.uid, [
-               installed_skill_observation("invalid-runtime", "worker")
-             ])
+    assert {:error, {:invalid_ankole_runtime, "worker"}} = Library.sync_agent_skills(agent.uid)
   end
 
-  test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
+  test "drive manifest updates and repeated sync preserve an operator's disabled Skill" do
     %{principal: agent} = agent_fixture()
+    installed_skill_fixture(agent.uid, "agent-notes")
 
-    assert {:ok, _} =
-             Library.replace_installed_skill_observations(agent.uid, [
-               %{
-                 "skill_name" => "agent-notes",
-                 "description" => "Agent-installed note-taking skill.",
-                 "default_enabled" => true,
-                 "tags" => ["notes"],
-                 "category" => "custom"
-               }
-             ])
+    assert {:ok, %AgentSkill{id: id, enabled_override: false}} =
+             Library.set_agent_skill_override(agent.uid, "agent-notes", false)
 
-    assert %AgentSkill{source_kind: "installed"} =
+    assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, _file, content} = Files.read(agent.uid, "skills/agent-notes/SKILL.md")
+
+    drive_file_fixture(
+      agent.uid,
+      "skills/agent-notes/SKILL.md",
+      String.replace(content, "Agent-installed note-taking Skill.", "Updated notes Skill.")
+    )
+
+    assert {:ok, %{changed: true}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
+
+    assert %AgentSkill{id: ^id, enabled_override: false, description: "Updated notes Skill."} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
-    assert {:ok, _} = Library.sync_agent_skills(agent.uid)
+    assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "agent-notes")
+  end
 
-    assert %AgentSkill{source_kind: "installed"} =
-             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
+  test "an unreadable drive manifest fails sync without deleting catalog or operator choices" do
+    %{principal: agent} = agent_fixture()
+    file = installed_skill_fixture(agent.uid, "unreadable-installed")
+    assert {:ok, _file, content} = Files.read(agent.uid, file.path)
 
-    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
-    assert Enum.any?(skills, &(&1["skill_name"] == "agent-notes"))
+    assert {:ok, %AgentSkill{id: id, enabled_override: false}} =
+             Library.set_agent_skill_override(agent.uid, "unreadable-installed", false)
+
+    key = Files.object_key(file.sha256)
+    on_exit(fn -> ObjectStore.write(key, content) end)
+    assert :ok = ObjectStore.delete(key)
+    assert {:error, :not_found} = Library.sync_agent_skills(agent.uid)
+
+    assert %AgentSkill{id: ^id, enabled_override: false} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "unreadable-installed")
+
+    assert {:ok, _stored} = Files.store(content)
+    assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
+
+    assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "unreadable-installed")
+  end
+
+  test "installed catalog reads every drive page before removing stale rows" do
+    %{principal: agent} = agent_fixture()
+    installed_skill_fixture(agent.uid, "a-cache")
+    installed_skill_fixture(agent.uid, "z-notes")
+
+    assert {:ok, %AgentSkill{id: id, enabled_override: false}} =
+             Library.set_agent_skill_override(agent.uid, "z-notes", false)
+
+    {:ok, %{sha256: sha256}} = Files.store("Skill support file")
+
+    assert {:ok, _files} =
+             Files.commit(
+               agent.uid,
+               for index <- 1..5_000 do
+                 %{
+                   path: "skills/a-cache/references/#{index}.md",
+                   sha256: sha256,
+                   source: "agent"
+                 }
+               end
+             )
+
+    assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
+
+    assert %AgentSkill{id: ^id, enabled_override: false} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "z-notes")
   end
 
   test "rejects Skill name collisions across first-party and installed sources" do
     %{principal: agent} = agent_fixture()
 
+    installed_skill_fixture(agent.uid, "pdf")
+
     assert {:error, {:skill_source_name_conflicts, ["pdf"]}} =
-             Library.replace_installed_skill_observations(agent.uid, [
-               %{
-                 skill_name: "pdf",
-                 description: "Conflicting installed Skill.",
-                 default_enabled: true,
-                 tags: []
-               }
-             ])
+             Library.sync_agent_skills(agent.uid)
 
     assert %AgentSkill{source_kind: "builtin", agent_plugin_id: nil} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "pdf")
@@ -625,14 +669,18 @@ defmodule Ankole.AIAgent.LibraryTest do
     """)
   end
 
-  defp installed_skill_observation(name, runtime) do
-    %{
-      skill_name: name,
-      description: "Installed #{name} Skill.",
-      default_enabled: true,
-      tags: [],
-      ankole_runtime: runtime
-    }
+  defp installed_skill_fixture(agent_uid, name, extra_metadata \\ "") do
+    drive_file_fixture(agent_uid, "skills/#{name}/SKILL.md", """
+    ---
+    name: #{name}
+    description: Agent-installed note-taking Skill.
+    default_enabled: true
+    tags: [notes]
+    category: custom
+    #{extra_metadata}
+    ---
+    Take notes.
+    """)
   end
 
   defp write_agent_plugin!(library_root, plugin_id, skill_name) do

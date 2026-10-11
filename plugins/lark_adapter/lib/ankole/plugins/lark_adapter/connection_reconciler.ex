@@ -1,159 +1,26 @@
 defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   @moduledoc """
-  Reconciles enabled Lark signal bindings into supervised long connections.
+  Reconciles enabled Lark bindings and identity providers into long
+  connections. Bindings and identity providers of one app share one connection.
+  A binding whose bot identity cannot be resolved blocks its connection key, so
+  a live connection keeps its chat consumer until the identity resolves again.
   """
 
-  alias Ankole.Plugins.ConnectionLifecycle
-  alias Ankole.Plugins.LarkAdapter.Config
-  alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
-  alias Ankole.Plugins.LarkAdapter.IdentityProvider
-  alias Ankole.Plugins.LarkAdapter.Inbound
-  alias Ankole.Logging
-  alias Ankole.IdentityProviders
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Binding
+  use Ankole.Plugins.ConnectionLifecycle,
+    adapter: "lark",
+    registry: Ankole.Plugins.LarkAdapter.ConnectionRegistry,
+    supervisor: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor
 
-  # Background cadence for re-deriving live connections from the database. It is
-  # intentionally relaxed because saved bindings also request an immediate
-  # asynchronous pass. This tick repairs missed notifications and external drift.
-  @default_interval_ms 60_000
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Plugins.LarkAdapter.{Config, Dispatcher, IdentityProvider, Inbound}
+  alias Ankole.SignalsGateway.{AdapterContext, Binding}
 
-  @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(opts) do
-    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, type: :worker}
-  end
-
-  @doc """
-  Starts the periodic connection reconciler.
-  """
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    ConnectionLifecycle.start_link(opts,
-      name: __MODULE__,
-      default_interval_ms: @default_interval_ms,
-      reconcile_opts: Keyword.drop(opts, [:name, :interval_ms]),
-      reconcile: &run_reconcile/1
-    )
-  end
-
-  @doc """
-  Reconciles immediately through the supervised process.
-  """
-  @spec reconcile(GenServer.server()) :: map()
-  def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
-
-  @doc "Requests an immediate reconciliation without delaying the caller."
-  @spec reconcile_async(GenServer.server()) :: :ok
-  def reconcile_async(server \\ __MODULE__), do: ConnectionLifecycle.reconcile_async(server)
-
-  @doc """
-  Reconciles enabled bindings once.
-
-  This function is public so setup flows and tests can force a reconciliation
-  after changing binding configuration without waiting for the periodic tick.
-  """
-  @spec reconcile_once(keyword()) :: map()
-  def reconcile_once(opts \\ []) do
-    opts
-    |> enabled_bindings()
-    |> connection_specs(opts)
-    |> start_connections(opts)
-  end
-
-  defp run_reconcile(opts) do
-    result = reconcile_once(opts)
-
-    if result.errors != [] do
-      Logging.warning(
-        "lark_adapter.connection_reconciliation.completed_with_errors",
-        "lark adapter connection reconciliation completed with errors",
-        %{
-          errors: result.errors
-        }
-      )
-    end
-
-    result
-  end
-
-  # Loads the bindings that should currently have a live connection: this adapter
-  # only, switched on, and not parked with an unavailable_reason (e.g. credentials
-  # that previously failed). Ordering keeps the derived set stable across runs.
-  defp enabled_bindings(opts) do
-    SignalsGateway.list_enabled_bindings("lark", Keyword.take(opts, [:repo]))
-  end
-
-  # Collapses bindings down to one spec per connection key, so several bindings
-  # served by the same Lark app share a SINGLE long connection with a merged
-  # consumer list instead of each opening a duplicate websocket. Returns the spec
-  # map alongside any per-binding errors gathered along the way.
-  defp connection_specs(bindings, opts) do
-    bindings
-    |> Enum.reduce({%{}, []}, fn binding, acc -> add_binding_spec(binding, acc, opts) end)
-    |> add_identity_provider_specs(opts)
-  end
-
-  defp add_binding_spec(%Binding{} = binding, {specs, errors}, opts) do
-    case binding_connection_spec(binding, opts) do
-      {:ok, key, spec} ->
-        merge_connection_spec(
-          specs,
-          key,
-          spec,
-          binding_error(binding, :conflicting_app_secret),
-          errors
-        )
-
-      {:error, reason} ->
-        {specs, [binding_error(binding, reason) | errors]}
-
-      {:blocked, connection_key, reason} ->
-        error = binding_error(binding, reason) |> Map.put(:blocked_connection_key, connection_key)
-        {specs, [error | errors]}
-    end
-  end
-
-  defp add_identity_provider_specs({specs, errors}, _opts) do
-    case IdentityProviders.list_active_provider_refs("lark") do
-      {:ok, providers} ->
-        providers
-        |> Enum.reduce({specs, errors}, &add_identity_provider_spec/2)
-
-      {:error, reason} ->
-        {specs, [%{provider_id: nil, reason: reason} | errors]}
-    end
-  end
-
-  defp add_identity_provider_spec(provider, {specs, errors}) do
-    case identity_provider_connection_spec(provider) do
-      {:ok, key, spec} ->
-        merge_connection_spec(
-          specs,
-          key,
-          spec,
-          identity_provider_error(provider, :conflicting_app_secret),
-          errors
-        )
-
-      :skip ->
-        {specs, errors}
-
-      {:error, reason} ->
-        {specs, [identity_provider_error(provider, reason) | errors]}
-    end
-  end
-
-  defp binding_connection_spec(%Binding{} = binding, opts) do
-    case Config.load_chat_config_ref(binding.config_ref) do
+  @impl true
+  def binding_spec(%Binding{} = binding, opts) do
+    case Bindings.binding_config(binding, Config) do
       {:ok, config} ->
-        connection_key = Config.connection_key(config)
-
         config =
-          Config.resolve_runtime_bot_identity(
-            config,
-            Keyword.take(opts, [:bot_info_fetcher])
-          )
+          Config.resolve_runtime_bot_identity(config, Keyword.take(opts, [:bot_info_fetcher]))
 
         if is_binary(Map.get(config, "runtimeBotOpenID")) do
           context =
@@ -164,133 +31,63 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
               user_name: Map.get(config, "userName", "Lark / Feishu")
             )
 
-          {:ok, connection_key,
-           %{
-             config: config,
-             secret_fingerprint: Config.secret_fingerprint(config),
-             consumers: [Inbound.chat_consumer(context, config)]
-           }}
+          {:ok, connection_spec(config, Inbound.chat_consumer(context, config))}
         else
-          {:blocked, connection_key, :runtime_bot_identity_unavailable}
+          {:blocked, Config.connection_key(config), :runtime_bot_identity_unavailable}
         end
 
       :error ->
         {:error, :chat_config_not_found}
 
-      {:error, reason} ->
-        {:error, reason}
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp identity_provider_connection_spec(%{
-         "provider_id" => provider_id,
-         "config_key" => config_key
-       }) do
+  @impl true
+  def identity_spec(%{"provider_id" => provider_id, "config_key" => config_key}) do
     with {:ok, config} <- Config.load_identity_config_key(config_key),
          true <- realtime_identity_sync_enabled?(config) || :skip do
-      {:ok, Config.connection_key(config),
-       %{
-         config: config,
-         secret_fingerprint: Config.secret_fingerprint(config),
-         consumers: [IdentityProvider.identity_consumer(provider_id, config)]
-       }}
+      {:ok, connection_spec(config, IdentityProvider.identity_consumer(provider_id, config))}
     else
       :skip -> :skip
       :error -> {:error, :identity_config_not_found}
-      {:error, reason} -> {:error, reason}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp realtime_identity_sync_enabled?(config) when is_map(config) do
+  @impl true
+  def connection_key(config, _consumers), do: Config.connection_key(config)
+
+  @impl true
+  def owner_child_spec(key, config, consumers) do
+    client = Config.client(config)
+
+    via =
+      {:via, Registry,
+       {Ankole.Plugins.LarkAdapter.ConnectionRegistry, key,
+        Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
+
+    %{
+      id: {FeishuOpenAPI.WS.Client, key},
+      start:
+        {FeishuOpenAPI.WS.Client, :start_link,
+         [[client: client, dispatcher: Dispatcher.build(consumers, client: client), name: via]]},
+      restart: :temporary,
+      type: :worker
+    }
+  end
+
+  defp connection_spec(config, consumer) do
+    %{
+      config: config,
+      secret_fingerprint: Config.secret_fingerprint(config),
+      consumers: [consumer]
+    }
+  end
+
+  defp realtime_identity_sync_enabled?(config) do
     get_in(config, ["sync", "contacts"]) != false and
       get_in(config, ["sync", "websocket"]) != false
   end
-
-  defp merge_connection_spec(specs, key, spec, _conflict_error, errors)
-       when not is_map_key(specs, key) do
-    {Map.put(specs, key, spec), errors}
-  end
-
-  defp merge_connection_spec(specs, key, spec, conflict_error, errors) do
-    existing = Map.fetch!(specs, key)
-
-    case existing.secret_fingerprint == spec.secret_fingerprint do
-      true ->
-        {Map.put(specs, key, %{existing | consumers: spec.consumers ++ existing.consumers}),
-         errors}
-
-      false ->
-        # Same connection key but a different app secret means two configs
-        # disagree about which Lark app owns this connection. Refuse instead of
-        # letting one config's credentials silently win over the other's.
-        {specs, [conflict_error | errors]}
-    end
-  end
-
-  defp start_connections({specs, errors}, opts) do
-    supervisor_opts = Keyword.take(opts, [:registry, :supervisor, :client_opts])
-    snapshot = ConnectionLifecycle.desired_snapshot(specs, errors)
-    stopped = stop_undesired_connections(snapshot, supervisor_opts)
-
-    blocked_connection_keys =
-      errors
-      |> Enum.flat_map(fn
-        %{blocked_connection_key: key} -> [key]
-        _error -> []
-      end)
-      |> MapSet.new()
-
-    # Start each deduplicated connection, then partition successes from failures
-    # so the caller receives a started-count plus a flat list of per-binding and
-    # per-start errors.
-    {started, start_errors} =
-      specs
-      # A blocked binding can share this key with an identity provider. Starting
-      # that partial spec would replace the live connection without its chat consumer.
-      |> Map.reject(fn {key, _spec} -> MapSet.member?(blocked_connection_keys, key) end)
-      |> Map.values()
-      |> Enum.map(&start_connection(&1, supervisor_opts))
-      |> Enum.split_with(&match?({:ok, _pid}, &1))
-
-    %{
-      started: length(started),
-      stopped: stopped,
-      errors: Enum.reverse(errors) ++ Enum.map(start_errors, &start_error/1)
-    }
-  end
-
-  # Only a complete snapshot can prove that a registered connection is no
-  # longer desired. A read error keeps the last live connection until recovery.
-  defp stop_undesired_connections(snapshot, supervisor_opts) do
-    ConnectionLifecycle.stop_undesired(
-      snapshot,
-      ConnectionSupervisor.registered_keys(supervisor_opts),
-      &ConnectionSupervisor.stop(&1, supervisor_opts)
-    )
-  end
-
-  defp start_connection(spec, supervisor_opts) do
-    ConnectionSupervisor.ensure_started(
-      spec.config,
-      Enum.reverse(spec.consumers),
-      supervisor_opts
-    )
-  end
-
-  defp binding_error(%Binding{} = binding, reason) do
-    %{
-      agent_uid: binding.agent_uid,
-      binding_name: binding.name,
-      reason: reason
-    }
-  end
-
-  defp identity_provider_error(%{"provider_id" => provider_id}, reason) do
-    %{
-      provider_id: provider_id,
-      reason: reason
-    }
-  end
-
-  defp start_error({:error, reason}), do: %{reason: reason}
 end

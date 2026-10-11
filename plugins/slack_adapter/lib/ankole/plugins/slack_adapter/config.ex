@@ -1,9 +1,12 @@
 defmodule Ankole.Plugins.SlackAdapter.Config do
+  def platform_application(config) do
+    with {:ok, app_id} <- resolve_application_id(config), do: {:ok, "slack:" <> app_id}
+  end
+
   @moduledoc "Validation and runtime helpers for the first-party Slack adapter."
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
-  alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias SlackOpenAPI.Client
 
@@ -22,6 +25,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.slack.bindings.*",
+        console_writable: false,
         key_pattern: @chat_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_chat_config/1),
@@ -29,6 +33,8 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.slack.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),
@@ -39,6 +45,18 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   @spec chat_config_key(String.t()) :: String.t()
   def chat_config_key(id), do: "signals_gateway.slack.bindings.#{id}"
+
+  @spec binding_config_key(String.t(), String.t()) :: String.t()
+  def binding_config_key(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    id =
+      [agent_uid, binding_name]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "signals_gateway.slack.bindings.#{id}"
+  end
 
   @spec identity_config_key(String.t()) :: String.t()
   def identity_config_key(id), do: "principals.identity_providers.slack.#{id}"
@@ -120,16 +138,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   def validate_identity_config(_value), do: {:error, :invalid_identity_config}
 
-  @spec load_chat_config_ref(String.t()) :: {:ok, chat_config()} | {:error, term()} | :error
-  def load_chat_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key) do
-      validate_chat_config(value)
-    end
-  end
-
-  def load_chat_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
   @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
   def load_identity_config_key(key) when is_binary(key) do
     with {:ok, value} <- AppConfigure.get_by_key(key), do: validate_identity_config(value)
@@ -172,42 +180,41 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
+  @doc "Resolves the stable application from the configured bot credential."
+  @spec resolve_application_id(chat_config() | identity_config()) ::
+          {:ok, String.t()} | {:error, term()}
+  def resolve_application_id(config) do
+    with {:ok, identity} <- fetch_runtime_bot_identity(config),
+         do: {:ok, Map.fetch!(identity, "app_id")}
+  end
+
   @spec resolve_runtime_bot_identity(chat_config()) :: {:ok, chat_config()} | {:error, term()}
   def resolve_runtime_bot_identity(config) do
-    if MapHelpers.presence(Map.get(config, "botUserID")) do
-      {:ok, config}
-    else
-      case fetch_runtime_bot_identity(config) do
-        {:ok, identity} ->
-          {:ok,
-           config
-           |> maybe_map_put("runtimeBotUserID", Map.get(identity, "user_id"))
-           |> maybe_map_put("runtimeBotID", Map.get(identity, "bot_id"))
-           |> maybe_map_put("runtimeTeamID", Map.get(identity, "team_id"))}
-
-        {:error, reason} ->
-          Logging.warning(
-            "slack_adapter.config.runtime_bot_identity_failed",
-            "slack adapter could not resolve runtime bot identity",
-            %{connection_key: inspect(connection_key(config)), reason: inspect(reason)}
-          )
-
-          {:error, reason}
-      end
+    with {:ok, identity} <- fetch_runtime_bot_identity(config) do
+      {:ok,
+       config
+       |> Map.put("runtimeAppID", Map.fetch!(identity, "app_id"))
+       |> maybe_map_put("runtimeBotUserID", Map.get(identity, "user_id"))
+       |> maybe_map_put("runtimeBotID", Map.get(identity, "bot_id"))
+       |> maybe_map_put("runtimeTeamID", Map.get(identity, "team_id"))}
     end
   end
 
   defp fetch_runtime_bot_identity(config) do
-    case SlackOpenAPI.post(client(config), "auth.test", body: %{}) do
-      {:ok, %{"user_id" => user_id} = body} when is_binary(user_id) -> {:ok, body}
-      {:ok, _body} -> {:error, :missing_bot_user_id}
-      {:error, reason} -> {:error, reason}
+    client = client(config)
+
+    with {:ok, %{"user_id" => user_id, "bot_id" => bot_id} = identity}
+         when is_binary(user_id) and is_binary(bot_id) <-
+           SlackOpenAPI.post(client, "auth.test", body: %{}),
+         {:ok, %{"bot" => %{"app_id" => app_id}}}
+         when is_binary(app_id) and app_id != "" <-
+           SlackOpenAPI.get(client, "bots.info", query: [bot: bot_id]) do
+      {:ok, Map.put(identity, "app_id", app_id)}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :platform_application_identity_unavailable}
     end
   end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key), do: {:ok, key}
 
   defp token_fingerprint(token) do
     :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)

@@ -3,24 +3,28 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, ErrorPolicy, Mrkdwn}
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.WorkerFiles
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
   alias SlackOpenAPI.Error
 
   @max_text_chars 12_000
 
   @impl true
+  defdelegate open_conversation(binding, principal_uid),
+    to: Ankole.SignalsGateway.Projection,
+    as: :existing_direct_conversation
+
+  @impl true
   def send(%OutboxEntry{} = outbox) do
     result =
-      with {:ok, config} <- config_for_outbox(outbox),
+      with {:ok, config} <- Bindings.outbox_config(outbox, Config),
            client <- Config.client(config) do
         case MapHelpers.fetch_list(outbox.payload, "attachments") do
           [] -> send_requests(outbox, client)
           [attachment] -> send_attachment(outbox, attachment, client)
-          _attachments -> {:error, :multiple_outbound_attachments_not_supported}
         end
       end
 
@@ -31,7 +35,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   def reconcile(%OutboxEntry{created_source_entry_id: nil}), do: :unknown
 
   def reconcile(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
+    with {:ok, config} <- Bindings.outbox_config(outbox, Config),
          client <- Config.client(config),
          channel <- channel_id(outbox.signal_channel_id),
          {:ok, body} <-
@@ -314,7 +318,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   end
 
   defp upload_attachment(outbox, attachment, client) do
-    with {:ok, content, name} <- attachment_content(attachment, outbox.agent_uid),
+    with {:ok, content, name} <- attachment_content(attachment),
          {:ok, body} <-
            SlackOpenAPI.upload_external(client,
              filename: name,
@@ -331,21 +335,15 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
     end
   end
 
-  defp attachment_content(attachment, agent_uid) do
-    relative = MapHelpers.optional_text(attachment, "user_files_relative_path")
-
-    lane_path =
-      if is_binary(relative),
-        do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-    with lane_path when is_binary(lane_path) <- lane_path,
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", lane_path) do
-      {:ok, content, MapHelpers.optional_text(attachment, "name") || Path.basename(relative)}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
+  defp attachment_content(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
+      {:ok, content,
+       MapHelpers.optional_text(attachment, "name") || attachment_basename(attachment)}
     end
   end
+
+  defp attachment_basename(%{"path" => path}) when is_binary(path), do: Path.basename(path)
+  defp attachment_basename(_attachment), do: "attachment"
 
   defp first_file_id(%{"files" => [%{"id" => id} | _rest]}), do: id
   defp first_file_id(_body), do: nil
@@ -361,16 +359,6 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   end
 
   defp truncate(text, size), do: String.slice(text, 0, size)
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_chat_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp channel_id("slack:" <> encoded), do: URI.decode(encoded)
   defp channel_id(channel), do: channel

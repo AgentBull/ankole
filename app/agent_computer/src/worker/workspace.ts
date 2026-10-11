@@ -1,76 +1,33 @@
-import { existsSync, mkdirSync, renameSync } from 'node:fs'
+import { mkdirAgentSync } from '../common/agent-user'
 import { join } from 'node:path'
-import type { TurnStart } from '../lanes/actor_lane'
 import { agentHomePaths, sessionWorkspacePath } from '../core/agent-home-paths'
 import type { WorkerConfig } from './config'
 
-/**
- * Creates the direct Session Workspace inside the current Agent Home.
- *
- * `user-files` remains a sibling shared across the Agent's Sessions; no path
- * alias or symlink is needed because the model sees the real Agent Home paths.
- */
-export function prepareTurnWorkspace(config: WorkerConfig, turnStart: TurnStart): string {
-  return prepareActorWorkspace(config, turnStart.turn.actor, turnStart.workspace_id)
+/** Prepares the Job directory inside the current Agent Home. */
+export function prepareTurnWorkspace(config: Pick<WorkerConfig, 'agentHomeRoot'>): string {
+  const paths = prepareAgentHome(config.agentHomeRoot)
+  return paths.jobs
 }
 
-/** Prepares the Agent Home, migrates the legacy path, and returns the Workspace. */
-export function prepareActorWorkspace(
-  config: Pick<WorkerConfig, 'agentsRoot'>,
-  actor: { agent_uid: string; session_id: string },
-  workspaceID: number
-): string {
-  prepareAgentHome(config.agentsRoot, actor.agent_uid)
-  const sessionRoot = sessionWorkspacePath(config.agentsRoot, actor.agent_uid, workspaceID)
-  migrateLegacySessionWorkspace(config.agentsRoot, actor, sessionRoot)
-
-  mkdirSync(sessionRoot, { recursive: true })
-  mkdirSync(join(sessionRoot, 'temp'), { recursive: true })
+/** Prepares the Agent Home and returns the Session Workspace. */
+export function prepareActorWorkspace(config: Pick<WorkerConfig, 'agentHomeRoot'>, workspaceID: number): string {
+  prepareAgentHome(config.agentHomeRoot)
+  const sessionRoot = sessionWorkspacePath(config.agentHomeRoot, workspaceID)
+  mkdirAgentSync(sessionRoot)
+  mkdirAgentSync(join(sessionRoot, 'temp'))
 
   return sessionRoot
 }
 
 /**
- * Moves the former Base64URL directory on first access.
- *
- * Remove this migration after every retained Agent Home has completed one
- * post-v4 turn or has been checked for legacy session directories.
+ * Creates missing directories of the Agent Home without cleaning existing
+ * contents. Worker readiness creates the Agent Home itself at startup.
  */
-function migrateLegacySessionWorkspace(
-  agentsRoot: string,
-  actor: { agent_uid: string; session_id: string },
-  sessionRoot: string
-): void {
-  if (!actor.session_id) throw new Error('Session ID is required to migrate its legacy workspace')
-  const legacyKey = Buffer.from(actor.session_id, 'utf8').toString('base64url')
-  const legacyRoot = join(agentHomePaths(agentsRoot, actor.agent_uid).sessions, legacyKey)
-  if (legacyRoot === sessionRoot) return
-
-  if (existsSync(sessionRoot) && existsSync(legacyRoot)) {
-    throw new Error(`Session workspace migration conflict: both ${legacyRoot} and ${sessionRoot} exist`)
-  }
-
-  if (!existsSync(sessionRoot) && existsSync(legacyRoot)) {
-    try {
-      renameSync(legacyRoot, sessionRoot)
-    } catch (error) {
-      if (!existsSync(sessionRoot) || existsSync(legacyRoot)) throw error
-    }
-  }
-
-  if (existsSync(sessionRoot) && existsSync(legacyRoot)) {
-    throw new Error(`Session workspace migration conflict: both ${legacyRoot} and ${sessionRoot} exist`)
-  }
-}
-
-/** Creates missing Agent Home directories without cleaning existing contents. */
-export function prepareAgentHome(agentsRoot: string, agentUID: string) {
-  const paths = agentHomePaths(agentsRoot, agentUID)
-  mkdirSync(paths.home, { recursive: true, mode: 0o700 })
-  mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
-  mkdirSync(paths.userFiles, { recursive: true })
-  mkdirSync(paths.installedSkills, { recursive: true })
-  mkdirSync(paths.sessions, { recursive: true })
-  mkdirSync(paths.jobs, { recursive: true })
+function prepareAgentHome(agentHomeRoot: string) {
+  const paths = agentHomePaths(agentHomeRoot)
+  mkdirAgentSync(paths.codexHome, 0o700)
+  mkdirAgentSync(paths.installedSkills)
+  mkdirAgentSync(paths.sessions)
+  mkdirAgentSync(paths.jobs)
   return paths
 }

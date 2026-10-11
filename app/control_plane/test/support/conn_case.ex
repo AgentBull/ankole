@@ -24,7 +24,6 @@ defmodule AnkoleWeb.ConnCase do
   import Plug.Conn
   import Phoenix.ConnTest
 
-  alias Ankole.AuthZ
   alias Ankole.PrincipalsFixtures
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
@@ -46,7 +45,10 @@ defmodule AnkoleWeb.ConnCase do
 
   setup tags do
     Ankole.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+    tenant = Ankole.DataCase.create_tenant()
+    # Fixtures use this tenant; Endpoint.ResetTenant resets it for each request.
+    Ankole.Repo.put_tenant_id(tenant.id)
+    {:ok, tenant: tenant, conn: Phoenix.ConnTest.build_conn() |> assign(:test_tenant, tenant)}
   end
 
   @doc """
@@ -63,12 +65,18 @@ defmodule AnkoleWeb.ConnCase do
   conn.
   """
   def active_admin_conn_with_principal(conn) do
+    tenant = conn.assigns[:test_tenant] || elem(Ankole.Tenants.privileged(), 1)
+    :ok = Ankole.DataCase.set_privileged_tenant(tenant)
+    Ankole.Repo.with_tenant(tenant.id, fn -> active_admin_conn_in_tenant(conn) end)
+  end
+
+  defp active_admin_conn_in_tenant(conn) do
     {:ok, true} = SetupConfig.put_completed(true)
 
     human =
       PrincipalsFixtures.human_fixture(%{uid: PrincipalsFixtures.unique_uid("console-admin")})
 
-    {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
+    {:ok, _root} = Ankole.PrincipalsFixtures.first_site_admin_fixture(human.principal.uid)
 
     session_conn =
       conn
@@ -82,48 +90,33 @@ defmodule AnkoleWeb.ConnCase do
     {session_conn, human.principal.uid}
   end
 
-  @doc """
-  Returns a fresh conn that carries a Console API bearer token minted through
-  the browser-session grant of an active admin session.
-  """
-  def bearer_conn(conn) do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+  @doc "Returns a Console API connection with a browser session and CSRF proof."
+  def console_conn(conn) do
+    {conn, _uid} = console_conn_with_principal(conn)
     conn
   end
 
-  @doc """
-  The `bearer_conn/1` flow, returning the admin principal uid with the conn.
-  """
-  def bearer_conn_with_principal(conn) do
-    {session_conn, principal_uid} = active_admin_conn_with_principal(conn)
+  @doc "Returns the Console API connection and its administrator Principal UID."
+  def console_conn_with_principal(conn) do
+    tenant = conn.assigns[:test_tenant] || elem(Ankole.Tenants.privileged(), 1)
 
-    session_conn
-    |> with_console_csrf()
-    |> post(~p"/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
+    Ankole.Repo.with_tenant(tenant.id, fn ->
+      {conn, uid} = active_admin_conn_with_principal(conn)
+      conn = conn |> with_console_csrf() |> get(~p"/.internal-apis/session") |> recycle_api()
+      {conn, uid}
     end)
-    |> then(&{&1, principal_uid})
   end
 
-  @doc """
-  Recycles a conn while keeping its bearer authorization and JSON content type.
-  """
+  @doc "Recycles a Console API connection with its cookie, CSRF proof, and JSON content type."
   def recycle_api(conn) do
     conn
     |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
+    |> put_private(:plug_skip_csrf_protection, false)
+    |> put_req_header("x-csrf-token", get_req_header(conn, "x-csrf-token") |> List.first())
     |> put_req_header("content-type", "application/json")
   end
 
-  @doc "Adds the same-origin and CSRF proof required by the Console token grant."
+  @doc "Adds same-origin and CSRF proof to a browser session."
   def with_console_csrf(conn) do
     csrf_token = Plug.CSRFProtection.get_csrf_token()
     csrf_state = Plug.CSRFProtection.dump_state()

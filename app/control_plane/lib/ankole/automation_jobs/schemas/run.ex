@@ -3,7 +3,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   Durable execution ledger for one automation job trigger.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 
@@ -24,9 +24,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     field :status, :string, default: "queued"
     field :attempts, :integer, default: 0
     field :attempt_id, Ecto.UUID
-    field :oban_job_id, :integer
     field :started_at, :utc_datetime_usec
-    field :last_attempt_at, :utc_datetime_usec
     field :finished_at, :utc_datetime_usec
     field :exit_code, :integer
     field :error, :string
@@ -50,9 +48,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       :status,
       :attempts,
       :attempt_id,
-      :oban_job_id,
       :started_at,
-      :last_attempt_at,
       :finished_at,
       :exit_code,
       :error,

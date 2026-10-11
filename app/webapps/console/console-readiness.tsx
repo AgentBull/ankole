@@ -135,7 +135,7 @@ export function ConsoleReadiness() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : query.isError || !readiness ? (
-            <div className="flex gap-3 p-4 text-sm text-destructive" role="alert">
+            <div className="flex gap-3 p-4 text-sm text-destructive-foreground" role="alert">
               <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" aria-hidden />
               <p>{t('console.readiness.unavailable')}</p>
             </div>
@@ -209,7 +209,7 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
         ? t('console.readiness.worker_complete', { count: readiness.worker.ready_count })
         : t('console.readiness.worker_incomplete'),
       title: t('console.readiness.worker_title'),
-      to: '/workers'
+      to: readiness.worker.complete ? '/workers' : '/settings/worker-providers'
     },
     {
       key: 'signal',
@@ -266,7 +266,7 @@ function ReadinessRow({
         to={to}
         onClick={onNavigate}
         className={cn(
-          'flex min-h-12 gap-2.5 px-4 outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30',
+          'flex min-h-12 gap-2.5 px-4 hover:bg-muted focus-visible:bg-muted focus-visible:-outline-offset-2',
           complete ? 'items-center py-2' : 'items-start py-2.5'
         )}>
         <StatusIcon

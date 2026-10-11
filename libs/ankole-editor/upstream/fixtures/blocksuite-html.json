@@ -1,0 +1,439 @@
+[
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:1994",
+    "name": "paragraph",
+    "html": "<p>aaa</p><p>bbb</p><p>ccc</p><p>ddd</p><p>eee</p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          }
+        ],
+        "children": []
+      },
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "bbb"
+          }
+        ],
+        "children": []
+      },
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "ccc"
+          }
+        ],
+        "children": []
+      },
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "ddd"
+          }
+        ],
+        "children": []
+      },
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "eee"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2104",
+    "name": "nested list",
+    "html": "<ul><li>111<ul><li>222</li></ul></li></ul>",
+    "expected": [
+      {
+        "flavour": "affine:list",
+        "type": "bulleted",
+        "checked": false,
+        "delta": [
+          {
+            "insert": "111"
+          }
+        ],
+        "children": [
+          {
+            "flavour": "affine:list",
+            "type": "bulleted",
+            "checked": false,
+            "delta": [
+              {
+                "insert": "222"
+              }
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2170",
+    "name": "p in list",
+    "html": "<ol><li><p>p in list</p></li></ol>",
+    "expected": [
+      {
+        "flavour": "affine:list",
+        "type": "numbered",
+        "checked": false,
+        "delta": [
+          {
+            "insert": "p in list"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2363",
+    "name": "should preserve space in p",
+    "html": "<p>A <b>bold text</b> followed by a <i>italic text</i></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "A "
+          },
+          {
+            "insert": "bold text",
+            "attributes": {
+              "bold": true
+            }
+          },
+          {
+            "insert": " followed by a "
+          },
+          {
+            "insert": "italic text",
+            "attributes": {
+              "italic": true
+            }
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2422",
+    "name": "span nested in p",
+    "html": "<p><span>aaa</span><span>bbb</span><span>ccc</span></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaabbbccc"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2466",
+    "name": "span nested in div",
+    "html": "<div><span>aaa</span><span>bbb</span><span>ccc</span></div>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaabbbccc"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2510",
+    "name": "inline div",
+    "html": "<span>aaa</span><a href=\"https://www.google.com/\">bbb</a><div style=\"display:inline\">ccc</div>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          },
+          {
+            "insert": "bbb",
+            "attributes": {
+              "link": "https://www.google.com/"
+            }
+          },
+          {
+            "insert": "ccc"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2563",
+    "name": "flex div",
+    "html": "<div style=\"display:flex\"><span>aaa</span><a href=\"https://www.google.com/\">bbb</a><div>ccc</div></div>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          },
+          {
+            "insert": "bbb",
+            "attributes": {
+              "link": "https://www.google.com/"
+            }
+          },
+          {
+            "insert": "ccc"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2616",
+    "name": "span inside h1",
+    "html": "<h1><span>aaa</span></h1>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "h1",
+        "delta": [
+          {
+            "insert": "aaa"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2657",
+    "name": "p in ancestor",
+    "html": "<p><b><span>aaa</span></b></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "aaa"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2701",
+    "name": "block level element in b should not be treated as inline",
+    "html": "<b><p><span>aaa</span></p></b>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2743",
+    "name": "should not be bold when font-weight is normal",
+    "html": "<span style=\"font-weight: normal;\">aaa</span>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2784",
+    "name": "should be bold when font-weight is bold or 500-900 ",
+    "html": "<p><span style=\"font-weight: bold;\">aaa</span><span style=\"font-weight: 100;\">aaa</span><span style=\"font-weight: 500;\">bbb</span><span style=\"font-weight: 200;\">bbb</span><span style=\"font-weight: 600;\">ccc</span><span style=\"font-weight: 300;\">ccc</span><span style=\"font-weight: 700;\">ddd</span></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "aaa"
+          },
+          {
+            "insert": "aaa"
+          },
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "bbb"
+          },
+          {
+            "insert": "bbb"
+          },
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "ccc"
+          },
+          {
+            "insert": "ccc"
+          },
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "ddd"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2858",
+    "name": "should be italic when tag is i or em or span with style font-style: italic",
+    "html": "<p><i>aaa</i><span>aaa</span><em>bbb</em><span>bbb</span><span style=\"font-style: italic;\">ccc</span></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "attributes": {
+              "italic": true
+            },
+            "insert": "aaa"
+          },
+          {
+            "insert": "aaa"
+          },
+          {
+            "attributes": {
+              "italic": true
+            },
+            "insert": "bbb"
+          },
+          {
+            "insert": "bbb"
+          },
+          {
+            "attributes": {
+              "italic": true
+            },
+            "insert": "ccc"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2922",
+    "name": "should be underline when tag is u or span with style text-decoration: underline",
+    "html": "<p><u>aaa</u><span>aaa</span><span style=\"text-decoration: underline;\">bbb</span></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "attributes": {
+              "underline": true
+            },
+            "insert": "aaa"
+          },
+          {
+            "insert": "aaa"
+          },
+          {
+            "attributes": {
+              "underline": true
+            },
+            "insert": "bbb"
+          }
+        ],
+        "children": []
+      }
+    ]
+  },
+  {
+    "id": "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2977",
+    "name": "should be strike when tag is del or span with style text-decoration: line-through",
+    "html": "<p><del>aaa</del><span>aaa</span><span style=\"text-decoration: line-through;\">bbb</span></p>",
+    "expected": [
+      {
+        "flavour": "affine:paragraph",
+        "type": "text",
+        "delta": [
+          {
+            "attributes": {
+              "strike": true
+            },
+            "insert": "aaa"
+          },
+          {
+            "insert": "aaa"
+          },
+          {
+            "attributes": {
+              "strike": true
+            },
+            "insert": "bbb"
+          }
+        ],
+        "children": []
+      }
+    ]
+  }
+]

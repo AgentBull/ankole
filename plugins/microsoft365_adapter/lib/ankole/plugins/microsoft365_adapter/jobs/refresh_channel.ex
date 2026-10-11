@@ -1,7 +1,8 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.Jobs.RefreshChannel do
   @moduledoc false
 
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 3,
     unique: [
@@ -10,8 +11,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Jobs.RefreshChannel do
       period: 300
     ]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{
+  @impl Ankole.Job
+  def run(%Oban.Job{
         args: %{
           "agent_uid" => agent_uid,
           "binding_name" => binding_name,
@@ -25,5 +26,5 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Jobs.RefreshChannel do
           conversation_id
         )
 
-  def perform(%Oban.Job{}), do: {:error, :missing_teams_conversation_refresh_binding}
+  def run(%Oban.Job{}), do: {:error, :missing_teams_conversation_refresh_binding}
 end

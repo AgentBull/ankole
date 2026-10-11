@@ -14,8 +14,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
 
   defstruct [
     :key,
-    :secret_fingerprint,
-    :consumer_fingerprint,
     :client,
     :consumer,
     :bot,
@@ -29,7 +27,16 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     key = Keyword.fetch!(opts, :key)
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {@registry, key}})
+
+    GenServer.start_link(__MODULE__, opts,
+      name:
+        {:via, Registry,
+         {@registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(
+            Keyword.fetch!(opts, :config),
+            [Keyword.fetch!(opts, :consumer)]
+          )}}
+    )
   end
 
   def child_spec(opts) do
@@ -39,12 +46,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
       type: :worker,
       restart: :permanent
     }
-  end
-
-  @spec ensure_configuration(GenServer.server(), map(), map()) ::
-          {:ok, pid()} | {:error, :configuration_changed}
-  def ensure_configuration(server, config, consumer) do
-    GenServer.call(server, {:ensure_configuration, config, consumer})
   end
 
   @spec status(GenServer.server()) :: map()
@@ -61,12 +62,11 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
   def init(opts) do
     config = Keyword.fetch!(opts, :config)
     consumer = Keyword.fetch!(opts, :consumer)
+    Ankole.Repo.put_tenant_id(Map.fetch!(consumer, :tenant_id))
 
     {:ok,
      %__MODULE__{
        key: Keyword.fetch!(opts, :key),
-       secret_fingerprint: Config.secret_fingerprint(config),
-       consumer_fingerprint: fingerprint(consumer),
        client: Config.client(config),
        consumer: consumer
      }, {:continue, :preflight}}
@@ -76,15 +76,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
   def handle_continue(:preflight, state), do: {:noreply, start_preflight(state)}
 
   @impl true
-  def handle_call({:ensure_configuration, config, consumer}, _from, state) do
-    unchanged? =
-      Config.secret_fingerprint(config) == state.secret_fingerprint and
-        fingerprint(consumer) == state.consumer_fingerprint
-
-    reply = if unchanged?, do: {:ok, self()}, else: {:error, :configuration_changed}
-    {:reply, reply, state}
-  end
-
   def handle_call(:status, _from, state), do: {:reply, public_status(state), state}
 
   @impl true
@@ -125,21 +116,24 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
 
   defp start_preflight(state) do
     task =
-      Task.Supervisor.async_nolink(@task_supervisor, fn ->
-        with {:ok, %{"id" => bot_id, "is_bot" => true} = bot} <-
-               Client.call(state.client, "getMe"),
-             {:ok, webhook} when is_map(webhook) <-
-               Client.call(state.client, "getWebhookInfo") do
-          if present?(Map.get(webhook, "url")) do
-            {:blocked, :webhook_configured, normalize_bot(bot_id, bot)}
+      Task.Supervisor.async_nolink(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          with {:ok, %{"id" => bot_id, "is_bot" => true} = bot} <-
+                 Client.call(state.client, "getMe"),
+               {:ok, webhook} when is_map(webhook) <-
+                 Client.call(state.client, "getWebhookInfo") do
+            if present?(Map.get(webhook, "url")) do
+              {:blocked, :webhook_configured, normalize_bot(bot_id, bot)}
+            else
+              {:ready, normalize_bot(bot_id, bot)}
+            end
           else
-            {:ready, normalize_bot(bot_id, bot)}
+            {:ok, _invalid} -> {:error, :invalid_bot_identity}
+            {:error, %Client.Error{} = error} -> {:error, error}
           end
-        else
-          {:ok, _invalid} -> {:error, :invalid_bot_identity}
-          {:error, %Client.Error{} = error} -> {:error, error}
-        end
-      end)
+        end)
+      )
 
     %{state | task: task, task_kind: :preflight}
   end
@@ -151,11 +145,14 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
     offset = state.offset
 
     task =
-      Task.Supervisor.async_nolink(@task_supervisor, fn ->
-        with {:ok, updates} <- Client.get_updates(client, offset, @poll_timeout_seconds) do
-          Dispatcher.process_updates(updates, consumer, bot, offset, client: client)
-        end
-      end)
+      Task.Supervisor.async_nolink(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          with {:ok, updates} <- Client.get_updates(client, offset, @poll_timeout_seconds) do
+            Dispatcher.process_updates(updates, consumer, bot, offset, client: client)
+          end
+        end)
+      )
 
     %{state | task: task, task_kind: :poll}
   end
@@ -245,12 +242,6 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
-
-  defp fingerprint(value) do
-    :sha256
-    |> :crypto.hash(:erlang.term_to_binary(value))
-    |> Base.encode16(case: :lower)
-  end
 
   defp safe_error(%Client.Error{} = error) do
     %{

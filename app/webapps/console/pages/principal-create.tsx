@@ -1,7 +1,7 @@
 import { buttonVariants, Checkbox, cn, Input } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -44,7 +44,6 @@ export function principalRequestError(error: unknown, t: Translate): unknown {
 export function PrincipalCreatePage() {
   useSignals()
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const model = useModel(PrincipalEditorModel)
   const principalDraft = useMemo(() => ({ displayName: '', email: '' }), [])
   const draftStatus = useEditorDraft(model, {
@@ -53,8 +52,7 @@ export function PrincipalCreatePage() {
   })
 
   const create = useMutation({
-    ...ankoleWebPrincipalControllerCreateMutation(),
-    onSuccess: () => void queryClient.invalidateQueries()
+    ...ankoleWebPrincipalControllerCreateMutation()
   })
 
   if (create.data) {

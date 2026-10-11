@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.SlackAdapter do
   @behaviour Ankole.Plugins.Plugin
 
   alias Ankole.Plugins.SlackAdapter.{Channels, Config, ConnectionReconciler}
-  alias Ankole.Plugins.SlackAdapter.{ConnectionSupervisor, IdentityProvider, Inbound, Outbox}
+  alias Ankole.Plugins.SlackAdapter.{IdentityProvider, Inbound, Outbox}
   alias Ankole.Plugins.SlackAdapter.ReplyPreview
 
   @zh_fields %{
@@ -12,8 +12,7 @@ defmodule Ankole.Plugins.SlackAdapter do
     "appToken" =>
       {"App-Level Token",
        "在「Basic Information → App-Level Tokens」中创建，需包含 connections:write 权限并以 xapp- 开头。"},
-    "identityProvider" =>
-      {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Slack 身份源时默认采用；有多个时必须选择。"},
+    "identityProvider" => {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Slack 身份源时默认采用；有多个时必须选择。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
     "clientID" => {"Client ID", "在 Slack 应用「Basic Information → App Credentials」中获取。"},
     "clientSecret" => {"Client Secret", "与 Client ID 位于同一 App Credentials 页面。"},
@@ -52,14 +51,12 @@ defmodule Ankole.Plugins.SlackAdapter do
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Slack"},
-        config_key_pattern: "signals_gateway.slack.bindings.<id>",
         config_module: Config,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
         reply_preview_module: ReplyPreview,
-        connection_supervisor: ConnectionSupervisor,
         binding_saved_module: Channels,
         inbound_capabilities: [
           "entry_receive",
@@ -106,7 +103,8 @@ defmodule Ankole.Plugins.SlackAdapter do
       {DynamicSupervisor,
        name: Ankole.Plugins.SlackAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
       ConnectionReconciler,
-      Channels.StartupSync
+      {Ankole.Plugins.ChannelSync,
+       adapter: "slack", worker: Ankole.Plugins.SlackAdapter.Jobs.SyncChannels}
     ]
   end
 

@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
   alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -81,6 +82,164 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
     assert Repo.aggregate(OutboxEntry, :count) == 0
   end
 
+  test "ignored group messages keep their full reference data without admitting unmatched senders" do
+    %{principal: agent} = agent_fixture()
+    principal_count = Repo.aggregate(Principals.Principal, :count)
+    membership_count = Repo.aggregate(Membership, :count)
+
+    for policy <- [:create_standalone, :manual_review] do
+      name = "b18-#{policy}"
+      binding_fixture(agent.uid, name, :ignore, unmatched_sender_policy: policy)
+
+      input =
+        dm_entry(stranger_author(), %{
+          channel: %{kind: :im_group, reply_mode: :entry},
+          text: "Complete retained text",
+          raw_payload: %{"provider" => "original", "nested" => [1, 2]}
+        })
+
+      assert {:ok, %{status: :ignored, inbound_batch: batch}} =
+               Ingress.emit_entry(agent.uid, name, input, now: base_time())
+
+      assert [stored] = batch.entries
+      assert stored["text"] == input.text
+      assert stored["raw_payload"] == input.raw_payload
+      assert stored["author"]["platform_subject"] == "ou_stranger"
+      refute Map.has_key?(stored["author"], "principal_uid")
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "ou_stranger")
+
+      assert Repo.aggregate(Principals.Principal, :count) == principal_count
+      assert Repo.aggregate(Membership, :count) == membership_count
+      assert Repo.aggregate(MappingRequest, :count) == 0
+      assert Repo.aggregate(OutboxEntry, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
+
+      assert {:ok, [%{status: :ignored}]} =
+               finalize_due_inbound_batch_events(now: batch.available_at)
+
+      assert Repo.get!(InboundBatch, batch.id).entries == batch.entries
+    end
+  end
+
+  test "ignored known senders do not refresh identities or join signal-source groups" do
+    %{principal: agent} = agent_fixture()
+    %{principal: human, human_user: user} = human_fixture()
+    binding_fixture(agent.uid, "b18-known", :ignore)
+    membership_count = Repo.aggregate(Membership, :count)
+    original = Repo.get!(Principals.Principal, human.uid)
+
+    assert {:ok, %{status: :ignored}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "b18-known",
+               dm_entry(stranger_author(%{email: user.email}), %{
+                 channel: %{kind: :im_group, reply_mode: :entry}
+               })
+             )
+
+    assert Repo.get!(Principals.Principal, human.uid) == original
+    assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
+    assert Repo.aggregate(Membership, :count) == membership_count
+    refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
+
+    assert {:ok, %{identity: identity}} =
+             Principals.upsert_platform_subject_human(%{
+               provider: "lark-main",
+               external_id: "ou_stranger",
+               email: user.email,
+               metadata: %{"source" => "b18-baseline"}
+             })
+
+    assert identity.principal_uid == human.uid
+    original = Repo.get!(Principals.Principal, human.uid)
+
+    assert {:ok, %{status: :ignored}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "b18-known",
+               dm_entry(stranger_author(), %{
+                 channel: %{kind: :im_group, reply_mode: :entry}
+               })
+             )
+
+    assert Repo.get!(Principals.ExternalIdentity, identity.id) == identity
+    assert Repo.get!(Principals.Principal, human.uid) == original
+    assert Repo.aggregate(Membership, :count) == membership_count
+    refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
+  end
+
+  test "replying to the Agent still requires real identity admission under ignore" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "b18-reply", :record_only, unmatched_sender_policy: :manual_review)
+
+    target =
+      dm_entry(%{agent_uid: agent.uid}, %{
+        source_entry_id: "b18-agent-reply",
+        channel: %{kind: :im_group, reply_mode: :entry},
+        text: "Agent context"
+      })
+
+    assert {:ok, %{status: :recorded}} = Ingress.emit_entry(agent.uid, "b18-reply", target)
+    binding_fixture(agent.uid, "b18-reply", :ignore, unmatched_sender_policy: :manual_review)
+
+    assert {:ok, %{status: :held_unmapped_sender}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "b18-reply",
+               dm_entry(stranger_author(), %{
+                 channel: %{kind: :im_group, reply_mode: :entry},
+                 reply_to_source_entry_id: target.source_entry_id
+               })
+             )
+
+    assert [%MappingRequest{external_id: "ou_stranger"}] = Repo.all(MappingRequest)
+    assert Repo.aggregate(InboundBatch, :count) == 1
+    assert Repo.aggregate(OutboxEntry, :count) == 1
+  end
+
+  test "a reply in an Agent-participated thread still requires identity admission" do
+    %{principal: agent} = agent_fixture()
+    %{principal: human} = human_fixture()
+
+    binding_fixture(agent.uid, "b18-thread", :record_only,
+      unmatched_sender_policy: :manual_review
+    )
+
+    for {author, id} <- [
+          {%{principal_uid: human.uid}, "b18-root"},
+          {%{agent_uid: agent.uid}, "b18-agent"}
+        ] do
+      assert {:ok, %{status: :recorded}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "b18-thread",
+                 dm_entry(author, %{
+                   source_entry_id: id,
+                   provider_thread_id: "b18-thread",
+                   channel: %{kind: :im_group, reply_mode: :entry}
+                 })
+               )
+    end
+
+    binding_fixture(agent.uid, "b18-thread", :ignore, unmatched_sender_policy: :manual_review)
+
+    assert {:ok, %{status: :held_unmapped_sender}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "b18-thread",
+               dm_entry(stranger_author(), %{
+                 provider_thread_id: "b18-thread",
+                 reply_to_source_entry_id: "b18-root",
+                 channel: %{kind: :im_group, reply_mode: :entry}
+               })
+             )
+
+    assert [%MappingRequest{external_id: "ou_stranger"}] = Repo.all(MappingRequest)
+    assert Repo.aggregate(OutboxEntry, :count) == 1
+  end
+
   test "a sender that matches an existing principal by email is admitted and bound" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
@@ -95,35 +254,78 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
     assert matched.uid == human.uid
   end
 
-  test "a sender whose subject equals a Principal UID waits for review under either policy" do
+  test "an external subject equal to a Principal UID never claims that Principal" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
     binding_fixture(agent.uid, "lark-auto", :ignore, unmatched_sender_policy: :create_standalone)
-    %{principal: human} = human_fixture(%{uid: "ou_global_sender"})
-
-    author =
-      stranger_author(%{
-        id: "ou_global_sender",
-        platform_subject: "ou_global_sender",
-        display_name: "Global Sender"
-      })
+    %{principal: human} = human_fixture()
+    author = stranger_author(%{id: human.uid, platform_subject: human.uid})
 
     assert {:ok, %{status: :held_unmapped_sender}} =
              Ingress.emit_entry(agent.uid, "lark-adm", dm_entry(author))
 
-    assert {:ok, %{status: :held_unmapped_sender}} =
-             Ingress.emit_entry(agent.uid, "lark-auto", dm_entry(author))
-
-    assert {:error, :not_found} =
-             Principals.resolve_platform_subject("lark-main", "ou_global_sender")
-
     assert [request] = Repo.all(MappingRequest)
-    assert request.external_id == "ou_global_sender"
-
-    assert {:ok, _identity} = MappingRequests.bind_request(request.id, human.uid)
+    assert request.external_id == human.uid
 
     assert {:ok, %{status: :accepted}} =
              Ingress.emit_entry(agent.uid, "lark-auto", dm_entry(author))
+
+    assert {:ok, standalone} = Principals.resolve_platform_subject("lark-main", human.uid)
+    refute standalone.uid == human.uid
+    assert Repo.get!(Ankole.Principals.Principal, human.uid).display_name == human.display_name
+  end
+
+  test "binding a sender in one tenant neither admits nor clears the other tenant's pending sender" do
+    tenant_a = Repo.tenant_id!()
+
+    tenant_b =
+      %Ankole.Tenants.Tenant{}
+      |> Ankole.Tenants.Tenant.changeset(%{
+        slug: "admission-" <> Ecto.UUID.generate(),
+        display_name: "Other tenant"
+      })
+      |> Repo.insert!()
+
+    %{principal: agent_a} = agent_fixture()
+    %{principal: human_a} = human_fixture()
+    binding_fixture(agent_a.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
+
+    assert {:ok, %{status: :held_unmapped_sender}} =
+             Ingress.emit_entry(agent_a.uid, "lark-adm", dm_entry(stranger_author()))
+
+    [request_a] = Repo.all(MappingRequest)
+
+    {agent_b, request_b} =
+      Repo.with_tenant(tenant_b.id, fn ->
+        %{principal: agent} = agent_fixture()
+        binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
+
+        assert {:ok, %{status: :held_unmapped_sender}} =
+                 Ingress.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+
+        {agent, Repo.one!(MappingRequest)}
+      end)
+
+    assert Repo.tenant_id!() == tenant_a
+    assert {:ok, _} = MappingRequests.bind_request(request_a.id, human_a.uid)
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry(agent_a.uid, "lark-adm", dm_entry(stranger_author()))
+
+    assert Repo.aggregate(MappingRequest, :count) == 0
+
+    Repo.with_tenant(tenant_b.id, fn ->
+      assert Repo.get!(MappingRequest, request_b.id).external_id == "ou_stranger"
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "ou_stranger")
+
+      assert {:ok, %{status: :held_unmapped_sender}} =
+               Ingress.emit_entry(agent_b.uid, "lark-adm", dm_entry(stranger_author()))
+
+      assert Repo.one!(MappingRequest).id == request_b.id
+      assert Repo.aggregate(Entry, :count) == 0
+    end)
   end
 
   test "admitted senders accumulate in the binding's signal_source group" do

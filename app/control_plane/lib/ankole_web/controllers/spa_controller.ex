@@ -8,8 +8,8 @@ defmodule AnkoleWeb.SpaController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.AdminAuth
-  alias Ankole.I18n
+  alias Ankole.AppConfigure
+  alias Ankole.I18n.Config, as: I18nConfig
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.Version
   alias AnkoleWeb.Session, as: WebSession
@@ -49,12 +49,21 @@ defmodule AnkoleWeb.SpaController do
   remaining case (setup done, not signed in) actually renders the sign-in shell.
   """
   def sessions_new(conn, params) do
+    # The shell reads only site settings. A new login starts in the privileged
+    # tenant; the flow decides only the response status here.
+    :ok = WebSession.put_privileged_tenant()
+
+    transaction =
+      if is_binary(params["flow"]),
+        do: WebSession.login_transaction(conn, params["flow"]),
+        else: nil
+
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
       active_admin_session?(conn) and params["oauth"] != "1" and params["switch"] != "1" ->
-        redirect(conn, to: ~p"/console")
+        redirect(conn, to: AnkoleWeb.SiteAdminConsole.path())
 
       not is_binary(params["flow"]) and params["oauth"] != "1" ->
         with {:ok, conn, transaction} <-
@@ -68,7 +77,7 @@ defmodule AnkoleWeb.SpaController do
         end
 
       true ->
-        case WebSession.login_transaction(conn, params["flow"]) do
+        case transaction do
           {:ok, _transaction} ->
             render_spa(conn, :sessions)
 
@@ -89,6 +98,8 @@ defmodule AnkoleWeb.SpaController do
   `return_to` so the operator lands back on the page they wanted post-login.
   """
   def console(conn, _params) do
+    :ok = WebSession.put_privileged_tenant()
+
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
@@ -105,6 +116,8 @@ defmodule AnkoleWeb.SpaController do
   Serves the setup SPA while the installation is still uninitialized.
   """
   def setup(conn, _params) do
+    :ok = WebSession.put_privileged_tenant()
+
     case setup_completed?() do
       true ->
         conn
@@ -156,6 +169,7 @@ defmodule AnkoleWeb.SpaController do
       "    <script>try{var t=localStorage.getItem(\"ankole-theme\");" <>
         "if(t===\"dark\"){var d=document.documentElement;" <>
         "d.dataset.theme=\"dark\";d.style.colorScheme=\"dark\"}}catch(e){}</script>\n",
+      console_path_meta(entry),
       Assets.entry_tags(conn, entry),
       Assets.locale_preload_tags(locale),
       "  </head>\n",
@@ -166,6 +180,16 @@ defmodule AnkoleWeb.SpaController do
     ]
   end
 
+  defp console_path_meta("console") do
+    [
+      "    <meta name=\"ankole-site-admin-console-path\" content=\"",
+      html_escape(AnkoleWeb.SiteAdminConsole.path()),
+      "\">\n"
+    ]
+  end
+
+  defp console_path_meta(_entry), do: []
+
   defp setup_completed? do
     case SetupConfig.completed?() do
       # Failing closed to setup is intentional: a broken setup marker should not
@@ -175,16 +199,7 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
-  # A cookie session is necessary but not sufficient: the principal it names must
-  # still be an active human admin right now. Re-checking against AdminAuth means
-  # a revoked/disabled admin loses console access immediately, without waiting
-  # for the session cookie to expire.
-  defp active_admin_session?(conn) do
-    case WebSession.admin_session(conn) do
-      %{"principal_uid" => principal_uid} -> AdminAuth.active_human_admin?(principal_uid)
-      _session -> false
-    end
-  end
+  defp active_admin_session?(conn), do: not is_nil(WebSession.site_admin_session(conn))
 
   defp sessions_new_path(%{"return_to" => return_to}) do
     safe_return_to = WebSession.safe_return_to(return_to)
@@ -198,11 +213,13 @@ defmodule AnkoleWeb.SpaController do
   defp current_console_return_to(%Plug.Conn{query_string: query_string} = conn),
     do: conn.request_path <> "?" <> query_string
 
-  # Sets the shell's `<html lang>`. If the installation locale can't be read we
+  # The authentication and administration shells belong to the site, including
+  # logout errors without a verified client or tenant. Read their locale explicitly
+  # from the site configuration. If that locale can't be read we
   # still must emit a valid document, so fall back to a sane default rather than
   # failing the whole shell render over a presentation attribute.
   defp app_locale do
-    case I18n.configured_default_locale() do
+    case AppConfigure.get(I18nConfig.default_locale_definition(), scope: :global) do
       {:ok, locale} -> locale
       {:error, _reason} -> "en-US"
     end

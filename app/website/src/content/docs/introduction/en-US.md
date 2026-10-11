@@ -33,7 +33,7 @@ The following terms appear throughout the documentation.
 | **Background job** | A task that runs outside a Session for hours and delivers its result to the originating channel. | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | An approved procedure for one kind of work. An Agent can propose an improvement, and a human approves it for the next Session. | [Skills](../skills/) |
 | **Principal** | The permission subject for a person or Agent. The runtime applies permissions and audit rules to each Principal. | [Principal and AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | The environment that runs the LLM loop, tools, files, terminal state, and streaming output. | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent Computer Worker** | The environment that executes tools, files, terminal operations, browsers, and Codex Jobs. The control plane runs the main model loop. | [Agent Computer Worker](../agent-computer-worker/) |
 
 An Agent can also use [Deep Research](../deep-research-job/) for long research across several sources and [browser automation](../browser-automation/) to work with real web pages.
 

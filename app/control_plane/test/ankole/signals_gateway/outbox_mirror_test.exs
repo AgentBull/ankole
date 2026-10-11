@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGatewayOutboxMirrorTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   import ExUnit.CaptureLog
 
@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.Projection
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
@@ -15,6 +16,84 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "outbox mirror after provider success" do
+    test "a final reply edit creates the absent mirror with all receive-entry facts" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      %{actor_event: input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}), @base_time)
+
+      message_id = Ecto.UUID.generate()
+      text = "final visible"
+      formatted = %{"format" => "markdown", "text" => "**final visible**"}
+      raw = %{"provider" => "test", "edit" => true}
+
+      assert {:ok, %{status: :succeeded}} =
+               commit_and_dispatch(
+                 agent.uid,
+                 "bot",
+                 %{
+                   outbound_key: "missing-final-edit",
+                   operation: :edit,
+                   signal_channel_id: input.signal_channel_id,
+                   target_source_entry_id: "missing-preview",
+                   reply_to_source_entry_id: input.source_entry_id,
+                   provider_thread_id: "provider-thread",
+                   source_actor_event_id: input.id,
+                   ai_message_id: message_id,
+                   payload: %{"formatted_content" => formatted},
+                   fallback_visible_text: text
+                 },
+                 [:edit_entry],
+                 %{raw_payload: raw}
+               )
+
+      entry =
+        Repo.get_by!(Entry,
+          signal_channel_id: input.signal_channel_id,
+          source_entry_id: "missing-preview"
+        )
+
+      rich = Projection.rich_content(text, formatted)
+      author = %{"agent_uid" => agent.uid}
+
+      metadata = %{
+        "ai_message_id" => message_id,
+        "actor_event_id" => input.id,
+        "source" => "ai_gateway_final_reply"
+      }
+
+      assert entry.text == text
+      assert entry.rich_content == rich
+      assert entry.author == author
+      assert entry.metadata == metadata
+      assert entry.attachments == []
+      assert entry.links == []
+      assert entry.mentions == []
+      assert entry.reactions == %{}
+      assert entry.raw_payload == raw
+      assert entry.provider_time == nil
+      assert entry.ai_message_id == message_id
+      assert entry.reply_to_source_entry_id == input.source_entry_id
+      assert entry.provider_thread_id == "provider-thread"
+
+      assert entry.document_id ==
+               Projection.entry_document_id(input.signal_channel_id, "missing-preview")
+
+      assert entry.content_hash ==
+               Projection.entry_content_hash([
+                 text,
+                 rich,
+                 [],
+                 [],
+                 author,
+                 [],
+                 metadata,
+                 input.source_entry_id,
+                 "provider-thread"
+               ])
+    end
+
     test "successful post is mirrored only after adapter success and failure does not mirror" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -127,6 +206,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
     test "successful send persists adapter-materialized payload" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
+      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("chaos report")
 
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
@@ -143,7 +223,10 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  reply_to_source_entry_id: "human-msg-1",
                  payload: %{
                    "attachments" => [
-                     %{"user_files_relative_path" => "reports/chaos-report.txt"}
+                     %{
+                       "path" => "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt",
+                       "blob_ref" => blob_ref
+                     }
                    ]
                  },
                  fallback_visible_text: "visible"
@@ -154,7 +237,8 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       materialized_payload = %{
         "attachments" => [
           %{
-            "user_files_relative_path" => "reports/chaos-report.txt",
+            "path" => "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt",
+            "blob_ref" => blob_ref,
             "provider_file_key" => "file_uploaded_1"
           }
         ]

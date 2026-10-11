@@ -1,5 +1,6 @@
 defmodule Ankole.Plugins.LarkAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3, owner_serves?: 4]
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
@@ -15,9 +16,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.IdentityProviders
-  alias Ankole.Plugins.LarkAdapter.ConnectionOwner
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -28,8 +27,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.WorkerFilesFake
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
@@ -39,6 +36,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.TokenStore
 
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
   import Ankole.PrincipalsFixtures
   import ExUnit.CaptureLog
 
@@ -136,6 +134,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           :error -> Application.delete_env(:ankole, Config)
         end
       end)
+
+      # The test environment sets a transport seam. Remove it to check the
+      # provider endpoint that a client uses without one.
+      Application.delete_env(:ankole, Config)
 
       assert {:ok, config} =
                Config.validate_chat_config(%{
@@ -386,7 +388,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       })
       |> Repo.insert!()
 
-      register_worker_file!(content)
+      blob_ref = store_content!(content)
 
       outbox = %OutboxEntry{
         agent_uid: agent.uid,
@@ -400,7 +402,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             %{
               "name" => "report.html",
               "mime_type" => "text/html",
-              "user_files_relative_path" => "exports/report.html"
+              "path" => "sent/0123456789abcdef/report.html",
+              "blob_ref" => blob_ref
             }
           ]
         },
@@ -534,7 +537,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       })
       |> Repo.insert!()
 
-      register_worker_file!(content)
+      blob_ref = store_content!(content)
 
       outbox = %OutboxEntry{
         agent_uid: agent.uid,
@@ -548,7 +551,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             %{
               "name" => "report.html",
               "mime_type" => "text/html",
-              "user_files_relative_path" => "exports/report.html"
+              "path" => "sent/0123456789abcdef/report.html",
+              "blob_ref" => blob_ref
             }
           ]
         },
@@ -862,7 +866,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Ankole.JSON.decode!(content) == %{"image_key" => "img_native"}
     end
 
-    test "blocks a durable reply when its WorkerFiles attachment no longer exists" do
+    test "blocks a durable reply when its attachment content no longer exists" do
       %{principal: agent} = agent_fixture()
       binding_name = "lark-missing-worker-attachment"
       config = chat_config(%{"appID" => "cli_missing_worker_attachment"})
@@ -871,13 +875,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
-
-      route = "lark-missing-attachment-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-
-      WorkerFilesFake.start!(route,
-        fail: %{"push" => {"file_not_found", "the worker could not open the attachment"}}
-      )
 
       outbox = %OutboxEntry{
         agent_uid: agent.uid,
@@ -891,7 +888,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             %{
               "name" => "missing.pdf",
               "mime_type" => "application/pdf",
-              "user_files_relative_path" => "exports/missing.pdf"
+              "path" => "sent/0123456789abcdef/missing.pdf",
+              "blob_ref" => String.duplicate("ab", 32)
             }
           ]
         },
@@ -899,13 +897,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         idempotency_key: "missing-worker-attachment"
       }
 
-      assert {:error,
-              {:reply_delivery, :operator_action_required,
-               %{
-                 "code" => "attachment_file_missing",
-                 "worker_file_code" => "file_not_found"
-               }}} =
-               Outbox.send(outbox)
+      assert {:error, :attachment_file_missing} = Outbox.send(outbox)
 
       refute_receive {:lark_outbox_request, _request}, 100
     end
@@ -1094,35 +1086,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "connection ownership" do
-    test "connection owner format_status omits client, dispatcher, and secrets" do
-      state = %ConnectionOwner{
-        key: {"feishu", "cli_status"},
-        secret_fingerprint: String.duplicate("a", 64),
-        consumer_fingerprint: String.duplicate("b", 64),
-        consumer_count: 2,
-        consumer_kinds: [:chat, :identity_provider],
-        client: %{app_secret: "secret"},
-        dispatcher: %{secret: "secret"},
-        ws_pid: self()
-      }
-
-      assert %{state: formatted_state} = ConnectionOwner.format_status(%{state: state})
-
-      assert formatted_state == %{
-               key: {"feishu", "cli_status"},
-               secret_fingerprint: "aaaaaaaa",
-               consumer_count: 2,
-               consumer_kinds: [:chat, :identity_provider],
-               ws_pid: self()
-             }
-
-      refute Map.has_key?(formatted_state, :client)
-      refute Map.has_key?(formatted_state, :dispatcher)
-      refute inspect(formatted_state) =~ "app_secret"
-      refute inspect(formatted_state) =~ "dispatcher"
-      refute inspect(formatted_state) =~ String.duplicate("a", 64)
-    end
-
     test "the reconciler stops the owner after its binding is disabled" do
       %{principal: agent} = agent_fixture()
       binding_name = "lark-reconcile-stop"
@@ -1135,8 +1098,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, binding_name, :ignore)
 
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
-      assert {:ok, owner} = ConnectionSupervisor.ensure_started(config, [consumer])
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      assert {:ok, owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, binding_name)
 
@@ -1156,8 +1119,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, binding_name, :ignore)
 
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
-      assert {:ok, old_owner} = ConnectionSupervisor.ensure_started(config, [consumer])
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      assert {:ok, old_owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       rotated = Map.put(config, "appSecret", "rotated-secret")
 
@@ -1198,8 +1161,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         )
 
       consumer = Inbound.chat_consumer(context, config)
-      assert {:ok, owner} = ConnectionSupervisor.ensure_started(config, [consumer])
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      assert {:ok, owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert %{
                started: 0,
@@ -1217,7 +1180,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert Process.alive?(owner)
-      assert ConnectionOwner.status(owner).consumer_kinds == [:chat]
+      assert owner_serves?(ConnectionReconciler, key, config, [consumer])
 
       assert %{started: 1, stopped: 0, errors: []} =
                ConnectionReconciler.reconcile_once(
@@ -1229,6 +1192,97 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "inbound chat events" do
+    @tag :b18_adapter
+    test "ignore keeps raw Lark context without contacts or accounts until an addressed reference" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      config = chat_config(%{"appID" => "cli_b18"})
+      assert {:ok, _} = AppConfigure.put_global_by_key(Config.chat_config_key("lark"), config)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+      principal_count = Repo.aggregate(Principal, :count)
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:b18_contact_request, request})
+        assert request.request_path == "/open-apis/contact/v3/users/ou_alice"
+
+        {:json, 200,
+         %{
+           "code" => 0,
+           "data" => %{
+             "user" => %{
+               "email" => "b18-alice@example.com",
+               "user_id" => "ou_alice",
+               "union_id" => "onion_alice",
+               "open_id" => "ou_open_alice",
+               "name" => "Alice"
+             }
+           }
+         }}
+      end)
+
+      ignored =
+        receive_event()
+        |> update_message(fn message ->
+          %{message | "content" => ~s({"text":"Complete Lark reference text"}), "mentions" => []}
+        end)
+
+      assert {:ok, [%{status: :ignored, inbound_batch: batch}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", ignored, [consumer])
+
+      refute_received {:b18_contact_request, _}
+      assert Repo.aggregate(Principal, :count) == principal_count
+      assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_alice")
+      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
+      assert [stored] = batch.entries
+      assert stored["text"] == "Complete Lark reference text"
+      assert stored["raw_payload"] == ignored.raw
+
+      assert {:ok, [%{status: :ignored}]} =
+               Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
+                 now: batch.available_at
+               )
+
+      addressed =
+        receive_event()
+        |> Map.put(:id, "evt_b18_reference")
+        |> update_message(fn message ->
+          message
+          |> Map.put("message_id", "om_b18_reference")
+          |> Map.put("parent_id", "om_1")
+          |> Map.put("content", ~s({"text":"@_user_1 Please explain this"}))
+        end)
+
+      assert {:ok, [%{status: :accepted, inbound_batch: addressed_batch}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", addressed, [consumer])
+
+      assert_receive {:b18_contact_request, %{method: :get, query: query}}
+      assert URI.decode_query(query) == %{"user_id_type" => "user_id"}
+      refute_received {:b18_contact_request, _}
+      assert Repo.aggregate(Principal, :count) == principal_count + 1
+      assert {:ok, human} = Principals.resolve_platform_subject("lark-main", "ou_alice")
+      assert human.type == :human
+
+      group =
+        Repo.get_by!(Ankole.AuthZ.Group, name: String.downcase("signal_source:#{agent.uid}:lark"))
+
+      assert Repo.get_by(Ankole.AuthZ.Membership, group_id: group.id, principal_uid: human.uid)
+
+      assert {:ok, [%{actor_event: input}]} =
+               Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
+                 now: addressed_batch.available_at
+               )
+
+      assert input.type == "im.message.addressed"
+      assert get_in(input.payload, ["data", "entry", "reply_to", "resolution"]) == "resolved"
+
+      assert get_in(input.payload, ["data", "entry", "reply_to", "text"]) ==
+               "Complete Lark reference text"
+
+      assert Repo.get!(InboundBatch, batch.id).entries == batch.entries
+    end
+
     test "message receive observes platform subject then emits a typed gateway input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -1304,7 +1358,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert %Channel{
                kind: :im_dm,
                metadata: %{"peer_open_id" => "ou_open_alice"}
-             } = Repo.get!(Channel, "lark:oc_dm")
+             } = Repo.get_by!(Channel, id: "lark:oc_dm")
     end
 
     test "message receive preserves and projects a synced name when the webhook omits it" do
@@ -1312,11 +1366,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
 
-      assert {:ok, _observed} =
+      assert {:ok, observed} =
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "directory-user",
-                 uid: "directory-user",
                  display_name: "Directory User"
                })
 
@@ -1331,7 +1384,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :accepted, actor_event: actor_event}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.get!(Principal, "directory-user").display_name == "Directory User"
+      assert Repo.get!(Principal, observed.principal.uid).display_name == "Directory User"
 
       assert get_in(actor_event.payload, ["data", "entry", "author", "display_name"]) ==
                "Directory User"
@@ -1970,7 +2023,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
-    test "materializes attachments under their numeric ID with an AnyAscii filename" do
+    test "stores attachments in the drive under their digest with the provider file name" do
       parent = self()
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :record_only)
@@ -1986,10 +2039,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
         {:binary, 200, "attachment"}
       end)
-
-      route = "lark-inbound-attachment-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-      WorkerFilesFake.start!(route, notify: parent)
 
       event =
         receive_event()
@@ -2010,30 +2059,20 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       attachment_id = attachment["attachment_id"]
       assert is_integer(attachment_id) and attachment_id >= 10_000
 
-      expected_relative_path =
-        "inbox/#{attachment_id}/AlphaJiuGongGeYinZiFenYu_YanJiuFangAn.md"
+      assert_stored_attachment!(
+        agent.uid,
+        attachment,
+        "attachment",
+        "Alpha九宫格因子分域_研究方案.md"
+      )
 
-      assert attachment["user_files_relative_path"] == expected_relative_path
-
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
-
-      expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
-      assert_receive {:materialized_attachment_path, ^expected_lane_path}
-
-      refute String.contains?(attachment["agent_computer_path"], "om_any_ascii")
-      refute String.contains?(attachment["agent_computer_path"], "file_any_ascii")
+      refute String.contains?(attachment["path"], "om_any_ascii")
+      refute String.contains?(attachment["path"], "file_any_ascii")
     end
 
-    for {filename, stored_name} <- [
-          {"notice.docx", "notice.docx"},
-          {"report.pdf", "report.pdf"},
-          {"industry outlook.txt", "industry_outlook.txt"},
-          {"Archive.zip", "Archive.zip"}
-        ] do
+    for filename <- ["notice.docx", "report.pdf", "industry outlook.txt", "Archive.zip"] do
       @post_filename filename
-      @post_stored_name stored_name
-      test "materializes #{@post_filename} attached to an unaddressed rich post" do
+      test "stores #{@post_filename} attached to an unaddressed rich post" do
         parent = self()
         %{principal: agent} = agent_fixture()
         binding_fixture(agent.uid, "lark", :record_only)
@@ -2049,10 +2088,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
           {:binary, 200, "attachment bytes"}
         end)
-
-        route = "lark-post-template-#{System.unique_integer([:positive])}"
-        insert_ready_worker!(route)
-        WorkerFilesFake.start!(route, notify: parent)
 
         event =
           post_receive_event("om_post_template", %{
@@ -2074,15 +2109,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         assert entry.text == "Use this template"
         assert [attachment] = entry.attachments
         assert attachment["name"] == @post_filename
-        expected_relative_path = "inbox/#{attachment["attachment_id"]}/#{@post_stored_name}"
-
-        assert attachment["user_files_relative_path"] == expected_relative_path
-
-        assert attachment["agent_computer_path"] ==
-                 "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
-
-        expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
-        assert_receive {:materialized_attachment_path, ^expected_lane_path}
+        assert_stored_attachment!(agent.uid, attachment, "attachment bytes", @post_filename)
         assert Repo.aggregate(ActorEvent, :count) == 0
       end
     end
@@ -2264,7 +2291,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
           principal.uid
         end)
 
-      assert Enum.uniq(principal_uids) == ["alice.readable@example.com"]
+      assert [principal_uid] = Enum.uniq(principal_uids)
+      assert {:ok, ^principal_uid} = Ecto.UUID.cast(principal_uid)
+
+      assert Repo.get!(Ankole.Principals.HumanUser, principal_uid).email ==
+               "alice.readable@example.com"
     end
 
     test "a directory user chats through a binding that references the provider as one Principal" do
@@ -2363,7 +2394,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  consumer
                ])
 
-      assert %Channel{kind: :im_group} = Repo.get(Channel, "lark:oc_group")
+      assert %Channel{kind: :im_group} = Repo.get_by(Channel, id: "lark:oc_group")
 
       refute Repo.get_by(Entry,
                signal_channel_id: "lark:oc_group",
@@ -2414,7 +2445,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("im.message.receive_v1", dm_event, [consumer])
 
-      assert %Channel{kind: :im_dm} = Repo.get(Channel, "lark:oc_dm_recall")
+      assert %Channel{kind: :im_dm} = Repo.get_by(Channel, id: "lark:oc_dm_recall")
 
       assert {:ok, [%{deleted_mirror_entries: 1}]} =
                Inbound.handle_message_removed(
@@ -2423,7 +2454,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  [consumer]
                )
 
-      assert %Channel{kind: :im_dm} = Repo.get(Channel, "lark:oc_dm_recall")
+      assert %Channel{kind: :im_dm} = Repo.get_by(Channel, id: "lark:oc_dm_recall")
     end
 
     test "recall without prior channel evidence keeps the channel kind unknown" do
@@ -2438,7 +2469,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  [consumer]
                )
 
-      assert %Channel{kind: :unknown} = Repo.get(Channel, "lark:oc_unseen")
+      assert %Channel{kind: :unknown} = Repo.get_by(Channel, id: "lark:oc_unseen")
     end
 
     test "card action emits action input instead of fake text" do
@@ -2482,7 +2513,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-im-agent-b")})
 
       assert {:ok, first_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_merge",
                  im_chat_attrs("oc_merge", "Ops Room", "cli_a"),
@@ -2490,7 +2521,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert {:ok, second_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_merge",
                  im_chat_attrs("oc_merge", "Ops Room Renamed", "cli_b"),
@@ -2508,7 +2539,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       group_id = group.id
 
       assert %Channel{principal_group_id: ^group_id, name: "Ops Room Renamed"} =
-               Repo.get(Channel, Inbound.signal_channel_id("oc_merge"))
+               Repo.get_by(Channel, id: Inbound.signal_channel_id("oc_merge"))
     end
 
     test "all-left cleanup clears memberships but keeps group binding channel and grants" do
@@ -2517,7 +2548,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: member} = human_fixture(%{uid: unique_uid("lark-left-member")})
 
       assert {:ok, first_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_left",
                  im_chat_attrs("oc_left", "Left Room", "cli_a"),
@@ -2525,7 +2556,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert {:ok, group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_left",
                  im_chat_attrs("oc_left", "Left Room", "cli_b"),
@@ -2574,7 +2605,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              )
 
       assert %Channel{principal_group_id: ^group_id} =
-               Repo.get(Channel, Inbound.signal_channel_id("oc_left"))
+               Repo.get_by(Channel, id: Inbound.signal_channel_id("oc_left"))
 
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
     end
@@ -2585,7 +2616,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: member} = human_fixture(%{uid: unique_uid("lark-disband-member")})
 
       assert {:ok, first_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_disband",
                  im_chat_attrs("oc_disband", "Disband Room", "cli_a"),
@@ -2593,7 +2624,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert {:ok, group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_disband",
                  im_chat_attrs("oc_disband", "Disband Room", "cli_b"),
@@ -2621,7 +2652,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-add-missing-subject-agent")})
 
       assert {:ok, group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_add_missing_subject",
                  im_chat_attrs("oc_add_missing_subject", "Add Missing Subject Room", "cli_add"),
@@ -2660,14 +2691,13 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "ou_remove_external",
-                 uid: unique_uid("lark-remove-principal"),
                  display_name: "Remove Me"
                })
 
       assert observed.principal.uid != "ou_remove_external"
 
       assert {:ok, group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_remove",
                  im_chat_attrs("oc_remove", "Remove Room", "cli_remove"),
@@ -2703,12 +2733,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "ou_remove_missing_subject",
-                 uid: unique_uid("lark-remove-missing-subject-principal"),
                  display_name: "External Remove"
                })
 
       assert {:ok, group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_remove_missing_subject",
                  im_chat_attrs(
@@ -2740,7 +2769,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-remove-missing-agent")})
 
       assert {:ok, _group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_remove_missing",
                  im_chat_attrs("oc_remove_missing", "Remove Missing Room", "cli_remove"),
@@ -2770,7 +2799,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: second_agent} = agent_fixture(%{uid: unique_uid("lark-ns-agent-b")})
 
       assert {:ok, first_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "lark-main",
                  "oc_namespace",
                  im_chat_attrs("oc_namespace", "Namespace Room", "cli_a"),
@@ -2778,7 +2807,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                )
 
       assert {:ok, second_group} =
-               IMGroups.ensure_lark_im_group(
+               ensure_lark_group(
                  "other-lark",
                  "oc_namespace",
                  im_chat_attrs("oc_namespace", "Namespace Room", "cli_b"),
@@ -2788,7 +2817,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert second_group.id != first_group.id
 
       assert %Channel{principal_group_id: group_id} =
-               Repo.get(Channel, Inbound.signal_channel_id("oc_namespace"))
+               Repo.get_by(Channel, id: Inbound.signal_channel_id("oc_namespace"))
 
       assert group_id == first_group.id
     end
@@ -2899,7 +2928,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Principals.resolve_platform_subject_uid("lark-main", "scalar_user_id")
 
       assert %Channel{principal_group_id: group_id} =
-               Repo.get!(Channel, Inbound.signal_channel_id("oc_scalar_user_id"))
+               Repo.get_by!(Channel, id: Inbound.signal_channel_id("oc_scalar_user_id"))
 
       assert Repo.get_by!(Membership, group_id: group_id, principal_uid: principal_uid)
     end
@@ -3227,7 +3256,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       state = Ankole.IdentityProviders.DirectoryAccess.state("lark-main")
       assert state.status == :review_required
-      assert Enum.sort(state.member_uids) == ["scope-user-1", "scope-user-2"]
+
+      member_uids =
+        for external_id <- ["scope-user-1", "scope-user-2"] do
+          assert {:ok, principal} =
+                   Principals.resolve_platform_subject("lark-main", external_id)
+
+          principal.uid
+        end
+
+      assert Enum.sort(state.member_uids) == Enum.sort(member_uids)
       assert_receive {:scope_member_query, %{"page_token" => "next-member"}}
       assert_receive {:scope_member_query, %{"member_type" => "department"}}
     end
@@ -3477,6 +3515,39 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     }
   end
 
+  defp ensure_lark_group(namespace, chat_id, attrs, context) do
+    Ankole.SignalsGateway.IMGroupProjection.ensure_group(namespace, chat_id, attrs, context,
+      default_display_name: "Lark IM Group #{chat_id}",
+      binding_metadata:
+        Ankole.Plugins.MapHelpers.compact_metadata_map(%{
+          "provider" => namespace,
+          "externalKind" => "im_group",
+          "externalID" => chat_id,
+          "name" => attrs["name"],
+          "app_id" => attrs["app_id"],
+          "domain" => attrs["domain"],
+          "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+        }),
+      channel: %{
+        on_conflict: :keep_existing,
+        fact: %{
+          signal_channel_id: Inbound.signal_channel_id(chat_id),
+          channel_kind: :im_group,
+          reply_mode: :entry,
+          channel_name: attrs["name"],
+          channel_visibility: attrs["visibility"],
+          channel_metadata:
+            Ankole.Plugins.MapHelpers.compact_metadata_map(%{
+              "chat_id" => chat_id,
+              "domain" => attrs["domain"],
+              "app_id" => attrs["app_id"]
+            }),
+          channel_raw_payload: attrs["raw_payload"] || %{}
+        }
+      }
+    )
+  end
+
   defp im_chat_attrs(chat_id, name, app_id) do
     %{
       "name" => name,
@@ -3652,27 +3723,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     end
   end
 
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: "lark-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
-  end
-
-  defp register_worker_file!(content) do
-    route = "lark-worker-file-#{System.unique_integer([:positive])}"
-    insert_ready_worker!(route)
-    WorkerFilesFake.start!(route, on_read: fn _path -> {:ok, content} end)
+  defp store_content!(content) do
+    {:ok, %{sha256: sha256}} = Ankole.Files.store(content)
+    sha256
   end
 
   defp receive_event do

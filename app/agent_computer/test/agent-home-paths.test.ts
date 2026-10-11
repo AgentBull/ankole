@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   agentHomePaths,
-  codexStateRoot,
   insideAgentHome,
   jobWorkspacePath,
   resolveAgentHomePath,
@@ -20,67 +19,56 @@ describe('Agent Home paths', () => {
         'utf8'
       )
     ) as {
-      agents_root: string
+      agent_home: string
       valid: Array<{
-        agent_uid: string
         workspace_id: number
         job_id: number
         home: string
         session_workspace: string
         job_workspace: string
       }>
-      invalid_agent_uids: string[]
       invalid_workspace_ids: Array<string | number>
       invalid_job_ids: Array<string | number>
     }
 
     for (const vector of vectors.valid) {
-      const paths = agentHomePaths(vectors.agents_root, vector.agent_uid)
+      const paths = agentHomePaths(vectors.agent_home)
       expect(paths.home).toBe(vector.home)
-      expect(sessionWorkspacePath(vectors.agents_root, vector.agent_uid, vector.workspace_id)).toBe(
-        vector.session_workspace
-      )
-      expect(jobWorkspacePath(vectors.agents_root, vector.agent_uid, String(vector.job_id))).toBe(vector.job_workspace)
+      expect(sessionWorkspacePath(vectors.agent_home, vector.workspace_id)).toBe(vector.session_workspace)
+      expect(jobWorkspacePath(vectors.agent_home, String(vector.job_id))).toBe(vector.job_workspace)
     }
 
-    for (const agentUID of vectors.invalid_agent_uids) {
-      expect(() => agentHomePaths(vectors.agents_root, agentUID)).toThrow('Agent UID must match')
-    }
     for (const workspaceID of vectors.invalid_workspace_ids) {
-      expect(() => sessionWorkspacePath(vectors.agents_root, 'agent-1', workspaceID as number)).toThrow(
-        'Session workspace ID'
-      )
+      expect(() => sessionWorkspacePath(vectors.agent_home, workspaceID as number)).toThrow('Session workspace ID')
     }
     for (const jobID of vectors.invalid_job_ids) {
-      expect(() => jobWorkspacePath(vectors.agents_root, 'agent-1', String(jobID))).toThrow('background Agent Job id')
+      expect(() => jobWorkspacePath(vectors.agent_home, String(jobID))).toThrow('background Agent Job id')
     }
   })
 
   it('constructs direct real paths with uppercase document names', () => {
-    const paths = agentHomePaths('/agents', 'agent-1')
-    expect(paths.home).toBe('/agents/agent-1')
-    // Codex state is a Worker-local shard, not a shared /agents path.
-    expect(paths.codexHome).toBe(join(codexStateRoot(), 'agent-1', '.codex'))
-    expect(paths.soul).toBe('/agents/agent-1/SOUL.md')
-    expect(paths.mission).toBe('/agents/agent-1/MISSION.md')
-    expect(paths.design).toBe('/agents/agent-1/DESIGN.md')
-    expect(jobWorkspacePath('/agents', 'agent-1', '1000')).toBe('/agents/agent-1/jobs/1000')
+    const paths = agentHomePaths('/workspace')
+    expect(paths.home).toBe('/workspace')
+    expect(paths.codexHome).toBe('/workspace/.codex')
+    expect(paths.soul).toBe('/workspace/SOUL.md')
+    expect(paths.mission).toBe('/workspace/MISSION.md')
+    expect(paths.design).toBe('/workspace/DESIGN.md')
+    expect(jobWorkspacePath('/workspace', '1000')).toBe('/workspace/jobs/1000')
   })
 
   it('uses the PostgreSQL-owned numeric Session workspace ID', () => {
-    expect(sessionWorkspacePath('/agents', 'agent-1', 10_000)).toBe('/agents/agent-1/sessions/10000')
+    expect(sessionWorkspacePath('/workspace', 10_000)).toBe('/workspace/sessions/10000')
   })
 
-  it('rejects unsafe Agent UIDs, traversal, and absolute paths outside Agent Home', () => {
-    expect(() => agentHomePaths('/agents', 'Agent 1')).toThrow('Agent UID must match')
-    expect(() => jobWorkspacePath('/agents', 'agent-1', '../job')).toThrow('background Agent Job id')
+  it('rejects traversal and absolute paths outside Agent Home', () => {
+    expect(() => jobWorkspacePath('/workspace', '../job')).toThrow('background Agent Job id')
     expect(() => resolveAgentHomePath('/agents/agent-1', '../outside')).toThrow('escapes Agent Home')
     expect(() => resolveAgentHomePath('/agents/agent-1', '/agents/agent-2/file')).toThrow('escapes Agent Home')
     expect(insideAgentHome('/agents/agent-1', '/agents/agent-1/user-files/a')).toBeTrue()
   })
 
   it('resolves relative paths from the real current workspace', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-home-'))
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'ankole-agent-home-')))
     try {
       const cwd = join(root, 'sessions', 'session-1')
       expect(resolveAgentHomePath(root, 'child.txt', { cwd })).toBe(join(cwd, 'child.txt'))
@@ -93,5 +81,26 @@ describe('Agent Home paths', () => {
   it('retains the shared safe segment helper for non-identity filenames', () => {
     expect(sanitizePathSegment(' report id! ')).toBe('report-id')
     expect(sanitizePathSegment('unsafe/id', { replacement: '_' })).toBe('unsafe_id')
+  })
+
+  it('accepts the former Home symlink and rejects links outside the Home', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'ankole-home-links-')))
+    const home = join(root, 'workspace')
+    const legacy = join(root, 'agents', 'agent-1')
+    mkdirSync(home)
+    mkdirSync(join(root, 'agents'))
+    writeFileSync(join(home, 'existing.txt'), 'kept')
+    symlinkSync(home, legacy)
+    symlinkSync('/etc', join(home, 'outside'))
+    symlinkSync(join(root, 'missing'), join(home, 'dangling'))
+    try {
+      expect(resolveAgentHomePath(home, join(legacy, 'existing.txt'))).toBe(join(home, 'existing.txt'))
+      expect(resolveAgentHomePath(home, join(legacy, 'new', 'file.txt'))).toBe(join(home, 'new', 'file.txt'))
+      expect(resolveAgentHomePath(home, 'child.txt', { cwd: legacy })).toBe(join(home, 'child.txt'))
+      expect(() => resolveAgentHomePath(home, 'outside/passwd')).toThrow('escapes Agent Home')
+      expect(() => resolveAgentHomePath(home, 'dangling/file')).toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

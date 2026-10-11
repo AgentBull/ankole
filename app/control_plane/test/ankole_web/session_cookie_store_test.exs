@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.SessionCookieStoreTest do
-  use Ankole.DataCase, async: true
+  # This module exercises the site-wide privileged-tenant setting.
+  use Ankole.DataCase, async: false
 
   import Plug.Conn
   import Plug.Test
@@ -42,9 +43,10 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
     assert get_session(conn, :setup_secret_plaintext) == "setup-secret"
   end
 
-  test "stores only a durable browser reference in the kernel-aead cookie" do
+  test "stores only a durable browser reference in the kernel-aead cookie", %{tenant: tenant} do
+    :ok = set_privileged_tenant(tenant)
     human = Ankole.PrincipalsFixtures.human_fixture()
-    {:ok, _} = Ankole.AuthZ.root_init_admin(human.principal.uid)
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(human.principal.uid)
 
     conn =
       :get

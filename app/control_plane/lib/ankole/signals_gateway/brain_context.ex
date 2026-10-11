@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.BrainContext do
   @moduledoc """
   Derives the Brain execution context of one AIGateway request.
 
-  A request from a Worker Turn carries `metadata.actor_event_id`. This module
+  A request from an Agent Turn carries `metadata.actor_event_id`. This module
   is the one place that interprets that value for memory: the event must belong
   to the request subject, and it supplies the disclosure recipients, the default
   write scope, the channel parent, and the write fence exactly as the Turn's
@@ -26,11 +26,8 @@ defmodule Ankole.SignalsGateway.BrainContext do
   alias Ankole.Repo
   alias Ankole.Schedule.Delivery
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
-
-  @live_activation_statuses ["starting", "active", "draining"]
 
   @doc """
   Builds the context for a subject and the public request metadata.
@@ -72,13 +69,15 @@ defmodule Ankole.SignalsGateway.BrainContext do
          disclosure: event_disclosure(event, agent_disclosure_mode(subject_uid)),
          default_write_scope: derived_conversation_scope(event, subject_uid),
          channel_id: channel_id,
-         participant_uids: participant_uids(event),
+         # A remember call without a holder files the claim on the Agent's own
+         # page, so the Agent's card joins the pack like the speaker's.
+         participant_uids: Enum.uniq(participant_uids(event) ++ [subject_uid]),
          parent_fallback:
            if(is_binary(channel_id),
              do: {:channel, channel_id},
              else: page_fallback(subject_uid)
            ),
-         holder_default: "agents/" <> subject_uid,
+         holder_default: Scope.principal_page_slug(:agent, subject_uid),
          write_fence: fn -> live_turn_fence(subject_uid, event.id) end
        }}
     end
@@ -98,22 +97,22 @@ defmodule Ankole.SignalsGateway.BrainContext do
     end
   end
 
-  # A write from a superseded turn must not land. The HTTP path cannot name
-  # the Worker transport route, so the fence covers the activation facts the
-  # request does carry: the event must still be the current event of a live
-  # activation of this Agent.
+  # Hosted writes require an open input owned by this Agent. Their operation
+  # owners define deduplication across Response retries; this is not a Driver
+  # epoch or Worker route fence.
   defp live_turn_fence(agent_uid, actor_event_id) do
     live? =
-      ActorSessionActivation
-      |> where([activation], activation.agent_uid == ^agent_uid)
-      |> where([activation], activation.current_actor_event_id == ^actor_event_id)
-      |> where([activation], activation.status in @live_activation_statuses)
-      |> Repo.exists?()
+      Repo.exists?(
+        from e in ActorEvent,
+          where:
+            e.id == ^actor_event_id and e.agent_uid == ^agent_uid and e.input_state == "open" and
+              is_nil(e.completed_at)
+      )
 
     if live?, do: :ok, else: {:error, :turn_not_live}
   end
 
-  # The pack's participant is the event author, as the Worker reported it.
+  # The pack's participant is the persisted event author.
   defp participant_uids(%ActorEvent{payload: payload}) do
     case get_in(payload || %{}, ["data", "entry", "author", "principal_uid"]) do
       uid when is_binary(uid) and uid != "" -> [uid]
@@ -264,19 +263,11 @@ defmodule Ankole.SignalsGateway.BrainContext do
   # an explicit model choice, never a default: the derived default also
   # bounds how far a poisoned claim or misjudged source can reach.
   defp derived_conversation_scope(%ActorEvent{} = event, agent_uid) do
-    channel = event.signal_channel_id && Repo.get(Channel, event.signal_channel_id)
+    channel = event.signal_channel_id && Repo.get_by(Channel, id: event.signal_channel_id)
 
     case channel do
-      %Channel{kind: :im_group, principal_group_id: group_id} when is_binary(group_id) ->
-        case Ankole.AuthZ.get_principal_group(group_id) do
-          {:ok, group} -> {:ok, Scope.group(group.name)}
-          {:error, :not_found} -> {:error, :im_group_without_member_group}
-        end
-
-      %Channel{kind: :im_group} ->
-        # No member Group means no derivable group audience. An explicit
-        # scope is the way through, so the error names the real blocker.
-        {:error, :im_group_without_member_group}
+      %Channel{kind: :im_group, principal_group_id: group_id} ->
+        Scope.member_group_scope(group_id)
 
       %Channel{kind: :im_dm} when is_binary(event.sender_key) ->
         {:ok, Scope.principal(event.sender_key)}

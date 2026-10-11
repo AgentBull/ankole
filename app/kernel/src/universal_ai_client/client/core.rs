@@ -12,14 +12,13 @@ use super::stream::{
     command_send_error, decode_raw_response_body, decode_response_body, run_stream,
     send_aborted_once,
 };
-use crate::common::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult, io_runtime};
 use crate::universal_ai_client::{
-    api_resolver, error::StreamError, hosted_responses, request_builder, runtime, transport,
+    api_resolver, error::StreamError, hosted_responses, request_builder, transport,
 };
 
 pub use crate::universal_ai_client::spec::{
-    APIResolverKind, DownstreamKind, ModelRequestSpec, RawRequestSpec, StreamLimits, StreamSpec,
-    UpstreamKind,
+    APIResolverKind, ModelRequestSpec, RawRequestSpec, StreamLimits, StreamSpec, UpstreamKind,
 };
 
 pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
@@ -27,11 +26,7 @@ pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
 #[derive(Debug)]
 pub enum StreamEvent {
     Ready(Value),
-    Chunk {
-        seq: u64,
-        kind: DownstreamKind,
-        bytes: Vec<u8>,
-    },
+    Chunk { seq: u64, bytes: Vec<u8> },
     Done(Value),
     Error(Value),
     Aborted,
@@ -76,7 +71,7 @@ impl StreamHandle {
         let sink = self.sink.clone();
         let aborted_sent = self.aborted_sent.clone();
         let abort_handle = self.abort_handle.clone();
-        runtime::runtime()?.spawn(async move {
+        io_runtime::runtime()?.spawn(async move {
             send_aborted_once(&sink, &aborted_sent);
             abort_handle.abort();
         });
@@ -99,7 +94,7 @@ impl Drop for StreamHandle {
 
 pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamHandle> {
     let spec = StreamSpec::from_json(encoded_spec)?;
-    let runtime = runtime::runtime()?;
+    let runtime = io_runtime::runtime()?;
     let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let aborted_sent = Arc::new(AtomicBool::new(false));
@@ -125,7 +120,7 @@ pub fn start_model_request(
 ) -> Result<(), StreamError> {
     let spec = ModelRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
-    let runtime = runtime::runtime()
+    let runtime = io_runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
     runtime.spawn(deliver_request_result(run_model_request(spec), deliver));
@@ -138,7 +133,7 @@ pub fn start_raw_request(
 ) -> Result<(), StreamError> {
     let spec = RawRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
-    let runtime = runtime::runtime()
+    let runtime = io_runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
     runtime.spawn(deliver_request_result(run_raw_request(spec), deliver));
@@ -204,8 +199,6 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         "headers": transport::safe_response_headers(&response.headers),
         "body": normalized_body,
         "raw_body_bytes": response.body.len(),
-        "http_version": response.version,
-        "http_negotiation": response.negotiation
     }))
 }
 
@@ -219,8 +212,6 @@ async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {
         "headers": response.headers,
         "body": body,
         "raw_body_bytes": response.body.len(),
-        "http_version": response.version,
-        "http_negotiation": response.negotiation
     }))
 }
 

@@ -5,7 +5,7 @@ section: Reference
 order: 202
 ---
 
-本页只列进程启动时读取的部署环境变量。它们用于连接 PostgreSQL、建立实例密钥、启动 RuntimeFabric，以及调整控制面和 Worker 进程。
+本页列出 PostgreSQL、部署密钥、文件存储与进程设置的启动变量。Worker provider 的设置以 YAML 保存在 PostgreSQL 中。
 
 可以在实例运行期间修改的 AppConfigure 键已经迁入 [系统配置](../app-configuration/)。不要把这些运行时设置写入 `.env` 或 Kubernetes Secret。
 
@@ -17,14 +17,17 @@ order: 202
 |---|---|---|
 | `DATABASE_URL` | 是 | 控制面所用的 PostgreSQL 连接串 |
 | `ANKOLE_SECRET_BASE` | 是 | 实例级 Secret Base，用于派生其他密钥 |
-| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | 是 | worker 向 RuntimeFabric 出示的认证 key |
+| `RELEASE_COOKIE` | 是 | Erlang distribution cookie；同一部署的每个控制面节点使用同一个值 |
 | `POSTGRES_PASSWORD` | 仅内置 PostgreSQL | PostgreSQL 密码（启用内置 PostgreSQL 时必需；外部则由外部 Secret 提供） |
 | `ANKOLE_HOST` | Compose | 部署所服务的 DNS 名 |
 | `ACME_EMAIL` | Compose | Caddy 用于 Let's Encrypt 的邮箱 |
+| `ANKOLE_DOCKER_GID` | Compose | Docker socket 所属组的 ID；控制面以非特权用户运行，通过这个组访问 socket |
 
 这些值应放在 `.env` 或 Secret 中，绝不能提交到版本控制。Docker Compose 的 `.env.example` 是配置起点。
 
-Helm chart 的 `values.yaml` 列出了 Kubernetes 中对应的 `ankoleSecretBase`、`workerAuthKey` 和 `postgresqlPassword`。
+Worker 不需要在 `.env` 或 Secret 中配置 key：控制面会为每个 Worker 发放它自己的凭据。
+
+Helm chart 的 `values.yaml` 列出了 Kubernetes 中对应的 `ankoleSecretBase`、`releaseCookie`、`databaseURL` 和 `postgresqlPassword`。
 
 ## 运行时调优（进程环境）
 
@@ -34,14 +37,42 @@ Helm chart 的 `values.yaml` 列出了 Kubernetes 中对应的 `ankoleSecretBase
 |---|---|---|
 | `ANKOLE_ENV` | — | 部署环境标签（如 `prod`、`dev`） |
 | `ANKOLE_LOG_LEVEL` | `info` | 日志级别（`debug`、`info`、`warning`、`error`） |
-| `ANKOLE_LOG_FORMAT` | `json` | 日志行格式（`json` 供摄入，`pretty` 供本地阅读） |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | 控制面数据库连接池大小 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | 内置 PostgreSQL 服务器的 `max_connections` |
-| `ANKOLE_MAX_CONCURRENT_TURNS` | `9` | 并发 actor 回合上限 |
 | `ANKOLE_LIBRARY_ROOT` | chart 默认 | 自带 Agent Library 的路径（`app/library`） |
 | `ANKOLE_INTERNAL_SKILLS_ROOT` | — | 内部 skill bundle 的路径 |
 | `ANKOLE_AI_GATEWAY_BASE_URL` | — | 覆盖 AIGateway 基 URL（很少需要） |
-| `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT` | — | RuntimeFabric 绑定端点 |
+
+## 文件存储（进程启动）
+
+控制面把每个 Agent 的云盘放在文件存储中：附件、生成的图片、发出的文件、已安装的 Skill、Automation Job 脚本，以及 Agent 保存的文件。Worker 从不持有存储凭据；文件字节经控制面中转。
+
+| 变量 | 必填 | 含义 |
+|---|---|---|
+| `ANKOLE_FILES_STORE` | 是 | `fs` 表示控制面持久卷上的一个目录，`s3` 表示 Amazon S3 或 Cloudflare R2 等 S3 兼容存储 |
+| `ANKOLE_FILES_FS_ROOT` | `fs` | 存储目录的绝对路径；Docker Compose 使用挂载在 `/var/lib/ankole/files` 的 `files_data` 卷 |
+| `ANKOLE_FILES_S3_BUCKET` | `s3` | 桶 |
+| `ANKOLE_FILES_S3_REGION` | `s3` | 区域；Cloudflare R2 使用 `auto` |
+| `ANKOLE_FILES_S3_ENDPOINT` | 否 | S3 兼容存储的端点 |
+| `ANKOLE_FILES_S3_ROOT` | 否 | 桶内的键前缀 |
+| `ANKOLE_FILES_S3_ACCESS_KEY_ID`、`ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | 否 | 静态凭据；不设置时使用默认 AWS 凭据链，包括 EKS Pod Identity |
+
+`fs` 存储只允许一个控制面副本。运行多个控制面副本时使用 `s3`。
+
+`s3` 上的大文件以分段上传（multipart upload）写入。如果控制面在上传中途停止，已上传的分段会留在存储桶里，所以请给存储桶配置一条中止未完成分段上传的生命周期规则。
+
+## Worker Provider 引导配置
+
+以下启动值标识部署与目标 Worker 镜像。每个 provider 在 **Console → 工作节点 → Providers** 中用 YAML 配置，凭据另行加密保存。类型、位置与持久存储创建后不能修改；实例设置在 Agent 空闲时生效。
+
+| 变量 | 含义 |
+|---|---|
+| `ANKOLE_AGENT_COMPUTER_IMAGE` | 控制面版本对应的目标 Worker 镜像 |
+| `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT` | 默认 RuntimeFabric WebSocket 地址 |
+| `ANKOLE_WORKER_INSTALLATION` | 部署标签，默认 `ankole` |
+| `ANKOLE_WORKER_PROVIDERS_FILE` | 可选的 provider 种子 YAML 文件；首次导入与旧 Agent 指派在同一事务内 |
+
+`bun dev` 的源码与内部 Skill 挂载来自 `config/dev.exs`，发布版本没有这些开发挂载。
 
 ## 模型提供商出站代理
 
@@ -62,27 +93,24 @@ URL 可以包含凭证。`NO_PROXY` 的优先级最高。安全请求依次使�
 
 ## 仅 worker 的环境（Agent Computer Worker）
 
-worker 读取一个固定的小集合。actor 身份**不在**其中——它通过 `turn_start` 到达，不在环境里。这些由受管 worker 引导设置，不由运维者设置。
+控制面创建 Worker 时设置这些变量，不由运维者设置。Worker 从 `WORKER_ID` 得知自己的 Agent；会话和回合通过每个 `turn_start` 到达，不在环境里。
 
 | 变量 | 含义 |
 |---|---|
-| `WORKER_ID` | worker 身份（如 `worker-local-1`） |
-| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | RuntimeFabric TCP 端点 |
-| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | RuntimeFabric worker 认证 key；它与端点分开传入 |
-| `ANKOLE_AGENTS_ROOT` | 共享 `/agents` 工作空间挂载的根 |
-| `ANKOLE_AGENT_COMPUTER_IMAGE` | worker 所跑的 Agent Computer Worker 镜像 |
-| `ANKOLE_VERSION` | Ankole 版本标签 |
+| `WORKER_ID` | Agent UID；Worker 只为这个 Agent 服务 |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | Worker 连接的 `ws://` 或 `wss://` RuntimeFabric URL |
+| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | 本代随机凭据；控制面保存摘要和加密的重试值 |
+| `ANKOLE_WORKER_STORAGE` | 由 provider 设置的存储准备模式 |
 
-Worker 镜像负责设置浏览器、Bubblewrap、Codex 和 Skill 路径，包括 `ANKOLE_BROWSER_*`、`ANKOLE_BWRAP_PATH`、`ANKOLE_CODEX_BINARY` 和 `ANKOLE_BUILTIN_SKILLS_ROOT`。这些路径不能由管理员调整。
+Worker 环境变量在 provider YAML 的 `env` 或 Kubernetes `podTemplate` 中设置。`ANKOLE_MAX_CONCURRENT_SLOTS` 限制单个 Worker 的环境工作区和 Codex 回合，默认值为 12。模型回合不占 Worker 槽位。修改实例设置后，在空闲时替换 Worker。
 
-`PATH`、`HOME`、`DATABASE_URL` 以及以 `ANKOLE_` 开头的名称属于保留名称，不能通过 Console 覆盖。Agent 使用的自定义值见 [环境变量](../worker-env/)。
+Worker 镜像负责设置浏览器和 Skill 路径，包括 `ANKOLE_BROWSER_*` 和 `ANKOLE_BUILTIN_SKILLS_ROOT`。这些路径不能由管理员调整。
+
+`PATH`、`HOME`、`DATABASE_URL` 与 `ANKOLE_` 前缀在 Agent 环境变量编辑器中保留；这个限制不禁止 provider YAML 支持的实例设置。参见[环境变量](../worker-env/)。
 
 ## 修改部署环境变量
 
-- 使用 Docker Compose 时，修改 `.env`，再重启受影响的容器。
-- 使用 Kubernetes 时，修改 Helm values 或对应的 Secret，再重启受影响的工作负载。
-
-环境变量只在进程启动时读取。仅修改文件或 Secret，不重启进程，不会改变当前运行状态。
+在 Compose `.env` 或 Helm values 中修改启动变量后，重启对应进程。provider 设置在 Console 中修改；已导入的种子文件不会覆盖现有 provider。镜像或实例设置变化后，在 Agent 空闲时替换 Worker。
 
 ## 下一步
 

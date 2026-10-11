@@ -75,7 +75,7 @@ defmodule Ankole.I18n do
   end
 
   @doc """
-  Returns the application-wide default locale.
+  Returns the site default used by shared catalog fallback.
   """
   @spec default_locale() :: Localize.LanguageTag.t()
   defdelegate default_locale, to: Localize
@@ -84,70 +84,33 @@ defmodule Ankole.I18n do
   Returns the configured default locale id.
 
   Browser/setup surfaces need the persisted catalog id, while
-  `default_locale/0` returns Localize's process-wide language tag.
+  `default_locale/0` returns Localize's site-wide language tag.
   """
   @spec configured_default_locale() :: {:ok, String.t()} | {:error, term()}
   def configured_default_locale, do: Config.default_locale()
 
   @doc """
-  Persists and applies the application-wide default locale.
+  Persists the current tenant's default locale.
 
-  The public write path validates against the currently loaded catalog before it
-  touches AppConfigure. Direct AppConfigure writes may store any non-empty locale
-  id, but reload/startup still rejects ids that are not loaded.
+  The public write path validates against the loaded catalog before it touches
+  AppConfigure. Tenant writes do not change the shared catalog or site default.
   """
   @spec put_default_locale(locale()) :: {:ok, String.t()} | {:error, term()}
   def put_default_locale(locale) do
     with {:ok, loaded_locale} <- loaded_locale(locale),
-         {:ok, persisted} <- Config.put_default_locale(loaded_locale),
-         :ok <- reload() do
+         {:ok, persisted} <- Config.put_default_locale(loaded_locale) do
       {:ok, persisted}
     end
   end
 
   @doc """
-  Returns the current process locale.
-  """
-  @spec get_locale() :: Localize.LanguageTag.t()
-  defdelegate get_locale, to: Localize
-
-  @doc """
-  Sets the current process locale after validating it is loaded.
-
-  Localize can negotiate language tags, but Ankole keeps locale ids tied to
-  application-owned catalog files. Validation here prevents a process from
-  silently switching to a locale that Ankole cannot render.
-  """
-  @spec put_locale(locale()) :: {:ok, Localize.LanguageTag.t()} | {:error, Exception.t()}
-  def put_locale(locale) do
-    with {:ok, loaded_locale} <- loaded_locale(locale),
-         {:ok, tag} <- language_tag_for_loaded_locale(loaded_locale) do
-      Localize.put_locale(tag)
-    end
-  end
-
-  @doc """
-  Runs `fun` under one validated process locale.
-
-  This is mostly useful for tests and offline rendering. Request and browser
-  paths use the installation default locale instead of per-request negotiation.
-  """
-  @spec with_locale(locale(), (-> result)) :: result | {:error, Exception.t()} when result: term()
-  def with_locale(locale, fun) when is_function(fun, 0) do
-    with {:ok, loaded_locale} <- loaded_locale(locale),
-         {:ok, tag} <- language_tag_for_loaded_locale(loaded_locale) do
-      Localize.with_locale(tag, fun)
-    end
-  end
-
-  @doc """
-  Re-applies the effective AppConfigure default locale.
+  Re-applies the site AppConfigure default to the shared catalog.
   """
   @spec reload() :: :ok | {:error, term()}
   def reload, do: Ankole.I18n.Catalog.reload()
 
   @doc """
-  Re-scans locale TOML files and applies the effective default locale.
+  Re-scans locale TOML files and applies the site default locale.
   """
   @spec reload_locales() :: :ok | {:error, term()}
   def reload_locales, do: Ankole.I18n.Catalog.reload_locales()
@@ -172,17 +135,17 @@ defmodule Ankole.I18n do
   @doc """
   Returns the normalized Ankole locale id from translation options.
 
-  Unknown option values fall back to the process locale so a bad optional value
-  does not crash template rendering.
+  Without an explicit locale, translations read the current tenant's effective
+  default. This requires the same tenant context as the work being rendered.
   """
   @spec locale_from_opts(keyword()) :: String.t()
   def locale_from_opts(opts) do
     case Keyword.get(opts, :locale) do
-      nil -> Resolver.language_tag_to_locale(Localize.get_locale())
+      nil -> configured_locale!()
       %Localize.LanguageTag{} = tag -> locale_from_language_tag(tag)
       locale when is_atom(locale) -> Atom.to_string(locale)
       locale when is_binary(locale) -> locale
-      _locale -> Resolver.language_tag_to_locale(Localize.get_locale())
+      _locale -> configured_locale!()
     end
   end
 
@@ -197,27 +160,17 @@ defmodule Ankole.I18n do
       to_string(tag.requested_locale_id || tag.cldr_locale_id)
   end
 
-  # Ankole treats loaded catalog ids as the real availability set. This is why
-  # `put_locale/1` and `put_default_locale/1` do not accept arbitrary valid BCP 47
-  # tags.
+  defp configured_locale! do
+    case Config.default_locale() do
+      {:ok, locale} -> locale
+      error -> raise ArgumentError, "cannot read the tenant locale: #{inspect(error)}"
+    end
+  end
+
   defp loaded_locale(locale) do
     case Resolver.exact_loaded_locale(locale, Resolver.loaded()) do
       nil -> {:error, unknown_locale_error(locale)}
       loaded_locale -> {:ok, loaded_locale}
-    end
-  end
-
-  # Localize still owns process/default locale storage, so loaded catalog ids must
-  # be converted back to LanguageTag structs before writing them into Localize.
-  defp language_tag_for_loaded_locale(locale) do
-    locale
-    |> Localize.LanguageTag.new()
-    |> case do
-      {:ok, %Localize.LanguageTag{cldr_locale_id: id} = tag} when is_atom(id) ->
-        {:ok, tag}
-
-      {:error, exception} ->
-        {:error, exception}
     end
   end
 

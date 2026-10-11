@@ -1,12 +1,12 @@
 defmodule Ankole.AIAgent.Library.SourceReader do
   @moduledoc """
-  Reads first-party on-disk library skill bundles.
+  Reads shipped Skill bundles and Agent-installed Skills from their owners.
 
-  Agent-installed skills are worker filesystem facts. The control plane records
-  observations received through RuntimeFabric, but this module does not scan or
-  read worker-visible skill roots.
+  Shipped bundles live in the installation library. Installed Skill metadata
+  comes from `SKILL.md` in the Agent's control-plane drive.
   """
 
+  alias Ankole.Files
   alias Ankole.Kernel, as: NativeKernel
 
   @default_library_root Path.expand("../../../../../library", __DIR__)
@@ -37,6 +37,12 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     else
       read_builtin_skill_sources_uncached(roots)
     end
+  end
+
+  @doc "Reads installed Skill manifests from the Agent's drive."
+  @spec read_installed_skill_sources(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def read_installed_skill_sources(agent_uid, opts \\ []) do
+    read_installed_skill_page(agent_uid, opts, nil, [])
   end
 
   @doc """
@@ -354,7 +360,45 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
     with {:ok, normalized_relative_path} <- normalize_virtual_path(relative_path),
          true <- File.dir?(root) || {:error, {:missing_skill_dir, relative_path}},
-         {:ok, raw_skill} <- File.read(skill_path),
+         {:ok, raw_skill} <- File.read(skill_path) do
+      skill_source(raw_skill, root_label, normalized_relative_path)
+    else
+      false -> {:error, {:missing_skill_dir, relative_path}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp read_installed_skill_page(agent_uid, opts, after_path, acc) do
+    with {:ok, %{files: files, next_after: next_after}} <-
+           Files.list(agent_uid, "skills", Keyword.merge(opts, limit: 5_000, after: after_path)),
+         {:ok, sources} <-
+           files
+           |> Enum.flat_map(fn file ->
+             case String.split(file.path, "/") do
+               ["skills", name, @skill_file] ->
+                 [read_installed_skill_source(file.sha256, name)]
+
+               _path ->
+                 []
+             end
+           end)
+           |> Ankole.Attrs.collect_results() do
+      acc = Enum.reverse(sources, acc)
+
+      if is_nil(next_after),
+        do: {:ok, Enum.reverse(acc)},
+        else: read_installed_skill_page(agent_uid, opts, next_after, acc)
+    end
+  end
+
+  defp read_installed_skill_source(sha256, name) do
+    with {:ok, raw_skill} <- Files.read_content(sha256) do
+      skill_source(raw_skill, "installed", name)
+    end
+  end
+
+  defp skill_source(raw_skill, root_label, normalized_relative_path) do
+    with true <- String.valid?(raw_skill) || {:error, :invalid_skill_content},
          {:ok, metadata} <-
            parse_skill_metadata(raw_skill, Path.basename(normalized_relative_path)) do
       skill_hash = hash(raw_skill)
@@ -384,9 +428,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          relative_path: normalized_relative_path,
          files: files
        }}
-    else
-      false -> {:error, {:missing_skill_dir, relative_path}}
-      {:error, _reason} = error -> error
     end
   end
 
@@ -513,8 +554,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
   @doc """
   The configured product library root. Every reader of shipped library
-  content — skills, templates, the schema-pack vocabulary, and knowledge
-  pages — resolves paths from this one owner, so the `ANKOLE_LIBRARY_ROOT`
+  content — Skills and templates — resolves paths from this one owner, so the `ANKOLE_LIBRARY_ROOT`
   release override applies to all of them.
   """
   @spec library_root() :: String.t()

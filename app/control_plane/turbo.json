@@ -1,0 +1,67 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "type-check": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/plugins/*/lib/**",
+        "$TURBO_ROOT$/internals/plugins/*/lib/**",
+        "$TURBO_ROOT$/app/kernel/{Cargo.toml,Cargo.lock,build.rs,mix.exs,mix.lock}",
+        "$TURBO_ROOT$/app/kernel/{lib,src,proto}/**",
+        "$TURBO_ROOT$/libs/*_openapi/mix.{exs,lock}",
+        "$TURBO_ROOT$/libs/*_openapi/{lib,config}/**",
+        "$TURBO_ROOT$/tools/e2e/support/**",
+        "$TURBO_ROOT$/tools/fake-feishu/platform/**"
+      ]
+    },
+    "test": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/plugins/*/lib/**",
+        "$TURBO_ROOT$/internals/plugins/*/lib/**",
+        "$TURBO_ROOT$/app/kernel/{Cargo.toml,Cargo.lock,build.rs,mix.exs,mix.lock}",
+        "$TURBO_ROOT$/app/kernel/{lib,src,proto}/**",
+        "$TURBO_ROOT$/libs/*_openapi/mix.{exs,lock}",
+        "$TURBO_ROOT$/libs/*_openapi/{lib,config}/**",
+        "$TURBO_ROOT$/tools/e2e/support/**",
+        "$TURBO_ROOT$/tools/fake-feishu/platform/**",
+        "$TURBO_ROOT$/app/library/**"
+      ]
+    },
+    "lint": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/plugins/*/lib/**",
+        "$TURBO_ROOT$/internals/plugins/*/lib/**",
+        "$TURBO_ROOT$/app/kernel/{Cargo.toml,Cargo.lock,build.rs,mix.exs,mix.lock}",
+        "$TURBO_ROOT$/app/kernel/{lib,src,proto}/**",
+        "$TURBO_ROOT$/libs/*_openapi/mix.{exs,lock}",
+        "$TURBO_ROOT$/libs/*_openapi/{lib,config}/**",
+        "$TURBO_ROOT$/tools/e2e/support/**",
+        "$TURBO_ROOT$/tools/fake-feishu/platform/**",
+        ".credo.exs",
+        "credo/**"
+      ]
+    },
+    "build": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/plugins/*/lib/**",
+        "$TURBO_ROOT$/internals/plugins/*/lib/**",
+        "$TURBO_ROOT$/app/kernel/{Cargo.toml,Cargo.lock,build.rs,mix.exs,mix.lock}",
+        "$TURBO_ROOT$/app/kernel/{lib,src,proto}/**",
+        "$TURBO_ROOT$/libs/*_openapi/mix.{exs,lock}",
+        "$TURBO_ROOT$/libs/*_openapi/{lib,config}/**",
+        "$TURBO_ROOT$/app/webapps/{auth,common,console,entrypoints,openapi,public,setup}/**",
+        "$TURBO_ROOT$/app/webapps/{package.json,vite.config.ts,tsconfig.json,postcss.config.mjs,openapi-ts.config.ts}",
+        "$TURBO_ROOT$/app/webapps/.env*",
+        "$TURBO_ROOT$/app/locales/**",
+        "$TURBO_ROOT$/libs/{uikit,ankole-editor}/src/**",
+        "$TURBO_ROOT$/libs/ankole-editor/patches/**",
+        "$TURBO_ROOT$/libs/{uikit,ankole-editor}/{package.json,tsconfig.json}",
+        "$TURBO_ROOT$/tools/openapi-client-generator/package.json"
+      ]
+    }
+  }
+}

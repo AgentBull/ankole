@@ -51,7 +51,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
     setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
@@ -214,7 +213,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
     do:
       UniversalAIRequest.put_header(
         request,
-        "x-openai-internal-codex-responses-lite",
+        ChatGPTProtocol.lite_header(),
         "true"
       )
 

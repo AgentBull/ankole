@@ -67,7 +67,3 @@ export function settingRows(items: AppConfigurationItem[]): SettingRows {
 
   return { groups, managed, singles }
 }
-
-export function groupOverridden(group: SettingGroup): boolean {
-  return group.items.some(item => item.overridden)
-}

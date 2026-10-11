@@ -22,15 +22,33 @@ defmodule Ankole.Brain.RelationsTest do
     :ok
   end
 
-  test "repeated edges, tags, and aliases report a duplicate instead of an unstored ID" do
+  test "repeated edges and aliases report a duplicate instead of an unstored ID" do
     attrs = %{from_object_slug: "notes/relation-source", to_object_slug: "notes/relation-target"}
     assert {:ok, %{id: id}} = Links.upsert_link(attrs)
     assert is_binary(id)
     assert {:ok, :duplicate} = Links.upsert_link(attrs)
-    assert {:ok, %{id: _}} = Links.add_tag("notes/relation-source", "tag")
-    assert {:ok, :duplicate} = Links.add_tag("notes/relation-source", "tag")
     assert {:ok, %{id: _}} = Links.add_alias("notes/relation-source", "alias")
     assert {:ok, :duplicate} = Links.add_alias("notes/relation-source", "alias")
+  end
+
+  test "tags persist once per page and tenant" do
+    assert {:ok, %{id: _id}} = Links.add_tag("notes/relation-source", "health")
+    assert {:ok, :duplicate} = Links.add_tag("notes/relation-source", "health")
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      assert {:ok, _} = SchemaPacks.install_packs([])
+
+      assert {:ok, _} =
+               Objects.create_object(
+                 %{slug: "notes/relation-source", type: "note", title: "Other"},
+                 :system
+               )
+
+      assert {:ok, %{id: _id}} = Links.add_tag("notes/relation-source", "health")
+    end)
+
+    assert Repo.aggregate(Ankole.Brain.Schemas.Tag, :count) == 1
   end
 
   test "reconciliation and delayed embeddings cannot restore an old body" do

@@ -274,7 +274,8 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       query,
       [conversation],
       fragment(
-        "(SELECT COUNT(*) FROM (SELECT 1 FROM ai_gateway_messages m WHERE m.subject_uid = ? AND m.conversation_id = ? LIMIT ?) bounded) >= ?",
+        "(SELECT COUNT(*) FROM (SELECT 1 FROM ai_gateway_messages m WHERE m.tenant_id = ? AND m.subject_uid = ? AND m.conversation_id = ? LIMIT ?) bounded) >= ?",
+        conversation.tenant_id,
         conversation.subject_uid,
         conversation.id,
         ^min,

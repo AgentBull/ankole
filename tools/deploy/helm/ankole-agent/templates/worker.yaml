@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "ankole-agent.workerProvidersName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+type: Opaque
+stringData:
+  providers.yaml: |
+    {{- include "ankole-agent.workerProvidersSeed" . | nindent 4 }}
+{{- if .Values.worker.localPods }}
+---
+# Owner of Worker Pods, Secrets, and cache PVCs: when `helm uninstall` or
+# worker.localPods=false deletes it, Kubernetes deletes the Worker objects.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ankole-agent.agentWorkersOwnerName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "ankole-agent.workerServiceAccountName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete", "get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "secrets"]
+    verbs: ["create", "delete", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ include "ankole-agent.agentWorkersOwnerName" . | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ankole-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

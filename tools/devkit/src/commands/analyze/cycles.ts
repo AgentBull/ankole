@@ -135,11 +135,7 @@ function createSourceResolver(files: readonly string[], aliasTable: readonly Ali
 }
 
 /** Returns static runtime import and re-export specifiers in source order. */
-export function collectRuntimeStaticSpecifiers(source: string): string[] {
-  return scanRuntimeStaticSpecifiers(source, 'ts')
-}
-
-function scanRuntimeStaticSpecifiers(source: string, loader: RuntimeImportLoader): string[] {
+export function collectRuntimeStaticSpecifiers(source: string, loader: RuntimeImportLoader = 'ts'): string[] {
   return runtimeImportScanners[loader]
     .scanImports(source)
     .filter(item => item.kind === 'import-statement')
@@ -161,7 +157,7 @@ function runtimeImportLoaderFor(file: string): RuntimeImportLoader {
 function collectRuntimeStaticImports(file: string, resolveSource: SourceResolver): string[] {
   let specifiers: string[]
   try {
-    specifiers = scanRuntimeStaticSpecifiers(
+    specifiers = collectRuntimeStaticSpecifiers(
       readFileSync(path.join(repoRootPath, file), 'utf8'),
       runtimeImportLoaderFor(file)
     )

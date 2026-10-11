@@ -5,6 +5,7 @@ import {
   RiArrowRightLine,
   RiBroadcastLine,
   RiChat3Line,
+  RiCloseCircleLine,
   RiGitBranchLine,
   RiListCheck3,
   RiRobot2Line,
@@ -33,6 +34,7 @@ import { conversationDisplayName } from '../conversation-presentation'
 import { StatusIndicator } from '../console-form'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { readinessSteps, type ReadinessStep } from '../console-readiness'
+import { workerNeedsAttention } from './workers'
 
 const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
   provider: RiSparkling2Line,
@@ -92,7 +94,8 @@ export function HomePage() {
   const jobRows = jobs.data?.jobs ?? []
 
   const activeAgents = agentRows.filter(agent => agent.status === 'active').length
-  const readyWorkers = workerRows.filter(worker => worker.status === 'ready').length
+  const readyWorkers = workerRows.filter(worker => worker.state === 'ready').length
+  const failingWorkers = workerRows.filter(workerNeedsAttention).length
   const enabledProviders = providerRows.filter(provider => !provider.disabled_at).length
   const failedJobs = jobRows.filter(job => job.status === 'failed')
 
@@ -106,7 +109,7 @@ export function HomePage() {
   // is noise they learn to skip. Each absence claim requires its own query's
   // data: a failed request must not render as a confident zero.
   const alerts: Alert[] = []
-  if (providers.data && enabledProviders === 0) {
+  if (readiness.isSuccess && !readiness.data.provider.complete) {
     alerts.push({
       tone: 'danger',
       title: t('console.home.alert_no_provider_title'),
@@ -115,13 +118,15 @@ export function HomePage() {
       action: t('console.home.alert_no_provider_action')
     })
   }
-  if (workerRows.length > 0 && readyWorkers === 0) {
+  // Workers start when their Agents need them, so an idle installation without
+  // a ready Worker is normal; a Worker that the backend cannot make ready is not.
+  if (failingWorkers > 0) {
     alerts.push({
       tone: 'warning',
-      title: t('console.home.alert_no_ready_worker_title'),
-      description: t('console.home.alert_no_ready_worker_description'),
+      title: t('console.home.alert_worker_failing_title', { count: failingWorkers }),
+      description: t('console.home.alert_worker_failing_description'),
       to: '/workers',
-      action: t('console.home.alert_no_ready_worker_action')
+      action: t('console.home.alert_worker_failing_action')
     })
   }
   if (identityProviders.data?.identity_providers.every(provider => !provider.enabled)) {
@@ -366,10 +371,11 @@ function AlertRow({ alert }: { alert: Alert }) {
         alert.tone === 'danger' ? 'border-l-destructive' : 'border-l-warning'
       )}>
       <div className="flex min-w-0 gap-3">
-        <RiAlertLine
-          className={cn('mt-0.5 size-4 shrink-0', alert.tone === 'danger' ? 'text-destructive' : 'text-warning')}
-          aria-hidden
-        />
+        {alert.tone === 'danger' ? (
+          <RiCloseCircleLine className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+        ) : (
+          <RiAlertLine className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+        )}
         <div className="grid min-w-0 gap-1">
           <p className="text-sm font-semibold text-foreground">{alert.title}</p>
           <p className="text-sm leading-6 text-muted-foreground">{alert.description}</p>
@@ -403,7 +409,7 @@ function MetricTile({
   return (
     <Link
       to={to}
-      className="grid gap-3 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      className="grid gap-3 border border-border bg-card p-4 transition-colors fine-hover:hover:border-foreground/30">
       <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" aria-hidden />
         {label}
@@ -444,7 +450,7 @@ function Panel({
         <Link
           to={to}
           aria-label={`${linkLabel} — ${title}`}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-link">
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           {linkLabel}
           <RiArrowRightLine className="size-4" aria-hidden />
         </Link>
@@ -482,7 +488,7 @@ function NextStep({
   return (
     <Link
       to={to}
-      className="grid content-start gap-2 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      className="grid content-start gap-2 border border-border bg-card p-4 transition-colors fine-hover:hover:border-foreground/30">
       <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         {title}
@@ -502,7 +508,7 @@ function JobStatus({ status }: { status: BackgroundAgentJobItem['status'] }) {
         : status === 'running'
           ? 'info'
           : status === 'waiting_on_user'
-            ? 'warning'
+            ? 'waiting'
             : 'neutral'
 
   return <StatusIndicator tone={tone}>{t(`console.background_agent_jobs.status_${status}`)}</StatusIndicator>

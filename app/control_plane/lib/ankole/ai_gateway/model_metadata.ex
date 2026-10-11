@@ -465,7 +465,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp ensure_openrouter_defaults(metadata) do
     id = model_string(metadata["id"] || "unknown")
-    capability = inferred_capability(metadata)
+    capability = capability(metadata)
     defaults = fallback_model_metadata(id, capability)
 
     defaults
@@ -756,14 +756,20 @@ defmodule Ankole.AIGateway.ModelMetadata do
     }
   end
 
-  defp inferred_capability(%{"architecture" => %{"output_modalities" => output_modalities}}) do
+  @doc "Returns the model capability from its normalized metadata."
+  @spec capability(map()) :: String.t()
+  def capability(metadata) do
+    outputs = list_of_strings(get_in(metadata, ["architecture", "output_modalities"]))
+    parameters = list_of_strings(metadata["supported_parameters"])
+
     cond do
-      "embeddings" in list_of_strings(output_modalities) -> "embedding"
-      true -> "llm"
+      "embeddings" in outputs or "encoding_format" in parameters -> "embedding"
+      "query" in parameters and "documents" in parameters -> "rerank"
+      "image" in outputs -> "image_generate"
+      "text" in outputs -> "llm"
+      true -> "other"
     end
   end
-
-  defp inferred_capability(_metadata), do: "llm"
 
   defp modality(input_modalities, output_modalities) do
     "#{Enum.join(input_modalities, "+")}->#{Enum.join(output_modalities, "+")}"

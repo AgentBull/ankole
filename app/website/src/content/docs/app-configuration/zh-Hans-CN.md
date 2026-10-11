@@ -13,7 +13,7 @@ order: 43
 
 AppConfigure 设置保存在 PostgreSQL 中，用于控制 Ankole 运行期间的产品行为。大多数修改会在后续任务中生效，不需要重新部署。
 
-[部署环境变量](../environment-variables/)用于启动控制面、PostgreSQL 和 Worker。修改后需要重启相应进程。
+[部署环境变量](../environment-variables/)用于启动控制面和 PostgreSQL，并配置 Worker 后端。修改后需要重启相应进程。
 
 Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时，请使用 [Agent 环境变量](../worker-env/)。
 
@@ -31,15 +31,9 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 
 ## 理解作用范围和当前来源
 
-系统配置页修改的是实例级覆盖值。表中标为“实例或单个 Agent”的键还允许所属功能为特定 Agent 保存覆盖值，但不能在这个页面选择 Agent。
+配置键分为**站点**与**租户**作用域。站点键控制共享基础设施；租户键控制所选租户的行为。Console 分别展示站点默认值与租户覆盖，不支持 Agent 覆盖。
 
-当这些设置用于某个 Agent 时，系统会依次读取：
-
-1. 当前 Agent 的覆盖值；
-2. 实例级覆盖值；
-3. 当前版本内置的默认值。
-
-系统配置列表显示实例覆盖值或版本默认值。恢复默认值会删除实例级覆盖；没有单个 Agent 覆盖时，所有 Agent 都会重新使用当前版本的默认值。
+站点键先读取已存值，再使用版本默认值。租户键依次读取租户覆盖、同名键的站点默认值、版本默认值。“恢复默认值”删除所选作用域的覆盖；“来源”列说明当前生效值来自哪里。
 
 ## 修改设置
 
@@ -54,7 +48,7 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 
 ## 恢复默认值
 
-如果不再需要自定义值，打开该设置并选择“恢复默认值”。这会删除当前实例保存的覆盖值，让系统重新使用该版本声明的默认配置。
+如果不再需要自定义值，打开该设置并选择“恢复默认值”。这会删除所选作用域保存的覆盖值，让系统重新使用该版本声明的默认配置。
 
 恢复默认值不等于填入一个看起来相同的数值。将来默认配置发生变化时，前者会随版本更新，手工填写的值则会继续保持不变。
 
@@ -66,38 +60,38 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `ai_agent.max_iterations` | 实例或单个 Agent | 单个 Agent 回合允许进行的模型迭代次数 |
-| `ai_agent.max_output_tokens` | 实例或单个 Agent | 单次模型响应的输出 token 上限 |
-| `ai_agent.inactivity_timeout_ms` | 实例或单个 Agent | 模型或 Provider 无响应多久后结束当前回合 |
-| `ai_agent.library.agent_plugin_defaults` | 实例 | Agent Plugin 的默认启用状态 |
-| `ai_agent.library.skill_defaults` | 实例 | Skill 的默认启用状态 |
+| `ai_agent.max_iterations` | 租户 | 单个 Agent 回合允许进行的模型迭代次数 |
+| `ai_agent.max_output_tokens` | 租户 | 单次模型响应的输出 token 上限 |
+| `ai_agent.inactivity_timeout_ms` | 租户 | 模型或 Provider 无响应多久后结束当前回合 |
+| `ai_agent.library.agent_plugin_defaults` | 租户 | Agent Plugin 的默认启用状态 |
+| `ai_agent.library.skill_defaults` | 租户 | Skill 的默认启用状态 |
 
 ### Workflow
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `workflow.max_concurrency_per_run` | 实例 | 单次 Workflow 可以申请的任务并发上限；默认 `8`，有效范围为 `1`–`32` |
-| `workflow.max_running_per_agent` | 实例 | 单个 Agent 的所有 Workflow 中正在运行的任务总上限；默认 `8`，有效范围为 `1`–`64` |
-| `workflow.max_agent_calls_per_run` | 实例 | 单次 Workflow 可以创建的子 Agent 调用上限；默认 `256`，有效范围为 `1`–`1,024` |
+| `workflow.max_concurrency_per_run` | 租户 | 单次 Workflow 可以申请的任务并发上限；默认 `8`，有效范围为 `1`–`32` |
+| `workflow.max_running_per_agent` | 租户 | 单个 Agent 的所有 Workflow 中正在运行的任务总上限；默认 `8`，有效范围为 `1`–`64` |
+| `workflow.max_agent_calls_per_run` | 租户 | 单次 Workflow 可以创建的子 Agent 调用上限；默认 `32`，有效范围为 `1`–`1,024` |
 
-这些限制影响后续 Workflow 工作。单次运行可以申请更低的并发数或调用数，但不能抬高实例上限。任务行为和其他大小限制见 [Workflow](../workflows/)。
+这些限制影响后续 Workflow 工作。单次运行可以申请更低的并发数或调用数，但不能抬高租户上限。任务行为和其他大小限制见 [Workflow](../workflows/)。
 
 ### Brain
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `brain.enabled` | 实例 | 启用 Brain 的检索、学习和维护；关闭后仍保留已经存储的知识 |
-| `brain.maintainer_agent_uid` | 实例 | 负责维护 Brain 的活跃 Agent；Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent；停用后会停止这些调用和本地网页抓取，直到重新启用或更换 Agent；在 Agent 页面编辑对应的 `light`、`heavy` 和 `web_fetch` profile |
-| `brain.embedding_model` | 实例 | 向量检索使用的 Provider、模型和维度；留空会停用向量检索 |
-| `brain.rerank_model` | 实例 | 搜索结果重排使用的 Provider 和模型；留空会保留融合后的顺序 |
-| `brain.search_tokenizer` | 实例 | BM25 分词器：`icu`、`jieba`、`lindera_japanese` 或 `lindera_korean`；修改后需要重建 BM25 索引 |
-| `brain.chunking` | 实例 | Source 分块大小、重叠量和输入上限 |
-| `brain.forgetting` | 实例 | 各类知识的衰减半衰期和软删除清理间隔 |
-| `brain.dreaming_task_cron` | 实例 | 定期汇总知识的执行计划 |
-| `brain.self_healing_task_cron` | 实例 | 重建过期分块、embedding 和搜索索引投影的执行计划 |
-| `brain.signal_channel_batch_idle_time` | 实例 | 待处理聊天消息进入学习前的空闲秒数；会话结束也会触发学习 |
-| `brain.skill_learning_enabled` | 实例 | 启用 Skill lesson 的学习和交付；关闭后会保留已经存储的 lesson，但不再提供 |
-| `brain.skill_learning_reflection_threshold` | 实例 | 单个 Agent 触发一次 Skill lesson 反思前需要积累的未消费 Signal Job 数量；最小值为 `2` |
+| `brain.enabled` | 租户 | 启用 Brain 的检索、学习和维护；关闭后仍保留已经存储的知识 |
+| `brain.maintainer_agent_uid` | 租户 | 负责维护 Brain 的活跃 Agent；Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent；停用后会停止这些调用和 URL Source 抓取，直到重新启用或更换 Agent；在 Agent 页面编辑对应的 `light`、`heavy` 和 `web_fetch` profile |
+| `brain.embedding_model` | 站点 | 向量检索使用的 Provider、模型和维度；留空会停用向量检索 |
+| `brain.rerank_model` | 租户 | 搜索结果重排使用的 Provider 和模型；留空会保留融合后的顺序 |
+| `brain.search_tokenizer` | 站点 | BM25 分词器：`icu`、`jieba`、`lindera_japanese` 或 `lindera_korean`；修改后需要重建 BM25 索引 |
+| `brain.chunking` | 租户 | Source 分块大小、重叠量和输入上限 |
+| `brain.forgetting` | 租户 | 各类知识的衰减半衰期和软删除清理间隔 |
+| `brain.dreaming_task_cron` | 租户 | 定期汇总知识的执行计划 |
+| `brain.self_healing_task_cron` | 租户 | 重建过期分块、embedding 和搜索索引投影的执行计划 |
+| `brain.signal_channel_batch_idle_time` | 租户 | 待处理聊天消息进入学习前的空闲秒数；会话结束也会触发学习 |
+| `brain.skill_learning_enabled` | 租户 | 启用 Skill lesson 的学习和交付；关闭后会保留已经存储的 lesson，但不再提供 |
+| `brain.skill_learning_reflection_threshold` | 租户 | 单个 Agent 触发一次 Skill lesson 反思前需要积累的未消费 Signal Job 数量；最小值为 `2` |
 
 [Brain](../brain/) 说明知识行为和模型要求；[Skill lesson](../skill-lessons/) 说明 Brain 会随 Skill 提供哪些经验。
 
@@ -105,41 +99,43 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `ai_gateway.compaction` | 实例 | 对话历史自动压缩策略 |
-| `observability.traces.enabled` | 实例 | 是否在下次控制面启动时启用进程级 OpenTelemetry 导出 |
-| `observability.traces.provider` | 实例 | `langfuse`、`langsmith` 或通用 `opentelemetry` trace 的语义投影 |
-| `observability.traces.otlp_endpoint` | 实例 | 可选 trace 使用的基础 OTLP/HTTP endpoint |
-| `observability.traces.otlp_headers` | 实例 | 可选 trace 使用的加密认证请求头 |
+| `ai_gateway.compaction` | 站点 | 对话历史自动压缩策略 |
+| `observability.traces.enabled` | 站点 | 是否在下次控制面启动时启用进程级 OpenTelemetry 导出 |
+| `observability.traces.provider` | 站点 | `langfuse`、`langsmith` 或通用 `opentelemetry` trace 的语义投影 |
+| `observability.traces.otlp_endpoint` | 站点 | 可选 trace 使用的基础 OTLP/HTTP endpoint |
+| `observability.traces.otlp_headers` | 站点 | 可选 trace 使用的加密认证请求头 |
 
 Langfuse、LangSmith、VictoriaTraces 和其他 OTLP/HTTP 接收端的配置方法见 [LLM 可观测性](../llm-observability/)。
 
-### 身份、插件和实例默认值
+### 身份、插件和租户默认值
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `principals.identity_providers.active` | 实例，只读 | 当前可用于管理员登录的身份源；由身份源提供商页面管理 |
-| `principals.identity_providers.directory_full_sync_interval_hours` | 实例 | 企业通讯录和组织架构的全量同步间隔 |
-| `plugins.enabled_ids` | 实例 | 下次启动时启用的 Control Plane Plugin |
-| `system.timezone` | 实例 | 计划任务等控制面功能使用的默认时区 |
-| `i18n.default_locale` | 实例 | Ankole 界面的默认语言 |
+| `principals.identity_providers.active` | 租户，只读 | 当前可用于管理员登录的身份源；由身份源提供商页面管理 |
+| `principals.identity_providers.directory_full_sync_interval_minutes` | 租户 | 企业通讯录和组织架构的全量同步间隔 |
+| `plugins.enabled_ids` | 站点 | 下次启动时启用的 Control Plane Plugin |
+| `system.timezone` | 租户 | 计划任务等控制面功能使用的默认时区 |
+| `i18n.default_locale` | 租户 | Ankole 界面的默认语言 |
 
 ### Worker、网页读取和安全
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `runtime_fabric.worker_auth_key` | 实例，只读 | 控制面与 Worker 之间的认证密钥；由系统生成和维护 |
-| `agent_computer.background_agent_job.max_turns_per_worker` | 实例 | 每个 Worker 最多同时承载的后台 Agent Job 回合数 |
-| `worker.rendered_fetch_idle_ttl_ms` | 实例或单个 Agent | `web_fetch` 内置渲染回退的空闲保留时间 |
-| `security.ssrf_filter` | 实例或单个 Agent | 是否拒绝模型发起的私网、环回、链路本地和 CGNAT 地址访问 |
+| `runtime_fabric.worker_auth_key` | 站点，只读 | 控制面首次启动时生成的安装密钥；用于命名 Lark profile，不是 Worker 凭据 |
+| `agent_computer.worker.ready_timeout` | 站点 | Worker 可以保持未就绪多少秒，超过后用新的缓存盘重建；默认 `600`（10 分钟） |
+| `worker.rendered_fetch_idle_ttl_ms` | 租户 | `web_fetch` 内置渲染回退的空闲保留时间 |
+| `security.ssrf_filter` | 站点 | 是否拒绝模型发起的私网、环回、链路本地和 CGNAT 地址访问 |
 
 无论该开关是否启用，云服务元数据地址都会被拒绝。
+
+`agent_computer.worker.ready_timeout` 控制已观察到但未就绪的实例恢复。空闲回收在 provider YAML 中用 `idleReleaseAfter` 设置，见 [工作节点](../worker-management/)。
 
 ### 首次设置状态
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `setup.bootstrap_activation_code` | 实例，只读 | 首次设置页面使用的临时激活码 |
-| `setup.completed` | 实例，只读 | 当前实例是否已经完成首次设置 |
+| `setup.bootstrap_activation_code` | 站点，只读 | 首次设置页面使用的临时激活码 |
+| `setup.completed` | 站点，只读 | 当前实例是否已经完成首次设置 |
 
 这两个键由首次设置流程维护。需要查看激活码时，运行 `kit show bootstrap-activation-code`，不要在系统配置页手工修改。
 

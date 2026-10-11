@@ -40,7 +40,7 @@ defmodule Ankole.Brain.Health do
       models: %{
         embedding: model_status(safe(fn -> Config.embedding_model() end, nil)),
         rerank: model_status(safe(fn -> Config.rerank_model() end, nil)),
-        web_fetch: profile_model_status("web_fetch", fallback: "ankole_browser"),
+        web_fetch: profile_model_status("web_fetch"),
         extraction: profile_model_status("light"),
         dreaming: profile_model_status("heavy")
       },
@@ -142,17 +142,15 @@ defmodule Ankole.Brain.Health do
     )
   end
 
-  defp profile_model_status(profile, opts \\ []) do
+  defp profile_model_status(profile) do
     case safe(fn -> Config.maintainer_model_profile(profile) end, {:error, :internal_error}) do
       {:ok, model} ->
         model
         |> model_status()
         |> Map.put(:profile, profile)
-        |> maybe_put_fallback(Keyword.get(opts, :fallback))
 
       {:error, :model_profile_not_configured} ->
         %{configured: false, profile: profile}
-        |> maybe_put_fallback(Keyword.get(opts, :fallback))
 
       {:error, reason} ->
         %{
@@ -162,11 +160,6 @@ defmodule Ankole.Brain.Health do
         }
     end
   end
-
-  defp maybe_put_fallback(status, fallback) when is_binary(fallback),
-    do: Map.put(status, :fallback, fallback)
-
-  defp maybe_put_fallback(status, _fallback), do: status
 
   defp embedding_signature do
     case Embeddings.signature() do

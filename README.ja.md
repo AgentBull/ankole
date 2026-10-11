@@ -1,71 +1,152 @@
-# Ankole、Company Brain を備えた企業向け Agent Harness
+<div align="center">
+
+<img src="app/website/src/assets/logo.svg" alt="Ankole logo" width="88">
+
+# Ankole
+
+**Company Brain を備えたオープンソースの Agent Harness**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
+[![Release](https://img.shields.io/github/v/release/AgentBull/ankole?label=release)](https://github.com/AgentBull/ankole/releases)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
-[English](./README.md) | [简体中文](./README.zh-Hans.md) | [한국어](./README.ko.md)
+[Web サイト](https://ankole.agentbull.com/ja-JP/) · [ドキュメント](https://ankole.agentbull.com/ja-JP/docs/introduction/) · [クイックスタート](#クイックスタート) · [Discussions](https://github.com/AgentBull/ankole/discussions)
 
-[Ankole を選ぶ理由](#ankole-を選ぶ理由) · [Company Brain](#company-brain) · [意思決定の仕事](#意思決定の仕事) · [企業向けランタイム](#企業向けランタイム) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
+[English](./README.md) · [简体中文](./README.zh-Hans.md) · **日本語** · [한국어](./README.ko.md)
 
-**Company Brain が、すべての Agent に社内知識を届け、判断を改善します。**
+</div>
 
-Ankole は、Company Brain を備えたオープンソースの Claude Tag 代替製品です。企業向け Agent Harness が、社内知識、リアルタイムのシグナル、権限、ツール、実際の結果を、Agent の判断に必要なコンテキストとして構成します。
+[![Ankole の紹介動画を見る（2:03）](docs/assets/ankole-intro-poster.jpg)](https://x.com/AgentBullLab/status/2108582424959721707/video/1)
 
-Company Brain は継続して動く Agent に共有知識を提供します。Harness は企業の権限規則を適用し、モデルの呼び出しを越えて仕事を継続します。
+Ankole は、会社のために継続して働く AI Agent を動かします。一人会社から大企業まで使えます。利用者は Slack、Microsoft Teams、Lark、DingTalk、WeCom など、普段使っているチャットツールから Agent に仕事を頼みます。
 
-モデルが推論できる範囲は、与えられたコンテキストで決まります。Ankole は関連する事実と機能を選び、権限を適用し、障害後も仕事を継続し、結果を次の意思決定に引き継ぎます。
+プロンプトといくつかのツールを与えただけのモデルは、毎回ゼロから仕事を始めます。チームが先週決めたことを知らず、持っている権限をそのまま使い、プロセスが止まれば仕事も止まります。Ankole は、この欠けた部分を補う Harness です。Ankole の Agent は、チームの決定を覚えている Company Brain を共有します。Agent は与えられた権限の範囲で働き、クラッシュや再起動の後も長いタスクを復旧します。各 Agent はコンテナーの中に専用の Linux コンピューターを持ちます。システム全体は、自分たちが管理する基盤で運用します。
 
-Ankole は、企業が管理する基盤で実行できます。ID、コンテキスト、認証情報、成果物、監査記録、実行内容は、その基盤内に残ります。
+Ankole は Claude Tag のオープンソース代替です。Claude Tag は Anthropic がホストする Slack 用エージェントです。Ankole は Slack にも Claude のモデルにも縛られず、会社のコンテキストを自社のサーバーに保存します。モデルと検索の呼び出しは設定したプロバイダーにだけ送られ、自社でホストするモデルも指定できます。
 
-Harness は、モデルの各呼び出しに継続性、権限、永続状態、結果からのフィードバックを提供します。
+> **#リサーチ** · グループチャット
+>
+> **Ravi：** 景気循環株は景気の一巡を通して見る。3 年では短すぎる\
+> **Mia：** 同意、最低 7 年
+>
+> *3 日後*
+>
+> **Sam：** @Ankole 非鉄金属銘柄のバリュエーションを頼む\
+> **Ankole：** 了解。3 日前にこのチャンネルで決まったとおり、景気循環株のパーセンタイルは 7 年分のデータで算出します。\
+> 添付：`非鉄金属バリュエーション.pdf`（14 ページ）
+
+このルールを覚えるよう Ankole に頼んだ人はいません。Company Brain は Ankole が参加しているチャットからルールを学び、出所と日付を記録し、それを必要とする次の依頼に適用しました。
+
+1 つのデプロイをサイトと呼びます。サイト内の各テナントは人、Agent、Brain、外部接続を持ち、サイト管理者が共有基盤を管理します。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH` で変更できます。旧 `/console` は 404 を返します。
+
 
 ## Ankole を選ぶ理由
 
-多くの Agent stack は、モデル、Prompt、ツールを接続します。各呼び出しは、その時点で組み立てたコンテキストから始まります。Ankole は、呼び出し後も続く仕事に必要な会社の状態とランタイムを維持します。
+推論するのはモデルです。モデルを取り巻く Harness は、モデルに何を見せ、何を許すかを決めます。障害の後に仕事をどう続けるか、結果をどう次の判断に生かすかも決めます。Ankole は、これらの判断をプロンプトごとに任せず、システムに組み込みます。
 
-- Harness は現在のコンテキストを構成し、機能を選び、権限を適用し、モデルの呼び出しを越えて状態を保持します。
-- メッセージ、スケジュール、Webhook、市場の変化、社内イベントが、担当する Agent を起動します。
-- 安定した ID、AuthZ、承認点、監査記録、配信状態が、各 Agent の権限を定めます。
-- 修正、新しい証拠、期限切れの事実、実際の結果が、次の意思決定で使うコンテキストを更新します。
+- **Agent は会社が決めたことを覚えています。** Company Brain は、会話、登録したファイルと URL、Agent が書いたメモから学習します。知識は 1 件ずつ Claim として保存され、出所、時点、確信度、閲覧範囲、保有者（その見解を持つ人または Agent）が記録されます。新しい証拠は現在の見解を更新し、履歴も残します。矛盾する Claim は、確認できるように表示されたままになります。
+- **各 Agent は与えられた権限の範囲で働きます。** 人と Agent にはそれぞれ ID と権限があり、Agent 同士がコンピューター、ホームディレクトリ、認証情報を共有することはありません。モデルが社内知識を読む前に、Company Brain は質問者に閲覧権限のない内容を取り除きます。グループチャットでは、メンバー全員の権限を適用することもできます。PostgreSQL は、各 Agent が受けた依頼、行ったモデル呼び出し、届けた結果を記録します。Agent ごとの token クォータがモデルの利用量に上限を設けます。退職者をオフボーディングすると、その人のサインインが無効になり、その人が所有するタスクとスケジュールも止まります。
+- **何かが起きたときに仕事が始まります。** メッセージ、スケジュール、Webhook などの外部イベントが、その仕事を担当する Agent を起動します。Agent は自分でリマインダーを設定し、後で改めて確認することもできます。
+- **長い仕事は障害から復旧します。** タスクは数時間から数日実行でき、実行中も新しい入力を受け取れます。Control Plane は Elixir/OTP で動くので、クラッシュは発生した会話の中だけにとどまり、ほかの仕事は続きます。PostgreSQL は、Ankole が仕事を続けるために使う入力、モデル履歴、ツールの結果を保存します。
+- **各 Agent に専用のコンピューターがあります。** Linux コンテナーが、ブラウザー、ターミナル、ファイル、Codex、MCP（Model Context Protocol）サーバー、Skill を Agent に提供します。Skill は、ある種類の仕事のために承認された手順です。ホームディレクトリは再起動やアップグレードの後も残ります。
+- **修正と結果が後の仕事に生かされます。** Deep Research は、互いに分かれた複数のコンテキストで証拠を集め、競合する仮説を検証し、出典付きのレポートを返します。修正が繰り返されると、Agent は Skill 教訓を提案できます。Skill 教訓は Skill に追加される短いルールで、人が承認すると有効になります。Company Brain に記録された予測の期限が来ると、Company Brain は予測と実際の結果を比べます。
 
-## Company Brain
+Ankole は、会社の仕事のための完結したシステムで、ライブラリではありません。Control Plane、データベース、Agent コンピューターを含みます。自分のアプリケーションにエージェントループを組み込みたい場合や、私生活の用事を手伝うアシスタントが欲しい場合は、より小さなツールが向いています。
 
-Company Brain は、権限を持つすべての Agent に、同じ最新の社内知識を提供します。
+## よくある依頼
 
-Company Brain は、会話、登録したファイルと URL、Agent が明示的に記録した内容から学習します。各 Claim は、出所、時点、保有者、確信度、閲覧範囲を保持します。
+次のような依頼が、グループチャットやダイレクトメッセージで届きます。
 
-- 判断は保有者に結び付き、出所はその出所が支える Claim に結び付きます。
-- 新しい証拠は現在の見解を更新し、過去の判断に至った履歴も保持します。
-- 矛盾する内容は、人が確認できる状態で残ります。
-- Recall は、保護された知識がモデルに届く前に、Principal とグループの閲覧範囲を適用します。
-- Dreaming は証拠を整理し、パターンを検出し、期限を迎えた予測を評価し、変更案を人の承認に送ります。
+| 依頼 | Ankole の対応 |
+| --- | --- |
+| 「毎週金曜 17:00 に、X のこの 9 つのアカウントの投稿をトピック別にまとめた PDF をこのチャンネルに送って」 | 毎週のスケジュールを作成します。毎週、各アカウントの投稿を読み、PDF を作成して投稿します。 |
+| 「@Ankole うちのリポジトリの issue #482 を直して、プルリクエストを作って」 | 管理者が設定したリポジトリの認証情報を使ってバックグラウンドジョブで Codex を実行し、プルリクエストのリンクを返信します。 |
+| 「今週このグループで話した内容を要約して、未完了のアクションアイテムを挙げて」 | 閲覧権限のあるチャンネル履歴を読み、要約と一覧を返信します。 |
+| 「この段落をスライドにして」「この PDF を韓国語に翻訳して」 | PowerPoint ファイルまたは翻訳した PDF を返します。 |
+| 「取引先についてのこの噂は本当？」 | Deep Research を実行し、噂を支持する証拠と否定する証拠を示した出典付きの概要を返します。 |
+| 「公開されている算出ルールからこの株価指数を再計算して、公式の値と並べたグラフにして」 | データを取得し、Jupyter ノートブックで指数を計算して、グラフを送ります。 |
 
-## 意思決定の仕事
+## 対応プラットフォーム
 
-Ankole は、仮説と結果を検証する意思決定に対応します。現在の例には、業界調査、商品選定、詳細なデータ分析、予測があります。
+| 分野 | 対応 |
+| --- | --- |
+| チャットとメール | Slack、Microsoft Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メール |
+| サインインとディレクトリ同期 | Slack、Microsoft Entra ID、Google Workspace、Lark/Feishu、DingTalk、WeCom、組み込みのパスワードアカウント |
+| モデル | OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、ChatGPT サブスクリプション、OpenAI API 互換の任意のエンドポイント。中国市場向けプラグインを使うと、Volcengine Ark、Alibaba Cloud DashScope CN、Z.AI Coding Plan、Xiaomi MiMo も使えます。 |
+| Web 検索とページ読み取り | Parallel（parallel.ai）、Jina、Bright Data SERP、AgentBull Cloud |
+| Agent コンピューター | Docker、Kubernetes、Cloudflare Containers、Vercel、AWS Lambda MicroVMs、Alibaba Cloud Function Compute |
+| デプロイ | 1 台のホストでの Docker Compose、Kubernetes での Helm チャート |
 
-- Agent は、現在の規則、過去の判断、関連する証拠、利用できる権限、最近の変化を確認して仕事を始めます。
-- Deep Research は証拠収集を独立した実行者に分け、競合する仮説を検証し、証拠の不足を記録し、出典付きのレポートを返します。
-- ブラウザー、ターミナル、ファイル、モデル、外部システムにより、Agent は権限の範囲で調査と実行を行います。
-- 予測、修正、実際の結果が、次の意思決定に使う証拠になります。
+## クイックスタート
 
-## 企業向けランタイム
+Docker Compose を使うと、Linux、macOS、Windows のいずれか 1 台のホストに完全な環境をデプロイできます。スタックには PostgreSQL、Control Plane、HTTPS サーバーの Caddy が含まれます。必要なものは次のとおりです。
 
-Ankole は、各アクティブ Session をアドレス指定できる Virtual Actor として実行します。Actor は起動、メッセージ受信、チェックポイント、進捗配信、休止、復旧、処理の継続に対応します。
+- Linux の `amd64` または `arm64` コンテナーを実行できる Docker と、実行中の Agent 1 つにつきコンテナー 1 つ分のメモリーとディスク。
+- Ankole に root 権限を与えてよいホスト。Control Plane は Docker ソケットを通じて Agent のコンテナーを作成します。このソケットへのアクセスは、ホストの root 権限と同じです。
+- ホストを指す DNS 名と、開いているポート 80 と 443。自分のマシンで試す場合は、代わりにホスト名 `ankole.localhost` を使います。
+- モデルプロバイダーの API キーと、チャットプラットフォームでボットを作成する権限。Ankole は Slack、Lark、DingTalk、WeCom、Discord、Telegram、メールに自分から接続するので、これらはローカルでの試用にも使えます。Microsoft Teams、LINE、WhatsApp はホストへイベントを送るため、公開 HTTPS アドレスが必要です。
 
-5 つの仕組みが、仕事の継続と監査を支えます。
+デプロイ用のファイルを取得します。
 
-- Virtual Actor は、各 Session にアドレス、メールボックス、ライフサイクル、復旧位置を与えます。
-- OTP の監督ツリーは、停止、タイムアウト、クラッシュが発生した Session の分岐を隔離します。
-- ZeroMQ は、起動、誘導、チェックポイント、ストリーム、バックプレッシャーを低遅延で伝えます。
-- Agent Computer は、ワークスペースの近くでモデルループ、ツール、MCP サービス、ファイル、ターミナル、ストリーミング出力を実行します。
-- PostgreSQL は、Mailbox、Turn、リマインダー、意思決定、確定した操作を保存し、復旧と監査に使います。
+```bash
+git clone https://github.com/AgentBull/ankole.git
+cd ankole/tools/deploy/docker-compose
+cp .env.example .env
+chmod 600 .env
+```
 
-Agent は数時間から数日働き、実行中に入力を受け取り、障害を個別に処理し、コンテキストを保って復旧し、確定した操作を記録します。詳しい設計は[なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)で説明します。
+`.env` に次の値を設定します。
 
-## アーキテクチャ
+| 変数 | 値 |
+| --- | --- |
+| `ANKOLE_HOST`、`ACME_EMAIL` | ホスト名と、証明書の通知を受け取るメールアドレス |
+| `POSTGRES_PASSWORD`、`ANKOLE_SECRET_BASE`、`RELEASE_COOKIE` | `openssl rand -hex 32` で別々に生成した 3 つの値 |
+| `ANKOLE_DOCKER_GID` | Linux では `stat -c %g /var/run/docker.sock` の出力、macOS の Docker Desktop では `0` |
+
+スタックを起動し、1 回限りのアクティベーションコードを確認します。
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
+```
+
+コードは Control Plane の起動後に出力されます。最後のコマンドで何も表示されない場合は、少し待ってからもう一度実行します。
+
+`ankole.localhost` を使う場合、Caddy は独自のローカル認証局で証明書に署名します。セットアップページには信頼された HTTPS が必要です。その認証局のルート証明書をコピーし、OS の証明書ツールで信頼させます。
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-local-ca.crt
+```
+
+`https://<ANKOLE_HOST>/setup` を開き、コードを入力します。チャットプラットフォーム用のプラグインなど、必要なプラグインを選びます。管理者のサインイン方法として、Slack や Microsoft Entra ID などの ID プロバイダーか、ローカルパスワードを設定します。その後、管理者用の Web 画面であるコンソールで、モデルプロバイダーを追加し、Agent を作成し、その Agent にチャットプラットフォームを接続します。プロバイダーの API キーは `.env` ではなくコンソールに保存します。そのチャットで Agent にメッセージを送り、返信が届けばセットアップは完了です。
+
+Claude Code や Codex などのコーディングエージェントと一緒に、セットアップ全体を進めることもできます。次のプロンプトを渡してください。
+
+```text
+https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankole のプライベートデプロイメントインスタンスのデプロイと設定を手伝ってください。まず、私の環境を調査し、Docker Compose、Kubernetes、またはソースからのインストールのいずれかを推奨してください。次に、Identity Provider（IdP）、LLM Provider、Agent、Channel Provider、Signal Routing Rule（Signal Binding）のセットアップを手伝ってください。IdP と IM プラットフォームを指定していない場合は、使用したい identity ソースとチャットプラットフォームを尋ねてください。勝手に選択しないでください。chat やコマンドの出力に secret を露出しないでください。選択した IM で実際の Agent の返信を受け取ったときにだけ、作業は完了とみなします。
+```
+
+その他の実行方法：
+
+- Kubernetes：[Helm チャート](tools/deploy/helm/ankole-agent/README.md)（英語）は、同梱または外部の PostgreSQL を使います。
+- Cloudflare Containers で Agent コンピューターを動かす：[Cloudflare アダプター](tools/deploy/cloudflare/agent-workers/README.md)（英語）
+- ソースから実行する：[CONTRIBUTING.md](CONTRIBUTING.md)（英語）
+
+完全な[クイックスタート](https://ankole.agentbull.com/ja-JP/docs/quickstart/)では、ID プロバイダー、モデルプロバイダー、チャットプラットフォームごとの手順を説明しています。バックアップ、アップグレード、トラブルシューティングは [Compose ガイド](tools/deploy/docker-compose/README.md)（英語）にあります。
+
+## 仕組み
+
+Ankole は、Control Plane、Agent ごとに 1 つの Worker、共有の Rust Kernel、永続ストレージで構成されます。
+
+- **Control Plane**（Elixir、Phoenix、OTP）は、プロセスが終わっても残すべきことをすべて決定し、記録します。これには、ID と権限、設定、受信するメッセージと Webhook、スケジュール、会話、ジョブ、Company Brain、モデルプロバイダーを呼び出す AI ゲートウェイが含まれます。各会話のモデルループは、Control Plane のスーパーバイザー配下のプロセスとして動きます。
+- 各 Agent には **Agent Computer Worker** が 1 つあります。これは Linux コンテナー内で動く Bun と TypeScript のプログラムです。Worker はコマンド、ブラウザー、Codex、MCP サーバー、Skill、Automation スクリプトを実行します。Control Plane は Docker、Kubernetes、またはクラウドプラットフォームで Worker を作成し、コンピューターが必要な作業のときだけ呼び出します。
+- **Kernel** は、Elixir が読み込む Rust ライブラリです。暗号処理、識別子、権限評価、AI 通信を提供します。
+- **PostgreSQL** は、再起動後も残す必要がある事実をすべて保存します。ファイルストアは各 Agent のドライブと添付ファイルを保存し、各 Agent のホームディレクトリ（Agent Home）はそれぞれのストレージに残ります。
+
+<details>
+<summary>アーキテクチャ図</summary>
 
 この図は、所有権と永続性の境界を示します。内部呼び出しは省略しています。
 
@@ -78,18 +159,19 @@ flowchart TB
     Platform["Principal / AuthZ / 設定<br/>Control Plane Plugins"]
     SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
     Schedule["Schedule<br/>Checkback · Cron"]
-    Runtime["Actor Runtime<br/>session lifecycle · admission · recovery"]
+    Runtime["Conversations<br/>Agent loop · admission · recovery"]
     Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
     Brain["Brain<br/>共有知識 · recall · Dreaming"]
     AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
   Fabric["RuntimeFabric<br/>一時的な Actor 通信 · 上限付き RPC · Worker ファイル"]
-  Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turn · Background Job / Codex · Automation script<br/>tools · Skills · MCP · browser · terminal"]
+  Workers["Agent Computer Worker · Agent ごとに 1 つ<br/>環境ツール · Codex · Automation script<br/>Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  PG[("PostgreSQL · 永続性の境界<br/>確定した領域の事実")]
-  Home[("Shared Agent Home · durability boundary<br/>workspace · artifact · resumable file")]
+  PG[("PostgreSQL · 永続性の境界<br/>確定したドメインの事実")]
+  Files[("ファイルストア · 永続性の境界<br/>Agent ドライブ · 添付ファイル")]
+  Homes[("Agent Home ストレージ · 永続性の境界<br/>Agent ごとに 1 つ · ワークスペース · Codex スレッド")]
 
   External -->|"input と administration"| Control
   SG -->|"ActorEvent"| Runtime
@@ -97,123 +179,55 @@ flowchart TB
   SG -->|"bound webhook"| Jobs
   Schedule -->|"bound trigger"| Jobs
   Platform --> Runtime
+  Runtime --> AI
   Control -->|"live execution"| Fabric
   Fabric <--> Workers
-  Workers -->|"AIGateway API"| Control
+  Workers -->|"Codex Responses API"| AI
   Control -->|"AIGateway provider call"| Providers
   Control -.-> PG
-  Workers -.-> Home
+  Control -.-> Files
+  Workers -.-> Homes
 ```
 
-Elixir/OTP の Control Plane は、Principal/AuthZ、SignalsGateway、Schedule、Actor Runtime、Job のライフサイクル、Brain、AIGateway の永続的な判断を担当します。PostgreSQL は各領域で確定した事実を保存します。
+</details>
 
-- SignalsGateway はチャネルと Webhook の受け付けを担当します。Schedule は Checkback と Cron を担当します。
-- Agent Computer Worker は、Main Agent Turn、Background Job、Codex Turn、Automation スクリプトを実行します。
-- RuntimeFabric は、一時的な Actor 通信、上限付き RPC、Worker のファイル操作を伝えます。
-- AIGateway は、LLM、Embedding、Rerank、Web Search、Web Fetch の要求を Control Plane の共通境界から処理します。
-- Brain は共有の Page と Claim を保存します。読み取り時には、要求元 Principal の知識境界を適用します。
-- Background Agent Job は対話型のモデル処理を実行します。Automation Job は Agent が所有する決定的なスクリプトを実行します。
-- 共有 Agent Home は、ワークスペース、成果物、再開用ファイルを保存します。Worker のプロセス状態は再構築できます。
+[docs/README.md](docs/README.md)（英語）は各部分の全体像を示し、[設計ドキュメント](docs/design-docs/)（英語）は各部分の契約を定めます。[なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)では、このランタイムを選んだ理由を説明しています。
 
-## 現状
+## 現状と既知の制限
 
-Ankole は、企業が管理する基盤で運用できる完全な Agent Harness として本番稼働しています。Control Plane、Agent Computer、Kernel、運用コンソールを一つの環境に配置できます。
+Ankole は本番環境で稼働しています。Ankole の Agent も、会社が使うのと同じ Company Brain、ツール、作業ルールで、このリポジトリの保守に参加しています。専用のエンドツーエンドテストが、Slack、Lark、DingTalk、WeCom のメッセージ経路、スケジュール、Worker コンピューター、クラッシュからの復旧、並行処理、アップグレードを検証しています。パブリック API はまだ互換性を保証していないため、リリースに互換性のない変更が含まれることがあります。アップグレードの前に[変更履歴](CHANGELOG.md)（英語）を確認してください。
 
-- OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI 互換エンドポイントは、コンテキスト圧縮、状態を持つ会話、推論強度の制御、利用量の記録に対応します。
-- Slack、Microsoft Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、Email のアダプターが、Agent を企業向けチャット、消費者向けチャット、専用メールボックスに接続します。Slack、Entra ID、Google Workspace、Lark/Feishu、DingTalk、WeCom、組み込みのローカルパスワードプロバイダーがサインインとディレクトリ同期を提供します。
-- Agent ごとの token quota が、繰り返し期間内のモデル消費に上限を設けます。Human offboarding は、コンソールまたはディレクトリの退職イベントから、退職した人のサインインと今後の作業を無効化し、監査付きで復元できます。
-- Brain は、範囲付きの開示、会話と Source からの学習、オフライン整理、運用者による確認、全文検索、ベクトル検索を提供します。
-- Session は起動、チェックポイント、進捗配信、休止、コンテキストを保った復旧、実行中の誘導とキャンセルに対応します。
-- 組み込みの運用コンソールは、Agent、Library 設定、Plugin、モデルプロバイダー、モデル、Identity、シグナル、Worker、Brain、Background Agent Job を管理します。
-- 単体テストと専用のシステムテストは、スケジュール、Worker Computer、障害復旧、並行処理、性能を検証します。
+[トレードオフと既知の制限](docs/TradeoffsAndKnownLimits.md)（英語）に、Ankole が保証しないことをまとめています。特に重要な点は次のとおりです。
 
-パブリック API の互換性契約は現在策定中です。リリース間で互換性のない変更が発生する場合があります。
+- 1 つのデプロイメントは 1 つの組織だけに使います。信頼境界を共有しない組織は、別々にデプロイする必要があります。
+- Worker コンテナーが、その Agent の唯一の隔離境界です。Ankole は Agent 自身の操作から Worker を守りません。
+- Alibaba Cloud Function Compute のプロバイダーは、まだクラウド上で Worker のライフサイクル全体を検証していません。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations)（英語）に、各プラットフォームが通過したチェックを記載しています。
 
-| 領域 | 状態 |
+## ドキュメント
+
+| ガイド | 内容 |
 | --- | --- |
-| Control plane | `app/control_plane` の Phoenix/OTP application。durable state、configuration、actor orchestration、Principal/AuthZ、AIGateway、Brain、SignalsGateway、運用 API を担います。 |
-| Agent Computer | `app/agent_computer` の Bun/TypeScript Worker ランタイムです。隔離された Linux Worker イメージ内で Agent ループとローカルツールを実行します。Worker 実行環境として使用します。 |
-| Kernel | `app/kernel` の Rust crate。Elixir (Rustler) と Bun (N-API) が読み込み、crypto、identifier、AuthZ evaluation、ZeroMQ transport を担います。 |
-| Frontend | `app/webapps` の Vite + React console、auth、setup surfaces。Phoenix static shell に build されます。 |
-| ローカルサービス | PostgreSQL は devkit Docker Compose で提供されます。 |
-| 設計ドキュメント | アーキテクチャと runtime 設計ドキュメントは `docs/design-docs` にあります。 |
-| 本番対応 | 本番環境で稼働しています。状態の永続化、リアルタイム制御、運用画面は完成しています。パブリック API の互換性契約は現在策定中です。 |
+| [はじめに](https://ankole.agentbull.com/ja-JP/docs/introduction/) | Agent、Company Brain、Skill、権限など、デプロイメントの構成要素 |
+| [クイックスタート](https://ankole.agentbull.com/ja-JP/docs/quickstart/) | デプロイ、サインイン、モデルプロバイダー、チャットプラットフォームの手順 |
+| [アーキテクチャ](https://ankole.agentbull.com/ja-JP/docs/architecture/) | 各コンポーネントとその境界 |
+| [FAQ とトラブルシューティング](https://ankole.agentbull.com/ja-JP/docs/faq/) | よくある障害の原因と対処 |
+| [デプロイガイド](tools/deploy/README.md)（英語） | Docker Compose、Helm、Cloudflare Containers |
+| [設計ドキュメント](docs/design-docs/)（英語） | 各サブシステムの契約 |
 
-## 現在のリポジトリ
+## コントリビュート
 
-このリポジトリは、現在アクティブな Ankole control-plane and runtime workspace です。
-
-- `app/control_plane` - Principal/AuthZ、AppConfigure、setup、console、Control Plane Plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric、PostgreSQL-owned durable state を担う Phoenix/OTP control plane。
-- `app/kernel` - Elixir と Bun が読み込む shared Rust foundation。crypto、identifier、phone/JWT helpers、AuthZ evaluation、protobuf envelopes、ZeroMQ RuntimeFabric transport を担います。
-- `app/agent_computer` - local LLM loop、provider adapters、tools、skill loading、files、terminal state、worker daemon を担う Bun + TypeScript Agent Computer worker。
-- `app/webapps` - auth、setup、console surfaces を提供し、Phoenix static shell に build される Vite + React frontend applications。
-- `app/library` - built-in standalone Skills、first-party Agent Plugins、`MISSION.md`、`SOUL.md` などの starter templates。
-- `app/locales` - control plane と browser surfaces が共有する TOML translation catalogs。
-- `libs/uikit` - Ankole webapps で共有する UI primitives。
-- `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library。
-- `internals/plugins` - private release に compile される first-party Control Plane Plugin code。
-- `tools/devkit` - local services、app database helpers、code generation、analysis のための workspace automation。
-- `docs/design-docs` - principal identity、authorization、browser sessions、OIDC、human offboarding、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、Brain、jobs、token quotas、provider adapters の現在の design docs。
-
-RuntimeFabric は control-plane から worker への live fabric です。ZeroMQ 上で actor traffic、bounded RPC、worker-file frames を運び、PostgreSQL が durable replay、fences、reconciliation、final commits の source of truth であり続けます。SignalsGateway は provider ingress layer です。外部 chat、webhook、provider event は actor event になりますが、external source facts を execution state と混同しません。
-
-## 開発
-
-Ankole は workspace scripts に Bun を使い、control plane に Elixir/Phoenix を使います。
-
-初回のローカルセットアップでは、次の 1 つの prompt を coding agent にそのまま渡してください。
+コントリビューションを歓迎します。[CONTRIBUTING.md](CONTRIBUTING.md)（英語）は、まっさらなマシンから検証済みのエンドツーエンド環境までを案内します。[AGENTS.md](AGENTS.md)（英語）はエンジニアリングのルールを定めています。どちらもコーディングエージェントが従える内容です。始めるときは、次のプロンプトをコーディングエージェントに渡してください。
 
 ```text
 https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md を最初から最後まで読み、そのガイドに厳密に従って、現在の Ankole リポジトリで完全なローカル環境の構築と文書化された end-to-end 検証を案内してください。安全で可逆な手順と検証はあなたが実行し、アカウント、secret、OAuth、または破壊的操作の承認が必要な場合だけ停止して私を案内し、記載された成功条件をすべて満たすまで完了と報告しないでください。
 ```
 
-```shell
-bun install
+## コミュニティ
 
-# Local support services and workspace helpers
-bun kit --help
-bun services:start
-bun services:status
+- 質問や、Ankole で作ったものの共有は [GitHub Discussions](https://github.com/AgentBull/ankole/discussions) へどうぞ。
+- バグ報告や機能の要望は [GitHub Issues](https://github.com/AgentBull/ankole/issues) へどうぞ。
+- Ankole が役に立ったら、リポジトリに Star を付けてください。ほかのチームが Ankole を見つけやすくなります。リリース通知を受け取るには、**Watch**、**Custom**、**Releases** の順に選びます。
 
-# Control plane
-bun control-plane:setup
-bun control-plane:dev
-bun control-plane:test
+## ライセンス
 
-# Agent Computer container image and tests
-bun run agent-computer:test
-bun run agent-computer:type-check
-
-# Other Bun packages
-bun run webapps:build
-bun run feishu-openapi:test
-```
-
-Agent Computer is a Linux container runtime. Strong bubblewrap command isolation
-requires Docker `--cap-add SYS_ADMIN`, `--security-opt seccomp=unconfined`, and
-`--security-opt systempaths=unconfined` unless you provide an equivalent custom
-seccomp/profile setup. In Kubernetes, put the equivalent
-`capabilities.add: ["SYS_ADMIN"]`, `seccompProfile`, and `procMount: Unmasked`
-on the Agent Computer container `securityContext`. If strong bubblewrap is
-unavailable, the worker may downgrade to weak bubblewrap by bind-mounting the
-container `/proc` into bwrap and emits a startup warning. It does not run
-model-facing commands without sandboxing.
-
-変更したパッケージごとに検証します。
-
-```shell
-bun run --filter @ankole/control-plane test
-bun run agent-computer:test
-bun run --filter @ankole/agent-computer type-check
-bun run --filter @ankole/webapps type-check
-bun run --filter @ankole/feishu-openapi test
-```
-
-Control plane が起動した後、worker bootstrap helper がローカル RuntimeFabric endpoint に対して外部 Agent Computer worker を起動する Docker コマンドを描画します。
-
-```shell
-cd app/control_plane
-mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
-```
-
-本番環境の初期設定では、`DATABASE_URL`、`SECRET_KEY_BASE` などの標準的なインフラ名を使います。実行時のアプリケーション設定は、Ankole の PostgreSQL にある AppConfigure レコードへ保存します。
+Ankole のライセンスは [Apache License 2.0](LICENSE) です。

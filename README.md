@@ -1,71 +1,158 @@
-# Ankole, the enterprise Agent Harness with a Company Brain
+<div align="center">
+
+<img src="app/website/src/assets/logo.svg" alt="Ankole logo" width="88">
+
+# Ankole
+
+**The open source Agent Harness with a Company Brain**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
+[![Release](https://img.shields.io/github/v/release/AgentBull/ankole?label=release)](https://github.com/AgentBull/ankole/releases)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
-[简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
+[Website](https://ankole.agentbull.com/) · [Documentation](https://ankole.agentbull.com/en-US/docs/introduction/) · [Quick start](#quick-start) · [Discussions](https://github.com/AgentBull/ankole/discussions)
 
-[Why Ankole](#why-ankole) · [Company Brain](#company-brain) · [Decision work](#decision-work) · [Enterprise runtime](#enterprise-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
+**English** · [简体中文](./README.zh-Hans.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
-**Give your company a Brain and every Agent better judgment.**
+</div>
 
-Ankole is the open source Claude Tag alternative for company work. Its enterprise Agent Harness assembles company knowledge, live signals, permissions, tools, and observed results into the context an Agent needs to make a decision and show its evidence.
+[![Watch the Ankole film (2:03)](docs/assets/ankole-intro-poster.jpg)](https://x.com/AgentBullLab/status/2108582424959721707/video/1)
 
-Company Brain gives durable Agents shared knowledge. The Harness applies enterprise authority and carries work across model calls.
+Ankole runs AI Agents that do ongoing work for a company, from a one-person business to an enterprise. People reach them in the chat tools they already use, such as Slack, Microsoft Teams, Lark, DingTalk, and WeCom.
 
-A model can reason only over the context it receives. Ankole selects the relevant facts and capabilities, enforces authority, preserves work through failure, and records results for later decisions.
+A model with a prompt and a few tools starts every task from zero. It does not know what your team decided last week, it acts with whatever access it holds, and its work ends when its process dies. Ankole is the harness that fills these gaps. Its Agents share a Company Brain that remembers what teams decide. They work within the access you grant, and they recover long tasks after crashes and restarts. Each Agent has its own Linux computer in a container, and you run the whole system on infrastructure you control.
 
-Ankole runs on infrastructure that the company controls. Identity, context, credentials, artifacts, audit records, and execution stay in that environment.
+Ankole is an open source alternative to Claude Tag, the Slack agent that Anthropic hosts. Ankole is not tied to Slack or to Claude models, and it keeps company context on your servers. Model and search calls go only to the providers you configure, which can include a model that you host yourself.
 
-The Harness gives each model call continuity, authority, durable state, and feedback from results.
+> **#research** · group chat
+>
+> **Ravi:** for cyclical stocks, use data from a full cycle; three years is too short\
+> **Mia:** agreed, 7 years minimum
+>
+> *Three days later*
+>
+> **Sam:** @Ankole run a valuation on the metals stocks\
+> **Ankole:** On it. Using seven years of data for the cyclical stocks, as this channel agreed three days ago.\
+> Attached: `metals-valuation.pdf` (14 pages)
+
+Nobody asked Ankole to remember that rule. Company Brain learned it from a chat that Ankole belongs to, kept its source and date, and applied it to the next request that needed it.
+
+A site is one complete deployment. It may contain several tenants, each with
+its own people, Agents, Brain and integrations. Site operators manage shared
+providers and infrastructure. The administrator Console defaults to
+`/site-admin-console`; `/console` returns 404 after this upgrade. Set
+`ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
+Keep that path in operator configuration. Normal users sign in through their
+OIDC application rather than the site administration Console.
+
 
 ## Why Ankole
 
-Most Agent stacks combine a model, a prompt, and a set of tools. Each call begins with context assembled for that moment. Ankole maintains the company state and runtime required for work that continues after the call.
+A model supplies the reasoning. The harness around the model decides what the model sees and what it may do. The harness also decides how work continues after a failure and how results reach the next decision. Ankole puts these decisions into the system instead of into each prompt:
 
-- The Harness assembles current context, selects capabilities, enforces authority, and preserves state across model calls.
-- Messages, schedules, webhooks, market changes, and internal events can wake the right Agent.
-- Stable identities, AuthZ, approval points, audit records, and delivery state define the authority of each Agent.
-- Corrections, new evidence, expired facts, and observed outcomes update the context for later decisions.
+- **Agents remember what the company decided.** Company Brain learns from conversations, registered files and URLs, and notes that Agents write. It stores each piece of knowledge as a claim with its source, time, confidence, audience, and holder: the person or Agent whose view it is. New evidence updates the current view and keeps the history, and conflicting claims stay visible for review.
+- **Each Agent works within the access you grant.** People and Agents each have an identity and permissions, and Agents share no computer, home directory, or credential. Before the model reads company knowledge, Company Brain removes anything that the asker has no permission to see; in a group chat, it can apply the permissions of every member. PostgreSQL records what each Agent was asked, the model calls it made, and what it delivered. Token quotas cap the model spend of each Agent. Offboarding a person blocks their sign-in and stops the tasks and schedules they own.
+- **Work starts when something happens.** A message, a schedule, a webhook, or another external event wakes the Agent that owns the work. An Agent can also set a reminder to check back later.
+- **Long work survives failures.** A task can run for hours or days and accept new input while it runs. The control plane runs on Elixir/OTP, which confines a crash to the conversation where it happened while other work continues. PostgreSQL keeps the inputs, model history, and tool results that Ankole uses to continue the work.
+- **Each Agent has its own computer.** A Linux container gives the Agent a browser, a terminal, files, Codex, MCP (Model Context Protocol) servers, and Skills: approved procedures for one kind of work. Its home directory survives restarts and upgrades.
+- **Corrections and outcomes feed later work.** Deep Research gathers evidence in several separate contexts, tests competing hypotheses, and returns a cited report. After repeated corrections, an Agent can propose a Skill lesson: a short rule added to a Skill, which takes effect when a person approves it. When a forecast recorded in Company Brain comes due, Company Brain compares it with what actually happened.
 
-## Company Brain
+Ankole is a complete system for company work, not a library. It brings its own control plane, database, and Agent computers. For an agent loop inside your own application, or a personal assistant for your private life, a smaller tool will fit better.
 
-Company Brain gives every authorized Agent access to the same current company knowledge.
+## What people ask Ankole to do
 
-It learns from conversations, registered files and URLs, and deliberate Agent writes. Every claim keeps its source, time, holder, confidence, and audience.
+These requests arrive in a group chat or a direct message:
 
-- A judgment stays attached to its holder, and each source stays attached to the claim it supports.
-- New evidence updates the current view while preserving the history of earlier decisions.
-- Contradictions remain visible for review.
-- Recall applies Principal and group visibility before protected knowledge reaches a model.
-- Dreaming organizes evidence, finds patterns, grades due predictions, and proposes changes for human approval.
+| Request | What Ankole does |
+| --- | --- |
+| "Every Friday at 17:00, send this channel a PDF digest of these nine accounts on X, grouped by topic." | Creates a weekly schedule. Each week it reads the accounts, writes the PDF, and posts it. |
+| "@Ankole fix issue #482 in our repository and open a pull request." | Runs Codex in a background job with the repository credentials that an administrator configured, then replies with the pull request. |
+| "Summarize what this group discussed this week and list the open action items." | Reads the channel history that it has permission to see and replies with the summary and the list. |
+| "Turn this paragraph into a slide deck." or "Translate this PDF into Korean." | Sends back a PowerPoint file or the translated PDF. |
+| "Is this rumor about our supplier true?" | Runs Deep Research and returns a cited brief with the evidence for and against the rumor. |
+| "Rebuild this stock index from its published rules and chart it against the official values." | Gets the data, computes the index in a Jupyter notebook, and sends the chart. |
 
-## Decision work
+## Works with
 
-Ankole supports decisions with explicit assumptions and observable outcomes. Current examples include industry research, product selection, deep data analysis, and forecasting.
+| Area | Supported |
+| --- | --- |
+| Chat and email | Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, email |
+| Sign-in and directory sync | Slack, Microsoft Entra ID, Google Workspace, Lark/Feishu, DingTalk, WeCom, built-in password accounts |
+| Models | OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, ChatGPT subscriptions, and any endpoint compatible with the OpenAI API. The China market plugin adds Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, and Xiaomi MiMo. |
+| Web search and page reading | Parallel (parallel.ai), Jina, Bright Data SERP, AgentBull Cloud |
+| Agent computers | Docker, Kubernetes, Cloudflare Containers, Vercel, AWS Lambda MicroVMs, Alibaba Cloud Function Compute |
+| Deployment | Docker Compose on one host, a Helm chart on Kubernetes |
 
-- The Agent starts with current rules, prior decisions, relevant evidence, available authority, and recent changes.
-- Deep Research divides evidence gathering across independent workers, tests competing hypotheses, records evidence gaps, and returns a cited report.
-- A browser, terminal, files, models, and connected systems let the Agent investigate and act within its authority.
-- Predictions, corrections, and observed outcomes become evidence for later decisions.
+## Quick start
 
-## Enterprise runtime
+Docker Compose runs a complete deployment on one Linux, macOS, or Windows host. The stack contains PostgreSQL, the control plane, and Caddy as the HTTPS server. You need:
 
-Ankole runs each active session as an addressable Virtual Actor. The actor can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue.
+- Docker that can run Linux `amd64` or `arm64` containers, with memory and disk for one container per running Agent.
+- A host where Ankole may have root access. The control plane creates the Agent containers through the Docker socket, and access to that socket equals root access on the host.
+- A DNS name for the host and open ports 80 and 443. For a trial on your own machine, use the name `ankole.localhost` instead.
+- An API key for a model provider, and permission to create a bot on your chat platform. Ankole connects out to Slack, Lark, DingTalk, WeCom, Discord, Telegram, and email, so they work in a local trial. Microsoft Teams, LINE, and WhatsApp send events to the host and need a public HTTPS address.
 
-Five mechanisms keep the work alive and accountable:
+Get the deployment files:
 
-- A Virtual Actor gives each session an address, mailbox, lifecycle, and recovery path.
-- OTP supervision trees isolate a session that hangs, times out, or crashes.
-- One Phoenix Channel per Worker carries wakeups, steering, checkpoints, streams, and backpressure with low latency.
-- Agent Computer runs the model loop, tools, files, terminal state, and streaming output close to the workspace.
-- PostgreSQL keeps mailboxes, turns, reminders, decisions, and committed actions for recovery and audit.
+```bash
+git clone https://github.com/AgentBull/ankole.git
+cd ankole/tools/deploy/docker-compose
+cp .env.example .env
+chmod 600 .env
+```
 
-Agents can work for hours or days, receive input while running, fail independently, recover with context, and record committed effects. The [runtime design article](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) explains the role of OTP in detail.
+Set these values in `.env`:
 
-## Architecture
+| Variable | Value |
+| --- | --- |
+| `ANKOLE_HOST`, `ACME_EMAIL` | The host name, and an address for certificate notices |
+| `POSTGRES_PASSWORD`, `ANKOLE_SECRET_BASE`, `RELEASE_COOKIE` | Three separate values from `openssl rand -hex 32` |
+| `ANKOLE_DOCKER_GID` | The output of `stat -c %g /var/run/docker.sock` on Linux, or `0` with Docker Desktop on macOS |
+
+Start the stack and read the one-time activation code:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
+```
+
+The code appears when the control plane has started. If the last command prints nothing, wait a moment and run it again.
+
+With `ankole.localhost`, Caddy signs the certificate with its own local authority, and the setup page needs trusted HTTPS. Copy the root certificate of that authority, then trust it with the certificate tool of your operating system:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-local-ca.crt
+```
+
+Open `https://<ANKOLE_HOST>/setup` and enter the code. Choose the plugins that you need, such as the one for your chat platform. Set up how administrators sign in: through an identity provider such as Slack or Microsoft Entra ID, or with a local password. Then, in the Console, the web interface for administrators, add a model provider, create an Agent, and connect a chat platform to it. Keep provider API keys in the Console, not in `.env`. Send the Agent a message in that chat; its reply shows that the setup works.
+
+A coding agent such as Claude Code or Codex can do the whole setup with you. Give it this prompt:
+
+```text
+Use https://ankole.agentbull.com/en-US/docs/quickstart/index.md to help me deploy and configure a private Ankole deployment instance. First, inspect my environment and recommend Docker Compose, Kubernetes, or installing from source. Then help me set up the Identity Provider (IdP), LLM Provider, Agent, Channel Provider, and Signal Routing Rule (Signal Binding). If I did not specify an IdP and IM platform, ask which identity source and chat platform I want to use. Do not choose them for me. Do not expose secrets in chat or command output. You are finished only when I receive a real Agent reply in my selected IM.
+```
+
+Other ways to run Ankole:
+
+- Kubernetes: the [Helm chart](tools/deploy/helm/ankole-agent/README.md) uses a bundled or an external PostgreSQL.
+- Agent computers on Cloudflare Containers: the [Cloudflare adapter](tools/deploy/cloudflare/agent-workers/README.md).
+- From source: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The full [quick start](https://ankole.agentbull.com/en-US/docs/quickstart/) gives the steps for each identity provider, model provider, and chat platform. The [Compose guide](tools/deploy/docker-compose/README.md) covers backups, upgrades, and troubleshooting.
+
+## How it works
+
+Ankole consists of a control plane, one Worker for each Agent, a shared Rust kernel, and durable storage:
+
+- The **control plane** (Elixir, Phoenix, and OTP) decides and records everything that must outlast a process. That includes identities and permissions, configuration, incoming messages and webhooks, schedules, conversations, jobs, Company Brain, and the AI gateway that calls model providers. It runs the model loop of each conversation as a supervised process.
+- Each Agent has one **Agent Computer Worker**, a Bun and TypeScript program in a Linux container. It runs commands, the browser, Codex, MCP servers, Skills, and Automation scripts. The control plane creates the Worker on Docker, Kubernetes, or a cloud platform, and calls it only for work that needs a computer.
+- The **kernel** is a Rust library loaded by Elixir. It provides cryptography, identifiers, permission evaluation, and AI transport.
+- **PostgreSQL** stores every fact that must survive a restart. A file store keeps the drive and attachments of each Agent, and the home directory of each Agent persists on its own storage.
+
+<details>
+<summary>Architecture diagram</summary>
 
 This diagram shows the boundaries for ownership and durability. Internal calls are omitted.
 
@@ -78,18 +165,19 @@ flowchart TB
     Platform["Principal / AuthZ / configuration<br/>Control Plane Plugins"]
     SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
     Schedule["Schedule<br/>checkbacks · cron"]
-    Runtime["Actor Runtime<br/>session lifecycle · admission · recovery"]
+    Runtime["Conversations<br/>Agent loop · admission · recovery"]
     Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
     Brain["Brain<br/>shared knowledge · recall · dreaming"]
     AI["AIGateway<br/>model routing · conversations · credentials"]
   end
 
   Fabric["RuntimeFabric<br/>transient actor traffic · bounded RPC · worker files"]
-  Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turns · Background Job / Codex · Automation scripts<br/>tools · Skills · MCP · browser · terminal"]
+  Workers["Agent Computer Workers · one per Agent<br/>environment tools · Codex · Automation scripts<br/>Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
   PG[("PostgreSQL · durability boundary<br/>committed domain facts")]
-  Home[("Shared Agent Home · durability boundary<br/>workspaces · artifacts · resumable files")]
+  Files[("File store · durability boundary<br/>Agent drives · attachments")]
+  Homes[("Agent Home storage · durability boundary<br/>one per Agent · workspaces · Codex threads")]
 
   External -->|"inputs and administration"| Control
   SG -->|"ActorEvent"| Runtime
@@ -97,131 +185,55 @@ flowchart TB
   SG -->|"bound webhook"| Jobs
   Schedule -->|"bound trigger"| Jobs
   Platform --> Runtime
+  Runtime --> AI
   Control -->|"live execution"| Fabric
   Fabric <--> Workers
-  Workers -->|"AIGateway API"| Control
+  Workers -->|"Codex Responses API"| AI
   Control -->|"provider calls through AIGateway"| Providers
   Control -.-> PG
-  Workers -.-> Home
+  Control -.-> Files
+  Workers -.-> Homes
 ```
 
-The Elixir/OTP control plane owns durable decisions for Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycles, Brain, and AIGateway. PostgreSQL stores their domain facts.
+</details>
 
-- SignalsGateway owns channel and webhook admission. Schedule owns checkbacks and cron.
-- Agent Computer Workers run Main Agent turns, Background Job and Codex turns, and Automation scripts.
-- RuntimeFabric carries transient actor traffic, bounded RPC, and worker file operations.
-- AIGateway routes LLM, embedding, rerank, web search, and web fetch requests through one control plane boundary.
-- Brain stores shared pages and claims. Every read applies the knowledge boundary of the requesting Principal.
-- Background Agent Jobs support interactive model work. Automation Jobs run deterministic scripts owned by an Agent.
-- Shared Agent Home stores workspaces, artifacts, and resumable files. Worker process state can be rebuilt.
+[docs/README.md](docs/README.md) maps every part, and the [design documents](docs/design-docs/) define their contracts. [Why OTP is a better runtime for multi-agent orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) explains the choice of runtime.
 
-## Current status
+## Status and known limits
 
-Ankole runs in production as a complete enterprise Agent Harness. Companies can host the control plane, Agent Computer, kernel, and operator console on their own infrastructure.
+Ankole runs in production. An Ankole Agent helps maintain this repository with the same Company Brain, tools, and work rules that a company gets. Dedicated end-to-end suites exercise the Slack, Lark, DingTalk, and WeCom message paths, schedules, Worker computers, crash recovery, concurrency, and upgrades. The public API has no compatibility contract yet, so a release can include breaking changes. Read the [changelog](CHANGELOG.md) before you upgrade.
 
-- OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other endpoints compatible with the OpenAI API support compaction, stateful conversations, reasoning effort control, and provider usage records.
-- Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, and Email adapters connect Agents to company chat, consumer chat, and a dedicated mailbox. Slack, Entra ID, Google Workspace, Lark/Feishu, DingTalk, WeCom, and a built-in local password provider supply sign-in and directory sync.
-- Per-Agent token quotas cap model spend for a repeating period. Human offboarding disables a departed person's sign-in and future work, from the Console or from a directory departure event, with audited restoration.
-- Brain provides scoped disclosure, conversation and source learning, offline consolidation, operator review, full text search, and vector search.
-- Sessions wake, checkpoint, stream progress, hibernate, recover with context, and accept live steering or cancellation.
-- The operator console included with Ankole manages Agents, library settings, plugins, providers, models, identity, signals, Workers, Brain knowledge, and Background Agent Jobs.
-- Unit suites and dedicated system suites cover scheduling, Worker computers, recovery under failure, concurrency, and performance.
+[Tradeoffs and known limits](docs/TradeoffsAndKnownLimits.md) states what Ankole does not guarantee. The most important points:
 
-Ankole is still defining its public API compatibility contract. Releases can include breaking changes.
+- A site can serve multiple tenants with isolated organization data. All tenants trust the site operator and share the site's model and Worker providers.
+- The Worker container is the only isolation boundary of its Agent. Ankole does not protect a Worker from its own Agent.
+- The Alibaba Cloud Function Compute provider has not yet run the full Worker lifecycle in the cloud. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations) lists the checks that each platform has passed.
 
-| Area | Status |
+## Documentation
+
+| Guide | What it covers |
 | --- | --- |
-| Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, Brain, SignalsGateway, and operator APIs. |
-| Agent Computer | Bun/TypeScript Worker runtime under `app/agent_computer`. Runs the Agent loop and local tools inside an isolated Linux Worker image. Its supported role is Worker execution. |
-| Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and RuntimeFabric envelope validation. |
-| Frontend | Vite + React console, auth, and setup surfaces under `app/webapps`, built into the Phoenix static shell. |
-| Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
-| Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
-| Production readiness | Running in production. State persistence, live control, and operator interfaces are complete. Ankole is still defining its public API compatibility contract. |
+| [Introduction](https://ankole.agentbull.com/en-US/docs/introduction/) | Agents, Company Brain, Skills, permissions, and the other parts of a deployment |
+| [Quick start](https://ankole.agentbull.com/en-US/docs/quickstart/) | Deployment, sign-in, model providers, and chat platforms, step by step |
+| [Architecture](https://ankole.agentbull.com/en-US/docs/architecture/) | Each component and the boundaries between them |
+| [FAQ and troubleshooting](https://ankole.agentbull.com/en-US/docs/faq/) | Causes and fixes for common failures |
+| [Deployment guides](tools/deploy/README.md) | Docker Compose, Helm, and Cloudflare Containers |
+| [Design documents](docs/design-docs/) | The contract of each subsystem |
 
-## Current repository
+## Contributing
 
-This repository is the active Ankole control plane and runtime workspace.
-
-- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and durable state in PostgreSQL.
-- `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, and RuntimeFabric protobuf envelopes.
-- `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
-- `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
-- `app/library` - bundled Skills, Agent Plugins provided by Ankole, and starter templates such as `MISSION.md` and `SOUL.md`.
-- `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
-- `libs/uikit` - shared UI primitives for Ankole webapps.
-- `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
-- `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
-- `internals/plugins` - private Control Plane Plugin code compiled into private releases.
-- `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
-- `docs/design-docs` - current design documents for principal identity, authorization, browser sessions, OIDC, human offboarding, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, Brain, jobs, token quotas, and provider adapters.
-
-RuntimeFabric carries live traffic from the control plane to Workers. It moves actor traffic and bounded RPC over one Phoenix Channel per Worker, and Worker files over HTTP relay URLs. PostgreSQL owns durable replay, fences, reconciliation, and final commits.
-
-SignalsGateway receives provider traffic. It converts external chats, webhooks, and provider events into actor events while preserving the source facts.
-
-## Development
-
-Ankole defaults to Bun for workspace scripts and Elixir/Phoenix for the control plane.
-
-For a first local setup, copy this single prompt into a coding agent:
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) takes you from a clean machine to a verified end-to-end setup. [AGENTS.md](AGENTS.md) holds the engineering rules. A coding agent can follow both documents. To start, give your coding agent this prompt:
 
 ```text
 Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local Ankole setup and its documented verification from entry to result. Treat that guide as the source of truth. Perform and verify every safe reversible step. Pause for actions that require a human account, secret, OAuth flow, or approval for a destructive step. Declare completion only after its success criteria pass.
 ```
 
-```shell
-bun install
+## Community
 
-# Local support services and workspace helpers
-bun kit --help
-bun services:start
-bun services:status
+- Ask questions and show what you build in [GitHub Discussions](https://github.com/AgentBull/ankole/discussions).
+- Report bugs and request features in [GitHub Issues](https://github.com/AgentBull/ankole/issues).
+- If Ankole is useful to you, star the repository. Stars help other teams find it. For release notifications, select **Watch**, then **Custom**, then **Releases**.
 
-# Control plane
-bun control-plane:setup
-bun control-plane:dev
-bun control-plane:test
+## License
 
-# Agent Computer container image and tests
-bun agent-computer:test
-bun agent-computer:type-check
-
-# Other Bun packages
-bun webapps:build
-bun feishu-openapi:test
-```
-
-Agent Computer is designed to run as a Linux container runtime. For strong
-bubblewrap command isolation, run Docker with `--cap-add SYS_ADMIN`,
-`--security-opt seccomp=unconfined`, and
-`--security-opt systempaths=unconfined` unless you provide an equivalent custom
-seccomp/profile setup. In Kubernetes, put the equivalent
-`capabilities.add: ["SYS_ADMIN"]`, `seccompProfile`, and `procMount: Unmasked`
-on the Agent Computer container `securityContext`. If strong bubblewrap is
-unavailable, the worker may downgrade to weak bubblewrap (container `/proc`
-mounted into bwrap) and emits a startup warning. It never exposes model commands
-without a sandbox.
-
-Run checks for each affected package:
-
-```shell
-bun run --filter @ankole/control-plane test
-bun run agent-computer:test
-bun run --filter @ankole/agent-computer type-check
-bun run --filter @ankole/webapps type-check
-bun run --filter @ankole/feishu-openapi test
-```
-
-Once the control plane is running, the worker bootstrap helper renders the Docker command used to start an external Agent Computer worker against the local RuntimeFabric endpoint:
-
-```shell
-cd app/control_plane
-mix ankole.actor_runtime.worker_bootstrap --endpoint ws://host.docker.internal:4000/runtime-fabric/worker --worker-id worker-a
-```
-
-Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Store runtime application configuration in the AppConfigure records in PostgreSQL.
-
-Brain requires PostgreSQL with `pg_search` preloaded and the `pg_search`,
-`vector`, and `pg_trgm` extensions available; the BrainV3 migration installs
-them. `tools/devkit/postgres-for-ankole` builds a matching image.
+Ankole is licensed under the [Apache License 2.0](LICENSE).

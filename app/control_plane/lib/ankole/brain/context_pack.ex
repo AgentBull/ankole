@@ -4,12 +4,11 @@ defmodule Ankole.Brain.ContextPack do
   the per-turn volunteer pointer.
 
   Both run the full two-layer filtering with the Agent as querier and the
-  current present members as disclosure recipients. The control plane owns
-  the structural caps (entity cards, facts per card, open threads) and the
-  filtering; the Worker renders the final injection text and enforces the
-  token budget on that rendered text, because only it knows what the model
-  receives. Every failure degrades to an empty result; injection never
-  blocks a Turn.
+  current present members as disclosure recipients. This module owns the
+  structural caps (entity cards, facts per card, open threads) and the
+  filtering; the hosted Brain tool renders the injection text and enforces
+  the token budget on it. Every failure degrades to an empty result;
+  injection never blocks a Turn.
   """
 
   import Ecto.Query, warn: false
@@ -20,7 +19,6 @@ defmodule Ankole.Brain.ContextPack do
   alias Ankole.Brain.Links
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Recall
-  alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
@@ -36,7 +34,8 @@ defmodule Ankole.Brain.ContextPack do
   @doc """
   Assembles the conversation context pack: entity cards for participants
   and recently mentioned entities, their high-salience current facts, and
-  open threads. Zero model calls; any failure returns an empty pack.
+  open threads. Cards contain only the fields used by injection.
+  Zero model calls; any failure returns an empty pack.
   """
   @spec context_pack(String.t(), map(), keyword()) :: map()
   def context_pack(agent_uid, params, opts \\ []) do
@@ -53,7 +52,7 @@ defmodule Ankole.Brain.ContextPack do
       cards =
         params
         |> pack_entity_slugs(visibility)
-        |> Enum.map(&entity_card(&1, access, disclosure, forgetting, now, channel_id, visibility))
+        |> Enum.map(&base_card(&1, access, disclosure, forgetting, now, channel_id, visibility))
         |> Enum.reject(&is_nil/1)
 
       ContextPackStats.record(:served)
@@ -84,12 +83,6 @@ defmodule Ankole.Brain.ContextPack do
   channel; it brings in the claims this entity holds that were filed on that
   channel instead of a page.
   """
-  @spec entity_card(String.t(), Access.t(), disclosure(), map(), DateTime.t(), String.t() | nil) ::
-          map() | nil
-  def entity_card(slug, access, disclosure, forgetting, now, channel_id) do
-    entity_card(slug, access, disclosure, forgetting, now, channel_id, %LazySkillVisibility{})
-  end
-
   @spec entity_card(
           String.t(),
           Access.t(),
@@ -100,6 +93,38 @@ defmodule Ankole.Brain.ContextPack do
           LazySkillVisibility.t()
         ) :: map() | nil
   def entity_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
+    case base_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
+      nil ->
+        nil
+
+      card ->
+        aka =
+          Ankole.Brain.Schemas.ObjectAlias
+          |> where([alias], alias.object_slug == ^card.slug)
+          |> limit(5)
+          |> select([alias], alias.alias_norm)
+          |> Repo.all()
+
+        outgoing =
+          Link
+          |> where([link], link.from_object_slug == ^card.slug)
+          |> LazySkillVisibility.filter_links(visibility)
+          |> limit(10)
+          |> select([link], {link.link_type, link.to_object_slug})
+          |> Repo.all()
+          |> Enum.map(fn {link_type, to} -> %{link_type: link_type, to: to} end)
+
+        backlinks =
+          Link
+          |> where([link], link.to_object_slug == ^card.slug)
+          |> LazySkillVisibility.filter_links(visibility)
+          |> Repo.aggregate(:count)
+
+        Map.merge(card, %{aka: aka, edges: outgoing, backlink_count: backlinks})
+    end
+  end
+
+  defp base_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
     case Repo.get_by(Object, slug: slug) do
       nil ->
         nil
@@ -128,42 +153,16 @@ defmodule Ankole.Brain.ContextPack do
             )
             |> Enum.take(@pack_facts_per_entity)
             |> Enum.map(fn claim ->
-              {text, _matched} = Sanitize.sanitize(claim.claim)
-              %{claim: text, kind: claim.kind, holder: claim.holder}
+              %{claim: claim.claim, kind: claim.kind, holder: claim.holder}
             end)
-
-          aka =
-            Ankole.Brain.Schemas.ObjectAlias
-            |> where([alias], alias.object_slug == ^object.slug)
-            |> limit(5)
-            |> select([alias], alias.alias_norm)
-            |> Repo.all()
-
-          outgoing =
-            Link
-            |> where([link], link.from_object_slug == ^object.slug)
-            |> LazySkillVisibility.filter_links(visibility)
-            |> limit(10)
-            |> select([link], {link.link_type, link.to_object_slug})
-            |> Repo.all()
-            |> Enum.map(fn {link_type, to} -> %{link_type: link_type, to: to} end)
-
-          backlinks =
-            Link
-            |> where([link], link.to_object_slug == ^object.slug)
-            |> LazySkillVisibility.filter_links(visibility)
-            |> Repo.aggregate(:count)
 
           %{
             slug: object.slug,
             title: object.title,
             type: object.type,
             subtype: object.subtype,
-            aka: aka,
             facts: facts,
-            edges: outgoing,
-            backlink_count: backlinks,
-            last_touched: object.salience_touched_at || object.updated_at
+            last_touched: object.updated_at
           }
         else
           nil
@@ -312,11 +311,9 @@ defmodule Ankole.Brain.ContextPack do
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.take(@open_thread_limit)
     |> Enum.map(fn claim ->
-      {text, _matched} = Sanitize.sanitize(claim.claim)
-
       %{
         id: claim.id,
-        claim: text,
+        claim: claim.claim,
         claim_type: claim.claim_type,
         kind: claim.kind,
         holder: claim.holder,

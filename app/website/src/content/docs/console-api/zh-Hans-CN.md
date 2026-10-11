@@ -5,19 +5,11 @@ section: Reference
 order: 203
 ---
 
-本页是 Console API 的 REST 参考：鉴权入口、`/api/v1` 下的路由，以及每条路由所执行的权限动作。
+Console REST API 使用浏览器会话 cookie。`RequireSiteAdminSession` 每次请求都检查 Console 上下文、Human 撤销状态和当前站点管理员成员资格，认证失败返回 `401`。GET 和 HEAD 以外的请求必须携带外壳中的 `x-csrf-token`；CSRF 凭据缺失或无效返回 `403`。
 
-先说明最关键的一点：Console API 是无状态、bearer 鉴权的，并且它在每一次请求上重新确认调用方仍然是一个活跃管理员。没有 session cookie 替你扛这件事，一个被禁用的管理员立即失效，而不是下一次登录才失效。
+表中的路径均相对于 `/api/v1`。站点管理路由位于 `/site/*`，使用 `:session_api` + `:site_admin` 管线。租户数据路由使用 `:session_api` + `:site_admin` + `:data_context` 管线和 `PutDataContext`。调用租户路由时，`x-ankole-tenant: <租户 UUID>` 指定数据租户；不传该请求头时使用调用方所属租户。无效、不可用或正在删除的租户返回 `404`，错误为 `data_tenant_unavailable`。请求头不会改变调用方身份或站点管理权限，也不为站点路由选择作用域。
 
-## 门
-
-`/api/v1` 下的每一条路由都经过 `:console_api` 管线和 `RequireConsoleAccessToken` 插件。插件跑三项彼此独立的检查，缺一不可：
-
-1. 一个格式正确的 `Authorization: Bearer` 头；
-2. 一个能通过验证的 Console JWT；
-3. JWT 所指的那个主体仍然是一个活跃管理员。
-
-成功时，它把主体和 claims 存进 conn assigns，供下游的策略检查使用；任何一项失败都以 `401` 中止。浏览器界面靠 session 与 CSRF 做到的事，这里以逐请求、无 cookie 的方式等价实现。不存在第二条更弱的进入这些路由的路径。
+公开的 `/api/v1/openapi.json` 文档、运行时 AI 调用与 webhook 使用各自的鉴权规则。
 
 ## 配置界面
 
@@ -29,19 +21,20 @@ order: 203
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/ai-gateway/provider-kinds` | 列出本实例可以配置的 Provider 类型 |
-| `GET` | `/ai-gateway/providers` | 列出已配置的 provider |
-| `GET` | `/ai-gateway/providers/:provider_id` | 读取一个 Provider 及其凭据池状态 |
-| `PUT` | `/ai-gateway/providers/:provider_id` | 创建或替换一个 provider |
-| `DELETE` | `/ai-gateway/providers/:provider_id` | 移除一个 provider |
-| `POST` | `/ai-gateway/providers/:provider_id/credentials` | 添加一个凭据池成员 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 更新或重新认证池成员 |
-| `DELETE` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 删除池成员 |
-| `PUT` | `/ai-gateway/providers/:provider_id/credential-pool/strategy` | 设置凭据池选择策略 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login` | 开始一次 ChatGPT 设备码或浏览器登录 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/poll` | 轮询一次设备码登录 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 完成浏览器粘贴回退 |
-| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | 添加 Enterprise access token |
+| `GET` | `/site/ai-gateway/provider-kinds` | 列出本实例可以配置的 Provider 类型 |
+| `GET` | `/site/ai-gateway/models` | 列出带能力类型的 provider 模型供控制台配置 |
+| `GET` | `/site/ai-gateway/providers` | 列出已配置的 provider |
+| `GET` | `/site/ai-gateway/providers/:provider_id` | 读取一个 Provider 及其凭据池状态 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id` | 创建或替换一个 provider |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id` | 移除一个 provider |
+| `POST` | `/site/ai-gateway/providers/:provider_id/credentials` | 添加一个凭据池成员 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 更新或重新认证池成员 |
+| `DELETE` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 删除池成员 |
+| `PUT` | `/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | 设置凭据池选择策略 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login` | 开始一次 ChatGPT 设备码或浏览器登录 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | 轮询一次设备码登录 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 完成浏览器粘贴回退 |
+| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | 添加 Enterprise access token |
 | `GET` | `/agents/:agent_uid/model-profiles` | 列出一个 agent 的 model profile |
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | 创建或替换一个 profile |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | 移除一个 profile |
@@ -61,6 +54,20 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 | `POST` | `/agents/:agent_uid/enable` | 重新启用一个已停用的 agent |
 | `DELETE` | `/agents/:agent_uid` | 停用一个运行中的 agent；对已停用的 agent 执行则永久删除 |
 
+### Worker provider
+
+每个 Agent 在创建时选择一个 Worker provider，之后不能更换。Provider 的 YAML 配置与加密凭据分开保存。生命周期与存储契约见 [Worker 管理](../worker-management/)。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/site/worker-provider-kinds` | 列出 provider 类型、YAML 示例与凭据要求 |
+| `GET` | `/site/worker-providers` | 列出已配置的 Worker provider |
+| `POST` | `/site/worker-providers` | 创建 Worker provider |
+| `PATCH` | `/site/worker-providers/:provider_id` | 更新配置或凭据 |
+| `GET` | `/site/worker-providers/:provider_id/check` | 检查连接与权限 |
+| `DELETE` | `/site/worker-providers/:provider_id` | 删除没有 Agent 使用的 provider |
+| `PUT` | `/agents/:agent_uid/worker-provider` | 为迁移后尚未指派 provider 的 Agent 完成指派 |
+
 ### 信号路由规则
 
 信号路由规则（API Schema 中名为 Signal Binding）把一个 Provider 适配器连接到一个 Agent，让共享工作可以到达它：
@@ -79,13 +86,13 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 
 ### Agent Library 能力
 
-Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Console 暴露两层范围：一层全局默认值，一层按 agent 的覆盖：
+Library 默认值属于所选租户；Agent 覆盖也在该租户内生效。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/agent-library/capabilities` | 列出全局 library 能力 |
-| `PUT` | `/agent-library/agent-plugins/:id` | 设定一个 plugin 的全局默认状态 |
-| `PUT` | `/agent-library/skills/:id` | 设定一个 skill 的全局默认状态 |
+| `PUT` | `/agent-library/agent-plugins/:id` | 设定一个 plugin 的租户默认状态 |
+| `PUT` | `/agent-library/skills/:id` | 设定一个 skill 的租户默认状态 |
 | `GET` | `/agents/:agent_uid/library-capabilities` | 列出一个 agent 的有效能力 |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 为某一个 agent 覆盖一个 plugin |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 为某一个 agent 覆盖一个 skill |
@@ -95,31 +102,35 @@ Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Consol
 | `POST` | `/agents/:agent_uid/skill-lessons` | 为已启用的 Skill 新增人工教训 |
 | `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 让一条技能教训退场 |
 
-一项能力先在全局启用，再按 Agent 收窄或放宽。技能教训为单个 Agent 提供附加的过程指引，不改动 Skill 来源。列表会保留证据和退场历史。已退场的教训不再投递；人工撤销的内容会留在 Dreaming 的禁止再学习清单中。生命周期与限制见[技能教训](../skill-lessons/)。
+一项能力先在租户内启用，再按 Agent 收窄或放宽。技能教训为单个 Agent 提供附加的过程指引，不改动 Skill 来源。列表会保留证据和退场历史。已退场的教训不再投递；人工撤销的内容会留在 Dreaming 的禁止再学习清单中。生命周期与限制见[技能教训](../skill-lessons/)。
 
 ### 环境变量（WorkerEnv）
 
-Agent Computer Worker 运行时可能需要 API key、token 等环境变量。Console 将这项功能称为“环境变量”；API 中仍使用 `WorkerEnv` 作为资源名：
+WorkerEnv 有站点默认值、租户覆盖和 Agent 挂载。下列路由返回元数据；明文需要通过独立、可审计的解密操作获取。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/worker-envs` | 列出命名的 WorkerEnv 条目 |
-| `GET` | `/worker-envs/:name` | 读取一个条目（元数据，不是明文） |
-| `PUT` | `/worker-envs/:name` | 创建或更新一个条目 |
-| `DELETE` | `/worker-envs/:name` | 移除一个条目 |
-| `GET` | `/agents/:agent_uid/worker-envs` | 列出挂到某个 agent 上的条目 |
-| `PUT` | `/agents/:agent_uid/worker-envs/:name` | 把一个条目挂到一个 agent 上 |
-| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | 从一个 agent 上摘下一个条目 |
-| `POST` | `/worker-envs/:name/decryptions` | 解密一个条目（受审计、受特权保护） |
+| `GET` | `/site/worker-envs` | 列出站点默认值 |
+| `PUT` | `/site/worker-envs/:name` | 设置站点默认值 |
+| `DELETE` | `/site/worker-envs/:name` | 删除站点默认值 |
+| `POST` | `/site/worker-envs/:name/decryptions` | 解密站点值 |
+| `GET` | `/worker-envs` | 列出租户值 |
+| `PUT` | `/worker-envs/:name` | 设置租户值 |
+| `DELETE` | `/worker-envs/:name` | 删除租户值 |
+| `POST` | `/worker-envs/:name/decryptions` | 解密租户值 |
+| `GET` | `/agents/:agent_uid/worker-envs` | 列出 Agent 挂载 |
+| `PUT` | `/agents/:agent_uid/worker-envs/:name` | 为 Agent 挂载或覆盖值 |
+| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | 移除 Agent 挂载 |
+| `POST` | `/agents/:agent_uid/worker-envs/:name/decryptions` | 解密 Agent 值 |
 
-解密是一项独立的、受审计的操作。列出和读取返回的是元数据，不是 secret 值。worker 只在一个回合开始时收到它的环境；改动在下一个回合生效，不会在已经开始执行的回合上生效。
+Agent 挂载可使用专用值，也可依次继承租户值和站点默认值。Worker 工作开始时解析环境值；已有工作区保持创建时的环境。
 
 ### Control Plane Plugin
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/control-plane-plugins` | 列出 Control Plane Plugin 及其状态 |
-| `PUT` | `/control-plane-plugins` | 启用或禁用 plugin |
+| `GET` | `/site/control-plane-plugins` | 列出 Control Plane Plugin 及其状态 |
+| `PUT` | `/site/control-plane-plugins` | 启用或禁用 plugin |
 
 Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 signals adapter。
 
@@ -131,25 +142,42 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 | `GET` | `/identity-providers` | 列出已配置的身份源提供商 |
 | `PUT` | `/identity-providers/:provider_id` | 创建或替换一个 IdP |
 | `POST` | `/identity-providers/:provider_id/sync-runs` | 从一个 IdP 同步 directory group |
+| `GET` | `/site/app-configurations` | 列出站点配置键 |
+| `PUT` | `/site/app-configurations/:key` | 设置站点值 |
+| `POST` | `/site/app-configurations/:key/decryptions` | 解密站点 secret |
 | `GET` | `/app-configurations` | 列出运维者管理的配置键 |
 | `PUT` | `/app-configurations/:key` | 设定一个配置值 |
 | `POST` | `/app-configurations/:key/decryptions` | 解密一个 secret 配置值 |
 
-`AppConfiguration` 面向运维者管理的设置——那些声明过的 `Ankole.AppConfigure` 键。引导配置（进程启动事实与凭证）按项目边界的要求，留在环境变量或 secret 挂载里，不进这里。
+`AppConfiguration` 按站点或租户作用域存储声明的运维设置。`/site/app-configurations` 管理站点键，`/app-configurations` 管理租户键。两者均支持列表、读取单个键、设置、删除覆盖与可审计的解密。启动凭据与启动事实仍放在环境变量或 secret mount 中。
+
+### 租户管理
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/site/tenants` | 列出租户 |
+| `POST` | `/site/tenants` | 创建租户 |
+| `PATCH` | `/site/tenants/:tenant_id` | 更新租户 |
+| `DELETE` | `/site/tenants/:tenant_id` | 请求删除租户 |
+| `PUT` | `/site/tenants/:tenant_id/suspension` | 暂停租户 |
+| `DELETE` | `/site/tenants/:tenant_id/suspension` | 恢复租户 |
+| `GET` | `/site/privileged-tenant` | 读取特权租户 |
+| `PUT` | `/site/privileged-tenant` | 将站点管理转移到另一个租户 |
 
 ## 读取界面
 
 除了配置，Console 也是系统其余部分的可观测路径——每一个已经实现的子系统，在这里都有它的读取界面：
 
-- **进行中的 agent**：`/agents/:agent_uid/sessions`，每个 agent 的 cron schedule 与 checkback 管理；列表端点为安装级，接受 `agent` 筛选。
-- **worker**：`/agent-computer-workers`，按 worker 上传、移动、列出文件。
+- **进行中的 agent**：`/agents/:agent_uid/sessions`，每个 agent 的 cron schedule 与 checkback 管理；列表端点为租户级，接受 `agent` 筛选。
+- **Worker**：`/agent-computer-workers` 列出每个 Agent 的 Worker 状态。
+- **Agent 网盘**：`/agents/:agent_uid/files` 列出、上传、删除文件，`/agents/:agent_uid/files/content` 下载文件，`/agents/:agent_uid/file-moves` 移动文件。这些文件由控制面管理。
 - **任务**：`/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/ai-gateway/conversations`，按会话读取消息。
 - **主体与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`。权限模型见 [主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么
 
-`/webhooks/*` 和 `/api/v1/ai-gateway/*` 路由刻意不放在 `console_api` 下。webhook 入口鉴权的是 provider，不是管理员；AIGateway 运行时 API 验证的是用于实时 AI 调用的 agent 或 admin token。Console 是运维者的配置界面，也是唯一一个信任管理员 bearer token 去改变部署行为的界面。
+`/webhooks/*` 验证 provider。运行时 `/api/v1/ai-gateway/*` 调用使用 AIGateway 鉴权。Console 配置路由使用本页所述的会话与 CSRF 检查。
 
 ## 下一步
 

@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.TelegramAdapter do
 
   alias Ankole.Plugins.TelegramAdapter.Config
   alias Ankole.Plugins.TelegramAdapter.ConnectionReconciler
-  alias Ankole.Plugins.TelegramAdapter.ConnectionSupervisor
   alias Ankole.Plugins.TelegramAdapter.Inbound
   alias Ankole.Plugins.TelegramAdapter.Outbox
   alias Ankole.Plugins.TelegramAdapter.ReplyPreview
@@ -57,7 +56,6 @@ defmodule Ankole.Plugins.TelegramAdapter do
         ingress_module: Inbound,
         outbox_module: Outbox,
         reply_preview_module: ReplyPreview,
-        connection_supervisor: ConnectionSupervisor,
         inbound_capabilities: [
           "entry_receive",
           "reaction_add",

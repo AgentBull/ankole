@@ -1,0 +1,554 @@
+@import './blocks/callout/callout.css';
+@import './blocks/database/database.css';
+@source '.';
+
+.ankole-editor,
+.ankole-editor-overlay {
+  font-family: var(--font-family-sans);
+  color: var(--foreground);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(.ankole-editor, .ankole-editor-overlay) button,
+:where(.ankole-editor, .ankole-editor-overlay) select {
+  cursor: pointer;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button:disabled {
+  cursor: default;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button:not([data-slot]):focus-visible,
+:where(.ankole-editor, .ankole-editor-overlay) input:focus-visible,
+:where(.ankole-editor, .ankole-editor-overlay) select:focus-visible,
+:where(.ankole-editor, .ankole-editor-overlay) textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button,
+:where(.ankole-editor, .ankole-editor-overlay) input,
+:where(.ankole-editor, .ankole-editor-overlay) textarea,
+:where(.ankole-editor, .ankole-editor-overlay) select {
+  font: inherit;
+}
+:where(.ankole-editor, .ankole-editor-overlay) button:not([data-slot]) {
+  border: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) input,
+:where(.ankole-editor, .ankole-editor-overlay) textarea,
+:where(.ankole-editor, .ankole-editor-overlay) select {
+  color: inherit;
+}
+/* The UI kit draws selected text in the colour for dark backgrounds; this background is light. */
+:where(.ankole-editor, .ankole-editor-overlay) ::selection {
+  background: var(--color-brand-20);
+  color: var(--foreground);
+}
+:where(.ankole-editor, .ankole-editor-overlay) ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) ::-webkit-scrollbar-thumb {
+  background: var(--color-gray-30);
+  border-radius: 7px;
+}
+
+/* Toolbar */
+
+:where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  height: 49px;
+  border-bottom: 1px solid #f1efed;
+  background: rgb(255 255 255 / 96%);
+  padding: 0 28px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar [data-slot='button'] {
+  color: #807970;
+  letter-spacing: 0;
+  font-size: 11px;
+  font-weight: 450;
+  border-radius: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar [data-slot='button']:hover {
+  color: var(--foreground);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .toolbar-divider {
+  width: 1px;
+  height: 15px;
+  background: #eae7e3;
+  margin: 0 6px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .toolbar-spacer {
+  flex: 1;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editing-hint {
+  font-size: 11px;
+  color: #a2998f;
+  margin-left: 12px;
+}
+
+/* Page */
+
+:where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 55px 70px 35px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-anchor {
+  position: relative;
+}
+/* The editor element draws no frame. The content shows its own cursor. */
+.ankole-editor .editor-view,
+.ankole-editor .editor-view:focus-within {
+  border: 0;
+  outline: none;
+}
+.ankole-editor .editor-view > wg-scroller {
+  overflow: visible;
+}
+.ankole-editor .editor-content {
+  outline: none;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.95;
+  min-height: 420px;
+  color: #494541;
+}
+/* The empty-page hint is out of the line, so that it is not page text and does not move the caret. */
+.ankole-editor .editor-content[contenteditable='true'] > p[data-placeholder]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  color: #b0a599;
+  pointer-events: none;
+  user-select: none;
+}
+.ankole-editor .editor-content .wg-selected-node {
+  outline: 2px solid #d3c4b3;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Blocks */
+
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h1 {
+  font-size: clamp(25px, 2.55vw, 37px);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.7px;
+  color: #282521;
+  margin: 0 0 16px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h2 {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.55;
+  margin: 35px 0 10px;
+  color: #3b352f;
+  letter-spacing: -0.25px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 22px 0 7px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.55;
+  margin: 18px 0 6px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h4 {
+  font-size: 15px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h5 {
+  font-size: 14px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content h6 {
+  font-size: 13px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content p {
+  margin: 9px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='left'] {
+  text-align: left;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='center'] {
+  text-align: center;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='right'] {
+  text-align: right;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='justify'] {
+  text-align: justify;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content pre {
+  display: block;
+  font: 12px/1.8 var(--font-family-mono);
+  white-space: pre-wrap;
+  padding: 18px;
+  border: 1px solid #e9e4df;
+  background: #f8f6f3;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content blockquote {
+  margin: 22px 0;
+  padding: 2px 20px;
+  border-left: 3px solid #d5c1ab;
+  color: #8b7a69;
+  font-size: 13px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(ul, ol) {
+  margin: 12px 0;
+  padding-left: 25px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content ul {
+  list-style: disc;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content ol {
+  list-style: decimal;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li {
+  margin: 4px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li > :is(ul, ol) {
+  margin: 4px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li > p {
+  margin: 0;
+}
+/* A task item shows a check box in its left padding. Read-only task items show the same box. */
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task] {
+  position: relative;
+  list-style: none;
+  padding-left: 24px;
+  margin-left: -23px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #c3b8ad;
+  border-radius: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[role='checkbox']::before {
+  cursor: pointer;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done'] {
+  color: #9e9286;
+  text-decoration: line-through;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done']::before {
+  background: #b19b84;
+  border-color: #b19b84;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done']::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  width: 6px;
+  height: 8px;
+  border-right: 1.5px solid white;
+  border-bottom: 1.5px solid white;
+  transform: rotate(45deg);
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content hr {
+  border: 0;
+  border-top: 1px solid #e7e1da;
+  margin: 28px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 20px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(td, th) {
+  border: 1px solid #e4dfd9;
+  padding: 7px 12px;
+  min-width: 80px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content th {
+  background: #f7f5f2;
+  font-weight: 600;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(td, th) > p {
+  margin: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content img {
+  max-width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content .block-menu-target {
+  outline: 2px solid #d3c4b3;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* Text formats */
+
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content strong {
+  font-weight: 600;
+  color: #5c5146;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content em {
+  font-style: italic;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content s {
+  text-decoration: line-through;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content u {
+  text-decoration: underline;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content mark {
+  background: #fff1b8;
+  color: inherit;
+}
+/* Inline code. Low specificity, so that blocks such as the database card can style their own code. */
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :where(code) {
+  font: 12px var(--font-family-mono);
+  padding: 3px 5px;
+  background: #f3efeb;
+  border-radius: 3px;
+  color: #8f6857;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(a, .read-only-link) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Read-only elements (SPEC §7.4): known elements use the styles above. */
+
+:where(.ankole-editor, .ankole-editor-overlay) .read-only-block {
+  margin: 12px 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .unknown-element {
+  border-radius: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) span.unknown-element {
+  text-decoration: underline dotted #9a9ab0;
+  text-underline-offset: 3px;
+}
+:where(.ankole-editor, .ankole-editor-overlay) div.unknown-element {
+  border: 1px dashed #c4c4d2;
+  padding: 22px 14px 8px;
+  margin: 12px 0;
+  position: relative;
+}
+:where(.ankole-editor, .ankole-editor-overlay) div.unknown-element::before {
+  content: attr(data-name);
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  font: 10px/1.4 var(--font-family-mono);
+  color: #8a8aa0;
+}
+
+/* Block handles */
+
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle {
+  position: absolute;
+  top: 0;
+  left: -58px;
+  display: flex;
+  cursor: grab;
+  color: #b3a99e;
+  padding: 2px;
+  border-radius: 4px;
+  z-index: 5;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle [data-slot='button'] {
+  color: inherit;
+  cursor: grab;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle:hover,
+:where(.ankole-editor, .ankole-editor-overlay) .drag-handle[data-menu-open='true'] {
+  color: #8a7561;
+  background: #f3ede7;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .drag-line {
+  position: absolute;
+  height: 2px;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background: var(--primary);
+  opacity: 0;
+}
+:where(.ankole-editor, .ankole-editor-overlay) .keyboard-block-anchor {
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Slash menu */
+
+:where(.ankole-editor-overlay).slash-menu {
+  position: fixed;
+  padding: 6px;
+  width: 270px;
+  border: 1px solid #e9e2db;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 8px 30px #35271a1c;
+  z-index: 30;
+  max-height: min(360px, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:where(.ankole-editor-overlay).slash-menu button {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 9px;
+  width: 100%;
+  text-align: left;
+  border-radius: 3px;
+  color: #554b41;
+  font-size: 13px;
+}
+:where(.ankole-editor-overlay).slash-menu button:hover,
+:where(.ankole-editor-overlay).slash-menu button.selected {
+  background: #f6f2ed;
+}
+:where(.ankole-editor-overlay).slash-menu small {
+  display: block;
+  font-size: 10px;
+  color: #a1968b;
+  margin-top: 2px;
+}
+
+/* Menus */
+
+:where(.ankole-editor-overlay) .menu-icon {
+  width: 31px;
+  height: 31px;
+  border: 1px solid #e9e1d8;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+:where(.ankole-editor-overlay) .menu-label {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #ab9e90;
+  padding: 8px;
+}
+:where(.ankole-editor-overlay).block-menu {
+  transition: none;
+  width: 260px;
+  border: 1px solid #e9e2db;
+  border-radius: 6px;
+  background: white;
+  padding: 5px;
+  max-height: min(400px, 70vh, var(--available-height));
+}
+:where(.ankole-editor-overlay).block-menu
+  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger']) {
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 3px;
+  min-height: 34px;
+}
+:where(.ankole-editor-overlay).block-menu small {
+  display: block;
+  font-size: 10px;
+  color: #a1968b;
+}
+:where(.ankole-editor-overlay).block-actions small {
+  margin-left: auto;
+}
+
+/* Selection toolbar */
+
+:where(.ankole-editor-overlay).selection-toolbar {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid #e6e1db;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 4px 18px #35271a24;
+  z-index: 40;
+  max-width: calc(100vw - 16px);
+}
+:where(.ankole-editor-overlay).selection-toolbar [data-slot='button'] {
+  border-radius: 3px;
+  color: #655b51;
+  letter-spacing: 0;
+  font-weight: 450;
+}
+:where(.ankole-editor-overlay).selection-toolbar [aria-pressed='true'] {
+  background: #e9f0f8;
+  color: #326898;
+}
+:where(.ankole-editor-overlay) .link-form {
+  width: 370px;
+  max-width: calc(100vw - 28px);
+}
+:where(.ankole-editor-overlay) .link-form-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+:where(.ankole-editor-overlay) .link-form input {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+}
+:where(.ankole-editor-overlay) .link-form p {
+  padding: 5px;
+  font-size: 11px;
+  color: var(--destructive);
+}
+
+@media (min-width: 1700px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding-top: 70px;
+  }
+}
+@media (max-width: 1100px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding: 42px 45px 30px;
+  }
+}
+@media (max-width: 720px) {
+  :where(.ankole-editor, .ankole-editor-overlay) .editor-toolbar {
+    padding: 0 12px;
+    gap: 2px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .toolbar-divider {
+    margin: 0 2px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
+    padding: 30px 24px 25px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .editor-content h1 {
+    font-size: 26px;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .drag-handle {
+    display: none !important;
+  }
+  :where(.ankole-editor, .ankole-editor-overlay) .editing-hint {
+    display: none;
+  }
+}

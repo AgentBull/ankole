@@ -23,7 +23,7 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 | `web_search`, `web_fetch` | web 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 비쌈. 사용할 때만 바인딩 |
 
-Brain이 유지하는 인스턴스 공용 모델 설정은 embedding과 rerank뿐입니다. [AppConfigure](../app-configuration/)에서 활성 Brain 유지보수 Agent를 선택합니다. 모든 Brain 모델 호출은 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 해당 Agent의 `light` profile은 대화와 Source의 지식 추출, `heavy` profile은 Dreaming과 Skill 교훈 재검토, `web_fetch` profile은 URL Source 가져오기에 사용합니다. `web_fetch`가 설정되지 않았거나 Provider 요청이 실패하면 로컬 `ankole-browser`를 사용합니다. 유지보수 Agent를 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 로컬 URL 가져오기가 모두 중지됩니다. **Brain → 상태**에서 선택한 Agent와 각 profile 상태를 확인할 수 있습니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
+Brain은 [AppConfigure](../app-configuration/)에서 사이트 단위 embedding 모델과 테넌트 단위 rerank 모델을 읽습니다. 각 테넌트에서 활성 Brain 유지보수 Agent를 선택합니다. 모든 Brain 모델 호출은 이 Agent의 ID로 실행되고 사용량도 이 Agent에 귀속됩니다. 해당 Agent의 `light` profile은 대화와 Source의 지식 추출, `heavy` profile은 Dreaming과 Skill 교훈 재검토, `web_fetch` profile은 URL Source 가져오기에 사용합니다. `web_fetch`가 설정되지 않았거나 Provider 요청이 실패하면 Source 가져오기가 실패합니다. 유지보수 Agent를 비활성화하면 다시 활성화하거나 교체할 때까지 모델 호출과 URL Source 가져오기가 모두 중지됩니다. **Brain → 상태**에서 선택한 Agent와 각 profile 상태를 확인할 수 있습니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
 
 가장 많이 절약하는 두 가지 조치:
 
@@ -71,7 +71,6 @@ Background job은 재시도에 token을 쓸 수 있으며, 그 상한이 레버�
 | `max_consecutive_turn_failures` | 5 | job이 포기하기 전 연속 turn 실패 횟수 |
 | `max_running_per_agent` | 3 | agent당 최대 3개의 실행 중인 job |
 | retry delay | ~30s | 재시도 사이의 최소 간격 |
-| `agent_computer.background_agent_job.max_turns_per_worker` | 구성 가능 | job에 대한 worker별 turn 상한 |
 
 일시적으로 다섯 번 실패하는 job은 다섯 번 실행한 만큼의 token을 소비합니다. 대부분의 경우 상한이 보호해 줍니다. 구성 오류는 빠르게 실패하고 실패 상태로 유지됩니다. 주의할 레버는 세 번째입니다. 동시에 세 개의 job을 실행하는 agent는 한 번에 세 개의 model loop를 돌리는 것입니다. 그런 병렬성이 필요 없다면 persona(“한 번에 한 가지 일을 하라”)가 상한이 허용하는 것보다 더 저렴합니다.
 

@@ -19,17 +19,17 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
     :ok
   end
 
-  test "requests without a bearer token are rejected", %{conn: conn} do
+  test "requests without a browser session are rejected", %{conn: conn} do
     conn =
       conn
       |> put_req_header("content-type", "application/json")
       |> post(~p"/api/v1/permission-grants", %{})
 
-    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
   test "grant lifecycle for a principal owner and a group owner", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     %{principal: owner} = human_fixture(%{uid: unique_uid("grant-owner")})
 
     assert {:ok, group} =
@@ -94,7 +94,7 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
   end
 
   test "create validates owner shape, rule syntax, and owner existence", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     %{principal: owner} = human_fixture(%{uid: unique_uid("shape-owner")})
 
     conn =
@@ -112,7 +112,7 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
       |> recycle_api()
       |> post(~p"/api/v1/permission-grants", %{
         "principal_uid" => owner.uid,
-        "group_name" => "admin",
+        "group_name" => "siteadmin",
         "resource_pattern" => "workspace:**",
         "action" => "read"
       })
@@ -162,7 +162,7 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
   test "deleting a malformed grant id answers not found in the console envelope", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> recycle_api()
       |> delete(~p"/api/v1/permission-grants/not-a-uuid")
 

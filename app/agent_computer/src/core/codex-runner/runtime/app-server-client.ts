@@ -1,5 +1,6 @@
 import { Result, isRecord, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../../common/errors'
+import { agentProcessArgv, killProcessGroup } from '../../execution/process-group'
 
 export type JSONRPCMessage = JSONObject & {
   id?: string | number
@@ -46,12 +47,13 @@ type CodexAppServerSpawner = (
     stdin: 'pipe'
     stdout: 'pipe'
     stderr: 'pipe'
+    detached: true
   }
 ) => CodexAppServerProcess
 
 /** Typed Bun process adapter and deterministic spawn seam for tests. */
 const spawnCodexAppServer: CodexAppServerSpawner = (commandArgv, options) =>
-  Bun.spawn(commandArgv, options) as unknown as CodexAppServerProcess
+  Bun.spawn(agentProcessArgv(commandArgv), options) as unknown as CodexAppServerProcess
 
 export type CodexAppServerClientOptions = {
   command?: string
@@ -147,12 +149,15 @@ export class CodexAppServerClient {
       '--stdio',
       ...(opts.args ?? [])
     ]
+    // Its own process group lets the client end the commands that Codex
+    // started together with the app-server.
     this.proc = spawn(commandArgv, {
       cwd: opts.cwd,
       env: opts.env,
       stdin: 'pipe',
       stdout: 'pipe',
-      stderr: 'pipe'
+      stderr: 'pipe',
+      detached: true
     })
     this.stdin = this.proc.stdin ?? undefined
     void this.readStdout()
@@ -274,7 +279,8 @@ export class CodexAppServerClient {
 
   private killProcess(): void {
     try {
-      this.proc.kill()
+      if (this.proc.pid) killProcessGroup(this.proc.pid)
+      else this.proc.kill()
     } catch {
       // The process can exit before this cleanup call.
     }
@@ -466,6 +472,7 @@ function defaultRequestTimeoutMs(method: string): number {
 
 export class CodexAppServerRequestTimeoutError extends Error {
   readonly code = 'codex_app_server_request_timeout'
+  readonly retryable = true
 
   constructor(readonly method: string) {
     super(`codex app-server request timed out: ${method}`)

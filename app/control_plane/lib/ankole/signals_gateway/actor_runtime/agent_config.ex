@@ -1,6 +1,6 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AgentConfig do
   @moduledoc """
-  AppConfigure-backed policy for one Agent Computer loop.
+  AppConfigure-backed Agent policy for control-plane conversations.
 
   These settings are snapshotted into `turn_start.request_context.ai_agent`.
   They belong to the actor turn rather than to any individual LLM Response.
@@ -20,12 +20,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConfig do
   def max_output_tokens_definition do
     AppConfigure.define(
       key: @max_output_tokens_key,
-      scope: :scoped,
+      scope: :tenant,
       encrypted: false,
       schema: max_output_tokens_schema(),
       default_value: nil,
       description:
-        "Optional Agent Computer max output tokens for one model response. nil means no explicit request cap."
+        "Optional Conversation max output tokens for one model response. nil means no explicit request cap."
     )
   end
 
@@ -33,12 +33,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConfig do
   def inactivity_timeout_ms_definition do
     AppConfigure.define(
       key: @inactivity_timeout_ms_key,
-      scope: :scoped,
+      scope: :tenant,
       encrypted: false,
       schema: inactivity_timeout_ms_schema(),
       default_value: @default_inactivity_timeout_ms,
       description:
-        "Agent Computer model/provider inactivity timeout in milliseconds. Running tools own their lifecycle; 0 disables the watchdog."
+        "Conversation model/provider inactivity timeout in milliseconds. Running tools own their lifecycle; 0 disables the watchdog."
     )
   end
 
@@ -52,11 +52,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConfig do
   def max_iterations_definition do
     AppConfigure.define(
       key: @max_iterations_key,
-      scope: :scoped,
+      scope: :tenant,
       encrypted: false,
       schema: max_iterations_schema(),
       default_value: @default_max_iterations,
-      description: "Maximum logical model iterations for one Agent Computer turn execution."
+      description: "Maximum logical model iterations for one conversation run."
     )
   end
 

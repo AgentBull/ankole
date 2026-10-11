@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Repo, WorkerFiles}
+  alias Ankole.{Logging, Repo}
   alias Ankole.Plugins.EmailAdapter.{Address, Authentication, Config, Message, ReplyText}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
@@ -128,32 +128,15 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
     end
   end
 
-  defp emit_with_materialization(%{attachments: []} = input, _bytes, consumer),
-    do: emit_entry(input, consumer)
-
   defp emit_with_materialization(input, bytes, consumer) do
-    observed_at = DateTime.utc_now(:microsecond)
-    pending = put_materialization_state(input, "pending", observed_at)
-
-    case emit_entry(pending, consumer) do
-      {:ok, %{signal_entry: %Entry{attachments: attachments}}} when is_list(attachments) ->
-        attachments = Enum.map(attachments, &materialize(&1, bytes, consumer.context.agent_uid))
-
-        input
-        |> Map.put(:attachments, attachments)
-        |> put_materialization_state(materialization_state(attachments), observed_at)
-        |> emit_entry(consumer)
-
-      {:ok, _held_or_ignored} = result ->
-        result
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp emit_entry(input, consumer) do
-    Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Ingress.emit_entry_with_attachments(
+      consumer.context.agent_uid,
+      consumer.context.binding_name,
+      input,
+      &Ingress.materialize_attachments(&1, "email", fn attachment ->
+        download_attachment(attachment, bytes)
+      end)
+    )
   end
 
   defp decode(raw, headers_only?) do
@@ -278,59 +261,13 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   defp attachment_ref(source_entry_id, index), do: "email:#{source_entry_id}:part:#{index}"
 
-  defp materialize(%{"materialization_state" => _state} = attachment, _bytes, _agent_uid),
-    do: attachment
-
-  defp materialize(%{"provider_ref" => ref} = attachment, bytes, agent_uid) do
-    with body when is_binary(body) <- Map.get(bytes, ref, {:error, :attachment_bytes_missing}),
-         relative <-
-           Path.join([
-             "inbox",
-             Integer.to_string(attachment["attachment_id"]),
-             WorkerFiles.sanitize_path_segment(attachment["name"])
-           ]),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, body) do
-      attachment
-      |> Map.put("materialization_state", "complete")
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      reason -> materialization_failed(attachment, reason)
+  defp download_attachment(%{"provider_ref" => ref}, bytes) do
+    with body when is_binary(body) <- Map.get(bytes, ref, {:error, :attachment_bytes_missing}) do
+      {:ok, %{body: body, filename: nil, content_type: nil, put: %{}}}
     end
-  rescue
-    exception -> materialization_failed(attachment, exception)
   end
 
-  defp materialize(attachment, _bytes, _agent_uid), do: attachment
-
-  defp materialization_failed(attachment, reason) do
-    Logging.warning(
-      "email_adapter.attachment.materialization_skipped",
-      "email attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: inspect(reason) |> String.slice(0, 200)}
-    )
-
-    Map.put(attachment, "materialization_state", "failed")
-  end
-
-  defp put_materialization_state(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialization_state(attachments) do
-    if Enum.all?(attachments, &(&1["materialization_state"] == "complete")),
-      do: "complete",
-      else: "failed"
-  end
+  defp download_attachment(_attachment, _bytes), do: {:error, :attachment_reference_missing}
 
   # The address is the subject id, not a contact field: an email sender is
   # admitted only through an `email` binding, never through the contact match

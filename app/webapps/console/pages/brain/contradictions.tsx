@@ -19,13 +19,12 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiScales3Line, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebBrainControllerDecideContradictionMutation,
-  ankoleWebBrainControllerListContradictionsOptions,
-  ankoleWebBrainControllerListContradictionsQueryKey
+  ankoleWebBrainControllerListContradictionsOptions
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainContradiction } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
@@ -37,7 +36,6 @@ const CONTRADICTION_STATUSES = ['open', 'resolved', 'dismissed'] as const
 
 export function BrainContradictionsPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [status, setStatus] = useState<(typeof CONTRADICTION_STATUSES)[number]>('open')
   const [decideTarget, setDecideTarget] = useState<{
     contradiction: BrainContradiction
@@ -58,7 +56,6 @@ export function BrainContradictionsPage() {
     onSuccess: () => {
       toast.success(t('console.brain.contradiction_decided'))
       setDecideTarget(undefined)
-      void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListContradictionsQueryKey() })
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

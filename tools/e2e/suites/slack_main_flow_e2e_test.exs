@@ -1,9 +1,8 @@
 defmodule Ankole.E2E.SlackMainFlowTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.E2E.FakeSlack.{Server, State}
-  alias Ankole.Plugins.SlackAdapter.{Config, Outbox}
+  alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Outbox}
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
@@ -25,18 +24,12 @@ defmodule Ankole.E2E.SlackMainFlowTest do
       "userName" => "Slack"
     }
 
-    assert {:ok, _stored} =
-             AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+    on_exit(fn -> ConnectionReconciler.stop(Config.connection_key(config)) end)
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
-               agent_uid: agent.uid,
-               name: binding_name,
-               adapter: "slack",
-               config_ref: "app-config://#{Config.chat_config_key(binding_name)}",
-               filters: %{},
-               unaddressed_group_message_policy: :ignore,
-               unmatched_sender_policy: :create_standalone
+             SignalsGateway.Bindings.put_binding(agent.uid, "slack", binding_name, %{
+               "config" => config,
+               "unmatched_sender_policy" => "create_standalone"
              })
 
     base = %OutboxEntry{

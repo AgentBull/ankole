@@ -3,7 +3,8 @@ defmodule Ankole.Plugins.LineAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.{Logging, Repo, SignalsGateway}
+  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.{Logging, Repo}
   alias Ankole.Plugins.LineAdapter.{Client, Config, ErrorPolicy, Presentation}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway.{Actors, Entry, OutboxEntry}
@@ -23,7 +24,8 @@ defmodule Ankole.Plugins.LineAdapter.Outbox do
     result =
       with :ok <- reject_outbound_attachments(outbox),
            :ok <- retry_key_usable(outbox, DateTime.utc_now()),
-           {:ok, config} <- config_for_outbox(outbox),
+           {:ok, config} <- Bindings.outbox_config(outbox, Config),
+           config = Config.runtime_config(config),
            {:ok, requests} <- requests_for_outbox(outbox),
            {:ok, sent} <- perform_requests(requests, Config.client(config), outbox) do
         record_reply_surface(outbox, sent)
@@ -238,16 +240,6 @@ defmodule Ankole.Plugins.LineAdapter.Outbox do
     case MapHelpers.fetch_list(outbox.payload, "attachments") do
       [] -> :ok
       _attachments -> {:error, :outbound_attachments_not_supported}
-    end
-  end
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
     end
   end
 

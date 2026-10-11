@@ -1,10 +1,14 @@
 import { Socket } from 'phoenix'
-import * as kernel from '../../../kernel'
 import { Buffer } from 'node:buffer'
 import { errorMessage, toError } from '../common/errors'
 import { workerLogger } from '../worker/logging'
-import { decodeEnvelope, encodeEnvelope, Stream, type Envelope } from './envelope_proto'
-import { RuntimeFabricTransportError, type RuntimeFabricHost, type RuntimeFabricReceiveOutcome } from './fabric'
+import { decodeEnvelope, encodeEnvelope, ProtocolVersion, Stream, type Envelope } from './envelope_proto'
+import {
+  RuntimeFabricTransportError,
+  type EnvelopeSendOptions,
+  type RuntimeFabricHost,
+  type RuntimeFabricReceiveOutcome
+} from './fabric'
 
 /**
  * Phoenix Channel client for the RuntimeFabric worker connection.
@@ -13,18 +17,19 @@ import { RuntimeFabricTransportError, type RuntimeFabricHost, type RuntimeFabric
  * plane. Every envelope names its stream and carries a per-stream
  * `transport_seq` that starts at 1 on each join. The control plane answers a
  * push with a cumulative acknowledgement (`acked_seq`) and the remaining
- * `message_credit` and `byte_credit` of that stream; the Worker resolves every
- * in-flight push up to `acked_seq` and bounds its window by the credit. A
- * rejected push did not consume its sequence number, so a `flow_control`
+ * `message_credit` and `byte_credit` of that stream. Credit bounds the window;
+ * each push's own reply confirms its business outcome. A cumulative ACK only
+ * confirms consumed sequence numbers, which can include business rejections. A
+ * `flow_control` refusal did not consume its sequence number, so that
  * retry repeats the same seq; a `bad_sequence` reply means the streams are out
  * of step and the Worker rejoins, which resets both sides to 1.
  *
  * Commands and replies from the control plane share one sequence per
  * connection. The Worker accepts them in order into a bounded inbound queue
  * and acknowledges cumulatively on the `ack` event with its remaining queue
- * capacity. Nothing is buffered across a lost connection: an unanswered push
- * fails, and the control plane repeats durable work through its own delivery
- * records.
+ * capacity. Replies already queued are delivered before the disconnect event.
+ * An unanswered push fails; this transport stores no durable replay buffer.
+ * The control plane repeats durable work through its own delivery records.
  */
 
 export type RuntimeFabricStream = 'control' | 'durable' | 'telemetry'
@@ -71,8 +76,10 @@ export type ChannelTransportConfig = {
 }
 
 export type ChannelTransportOptions = {
-  /** Builds the `worker_ready` envelope sent after every successful join. */
-  readyEnvelope: () => Envelope
+  /** Reports current capacity on every join and reconnect. */
+  joinParams: () => WorkerJoinParams
+  /** Stops execution whose connection fence the control plane has released. */
+  onDisconnected?: (reason: string) => void
   /** Replaces the Phoenix socket; unit tests inject an in-memory double. */
   createSocket?: (endpoint: string, options: ChannelSocketOptions) => ChannelSocketLike
   pushTimeoutMs?: number
@@ -81,6 +88,8 @@ export type ChannelTransportOptions = {
   inboundQueueLimit?: number
   inboundByteLimit?: number
   ackDelayMs?: number
+  /** Delay before the transport reconnects after a normal close, by attempt. */
+  reconnectDelayMs?: (tries: number) => number
   windows?: Partial<Record<RuntimeFabricStream, StreamWindowLimits>>
 }
 
@@ -115,17 +124,15 @@ const streamEnum: Record<RuntimeFabricStream, Stream> = {
   durable: Stream.DURABLE,
   telemetry: Stream.TELEMETRY
 }
-const readyRetryMs = { initial: 1_000, max: 5_000 }
+const resumeClockGapMs = 30_000
 const telemetryExportMethod = 'observability.spans.export'
 
-export const runtimeFabricWorkerTopic = (workerID: string): string => `worker/installation/${workerID}`
+export const runtimeFabricWorkerTopic = 'worker'
 
 /** Classifies an envelope into the stream that carries it. */
 export function runtimeFabricStream(envelope: Envelope): RuntimeFabricStream {
   switch (envelope.body.case) {
-    case 'workerReady':
     case 'workerHeartbeat':
-    case 'workerCapacity':
     case 'controlShutdown':
       return 'control'
     case 'rpcRequest':
@@ -136,27 +143,9 @@ export function runtimeFabricStream(envelope: Envelope): RuntimeFabricStream {
 }
 
 export type WorkerJoinParams = {
-  worker_id: string
   incarnation_id: string
-  runtime: string
-  version: string
-  max_turns: number
-  available_turn_slots: number
-}
-
-export function joinParams(envelope: Envelope): WorkerJoinParams {
-  if (envelope.body.case !== 'workerReady') {
-    throw new Error(`join params need a workerReady envelope, got ${envelope.body.case ?? 'an empty body'}`)
-  }
-  const ready = envelope.body.value
-  return {
-    worker_id: ready.workerId,
-    incarnation_id: ready.incarnationId,
-    runtime: ready.runtime,
-    version: ready.version,
-    max_turns: ready.maxTurns,
-    available_turn_slots: ready.availableTurnSlots
-  }
+  max_slots: number
+  available_slots: number
 }
 
 export function createPhoenixSocket(endpoint: string, options: ChannelSocketOptions): ChannelSocketLike {
@@ -169,8 +158,18 @@ export function createPhoenixSocket(endpoint: string, options: ChannelSocketOpti
     params: { worker_id: options.workerID },
     binaryType: 'arraybuffer',
     heartbeatIntervalMs: 15_000,
-    reconnectAfterMs: tries => Math.min(5_000, 100 * 2 ** Math.min(tries, 6))
+    reconnectAfterMs: reconnectDelayMs
   }) as unknown as ChannelSocketLike
+}
+
+function reconnectDelayMs(tries: number): number {
+  return Math.min(5_000, 100 * 2 ** Math.min(tries, 6))
+}
+
+function closeCode(event: unknown): number | undefined {
+  return typeof event === 'object' && event !== null && 'code' in event && typeof event.code === 'number'
+    ? event.code
+    : undefined
 }
 
 export function createChannelTransport(
@@ -195,10 +194,11 @@ class StreamWindow {
     return true
   }
 
-  async acquire(bytes: number, closed: () => boolean): Promise<void> {
+  async acquire(bytes: number, closed: () => boolean, signal?: AbortSignal): Promise<void> {
     while (!this.tryAcquire(bytes)) {
+      signal?.throwIfAborted()
       if (closed()) throw new RuntimeFabricTransportError('socket_closed', 'socket_closed')
-      await new Promise<void>(resolve => this.waiters.push(resolve))
+      await waitForWake(this.waiters, signal)
     }
   }
 
@@ -257,11 +257,12 @@ class ChannelTransport implements RuntimeFabricHost {
   private readonly windows: Record<RuntimeFabricStream, StreamWindow>
   private readonly pushTimeoutMs: number
   private readonly readyWaitMs: number
+  private readonly normalCloseReconnectDelayMs: (tries: number) => number
   private readonly flowControlBackoffMs: { initial: number; max: number }
   private readonly inboundQueueLimit: number
   private readonly inboundByteLimit: number
   private readonly ackDelayMs: number
-  private readonly inbound: Array<{ envelope: Envelope; bytes: number }> = []
+  private readonly inbound: Array<{ outcome: RuntimeFabricReceiveOutcome; bytes: number }> = []
   private inboundBytes = 0
   private inboundWaiter: ((outcome: RuntimeFabricReceiveOutcome) => void) | undefined
   private inboundFailure: RuntimeFabricTransportError | undefined
@@ -275,9 +276,16 @@ class ChannelTransport implements RuntimeFabricHost {
   private ackTimer: ReturnType<typeof setTimeout> | undefined
   private readonly readyWaiters: Array<() => void> = []
   private ready = false
+  private connectionID?: string
   private stopped = false
-  private readyAttempt = 0
-  private readyRetryTimer: ReturnType<typeof setTimeout> | undefined
+  // A new process has no channel yet; the clock starts at construction.
+  private disconnectedSince: number | undefined = Date.now()
+  private refusedReason: string | undefined
+  private normalCloseReconnects = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  private reconnecting = false
+  private lastEventLoopCheck = Date.now()
+  private readonly eventLoopTimer: ReturnType<typeof setInterval>
   telemetryDropped = 0
 
   constructor(
@@ -286,6 +294,7 @@ class ChannelTransport implements RuntimeFabricHost {
   ) {
     this.pushTimeoutMs = options.pushTimeoutMs ?? defaultPushTimeoutMs
     this.readyWaitMs = options.readyWaitMs ?? defaultReadyWaitMs
+    this.normalCloseReconnectDelayMs = options.reconnectDelayMs ?? reconnectDelayMs
     this.flowControlBackoffMs = options.flowControlBackoffMs ?? defaultFlowControlBackoffMs
     this.inboundQueueLimit = options.inboundQueueLimit ?? defaultInboundQueueLimit
     this.inboundByteLimit = options.inboundByteLimit ?? defaultInboundByteLimit
@@ -299,7 +308,7 @@ class ChannelTransport implements RuntimeFabricHost {
     const createSocket = options.createSocket ?? createPhoenixSocket
     this.socket = createSocket(config.endpoint, { workerID: config.workerID, workerAuthKey: config.workerAuthKey })
     this.socket.onOpen(() => workerLogger.info('worker.fabric_connected', 'runtime fabric socket connected', {}))
-    this.socket.onClose(() => this.onDisconnected('socket_closed'))
+    this.socket.onClose(event => this.onSocketClosed(event))
     this.socket.onError(error => {
       workerLogger.warning('worker.fabric_socket_error', 'runtime fabric socket error', { error: toError(error) })
     })
@@ -307,6 +316,7 @@ class ChannelTransport implements RuntimeFabricHost {
     this.channel = this.createChannel()
     this.socket.connect()
     this.joinChannel()
+    this.eventLoopTimer = setInterval(() => this.checkResume(), 1_000)
   }
 
   get isReady(): boolean {
@@ -315,7 +325,8 @@ class ChannelTransport implements RuntimeFabricHost {
 
   // `RuntimeFabricHost` hands these out as plain functions (`EnvelopeSender`),
   // so they must not depend on the call site keeping `this`.
-  readonly sendEnvelope = async (envelope: Envelope): Promise<void> => {
+  readonly sendEnvelope = async (envelope: Envelope, options: EnvelopeSendOptions = {}): Promise<void> => {
+    options.signal?.throwIfAborted()
     this.ensureOpen()
     const stream = runtimeFabricStream(envelope)
     // The sequence number is assigned when the push happens; its varint adds
@@ -329,11 +340,11 @@ class ChannelTransport implements RuntimeFabricHost {
         return
       }
     } else {
-      await window.acquire(size, () => this.stopped)
+      await window.acquire(size, () => this.stopped, options.signal)
     }
 
     try {
-      await this.deliver(stream, envelope)
+      await this.deliver(stream, envelope, options)
     } finally {
       window.release(size)
     }
@@ -346,7 +357,7 @@ class ChannelTransport implements RuntimeFabricHost {
     const queued = this.inbound.shift()
     if (queued) {
       this.inboundBytes -= queued.bytes
-      return Promise.resolve({ kind: 'envelope', envelope: queued.envelope })
+      return Promise.resolve(queued.outcome)
     }
 
     return new Promise(resolve => {
@@ -366,8 +377,9 @@ class ChannelTransport implements RuntimeFabricHost {
     if (this.stopped) return
     this.stopped = true
     this.ready = false
-    if (this.readyRetryTimer) clearTimeout(this.readyRetryTimer)
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.ackTimer) clearTimeout(this.ackTimer)
+    clearInterval(this.eventLoopTimer)
     this.settleInFlight({ status: 'closed' })
     this.wakeReadyWaiters()
     for (const window of Object.values(this.windows)) window.wake()
@@ -378,23 +390,25 @@ class ChannelTransport implements RuntimeFabricHost {
     }
   }
 
-  private async deliver(stream: RuntimeFabricStream, envelope: Envelope): Promise<void> {
+  private async deliver(stream: RuntimeFabricStream, envelope: Envelope, options: EnvelopeSendOptions): Promise<void> {
     let backoffMs = this.flowControlBackoffMs.initial
     let seq: number | undefined
 
     for (;;) {
+      options.signal?.throwIfAborted()
       if (stream === 'telemetry') {
         if (!this.ready) {
           this.dropTelemetry(envelope, 'not_ready')
           return
         }
       } else {
-        await this.awaitReady()
+        await this.awaitReady(options.signal)
       }
-      await this.awaitUnpaused(stream)
+      await this.awaitUnpaused(stream, options.signal)
+      options.signal?.throwIfAborted()
 
       const state = this.streams[stream]
-      // A rejected push did not consume its seq, so a retry repeats it.
+      // A flow-control refusal did not consume its seq, so a retry repeats it.
       seq = seq ?? state.nextSeq
       if (seq !== state.nextSeq) {
         // Later pushes already used the following seqs; they fail with
@@ -403,7 +417,7 @@ class ChannelTransport implements RuntimeFabricHost {
       }
       state.nextSeq = seq + 1
 
-      const outcome = await this.push(stream, seq, this.seal(envelope, stream, seq))
+      const outcome = await this.push(stream, seq, this.seal(envelope, stream, seq), options)
       switch (outcome.status) {
         case 'ok':
           return
@@ -416,7 +430,7 @@ class ChannelTransport implements RuntimeFabricHost {
             throw new RuntimeFabricTransportError('socket_closed', 'socket_closed: stream sequence reset')
           }
           if (outcome.reason !== 'flow_control') {
-            throw new RuntimeFabricTransportError('rejected', `rejected: ${outcome.reason}`)
+            throw new RuntimeFabricTransportError('rejected', `rejected: ${outcome.reason}`, { reason: outcome.reason })
           }
           if (stream === 'telemetry') {
             this.dropTelemetry(envelope, 'flow_control')
@@ -425,7 +439,7 @@ class ChannelTransport implements RuntimeFabricHost {
           if (state.nextSeq === seq + 1) state.nextSeq = seq
           state.paused = true
           try {
-            await this.awaitCredit(stream, backoffMs)
+            await this.awaitCredit(stream, backoffMs, options.signal)
           } finally {
             state.paused = false
             this.wakeStream(stream)
@@ -435,49 +449,63 @@ class ChannelTransport implements RuntimeFabricHost {
     }
   }
 
-  private push(stream: RuntimeFabricStream, seq: number, bytes: Buffer): Promise<PushOutcome> {
+  private push(
+    stream: RuntimeFabricStream,
+    seq: number,
+    bytes: Buffer,
+    options: EnvelopeSendOptions
+  ): Promise<PushOutcome> {
     if (this.stopped || !this.ready) return Promise.resolve({ status: 'closed' })
     const state = this.streams[stream]
+    const channel = this.channel
+    const connectionID = this.connectionID!
 
     return new Promise(resolve => {
       const settle = (outcome: PushOutcome) => {
-        if (!state.inFlight.delete(seq)) return
+        if (state.inFlight.get(seq) !== settle) return
+        state.inFlight.delete(seq)
+        options.signal?.removeEventListener('abort', abort)
         resolve(outcome)
       }
+      const abort = () => settle({ status: 'closed' })
       state.inFlight.set(seq, settle)
+      options.signal?.addEventListener('abort', abort, { once: true })
+
+      const currentConnection = () => this.ready && this.channel === channel && this.connectionID === connectionID
 
       let push: ChannelPushLike
       try {
-        push = this.channel.push(stream, arrayBuffer(bytes), this.pushTimeoutMs)
+        push = channel.push(stream, arrayBuffer(bytes), this.pushTimeoutMs)
+        options.onSent?.(connectionID)
       } catch (error) {
         settle({ status: 'error', reason: errorMessage(error), reply: {} })
         return
       }
       push
         .receive('ok', response => {
+          if (!currentConnection()) return
           const reply = streamReply(response)
-          this.applyReply(stream, reply)
           settle({ status: 'ok' })
+          this.applyReply(stream, reply)
         })
         .receive('error', response => {
+          if (!currentConnection()) return
           const reply = streamReply(response)
+          // A consumed sequence is also acknowledged on a business rejection.
+          // Preserve this push's explicit outcome before applying the cumulative ACK.
+          settle({ status: 'error', reason: reply.reason ?? 'unknown', reply })
           this.applyReply(stream, reply)
           if (reply.reason === 'bad_sequence') this.resync('bad_sequence', { stream, expected: reply.expected })
-          settle({ status: 'error', reason: reply.reason ?? 'unknown', reply })
         })
-        .receive('timeout', () => settle({ status: 'timeout' }))
+        .receive('timeout', () => {
+          if (currentConnection()) settle({ status: 'timeout' })
+        })
     })
   }
 
-  // A reply carries the cumulative acknowledgement of its stream: every earlier
-  // in-flight push up to `acked_seq` is done, and the credit bounds the window.
+  // Credit is cumulative; a sequence ACK is not an earlier push's business result.
   private applyReply(stream: RuntimeFabricStream, reply: StreamReply): void {
     const state = this.streams[stream]
-    if (reply.ackedSeq !== undefined) {
-      for (const [seq, settle] of state.inFlight) {
-        if (seq <= reply.ackedSeq) settle({ status: 'ok' })
-      }
-    }
     if (reply.messageCredit !== undefined && reply.byteCredit !== undefined) {
       this.windows[stream].setCredit(reply.messageCredit, reply.byteCredit)
       if (reply.messageCredit > 0) {
@@ -487,26 +515,15 @@ class ChannelTransport implements RuntimeFabricHost {
     }
   }
 
-  private awaitCredit(stream: RuntimeFabricStream, backoffMs: number): Promise<void> {
+  private awaitCredit(stream: RuntimeFabricStream, backoffMs: number, signal?: AbortSignal): Promise<void> {
     const state = this.streams[stream]
-    return new Promise(resolve => {
-      const timer = setTimeout(() => {
-        const index = state.creditWaiters.indexOf(waiter)
-        if (index >= 0) state.creditWaiters.splice(index, 1)
-        resolve()
-      }, backoffMs)
-      const waiter = () => {
-        clearTimeout(timer)
-        resolve()
-      }
-      state.creditWaiters.push(waiter)
-    })
+    return waitForWake(state.creditWaiters, signal, backoffMs)
   }
 
-  private awaitUnpaused(stream: RuntimeFabricStream): Promise<void> {
+  private awaitUnpaused(stream: RuntimeFabricStream, signal?: AbortSignal): Promise<void> {
     const state = this.streams[stream]
     if (!state.paused) return Promise.resolve()
-    return new Promise(resolve => state.creditWaiters.push(resolve))
+    return waitForWake(state.creditWaiters, signal)
   }
 
   private wakeStream(stream: RuntimeFabricStream): void {
@@ -547,48 +564,40 @@ class ChannelTransport implements RuntimeFabricHost {
     this.joinChannel()
   }
 
-  private awaitReady(): Promise<void> {
+  readonly awaitReady = async (signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted()
     if (this.ready) return Promise.resolve()
-    if (this.stopped) throw new RuntimeFabricTransportError('socket_closed', 'socket_closed')
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        remove()
-        reject(new RuntimeFabricTransportError('socket_closed', 'socket_closed: control plane connection is not ready'))
-      }, this.readyWaitMs)
-      const waiter = () => {
-        clearTimeout(timer)
-        if (this.ready) {
-          resolve()
-        } else if (this.stopped) {
-          reject(new RuntimeFabricTransportError('socket_closed', 'socket_closed'))
-        } else {
-          this.readyWaiters.push(waiter)
-        }
+    const deadline = Date.now() + this.readyWaitMs
+    while (!this.ready) {
+      this.ensureOpen()
+      if (this.refusedReason) {
+        throw new RuntimeFabricTransportError('rejected', `rejected: ${this.refusedReason}`, {
+          reason: this.refusedReason
+        })
       }
-      const remove = () => {
-        const index = this.readyWaiters.indexOf(waiter)
-        if (index >= 0) this.readyWaiters.splice(index, 1)
+      if (Date.now() >= deadline) {
+        throw new RuntimeFabricTransportError('socket_closed', 'socket_closed: control plane connection is not ready')
       }
-      this.readyWaiters.push(waiter)
-    })
+      await waitForWake(this.readyWaiters, signal, deadline - Date.now())
+    }
   }
 
   private createChannel(): ChannelLike {
-    // Admission runs inside the control plane's `join/3`, so the join payload
-    // carries the `worker_ready` fields. Phoenix evaluates the closure on every
-    // join and rejoin, so a reconnect reports the current slot count.
-    const channel = this.socket.channel(runtimeFabricWorkerTopic(this.config.workerID), () =>
-      joinParams(this.options.readyEnvelope())
-    )
-    channel.on('command', payload => this.onCommand(payload))
-    channel.on('reply', payload => this.onReply(payload))
-    channel.onError(() => this.onDisconnected('channel_error'))
+    const channel = this.socket.channel(runtimeFabricWorkerTopic, this.options.joinParams)
+    channel.on('command', payload => {
+      if (this.channel === channel && this.ready) this.onCommand(payload)
+    })
+    channel.on('reply', payload => {
+      if (this.channel === channel && this.ready) this.onReply(payload)
+    })
+    channel.onError(() => {
+      if (this.channel === channel) this.onDisconnected('channel_error')
+    })
     // Phoenix does not rejoin a channel the server closed, so the transport
     // replaces it and joins again with the same identity.
     channel.onClose(() => {
-      this.onDisconnected('channel_closed')
       if (this.stopped || this.channel !== channel) return
+      this.onDisconnected('channel_closed')
       this.channel = this.createChannel()
       this.joinChannel()
     })
@@ -597,15 +606,24 @@ class ChannelTransport implements RuntimeFabricHost {
 
   private joinChannel(): void {
     if (this.stopped) return
-    this.channel
+    const channel = this.channel
+    channel
       .join()
-      .receive('ok', response => this.onJoined(response))
+      .receive('ok', response => {
+        if (!this.stopped && this.channel === channel) this.onJoined(response)
+      })
       .receive('error', response => {
-        workerLogger.warning('worker.fabric_join_rejected', 'runtime fabric channel join rejected', {
-          reason: replyReason(response)
-        })
+        if (this.stopped || this.channel !== channel) return
+        const reason = replyReason(response)
+        workerLogger.warning('worker.fabric_join_rejected', 'runtime fabric channel join rejected', { reason })
+        // The control plane no longer accepts this process for its Agent.
+        if (reason === 'stale_worker_generation') {
+          this.refusedReason = reason
+          this.wakeReadyWaiters()
+        }
       })
       .receive('timeout', () => {
+        if (this.stopped || this.channel !== channel) return
         workerLogger.warning('worker.fabric_join_timeout', 'runtime fabric channel join timed out', {})
       })
   }
@@ -615,74 +633,86 @@ class ChannelTransport implements RuntimeFabricHost {
       typeof response === 'object' && response !== null && 'connection_id' in response
         ? String(response.connection_id)
         : undefined
+    if (!connectionID) {
+      this.refusedReason = 'missing_connection_id'
+      this.wakeReadyWaiters()
+      return
+    }
+    if (this.ready) this.onDisconnected('connection_replaced')
+    this.connectionID = connectionID
     workerLogger.info('worker.fabric_joined', 'runtime fabric channel joined', {
       worker_id: this.config.workerID,
       connection_id: connectionID ?? null
     })
     this.resetStreams()
-    this.sendReady()
+    this.normalCloseReconnects = 0
+    this.ready = true
+    this.disconnectedSince = undefined
+    this.wakeReadyWaiters()
   }
 
-  // Admission is the first message on every connection. Until the control
-  // plane acknowledges it, nothing else may be sent, so a new connection can
-  // never deliver work under the fence of an old one.
-  private sendReady(): void {
-    if (this.stopped || this.channel.state !== 'joined') return
-    let bytes: Buffer
-    const control = this.streams.control
-    const seq = control.nextSeq
-    try {
-      bytes = this.seal(this.options.readyEnvelope(), 'control', seq)
-    } catch (error) {
-      workerLogger.error('worker.fabric_ready_invalid', 'worker ready envelope is invalid', { error: toError(error) })
-      return
+  isolationReason(maxDisconnectedMs: number): string | undefined {
+    this.checkResume()
+    if (this.refusedReason) return this.refusedReason
+    if (this.disconnectedSince !== undefined && Date.now() - this.disconnectedSince >= maxDisconnectedMs) {
+      return 'no_channel'
     }
-
-    control.nextSeq = seq + 1
-    this.channel
-      .push('control', arrayBuffer(bytes), this.pushTimeoutMs)
-      .receive('ok', response => {
-        this.applyReply('control', streamReply(response))
-        this.readyAttempt = 0
-        this.ready = true
-        this.wakeReadyWaiters()
-        workerLogger.notice('worker.ready_sent', 'worker ready acknowledged', {
-          endpoint: this.config.endpoint,
-          worker_id: this.config.workerID
-        })
-      })
-      .receive('error', response => {
-        // Ready was not accepted, so its seq is free again for the retry.
-        if (control.nextSeq === seq + 1) control.nextSeq = seq
-        this.retryReady(replyReason(response))
-      })
-      .receive('timeout', () => this.retryReady('timeout'))
+    return undefined
   }
 
-  private retryReady(reason: string): void {
-    if (this.stopped) return
-    this.readyAttempt += 1
-    const delayMs = Math.min(readyRetryMs.max, readyRetryMs.initial * 2 ** Math.min(this.readyAttempt - 1, 4))
-    workerLogger.warning('worker.fabric_ready_rejected', 'worker ready was not accepted', {
-      reason,
-      retry_in_ms: delayMs
+  private checkResume(): void {
+    const now = Date.now()
+    const gapMs = now - this.lastEventLoopCheck
+    this.lastEventLoopCheck = now
+    if (this.stopped || this.refusedReason || gapMs <= resumeClockGapMs) return
+
+    // A paused VM can retain its socket and its disconnection clock. Give
+    // the same process a new connection and a full isolation interval.
+    workerLogger.info('worker.instance_resumed', 'worker event loop resumed', { gap_ms: gapMs })
+    this.onDisconnected('instance_resumed')
+    this.disconnectedSince = now
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.reconnectSocket()
+  }
+
+  private reconnectSocket(): void {
+    if (this.stopped || this.reconnecting) return
+    this.reconnecting = true
+    this.socket.disconnect(() => {
+      this.reconnecting = false
+      if (!this.stopped) this.socket.connect()
     })
-    this.readyRetryTimer = setTimeout(() => {
-      this.readyRetryTimer = undefined
-      this.sendReady()
+  }
+
+  // Phoenix reconnects by itself only after an abnormal close, but the
+  // control plane's server closes every WebSocket with code 1000 when it shuts
+  // down. So the transport also reconnects after a normal close; the join
+  // then decides if the control plane still accepts this process.
+  private onSocketClosed(event: unknown): void {
+    this.onDisconnected('socket_closed')
+    if (this.stopped || this.reconnecting || closeCode(event) !== 1000 || this.reconnectTimer) return
+    const delayMs = this.normalCloseReconnectDelayMs(this.normalCloseReconnects)
+    this.normalCloseReconnects += 1
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      if (this.stopped || this.socket.isConnected()) return
+      this.reconnectSocket()
     }, delayMs)
   }
 
   private onDisconnected(reason: string): void {
     if (this.stopped) return
     const wasReady = this.ready
+    const connectionID = this.connectionID
     this.ready = false
-    if (this.readyRetryTimer) {
-      clearTimeout(this.readyRetryTimer)
-      this.readyRetryTimer = undefined
-    }
+    if (wasReady) this.disconnectedSince = Date.now()
     this.settleInFlight({ status: 'closed' })
     if (wasReady) {
+      this.enqueueOutcome({ kind: 'disconnected', connectionID: connectionID!, reason }, 0)
+      this.options.onDisconnected?.(reason)
       workerLogger.warning('worker.fabric_disconnected', 'runtime fabric connection lost', { reason })
     }
   }
@@ -749,10 +779,11 @@ class ChannelTransport implements RuntimeFabricHost {
   private decodeInbound(payload: unknown, event: string): { envelope: Envelope; bytes: number } | undefined {
     try {
       const bytes = inboundBytes(payload)
-      // The kernel stays the single semantic checker for received envelopes;
-      // structural decoding uses the codec generated from envelope.proto.
-      kernel.runtimeFabricValidateEnvelope(bytes)
-      return { envelope: decodeEnvelope(bytes), bytes: bytes.byteLength }
+      const envelope = decodeEnvelope(bytes)
+      if (envelope.protocolVersion !== ProtocolVersion.CURRENT) {
+        throw new Error(`unsupported runtime fabric protocol version: ${envelope.protocolVersion}`)
+      }
+      return { envelope, bytes: bytes.byteLength }
     } catch (error) {
       workerLogger.error('worker.fabric_decode_failed', 'runtime fabric envelope rejected', {
         event,
@@ -763,8 +794,12 @@ class ChannelTransport implements RuntimeFabricHost {
   }
 
   private enqueue(envelope: Envelope, bytes: number): void {
+    this.enqueueOutcome({ kind: 'envelope', envelope }, bytes)
+  }
+
+  private enqueueOutcome(outcome: RuntimeFabricReceiveOutcome, bytes: number): void {
     if (this.inboundWaiter) {
-      this.inboundWaiter({ kind: 'envelope', envelope })
+      this.inboundWaiter(outcome)
       return
     }
     if (this.inbound.length >= this.inboundQueueLimit || this.inboundBytes + bytes > this.inboundByteLimit) {
@@ -775,19 +810,17 @@ class ChannelTransport implements RuntimeFabricHost {
       this.stop()
       return
     }
-    this.inbound.push({ envelope, bytes })
+    this.inbound.push({ outcome, bytes })
     this.inboundBytes += bytes
   }
 
   private seal(envelope: Envelope, stream: RuntimeFabricStream, seq: number): Buffer {
-    try {
-      const sequenced = { ...envelope, stream: streamEnum[stream], transportSeq: BigInt(seq) }
-      return Buffer.from(kernel.runtimeFabricSealEnvelope(encodeEnvelope(sequenced)))
-    } catch (error) {
-      throw new RuntimeFabricTransportError('invalid_envelope', `invalid_envelope: ${errorMessage(error)}`, {
-        cause: error
-      })
-    }
+    return encodeEnvelope({
+      ...envelope,
+      protocolVersion: ProtocolVersion.CURRENT,
+      stream: streamEnum[stream],
+      transportSeq: BigInt(seq)
+    })
   }
 
   private dropTelemetry(envelope: Envelope, reason: string): void {
@@ -815,6 +848,30 @@ class ChannelTransport implements RuntimeFabricHost {
       throw this.inboundFailure ?? new RuntimeFabricTransportError('socket_closed', 'socket_closed')
     }
   }
+}
+
+/** Removes a waiter on every wake, deadline and cancellation. */
+function waitForWake(waiters: Array<() => void>, signal?: AbortSignal, timeoutMs?: number): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const remove = () => {
+      const index = waiters.indexOf(wake)
+      if (index >= 0) waiters.splice(index, 1)
+      if (timer !== undefined) clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+    }
+    const wake = () => {
+      remove()
+      resolve()
+    }
+    const abort = () => {
+      remove()
+      reject(signal!.reason)
+    }
+    const timer = timeoutMs === undefined ? undefined : setTimeout(wake, timeoutMs)
+    waiters.push(wake)
+    signal?.addEventListener('abort', abort, { once: true })
+  })
 }
 
 function arrayBuffer(bytes: Buffer): ArrayBuffer {

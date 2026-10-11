@@ -1,19 +1,17 @@
 defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   @moduledoc """
-  Authenticates AIGateway requests as an Agent, Console administrator, or OIDC Human.
+  Authenticates AIGateway requests as an Agent or OIDC Human.
   """
 
   import Phoenix.Controller
   import Plug.Conn
 
-  alias Ankole.AdminAuth
   alias Ankole.AIGateway.Tokens, as: AgentTokens
   alias Ankole.OIDC
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.Grant
   alias Ankole.Principals
   alias Ankole.TokenSigning
-  alias AnkoleWeb.ConsoleTokens
 
   @behaviour Plug
 
@@ -37,7 +35,7 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
         unauthorized(conn, "invalid_token", "use one bearer credential transport")
 
       {:error, _reason} ->
-        unauthorized(conn, "invalid_token", "Agent, Console, or OIDC Human bearer token required")
+        unauthorized(conn, "invalid_token", "Agent or OIDC Human bearer token required")
     end
   end
 
@@ -53,15 +51,13 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
        when is_binary(client_id),
        do: authenticate_oidc_claims(conn, token, claims, source)
 
-  defp authenticate_claims(conn, _token, source, %{"subject_type" => "human"} = claims),
-    do: authenticate_admin_claims(conn, claims, source)
-
   defp authenticate_claims(conn, _token, _source, _claims),
     do: unauthorized(conn, "invalid_token", "bearer token is invalid")
 
   defp authenticate_agent_claims(conn, claims, source) do
     with {:ok, %{"sub" => agent_uid} = claims} <- AgentTokens.validate_api_key_claims(claims),
-         {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+         {:ok, principal} <- put_subject_tenant(agent_uid),
+         :agent <- principal.type,
          :active <- principal.status,
          :ok <- authorize_non_client_origin(conn, source) do
       conn
@@ -75,23 +71,9 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
     end
   end
 
-  defp authenticate_admin_claims(conn, claims, source) do
-    with {:ok, %{"sub" => principal_uid} = claims} <- ConsoleTokens.validate_access_claims(claims),
-         true <- AdminAuth.active_human_admin?(principal_uid),
-         :ok <- authorize_non_client_origin(conn, source) do
-      conn
-      |> assign(:current_principal_uid, principal_uid)
-      |> assign(:current_ai_gateway_subject_uid, principal_uid)
-      |> assign(:current_ai_gateway_subject_type, "admin_human")
-      |> assign(:console_token_claims, claims)
-      |> maybe_assign_application_protocol(source)
-    else
-      _invalid -> unauthorized(conn, "invalid_token", "bearer token is invalid")
-    end
-  end
-
   defp authenticate_oidc_claims(conn, token, claims, source) do
-    with {:ok, grant} <- Grant.authorize_claims(token, claims, conn.body_params["model"]),
+    with {:ok, _principal} <- put_subject_tenant(claims["sub"]),
+         {:ok, grant} <- Grant.authorize_claims(token, claims, conn.body_params["model"]),
          :ok <- authorize_client_origin(conn, source, grant.client) do
       conn
       |> assign(:current_principal_uid, grant.principal_uid)
@@ -100,6 +82,9 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
       |> assign(:oidc_grant, grant)
       |> maybe_assign_application_protocol(source)
     else
+      {:error, :tenant_suspended} ->
+        forbidden(conn, "tenant_suspended", "The tenant does not accept new work")
+
       {:error, :model_not_allowed} ->
         forbidden(conn, "model_not_allowed", "OIDC Client does not allow this model")
 
@@ -116,6 +101,14 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
 
       _invalid ->
         unauthorized(conn, "invalid_token", "bearer token is invalid")
+    end
+  end
+
+  # The verified token subject is globally unique; it establishes the tenant.
+  defp put_subject_tenant(uid) do
+    with {:ok, principal} <- Ankole.Repo.across_tenants(fn -> Principals.get_principal(uid) end) do
+      Ankole.Repo.put_tenant_id(principal.tenant_id)
+      {:ok, principal}
     end
   end
 

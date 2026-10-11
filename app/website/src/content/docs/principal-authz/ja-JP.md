@@ -11,7 +11,7 @@ Ankole のすべてのアクション（人のサインイン、agent による 
 
 ## Principal: 1 つの説明責任ある主体
 
-Principal は、人、agent、system service が共有する永続的な説明責任主体です。`principals` テーブルは `uid`（型付きの `PrincipalKey`。check constraint により lowercase と存在が強制される）をキーとし、各行は `:human`、`:agent`、`:system` のいずれかの `type` と、`:active` または `:disabled` の `status` を持ちます。
+Principal は、人、Agent、システムサービス共通の永続的な責任主体です。各 Principal は 1 つのテナントだけに属し、グローバルに一意の不透明な `uid` を持ちます。`principals` 行の `type` は `:human`、`:agent`、`:system`、`status` は `:active` または `:disabled` です。
 
 人の Principal は 1 つの `HumanUser` と任意の数の `ExternalIdentity` 行（運用者がフェデレーションした identity）を持ちます。agent の Principal は 1 つの `Agent` 行を持ちます。両方を 1 つのテーブルに通す意義は、説明責任の形状が 1 つであることです。何かを実行した者には、それを実行した Principal 行が存在し、すべての audit 行、grant、グループメンバーシップが指す安定した uid を持ちます。
 
@@ -32,7 +32,7 @@ grant は精神としては append-only であり、所有者ごとに自然キ�
 
 Principal group は名前付きの集合で、Principal はこれを介して grant を受けることができます。これにより、Principal ごとの行なしで権限をスケールできます。group は `domain`（`:operator`、`:directory`、`:im_group`）、`kind`（`:static` または `:computed`）、および computed group 用のオプションの `computed_condition` を持ちます。
 
-2 つの組み込み group がデプロイメントインスタンスをシードします。`admin` group は運用者の権限面です。`all_humans` group は計算条件 `principal.type == "human" && principal.status == "active"` を持つため、誰も手動でリストを保守しなくても、すべてのアクティブな人がメンバーになります。静的メンバーシップは `principal_group_memberships` に保存され、計算によるメンバーシップは snapshot に対して評価されます。外部ディレクトリ（IdP、IM プラットフォーム）は external binding を通じて group に同期できるため、運用者はすでに信頼しているディレクトリに AuthZ を向けられます。
+各テナントは、計算条件 `principal.type == "human" && principal.status == "active"` の `all_humans` グループを持ちます。サイトを管理する組み込み `siteadmin` グループは 1 つの特権テナントだけにあります。Console で別のデータテナントを選んでも、操作者の identity や grant は変わりません。静的メンバーシップは `principal_group_memberships` に保存し、計算メンバーシップは認可 snapshot で評価します。外部ディレクトリのグループは binding で同期できます。
 
 ## 決定がどのように行われるか
 
@@ -59,8 +59,8 @@ control plane と kernel は意図的に作業を分割しており、この分�
 AuthZ は agent が回避して話せるレイヤーではありません。ランタイムが重要な境界でそれを参照するためです。
 
 - AIGateway は、検証済みの token からすべての呼び出しの subject を解決し、その subject の grant が到達できる model selector と provider を決定します。
-- Actor Runtime は、agent Principal が所有する activation で各 turn をフェンスします。他の subject からの返信はそのフェンスで失敗します。
-- Console の操作は検証済みの admin token を通じて実行され、admin Principal のグループメンバーシップが変更できる範囲を決定します。
+- 会話 Driver は commit 前に永続 fence を確認します。Worker の Job 操作は永続 Job attempt fence と認証済み接続の identity を確認します。
+- Console 操作は active administrator の browser session と CSRF 証明を使用し、Principal の現在の group membership が変更範囲を決定します。
 
 モデルが「私は許可されている」と主張することは決してできません。境界が Principal と grant をチェックし、決定に従って行動します。
 
@@ -89,4 +89,4 @@ AuthZ はプロンプトの指示でも、期待でもありません。モデ�
 ## 次のステップ
 
 - 検証済みの token が AIGateway エッジで Principal に解決される仕組みは、[AIGateway API](../ai-gateway/)を参照してください。
-- agent Principal の activation が turn をフェンスする仕組みは、[Actor Runtime](../actor-runtime/)を参照してください。
+- agent Principal の Driver fence が turn をフェンスする仕組みは、[Actor Runtime](../actor-runtime/)を参照してください。

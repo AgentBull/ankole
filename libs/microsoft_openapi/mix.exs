@@ -18,7 +18,7 @@ defmodule MicrosoftOpenAPI.MixProject do
   defp deps do
     [
       {:req, "~> 0.7.3"},
-      {:torque, "~> 0.2.7"},
+      {:torque, "~> 0.5.0"},
       {:telemetry, "~> 1.4.2"},
       {:plug, "~> 1.20", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}

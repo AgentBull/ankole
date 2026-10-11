@@ -1,89 +1,92 @@
 import path from 'node:path'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import {
   buildControlPlaneEnv,
-  workerEndpoint,
-  buildManagedWorkerPsArgs,
-  buildManagedWorkerRmArgs,
-  buildWorkerDockerArgs,
+  buildDevWorkerSeed,
+  buildDevWorkerPsArgs,
   parseDockerContainerIDs,
+  parseDockerContextHost,
   signalChild
 } from './dev'
 import type { ChildProcess } from 'node:child_process'
-import type { WorkerBootstrapSpec } from '../worker-bootstrap'
-const spec: WorkerBootstrapSpec = {
-  contract_version: 3,
-  kind: 'worker',
-  image: 'ankole-agent-computer:test',
-  docker: {
-    cap_add: ['SYS_ADMIN'],
-    security_opts: ['seccomp=unconfined', 'systempaths=unconfined'],
-    extra_hosts: [{ host: 'host.docker.internal', address: 'host-gateway' }]
-  },
-  env: {
-    ANKOLE_AGENTS_ROOT: '/agents',
-    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'ws://host.docker.internal:4000/runtime-fabric/worker',
-    ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'secret',
-    WORKER_ID: 'local-dev-worker'
-  },
-  host_setup_dirs: ['/repo/var/ankole-dev/agents'],
-  mounts: [
-    {
-      source: '/repo/var/ankole-dev/agents',
-      target: '/agents',
-      readonly: false
-    }
-  ]
+
+function withRepoRoot(run: (repoRoot: string) => void): void {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-'))
+
+  try {
+    run(repoRoot)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
 }
 
-describe('workerEndpoint', () => {
-  test('selects the Worker Channel by default and ZeroMQ for tcp', () => {
-    expect(workerEndpoint('ws', 4000, 6010)).toBe('ws://host.docker.internal:4000/runtime-fabric/worker')
-    expect(workerEndpoint('tcp', 4000, 6010)).toBe('tcp://host.docker.internal:6010')
-  })
-})
-
 describe('buildControlPlaneEnv', () => {
-  test('sets the Phoenix development port without dropping existing env', () => {
-    const env = buildControlPlaneEnv({ DATABASE_URL: 'postgres://local' }, { port: 4001, fabricPort: 6011 })
+  test('configures the provider seed without dropping existing env', () => {
+    withRepoRoot(repoRoot => {
+      const env = buildControlPlaneEnv(
+        { DATABASE_URL: 'postgres://local' },
+        { port: 4001, workerImage: 'ankole-agent-computer:dev', repoRoot }
+      )
 
-    expect(env.DATABASE_URL).toBe('postgres://local')
-    expect(env.PORT).toBe('4001')
-    expect(env.ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT).toBe('tcp://127.0.0.1:6011')
-    expect(env.ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN).toBe('http://host.docker.internal:4001')
-    expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('http://host.docker.internal:4001/api/v1/ai-gateway')
+      expect(env.DATABASE_URL).toBe('postgres://local')
+      expect(env.PORT).toBe('4001')
+      expect(env.ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN).toBe('http://host.docker.internal:4001')
+      expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('http://host.docker.internal:4001/api/v1/ai-gateway')
+      expect(env.ANKOLE_WORKER_PROVIDERS_FILE).toBe(path.join(repoRoot, 'var', 'ankole-dev', 'worker-providers.yaml'))
+      expect(env.ANKOLE_AGENT_COMPUTER_IMAGE).toBe('ankole-agent-computer:dev')
+      expect(env.ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT).toBe('ws://host.docker.internal:4001/runtime-fabric/worker')
+      expect(env.ANKOLE_WORKER_INSTALLATION).toBe('dev')
+    })
+  })
+
+  test('writes a YAML seed with a safely quoted local Docker socket', () => {
+    const seed = Bun.YAML.parse(buildDevWorkerSeed('/tmp/a "quoted" socket')) as {
+      providers: { config: string; is_default: boolean }[]
+    }
+    expect(seed.providers).toHaveLength(1)
+    expect(seed.providers[0]!.is_default).toBe(true)
+    expect(Bun.YAML.parse(seed.providers[0]!.config)).toEqual({
+      socket: '/tmp/a "quoted" socket',
+      network: 'bridge',
+      idleReleaseAfter: 'never'
+    })
   })
 
   test('preserves an explicit AIGateway base URL', () => {
-    const env = buildControlPlaneEnv(
-      {
-        DATABASE_URL: 'postgres://local',
-        ANKOLE_AI_GATEWAY_BASE_URL: 'https://gateway.example.test/api/v1/ai-gateway'
-      },
-      { port: 4001, fabricPort: 6011 }
-    )
+    withRepoRoot(repoRoot => {
+      const env = buildControlPlaneEnv(
+        {
+          DATABASE_URL: 'postgres://local',
+          ANKOLE_AI_GATEWAY_BASE_URL: 'https://gateway.example.test/api/v1/ai-gateway'
+        },
+        { port: 4001, workerImage: 'ankole-agent-computer:dev', repoRoot }
+      )
 
-    expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('https://gateway.example.test/api/v1/ai-gateway')
+      expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('https://gateway.example.test/api/v1/ai-gateway')
+    })
   })
 })
 
-describe('managed worker cleanup args', () => {
-  test('looks up containers by both managed label and exact dev worker name', () => {
-    expect(buildManagedWorkerPsArgs('ankole-dev-agent-computer')).toEqual([
+describe('Docker helpers', () => {
+  test('reads the socket of a Unix Docker context only', () => {
+    expect(parseDockerContextHost('unix:///Users/dev/.docker/run/docker.sock\n')).toBe(
+      '/Users/dev/.docker/run/docker.sock'
+    )
+    expect(parseDockerContextHost('tcp://10.0.0.5:2376')).toBeUndefined()
+  })
+
+  test('lists every Worker container of the development installation', () => {
+    expect(buildDevWorkerPsArgs()).toEqual([
       'ps',
       '-aq',
       '--filter',
-      'label=ankole.dev.managed=true',
+      'label=ankole.worker=1',
       '--filter',
-      'name=^/ankole-dev-agent-computer$'
+      'label=ankole.installation=dev'
     ])
-  })
-
-  test('removes only ids returned by the guarded lookup', () => {
     expect(parseDockerContainerIDs('abc\n\n def \n')).toEqual(['abc', 'def'])
-    expect(buildManagedWorkerRmArgs(['abc', 'def'])).toEqual(['rm', '-f', 'abc', 'def'])
   })
 })
 
@@ -106,60 +109,5 @@ describe('managed child shutdown', () => {
     signalChild(child, 'SIGTERM', deniedGroupKill, 'darwin')
 
     expect(directSignals).toEqual(['SIGTERM'])
-  })
-})
-
-describe('buildWorkerDockerArgs', () => {
-  test('mounts workspace plus local worker source and runs Bun watch mode', () => {
-    const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-'))
-
-    try {
-      const args = buildWorkerDockerArgs(spec, { repoRoot, containerName: 'ankole-dev-agent-computer' })
-
-      expect(args.slice(0, 7)).toEqual([
-        'run',
-        '--rm',
-        '--name',
-        'ankole-dev-agent-computer',
-        '--label',
-        'ankole.dev.managed=true',
-        '--label'
-      ])
-      expect(args).toContain('ankole.dev.worker_id=local-dev-worker')
-      expect(args).toContain('SYS_ADMIN')
-      expect(args).toContain('host.docker.internal=host-gateway')
-      expect(args).toContain('WORKER_ID=local-dev-worker')
-      expect(args).toContain('ANKOLE_AGENTS_ROOT=/agents')
-      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_ENDPOINT=ws://host.docker.internal:4000/runtime-fabric/worker')
-      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret')
-      expect(args).not.toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
-      expect(args).toContain('type=bind,src=/repo/var/ankole-dev/agents,dst=/agents')
-      expect(args).toContain(
-        `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
-      )
-      expect(args.slice(-4)).toEqual([
-        'ankole-agent-computer:test',
-        '/bin/sh',
-        '-lc',
-        'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
-      ])
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
-  })
-
-  test('mounts private skills when the local internal skill root exists', () => {
-    const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-internal-'))
-    const internalSkillsRoot = path.join(repoRoot, 'internals', 'skills')
-    mkdirSync(internalSkillsRoot, { recursive: true })
-
-    try {
-      const args = buildWorkerDockerArgs(spec, { repoRoot })
-
-      expect(args).toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
-      expect(args).toContain(`type=bind,src=${internalSkillsRoot},dst=/repo/internals/skills,readonly`)
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
   })
 })

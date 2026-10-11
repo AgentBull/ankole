@@ -24,6 +24,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     test_pid = self()
+    tenant_id = Repo.tenant_id!()
 
     holder =
       start_supervised!(
@@ -51,7 +52,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
           %{output: output, before_extract: before_extract} =
             Agent.get_and_update(holder, &{&1, %{&1 | before_extract: nil}})
 
-          if before_extract, do: before_extract.()
+          if before_extract, do: Repo.with_tenant(tenant_id, before_extract)
           prompt = body["messages"] |> List.first() |> Map.fetch!("content")
           send(test_pid, {:extraction, prompt})
           {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(output))}

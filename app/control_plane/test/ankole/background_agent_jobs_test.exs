@@ -54,39 +54,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
   end
 
-  describe "background completion silence authorization" do
-    test "requires the persisted provider-delivery receipt" do
-      base = %ActorEvent{type: "background_agent_job.completed", payload: %{"data" => %{}}}
-
-      refute BackgroundAgentJobs.silent_success_allowed?(base)
-
-      refute BackgroundAgentJobs.silent_success_allowed?(%{
-               base
-               | payload: %{"data" => %{"silent_success_allowed" => false}}
-             })
-
-      allowed = %{base | payload: %{"data" => %{"silent_success_allowed" => true}}}
-      assert BackgroundAgentJobs.silent_success_allowed?(allowed)
-    end
-
-    test "validates the silent completion at the control-plane boundary" do
-      event = %ActorEvent{
-        type: "background_agent_job.completed",
-        payload: %{"data" => %{"silent_success_allowed" => false}}
-      }
-
-      assert {:error, :background_agent_job_silent_success_not_allowed} =
-               BackgroundAgentJobs.validate_completion(event, %{final_text: nil}, "silent")
-
-      assert {:error, :background_agent_job_silent_success_not_allowed} =
-               BackgroundAgentJobs.validate_completion(
-                 event,
-                 %{final_text: ~s({"outcome":"silent_success","reply":null})},
-                 "loop_finished"
-               )
-    end
-  end
-
   test "Turn changesets validate concrete progress and official usage snapshots" do
     now = DateTime.utc_now(:microsecond)
 
@@ -249,12 +216,20 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
-    assert {:ok, %{job: externally_completed}} =
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: job.owner_session_id
+    })
+
+    assert {:ok, %{job: externally_completed, wakeup_event: wakeup}} =
              BackgroundAgentJobs.request_complete(job.id, %{
                "agent_uid" => agent.uid,
                "completed_by" => "operator:release-bot",
                "result_summary" => "EXTERNALLY-VERIFIED"
              })
+
+    wakeup_id = wakeup.id
+    assert_receive {:inbox, ^wakeup_id}
 
     assert externally_completed.status == "succeeded"
 
@@ -270,6 +245,46 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert final.status == "succeeded"
     assert get_in(final.result, ["summary"]) == "EXTERNALLY-VERIFIED"
+  end
+
+  test "external completion does not deliver before an outer transaction commits" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "external-completion-rollback")
+
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: job.owner_session_id
+    })
+
+    args = %{
+      "agent_uid" => agent.uid,
+      "completed_by" => "operator:release-bot",
+      "result_summary" => "Verified externally."
+    }
+
+    assert {:error, :fixture_rollback} =
+             Repo.transact(fn _repo ->
+               assert {:ok, %{wakeup_event: %ActorEvent{}}} =
+                        BackgroundAgentJobs.request_complete(job.id, args)
+
+               refute_receive {:inbox, _}, 20
+               {:error, :fixture_rollback}
+             end)
+
+    assert Repo.reload!(job).status == "queued"
+
+    refute Repo.get_by(ActorEvent,
+             session_id: job.owner_session_id,
+             type: "background_agent_job.completed"
+           )
+
+    refute_receive {:inbox, _}, 20
+
+    assert {:ok, %{wakeup_event: wakeup}} =
+             BackgroundAgentJobs.request_complete(job.id, args)
+
+    wakeup_id = wakeup.id
+    assert_receive {:inbox, ^wakeup_id}
   end
 
   test "a skill-lesson reflection job wakes no session and enqueues the apply worker" do
@@ -517,10 +532,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
       "reply_route" => %{"binding_name" => "lark"}
     }
 
+    create = Repo.bind_tenant(fn -> BackgroundAgentJobs.create_with_dispatch(attrs) end)
+
     results =
       1..8
       |> Task.async_stream(
-        fn _index -> BackgroundAgentJobs.create_with_dispatch(attrs) end,
+        fn _index -> create.() end,
         max_concurrency: 8,
         timeout: 10_000
       )
@@ -611,6 +628,45 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert %DateTime{} = active_child.completed_at
   end
 
+  test "a steer carried into the successor of a succeeded Job is reported as forwarded" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "steer-forwarded")
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-steer-forwarded"
+             })
+
+    running = set_attempts!(running, 1)
+    insert_turn!(running, 1, "thread-steer-forwarded", "turn-steer-forwarded", "completed")
+
+    assert {:ok, %{command_event: steer}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Also add a summary table.",
+               "request_id" => "steer-forwarded"
+             })
+
+    assert {:ok, %{wakeup_event: %ActorEvent{} = wake, dispatch_event: successor_dispatch}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"summary" => "Done"}
+             })
+
+    successor_id = get_in(wake.payload, ["data", "successor_job_id"])
+    assert successor_id
+    assert successor_dispatch.session_id == BackgroundAgentJobs.job_session_id(successor_id)
+    assert successor_dispatch.type == "background_agent_job.dispatch"
+
+    assert {:ok, %{successor_job_id: ^successor_id, ready: false}} =
+             BackgroundAgentJobs.message_result(
+               Repo.reload!(job),
+               steer.id,
+               job.owner_session_id
+             )
+  end
+
   test "success rolls back when an existing successor cannot carry an open steer" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "steer-successor-conflict")
@@ -662,6 +718,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "request_id" => "late-steer-successor-conflict"
              })
 
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: job.owner_session_id
+    })
+
     assert {:error, {:background_agent_job_already_respawned, successor_id}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "succeeded",
@@ -673,6 +734,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.reload!(steer).completed_at == nil
     assert Repo.reload!(steer).input_state == "open"
     assert Repo.reload!(manual_successor).task == "Continue with the manual follow-up."
+    refute_receive {:inbox, _}, 20
 
     refute Repo.get_by(ActorEvent,
              session_id: job.owner_session_id,
@@ -859,65 +921,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
   end
 
-  test "creation rejects legacy workspace paths before journaling work" do
-    %{principal: agent} = background_agent_fixture()
-
-    for {task, path, index} <- [
-          {"Read /workspace/user-files/inbox/report.pdf.", "/workspace/user-files", 1},
-          {"Use /workspace/temp for intermediate pages.", "/workspace/temp", 2},
-          {"Inspect /workspace/user-files, then report what exists.", "/workspace/user-files", 3}
-        ] do
-      assert {:error, {:background_agent_job_legacy_workspace_path, message}} =
-               BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
-                 "agent_uid" => agent.uid,
-                 "owner_session_id" => "parent-session-invalid-task-path-#{index}",
-                 "source_tool_call_id" => "tool-background-agent-job-invalid-task-path-#{index}",
-                 "title" => "Invalid task path",
-                 "task" => task,
-                 "reply_route" => %{"binding_name" => "lark"}
-               })
-
-      assert task =~ path
-      assert message =~ "/workspace is no longer a valid Agent path"
-      assert message =~ "/agents/<agent-key>/"
-    end
-
-    assert Repo.aggregate(Job, :count) == 0
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
-
-    attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
-      "agent_uid" => agent.uid,
-      "owner_session_id" => "parent-session-near-task-path",
-      "source_tool_call_id" => "tool-background-agent-job-near-task-path",
-      "title" => "Valid private directory",
-      "task" => "Create artifacts/user-files-archive in the current Job workspace.",
-      "reply_route" => %{"binding_name" => "lark"}
-    }
-
-    assert {:ok, %{job: %Job{} = job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
-
-    assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
-
-    legacy_task = "Read the previously accepted input from /workspace/temp/legacy.txt."
-    from(row in Job, where: row.id == ^job.id) |> Repo.update_all(set: [task: legacy_task])
-
-    assert {:ok, %{job: replayed}} =
-             attrs
-             |> Map.put("task", legacy_task)
-             |> BackgroundAgentJobs.create_with_dispatch()
-
-    assert replayed.id == job.id
-    assert replayed.task == legacy_task
-    assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
-  end
-
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
     %{principal: agent} = background_agent_fixture()
     waiting = create_job!(agent.uid, "waiting")
+
+    for session <- ["parent-session-waiting", "parent-session-failed", "parent-session-stopped"] do
+      Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+        agent_uid: agent.uid,
+        session_id: session
+      })
+    end
 
     assert {:ok, %{job: running, wakeup_event: nil}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
@@ -950,6 +963,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert paused.status == "waiting_on_user"
+    waiting_event_id = waiting_event.id
+    assert_receive {:inbox, ^waiting_event_id}
     assert waiting_event.session_id == "parent-session-waiting"
     assert waiting_event.type == "background_agent_job.waiting"
     assert waiting_event.source_event_id == "background_agent_job:#{waiting.id}:waiting:1"
@@ -970,12 +985,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "status" => "succeeded",
                "result" => %{
                  "summary" => "Launch brief written and verified.",
-                 "project_path" => AgentHomePaths.job_workspace(agent.uid, waiting.id),
+                 "project_path" => "/workspace/jobs/#{waiting.id}",
                  "artifacts" => %{
                    "total_count" => 1,
                    "paths" => [
                      Path.join(
-                       AgentHomePaths.job_workspace(agent.uid, waiting.id),
+                       "/workspace/jobs/#{waiting.id}",
                        "launch-brief.pdf"
                      )
                    ],
@@ -985,51 +1000,24 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert succeeded.status == "succeeded"
+    completed_event_id = completed_event.id
+    assert_receive {:inbox, ^completed_event_id}
     assert completed_event.type == "background_agent_job.completed"
     assert completed_event.source_event_id == "background_agent_job:#{waiting.id}:succeeded:1"
 
     assert get_in(completed_event.payload, ["data", "result_summary"]) ==
              "Launch brief written and verified."
 
-    refute get_in(completed_event.payload, ["data", "silent_success_allowed"])
-
     assert get_in(completed_event.payload, ["data", "project_path"]) ==
-             AgentHomePaths.job_workspace(agent.uid, waiting.id)
+             "/workspace/jobs/#{waiting.id}"
 
     assert get_in(completed_event.payload, ["data", "artifacts"]) == %{
              "total_count" => 1,
              "paths" => [
-               Path.join(AgentHomePaths.job_workspace(agent.uid, waiting.id), "launch-brief.pdf")
+               Path.join("/workspace/jobs/#{waiting.id}", "launch-brief.pdf")
              ],
              "truncated" => false
            }
-
-    verified = create_job!(agent.uid, "verified-delivery")
-
-    assert {:ok, %{job: verified_running, wakeup_event: nil}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(verified.id, agent.uid, %{
-               "status" => "running",
-               "runtime_thread_id" => "thread-verified"
-             })
-
-    verified_running = set_attempts!(verified_running, 1)
-    insert_turn!(verified_running, 1, "thread-verified", "turn-verified", "completed")
-
-    assert {:ok, %{wakeup_event: %ActorEvent{} = verified_event}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(verified.id, agent.uid, %{
-               "status" => "succeeded",
-               "result" => %{
-                 "summary" => "Message delivered.",
-                 "verification" => %{
-                   "ok" => true,
-                   "message_id" => "om_verified",
-                   "error" => nil,
-                   "issues" => []
-                 }
-               }
-             })
-
-    assert get_in(verified_event.payload, ["data", "silent_success_allowed"])
 
     failed = create_job!(agent.uid, "failed")
 
@@ -1050,6 +1038,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert failed.status == "failed"
+    failed_event_id = failed_event.id
+    assert_receive {:inbox, ^failed_event_id}
     assert failed_event.type == "background_agent_job.failed"
     assert get_in(failed_event.payload, ["data", "job_id"]) == failed.id
 
@@ -1068,10 +1058,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert stopped.status == "stopped"
+    refute_receive {:inbox, _}, 20
 
     parent_wakeups =
       Repo.all(
-        from event in ActorEvent,
+        from(event in ActorEvent,
           where:
             event.session_id in [
               "parent-session-waiting",
@@ -1080,6 +1071,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
             ],
           where:
             event.type in ^~w(background_agent_job.waiting background_agent_job.completed background_agent_job.failed)
+        )
       )
 
     assert Enum.map(parent_wakeups, & &1.type) |> Enum.sort() ==
@@ -1190,13 +1182,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert persisted.completed_at == nil
 
     refute Repo.exists?(
-             from event in ActorEvent,
+             from(event in ActorEvent,
                where: event.session_id == ^job.owner_session_id,
                where: event.type == "background_agent_job.completed"
+             )
            )
   end
 
-  test "stop is durable and idempotent while running work also receives an interrupt command" do
+  test "stop is durable and idempotent without a Job stop inbox event" do
     %{principal: agent} = background_agent_fixture()
     queued = create_job!(agent.uid, "queued-stop")
 
@@ -1207,7 +1200,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "request_id" => "queued-stop-message"
              })
 
-    assert {:ok, %{job: stopped, command_event: nil}} =
+    assert {:ok, %{job: stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(queued.id, %{
                "agent_uid" => agent.uid,
                "cancel_requested_by" => "operator:ding",
@@ -1219,15 +1212,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     dispatch =
       Repo.one!(
-        from event in ActorEvent,
+        from(event in ActorEvent,
           where: event.session_id == ^BackgroundAgentJobs.job_session_id(queued.id),
           where: event.type == "background_agent_job.dispatch"
+        )
       )
 
     assert %DateTime{} = dispatch.completed_at
     assert %DateTime{} = Repo.get!(ActorEvent, queued_message.id).completed_at
 
-    assert {:ok, %{job: same_stopped, command_event: nil}} =
+    assert {:ok, %{job: same_stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(queued.id, %{
                "agent_uid" => agent.uid,
                "cancel_requested_by" => "operator:ding"
@@ -1248,7 +1242,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
     active_running_turn =
       insert_turn!(running, 1, "thread-running-stop", "turn-running-stop", "in_progress")
 
-    assert {:ok, %{job: running_stopped, command_event: %ActorEvent{} = stop_event}} =
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(running.id)
+    })
+
+    assert {:ok, %{job: running_stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(running.id, %{
                "agent_uid" => agent.uid,
                "cancel_requested_by" => "agent:#{agent.uid}",
@@ -1260,10 +1259,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert %DateTime{} = running_stopped.completed_at
     assert running_stopped.metadata["cancel_requested_by"] == "agent:#{agent.uid}"
     assert running_stopped.metadata["cancel_reason"] == "Changed priorities"
-    assert stop_event.type == "command.stop"
-    assert stop_event.session_id == BackgroundAgentJobs.job_session_id(running.id)
-    assert stop_event.source_entry_id == nil
-    assert get_in(stop_event.payload, ["data", "command", "argsText"]) == "Changed priorities"
+
+    refute Repo.get_by(ActorEvent,
+             session_id: BackgroundAgentJobs.job_session_id(running.id),
+             type: "command.stop"
+           )
 
     active_running_turn = Repo.reload!(active_running_turn)
     assert active_running_turn.status == "interrupted"
@@ -1295,7 +1295,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
              })
 
-    assert {:ok, %{job: waiting_stopped, command_event: nil}} =
+    assert {:ok, %{job: waiting_stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(waiting.id, %{
                "agent_uid" => agent.uid,
                "cancel_requested_by" => "operator:ding"
@@ -1305,10 +1305,50 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(waiting_stopped.metadata, "pending_user_input")
 
     refute Repo.exists?(
-             from event in ActorEvent,
+             from(event in ActorEvent,
                where: event.session_id == ^BackgroundAgentJobs.job_session_id(waiting.id),
                where: event.type == "command.stop"
+             )
            )
+  end
+
+  for action <- [:request_stop, :request_complete] do
+    @control_action action
+    test "#{action} returns the admitted trigger of a running Job" do
+      %{principal: agent} = background_agent_fixture()
+      job = create_job!(agent.uid, Atom.to_string(@control_action))
+
+      {:ok, %{job: running}} =
+        BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+          "status" => "running",
+          "runtime_thread_id" => "live-control-thread"
+        })
+
+      running = set_attempts!(running, 1)
+
+      event =
+        Repo.get_by!(ActorEvent,
+          session_id: BackgroundAgentJobs.job_session_id(job.id),
+          type: "background_agent_job.dispatch"
+        )
+
+      event =
+        Repo.update!(
+          Ecto.Changeset.change(event, last_attempt_at: DateTime.utc_now(:microsecond))
+        )
+
+      attrs = %{"agent_uid" => agent.uid, "result_summary" => "Verified externally."}
+
+      assert {:ok, %{job: terminal, turn: turn}} =
+               apply(BackgroundAgentJobs, @control_action, [job.id, attrs])
+
+      assert turn.actor_event_id == event.id
+      assert turn.session_id == event.session_id
+      assert turn.job_id == running.id
+      assert turn.attempt == running.attempts
+      assert terminal.status in ["stopped", "succeeded"]
+      refute Repo.get_by(ActorEvent, session_id: event.session_id, type: "command.stop")
+    end
   end
 
   test "message send journals text once and list returns every Job owned by one Agent" do
@@ -1468,9 +1508,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert BackgroundAgentJobs.get_job_for_agent(succeeded.id, agent.uid).status == "succeeded"
 
     refute Repo.exists?(
-             from event in ActorEvent,
+             from(event in ActorEvent,
                where: event.session_id == ^BackgroundAgentJobs.job_session_id(succeeded.id),
                where: event.type == "command.steer"
+             )
            )
   end
 
@@ -1484,13 +1525,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
         status: "waiting_on_user",
         metadata: %{
           "pending_user_input" => %{"questions" => [%{"id" => "answer"}]},
-          "worker_route" => "worker-a"
+          "owner_conversation_id" => "conversation-a"
         }
       })
       |> Repo.update!()
 
     assert {:ok, resumed} =
-             BackgroundAgentJobs.claim_continuation_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
                Repo,
                waiting.id,
                agent.uid,
@@ -1500,7 +1541,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              )
 
     assert resumed.status == "running"
-    assert resumed.metadata == %{"worker_route" => "worker-a"}
+    assert resumed.metadata == %{"owner_conversation_id" => "conversation-a"}
   end
 
   test "the first attempt captures one immutable runtime projection" do
@@ -1509,7 +1550,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     first_spec = runtime_turn_start_spec("openai/gpt-5.6-sol")
 
     assert {:ok, first_attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
                Repo,
                job.id,
                agent.uid,
@@ -1545,7 +1586,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     changed_spec = runtime_turn_start_spec("openai/gpt-5.6-terra")
 
     assert {:ok, second_attempt} =
-             BackgroundAgentJobs.claim_continuation_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
                Repo,
                job.id,
                agent.uid,
@@ -1568,7 +1609,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Map.put(:hosted_tools, [%{"type" => "image_generation"}, %{"type" => "web_search"}])
 
     assert {:ok, attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
                Repo,
                job.id,
                agent.uid,
@@ -1617,7 +1658,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
 
     assert {:error, {:background_agent_job_turn_failures_exhausted, error}} =
-             BackgroundAgentJobs.claim_continuation_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
                Repo,
                running.id,
                agent.uid,
@@ -1645,7 +1686,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     insert_turn!(running, 1, "thread-lead", "turn-recovered", "completed")
 
     assert {:ok, resumed} =
-             BackgroundAgentJobs.claim_continuation_in_tx(
+             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
                Repo,
                running.id,
                agent.uid,
@@ -1692,7 +1733,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-bounded-wakeup", "turn-bounded-wakeup", "completed")
 
-    project_path = AgentHomePaths.job_workspace(agent.uid, job.id)
+    project_path = "/workspace/jobs/#{job.id}"
 
     artifact_paths =
       for index <- 1..50_000 do
@@ -1724,7 +1765,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                    total_count: 2,
                    paths: [
                      project_path,
-                     Path.join(AgentHomePaths.user_files(agent.uid), "research-output")
+                     Path.join(AgentHomePaths.home(), "research-output")
                    ],
                    truncated: false
                  }
@@ -1756,7 +1797,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert roots["paths"] == [
              project_path,
-             Path.join(AgentHomePaths.user_files(agent.uid), "research-output")
+             Path.join(AgentHomePaths.home(), "research-output")
            ]
 
     refute roots["truncated"]
@@ -2358,7 +2399,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
               "status" => "succeeded",
               "result" => %{
                 "summary" => "Revision complete.",
-                "project_path" => AgentHomePaths.job_workspace(agent.uid, job.id),
+                "project_path" => "/workspace/jobs/#{job.id}",
                 "artifacts" => %{"total_count" => 0, "paths" => [], "truncated" => false}
               }
             }
@@ -2814,7 +2855,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  "request_id" => "external-complete-steer"
                })
 
-      assert {:ok, %{job: completed}} =
+      assert {:ok, %{job: completed, turn: nil}} =
                BackgroundAgentJobs.request_complete(job.id, %{
                  "agent_uid" => agent.uid,
                  "completed_by" => "operator:test",
@@ -2857,13 +2898,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       succeeded_job = create_job!(agent.uid, "external-complete-idempotent")
 
-      assert {:ok, %{job: %{status: "succeeded"}}} =
+      assert {:ok, %{job: %{status: "succeeded"}, turn: nil}} =
                BackgroundAgentJobs.request_complete(succeeded_job.id, %{
                  "agent_uid" => agent.uid,
                  "result_summary" => "verified"
                })
 
-      assert {:ok, %{job: %{status: "succeeded"}}} =
+      assert {:ok, %{job: %{status: "succeeded"}, turn: nil}} =
                BackgroundAgentJobs.request_complete(succeeded_job.id, %{
                  "agent_uid" => agent.uid,
                  "result_summary" => "verified again"
@@ -2895,11 +2936,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       capacity = %{
         "code" => "worker_turn_failed",
         "message" => "upstream shed the stream",
-        "details_json" => %{
-          "error_code" => "server_error",
-          "llm_error_kind" => "server",
-          "retryable" => true
-        }
+        "details_json" => %{"error_code" => "server_error", "retryable" => true}
       }
 
       execution = %{
@@ -2921,7 +2958,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       }
 
       assert TurnErrorClassifier.classify(app_server_timeout) == :infrastructure
-      assert TurnErrorClassifier.classify(capacity) == :provider_capacity
+      assert TurnErrorClassifier.classify(capacity) == :execution
       assert TurnErrorClassifier.classify(execution) == :execution
 
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 1, now), now) ==
@@ -2934,6 +2971,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 5, now), now) ==
                300
+
+      for code <- ["socket_closed", "runtime_fabric_timeout", "runtime_rpc_timeout"] do
+        transport = %{
+          "code" => "worker_turn_failed",
+          "message" => "control-plane connection interrupted",
+          "details_json" => %{"error_code" => code, "retryable" => true}
+        }
+
+        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(transport, 1, now), now) ==
+                 15
+      end
 
       for reason <- [capacity, execution] do
         assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(reason, 1, now), now) == 60
@@ -3001,5 +3049,5 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   defp agent_slot_cap,
-    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig.max_running_per_agent()
+    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap.max_running_per_agent()
 end

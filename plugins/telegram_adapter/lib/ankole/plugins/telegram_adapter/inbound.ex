@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Principals, Repo, WorkerFiles}
+  alias Ankole.{Logging, Principals, Repo}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.UTF16Text
@@ -155,33 +155,21 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   end
 
   defp emit_with_materialization(input, consumer) do
-    if materialization_required?(input.attachments) do
-      observed_at = DateTime.utc_now(:microsecond)
-      pending = put_materialization_state(input, "pending", observed_at)
+    client = Ankole.Plugins.TelegramAdapter.Config.client(consumer.config)
 
-      case emit_entry(pending, consumer) do
-        {:ok, %{signal_entry: %Entry{attachments: attachments}}}
-        when is_list(attachments) ->
-          attachments = materialize_attachments(attachments, consumer)
-
-          input
-          |> Map.put(:attachments, attachments)
-          |> put_materialization_state(materialization_state(attachments), observed_at)
-          |> emit_entry(consumer)
-
-        {:ok, _held_or_ignored} = result ->
-          result
-
-        {:error, _reason} = error ->
-          error
-      end
-    else
-      emit_entry(input, consumer)
-    end
-  end
-
-  defp emit_entry(input, consumer) do
-    Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Ingress.emit_entry_with_attachments(
+      consumer.context.agent_uid,
+      consumer.context.binding_name,
+      input,
+      &Ingress.materialize_attachments(
+        &1,
+        "telegram",
+        fn attachment ->
+          download_attachment(attachment, client)
+        end,
+        restriction: "Telegram Bot API cloud file download limit is 20 MB."
+      )
+    )
   end
 
   defp emit_reactions(consumer, %{"update_id" => update_id} = event, action) do
@@ -493,89 +481,27 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     |> Map.put("restriction", "Telegram Bot API cloud file download limit is 20 MB.")
   end
 
-  defp materialization_required?(attachments) do
-    Enum.any?(attachments, fn attachment ->
-      is_binary(attachment["provider_file_id"]) and is_nil(attachment["materialization_state"])
-    end)
-  end
-
-  defp materialize_attachments(attachments, consumer) do
-    client = Ankole.Plugins.TelegramAdapter.Config.client(consumer.config)
-    Enum.map(attachments, &materialize_attachment(&1, client, consumer.context.agent_uid))
-  end
-
-  defp materialize_attachment(
-         %{"materialization_state" => _state} = attachment,
-         _client,
-         _agent_uid
-       ),
-       do: attachment
-
-  defp materialize_attachment(%{"provider_file_id" => file_id} = attachment, client, agent_uid) do
+  defp download_attachment(%{"provider_file_id" => file_id} = attachment, client) do
     with {:ok, file} when is_map(file) <- Client.call(client, "getFile", %{"file_id" => file_id}),
          :ok <- downloadable_size(file["file_size"] || attachment["size"]),
          file_path when is_binary(file_path) <- file["file_path"],
-         {:ok, download} <- Client.download(client, file_path),
-         relative <- materialized_relative_path(attachment, download.filename),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put("materialization_state", "complete")
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      {:error, :provider_download_limit} -> restricted_attachment(attachment)
-      reason -> materialization_failed(attachment, reason)
+         {:ok, download} <- Client.download(client, file_path) do
+      {:ok,
+       %{
+         body: download.body,
+         filename: attachment["name"] || download.filename,
+         content_type: nil,
+         put: %{}
+       }}
     end
-  rescue
-    exception -> materialization_failed(attachment, exception)
   end
 
-  defp materialize_attachment(attachment, _client, _agent_uid), do: attachment
-
-  defp materialization_failed(attachment, reason) do
-    Logging.warning(
-      "telegram_adapter.attachment.materialization_skipped",
-      "Telegram attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: safe_reason(reason)}
-    )
-
-    Map.put(attachment, "materialization_state", "failed")
-  end
+  defp download_attachment(_attachment, _client), do: {:error, :attachment_reference_missing}
 
   defp downloadable_size(size) when is_integer(size) and size > @download_limit_bytes,
     do: {:error, :provider_download_limit}
 
   defp downloadable_size(_size), do: :ok
-
-  defp materialized_relative_path(attachment, downloaded_name) do
-    Path.join([
-      "inbox",
-      Integer.to_string(attachment["attachment_id"]),
-      WorkerFiles.sanitize_path_segment(attachment["name"] || downloaded_name || "attachment")
-    ])
-  end
-
-  defp put_materialization_state(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialization_state(attachments) do
-    if Enum.all?(
-         attachments,
-         &(&1["materialization_state"] in ["complete", "provider_download_limit"])
-       ),
-       do: "complete",
-       else: "failed"
-  end
 
   defp author(from) do
     id = Integer.to_string(from["id"])
@@ -749,10 +675,4 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   defp blank_to_nil(value) when is_binary(value), do: MapHelpers.presence(value)
   defp blank_to_nil(value), do: value
-
-  defp safe_reason(%Client.Error{} = error),
-    do: inspect(%{kind: error.kind, error_code: error.error_code})
-
-  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp safe_reason(_reason), do: "telegram_file_unavailable"
 end

@@ -1,12 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirAgentSync } from '../../src/common/agent-user'
+import { resetCodexAgentRuntimeConfig } from '../support/codex-runtime-config'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CodexAppServerClient } from '../../src/core/codex-runner/runtime/app-server-client'
 import { AgentCodexRuntime } from '../../src/core/codex-runner/runtime/agent-runtime-manager'
 import { prepareAgentPlugins } from '../../src/core/codex-runner/runtime/agent-plugin-materializer'
-import {
-  refreshCodexAgentRuntimeCredential,
-  resetCodexAgentRuntimeConfig
-} from '../../src/core/codex-runner/runtime/agent-home-config'
+import { refreshCodexAgentRuntimeCredential } from '../../src/core/codex-runner/runtime/agent-home-config'
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
 
 const input = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as {
@@ -18,7 +17,7 @@ const input = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as {
 const agentHome = join(input.root, 'shared-agent-home')
 const codexHome = join(input.root, input.worker, 'codex-home')
 const projectRoot = join(agentHome, 'jobs', input.worker)
-mkdirSync(codexHome, { recursive: true })
+mkdirAgentSync(codexHome)
 resetCodexAgentRuntimeConfig(codexHome, input.baseURL)
 refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
 const prepared = prepareAgentPlugins({

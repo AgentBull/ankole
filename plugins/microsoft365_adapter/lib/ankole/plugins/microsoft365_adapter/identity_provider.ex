@@ -1,4 +1,5 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.Microsoft365Adapter.Config
   @moduledoc false
 
   alias Ankole.AuthZ

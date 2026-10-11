@@ -1,5 +1,6 @@
 ---
 import { buttonVariants } from '@ankole/uikit/components/button'
+import { cn } from '@ankole/uikit/lib/utils'
 import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
 import { GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
@@ -12,12 +13,8 @@ interface Props {
 
 const { lang } = Astro.props
 
-/*
- * The strip named runtimes, which tells a reader what the thing is made of rather than
- * what it gives them. It now carries the four claims worth reading under the fold, so it
- * is prose and needs translating, and it drops the "runs on" label that no longer fits.
- */
-const CLAIMS = ['ha', 'memory', 'research', 'license'].map(key => t(lang, `hero.stack.${key}`))
+/* Four claims sit under the fold. They are prose, so each locale translates them. */
+const CLAIMS = ['recovery', 'noLockIn', 'access', 'license'].map(key => t(lang, `hero.claim.${key}`))
 ---
 
 <section class="relative overflow-hidden border-b border-border">
@@ -60,17 +57,17 @@ const CLAIMS = ['ha', 'memory', 'research', 'license'].map(key => t(lang, `hero.
 				</p>
 
 				<div class="mt-10 flex flex-wrap items-center gap-3">
-					<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
+					<a href={localePath(lang, 'docs/quickstart')} class={cn(buttonVariants())}>
 						{t(lang, 'hero.cta.primary')}
-						<RiArrowRightLine />
+						<RiArrowRightLine data-icon="inline-end" />
 					</a>
 					<a
 						href={GITHUB_URL}
 						target="_blank"
 						rel="noreferrer"
-						class={buttonVariants({ variant: 'outline', size: 'lg' })}
+						class={cn(buttonVariants({ variant: 'outline' }))}
 					>
-						<RiGithubFill />
+						<RiGithubFill data-icon="inline-start" />
 						{t(lang, 'hero.cta.secondary')}
 					</a>
 				</div>

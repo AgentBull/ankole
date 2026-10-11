@@ -4,7 +4,7 @@ defmodule Ankole.Brain.Schemas.Contradiction do
   only; claims stay unchanged until a human resolves the pair.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 

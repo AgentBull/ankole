@@ -75,6 +75,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   use Ankole.DataCase, async: false
 
   import Ankole.Eventually, only: [eventually: 1]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
@@ -85,7 +86,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     Config,
     ConnectionOwner,
     ConnectionReconciler,
-    ConnectionSupervisor,
     Dispatcher,
     Emoji,
     ErrorPolicy,
@@ -100,8 +100,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.WorkerFilesFake
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
@@ -122,6 +120,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   setup do
     Req.Test.set_req_test_to_shared()
     previous = Application.get_env(:ankole, Config)
+
+    Application.put_env(:ankole, Config,
+      client_opts: [base_url: "https://discord.test/api/v10", plug: {Req.Test, __MODULE__}]
+    )
+
+    stub_data_api(fn conn -> Plug.Conn.send_resp(conn, 503, "unconfigured test endpoint") end)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -323,7 +327,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       key = {"auth-agent", "discord-auth"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.auth-secret"}, [
+               start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.auth-secret"}, [
                  consumer(elem(key, 0), elem(key, 1))
                ])
 
@@ -334,7 +338,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                ConnectionOwner.status(owner)
 
       refute inspect(ConnectionOwner.status(owner)) =~ "auth-secret"
-      assert :ok = ConnectionSupervisor.stop(key)
+      assert :ok = ConnectionReconciler.stop(key)
     end
 
     test "waits for Discord's retry_after before repeating a rate-limited preflight" do
@@ -352,11 +356,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       key = {"rate-agent", "discord-rate"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.rate-secret"}, [
+               start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.rate-secret"}, [
                  consumer(elem(key, 0), elem(key, 1))
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert eventually(fn -> ConnectionOwner.status(owner).last_error[:status] == 429 end)
       Process.sleep(1_100)
@@ -370,7 +374,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       consumer = consumer("owner-agent", "discord-main")
 
       assert {:ok, first} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.first-secret"}, [consumer])
+               start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.first-secret"}, [
+                 consumer
+               ])
 
       assert eventually(fn -> ConnectionOwner.status(first).bot_id == "77" end)
 
@@ -379,14 +385,27 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                state: :starting
              } = ConnectionOwner.status(first)
 
+      refute owner_serves?(
+               ConnectionReconciler,
+               {"owner-agent", "discord-main"},
+               %{"botToken" => "bot.rotated-secret"},
+               [consumer]
+             )
+
+      assert :ok = ConnectionReconciler.stop({"owner-agent", "discord-main"})
+
       assert {:ok, second} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.rotated-secret"}, [
-                 consumer
-               ])
+               start_connection_owner(
+                 ConnectionReconciler,
+                 %{"botToken" => "bot.rotated-secret"},
+                 [
+                   consumer
+                 ]
+               )
 
       refute second == first
       refute Process.alive?(first)
-      assert :ok = ConnectionSupervisor.stop({"owner-agent", "discord-main"})
+      assert :ok = ConnectionReconciler.stop({"owner-agent", "discord-main"})
     end
   end
 
@@ -444,11 +463,15 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       key = {agent.uid, "discord-session"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.session-secret"}, [
-                 consumer(agent.uid, "discord-session", %{"botToken" => "bot.session-secret"})
-               ])
+               start_connection_owner(
+                 ConnectionReconciler,
+                 %{"botToken" => "bot.session-secret"},
+                 [
+                   consumer(agent.uid, "discord-session", %{"botToken" => "bot.session-secret"})
+                 ]
+               )
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert_receive {:gateway, :connected}, 3_000
 
@@ -534,11 +557,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       key = {agent.uid, "discord-bound"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.bound-secret"}, [
+               start_connection_owner(ConnectionReconciler, %{"botToken" => "bot.bound-secret"}, [
                  consumer(agent.uid, "discord-bound", %{"botToken" => "bot.bound-secret"})
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert_receive {:bound_download_started, download_process}, 3_000
 
@@ -625,13 +648,17 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       key = {agent.uid, "discord-fast-ack"}
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.fast-ack-secret"}, [
-                 consumer(agent.uid, "discord-fast-ack", %{
-                   "botToken" => "bot.fast-ack-secret"
-                 })
-               ])
+               start_connection_owner(
+                 ConnectionReconciler,
+                 %{"botToken" => "bot.fast-ack-secret"},
+                 [
+                   consumer(agent.uid, "discord-fast-ack", %{
+                     "botToken" => "bot.fast-ack-secret"
+                   })
+                 ]
+               )
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert_receive {:attachment_download_started, download_process}, 3_000
       assert_receive :interaction_acknowledged, 2_500
@@ -765,16 +792,16 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert attachment["materialization_state"] == "provider_download_limit"
       assert attachment["restriction"] =~ "25 MB"
       refute Map.has_key?(attachment, "attachment_id")
-      refute Map.has_key?(attachment, "agent_computer_path")
-      refute Map.has_key?(attachment, "user_files_relative_path")
+      refute Map.has_key?(attachment, "blob_ref")
+      refute Map.has_key?(attachment, "path")
     end
 
-    test "assigns the durable attachment ID before writing an admitted file to user-files" do
+    test "assigns the durable attachment ID before storing an admitted file" do
       parent = self()
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         send(parent, {:discord_request, conn.request_path})
         Plug.Conn.send_resp(conn, 200, "attachment")
       end)
@@ -784,10 +811,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  "config" => %{"botToken" => "bot.media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
-
-      route = "discord-inbound-attachment-#{System.unique_integer([:positive])}"
-      insert_ready_worker!(route)
-      WorkerFilesFake.start!(route, notify: parent)
 
       message =
         dm_message("9002", nil)
@@ -810,15 +833,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_received {:discord_request, "/attachments/1/2/report.txt"}
       assert is_integer(attachment["attachment_id"])
       assert attachment["materialization_state"] == "complete"
-
-      expected_relative = "inbox/#{attachment["attachment_id"]}/report.txt"
-      assert attachment["user_files_relative_path"] == expected_relative
-
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative}"
-
-      expected_lane = "/user_files/#{agent.uid}/user-files/#{expected_relative}"
-      assert_receive {:materialized_attachment_path, ^expected_lane}
+      assert_stored_attachment!(agent.uid, attachment, "attachment", "report.txt")
     end
 
     test "anchors the batch window at the attachment observation, not at the download" do
@@ -841,7 +856,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         )
       end
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         send(parent, {:pending_batch, open_batch.()})
         Plug.Conn.send_resp(conn, 400, "download unavailable")
       end)
@@ -871,7 +886,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert %{"state" => "pending", "observed_at" => observed_at_text} = pending_observation
       {:ok, observed_at, 0} = DateTime.from_iso8601(observed_at_text)
       assert pending_batch.available_at == DateTime.add(observed_at, 4_000, :millisecond)
-      assert pending_batch.hard_cap_at == pending_batch.available_at
 
       assert entry.metadata["attachment_materialization"] == %{
                "state" => "failed",
@@ -880,7 +894,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       settled_batch = open_batch.()
       assert settled_batch.available_at == DateTime.add(observed_at, 1_200, :millisecond)
-      assert is_nil(settled_batch.hard_cap_at)
     end
 
     test "deduplicates a message the gateway replays after a resume" do
@@ -1036,7 +1049,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                })
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  consumer(agent.uid, "discord-disabled", config)
                ])
 
@@ -1049,16 +1062,18 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
   describe "actions and outbound" do
     setup do
-      Ankole.PrincipalsFixtures.human_fixture(%{uid: "human-a"})
-      :ok
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      %{human_uid: human.uid}
     end
 
-    test "checkpoints one mutable reply and edits the same Discord message" do
+    test "checkpoints one mutable reply and edits the same Discord message", %{
+      human_uid: human_uid
+    } do
       parent = self()
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         {:ok, raw_body, conn} = Plug.Conn.read_body(conn)
         send(parent, {:discord_request, conn.method, conn.request_path, Torque.decode!(raw_body)})
 
@@ -1090,7 +1105,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
-          author: %{principal_uid: "human-a", id: "7001"},
+          author: %{principal_uid: human_uid, id: "7001"},
           provider_time: base_time()
         })
 
@@ -1102,7 +1117,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         actor_event: event,
         presentation: presentation,
         checkpoint: nil,
-        subject_uid: "human-a",
+        subject_uid: human_uid,
         conversation_id: "conversation-a",
         mode: :working
       }
@@ -1139,7 +1154,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert patch_body["allowed_mentions"] == post_body["allowed_mentions"]
     end
 
-    test "stops automatic retry when Discord created a reply before local ownership failed" do
+    test "stops automatic retry when Discord created a reply before local ownership failed", %{
+      human_uid: human_uid
+    } do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
@@ -1156,11 +1173,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
-          author: %{principal_uid: "human-a", id: "7001"},
+          author: %{principal_uid: human_uid, id: "7001"},
           provider_time: base_time()
         })
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         event
         |> Ecto.Changeset.change(reply_preview_source_entry_id: "different-provider-message")
         |> Repo.update!()
@@ -1174,7 +1191,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer("draft"),
         checkpoint: nil,
-        subject_uid: "human-a",
+        subject_uid: human_uid,
         conversation_id: "conversation-a",
         mode: :working
       }
@@ -1184,7 +1201,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                %{"code" => "discord_delivery_unknown"}}} = preview_update(request)
     end
 
-    test "classifies a rejected later chunk behind a delivered first chunk as partial delivery" do
+    test "classifies a rejected later chunk behind a delivered first chunk as partial delivery",
+         %{human_uid: human_uid} do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
@@ -1201,13 +1219,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
-          author: %{principal_uid: "human-a", id: "7001"},
+          author: %{principal_uid: human_uid, id: "7001"},
           provider_time: base_time()
         })
 
       {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         case Agent.get_and_update(counter, &{&1, &1 + 1}) do
           0 ->
             Req.Test.json(conn, %{"id" => "910"})
@@ -1225,7 +1243,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer(String.duplicate("x", 2_500)),
         checkpoint: nil,
-        subject_uid: "human-a",
+        subject_uid: human_uid,
         conversation_id: "conversation-a",
         mode: :working
       }
@@ -1237,7 +1255,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                %{"code" => "discord_delivery_unknown"}}} = preview_update(request)
     end
 
-    test "uses a custom_id within the Discord limit and restores the action from a checkpoint" do
+    test "uses a custom_id within the Discord limit and restores the action from a checkpoint", %{
+      human_uid: human_uid
+    } do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "discord-action", :ignore, adapter: "discord")
       stub_client_opts()
@@ -1257,7 +1277,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
-          author: %{principal_uid: "human-a", id: "7001"},
+          author: %{principal_uid: human_uid, id: "7001"},
           provider_time: base_time()
         })
 
@@ -1439,10 +1459,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "sends a reply attachment as one message and never as a placeholder text" do
-      register_file_reader(
-        "discord-outbound-#{System.unique_integer([:positive])}",
-        "report bytes"
-      )
+      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("report bytes")
 
       outbox = %OutboxEntry{
         agent_uid: "agent-a",
@@ -1454,7 +1471,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         payload: %{
           "attachments" => [
             %{
-              "user_files_relative_path" => "outbox/report.pdf",
+              "path" => "sent/0123456789abcdef/report.pdf",
+              "blob_ref" => blob_ref,
               "name" => "report.pdf",
               "mime_type" => "application/pdf"
             }
@@ -1489,23 +1507,18 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert {:ok, [%{body: %{"content" => "here it is"}, files: [_file]}]} =
                Outbox.requests_for_outbox(%{outbox | fallback_visible_text: "here it is"})
 
-      assert {:error, :outbound_attachment_path_missing} =
+      assert {:error, :attachment_file_missing} =
                Outbox.requests_for_outbox(%{
                  outbox
                  | payload: %{"attachments" => [%{"name" => "report.pdf"}]}
                })
-
-      assert {:error, {:reply_delivery, :operator_action_required, %{"code" => code}}} =
-               ErrorPolicy.normalize_delivery_result({:error, :outbound_attachment_path_missing})
-
-      assert code == "attachment_path_missing"
     end
 
     test "returns unknown when a non-idempotent provider send has an uncertain result" do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
-      Req.Test.stub(__MODULE__, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+      stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
                SignalsGateway.put_binding(agent.uid, "discord", "discord-unknown", %{
@@ -1527,7 +1540,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     test "returns unknown when a successful create has no message ID" do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
-      Req.Test.stub(__MODULE__, fn conn -> Req.Test.json(conn, %{}) end)
+      stub_data_api(fn conn -> Req.Test.json(conn, %{}) end)
 
       assert {:ok, _binding} =
                SignalsGateway.put_binding(agent.uid, "discord", "discord-missing-id", %{
@@ -1549,7 +1562,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     test "keeps an uncertain edit retryable because repeating it is safe" do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
-      Req.Test.stub(__MODULE__, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+      stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
                SignalsGateway.put_binding(agent.uid, "discord", "discord-edit-retry", %{
@@ -1574,7 +1587,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       {:ok, attempts} = Agent.start_link(fn -> 0 end)
       stub_client_opts()
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
           0 -> Req.Test.json(conn, %{"id" => "1"})
           _later -> Req.Test.transport_error(conn, :timeout)
@@ -1605,7 +1618,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: agent} = agent_fixture()
       stub_client_opts()
 
-      Req.Test.stub(__MODULE__, fn conn ->
+      stub_data_api(fn conn ->
         send(parent, {:discord_request, conn.method, conn.request_path})
 
         conn
@@ -1647,6 +1660,24 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_received {:discord_request, "PATCH", "/api/v10/channels/501/messages/900"}
       refute_received {:discord_request, "POST", _path}
     end
+  end
+
+  # Binding saves verify the application separately from the operation under test.
+  defp stub_data_api(handler) do
+    Req.Test.stub(__MODULE__, fn conn ->
+      if conn.request_path == "/api/v10/applications/@me" do
+        id =
+          case Plug.Conn.get_req_header(conn, "authorization") do
+            ["Bot bot.first-secret"] -> "app-first"
+            ["Bot bot.second-secret"] -> "app-second"
+            _ -> "app-77"
+          end
+
+        Req.Test.json(conn, %{"id" => id, "flags" => 262_144})
+      else
+        handler.(conn)
+      end
+    end)
   end
 
   defp consumer(agent_uid, binding_name, config \\ %{"botToken" => "test-only-token"}) do
@@ -1768,30 +1799,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)
     port
-  end
-
-  # The outbox reads attachment bytes through WorkerFiles, so a ready worker
-  # has to answer the push relay for that path.
-  defp register_file_reader(route, content) do
-    insert_ready_worker!(route)
-    WorkerFilesFake.start!(route, on_read: fn _path -> {:ok, content} end)
-  end
-
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: "discord-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
   end
 
   defp assert_utf16_chunks(text, budget) do

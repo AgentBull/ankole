@@ -1,5 +1,6 @@
 import { recordValue } from '@agentbull/active-support'
 import type {
+  AiGatewayProviderSetting as AIGatewayProviderSetting,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
@@ -18,15 +19,7 @@ import i18n from '../../common/i18n'
  * declaration into a labeled form.
  */
 
-export type ProviderSetting = {
-  key: string
-  advanced: boolean
-  encrypted: boolean
-  options: string[]
-  required: boolean
-  type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
-  default: unknown
-}
+export type ProviderSetting = AIGatewayProviderSetting
 
 export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection'
 
@@ -68,38 +61,7 @@ function settingsForScope(
   kind: AIGatewayProviderKindItem | undefined,
   scope: 'connection' | 'credential' | 'request'
 ): ProviderSetting[] {
-  if (!kind) return []
-
-  return kind.settings
-    .map(raw => asSetting(raw, scope))
-    .filter((setting): setting is ProviderSetting => setting !== null)
-}
-
-function asSetting(raw: unknown, expectedScope: 'connection' | 'credential' | 'request'): ProviderSetting | null {
-  const record = recordValue(raw)
-  if (!record) return null
-
-  const key = typeof record.key === 'string' ? record.key : null
-  const scope = typeof record.scope === 'string' ? record.scope : 'connection'
-  if (!key || scope !== expectedScope) return null
-
-  return {
-    key,
-    advanced: record.advanced === true,
-    encrypted: record.encrypted === true,
-    options: Array.isArray(record.options)
-      ? record.options.filter((value): value is string => typeof value === 'string')
-      : [],
-    required: record.required === true,
-    type: settingType(record.type),
-    default: record.default
-  }
-}
-
-function settingType(value: unknown): ProviderSetting['type'] {
-  return value === 'boolean' || value === 'float' || value === 'integer' || value === 'map' || value === 'select'
-    ? value
-    : 'string'
+  return kind ? kind.settings.filter(setting => setting.scope === scope) : []
 }
 
 /** Turns a snake_case setting key into a readable sentence-case field label. */

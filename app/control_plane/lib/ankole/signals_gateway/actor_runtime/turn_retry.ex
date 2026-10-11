@@ -1,80 +1,15 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
-  @moduledoc """
-  Coordinates retry control for already-started worker turns.
-
-  Two user-visible events share the same runtime shape:
-
-    * `/retry` while a generation is still running.
-    * provider-side removal of one source entry inside an in-flight merged IM batch.
-
-  In both cases the control plane fences the old turn immediately, leaves or
-  rewrites the actor event as retryable durable work, then sends the worker a
-  best-effort `turn_control retry` event so it can stop spending tokens.
-  """
+  @moduledoc "Owns entry merging before admission and durable revision input after admission."
 
   import Ecto.Query, warn: false
 
-  import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
   import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1, signal_session_id: 1]
 
-  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.ActorRuntime.ReplyDeletion
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
-  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SignalsGateway.OutboxEntry
 
   @attachment_materialization_hard_cap_ms 4_000
-
-  @doc """
-  Fences a live worker turn and marks its events retryable inside a transaction.
-  """
-  @spec retry_live_turn_in_tx(module(), map(), ActorEvent.t(), DateTime.t()) ::
-          {:ok, map() | :no_live_turn} | {:error, term()}
-  def retry_live_turn_in_tx(repo, actor_key, %ActorEvent{} = command_event, now) do
-    with deliveries <- live_deliveries_for_actor(repo, actor_key),
-         %{} <-
-           AIGatewayLink.active_conversation_for_update(
-             repo,
-             actor_key.agent_uid,
-             actor_key.session_id
-           ),
-         actor_event_id when is_binary(actor_event_id) <- current_actor_event_id(deliveries),
-         turn <- AIGatewayLink.generating_turn_in_tx(repo, actor_key, actor_event_id),
-         retry_event_ids when retry_event_ids != [] <- retry_actor_event_ids(turn, deliveries),
-         {:ok, retry_events} <-
-           mark_events_for_retry(repo, retry_event_ids, actor_event_id, now, "command.retry"),
-         {:ok, cancelled_message} <-
-           TurnLifecycle.cancel_started_turn_in_tx(
-             repo,
-             actor_key,
-             actor_event_id,
-             now,
-             "command.retry"
-           ),
-         {:ok, completed_event} <-
-           Actors.complete_command_event_in_tx(repo, command_event,
-             completed_at: now,
-             outbox_intents: []
-           ) do
-      {:ok,
-       %{
-         status: :command_consumed,
-         command: command_event.type,
-         retry_actor_events: retry_events,
-         controls: TurnControl.collect(deliveries, :retry, "command.retry"),
-         ai_message: cancelled_message,
-         actor_event: completed_event
-       }}
-    else
-      nil -> {:ok, :no_live_turn}
-      [] -> {:ok, :no_live_turn}
-      {:error, _reason} = error -> error
-    end
-  end
 
   @doc """
   Retracts one provider source entry from live actor event inside a transaction.
@@ -82,8 +17,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   @spec retract_source_entry_in_tx(module(), map(), term(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
   def retract_source_entry_in_tx(repo, fact, kind, now) do
-    fact
-    |> candidate_events_for_source_entry(repo)
+    candidates = candidate_events_for_source_entry(fact)
+
+    candidates
+    |> select([input], input.session_id)
+    |> repo.all()
+    |> then(&[fact_session_id(fact) | &1])
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(&Ankole.SignalsGateway.Actors.lock_actor_session_in_tx(repo, fact.agent_uid, &1))
+
+    candidates
+    |> lock("FOR UPDATE")
+    |> repo.all()
     |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
     |> Ankole.Attrs.collect_results()
     |> case do
@@ -96,8 +42,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
            canceled_actor_events: Enum.count(results, &(&1.status == :canceled)),
            canceled_actor_event_ids:
              for(%{status: :canceled, actor_event: event} <- results, do: event.id),
-           retried_actor_events: Enum.count(results, &(&1.status == :retried)),
-           controls: results |> Enum.flat_map(& &1.controls) |> Enum.uniq()
+           retried_actor_events: Enum.count(results, &(&1.status == :retried))
          }}
 
       {:error, _reason} = error ->
@@ -116,6 +61,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
           {:ok, :not_supplement | {:consumed, map()} | {:next_turn, atom()}}
           | {:error, term()}
   def merge_attachment_supplement_in_tx(repo, fact, entry, now) do
+    :ok =
+      Ankole.SignalsGateway.Actors.lock_actor_session_in_tx(
+        repo,
+        fact.agent_uid,
+        fact_session_id(fact)
+      )
+
     case attachment_materialization_state(entry) do
       state when state in ["pending", "complete", "failed"] ->
         case event_for_supplement_source_entry(repo, fact, entry["source_entry_id"]) do
@@ -142,6 +94,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
           {:ok, :not_supplement | {:consumed, map()} | {:next_turn, atom()}}
           | {:error, term()}
   def refresh_attachment_supplement_in_tx(repo, fact, entry, now) do
+    :ok =
+      Ankole.SignalsGateway.Actors.lock_actor_session_in_tx(
+        repo,
+        fact.agent_uid,
+        fact_session_id(fact)
+      )
+
     with state when state in ["pending", "complete", "failed"] <-
            attachment_materialization_state(entry),
          %ActorEvent{} = event <-
@@ -198,74 +157,85 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
        ),
        do: {:ok, :not_supplement}
 
-  defp merge_into_open_event(repo, event, entry, now, refresh?) do
-    entries = event_entries(event)
-
-    if event_entry_content_current?(entries, entry) do
+  defp merge_into_open_event(repo, event, entry, now, _refresh?) do
+    if event_entry_content_current?(event_entries(event), entry) do
       {:ok, :not_supplement}
     else
-      deliveries = live_deliveries_for_event(repo, event)
+      kind =
+        if Enum.any?(event_entries(event), &(&1["source_entry_id"] == entry["source_entry_id"])),
+          do: "edit",
+          else: "supplement"
 
-      cond do
-        deliveries != [] and event_has_committed_outbox?(repo, event.id) ->
-          {:ok, {:next_turn, :external_side_effect_guard}}
-
-        deliveries != [] and
-            not AIGatewayLink.turn_replay_safe_in_tx(
-              repo,
-              %{agent_uid: event.agent_uid, session_id: event.session_id},
-              event.id
-            ) ->
-          {:ok, {:next_turn, :external_side_effect_guard}}
-
-        true ->
-          entries = upsert_event_entry(entries, entry)
-          payload = supplement_payload(event.payload, entries, event.id, now)
-
-          with {:ok, updated_event} <-
-                 event
-                 |> ActorEvent.changeset(%{
-                   payload: payload,
-                   source_entry_id: merged_entry_summary(entries)["source_entry_id"],
-                   available_at: supplement_available_at(entries, now)
-                 })
-                 |> repo.update(),
-               {:ok, retracted_message} <-
-                 supersede_event_turn(repo, event, deliveries, now) do
-            reason =
-              if refresh? or deliveries == [],
-                do: :input_superseded_refresh,
-                else: :input_superseded
-
-            {:ok,
-             {:consumed,
-              %{
-                status: reason,
-                actor_event: updated_event,
-                ai_message: retracted_message,
-                controls: TurnControl.collect(deliveries, :retry, "input_superseded"),
-                input_superseded_actor_event_ids: if(deliveries == [], do: [], else: [event.id])
-              }}}
-          end
+      with {:ok, event} <- ingress_revision_in_tx(repo, event, kind, entry, now) do
+        {:ok, {:consumed, %{status: :input_superseded, actor_event: event}}}
       end
     end
   end
 
-  defp supersede_event_turn(_repo, _event, [], _now), do: {:ok, nil}
+  defp ingress_revision_in_tx(repo, %{last_attempt_at: nil} = event, kind, entry, now),
+    do: revise_event_in_tx(repo, event, kind, entry, now)
 
-  defp supersede_event_turn(repo, event, deliveries, now) do
-    actor_event_id =
-      deliveries
-      |> List.first()
-      |> Map.get(:actor_event_id_fence)
+  defp ingress_revision_in_tx(repo, event, kind, entry, now) do
+    revision = %{
+      "actor_event_id" => event.id,
+      "kind" => kind,
+      "entry" => entry,
+      "source_entry_id" => entry["source_entry_id"]
+    }
 
-    TurnLifecycle.supersede_started_turn_in_tx(
-      repo,
-      %{agent_uid: event.agent_uid, session_id: event.session_id},
-      actor_event_id,
-      now,
-      "input_superseded"
-    )
+    digest = :crypto.hash(:sha256, Ankole.JSON.encode!(revision)) |> Base.encode16(case: :lower)
+
+    Ankole.SignalsGateway.append_actor_event_in_tx(repo, %{
+      source_work: event,
+      agent_uid: event.agent_uid,
+      binding_name: event.binding_name,
+      session_id: event.session_id,
+      source_event_id: "revision:#{event.id}:#{digest}",
+      signal_channel_id: event.signal_channel_id,
+      provider_thread_id: event.provider_thread_id,
+      source_entry_id: entry["source_entry_id"],
+      type: "input.revised",
+      available_at: now,
+      sender_key: event.sender_key,
+      payload:
+        event.payload
+        |> Map.put("type", "input.revised")
+        |> Map.put("time", DateTime.to_iso8601(now))
+        |> Map.put("data", %{"revision" => revision, "entry" => entry})
+    })
+  end
+
+  # The driver calls this only after it has canceled the affected run.
+  def revise_event_in_tx(repo, event, kind, entry, now) when kind in ["edit", "supplement"] do
+    entries = event_entries(event)
+
+    entries =
+      if entries == [], do: List.wrap(get_in(event.payload, ["data", "entry"])), else: entries
+
+    entries = upsert_event_entry(entries, entry)
+
+    event
+    |> ActorEvent.changeset(%{
+      payload: supplement_payload(event.payload, entries, event.id, now),
+      source_entry_id: merged_entry_summary(entries)["source_entry_id"],
+      available_at: supplement_available_at(entries, now)
+    })
+    |> repo.update()
+  end
+
+  def revise_event_in_tx(repo, event, "remove", entry, now) do
+    case source_entry_retraction(event_entries(event), event, entry["source_entry_id"]) do
+      :no_match ->
+        {:ok, event}
+
+      :cancel ->
+        with {:ok, _} <- commit_reply_deletions(repo, event),
+             {:ok, _} <- repo.delete(event),
+             do: {:ok, :removed}
+
+      {:replace, entries} ->
+        replace_event_entries(repo, event, entries, entry, now)
+    end
   end
 
   defp event_for_supplement_source_entry(repo, fact, source_entry_id)
@@ -333,12 +303,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
       |> repo.one()
 
     latest_sequence == event.queue_sequence
-  end
-
-  defp event_has_committed_outbox?(repo, actor_event_id) do
-    OutboxEntry
-    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
-    |> repo.exists?()
   end
 
   defp supplement_payload(payload, entries, actor_event_id, now) do
@@ -411,49 +375,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     entry["non_bot_mention"] != true and is_nil(entry["reply_to_source_entry_id"])
   end
 
-  defp live_deliveries_for_actor(repo, actor_key) do
-    ActorEventDelivery
-    |> where([delivery], delivery.agent_uid == ^actor_key.agent_uid)
-    |> where([delivery], delivery.session_id == ^actor_key.session_id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> lock("FOR UPDATE")
-    |> repo.all()
-  end
-
-  defp live_deliveries_for_event(repo, %ActorEvent{} = input) do
-    ActorEventDelivery
-    |> where([delivery], delivery.actor_event_id == ^input.id)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> lock("FOR UPDATE")
-    |> repo.all()
-  end
-
-  defp mark_events_for_retry(repo, event_ids, actor_event_id, now, reason) do
-    ActorEvent
-    |> where([input], input.id in ^event_ids)
-    |> lock("FOR UPDATE")
-    |> repo.all()
-    |> Enum.map(&mark_event_for_retry(repo, &1, actor_event_id, now, reason))
-    |> Ankole.Attrs.collect_results()
-    |> case do
-      {:ok, []} -> {:error, :retry_actor_event_not_found}
-      result -> result
-    end
-  end
-
-  defp mark_event_for_retry(repo, %ActorEvent{} = input, actor_event_id, now, reason) do
-    payload = put_retry_metadata(input.payload, actor_event_id, reason, %{})
-
-    input
-    |> ActorEvent.changeset(%{payload: payload, available_at: now})
-    |> repo.update()
-  end
-
-  # The membership predicate runs in SQL so only the events that mention the
-  # removed entry are locked, not every open event in the channel. The
-  # jsonb_typeof guard is required: this scans all event types and a non-array
-  # `entries` value would make jsonb_array_elements fail.
-  defp candidate_events_for_source_entry(fact, repo) do
+  defp candidate_events_for_source_entry(fact) do
     ActorEvent
     |> where([input], input.agent_uid == ^fact.agent_uid)
     |> where([input], input.binding_name == ^fact.binding_name)
@@ -478,8 +400,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
           ^fact.source_entry_id
         )
     )
-    |> lock("FOR UPDATE")
-    |> repo.all()
   end
 
   defp maybe_where_thread(query, nil), do: query
@@ -488,49 +408,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     where(query, [input], input.provider_thread_id == ^provider_thread_id)
   end
 
-  defp retract_source_entry_from_event(repo, %ActorEvent{} = input, fact, kind, now) do
-    entries = event_entries(input)
+  defp retract_source_entry_from_event(repo, input, fact, _kind, now) do
+    entry = %{"source_entry_id" => fact.source_entry_id}
 
-    case source_entry_retraction(entries, input, fact.source_entry_id) do
-      :no_match ->
-        {:ok, nil}
+    with {:ok, result} <- ingress_revision_in_tx(repo, input, "remove", entry, now) do
+      status = if result == :removed, do: :canceled, else: :retried
 
-      :cancel ->
-        with {:ok, cancellation} <-
-               cancel_event_live_turn(repo, input, kind, now),
-             {:ok, reply_deletions} <- commit_reply_deletions(repo, input),
-             {:ok, _deleted} <- repo.delete(input) do
-          {:ok,
-           %{
-             status: :canceled,
-             actor_event: input,
-             ai_message: cancellation.message,
-             reply_deletions: length(reply_deletions),
-             controls: cancellation.controls
-           }}
-        end
-
-      {:replace, remaining_entries} ->
-        with {:ok, cancellation} <-
-               cancel_event_live_turn(repo, input, kind, now),
-             {:ok, updated_event} <-
-               replace_event_entries(
-                 repo,
-                 input,
-                 remaining_entries,
-                 fact,
-                 kind,
-                 now,
-                 cancellation.message
-               ) do
-          {:ok,
-           %{
-             status: :retried,
-             actor_event: updated_event,
-             ai_message: cancellation.message,
-             controls: cancellation.controls
-           }}
-        end
+      {:ok,
+       %{
+         status: status,
+         actor_event: if(result == :removed, do: input, else: result)
+       }}
     end
   end
 
@@ -572,57 +460,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     |> Ankole.Attrs.collect_results()
   end
 
-  defp cancel_event_live_turn(repo, %ActorEvent{} = input, reason, now) do
-    deliveries = live_deliveries_for_event(repo, input)
-
-    case deliveries do
-      [] ->
-        {:ok, %{message: nil, controls: []}}
-
-      [delivery | _rest] ->
-        actor_event_id = delivery.actor_event_id_fence
-
-        with {:ok, cancelled_message} <-
-               TurnLifecycle.cancel_started_turn_in_tx(
-                 repo,
-                 %{agent_uid: input.agent_uid, session_id: input.session_id},
-                 actor_event_id,
-                 now,
-                 reason
-               ) do
-          {:ok,
-           %{
-             message: cancelled_message,
-             controls: TurnControl.collect(deliveries, :retry, reason)
-           }}
-        end
-    end
-  end
-
-  defp replace_event_entries(repo, input, entries, fact, kind, now, turn) do
+  defp replace_event_entries(repo, input, entries, entry, now) do
     summary = merged_entry_summary(entries)
 
     payload =
       input.payload
-      |> replace_payload_entries(entries, summary, fact.source_entry_id, now)
-      |> maybe_put_retry_metadata(turn, reason_text(kind), %{
-        "removed_source_entry_id" => fact.source_entry_id
-      })
+      |> replace_payload_entries(
+        entries,
+        summary,
+        entry["source_entry_id"],
+        now
+      )
 
     attrs = %{
       payload: payload,
       source_entry_id: summary["source_entry_id"],
       available_at: now
     }
-
-    attrs =
-      case turn do
-        %{} ->
-          Map.put(attrs, :source_event_id, "retry:#{input.id}:without:#{fact.source_entry_id}")
-
-        nil ->
-          attrs
-      end
 
     input
     |> ActorEvent.changeset(attrs)
@@ -637,6 +491,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
       data
       |> Map.put("entry", summary)
       |> Map.put("entries", entries)
+      |> refresh_command()
       |> update_observed_messages(removed_source_entry_id)
       |> update_ambient_batch(entries, now)
 
@@ -647,22 +502,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     %{"data" => %{"entry" => summary, "entries" => entries}}
   end
 
-  defp maybe_put_retry_metadata(payload, %{actor_event_id: actor_event_id}, reason, extra)
-       when is_binary(actor_event_id) do
-    put_retry_metadata(payload, actor_event_id, reason, extra)
-  end
+  defp refresh_command(%{"command" => %{"name" => name} = command} = data) do
+    case Ankole.SignalsGateway.Commands.classify(get_in(data, ["entry", "text"])) do
+      {:ok, %{"name" => ^name} = current} ->
+        Map.put(data, "command", Map.merge(command, current))
 
-  defp maybe_put_retry_metadata(payload, %{} = response, reason, extra) do
-    case AIGatewayLink.actor_event_id(response) do
-      actor_event_id when is_binary(actor_event_id) ->
-        put_retry_metadata(payload, actor_event_id, reason, extra)
-
-      nil ->
-        payload
+      _revised_text ->
+        Map.delete(data, "command")
     end
   end
 
-  defp maybe_put_retry_metadata(payload, _turn, _reason, _extra), do: payload
+  defp refresh_command(data), do: data
 
   @doc false
   @spec put_retry_metadata(map(), String.t(), String.t(), map()) :: map()
@@ -765,26 +615,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
        do: entries
 
   defp event_entries(_input), do: []
-
-  defp retry_actor_event_ids(%{request_ref_actor_event_ids: request_ref_ids}, deliveries) do
-    deliveries
-    |> Enum.map(& &1.actor_event_id)
-    |> Kernel.++(request_ref_ids)
-    |> Enum.filter(&is_binary/1)
-    |> Enum.uniq()
-  end
-
-  defp retry_actor_event_ids(nil, deliveries) do
-    deliveries
-    |> Enum.map(& &1.actor_event_id)
-    |> Enum.filter(&is_binary/1)
-    |> Enum.uniq()
-  end
-
-  defp current_actor_event_id([
-         %ActorEventDelivery{actor_event_id_fence: actor_event_id} | _rest
-       ]),
-       do: actor_event_id
-
-  defp current_actor_event_id(_deliveries), do: nil
 end

@@ -28,17 +28,13 @@ describe('Signal Routing editor navigation', () => {
     expect(editorHTML).toContain('href="/signals?agent=agent-b"')
   })
 
-  test('invalidates Signal data and returns a successful save to its originating list scope', () => {
-    const queryClient = freshQueryClient()
-    const queryKey = ['signal-bindings']
-    queryClient.setQueryData(queryKey, { signal_bindings: [] })
+  test('returns a successful save to its originating list scope', () => {
     const router = createMemoryRouter([{ path: '*', element: null }], {
       initialEntries: ['/signals/new?agent=agent-a&return_agent=agent-b']
     })
 
-    finishSignalBindingSave('Saved', '/signals?agent=agent-b', queryClient, path => router.navigate(path))
+    finishSignalBindingSave('Saved', '/signals?agent=agent-b', path => router.navigate(path))
 
-    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
     expect(`${router.state.location.pathname}${router.state.location.search}`).toBe('/signals?agent=agent-b')
   })
 })
@@ -73,7 +69,7 @@ function renderEmptySignalsList(agents: AgentItem[]) {
 function agentItem(uid: string): AgentItem {
   return {
     avatar_url: null,
-    created_by_principal_uid: null,
+    created_by: null,
     display_name: uid,
     group_memory_disclosure_mode: 'strict',
     inserted_at: '2026-08-14T00:00:00Z',
@@ -83,6 +79,7 @@ function agentItem(uid: string): AgentItem {
     status: 'active',
     type: 'ai_colleague',
     uid,
+    handle: uid,
     updated_at: '2026-08-14T00:00:00Z'
   }
 }

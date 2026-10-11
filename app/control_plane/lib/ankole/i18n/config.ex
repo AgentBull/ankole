@@ -26,6 +26,7 @@ defmodule Ankole.I18n.Config do
   @spec default_locale_definition() :: Definition.t()
   def default_locale_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @default_locale_key,
       encrypted: false,
       schema: Schema.non_empty_string(),
@@ -49,15 +50,14 @@ defmodule Ankole.I18n.Config do
   end
 
   @doc """
-  Persists the installation-wide default locale through AppConfigure.
+  Persists the current tenant's default locale through AppConfigure.
 
-  This function is storage-level. Callers that want to apply the locale should use
-  `Ankole.I18n.put_default_locale/1`, which validates against the loaded catalog
-  before persisting and then reloads Localize.
+  Use `Ankole.I18n.put_default_locale/1` to validate the loaded catalog before
+  writing. The tenant value does not replace Localize's shared site default.
   """
   @spec put_default_locale(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_default_locale(locale) do
-    AppConfigure.put_global(default_locale_definition(), locale)
+    AppConfigure.put_tenant_by_key(default_locale_definition().key, locale)
   end
 
   @doc """

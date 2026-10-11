@@ -1,15 +1,19 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: false
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.JobTurnRef
+
+  setup do
+    allow_cache_database_access()
+    :ok
+  end
 
   test "projects the declared hosted tools in policy order" do
     envelope =
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
-        workspace_id: 10_000,
+      turn_start(%{
         model_ref: model_ref(),
         request_context: %{},
         hosted_tools: [%{"type" => "image_generation"}, %{"type" => "web_search"}]
@@ -17,16 +21,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
 
-    assert Torque.decode!(turn_start.hosted_tools_json) == [
-             %{"type" => "image_generation"},
-             %{"type" => "web_search"}
-           ]
+    assert turn_start.hosted_tools == [:HOSTED_TOOL_IMAGE_GENERATION, :HOSTED_TOOL_WEB_SEARCH]
+  end
+
+  test "maps the stored brain projection to its enum" do
+    assert {:ok, spec} =
+             Ankole.BackgroundAgentJobs.RuntimeProjection.turn_start_overrides(%{
+               "version" => 1,
+               "model_ref" => model_ref(),
+               "runtime_policy" => %{},
+               "hosted_tools" => [%{"type" => "brain"}]
+             })
+
+    assert %FabricProto.Envelope{body: {:turn_start, %{hosted_tools: [:HOSTED_TOOL_BRAIN]}}} =
+             turn_start(spec)
   end
 
   test "rejects unsupported and duplicate hosted tools" do
     spec = fn hosted_tools ->
       %{
-        workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{},
         hosted_tools: hosted_tools
@@ -34,82 +47,70 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
     end
 
     assert_raise ArgumentError, ~r/unsupported turn hosted tool/, fn ->
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], spec.([%{"type" => "computer_use"}]))
+      turn_start(spec.([%{"type" => "computer_use"}]))
     end
 
     assert_raise ArgumentError, ~r/duplicate turn hosted tools/, fn ->
-      TurnEnvelope.turn_start(
-        turn_ref(),
-        actor_event(),
-        [],
-        spec.([%{"type" => "web_search"}, %{"type" => "web_search"}])
-      )
+      turn_start(spec.([%{"type" => "web_search"}, %{"type" => "web_search"}]))
     end
 
     assert_raise ArgumentError, ~r/invalid turn hosted tools/, fn ->
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], spec.([]))
+      turn_start(spec.([]))
     end
   end
 
   test "omits hosted tools when the turn policy did not declare one" do
     envelope =
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
-        workspace_id: 10_000,
+      turn_start(%{
         model_ref: model_ref(),
         request_context: %{}
       })
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
-    assert turn_start.hosted_tools_json == ""
-  end
-
-  test "carries the model output-token ceiling as a typed field" do
-    envelope =
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
-        workspace_id: 10_000,
-        model_ref: Map.put(model_ref(), "max_completion_tokens", 32_000),
-        request_context: %{}
-      })
-
-    assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
-    assert turn_start.model_ref.max_completion_tokens == 32_000
-
-    without_limit =
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
-        workspace_id: 10_000,
-        model_ref: model_ref(),
-        request_context: %{}
-      })
-
-    assert %FabricProto.Envelope{body: {:turn_start, no_limit_start}} = without_limit
-    assert no_limit_start.model_ref.max_completion_tokens == nil
+    assert turn_start.hosted_tools == []
   end
 
   test "carries trusted turn runtime environment values" do
     envelope =
-      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
-        workspace_id: 10_000,
+      turn_start(%{
         model_ref: model_ref(),
         request_context: %{},
         runtime_env: %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"}
       })
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
-    assert turn_start.workspace_id == 10_000
 
     assert turn_start.runtime_env == %{
              "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"
            }
   end
 
-  defp turn_ref do
-    %TurnRef{
-      agent_uid: "agent-test",
-      session_id: "session-test",
-      activation_uid: "activation-test",
-      actor_epoch: 1,
-      actor_event_id: "019f7057-5fd2-76d0-a553-c6c84da72b43",
-      revision: 0
+  test "pushes the current fetch policy to the Job" do
+    {:ok, _} = Ankole.AppConfigure.put_global(Ankole.Security.SSRFFilter.definition(), true)
+
+    {:ok, _} =
+      Ankole.AppConfigure.put_tenant_by_key("worker.rendered_fetch_idle_ttl_ms", 600_000)
+
+    assert %FabricProto.Envelope{body: {:turn_start, start}} = turn_start(%{})
+
+    assert start.fetch_runtime_config == %FabricProto.FetchRuntimeConfig{
+             ssrf_filter: true,
+             rendered_fetch_idle_ttl_ms: 600_000
+           }
+  end
+
+  defp turn_start(spec) do
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    TurnEnvelope.turn_start(turn_ref(agent.uid), actor_event(), spec, "start", nil)
+  end
+
+  defp turn_ref(agent_uid) do
+    %JobTurnRef{
+      agent_uid: agent_uid,
+      session_id: "job:1000",
+      job_id: 1000,
+      attempt: 1,
+      actor_event_id: "019f7057-5fd2-76d0-a553-c6c84da72b43"
     }
   end
 

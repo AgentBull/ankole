@@ -52,8 +52,8 @@ Do not weaken assertions, bypass production paths, or move ownership to make a t
 
 ## Project boundaries
 
-- One private deployment instance is the product boundary. Do not add hidden SaaS tenant IDs, cross-enterprise identity, or organization routing unless explicitly requested.
-- Principal/AuthZ owns accountable subjects and permissions. Do not add parallel subject models or organization-scoped identity.
+- A site owns infrastructure; each tenant owns its organization and data. One site uses one PostgreSQL database. Tenant queries require an explicit process context through `Ankole.Repo`; missing context must fail. Do not add SaaS account, billing, self-service, or tenant-console paths without an explicit request.
+- Principal/AuthZ owns accountable subjects and permissions. Each Principal belongs to exactly one tenant and has a globally unique opaque UID. Do not add a parallel subject or authorization model. See [Tenants](docs/design-docs/Tenants.md).
 - Bootstrap configuration may use environment variables or secret mounts for startup facts and credentials needed before storage is reachable. Operator settings belong in declared `Ankole.AppConfigure` keys; runtime-generated credentials and secrets belong in the owning subsystem's encrypted storage.
 - Match the owning domain's schema and identifier shape. Do not introduce a local key strategy or database-generated identifier.
 - PostgreSQL owns authoritative domain facts whose loss or replay changes user-visible semantics. Use native types and constraints for domain invariants. Other storage may hold rebuildable caches or artifacts when PostgreSQL retains their authoritative lifecycle or references.
@@ -95,3 +95,14 @@ Use George Orwell's six rules. Write English documentation and code comments in 
 Lead with the answer and its main caveat. Use direct, connected prose; use lists for sequences, parallel facts, or comparisons. Keep the evidence needed to assess the conclusion. Remove repetition, stock phrases, jargon, and forced contrasts without removing necessary reasoning or limitations. End with a recommendation only when there is a decision to make.
 
 Prefer clear structure and names over comments that narrate implementation. Keep comments that explain non-local rationale, invariants, hazards, or operating constraints. Shareable documents describe the final result and omit drafting notes, completed TODOs, and abandoned alternatives.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

@@ -33,7 +33,7 @@ order: 114
 
 automation job은 매 전달마다 Agent 대화를 깨우는 대신 trigger를 소비하는 결정적 스크립트입니다. checkback, cron schedule, 또는 webhook endpoint가 `automation_job_id`를 지정할 수 있다. 이 필드가 없는 trigger는 직접 깨우는 동작을 유지합니다.
 
-Agent는 Agent Home 안에 디렉터리 하나를 만들고 `main.ts`를 추가하고, 설정과 비-SDK 분기를 손으로 확인한 다음 `create-automation-job-cli`로 디렉터리를 등록합니다. Worker는 등록 시와 매 실행 시 실제 경로로 디렉터리와 엔트리포인트를 해석합니다. 현재 파일을 Bun으로 실행하므로 다시 등록하지 않아도 편집이 반영됩니다.
+Agent는 작업 공간에 디렉터리 하나를 만들고 `main.ts`를 추가하고, 설정과 비-SDK 분기를 손으로 확인한 다음 `create-automation-job-cli`로 디렉터리를 등록합니다. 등록할 때 디렉터리는 새 드라이브 폴더 `automation/<디렉터리 이름>-<무작위 접미사>`로 복사되고, 그 폴더가 `drive_prefix`로 반환됩니다. 각 실행은 실행 시점에 그 폴더에 있는 내용을 새 실행 디렉터리로 복사하고 거기서 `main.ts`를 Bun으로 실행하므로, 스크립트가 작업 디렉터리에 쓴 파일은 다음 실행까지 남지 않습니다. 스크립트를 바꿀 때는 Agent가 `ankole-files put <dir> <drive_prefix>`를 실행합니다. 다시 등록하지 않아도 편집이 반영됩니다.
 
 각 attempt는 최신 Agent WorkerEnv와, 현재 활성화된 Skill에서 생성된 호출 범위의 `MCPORTER_CONFIG`를 받습니다. Worker는 스크립트가 어떤 server를 쓸지 예측하지 않습니다. 스크립트는 mcporter와 stdin JSON으로 선택된 MCP tool 하나를 호출할 수 있다. Automation은 Skill 지침을 읽지 않으며, 영구적인 Agent Home mcporter 구성을 사용하지 않습니다.
 

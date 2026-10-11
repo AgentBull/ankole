@@ -1,6 +1,11 @@
 defmodule Ankole.AIGateway.ResponseStreamTest do
   use ExUnit.Case, async: false
 
+  setup do
+    Ankole.Repo.put_tenant_id(Ecto.UUID.generate())
+    :ok
+  end
+
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ResponseStream
@@ -73,7 +78,6 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
       public_open?: false,
       ref: make_ref(),
       stateful: %{credential: "stateful-secret"},
-      telemetry_emitted?: false,
       failure_logged?: false,
       describe_waiters: [self()],
       opening: %{api_key: "opening-secret"},
@@ -119,7 +123,11 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     end
 
     slow_starter =
-      Task.async(fn -> Supervisor.start_stream(stream_opts(slow_open, test_pid)) end)
+      Task.async(
+        Ankole.Repo.bind_tenant(fn ->
+          Supervisor.start_stream(stream_opts(slow_open, test_pid))
+        end)
+      )
 
     assert {:ok, slow_pid} = Task.await(slow_starter, 1_000)
     assert_receive {:slow_open_started, slow_worker}
@@ -141,7 +149,11 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     end
 
     fast_starter =
-      Task.async(fn -> Supervisor.start_stream(stream_opts(fast_open, test_pid)) end)
+      Task.async(
+        Ankole.Repo.bind_tenant(fn ->
+          Supervisor.start_stream(stream_opts(fast_open, test_pid))
+        end)
+      )
 
     assert {:ok, fast_pid} = Task.await(fast_starter, 1_000)
     assert_receive {:fast_open_started, fast_worker}
@@ -345,8 +357,11 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     stream_monitor = Process.monitor(stream_pid)
 
     assert {:error,
-            {:universal_ai_request_failed,
-             %{"code" => "universal_ai_stream_ready_timeout", "stage" => "open"}}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :other,
+              code: "universal_ai_stream_ready_timeout",
+              stage: "open"
+            }} =
              GenServer.call(stream_pid, :describe)
 
     assert_receive {:DOWN, ^stream_monitor, :process, ^stream_pid, :normal}, 1_000
@@ -417,8 +432,11 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     stream_monitor = Process.monitor(stream_pid)
 
     assert {:error,
-            {:universal_ai_request_failed,
-             %{"code" => "universal_ai_stream_ready_timeout", "stage" => "open"}}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :other,
+              code: "universal_ai_stream_ready_timeout",
+              stage: "open"
+            }} =
              GenServer.call(stream_pid, :describe)
 
     assert_receive {:DOWN, ^stream_monitor, :process, ^stream_pid, :normal}, 1_000
@@ -1050,7 +1068,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
     send(
       stream.pid,
-      {:universal_ai_client, native_ref, :chunk, 99, :websocket_text,
+      {:universal_ai_client, native_ref, :chunk, 99,
        Ankole.JSON.encode!(failed_event(%{"code" => "late_duplicate"}))}
     )
 
@@ -1164,11 +1182,12 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
   defp stream_opts(open_fun, receiver) do
     [
+      tenant_id: Ankole.Repo.tenant_id!(),
       subject_uid: "agent_test",
       request: %{},
       stateful: nil,
       receiver: receiver,
-      telemetry_spec: %{},
+      hosted_image_spec: %{},
       open_fun: open_fun
     ]
   end
@@ -1241,6 +1260,8 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
             call_id: "prog_resume",
             code: code,
             fingerprint: PTC.fingerprint(code, bindings),
+            bindings: [],
+            runtime_bindings: [],
             memo: []
           }
         ]
@@ -1267,9 +1288,8 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
         headers: [{"content-type", "application/json"}],
         body: ~s({"stream":true}),
         timeout: %{connect_ms: 500, first_byte_ms: 5_000, idle_ms: 5_000, total_ms: nil},
-        transport: %{http_versions: [:h1], compression: []}
+        transport: %{}
       },
-      downstream: :sse,
       response_context: %{model: "test-model", request: %{"input" => "hello"}}
     }
   end

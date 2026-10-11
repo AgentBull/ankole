@@ -3,14 +3,12 @@ defmodule Ankole.Release do
   One-shot control-plane operations for production releases without Mix installed.
   """
 
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
+  alias Ankole.Files.AgentHomeImport
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals.LocalPasswordResetText
   alias Ankole.Repo
-  alias Ankole.Schedule
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
 
   @app :ankole
 
@@ -20,31 +18,9 @@ defmodule Ankole.Release do
     load_app()
     with_repo(&Ecto.Migrator.run(&1, :up, all: true))
 
-    with_repo(fn _repo ->
-      with_release_oban(&reconcile_cron_schedules!/0)
-    end)
+    :ok = Ankole.Upgrade202610.run()
 
     :ok
-  end
-
-  @doc "Persists the deployment-provided RuntimeFabric worker authentication key."
-  @spec bootstrap_worker_auth_key() :: :ok
-  def bootstrap_worker_auth_key do
-    load_app()
-    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
-
-    with_repo(fn _repo -> persist_worker_auth_key!() end)
-
-    :ok
-  end
-
-  defp persist_worker_auth_key! do
-    start_child!(Registry)
-    start_child!(Cache)
-
-    auth_key = System.fetch_env!("ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY")
-
-    {:ok, ^auth_key} = AppConfigure.put_global(WorkerAuthKey.definition(), auth_key)
   end
 
   @doc "Resets the local sign-in password for one email and prints the new one-time password."
@@ -55,7 +31,11 @@ defmodule Ankole.Release do
 
     with_repo(fn _repo ->
       start_child!(Registry)
+      start_pubsub!()
       start_child!(Cache)
+
+      {:ok, tenant} = Ankole.Tenants.privileged()
+      Repo.put_tenant_id(tenant.id)
 
       case LocalPassword.reset_local_password_by_email(email) do
         {:ok, %{initial_password: initial_password}} ->
@@ -77,35 +57,66 @@ defmodule Ankole.Release do
     :ok
   end
 
-  defp reconcile_cron_schedules! do
-    case Schedule.reconcile_cron_schedules() do
-      {:ok, _result} -> :ok
-      {:error, reason} -> raise "failed to reconcile cron schedules: #{inspect(reason)}"
-    end
+  @doc "Records administrator recovery after the operator independently verifies the active Human."
+  @spec recover_admin(String.t(), String.t(), String.t()) :: :ok
+  def recover_admin(uid, operator, reason) do
+    load_app()
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+
+    with_repo(fn _repo ->
+      start_child!(Registry)
+      start_pubsub!()
+      start_child!(Cache)
+
+      case Ankole.Principals.HumanAccess.recover_admin(uid, operator, reason) do
+        {:ok, principal} -> IO.puts("Administrator access restored for #{principal.uid}.")
+        {:error, error} -> raise "Administrator recovery failed: #{inspect(error)}"
+      end
+    end)
+
+    :ok
   end
 
-  defp with_release_oban(fun) do
-    {:ok, _apps} = Application.ensure_all_started(:oban)
+  @doc "Transfers site administration through the same tenant lifecycle owner as the console."
+  def transfer_site_administration(slug, uid) when is_binary(slug) and is_binary(uid) do
+    load_app()
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
 
-    oban_opts =
-      :ankole
-      |> Application.fetch_env!(Oban)
-      |> Keyword.merge(plugins: false, queues: false)
+    with_repo(fn _repo ->
+      start_child!(Registry)
+      start_pubsub!()
+      start_child!(Cache)
 
-    case Oban.start_link(oban_opts) do
-      {:ok, pid} ->
-        try do
-          fun.()
-        after
-          Supervisor.stop(pid)
-        end
+      case Repo.get_by(Ankole.Tenants.Tenant, slug: slug) do
+        nil ->
+          raise "tenant not found: #{slug}"
 
-      {:error, {:already_started, _pid}} ->
-        fun.()
+        tenant ->
+          case Ankole.Tenants.transfer_site_administration(tenant, uid) do
+            {:ok, _} -> :ok
+            {:error, reason} -> raise "site administration transfer failed: #{inspect(reason)}"
+          end
+      end
+    end)
+  end
 
-      {:error, reason} ->
-        raise "failed to start release Oban: #{inspect(reason)}"
-    end
+  @doc """
+  Copies the files that Agents kept in their Agent Homes under `agents_root`
+  into their drives, and prints a report. See `Ankole.Files.AgentHomeImport`.
+  """
+  @spec import_agent_home(String.t()) :: :ok
+  def import_agent_home(agents_root) when is_binary(agents_root) do
+    load_app()
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+
+    with_repo(fn _repo ->
+      case AgentHomeImport.run(agents_root) do
+        {:ok, report} -> IO.puts(AgentHomeImport.format_report(report))
+        {:error, reason} -> raise "Agent Home import failed: #{inspect(reason)}"
+      end
+    end)
+
+    :ok
   end
 
   defp start_child!(module) do
@@ -113,6 +124,16 @@ defmodule Ankole.Release do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> raise "failed to start #{inspect(module)}: #{inspect(reason)}"
+    end
+  end
+
+  defp start_pubsub! do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    case Phoenix.PubSub.Supervisor.start_link(name: Ankole.PubSub) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> raise "failed to start PubSub: #{inspect(reason)}"
     end
   end
 

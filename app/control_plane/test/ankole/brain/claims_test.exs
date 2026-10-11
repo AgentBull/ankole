@@ -38,36 +38,30 @@ defmodule Ankole.Brain.ClaimsTest do
     )
   end
 
-  describe "Console read models" do
-    test "hide extraction watermarks from claim and Principal audit views", %{
-      human: human,
-      object: object
-    } do
-      {:ok, %{claim: external}} = Claims.write_fact(fact_attrs(), human.uid)
+  test "platform attribution survives superseding and removal of its author tenant", %{
+    tenant: tenant
+  } do
+    other = Ankole.DataCase.create_tenant()
+    author = Repo.with_tenant(other.id, fn -> human_fixture().principal end)
+    reference = Ankole.ActorRef.from_principal(author)
+    Repo.put_tenant_id(tenant.id)
 
-      internal =
-        Repo.insert!(%Claim{
-          author_uid: human.uid,
-          claim_type: "fact",
-          object_slug: object.slug,
-          claim: "EXTRACTION_COMPLETE",
-          kind: "event",
-          holder: "brain",
-          audience_scope: "world",
-          notability: "low",
-          confidence: 1.0,
-          valid_from: DateTime.utc_now(:microsecond),
-          provenance: Claims.internal_provenance_prefix() <> "extraction"
-        })
+    assert {:ok, %{claim: original}} = Claims.write_fact(fact_attrs(), :system, author: reference)
 
-      console_ids = Claims.list_for_console(limit: 20) |> Enum.map(& &1.id)
-      audit_ids = Claims.list_for_principal_audit(human.uid, limit: 20) |> Enum.map(& &1.id)
+    assert {:ok, replacement} =
+             Claims.supersede_claim(original.id, %{claim: "A corrected fact"}, :system,
+               author: reference
+             )
 
-      assert external.id in console_ids
-      assert external.id in audit_ids
-      refute internal.id in console_ids
-      refute internal.id in audit_ids
-    end
+    assert replacement.author == reference
+
+    Repo.with_tenant(other.id, fn ->
+      Repo.delete!(author)
+      Repo.delete_all(Ankole.Brain.Schemas.Object)
+    end)
+
+    Repo.delete!(other)
+    assert Repo.get!(Claim, replacement.id).author == reference
   end
 
   describe "write_fact/3" do
@@ -76,7 +70,7 @@ defmodule Ankole.Brain.ClaimsTest do
                Claims.write_fact(fact_attrs(), human.uid)
 
       assert claim.claim_type == "fact"
-      assert claim.author_uid == human.uid
+      assert claim.author == Ankole.ActorRef.from_principal(human)
       assert is_nil(claim.embedding)
       assert is_nil(claim.embedding_signature)
     end
@@ -177,14 +171,6 @@ defmodule Ankole.Brain.ClaimsTest do
 
       assert {:error, :claim_garbled} =
                Claims.write_fact(fact_attrs(%{claim: String.duplicate("!", 64)}), human.uid)
-    end
-
-    test "reserves the internal provenance prefix", %{human: human} do
-      assert {:error, :reserved_provenance_prefix} =
-               Claims.write_fact(
-                 fact_attrs(%{provenance: "ankole-brain-internal:fake"}),
-                 human.uid
-               )
     end
   end
 
@@ -304,59 +290,5 @@ defmodule Ankole.Brain.ClaimsTest do
       assert {:ok, inactive} = Claims.deactivate_take(take.id)
       assert inactive.active == false
     end
-  end
-
-  describe "extraction terminals" do
-    test "writes and finds idempotency terminals per version token", %{human: human} do
-      channel = insert_channel!()
-
-      assert Claims.extraction_terminal(channel.id, "token-1") == nil
-
-      boundary_at = DateTime.utc_now(:microsecond)
-
-      assert {:ok, terminal} =
-               Claims.write_extraction_terminal(channel.id, "token-1", :complete,
-                 boundary: {boundary_at, "entry-9"}
-               )
-
-      assert terminal.claim == "EXTRACTION_COMPLETE"
-      assert terminal.valid_from == boundary_at
-      assert terminal.context == "entry-9"
-      assert String.starts_with?(terminal.provenance, Claims.internal_provenance_prefix())
-
-      found = Claims.extraction_terminal(channel.id, "token-1")
-      assert found.id == terminal.id
-
-      assert Claims.extraction_terminal(channel.id, "token-2") == nil
-
-      # Internal terminals never enter fact dedup or recall candidates; a
-      # normal fact write from the same human still works.
-      assert {:ok, %{status: :inserted}} = Claims.write_fact(fact_attrs(), human.uid)
-
-      # The unique terminal index fences a concurrent rerun of the same
-      # slice: the second commit fails instead of double-writing memory.
-      # This raise aborts the sandbox transaction, so it stays last.
-      assert_raise Ecto.ConstraintError, fn ->
-        Claims.write_extraction_terminal(channel.id, "token-1", :complete,
-          boundary: {boundary_at, "entry-9"}
-        )
-      end
-    end
-  end
-
-  defp insert_channel! do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(
-      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
-        id: "test:channel-#{System.unique_integer([:positive])}",
-        kind: :im_group,
-        reply_mode: :entry,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
   end
 end

@@ -11,7 +11,7 @@ defmodule Ankole.SignalsGateway.Channel do
   than insert per event.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -23,6 +23,7 @@ defmodule Ankole.SignalsGateway.Channel do
   @primary_key {:id, :string, []}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  @type t :: %__MODULE__{}
 
   schema "signal_gateway_channels" do
     field :kind, Ecto.Enum,

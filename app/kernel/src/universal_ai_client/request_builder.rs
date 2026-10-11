@@ -78,8 +78,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::super::spec::{
-        APIResolverKind, DownstreamKind, ResponseContext, StreamLimits, StreamSpec, TimeoutSpec,
-        TransportSpec, UpstreamKind, UpstreamSpec,
+        APIResolverKind, ResponseContext, StreamLimits, StreamSpec, TimeoutSpec, TransportSpec,
+        UpstreamKind, UpstreamSpec,
     };
     use super::*;
 
@@ -103,7 +103,6 @@ mod tests {
                 timeout: TimeoutSpec::default(),
                 transport: TransportSpec::default(),
             },
-            downstream: DownstreamKind::WebSocketText,
             response_context: ResponseContext {
                 model: "gpt-test".to_string(),
                 request: json!({

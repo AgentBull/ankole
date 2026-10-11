@@ -1,3 +1,4 @@
+import { principalLabel } from '../state/principal-label'
 import {
   Button,
   buttonVariants,
@@ -15,7 +16,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiUserReceivedLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
@@ -51,7 +52,6 @@ export function IdentitySubNav() {
 
 export function IdentityMappingsPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -82,7 +82,6 @@ export function IdentityMappingsPage() {
     ...ankoleWebIdentityMappingRequestControllerDeleteMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.dismissed'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -177,7 +176,6 @@ export function IdentityMappingsPage() {
 export function IdentityMappingCreatePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const humanPrincipals = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
   const [provider, setProvider] = useState('')
@@ -189,7 +187,6 @@ export function IdentityMappingCreatePage() {
     ...ankoleWebIdentityMappingRequestControllerCreateMappingMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.created'))
-      void queryClient.invalidateQueries()
       navigate('/identity/mappings')
     }
   })
@@ -241,7 +238,11 @@ export function IdentityMappingCreatePage() {
         <SinglePrincipalPicker
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
-          candidates={humanPrincipals.map(principal => ({ id: principal.uid, label: principal.display_name }))}
+          candidates={humanPrincipals.map(principal => ({
+            id: principal.uid,
+            label: principalLabel(principal),
+            description: principal.email ?? principal.handle
+          }))}
           disabled={create.isPending}
           error={principals.error}
           isLoading={principals.isLoading}
@@ -269,7 +270,6 @@ function BindMappingDialog({
   request: IdentityMappingRequestItem | undefined
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [selectedUID, setSelectedUID] = useState<string>()
   const selected = principals.find(principal => principal.uid === selectedUID)
   const senderName = request ? request.display_name || request.external_id : ''
@@ -282,7 +282,6 @@ function BindMappingDialog({
     ...ankoleWebIdentityMappingRequestControllerBindMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.bound', { name: selected?.display_name ?? selectedUID }))
-      void queryClient.invalidateQueries()
       onOpenChange(false)
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -300,7 +299,11 @@ function BindMappingDialog({
         <SinglePrincipalPicker
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
-          candidates={principals.map(principal => ({ id: principal.uid, label: principal.display_name }))}
+          candidates={principals.map(principal => ({
+            id: principal.uid,
+            label: principalLabel(principal),
+            description: principal.email ?? principal.handle
+          }))}
           disabled={bind.isPending}
           error={principalsError}
           isLoading={principalsLoading}

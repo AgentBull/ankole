@@ -23,9 +23,9 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   test "writes next-start configuration without pretending the current process changed", %{
     conn: conn
   } do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
-    response = conn |> get(~p"/api/v1/control-plane-plugins") |> json_response(200)
+    response = conn |> get(~p"/api/v1/site/control-plane-plugins") |> json_response(200)
     assert [first | _rest] = response["control_plane_plugins"]
 
     assert Map.keys(first) |> Enum.sort() ==
@@ -36,7 +36,7 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     changed =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/control-plane-plugins", %{"id" => first["id"], "enabled" => desired})
+      |> put(~p"/api/v1/site/control-plane-plugins", %{"id" => first["id"], "enabled" => desired})
       |> json_response(200)
       |> Map.fetch!("control_plane_plugins")
       |> Enum.find(&(&1["id"] == first["id"]))
@@ -48,7 +48,7 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     restored =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/control-plane-plugins", %{
+      |> put(~p"/api/v1/site/control-plane-plugins", %{
         "id" => first["id"],
         "enabled" => first["active"]
       })
@@ -60,12 +60,15 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   end
 
   test "requires authentication and rejects unknown Control Plane Plugins", %{conn: conn} do
-    assert conn |> get(~p"/api/v1/control-plane-plugins") |> json_response(401)
+    assert conn |> get(~p"/api/v1/site/control-plane-plugins") |> json_response(401)
 
     assert %{"error" => %{"code" => "not_found"}} =
              conn
-             |> bearer_conn()
-             |> put(~p"/api/v1/control-plane-plugins", %{"id" => "missing", "enabled" => false})
+             |> console_conn()
+             |> put(~p"/api/v1/site/control-plane-plugins", %{
+               "id" => "missing",
+               "enabled" => false
+             })
              |> json_response(404)
   end
 end

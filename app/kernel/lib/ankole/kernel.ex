@@ -1,12 +1,11 @@
 defmodule Ankole.Kernel do
   @moduledoc """
-  Native kernel helpers shared by the Bun and Elixir runtimes.
+  Native kernel helpers loaded by the Elixir control plane.
   """
 
   @rustler_mode if(Mix.env() == :prod, do: :release, else: :debug)
-  @rustler_feature if(Mix.env() == :prod, do: "nif_prod", else: "nif_dev")
 
-  Mix.shell().info("Building Ankole.Kernel NIF with #{@rustler_feature} in #{@rustler_mode} mode")
+  Mix.shell().info("Building Ankole.Kernel NIF in #{@rustler_mode} mode")
 
   use Rustler,
     otp_app: :ankole_kernel,
@@ -15,10 +14,22 @@ defmodule Ankole.Kernel do
     # Elixir external resources, so keep it absolute instead of using `.`.
     path: Path.expand("../..", __DIR__),
     default_features: false,
-    features: [@rustler_feature],
+    features: ["nif"],
     mode: @rustler_mode
 
   @type error_reason :: String.t()
+
+  @doc "Decodes an image and returns a WebP data URL within the model's byte and dimension limits."
+  @spec model_image_url(binary()) :: {:ok, String.t()} | {:error, term()}
+  def model_image_url(bytes) when is_binary(bytes) do
+    case normalize_model_image_nif(bytes) do
+      output when is_binary(output) -> {:ok, "data:image/webp;base64," <> Base.encode64(output)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec normalize_model_image_nif(binary()) :: binary() | {:error, String.t()}
+  defp normalize_model_image_nif(_bytes), do: :erlang.nif_error(:nif_not_loaded)
   @type result(value) :: value | {:error, error_reason()}
   @type salt :: String.t() | nil
   @type extra_context :: String.t() | nil
@@ -28,8 +39,8 @@ defmodule Ankole.Kernel do
   @type jwt_claims :: map()
   @type jwt_header :: map()
   @type jwt_validation :: map()
-  @type runtime_fabric_router :: reference()
   @type universal_ai_client_stream :: reference()
+  @type object_store :: reference()
   @type reciprocal_rank_fusion_result :: %{
           required(String.t()) => String.t() | float()
         }
@@ -58,12 +69,6 @@ defmodule Ankole.Kernel do
   def aead_encrypt(_plaintext, _key), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Transliterates Unicode text to an ASCII approximation.
-  """
-  @spec any_ascii(String.t()) :: String.t()
-  def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Analyzes one Brain body against the canonical CommonMark audience grammar.
 
   Syntax errors are returned in the decoded map. A native error means the NIF
@@ -79,6 +84,16 @@ defmodule Ankole.Kernel do
   @doc false
   @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
   defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Returns zero-based byte offsets and lengths for original CommonMark code, with delimiters."
+  @spec markdown_code_ranges(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
+  def markdown_code_ranges(source) when is_binary(source) do
+    markdown_code_ranges_nif(source)
+  end
+
+  @doc false
+  @spec markdown_code_ranges_nif(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
+  defp markdown_code_ranges_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Hashes a password with Argon2id and returns a PHC-format string.
@@ -132,34 +147,6 @@ defmodule Ankole.Kernel do
   defp authz_authorize_all_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec runtime_fabric_router_start(String.t(), pid(), String.t()) ::
-          result(runtime_fabric_router())
-  def runtime_fabric_router_start(_endpoint, _owner_pid, _opts_json),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec runtime_fabric_router_endpoint(runtime_fabric_router()) :: result(String.t())
-  def runtime_fabric_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), binary()) ::
-          result(String.t())
-  def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_bytes),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec runtime_fabric_router_stop(runtime_fabric_router()) :: result(boolean())
-  def runtime_fabric_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec runtime_fabric_seal_envelope(binary()) :: result(binary())
-  def runtime_fabric_seal_envelope(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec runtime_fabric_validate_envelope(binary()) :: result(boolean())
-  def runtime_fabric_validate_envelope(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
           {:ok, universal_ai_client_stream()} | {:error, map()}
   def universal_ai_client_open_nif(_encoded_spec, _owner_pid, _stream_ref),
@@ -184,6 +171,45 @@ defmodule Ankole.Kernel do
   @spec universal_ai_client_raw_request_nif(String.t(), pid(), reference()) ::
           :ok | {:error, map()}
   def universal_ai_client_raw_request_nif(_encoded_spec, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_open_nif(String.t()) :: {:ok, object_store()} | {:error, map()}
+  def object_store_open_nif(_spec), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_read_nif(object_store(), String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def object_store_read_nif(_store, _key, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_read_to_file_nif(object_store(), String.t(), String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def object_store_read_to_file_nif(_store, _key, _path, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_write_nif(object_store(), String.t(), binary(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def object_store_write_nif(_store, _key, _bytes, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_write_from_file_nif(
+          object_store(),
+          String.t(),
+          String.t(),
+          pid(),
+          reference()
+        ) :: :ok | {:error, map()}
+  def object_store_write_from_file_nif(_store, _key, _path, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec object_store_delete_nif(object_store(), String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def object_store_delete_nif(_store, _key, _owner_pid, _request_ref),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """

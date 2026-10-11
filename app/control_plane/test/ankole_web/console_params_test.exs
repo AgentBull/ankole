@@ -17,7 +17,7 @@ defmodule AnkoleWeb.ConsoleParamsTest do
          %{conn: conn} do
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> get(~p"/api/v1/ai-gateway/conversations?active=false&limit=5")
 
       assert json_response(conn, 200)
@@ -27,7 +27,7 @@ defmodule AnkoleWeb.ConsoleParamsTest do
     test "declared path parameters reach the action cast under atom keys", %{conn: conn} do
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> get(~p"/api/v1/background-agent-jobs/1000")
 
       assert json_response(conn, 404)
@@ -38,8 +38,8 @@ defmodule AnkoleWeb.ConsoleParamsTest do
          %{conn: conn} do
       conn =
         conn
-        |> bearer_conn()
-        |> put(~p"/api/v1/control-plane-plugins", %{"id" => "missing", "enabled" => false})
+        |> console_conn()
+        |> put(~p"/api/v1/site/control-plane-plugins", %{"id" => "missing", "enabled" => false})
 
       assert json_response(conn, 404)
       assert conn.params == %{}
@@ -49,7 +49,7 @@ defmodule AnkoleWeb.ConsoleParamsTest do
     test "an undeclared query parameter is rejected before the action runs", %{conn: conn} do
       conn =
         conn
-        |> bearer_conn()
+        |> console_conn()
         |> get(~p"/api/v1/ai-gateway/conversations?bogus=1")
 
       assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)

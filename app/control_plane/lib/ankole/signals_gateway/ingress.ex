@@ -9,13 +9,13 @@ defmodule Ankole.SignalsGateway.Ingress do
 
   The pipeline order is deliberate: a signal becomes a normalized fact first,
   so binding filters compare durable, atom-free fields instead of raw provider
-  maps, and admission is decided before any DB write, so a rejected signal
-  leaves no trace. The accept work then runs in one Repo transaction. A stored
-  plan or a second queue would only add a second source of truth and a
-  recovery path nobody needs.
+  maps. Reply references determine whether an IM message addresses the Agent
+  before identity admission. Unaddressed ignored group messages skip admission
+  and retain their batch data for later references. Other messages must pass
+  identity admission before acceptance. The accept work runs in one Repo
+  transaction behind the per-entry lock.
   """
 
-  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.AIReplyPreview
@@ -58,13 +58,21 @@ defmodule Ankole.SignalsGateway.Ingress do
 
     with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
          {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
+         attrs =
+           Map.update!(
+             attrs,
+             :attachments,
+             &Projection.channel_attachments(&1, attrs.signal_channel_id)
+           ),
          {:ok, fact} <- IngressFact.entry(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      case IdentityAdmission.admit_entry(binding, fact, now) do
+      fact = ReplyReference.enrich(Repo, fact)
+
+      case admit_entry(binding, fact, now) do
         {:ok, fact} ->
           binding
           |> accept_entry(fact, now)
-          |> dispatch_turn_controls()
+          |> deliver_inputs()
 
         {:held, result} ->
           {:ok, result}
@@ -178,6 +186,7 @@ defmodule Ankole.SignalsGateway.Ingress do
           end
         end
       end)
+      |> deliver_inputs()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -185,16 +194,212 @@ defmodule Ankole.SignalsGateway.Ingress do
   end
 
   @doc """
-  Tells an adapter whether at least one attachment still needs its bytes.
+  Returns whether any attachment still needs its bytes stored.
 
-  An attachment is satisfied only when its gateway-assigned ID and its
-  `agent_computer_path` both point into this agent's inbox. A true result means
-  the adapter must emit a `pending` observation first, download, and then emit
-  the final observation with the same `observed_at`.
+  An attachment is satisfied when the file service holds its bytes. A true
+  result means the adapter must emit a `pending` observation first, download
+  and store the bytes, and then emit the final observation with the same
+  `observed_at`.
   """
-  @spec attachments_need_bytes?(String.t(), [map()]) :: boolean()
-  def attachments_need_bytes?(agent_uid, attachments) when is_list(attachments) do
-    Enum.any?(attachments, &(not Projection.materialized_attachment?(agent_uid, &1)))
+  @spec attachments_need_bytes?([map()]) :: boolean()
+  def attachments_need_bytes?(attachments) when is_list(attachments) do
+    Enum.any?(attachments, &(not attachment_satisfied?(&1)))
+  end
+
+  @doc "Stores each download result and removes transient provider credentials."
+  @spec materialize_attachments([map()], String.t(), (map() -> tuple()), keyword()) :: [map()]
+  def materialize_attachments(attachments, adapter_id, download_fun, opts \\ []) do
+    Enum.map(attachments, fn attachment ->
+      result =
+        if attachment_satisfied?(attachment) do
+          attachment
+        else
+          materialize_attachment(attachment, adapter_id, download_fun, opts)
+        end
+
+      Map.drop(result, Keyword.get(opts, :drop_keys, []))
+    end)
+  end
+
+  @doc "Returns the final state of an entry's attachment observation."
+  @spec materialization_state([map()]) :: String.t()
+  def materialization_state(attachments) do
+    if Enum.all?(attachments, &attachment_satisfied?/1), do: "complete", else: "failed"
+  end
+
+  @doc "Commits pending and final attachment observations with one time anchor."
+  @spec emit_entry_with_attachments(
+          String.t(),
+          String.t(),
+          map(),
+          ([map()] -> [map()]),
+          keyword()
+        ) ::
+          ingress_result()
+  def emit_entry_with_attachments(agent_uid, binding_name, input, materialize, opts \\ []) do
+    if attachments_need_bytes?(input.attachments) do
+      observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now(:microsecond))
+      pending = attachment_observation(input, "pending", observed_at)
+
+      case emit_entry(agent_uid, binding_name, pending, opts) do
+        {:ok, %{signal_entry: %{attachments: attachments}}} when is_list(attachments) ->
+          attachments = materialize.(attachments)
+
+          input
+          |> Map.put(:attachments, attachments)
+          |> attachment_observation(materialization_state(attachments), observed_at)
+          |> then(&emit_entry(agent_uid, binding_name, &1, opts))
+
+        result ->
+          result
+      end
+    else
+      emit_entry(agent_uid, binding_name, input, opts)
+    end
+  end
+
+  @doc "Reuses stored media and the first observation time on provider redelivery."
+  @spec reuse_stored_attachments(map(), [String.t()]) :: {map(), DateTime.t()}
+  def reuse_stored_attachments(%{attachments: []} = input, _provider_fact_states),
+    do: {input, DateTime.utc_now(:microsecond)}
+
+  def reuse_stored_attachments(input, provider_fact_states) do
+    case Repo.get_by(Entry,
+           signal_channel_id: input.signal_channel_id,
+           source_entry_id: input.source_entry_id
+         ) do
+      %Entry{attachments: stored, metadata: stored_metadata}
+      when is_list(stored) and stored != [] ->
+        by_ref = Map.new(stored, &{&1["provider_ref"], &1})
+
+        attachments =
+          Enum.map(input.attachments, fn attachment ->
+            case Map.get(by_ref, attachment["provider_ref"]) do
+              %{"materialization_state" => "complete"} = kept ->
+                if Projection.stored_attachment?(kept), do: kept, else: attachment
+
+              %{"materialization_state" => state} = kept ->
+                if state in provider_fact_states, do: kept, else: attachment
+
+              _missing_failed_or_unfinished ->
+                attachment
+            end
+          end)
+
+        observation = stored_metadata["attachment_materialization"]
+
+        metadata =
+          if is_map(observation),
+            do: Map.put(input.metadata, "attachment_materialization", observation),
+            else: input.metadata
+
+        {%{input | attachments: attachments, metadata: metadata}, observation_time(observation)}
+
+      _no_mirror ->
+        {input, DateTime.utc_now(:microsecond)}
+    end
+  rescue
+    exception ->
+      Ankole.Logging.warning(
+        "signals_gateway.attachment.reuse_lookup_failed",
+        "Attachment reuse lookup failed",
+        %{source_entry_id: input.source_entry_id, reason: Exception.message(exception)}
+      )
+
+      {input, DateTime.utc_now(:microsecond)}
+  end
+
+  defp materialize_attachment(attachment, adapter_id, download_fun, opts) do
+    with {:ok, %{body: body, filename: filename, content_type: content_type, put: put}} <-
+           download_fun.(attachment),
+         {:ok, stored} <-
+           store_attachment(Map.merge(attachment, put), body,
+             name: filename,
+             content_type: content_type
+           ) do
+      Map.put(stored, "materialization_state", "complete")
+    else
+      {:error, :provider_download_limit} ->
+        attachment
+        |> Map.put("materialization_state", "provider_download_limit")
+        |> Map.put("restriction", Keyword.fetch!(opts, :restriction))
+
+      reason ->
+        attachment_failed(attachment, adapter_id, reason)
+    end
+  rescue
+    exception -> attachment_failed(attachment, adapter_id, exception)
+  end
+
+  defp attachment_failed(attachment, adapter_id, reason) do
+    Ankole.Logging.warning(
+      "signals_gateway.attachment.materialization_failed",
+      "Attachment materialization failed",
+      %{
+        adapter: adapter_id,
+        provider_ref: attachment["provider_ref"],
+        source_message_id: attachment["source_message_id"],
+        reason: inspect(reason)
+      }
+    )
+
+    Map.put(attachment, "materialization_state", "failed")
+  end
+
+  defp attachment_satisfied?(attachment) do
+    Projection.stored_attachment?(attachment) or
+      attachment["materialization_state"] in [
+        "provider_download_limit",
+        "provider_external_content"
+      ]
+  end
+
+  defp attachment_observation(input, state, observed_at) do
+    %{input | metadata: put_attachment_materialization(input.metadata, state, observed_at)}
+  end
+
+  defp observation_time(%{"observed_at" => value}) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, observed_at, _offset} -> observed_at
+      _invalid -> DateTime.utc_now(:microsecond)
+    end
+  end
+
+  defp observation_time(_observation), do: DateTime.utc_now(:microsecond)
+
+  @doc """
+  Stores downloaded attachment bytes in the file service.
+
+  `content` is a binary or `{:file, path}`. The result is the attachment with
+  `blob_ref` (the SHA-256 digest), `path` (its drive path under `inbox/`), and
+  `size`. `name:` overrides the attachment's own `name` in the path, and
+  `content_type:` fills `content_type` when the attachment declares none.
+  Every Agent that receives the attachment gets the same stored bytes, so an
+  adapter stores them once whichever Agent asked first.
+  """
+  @spec store_attachment(map(), binary() | {:file, Path.t()}, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def store_attachment(attachment, content, opts \\ []) when is_map(attachment) do
+    with {:ok, %{sha256: sha256, size: size}} <- Ankole.Files.store(content) do
+      name = present(Keyword.get(opts, :name)) || present(attachment["name"]) || "attachment"
+
+      attachment =
+        attachment
+        |> Map.put("blob_ref", sha256)
+        |> Map.put("path", Ankole.Files.content_path("inbox", sha256, name))
+        |> Map.put("size", size)
+
+      attachment =
+        case {Projection.attachment_content_type(attachment), present(opts[:content_type])} do
+          {nil, content_type} when is_binary(content_type) ->
+            Map.put(attachment, "content_type", content_type)
+
+          _declared_or_unknown ->
+            attachment
+        end
+
+      {:ok, attachment}
+    end
   end
 
   @doc """
@@ -224,7 +429,7 @@ defmodule Ankole.SignalsGateway.Ingress do
          :match <- BindingFilters.match?(binding.filters, fact) do
       binding
       |> accept_lifecycle(fact, now)
-      |> dispatch_turn_controls()
+      |> deliver_inputs()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -233,12 +438,13 @@ defmodule Ankole.SignalsGateway.Ingress do
 
   # The durable decision is committed. The worker control and the preview
   # effects are best-effort follow-ups, in that order.
-  defp dispatch_turn_controls({:ok, result}) when is_map(result) do
-    outcomes = result |> Map.get(:controls, []) |> TurnControl.dispatch()
-
-    result
-    |> Map.get(:input_superseded_actor_event_ids, [])
-    |> Enum.each(&AIReplyPreview.input_superseded/1)
+  defp deliver_inputs({:ok, result}) when is_map(result) do
+    Ankole.Conversations.deliver_events(
+      [Map.get(result, :actor_event)] ++
+        Map.get(result, :finalized_actor_events, []) ++
+        Map.get(result, :lifecycle_events, []) ++
+        Enum.map(get_in(result, [:runtime_retractions, :results]) || [], & &1.actor_event)
+    )
 
     # A preview whose input is gone would keep editing cards the outbox deletes.
     result
@@ -246,10 +452,18 @@ defmodule Ankole.SignalsGateway.Ingress do
     |> Map.get(:canceled_actor_event_ids, [])
     |> Enum.each(&AIReplyPreview.stop/1)
 
-    {:ok, Map.put(result, :control_outcomes, outcomes)}
+    {:ok, result}
   end
 
-  defp dispatch_turn_controls(other), do: other
+  defp deliver_inputs(other), do: other
+
+  defp admit_entry(binding, fact, now) do
+    if fact.channel_kind == :im_group and entry_policy(binding, fact) == {:ok, :ignore} do
+      {:ok, fact}
+    else
+      IdentityAdmission.admit_entry(binding, fact, now)
+    end
+  end
 
   # Whole acceptance runs in one transaction behind the per-entry advisory lock,
   # so concurrent receives for the same message serialize and the
@@ -264,8 +478,6 @@ defmodule Ankole.SignalsGateway.Ingress do
             {:ok, %{status: :dropped_tombstoned}}
 
           false ->
-            fact = ReplyReference.enrich(repo, fact)
-
             with {:ok, policy} <- entry_policy(binding, fact),
                  {:ok, result} <- apply_entry_policy(repo, binding, fact, policy, now) do
               {:ok, result}
@@ -319,7 +531,6 @@ defmodule Ankole.SignalsGateway.Ingress do
            canceled_actor_events: runtime_retractions.canceled_actor_events,
            retried_actor_events: runtime_retractions.retried_actor_events,
            runtime_retractions: runtime_retractions,
-           controls: runtime_retractions.controls,
            lifecycle_events: lifecycle_events
          }}
       end
@@ -587,4 +798,7 @@ defmodule Ankole.SignalsGateway.Ingress do
     end)
     |> collect_results()
   end
+
+  defp present(value) when is_binary(value) and value != "", do: value
+  defp present(_value), do: nil
 end

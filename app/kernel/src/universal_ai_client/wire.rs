@@ -64,11 +64,11 @@ impl SSEParser {
         Ok(events)
     }
 
-    pub fn finish(&mut self) -> Result<Vec<SSEEvent>, StreamError> {
+    pub fn finish(&mut self) -> Result<(), StreamError> {
         if self.buffer.iter().all(|byte| byte.is_ascii_whitespace()) {
             self.buffer.clear();
             self.scan_from = 0;
-            Ok(Vec::new())
+            Ok(())
         } else {
             Err(StreamError::new(
                 "incomplete_sse_event",
@@ -120,10 +120,13 @@ fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventStreamMessage {
     pub message_type: Option<String>,
     pub event_type: Option<String>,
+    pub exception_type: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub payload: Vec<u8>,
 }
 
@@ -202,12 +205,9 @@ impl AWSEventStreamParser {
             let headers_start = 12;
             let headers_end = headers_start + headers_length;
             let payload_end = total_length - 4;
-            let headers = parse_eventstream_headers(&frame[headers_start..headers_end])?;
-            messages.push(EventStreamMessage {
-                message_type: headers.message_type,
-                event_type: headers.event_type,
-                payload: frame[headers_end..payload_end].to_vec(),
-            });
+            let mut message = parse_eventstream_headers(&frame[headers_start..headers_end])?;
+            message.payload = frame[headers_end..payload_end].to_vec();
+            messages.push(message);
         }
 
         Ok(messages)
@@ -256,75 +256,42 @@ fn validate_crc(frame: &[u8]) -> Result<(), StreamError> {
     Ok(())
 }
 
-#[derive(Debug, Default)]
-struct EventStreamHeaders {
-    message_type: Option<String>,
-    event_type: Option<String>,
-}
-
-fn parse_eventstream_headers(headers: &[u8]) -> Result<EventStreamHeaders, StreamError> {
+// Returns a message with its headers set and an empty payload. An exception
+// frame names a modeled exception in `:exception-type`. An error frame names an
+// unmodeled error in `:error-code` and `:error-message`.
+fn parse_eventstream_headers(headers: &[u8]) -> Result<EventStreamMessage, StreamError> {
     let mut index = 0;
-    let mut parsed = EventStreamHeaders::default();
+    let mut message = EventStreamMessage::default();
 
     while index < headers.len() {
         let name_len = headers[index] as usize;
         index += 1;
         if index + name_len + 1 > headers.len() {
-            return Err(StreamError::new(
-                "invalid_eventstream_headers",
-                "wire",
-                "AWS eventstream header is truncated",
-            ));
+            return Err(truncated_eventstream_header());
         }
 
-        let name = String::from_utf8_lossy(&headers[index..index + name_len]).to_string();
+        let name = &headers[index..index + name_len];
         index += name_len;
         let value_type = headers[index];
         index += 1;
 
-        let value = match value_type {
-            7 => {
+        // The AWS eventstream header value types: 0 and 1 are booleans without
+        // value bytes, 6 (bytes) and 7 (string) have a 2-byte length prefix,
+        // and the other types have a fixed width.
+        let value_len = match value_type {
+            0 | 1 => 0,
+            2 => 1,
+            3 => 2,
+            4 => 4,
+            5 | 8 => 8,
+            9 => 16,
+            6 | 7 => {
                 if index + 2 > headers.len() {
-                    return Err(StreamError::new(
-                        "invalid_eventstream_headers",
-                        "wire",
-                        "AWS eventstream string header length is truncated",
-                    ));
+                    return Err(truncated_eventstream_header());
                 }
                 let len = u16::from_be_bytes([headers[index], headers[index + 1]]) as usize;
                 index += 2;
-                if index + len > headers.len() {
-                    return Err(StreamError::new(
-                        "invalid_eventstream_headers",
-                        "wire",
-                        "AWS eventstream string header value is truncated",
-                    ));
-                }
-                let value = String::from_utf8_lossy(&headers[index..index + len]).to_string();
-                index += len;
-                Some(value)
-            }
-            6 => {
-                if index + 1 > headers.len() {
-                    return Err(StreamError::new(
-                        "invalid_eventstream_headers",
-                        "wire",
-                        "AWS eventstream byte header is truncated",
-                    ));
-                }
-                index += 1;
-                None
-            }
-            8 => {
-                if index + 8 > headers.len() {
-                    return Err(StreamError::new(
-                        "invalid_eventstream_headers",
-                        "wire",
-                        "AWS eventstream timestamp header is truncated",
-                    ));
-                }
-                index += 8;
-                None
+                len
             }
             _ => {
                 return Err(StreamError::new(
@@ -334,19 +301,38 @@ fn parse_eventstream_headers(headers: &[u8]) -> Result<EventStreamHeaders, Strea
                 ));
             }
         };
+        if index + value_len > headers.len() {
+            return Err(truncated_eventstream_header());
+        }
+        let value = &headers[index..index + value_len];
+        index += value_len;
 
-        match name.as_str() {
-            ":message-type" => parsed.message_type = value,
-            ":event-type" => parsed.event_type = value,
-            _header => {}
+        let field = match name {
+            b":message-type" => &mut message.message_type,
+            b":event-type" => &mut message.event_type,
+            b":exception-type" => &mut message.exception_type,
+            b":error-code" => &mut message.error_code,
+            b":error-message" => &mut message.error_message,
+            _header => continue,
+        };
+        if value_type == 7 {
+            *field = Some(String::from_utf8_lossy(value).into_owned());
         }
     }
 
-    Ok(parsed)
+    Ok(message)
+}
+
+fn truncated_eventstream_header() -> StreamError {
+    StreamError::new(
+        "invalid_eventstream_headers",
+        "wire",
+        "AWS eventstream header is truncated",
+    )
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -474,23 +460,106 @@ mod tests {
         assert_eq!(error.code, "eventstream_frame_too_large");
     }
 
-    fn eventstream_frame(headers: &[(&str, &str)], payload: &[u8]) -> Vec<u8> {
-        let mut encoded_headers = Vec::new();
-        for (header_name, header_value) in headers {
-            encoded_headers.push(header_name.len() as u8);
-            encoded_headers.extend_from_slice(header_name.as_bytes());
-            encoded_headers.push(7);
-            encoded_headers.extend_from_slice(&(header_value.len() as u16).to_be_bytes());
-            encoded_headers.extend_from_slice(header_value.as_bytes());
-        }
+    #[test]
+    fn aws_eventstream_parser_reads_exception_and_error_identity() {
+        let exception = eventstream_frame(
+            &[
+                (":message-type", "exception"),
+                (":exception-type", "throttlingException"),
+                (":content-type", "application/json"),
+            ],
+            br#"{"message":"slow down"}"#,
+        );
+        let error = eventstream_frame(
+            &[
+                (":message-type", "error"),
+                (":error-code", "InternalFailure"),
+                (":error-message", "internal failure"),
+            ],
+            b"",
+        );
+        let mut parser = AWSEventStreamParser::new(1024);
+        let messages = parser.push(&[exception, error].concat()).unwrap();
 
+        assert_eq!(messages[0].message_type.as_deref(), Some("exception"));
+        assert_eq!(
+            messages[0].exception_type.as_deref(),
+            Some("throttlingException")
+        );
+        assert_eq!(messages[0].payload, br#"{"message":"slow down"}"#);
+        assert_eq!(messages[1].message_type.as_deref(), Some("error"));
+        assert_eq!(messages[1].error_code.as_deref(), Some("InternalFailure"));
+        assert_eq!(
+            messages[1].error_message.as_deref(),
+            Some("internal failure")
+        );
+    }
+
+    #[test]
+    fn aws_eventstream_parser_skips_every_header_value_type() {
+        let mut headers = Vec::new();
+        for (value_type, value) in [
+            (0, vec![]),
+            (1, vec![]),
+            (2, vec![7]),
+            (3, vec![0; 2]),
+            (4, vec![0; 4]),
+            (5, vec![0; 8]),
+            (6, vec![0, 3, 1, 2, 3]),
+            (8, vec![0; 8]),
+            (9, vec![0; 16]),
+        ] {
+            headers.extend(eventstream_header(
+                &format!("x-type-{value_type}"),
+                value_type,
+                &value,
+            ));
+        }
+        headers.extend(string_header(":message-type", "exception"));
+        headers.extend(string_header(":exception-type", "validationException"));
+        let frame = eventstream_frame_with_headers(&headers, br#"{"message":"bad input"}"#);
+        let mut parser = AWSEventStreamParser::new(1024);
+
+        let messages = parser.push(&frame).unwrap();
+
+        assert_eq!(messages[0].message_type.as_deref(), Some("exception"));
+        assert_eq!(
+            messages[0].exception_type.as_deref(),
+            Some("validationException")
+        );
+        assert_eq!(messages[0].payload, br#"{"message":"bad input"}"#);
+    }
+
+    pub(crate) fn eventstream_frame(headers: &[(&str, &str)], payload: &[u8]) -> Vec<u8> {
+        let encoded_headers = headers
+            .iter()
+            .flat_map(|(name, value)| string_header(name, value))
+            .collect::<Vec<_>>();
+        eventstream_frame_with_headers(&encoded_headers, payload)
+    }
+
+    fn string_header(name: &str, value: &str) -> Vec<u8> {
+        let mut encoded = (value.len() as u16).to_be_bytes().to_vec();
+        encoded.extend_from_slice(value.as_bytes());
+        eventstream_header(name, 7, &encoded)
+    }
+
+    fn eventstream_header(name: &str, value_type: u8, value: &[u8]) -> Vec<u8> {
+        let mut header = vec![name.len() as u8];
+        header.extend_from_slice(name.as_bytes());
+        header.push(value_type);
+        header.extend_from_slice(value);
+        header
+    }
+
+    fn eventstream_frame_with_headers(encoded_headers: &[u8], payload: &[u8]) -> Vec<u8> {
         let total_length = 16 + encoded_headers.len() + payload.len();
         let mut frame = Vec::new();
         frame.extend_from_slice(&(total_length as u32).to_be_bytes());
         frame.extend_from_slice(&(encoded_headers.len() as u32).to_be_bytes());
         let prelude_crc = crc32fast::hash(&frame);
         frame.extend_from_slice(&prelude_crc.to_be_bytes());
-        frame.extend_from_slice(&encoded_headers);
+        frame.extend_from_slice(encoded_headers);
         frame.extend_from_slice(payload);
         let message_crc = crc32fast::hash(&frame);
         frame.extend_from_slice(&message_crc.to_be_bytes());

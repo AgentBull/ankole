@@ -7,8 +7,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
   this struct before routing, mirroring, or actor event planning.
   """
 
-  alias Ankole.Ecto.JSONPayload
-
   # Every accepted signal shape is represented by this one struct. Only the
   # routing identity that all shapes share is enforced; the rest of the fields
   # are populated per-kind by the constructors below, so most are nil for any
@@ -72,118 +70,26 @@ defmodule Ankole.SignalsGateway.IngressFact do
   @doc """
   Constructs a provider entry receive fact.
   """
-  @spec entry(map()) :: {:ok, t()} | {:error, term()}
+  @spec entry(map()) :: {:ok, t()}
   def entry(attrs), do: new(:entry_received, attrs)
 
   @doc """
   Constructs a provider entry lifecycle fact.
   """
-  @spec lifecycle(map()) :: {:ok, t()} | {:error, term()}
+  @spec lifecycle(map()) :: {:ok, t()}
   def lifecycle(attrs), do: new(:entry_lifecycle, attrs)
 
   @doc """
   Constructs a provider reaction fact.
   """
-  @spec reaction(map()) :: {:ok, t()} | {:error, term()}
+  @spec reaction(map()) :: {:ok, t()}
   def reaction(attrs), do: new(:reaction, attrs)
 
   @doc """
   Constructs a provider action fact.
   """
-  @spec action(map()) :: {:ok, t()} | {:error, term()}
+  @spec action(map()) :: {:ok, t()}
   def action(attrs), do: new(:action, attrs)
 
-  # Durability check runs before struct construction: if any map/list field
-  # can't be made JSON-safe, the fact never forms and the signal is rejected
-  # before any mirror or actor event is written (see JSONPayload's "fail before
-  # provider ack" rule).
-  defp new(kind, attrs) when is_map(attrs) do
-    with {:ok, normalized_attrs} <- normalize_durable_fields(kind, attrs),
-         {:ok, fact} <- build(kind, normalized_attrs) do
-      {:ok, fact}
-    end
-  end
-
-  defp new(_kind, _attrs), do: {:error, :invalid_ingress_fact_attrs}
-
-  # `struct!` raises on unknown keys; a KeyError here means the constructor
-  # supplied a field this struct doesn't declare (a gateway bug), so it surfaces
-  # as an invalid-attrs error rather than crashing the ingress request.
-  defp build(kind, attrs) do
-    attrs =
-      attrs
-      |> Map.put(:kind, kind)
-      |> Map.update(:agent_uid, nil, &normalize_uid/1)
-
-    {:ok, struct!(__MODULE__, attrs)}
-  rescue
-    KeyError -> {:error, :invalid_ingress_fact_attrs}
-  end
-
-  # Normalize only the free-form JSON-bearing fields (the structured scalars are
-  # already safe). `:action` is special-cased so it is only normalized for action
-  # facts, where it actually carries a payload.
-  defp normalize_durable_fields(kind, attrs) do
-    attrs
-    |> normalize_map_field(:channel_metadata)
-    |> normalize_map_field(:channel_raw_payload)
-    |> normalize_map_field(:formatted_content)
-    |> normalize_map_field(:reply_to)
-    |> normalize_list_field(:attachments)
-    |> normalize_list_field(:links)
-    |> normalize_map_field(:author)
-    |> normalize_list_field(:mentions)
-    |> normalize_map_field(:metadata)
-    |> normalize_map_field(:raw_payload)
-    |> normalize_action_payload(kind)
-    |> normalize_map_field(:command_payload)
-  end
-
-  defp normalize_action_payload({:error, _reason} = error, _kind), do: error
-  defp normalize_action_payload({:ok, attrs}, kind), do: normalize_action_payload(attrs, kind)
-  defp normalize_action_payload(attrs, :action), do: normalize_map_field(attrs, :action)
-  defp normalize_action_payload(attrs, _kind), do: {:ok, attrs}
-
-  defp normalize_map_field({:error, _reason} = error, _field), do: error
-
-  defp normalize_map_field({:ok, attrs}, field), do: normalize_map_field(attrs, field)
-
-  defp normalize_map_field(attrs, field) do
-    case Map.fetch(attrs, field) do
-      {:ok, nil} ->
-        {:ok, attrs}
-
-      {:ok, value} ->
-        case JSONPayload.normalize_map(value, allow_datetime: true) do
-          {:ok, normalized} -> {:ok, Map.put(attrs, field, normalized)}
-          {:error, reason} -> {:error, {:invalid_json_payload, field, reason}}
-        end
-
-      :error ->
-        {:ok, attrs}
-    end
-  end
-
-  defp normalize_list_field({:error, _reason} = error, _field), do: error
-
-  defp normalize_list_field({:ok, attrs}, field), do: normalize_list_field(attrs, field)
-
-  defp normalize_list_field(attrs, field) do
-    case Map.fetch(attrs, field) do
-      {:ok, nil} ->
-        {:ok, attrs}
-
-      {:ok, value} ->
-        case JSONPayload.normalize_list(value, allow_datetime: true) do
-          {:ok, normalized} -> {:ok, Map.put(attrs, field, normalized)}
-          {:error, reason} -> {:error, {:invalid_json_payload, field, reason}}
-        end
-
-      :error ->
-        {:ok, attrs}
-    end
-  end
-
-  defp normalize_uid(uid) when is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid)
-  defp normalize_uid(uid), do: uid
+  defp new(kind, attrs), do: {:ok, struct!(__MODULE__, Map.put(attrs, :kind, kind))}
 end

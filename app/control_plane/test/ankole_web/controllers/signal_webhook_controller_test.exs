@@ -56,7 +56,11 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
       |> post(path, body)
 
     assert json_response(signed, 200) == %{}
-    assert %Entry{text: "hello"} = Repo.get_by(Entry, source_entry_id: "http-m-1")
+
+    assert %Entry{text: "hello"} =
+             Repo.with_tenant(agent.tenant_id, fn ->
+               Repo.get_by(Entry, source_entry_id: "http-m-1")
+             end)
 
     tampered =
       build_conn()
@@ -65,7 +69,7 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
       |> post(path, String.replace(body, "hello", "hacked"))
 
     assert json_response(tampered, 401) == %{"error" => "unauthorized"}
-    assert Repo.aggregate(Entry, :count) == 1
+    assert Repo.with_tenant(agent.tenant_id, fn -> Repo.aggregate(Entry, :count) end) == 1
   end
 
   test "a GET reaches the handler with the subscription query", %{conn: conn} do

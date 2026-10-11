@@ -11,7 +11,7 @@ AIGateway는 Ankole deployment instance의 통합 AI 경계입니다. 외부 애
 
 ## 위치
 
-AIGateway는 호출자와 provider 사이에 있습니다. 호출자 — Agent의 모델 루프, Console 운영자, 또는 외부 통합 — 는 bearer token을 제시하고 OpenResponses 형태의 요청을 보냅니다. AIGateway는 셀렉터를 해석하고, 요청을 준비하며, 바인딩된 provider로 보내고(fan-out), 단일 JSON body 또는 스트림을 반환합니다. LLM, embedding, rerank, web search, web fetch capability가 모두 같은 경계를 통과합니다.
+AIGateway는 호출자와 provider 사이에 있습니다. 호출자 — Agent의 모델 루프, OIDC Human, 또는 외부 통합 — 는 bearer token을 제시하고 OpenResponses 형태의 요청을 보냅니다. AIGateway는 셀렉터를 해석하고, 요청을 준비하며, 바인딩된 provider로 보내고(fan-out), 단일 JSON body 또는 스트림을 반환합니다. LLM, embedding, rerank, web search, web fetch capability가 모두 같은 경계를 통과합니다.
 
 결정적인 속성: 호출자는 provider credential을 결코 볼 수 없습니다. 컨트롤 플레인이 credential과 라우팅 정책을 소유하고, 호출자가 소유하는 것은 자신의 token과 셀렉터뿐입니다.
 
@@ -20,7 +20,9 @@ AIGateway는 호출자와 provider 사이에 있습니다. 호출자 — Agent�
 `/api/v1/ai-gateway` 아래의 모든 엔드포인트는 `:ai_gateway_api` pipeline과 `RequireAIGatewayAccessToken` plug를 통과합니다. 요청은 `Authorization` 헤더에 bearer token을 제시해야 하며, plug는 정확히 두 종류를 받습니다:
 
 - **an agent token** — subject가 활성 Agent Principal인 AIGateway API key입니다. 호출은 해당 Agent의 모델 binding과 셀렉터로 제한되며 `subject_type = "agent"`입니다.
-- **an admin token** — 활성 인간 관리자의 Console token입니다. 호출은 운영자의 provider 보기로 제한되며 `subject_type = "admin_human"`입니다.
+- **OIDC Human token** — `ai_gateway.write`를 가진 OIDC Client가 활성 Human에게 발급합니다. 해당 Client의 model alias만 사용할 수 있으며 `subject_type = "oidc_human"`입니다.
+
+OIDC Human token을 받으려면 Console에서 `ai_gateway.write` scope를 가진 OIDC Client를 만들고 허용할 group과 model alias를 설정합니다. Authorization Code와 PKCE로 로그인합니다. 장기 사용에는 `offline_access`를 요청하고 회전하는 Refresh Token을 사용합니다. Human은 허용된 group에 속해야 하며 Client의 model alias만 사용할 수 있습니다. 원시 `provider_id/model` selector는 사용할 수 없습니다.
 
 토큰이 없거나 검증할 수 없으면 `code: "invalid_token"`과 함께 `401`을 반환합니다. 익명 경로는 없습니다.
 
@@ -117,7 +119,7 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 같은 subject와 token이 인접한 capability를 구동합니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 provider가 제공하는 결과를 반환합니다. `POST /web_fetch`는 1개에서 5개의 공용 HTTPS URL을 받아 페이지 콘텐츠를 반환합니다. 이 호출은 `web_search.default`와 `web_fetch.default`를 사용할 수 있으며, AIGateway가 현재 Agent profile을 해석합니다.
 
-`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 인스턴스 공용 설정인 `brain.embedding_model`과 `brain.rerank_model`을 사용합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
+`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 사이트 단위 설정인 `brain.embedding_model`과 테넌트 단위 설정인 `brain.rerank_model`을 사용합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
 
 파일은 first-class입니다. `POST /files`가 업로드하고, `GET /files`가 나열하며, `GET /files/:id`와 `GET /files/:id/content`가 메타데이터와 바이트를 읽고, `DELETE /files/:id`가 하나를 삭제합니다. 모두 subject 범위로 제한됩니다.
 

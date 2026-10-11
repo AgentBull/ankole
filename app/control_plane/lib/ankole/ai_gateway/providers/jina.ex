@@ -26,13 +26,11 @@ defmodule Ankole.AIGateway.Providers.Jina do
     setting(:top_n, scope: :request)
 
     embedding_model do
-      upstream(:json)
       api_resolver(:jina_embeddings)
       prepare(:prepare_embedding_model)
     end
 
     rerank_model do
-      upstream(:json)
       api_resolver(:jina_rerank)
       prepare(:prepare_rerank_model)
     end

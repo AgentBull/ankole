@@ -21,6 +21,7 @@ defmodule Ankole.SignalsGateway.ConversationChannel do
 
   @type t :: %{
           required(:adapter) => String.t() | nil,
+          required(:id) => String.t(),
           required(:kind) => String.t() | nil,
           required(:label) => String.t() | nil,
           required(:signal_origin?) => boolean()
@@ -52,6 +53,7 @@ defmodule Ankole.SignalsGateway.ConversationChannel do
 
       {conversation.id,
        %{
+         id: channel_id,
          adapter: adapter_segment(channel_id),
          kind: kind,
          label: channel_label(kind, conversation, channel, peer_names),

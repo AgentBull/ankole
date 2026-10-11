@@ -1,7 +1,6 @@
 defmodule Ankole.Plugins.WhatsAppAdapter.Config do
+  def platform_application(config), do: {:ok, "whatsapp:" <> Map.fetch!(config, "phoneNumberId")}
   @moduledoc "Validation and runtime helpers for the first-party WhatsApp adapter."
-
-  import Ecto.Query, warn: false
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
@@ -34,6 +33,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.whatsapp.bindings.*",
+        console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_binding_config/1),
@@ -82,53 +82,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
 
   def validate_binding_config(_value), do: {:error, :invalid_whatsapp_binding_config}
 
-  @doc """
-  Checks one saved binding against every other enabled WhatsApp binding.
-
-  Two enabled bindings on one phone number would both answer every message. Two
-  enabled bindings on one Meta App share the webhook URL, so they must also
-  agree on the App secret and the verify token; otherwise the second save would
-  make one of them reject each delivery.
-  """
-  @spec validate_binding_assignment(module(), String.t(), String.t(), t()) ::
-          :ok | {:error, term()}
-  def validate_binding_assignment(repo, agent_uid, binding_name, config)
-      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "whatsapp" and binding.enabled == true and
-        (binding.agent_uid != ^agent_uid or binding.name != ^binding_name)
-    )
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_config_ref_in_tx(repo, binding.config_ref) do
-        {:ok, other} ->
-          compare_bindings(config, other, binding)
-
-        :error ->
-          {:halt,
-           {:error, {:whatsapp_binding_config_unavailable, binding.agent_uid, binding.name}}}
-
-        {:error, reason} ->
-          {:halt,
-           {:error,
-            {:whatsapp_binding_config_unavailable, binding.agent_uid, binding.name, reason}}}
-      end
-    end)
-  end
-
-  @spec load_config_ref(String.t()) :: {:ok, Runtime.t()} | :error | {:error, term()}
-  def load_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key),
-         {:ok, config} <- validate_binding_config(value) do
-      {:ok, runtime_config(config)}
-    end
-  end
-
-  def load_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
   @spec client(t() | Runtime.t(), keyword()) :: Client.t()
   def client(config, opts \\ []) do
     client_opts =
@@ -158,18 +111,15 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
   defp access_token(%Runtime{access_token: value}), do: value
   defp access_token(config) when is_map(config), do: Map.fetch!(config, "accessToken")
 
-  defp compare_bindings(config, other, binding) do
-    cond do
-      phone_number_id(other) == phone_number_id(config) ->
-        {:halt, {:error, {:whatsapp_phone_number_already_bound, binding.agent_uid, binding.name}}}
-
-      app_id(other) == app_id(config) and
-          (app_secret(other) != app_secret(config) or
-             verify_token(other) != verify_token(config)) ->
-        {:halt, {:error, {:whatsapp_app_credentials_mismatch, binding.agent_uid, binding.name}}}
-
-      true ->
-        {:cont, :ok}
+  @doc "Rejects different webhook credentials for bindings that share one Meta App."
+  @spec validate_binding_pair(Binding.t(), t(), t()) :: :ok | {:error, term()}
+  def validate_binding_pair(binding, config, other) do
+    if app_id(other) == app_id(config) and
+         (app_secret(other) != app_secret(config) or
+            verify_token(other) != verify_token(config)) do
+      {:error, {:whatsapp_app_credentials_mismatch, binding.agent_uid, binding.name}}
+    else
+      :ok
     end
   end
 
@@ -177,18 +127,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
     if Regex.match?(@numeric_id_pattern, value), do: :ok, else: {:error, error}
   end
 
-  defp load_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_binding_config(value)
-    end
-  end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp runtime_config(config) do
+  def runtime_config(config) do
     %Runtime{
       app_id: Map.fetch!(config, "appId"),
       app_secret: Map.fetch!(config, "appSecret"),

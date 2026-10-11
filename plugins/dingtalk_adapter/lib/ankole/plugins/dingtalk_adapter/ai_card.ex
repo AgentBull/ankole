@@ -63,9 +63,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   @thought_lease_seconds 9 * 60
 
   @impl true
-  def open(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
-
-  @impl true
   def update(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
 
   @impl true
@@ -652,7 +649,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp resolve_space(%ActorEvent{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)
 
-    case Repo.get(Channel, signal_channel_id) do
+    case Repo.get_by(Channel, id: signal_channel_id) do
       %Channel{kind: :im_dm, metadata: metadata} ->
         case metadata["dm_user_id"] do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}

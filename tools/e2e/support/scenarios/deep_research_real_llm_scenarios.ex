@@ -20,10 +20,10 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.E2E.DockerWorker
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.Bindings
 
   @base_time ~U[2026-07-15 00:00:00.000000Z]
@@ -51,7 +51,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     put_model_profile!(agent.uid, provider_id, "coding")
     put_model_profile!(agent.uid, provider_id, "light")
     put_inactivity_timeout!(agent.uid)
-    install_data_source_skill!(container, agent.uid)
+    install_data_source_skill!(agent.uid)
 
     job = run_job!(ctx, general_task())
     report = read_report!(container, job)
@@ -96,8 +96,8 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, message_id)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, %ActorEvent{}} =
              wait_for_actor_event_completed(container, input.id, deadline(300_000))
@@ -254,51 +254,19 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
   defp process_if_open!(%ActorEvent{id: id}),
     do: process_if_open!(id, deadline(@worker_recovery_timeout_ms))
 
-  defp process_if_open!(id, worker_recovery_deadline) do
+  defp process_if_open!(id, _worker_recovery_deadline) do
     case Repo.get!(ActorEvent, id) do
       %ActorEvent{completed_at: %DateTime{}} ->
         :ok
 
       %ActorEvent{} = event ->
-        case process_ready_event_for_actor!(
-               event,
-               DateTime.add(event.available_at, 1, :second)
-             ) do
-          {:ok, %{send_outcome: "sent_or_queued"}} ->
-            :ok
+        assert {:ok, %{status: :driving}} =
+                 ensure_input_driver!(
+                   event,
+                   DateTime.add(event.available_at, 1, :second)
+                 )
 
-          {:ok, %{status: :idle}} ->
-            assert {:ok, :claimed_or_completed} =
-                     wait_until(deadline(10_000), fn ->
-                       event = Repo.get!(ActorEvent, id)
-
-                       live_delivery? =
-                         Repo.exists?(
-                           from(delivery in ActorEventDelivery,
-                             where: delivery.actor_event_id == ^id,
-                             where: delivery.state in ^ActorEventDelivery.live_states()
-                           )
-                         )
-
-                       if match?(%DateTime{}, event.completed_at) or live_delivery?,
-                         do: :claimed_or_completed
-                     end)
-
-            :ok
-
-          {:ok, %{status: :waiting_for_worker}} = result ->
-            if worker_recovery_deadline > System.monotonic_time(:millisecond) do
-              Process.sleep(500)
-              process_if_open!(id, worker_recovery_deadline)
-            else
-              flunk(
-                "worker did not recover before Actor event retry deadline: #{inspect(result)}"
-              )
-            end
-
-          other ->
-            flunk("unexpected Actor event processing result: #{inspect(other)}")
-        end
+        :ok
     end
   end
 
@@ -315,26 +283,23 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     System.get_env("ANKOLE_DEEP_RESEARCH_E2E_MODEL", @default_real_coding_model)
   end
 
-  defp put_inactivity_timeout!(agent_uid) do
+  defp put_inactivity_timeout!(_agent_uid) do
     definition = AgentConfig.inactivity_timeout_ms_definition()
-    assert {:ok, 300_000} = AppConfigure.put_for_agent(agent_uid, definition, 300_000)
+    assert {:ok, 300_000} = AppConfigure.put_tenant_by_key(definition.key, 300_000)
   end
 
-  defp read_report!(container, %Job{id: job_id, agent_uid: agent_uid}) do
-    docker_exec!(container, [
+  defp read_report!(container, %Job{id: job_id}) do
+    DockerWorker.exec!(container, [
       "cat",
-      Path.join(Ankole.AgentHomePaths.job_workspace(agent_uid, job_id), "report/report.md")
+      "/workspace/jobs/#{job_id}/report/report.md"
     ])
   end
 
-  defp install_data_source_skill!(container, agent_uid) do
-    skill_dir =
-      Path.join(Ankole.AgentHomePaths.installed_skills(agent_uid), @data_source_skill)
+  defp install_data_source_skill!(agent_uid) do
+    skill_dir = "skills/#{@data_source_skill}"
 
-    docker_exec!(container, ["mkdir", "-p", "#{skill_dir}/scripts"])
-
-    docker_write_text!(
-      container,
+    put_drive_file!(
+      agent_uid,
       "#{skill_dir}/SKILL.md",
       """
       ---
@@ -352,18 +317,17 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
       """
     )
 
-    docker_write_text!(
-      container,
+    put_drive_file!(
+      agent_uid,
       "#{skill_dir}/scripts/query.sh",
       """
       #!/bin/sh
       set -eu
       test "${1:-}" = "aurora_budget"
       printf '%s\n' '{"project":"Aurora","decision":"approved","budget_units":10,"decided_at":"2026-07-01"}'
-      """
+      """,
+      mode: 0o755
     )
-
-    docker_exec!(container, ["chmod", "0755", "#{skill_dir}/scripts/query.sh"])
   end
 
   defp general_task do
@@ -376,27 +340,6 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     delivery format is Markdown. The report must state exactly "Aurora's approved budget is 10
     units." and must also state that the record's decision is approved.
     """
-  end
-
-  defp docker_exec!(container, args) do
-    {output, status} =
-      System.cmd(docker_path(), ["exec", container.name | args], stderr_to_stdout: true)
-
-    assert status == 0, output
-    output
-  end
-
-  defp docker_write_text!(container, path, text) do
-    script = "cat > #{shell_quote(path)} <<'EOF'\n#{text}\nEOF\n"
-    docker_exec!(container, ["sh", "-lc", script])
-  end
-
-  defp docker_path do
-    System.find_executable("docker") || flunk("docker executable was not found on PATH")
-  end
-
-  defp shell_quote(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   defp assert_forwarded_arguments(actual, expected) do

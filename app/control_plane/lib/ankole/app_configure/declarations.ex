@@ -7,7 +7,8 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings, as: AgentWorkerSettings
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
@@ -16,19 +17,21 @@ defmodule Ankole.AppConfigure.Declarations do
   @spec core_definitions() :: [Definition.t()]
   def core_definitions do
     [
+      Ankole.Tenants.privileged_definition(),
       Ankole.SystemConfig.timezone_definition(),
       Ankole.Setup.Config.completed_definition(),
       Ankole.Setup.Config.bootstrap_activation_code_definition(),
       Ankole.Plugins.Config.enabled_ids_definition(),
       Ankole.AIGateway.Compaction.config_definition(),
       Ankole.Security.SSRFFilter.definition(),
+      LocalPassword.RetryGuard.concurrency_definition(),
       WorkerAuthKey.definition(),
       WorkerWebFetchConfig.definition(),
-      BackgroundAgentJobWorkerConfig.definition(),
-      BackgroundAgentJobWorkerConfig.agent_cap_definition(),
+      BackgroundAgentJobCap.definition(),
       DeadLetterNoticeConfig.definition()
     ] ++
       WorkflowWorkerConfig.definitions() ++
+      AgentWorkerSettings.definitions() ++
       Ankole.Brain.Config.definitions() ++
       Ankole.I18n.Config.definitions() ++
       Ankole.Observability.definitions() ++

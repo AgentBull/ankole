@@ -20,8 +20,8 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
     set = %{
-      kind: :lazy_skills,
       set_id: "lazy-visibility-test",
+      kind: :lazy_skills,
       name: "Lazy visibility test inventory",
       skills: [
         %{

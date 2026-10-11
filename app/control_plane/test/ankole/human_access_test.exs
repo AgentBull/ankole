@@ -1,5 +1,6 @@
 defmodule Ankole.HumanAccessTest do
-  use Ankole.DataCase, async: true
+  # This module exercises the site-wide privileged-tenant setting.
+  use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, Principals}
   alias Ankole.Principals.HumanAccess
@@ -73,21 +74,33 @@ defmodule Ankole.HumanAccessTest do
     assert {:ok, %{status: :disabled}} = Principals.get_principal(human.uid)
   end
 
-  test "confirmed departure disables the last administrator without reopening setup" do
+  test "confirmed departure disables the last administrator without reopening setup", %{
+    tenant: tenant
+  } do
+    :ok = set_privileged_tenant(tenant)
     %{principal: human} = human_fixture()
     %{principal: other} = human_fixture()
-    assert {:ok, _} = AuthZ.root_init_admin(human.uid)
-    assert {:error, :last_active_human_admin} = Principals.disable_principal(human.uid)
+    assert {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(human.uid)
+
+    assert {:error, :last_active_human_admin} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(human.uid)
 
     assert {:error, :cannot_disable_self} =
-             HumanAccess.disable(human.uid, "review", human.uid, "self")
+             HumanAccess.disable(
+               human.uid,
+               "review",
+               Ankole.ActorRef.from_principal(human),
+               "self"
+             )
 
     assert {:ok, %{status: :disabled}} =
              HumanAccess.restrict_from_provider(human.uid, "lark", "departed", "event")
 
-    assert {:error, :root_init_closed} = AuthZ.root_init_admin(other.uid)
+    assert {:error, :root_init_closed} =
+             Ankole.PrincipalsFixtures.first_site_admin_fixture(other.uid)
+
     assert {:ok, _} = HumanAccess.recover_admin(other.uid, "test operator", "identity verified")
-    assert Ankole.AdminAuth.active_human_admin?(other.uid)
+    assert Ankole.SiteAdminAuth.active_human_site_admin?(other.uid)
 
     assert {:error, :active_admin_exists} =
              HumanAccess.recover_admin(human.uid, "test operator", "review")

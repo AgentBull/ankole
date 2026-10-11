@@ -1,56 +1,49 @@
 import { mkdirSync, rmSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
-import { chmod, copyFile, rename } from 'node:fs/promises'
+import { copyFile, open, rename } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { FileTransferError } from './errors'
-import { fileFingerprint } from './fingerprint'
 import {
-  assertCreatableFileAddress,
-  assertExistingFileAddress,
-  fileAddress,
-  resolveFileAddress,
+  assertCreatableHomePath,
+  assertExistingHomePath,
+  homePath,
   safeTransferID,
   scratchDirectoryFor
 } from './path-security'
-import type { FileAddress, FileLaneState } from './types'
-import type { WorkerConfig } from '../../worker/config'
+import type { AgentHomeConfig } from '../../worker/config'
 import { errorMessage, nodeErrorCode } from '../../common/errors'
+import { chownAgentPath, mkdirAgentSync } from '../../common/agent-user'
 
 /**
- * One relay transfer as the control plane requests it. `url` is a one-time
- * signed bearer credential on the issuing control-plane Pod: it is used for
- * exactly one HTTP request and never written to logs or errors.
+ * One relay transfer as the control plane requests it. `homeRelativePath`
+ * names a path inside the bound Agent's Home. `url` is a one-time signed
+ * bearer credential on the issuing control-plane Pod: it is used for exactly
+ * one HTTP request and never written to logs or errors.
  */
 export type RelayTransferRequest = {
   transferId: string
   url: string
-  root: string
-  relativePath: string
+  homeRelativePath: string
   maxBytes: bigint
 }
 
-export type RelayTransferResult = {
-  address: FileAddress
-  size: number
-  xxh3_128: string
-}
+export type RelayTransferResult = { size: number }
 
 /**
- * Pulls one file from the relay URL into a worker-visible root.
+ * Pulls one file from the relay URL into the Agent Home.
  *
  * Bytes stream into the transfer scratch directory and reach the target path
  * only through an atomic rename, so a failed or oversize pull never leaves a
  * partial file where the Agent can read it.
  */
-export async function pullFile(
-  config: WorkerConfig,
-  state: FileLaneState,
-  request: RelayTransferRequest
-): Promise<RelayTransferResult> {
+export async function pullFile(config: AgentHomeConfig, request: RelayTransferRequest): Promise<RelayTransferResult> {
   const transferID = safeTransferID(request.transferId)
-  const address = fileAddress(request.root, request.relativePath)
   const maxBytes = boundedByteCount(request.maxBytes)
-  const targetPath = assertCreatableFileAddress(config, address, resolveFileAddress(config, address))
+  const targetPath = assertCreatableHomePath(
+    config,
+    homePath(config, request.homeRelativePath),
+    request.homeRelativePath
+  )
   const tempDir = scratchDirectoryFor(transferID)
   const decodedPath = join(tempDir, 'decoded')
   const finalTempPath = `${targetPath}.ankole-transfer-${transferID}.tmp`
@@ -61,16 +54,13 @@ export async function pullFile(
   try {
     await downloadToFile(request.url, decodedPath, maxBytes)
 
-    mkdirSync(dirname(targetPath), { recursive: true })
+    mkdirAgentSync(dirname(targetPath))
     rmSync(finalTempPath, { force: true })
     await moveToTargetFilesystem(decodedPath, finalTempPath)
+    await chownAgentPath(finalTempPath)
     await rename(finalTempPath, targetPath)
-    if (address.root === 'agent_home_documents') {
-      await chmod(targetPath, 0o444)
-    }
 
-    const xxh3_128 = await fileFingerprint(state, address.root, address.relativePath, targetPath)
-    return { address, size: statSync(targetPath).size, xxh3_128 }
+    return { size: statSync(targetPath).size }
   } catch (error) {
     removePathBestEffort(finalTempPath)
     throw error
@@ -80,45 +70,124 @@ export async function pullFile(
 }
 
 /**
- * Pushes one regular file from a worker-visible root to the relay URL.
+ * Pushes one regular file from the Agent Home to the relay URL.
  *
  * The identity of the file (`dev`/`ino`) plus its size and mtime are read
  * before the upload and compared after it: a replacement during the transfer
  * can reproduce the size and mtime but not the inode, and the control plane
  * must not treat bytes from a replaced file as a successful read.
  */
-export async function pushFile(
-  config: WorkerConfig,
-  state: FileLaneState,
-  request: RelayTransferRequest
-): Promise<RelayTransferResult> {
+export async function pushFile(config: AgentHomeConfig, request: RelayTransferRequest): Promise<RelayTransferResult> {
   safeTransferID(request.transferId)
-  const address = fileAddress(request.root, request.relativePath)
+  const name = request.homeRelativePath
   const maxBytes = boundedByteCount(request.maxBytes)
-  const { filePath, stat } = openPushSource(config, address)
+  const { filePath, stat } = openPushSource(config, name)
 
   if (stat.size > maxBytes) {
-    throw new FileTransferError('file_too_large', `file exceeds ${maxBytes} bytes: ${address.virtualPath}`)
+    throw new FileTransferError('file_too_large', `file exceeds ${maxBytes} bytes: ${name}`)
   }
 
   await uploadFromFile(request.url, filePath, stat.size)
 
   if (!sourceStillStable(filePath, stat)) {
-    throw new FileTransferError('file_changed', `file changed during read: ${address.virtualPath}`)
+    throw new FileTransferError('file_changed', `file changed during read: ${name}`)
   }
 
-  const xxh3_128 = await fileFingerprint(state, address.root, address.relativePath, filePath)
-  return { address, size: stat.size, xxh3_128 }
+  return { size: stat.size }
 }
 
-function openPushSource(config: WorkerConfig, address: FileAddress): { filePath: string; stat: Stats } {
-  const lexicalFilePath = resolveFileAddress(config, address)
+/**
+ * Pushes several regular files under one directory as one bundle, so a
+ * commit of many new files costs one transfer.
+ *
+ * Each entry is a 4-byte big-endian path length, the UTF-8 path relative to
+ * the directory, an 8-byte big-endian content length, and the content. The
+ * bundle is written to the transfer scratch directory first, because the
+ * relay needs the content length up front. Every file is checked for
+ * replacement or change after the upload, as for a single push.
+ */
+export async function pushBundle(
+  config: AgentHomeConfig,
+  request: RelayTransferRequest & { bundlePaths: string[] }
+): Promise<RelayTransferResult> {
+  const transferID = safeTransferID(request.transferId)
+  const base = request.homeRelativePath
+  const maxBytes = boundedByteCount(request.maxBytes)
+  const sources = request.bundlePaths.map(entry => {
+    const path = bundleEntryPath(entry)
+    return { path, ...openPushSource(config, `${base}/${path}`) }
+  })
+  const total = sources.reduce(
+    (sum, source) => sum + bundleHeaderBytes + Buffer.byteLength(source.path, 'utf8') + source.stat.size,
+    0
+  )
+  if (total > maxBytes) {
+    throw new FileTransferError('file_too_large', `bundle exceeds ${maxBytes} bytes: ${base}`)
+  }
+
+  const tempDir = scratchDirectoryFor(transferID)
+  const bundlePath = join(tempDir, 'bundle')
+  rmSync(tempDir, { recursive: true, force: true })
+  mkdirSync(tempDir, { recursive: true })
+  try {
+    const bundle = await open(bundlePath, 'w')
+    try {
+      for (const source of sources) {
+        const name = Buffer.from(source.path, 'utf8')
+        const header = Buffer.alloc(bundleHeaderBytes + name.byteLength)
+        header.writeUInt32BE(name.byteLength, 0)
+        name.copy(header, 4)
+        header.writeBigUInt64BE(BigInt(source.stat.size), 4 + name.byteLength)
+        await bundle.write(header)
+        // Each entry carries exactly the size in its header, so a file that
+        // changes size fails the transfer instead of shifting later entries.
+        let written = 0
+        for await (const chunk of Bun.file(source.filePath).stream()) {
+          written += chunk.byteLength
+          if (written > source.stat.size) break
+          await bundle.write(chunk)
+        }
+        if (written !== source.stat.size) {
+          throw new FileTransferError('file_changed', `file changed during read: ${base}/${source.path}`)
+        }
+      }
+    } finally {
+      await bundle.close()
+    }
+    await uploadFromFile(request.url, bundlePath, total)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+
+  for (const source of sources) {
+    if (!sourceStillStable(source.filePath, source.stat)) {
+      throw new FileTransferError('file_changed', `file changed during read: ${base}/${source.path}`)
+    }
+  }
+  return { size: total }
+}
+
+/** Length fields of one bundle entry: a 4-byte path length and an 8-byte content length. */
+const bundleHeaderBytes = 12
+
+/** A bundle path stays inside its directory: relative, with no empty, `.`, or `..` segment. */
+function bundleEntryPath(path: string): string {
+  const valid =
+    path.length > 0 &&
+    !path.startsWith('/') &&
+    path.split('/').every(segment => segment !== '' && segment !== '.' && segment !== '..')
+  if (!valid) throw new Error(`invalid bundle path: ${path}`)
+  return path
+}
+
+function openPushSource(config: AgentHomeConfig, homeRelativePath: string): { filePath: string; stat: Stats } {
+  const lexicalFilePath = homePath(config, homeRelativePath)
 
   try {
-    const filePath = assertExistingFileAddress(config, address, lexicalFilePath)
+    const filePath = assertExistingHomePath(config, lexicalFilePath, homeRelativePath)
     const stat = statSync(filePath)
     if (!stat.isFile()) {
-      throw new FileTransferError('not_regular_file', `not a regular file: ${address.virtualPath}`)
+      throw new FileTransferError('not_regular_file', `not a regular file: ${homeRelativePath}`)
     }
     return { filePath, stat }
   } catch (error) {
@@ -127,10 +196,10 @@ function openPushSource(config: WorkerConfig, address: FileAddress): { filePath:
     switch (nodeErrorCode(error)) {
       case 'ENOENT':
       case 'ENOTDIR':
-        throw new FileTransferError('file_not_found', `file does not exist: ${address.virtualPath}`)
+        throw new FileTransferError('file_not_found', `file does not exist: ${homeRelativePath}`)
 
       case 'EISDIR':
-        throw new FileTransferError('not_regular_file', `not a regular file: ${address.virtualPath}`)
+        throw new FileTransferError('not_regular_file', `not a regular file: ${homeRelativePath}`)
 
       default:
         throw error

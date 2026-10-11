@@ -3,6 +3,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.Plugins.MapHelpers
 
   alias Ankole.Plugins.TelegramAdapter.{
@@ -13,16 +14,16 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
     Presentation
   }
 
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.WorkerFiles
+  alias Ankole.SignalsGateway.Outbox, as: GatewayOutbox
 
   @caption_chars 1_000
 
   @impl true
   def send(%OutboxEntry{} = outbox) do
     result =
-      with {:ok, config} <- config_for_outbox(outbox),
+      with {:ok, config} <- Bindings.outbox_config(outbox, Config),
+           config = Config.runtime_config(config),
            client <- Config.client(config),
            {:ok, requests} <- requests_for_outbox(outbox) do
         perform_requests(requests, client, outbox)
@@ -192,7 +193,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
         {:ok, request(method, Map.put(base, field, file_id))}
 
       nil ->
-        with {:ok, content, name} <- attachment_content(attachment, outbox.agent_uid) do
+        with {:ok, content, name} <- attachment_content(attachment) do
           fields =
             base
             |> Enum.map(fn {key, value} ->
@@ -330,16 +331,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
     {Enum.join(caption), Enum.join(rest)}
   end
 
-  defp attachment_content(attachment, agent_uid) do
-    relative = MapHelpers.optional_text(attachment, "user_files_relative_path")
-    lane_path = if relative, do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
-
-    with path when is_binary(path) <- lane_path,
-         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", path) do
-      {:ok, content, attachment["name"] || Path.basename(relative)}
-    else
-      nil -> {:error, :outbound_attachment_path_missing}
-      {:error, _reason} = error -> error
+  defp attachment_content(attachment) do
+    with {:ok, content} <- GatewayOutbox.attachment_content(attachment) do
+      {:ok, content, attachment["name"] || Path.basename(attachment["path"] || "attachment")}
     end
   end
 
@@ -359,16 +353,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
   end
 
   defp idempotent_absence?(_method, _error), do: false
-
-  defp config_for_outbox(outbox) do
-    with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),
-         {:ok, config} <- Config.load_config_ref(config_ref) do
-      {:ok, config}
-    else
-      :error -> {:error, :binding_config_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp integer_text(value) when is_integer(value), do: Integer.to_string(value)
   defp integer_text(value) when is_binary(value), do: value

@@ -2,17 +2,18 @@
 
 ARG BASE_IMAGE
 
+FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
+
 FROM ${BASE_IMAGE} AS build
 
 WORKDIR /repo
 
-ENV CARGO_NET_RETRY=5
-ENV CARGO_HTTP_TIMEOUT=120
-
 COPY package.json bun.lock ./
-COPY app/kernel/package.json app/kernel/Cargo.toml app/kernel/Cargo.lock ./app/kernel/
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
+
+# Only the Worker and its workspace dependencies are present in this image.
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser"]; delete p.patchedDependencies["mdast-util-to-markdown@2.2.0"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   set -eux; \
@@ -23,16 +24,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
   done; \
   timeout 120s bun install --no-save
 
-COPY app/kernel ./app/kernel
 COPY app/agent_computer ./app/agent_computer
 COPY app/ankole-browser ./app/ankole-browser
-
-WORKDIR /repo/app/kernel
-
-RUN --mount=type=cache,target=/root/.cargo/git \
-  --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,target=/repo/app/kernel/target \
-  bun run build:bun
 
 WORKDIR /repo/app/ankole-browser
 
@@ -75,21 +68,27 @@ RUN set -eux; \
   rm -rf /tmp/lark-cli "/tmp/${asset}"
 
 COPY app/agent_computer/scripts/lark-cli.sh /usr/local/bin/lark-cli
+COPY app/agent_computer/scripts/ankole-worker-supervisor.sh /usr/local/bin/ankole-worker-supervisor
+COPY app/agent_computer/scripts/ankole-worker-entry.sh /usr/local/bin/ankole-worker-entry
+COPY app/agent_computer/scripts/ankole-worker-command-entry.sh /usr/local/bin/ankole-worker-command-entry
+COPY app/agent_computer/scripts/ankole-worker-nfs.sh /usr/local/bin/ankole-worker-nfs
+COPY --from=directory-backup /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
-RUN chmod 0755 /usr/local/bin/lark-cli \
+RUN chmod 0755 /usr/local/bin/lark-cli /usr/local/bin/ankole-worker-supervisor /usr/local/bin/ankole-worker-entry /usr/local/bin/ankole-worker-command-entry /usr/local/bin/ankole-worker-nfs \
   && test "$(lark-cli --version)" = "lark-cli version ${LARK_CLI_VERSION#v}"
 
-COPY --from=build /repo/app/kernel/index.js ./app/kernel/index.js
-COPY --from=build /repo/app/kernel/main.js ./app/kernel/main.js
-COPY --from=build /repo/app/kernel/index.d.ts ./app/kernel/index.d.ts
-COPY --from=build /repo/app/kernel/ankole-kernel.node ./app/kernel/ankole-kernel.node
-COPY --from=build /repo/app/kernel/package.json ./app/kernel/package.json
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends nfs-common iproute2 \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
 COPY --from=build /repo/app/ankole-browser/node_modules ./app/ankole-browser/node_modules
 COPY --from=build /tmp/ankole-browser-runtime /opt/ankole-browser
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY app/library ./app/library
+
+RUN chmod -R a+rX,go-w /repo/app/library
 
 RUN set -eux; \
   PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers \
@@ -106,8 +105,11 @@ COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/ankole-browser/src ./app/ankole-browser/src
 
 RUN set -eux; \
-  mkdir -p /agents /var/share; \
-  chmod 0775 /agents; \
+  usermod -l agent -d /workspace -s /bin/bash bun; \
+  groupmod -n agent bun; \
+  mkdir -p /agents /workspace/.codex /var/cache/ankole/codex /var/share /run/ankole-browser; \
+  chown 1000:1000 /agents /workspace /workspace/.codex /var/cache/ankole /var/cache/ankole/codex /run/ankole-browser; \
+  chmod 0755 /agents /workspace /var/cache/ankole; \
   chmod 1777 /var/share; \
   printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
 
@@ -138,10 +140,11 @@ RUN set -eux; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/automation-jobs/automation-job-cli.ts list "$@"' > /usr/local/bin/list-automation-jobs-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/automation-jobs/automation-job-cli.ts show "$@"' > /usr/local/bin/show-automation-job-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/automation-jobs/automation-job-cli.ts cancel "$@"' > /usr/local/bin/cancel-automation-job-cli; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/drive/drive-cli.ts "$@"' > /usr/local/bin/ankole-files; \
   codex_native="$(find -L /root/.bun/install/global/node_modules/@openai -path '*/vendor/*/bin/codex' -type f -print -quit)"; \
   test -n "$codex_native"; \
   ln -s "$codex_native" /usr/local/bin/apply_patch; \
-  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli; \
+  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli /usr/local/bin/ankole-files; \
   ! command -v node; \
   bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
@@ -151,6 +154,18 @@ RUN set -eux; \
   printf '%s\n' '*** Begin Patch' '*** Add File: probe.txt' '+ok' '*** End Patch' | apply_patch; \
   test "$(cat probe.txt)" = "ok"; \
   rm -rf "$patch_probe"
+
+# The base installs build tools under /root. Runtime tools must also be
+# readable by uid 1000, with root as their only writer.
+RUN set -eux; \
+  mv /root/.bun/install/global /opt/ankole-cli; \
+  mv /root/.cargo /opt/ankole-cargo; \
+  mv /root/.rustup /opt/ankole-rustup; \
+  sed -i 's|/root/.bun/install/global|/opt/ankole-cli|g' /usr/local/bin/codex /usr/local/bin/mcporter; \
+  codex_native="$(find -L /opt/ankole-cli/node_modules/@openai -path '*/vendor/*/bin/codex' -type f -print -quit)"; \
+  test -n "$codex_native"; \
+  ln -sf "$codex_native" /usr/local/bin/apply_patch; \
+  ! command -v sudo
 
 WORKDIR /repo/app/agent_computer
 
@@ -162,15 +177,25 @@ ENV LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
 ENV BASH_ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV SHELL=/bin/bash
-ENV ANKOLE_AGENTS_ROOT=/agents
-ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
+ENV HOME=/workspace
+ENV CODEX_HOME=/workspace/.codex
+ENV CODEX_SQLITE_HOME=/var/cache/ankole/codex
+ENV RUSTUP_HOME=/opt/ankole-rustup
+ENV CARGO_HOME=/opt/ankole-cargo
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
+ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
 ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
 ENV ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
 ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers
 ENV MATPLOTLIBRC=/etc/ankole/matplotlibrc
-ENV PATH="/opt/ankole-python/bin:/root/.cargo/bin:${PATH}"
+ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/bin"
 
-ENTRYPOINT ["tini", "-g", "--"]
+# A launcher can replace this environment, for example sudo on Function
+# Compute. The entrypoint exports this copy, which has the format of
+# /proc/<pid>/environ. The copy excludes the PWD of the build shell and the
+# build arguments of this stage.
+RUN env -0 -u PWD -u LARK_CLI_VERSION -u TARGETARCH > /etc/ankole/worker-environ
+
+ENTRYPOINT ["ankole-worker-entry"]
 CMD ["bun", "src/main.ts"]

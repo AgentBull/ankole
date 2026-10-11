@@ -27,7 +27,7 @@ defmodule AnkoleWeb.PrincipalController do
   alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalUpdateRequest
 
   tags(["Principals"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -37,8 +37,7 @@ defmodule AnkoleWeb.PrincipalController do
     parameters: [include_disabled: [in: :query, type: :boolean, required: false]],
     responses: [
       ok: {"Principals", "application/json", PrincipalListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -47,9 +46,7 @@ defmodule AnkoleWeb.PrincipalController do
     parameters: [uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Principal", "application/json", PrincipalResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -58,10 +55,7 @@ defmodule AnkoleWeb.PrincipalController do
     request_body: {"User", "application/json", PrincipalCreateRequest, required: true},
     responses: [
       ok: {"Created user", "application/json", PrincipalCreateResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid user", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -71,11 +65,7 @@ defmodule AnkoleWeb.PrincipalController do
     request_body: {"User changes", "application/json", PrincipalUpdateRequest, required: true},
     responses: [
       ok: {"Principal", "application/json", PrincipalResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid change", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -86,11 +76,7 @@ defmodule AnkoleWeb.PrincipalController do
       {"Reset options", "application/json", LocalPasswordResetRequest, required: true},
     responses: [
       ok: {"New one-time password", "application/json", LocalPasswordResetResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid reset", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -99,9 +85,7 @@ defmodule AnkoleWeb.PrincipalController do
     parameters: [uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Principal groups", "application/json", PrincipalGroupListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -110,9 +94,7 @@ defmodule AnkoleWeb.PrincipalController do
     parameters: [uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Permission grants", "application/json", PermissionGrantListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -150,7 +132,7 @@ defmodule AnkoleWeb.PrincipalController do
          {:ok, email} <- email_attr(Map.get(body, :email)),
          {:ok, result} <-
            Principals.create_local_user(
-             %{uid: email, email: email, display_name: Map.get(body, :display_name)},
+             %{email: email, display_name: Map.get(body, :display_name)},
              Map.get(body, :must_change_password, true)
            ),
          {:ok, account} <- Principals.get_principal_account(result.principal.uid) do
@@ -261,6 +243,7 @@ defmodule AnkoleWeb.PrincipalController do
       display_name: principal.display_name,
       avatar_url: principal.avatar_url,
       email: account.email,
+      handle: account.handle,
       has_external_identity: account.has_external_identity,
       local_credential: local_credential_json(account.local_credential_status),
       inserted_at: DateTime.to_iso8601(principal.inserted_at),

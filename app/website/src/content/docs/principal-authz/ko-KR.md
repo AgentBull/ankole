@@ -11,7 +11,7 @@ Ankole의 모든 작업 — 사람의 로그인, agent의 turn 실행, job이 �
 
 ## Principal: 하나의 책임 주체
 
-Principal은 인간, agent, 시스템 서비스가 공유하는 지속 가능한 책임 주체입니다. `principals` 테이블은 `uid`(타입이 있는 `PrincipalKey`, check constraint로 소문자 강제 및 필수)를 키로 가지며, 각 행은 `:human`, `:agent` 또는 `:system` 중 하나의 `type`과 `:active` 또는 `:disabled` 중 하나의 `status`를 가집니다.
+Principal은 인간, Agent, 시스템 서비스가 공유하는 영속적인 책임 주체입니다. 각 Principal은 정확히 하나의 테넌트에 속하며 전역에서 고유한 불투명 `uid`를 가집니다. `principals` 행의 `type`은 `:human`, `:agent`, `:system`이고 `status`는 `:active` 또는 `:disabled`입니다.
 
 인간 Principal은 하나의 `HumanUser`와 여러 개의 `ExternalIdentity` 행(operator가 페더레이션한 ID)을 가집니다. agent Principal은 하나의 `Agent` 행을 가집니다. 둘을 하나의 테이블로 라우팅하는 이유는 책임 추적성의 형태가 하나이기 때문입니다. 무언가를 한 사람이 누구든, 그 일을 한 Principal 행이 존재하며, 모든 audit 행, grant, 그룹 멤버십이 가리키는 안정적인 uid를 가집니다.
 
@@ -32,7 +32,7 @@ Grant는 정신적으로 append-only이며 소유자별로 natural key가 유일
 
 Principal group은 Principal에 grant를 부여할 수 있는 이름 있는 컬렉션으로, Principal별 행 없이도 권한이 확장될 수 있게 합니다. 그룹은 `:operator`, `:directory` 또는 `:im_group` 중 하나의 `domain`, `:static` 또는 `:computed` 중 하나의 `kind`, 그리고 computed 그룹용 선택적 `computed_condition`을 가집니다.
 
-두 개의 기본 제공 그룹이 deployment instance를 초기화합니다. `admin` 그룹은 operator 권한 표면입니다. `all_humans` 그룹은 `principal.type == "human" && principal.status == "active"`라는 computed condition을 가지므로, 누가 수동으로 목록을 관리하지 않아도 모든 활성 인간이 멤버가 됩니다. 정적 멤버십은 `principal_group_memberships`에 있으며, computed 멤버십은 스냅샷을 기준으로 평가됩니다. 외부 디렉터리(IdP, IM 플랫폼)는 external binding을 통해 그룹으로 동기화될 수 있으므로, operator는 이미 신뢰하는 디렉터리를 AuthZ가 가리키도록 할 수 있습니다.
+각 테넌트에는 계산 조건이 `principal.type == "human" && principal.status == "active"`인 `all_humans` 그룹이 있습니다. 사이트를 관리하는 기본 제공 `siteadmin` 그룹은 하나의 특권 테넌트에만 있습니다. Console에서 다른 데이터 테넌트를 선택해도 운영자의 identity나 grant는 바뀌지 않습니다. 정적 멤버십은 `principal_group_memberships`에 저장하고 계산 멤버십은 권한 snapshot으로 평가합니다. 외부 디렉터리는 binding을 통해 그룹을 동기화할 수 있습니다.
 
 ## 결정이 내려지는 방식
 
@@ -59,8 +59,8 @@ control plane과 kernel은 의도적으로 작업을 나눕니다. 그리고 이
 AuthZ는 agent가 우회할 수 있는 계층이 아닙니다. 런타임이 중요한 경계에서 AuthZ를 참조하기 때문입니다:
 
 - AIGateway는 검증된 token에서 모든 호출의 주체(subject)를 해석하며, 주체의 grant가 도달할 수 있는 model selector와 provider를 결정합니다.
-- Actor Runtime은 agent Principal이 소유한 activation으로 모든 turn을 펜싱합니다. 다른 주체의 응답은 펜스를 통과하지 못합니다.
-- Console 작업은 검증된 admin token을 통해 수행되며, admin Principal의 그룹 멤버십이 무엇을 변경할 수 있는지 결정합니다.
+- 대화 Driver는 commit 전에 영속 fence를 확인합니다. Worker의 Job 작업은 영속 Job attempt fence와 인증된 연결 identity를 확인합니다.
+- Console 작업은 활성 administrator의 browser session과 CSRF 증명을 사용하며 Principal의 현재 group membership이 변경 범위를 결정합니다.
 
 model은 “나는 허용되어 있다”고 주장할 수 없습니다. 경계는 Principal과 grant를 확인하고 결정에 따라 행동합니다.
 
@@ -89,4 +89,4 @@ AuthZ는 프롬프트 지시도 희망도 아닙니다. model에게 책임을 �
 ## 다음 단계
 
 - AIGateway 가장자리에서 검증된 token이 Principal로 해석되는 방식에 대해서는 [AIGateway API](../ai-gateway/) 문서를 읽으세요.
-- agent Principal의 activation이 turn을 펜싱하는 방식에 대해서는 [Actor Runtime](../actor-runtime/) 문서를 읽으세요.
+- agent Principal의 Driver fence이 turn을 펜싱하는 방식에 대해서는 [Actor Runtime](../actor-runtime/) 문서를 읽으세요.

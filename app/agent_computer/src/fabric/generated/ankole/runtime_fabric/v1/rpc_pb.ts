@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file ankole/runtime_fabric/v1/rpc.proto.
  */
 export const file_ankole_runtime_fabric_v1_rpc: GenFile = /*@__PURE__*/
-  fileDesc("CiJhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvcnBjLnByb3RvEhhhbmtvbGUucnVudGltZV9mYWJyaWMudjEiLAoXSlNPTlBhc3N0aHJvdWdoUmVzcG9uc2USEQoJYm9keV9qc29uGAEgASgMIkYKGEFjdG9yVHVybkNvbXBsZXRlUmVxdWVzdBIZChFmaW5hbF9yZXNwb25zZV9pZBgBIAEoCRIPCgdvdXRjb21lGAIgASgJIlcKGUFjdG9yVHVybkNvbXBsZXRlUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhkKEWZpbmFsX3Jlc3BvbnNlX2lkGAIgASgJEg8KB291dGNvbWUYAyABKAkiQQoUQWN0b3JUdXJuTm9vcFJlcXVlc3QSDgoGcmVhc29uGAEgASgJEhkKEWZpbmFsX3Jlc3BvbnNlX2lkGAIgASgJIjcKFUFjdG9yVHVybk5vb3BSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSDgoGcmVhc29uGAIgASgJIkwKFUFjdG9yVHVybkFib3J0UmVxdWVzdBIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSFAoMZGV0YWlsc19qc29uGAMgASgMIlsKFkFjdG9yVHVybkFib3J0UmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhUKDWRlYWRfbGV0dGVyZWQYAiABKAgSGgoScmV0cnlfYXZhaWxhYmxlX2F0GAMgASgJIhgKFkFJR2F0ZXdheUFQSUtleVJlcXVlc3QimgEKF0FJR2F0ZXdheUFQSUtleVJlc3BvbnNlEhEKCWFnZW50X3VpZBgBIAEoCRIPCgdhcGlfa2V5GAIgASgJEhIKCnRva2VuX3R5cGUYAyABKAkSEgoKZXhwaXJlc19hdBgEIAEoAxISCgpleHBpcmVzX2luGAUgASgDEg0KBXNjb3BlGAYgASgJEhAKCGJhc2VfdXJsGAcgASgJIioKGkFwcENvbmZpZ3VyZVJlc29sdmVSZXF1ZXN0EgwKBGtleXMYASADKAkiPAoWQXBwQ29uZmlndXJlUmVzb2x1dGlvbhISCgp2YWx1ZV9qc29uGAEgASgMEg4KBnNvdXJjZRgCIAEoCSLRAQobQXBwQ29uZmlndXJlUmVzb2x2ZVJlc3BvbnNlElEKBnZhbHVlcxgBIAMoCzJBLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BcHBDb25maWd1cmVSZXNvbHZlUmVzcG9uc2UuVmFsdWVzRW50cnkaXwoLVmFsdWVzRW50cnkSCwoDa2V5GAEgASgJEj8KBXZhbHVlGAIgASgLMjAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFwcENvbmZpZ3VyZVJlc29sdXRpb246AjgBIi8KF1dvcmtlckVudlJlc29sdmVSZXF1ZXN0EhQKDGJpbmRpbmdfbmFtZRgBIAEoCSK0AwoYV29ya2VyRW52UmVzb2x2ZVJlc3BvbnNlEkoKBHZhcnMYASADKAsyPC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyRW52UmVzb2x2ZVJlc3BvbnNlLlZhcnNFbnRyeRJbCg1vcGVyYXRvcl92YXJzGAIgAygLMkQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlckVudlJlc29sdmVSZXNwb25zZS5PcGVyYXRvclZhcnNFbnRyeRJZCgxiaW5kaW5nX3ZhcnMYAyADKAsyQy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyRW52UmVzb2x2ZVJlc3BvbnNlLkJpbmRpbmdWYXJzRW50cnkaKwoJVmFyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaMwoRT3BlcmF0b3JWYXJzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARoyChBCaW5kaW5nVmFyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiMgofT2JzZXJ2YWJpbGl0eVNwYW5zRXhwb3J0UmVxdWVzdBIPCgdwYXlsb2FkGAEgASgMIiIKIE9ic2VydmFiaWxpdHlTcGFuc0V4cG9ydFJlc3BvbnNlIiEKH0FnZW50Q29udmVyc2F0aW9uQ29udGV4dFJlcXVlc3QiMgoMQWdlbnRQcm9maWxlEhQKDGRpc3BsYXlfbmFtZRgBIAEoCRIMCgRyb2xlGAIgASgJIkMKE0NvbnZlcnNhdGlvbkNoYW5uZWwSDwoHYWRhcHRlchgBIAEoCRIMCgRraW5kGAIgASgJEg0KBWxhYmVsGAMgASgJIpgBChBDb252ZXJzYXRpb25JbmZvEgoKAmlkGAEgASgJEgsKA2tleRgCIAEoCRISCgpzdGFydGVkX2F0GAMgASgJEhAKCHRpbWV6b25lGAQgASgJEkUKDm9yaWdpbl9jaGFubmVsGAUgASgLMi0uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkNvbnZlcnNhdGlvbkNoYW5uZWwiwAEKE1J1bnRpbWVTa2lsbFN1bW1hcnkSEgoKc2tpbGxfbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRITCgtzb3VyY2Vfa2luZBgEIAEoCRIXCg9hZ2VudF9wbHVnaW5faWQYBSABKAkSFQoNcmVsYXRpdmVfcGF0aBgGIAEoCRISCgpza2lsbF9yb290GAcgASgJEhUKDW1ldGFkYXRhX2pzb24YCCABKAwSEAoIY2F0ZWdvcnkYCSABKAki9gMKIEFnZW50Q29udmVyc2F0aW9uQ29udGV4dFJlc3BvbnNlEjUKBWFnZW50GAEgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50UHJvZmlsZRJACgxjb252ZXJzYXRpb24YAiABKAsyKi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQ29udmVyc2F0aW9uSW5mbxIMCgRzb3VsGAMgASgJEg8KB21pc3Npb24YBCABKAkSDgoGZGVzaWduGAUgASgJEj0KBnNraWxscxgIIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5EhkKEXNvdWxfY29udGVudF9oYXNoGAkgASgJEhwKFG1pc3Npb25fY29udGVudF9oYXNoGAogASgJEhsKE2Rlc2lnbl9jb250ZW50X2hhc2gYCyABKAkSHgoWY29uZmlkZW50aWFsaXR5X3BvbGljeRgMIAEoCRIrCiNjb25maWRlbnRpYWxpdHlfcG9saWN5X2NvbnRlbnRfaGFzaBgNIAEoCRJICg1hZ2VudF9wbHVnaW5zGA4gAygLMjEuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50UGx1Z2luQ2F0YWxvZ0VudHJ5Ii8KF0FnZW50UGx1Z2luQ2F0YWxvZ1NraWxsEhQKDGNhdGFsb2dfbmFtZRgBIAEoCSKdAQoXQWdlbnRQbHVnaW5DYXRhbG9nRW50cnkSCgoCaWQYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSQQoGc2tpbGxzGAUgAygLMjEuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50UGx1Z2luQ2F0YWxvZ1NraWxsEh4KFmhhc193b3Jrc3BhY2VfdGVtcGxhdGUYBiABKAgikQEKH0JhY2tncm91bmRBZ2VudEpvYkNyZWF0ZVJlcXVlc3QSGwoTc291cmNlX3Rvb2xfY2FsbF9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIMCgR0YXNrGAMgASgJEh0KFXdvcmtzcGFjZV90ZW1wbGF0ZV9pZBgGIAEoCRIVCg1tb2RlbF9wcm9maWxlGAsgASgJImcKIEJhY2tncm91bmRBZ2VudEpvYlJlc3Bhd25SZXF1ZXN0EhUKDXNvdXJjZV9qb2JfaWQYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIbChNzb3VyY2VfdG9vbF9jYWxsX2lkGAMgASgJIkMKIUJhY2tncm91bmRBZ2VudEpvYlJlc3Bhd25SZXNwb25zZRIOCgZqb2JfaWQYASABKAkSDgoGc3RhdHVzGAIgASgJIpQBChxCYWNrZ3JvdW5kQWdlbnRKb2JHZXRSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIdChB0cmFqZWN0b3J5X2xpbWl0GAIgASgNSACIAQESGQoRdHJhamVjdG9yeV9jdXJzb3IYAyABKAkSFQoNcmVzdWx0X29mZnNldBgEIAEoCUITChFfdHJhamVjdG9yeV9saW1pdCI/Ch1CYWNrZ3JvdW5kQWdlbnRKb2JMaXN0UmVxdWVzdBIOCgZzdGF0dXMYASABKAkSDgoGY3Vyc29yGAIgASgJImQKJEJhY2tncm91bmRBZ2VudEpvYk1lc3NhZ2VTZW5kUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIbChNzb3VyY2VfdG9vbF9jYWxsX2lkGAMgASgJImEKJUJhY2tncm91bmRBZ2VudEpvYk1lc3NhZ2VTZW5kUmVzcG9uc2USDgoGam9iX2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIYChBjb21tYW5kX2V2ZW50X2lkGAMgASgJIlIKJkJhY2tncm91bmRBZ2VudEpvYk1lc3NhZ2VSZXN1bHRSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIYChBjb21tYW5kX2V2ZW50X2lkGAIgASgJIsEBCidCYWNrZ3JvdW5kQWdlbnRKb2JNZXNzYWdlUmVzdWx0UmVzcG9uc2USDgoGam9iX2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCRINCgVyZWFkeRgDIAEoCBIhChlsYXN0X3R1cm5fdHJhamVjdG9yeV9qc29uGAQgASgMEiIKGmVhcmxpZXJfdHJhamVjdG9yeV9vbWl0dGVkGAUgASgIEiAKGGxpZmVjeWNsZV9hY3Rvcl9ldmVudF9pZBgGIAEoCSIvCh1CYWNrZ3JvdW5kQWdlbnRKb2JTdG9wUmVxdWVzdBIOCgZqb2JfaWQYASABKAkiQAoeQmFja2dyb3VuZEFnZW50Sm9iU3RvcFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkixQIKI0JhY2tncm91bmRBZ2VudEpvYlR1cm5VcHNlcnRSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIPCgdhdHRlbXB0GAIgASgNEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAMgASgJEhcKD3J1bnRpbWVfdHVybl9pZBgEIAEoCRIMCgRraW5kGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIQCghyZXZpc2lvbhgHIAEoDRIXCg90cmFqZWN0b3J5X2pzb24YCCABKAwSFQoNcHJvZ3Jlc3NfanNvbhgKIAEoDBISCgp1c2FnZV9qc29uGAsgASgMEhIKCmVycm9yX2pzb24YDCABKAwSEgoKc3RhcnRlZF9hdBgNIAEoCRIUCgxjb21wbGV0ZWRfYXQYDiABKAkSFwoPdHVybl9pdGVtc19qc29uGA8gASgMIkgKJkJhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtc0xpc3RSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIOCgZjdXJzb3IYAiABKAkihwEKGkJhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAEgASgJEhcKD3J1bnRpbWVfdHVybl9pZBgCIAEoCRIQCghwb3NpdGlvbhgDIAEoDRIQCghpdGVtX2tleRgEIAEoCRIRCglpdGVtX2pzb24YBSABKAwikwEKJ0JhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtc0xpc3RSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSQwoFaXRlbXMYAiADKAsyNC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW0SEwoLbmV4dF9jdXJzb3IYAyABKAkiogEKJUJhY2tncm91bmRBZ2VudEpvYlN0YXR1c1VwZGF0ZVJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIZChFydW50aW1lX3RocmVhZF9pZBgDIAEoCRITCgtyZXN1bHRfanNvbhgEIAEoDBISCgplcnJvcl9qc29uGAUgASgMEhUKDW1ldGFkYXRhX2pzb24YBiABKAwiegolQmFja2dyb3VuZEFnZW50Sm9iQXR0ZW1wdEhpc3RvcnlFbnRyeRIPCgdhdHRlbXB0GAEgASgNEhUKDXR1cm5fc3RhdHVzZXMYAiADKAkSDwoHc3VtbWFyeRgDIAEoCRIYChB1c2VkX3NraWxsX25hbWVzGAQgAygJIjsKG0JhY2tncm91bmRBZ2VudEpvYlJlc3VsdFJlZhIMCgR0eXBlGAEgASgJEg4KBmpvYl9pZBgCIAEoCSKeBgoaQmFja2dyb3VuZEFnZW50Sm9iUmVzcG9uc2USDgoGam9iX2lkGAEgASgJEhEKCWFnZW50X3VpZBgCIAEoCRIYChBvd25lcl9zZXNzaW9uX2lkGAMgASgJEh0KFXNvdXJjZV9hY3Rvcl9ldmVudF9pZBgEIAEoCRIbChNzb3VyY2VfdG9vbF9jYWxsX2lkGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIZChFydW50aW1lX3RocmVhZF9pZBgHIAEoCRINCgV0aXRsZRgJIAEoCRIMCgR0YXNrGAogASgJEhgKEHJlcGx5X3JvdXRlX2pzb24YDSABKAwSEAoIYXR0ZW1wdHMYDiABKA0SHQoVd29ya3NwYWNlX3RlbXBsYXRlX2lkGA8gASgJEh0KFWNvbnRpbnVlZF9mcm9tX2pvYl9pZBgQIAEoCRIeChZ3b3Jrc3BhY2Vfb3duZXJfam9iX2lkGBEgASgJEhEKCXF1ZXVlZF9hdBgUIAEoCRISCgpzdGFydGVkX2F0GBUgASgJEhQKDGNvbXBsZXRlZF9hdBgWIAEoCRISCgplcnJvcl9qc29uGBggASgMEhUKDW1ldGFkYXRhX2pzb24YGSABKAwSFgoOZXhlY3V0aW9uX2pzb24YGiABKAwSWAoPYXR0ZW1wdF9oaXN0b3J5GBsgAygLMj8uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYkF0dGVtcHRIaXN0b3J5RW50cnkSSQoKcmVzdWx0X3JlZhgcIAEoCzI1LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5CYWNrZ3JvdW5kQWdlbnRKb2JSZXN1bHRSZWYSHwoXcnVudGltZV9wcm9qZWN0aW9uX2pzb24YHSABKAwSFQoNbW9kZWxfcHJvZmlsZRgeIAEoCRIaChJyZXN1bHRfb3V0cHV0X3RleHQYHyABKAkSIQoZcmVzdWx0X291dHB1dF90b3RhbF9ieXRlcxggIAEoCRIZChFyZXN1bHRfcGF0aHNfanNvbhghIAEoDCJKChlCYWNrZ3JvdW5kQWdlbnRKb2JTdW1tYXJ5Eg4KBmpvYl9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIOCgZzdGF0dXMYAyABKAkieAoeQmFja2dyb3VuZEFnZW50Sm9iTGlzdFJlc3BvbnNlEkEKBGpvYnMYASADKAsyMy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQmFja2dyb3VuZEFnZW50Sm9iU3VtbWFyeRITCgtuZXh0X2N1cnNvchgCIAEoCSLEAgoWQmFja2dyb3VuZEFnZW50Sm9iVHVybhIKCgJpZBgBIAEoCRIPCgdhdHRlbXB0GAIgASgNEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAMgASgJEhcKD3J1bnRpbWVfdHVybl9pZBgEIAEoCRIMCgRraW5kGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIQCghyZXZpc2lvbhgHIAEoDRIXCg90cmFqZWN0b3J5X2pzb24YCCABKAwSFQoNcHJvZ3Jlc3NfanNvbhgJIAEoDBISCgp1c2FnZV9qc29uGAogASgMEhIKCmVycm9yX2pzb24YCyABKAwSEgoKc3RhcnRlZF9hdBgMIAEoCRIUCgxjb21wbGV0ZWRfYXQYDSABKAkSEwoLaW5zZXJ0ZWRfYXQYDiABKAkSEgoKdXBkYXRlZF9hdBgPIAEoCSJ2CiRCYWNrZ3JvdW5kQWdlbnRKb2JUdXJuVXBzZXJ0UmVzcG9uc2USDgoGam9iX2lkGAEgASgJEj4KBHR1cm4YAiABKAsyMC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQmFja2dyb3VuZEFnZW50Sm9iVHVybiLZAQoVV29ya2Zsb3dDcmVhdGVSZXF1ZXN0EhsKE3NvdXJjZV90b29sX2NhbGxfaWQYASABKAkSDQoFdGl0bGUYAiABKAkSDgoGc2NyaXB0GAMgASgJEhEKCWFyZ3NfanNvbhgEIAEoDBIYCgtjb25jdXJyZW5jeRgFIAEoDUgAiAEBEhwKD21heF9hZ2VudF9jYWxscxgGIAEoDUgBiAEBEhUKDW1vZGVsX3Byb2ZpbGUYByABKAlCDgoMX2NvbmN1cnJlbmN5QhIKEF9tYXhfYWdlbnRfY2FsbHMiOAoWV29ya2Zsb3dDcmVhdGVSZXNwb25zZRIOCgZydW5faWQYASABKAkSDgoGc3RhdHVzGAIgASgJIjsKEldvcmtmbG93R2V0UmVxdWVzdBIOCgZydW5faWQYASABKAkSFQoNcmVzdWx0X29mZnNldBgCIAEoCSLlAQoTV29ya2Zsb3dHZXRSZXNwb25zZRIOCgZydW5faWQYASABKAkSDQoFdGl0bGUYAiABKAkSDgoGc3RhdHVzGAMgASgJEhMKC2NvdW50c19qc29uGAQgASgMEh4KFmZhaWx1cmVfc3VtbWFyaWVzX2pzb24YBSABKAwSEgoKZXJyb3JfanNvbhgGIAEoDBIaChJyZXN1bHRfb3V0cHV0X3RleHQYByABKAkSIQoZcmVzdWx0X291dHB1dF90b3RhbF9ieXRlcxgIIAEoCRIXCg9saXZlX3Rhc2tzX2pzb24YCSABKAwiNQoTV29ya2Zsb3dMaXN0UmVxdWVzdBIOCgZzdGF0dXMYASABKAkSDgoGY3Vyc29yGAIgASgJIj4KFFdvcmtmbG93TGlzdFJlc3BvbnNlEhEKCXJ1bnNfanNvbhgBIAEoDBITCgtuZXh0X2N1cnNvchgCIAEoCSInChVXb3JrZmxvd0NhbmNlbFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIjgKFldvcmtmbG93Q2FuY2VsUmVzcG9uc2USDgoGcnVuX2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCSKEAQofV29ya2Zsb3dUYXNrUmVzdWx0U3VibWl0UmVxdWVzdBIPCgdjYWxsX2lkGAEgASgJEgoKAm9rGAIgASgIEhIKCnZhbHVlX2pzb24YAyABKAwSDAoEY29kZRgEIAEoCRIPCgdzdW1tYXJ5GAUgASgJEhEKCXJldHJ5YWJsZRgGIAEoCCJJCiBXb3JrZmxvd1Rhc2tSZXN1bHRTdWJtaXRSZXNwb25zZRIQCghhY2NlcHRlZBgBIAEoCBITCgt0YXNrX3N0YXR1cxgCIAEoCSJjChhXb3JrZmxvd1Rhc2tTbGVlcFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCRIVCg13YWtlX2FmdGVyX21zGAIgASgEEgwKBG5vdGUYAyABKAkSEQoJYXR0ZW50aW9uGAQgASgIIkQKGVdvcmtmbG93VGFza1NsZWVwUmVzcG9uc2USEwoLdGFza19zdGF0dXMYASABKAkSEgoKd2FrZV9jb3VudBgCIAEoDSJwCh5Xb3JrZmxvd1Rhc2tNZXNzYWdlU2VuZFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhAKCGNhbGxfc2VxGAIgASgNEg8KB21lc3NhZ2UYAyABKAkSGwoTc291cmNlX3Rvb2xfY2FsbF9pZBgEIAEoCSJYCh9Xb3JrZmxvd1Rhc2tNZXNzYWdlU2VuZFJlc3BvbnNlEg4KBnJ1bl9pZBgBIAEoCRIQCghjYWxsX3NlcRgCIAEoDRITCgt0YXNrX3N0YXR1cxgDIAEoCSLvAQojU2NoZWR1bGVDaGVja0JhY2tMYXRlckNyZWF0ZVJlcXVlc3QSFAoMdG9vbF9jYWxsX2lkGAEgASgJEhcKD2lkZW1wb3RlbmN5X2tleRgCIAEoCRIOCgZyZWFzb24YAyABKAkSDQoFY2hlY2sYBCABKAkSFwoPY29udGV4dF9zdW1tYXJ5GAUgASgJEhUKDXF1aWV0X3N1Y2Nlc3MYBiABKAgSFQoNc2NoZWR1bGVfanNvbhgHIAEoDBIYChByZXBseV9yb3V0ZV9qc29uGAggASgMEhkKEWF1dG9tYXRpb25fam9iX2lkGAkgASgJIkEKIVNjaGVkdWxlQ2hlY2tCYWNrTGF0ZXJMaXN0UmVxdWVzdBISCgVsaW1pdBgBIAEoDUgAiAEBQggKBl9saW1pdCJBCiNTY2hlZHVsZUNoZWNrQmFja0xhdGVyVGFyZ2V0UmVxdWVzdBIaChJzY2hlZHVsZWRfZXZlbnRfaWQYASABKAkioAEKI1NjaGVkdWxlQ2hlY2tCYWNrTGF0ZXJVcGRhdGVSZXF1ZXN0EhoKEnNjaGVkdWxlZF9ldmVudF9pZBgBIAEoCRIUCgx0b29sX2NhbGxfaWQYAiABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJEhQKDHVwZGF0ZXNfanNvbhgEIAEoDBIYChByZXBseV9yb3V0ZV9qc29uGAUgASgMIhkKF1NjaGVkdWxlQ3Jvbkxpc3RSZXF1ZXN0IikKGVNjaGVkdWxlQ3JvblRhcmdldFJlcXVlc3QSDAoEbmFtZRgBIAEoCSJFChdTY2hlZHVsZUNyb25SdW5zUmVxdWVzdBIMCgRuYW1lGAEgASgJEhIKBWxpbWl0GAIgASgNSACIAQFCCAoGX2xpbWl0IrQBChZTY2hlZHVsZUNyb25BZGRSZXF1ZXN0EhQKDGJpbmRpbmdfbmFtZRgBIAEoCRIMCgRuYW1lGAIgASgJEhUKDXNjaGVkdWxlX2pzb24YAyABKAwSFAoMcGF5bG9hZF9qc29uGAQgASgMEhUKDWRlbGl2ZXJ5X2pzb24YBSABKAwSFwoPaWRlbXBvdGVuY3lfa2V5GAYgASgJEhkKEWF1dG9tYXRpb25fam9iX2lkGAggASgJIj8KGVNjaGVkdWxlQ3JvblVwZGF0ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIUCgx1cGRhdGVzX2pzb24YAiABKAwiPAoWU2NoZWR1bGVDcm9uUnVuUmVxdWVzdBIMCgRuYW1lGAEgASgJEhQKDHRvb2xfY2FsbF9pZBgCIAEoCSKTAQocV2ViaG9va0VuZHBvaW50Q3JlYXRlUmVxdWVzdBINCgV0b2tlbhgBIAEoCRINCgVsYWJlbBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCmV4cGlyZXNfYXQYBCABKAkSGAoQcmVwbHlfcm91dGVfanNvbhgFIAEoDBIZChFhdXRvbWF0aW9uX2pvYl9pZBgGIAEoCSI6ChpXZWJob29rRW5kcG9pbnRMaXN0UmVxdWVzdBISCgVsaW1pdBgBIAEoDUgAiAEBQggKBl9saW1pdCI7ChxXZWJob29rRW5kcG9pbnRUYXJnZXRSZXF1ZXN0EhsKE3dlYmhvb2tfZW5kcG9pbnRfaWQYASABKAkipgEKHEFtYmllbnRKdWRnbWVudFJlY29yZFJlcXVlc3QSDgoGcmVhc29uGAIgASgJEiAKGGFza2VkX2J5X3NvdXJjZV9lbnRyeV9pZBgDIAEoCRIZChFhc2tlZF9ieV9kZWdyYWRlZBgEIAEoCBIOCgZhY3Rpb24YBSABKAkSEQoJYXV0aG9yaXR5GAYgASgJEhYKDmhhbmRvZmZfam9iX2lkGAcgASgJIjcKJVNpZ25hbENoYW5uZWxTdGFuZGluZ09yZGVyc1NldFJlcXVlc3QSDgoGb3JkZXJzGAEgASgJIlwKGkF1dG9tYXRpb25Kb2JDcmVhdGVSZXF1ZXN0EhYKDmRpcmVjdG9yeV9wYXRoGAEgASgJEg0KBWxhYmVsGAIgASgJEhcKD3dha2Vfb25fZmFpbHVyZRgDIAEoCCI4ChhBdXRvbWF0aW9uSm9iTGlzdFJlcXVlc3QSEgoFbGltaXQYASABKA1IAIgBAUIICgZfbGltaXQiUQoYQXV0b21hdGlvbkpvYlNob3dSZXF1ZXN0EhkKEWF1dG9tYXRpb25fam9iX2lkGAEgASgJEhEKBHJ1bnMYAiABKA1IAIgBAUIHCgVfcnVucyI3ChpBdXRvbWF0aW9uSm9iVGFyZ2V0UmVxdWVzdBIZChFhdXRvbWF0aW9uX2pvYl9pZBgBIAEoCSJjChhBdXRvbWF0aW9uSm9iRW1pdFJlcXVlc3QSHQoVYXV0b21hdGlvbl9qb2JfcnVuX2lkGAEgASgJEhIKCmF0dGVtcHRfaWQYAiABKAkSFAoMcGF5bG9hZF9qc29uGAMgASgMIhsKGUF1dG9tYXRpb25Kb2JFbWl0UmVzcG9uc2UingIKF0F1dG9tYXRpb25Kb2JSdW5SZXF1ZXN0Eh0KFWF1dG9tYXRpb25fam9iX3J1bl9pZBgBIAEoCRISCgphdHRlbXB0X2lkGAIgASgJEhEKCWFnZW50X3VpZBgDIAEoCRIWCg5kaXJlY3RvcnlfcGF0aBgEIAEoCRINCgVsYWJlbBgFIAEoCRISCgpldmVudF9qc29uGAYgASgMEhIKCnRpbWVvdXRfbXMYByABKA0SGQoRYXV0b21hdGlvbl9qb2JfaWQYCCABKAkSPQoGc2tpbGxzGAkgAygLMi0uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJ1bnRpbWVTa2lsbFN1bW1hcnkSFAoMYmluZGluZ19uYW1lGAogASgJIrMBChhBdXRvbWF0aW9uSm9iUnVuUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhYKCWV4aXRfY29kZRgCIAEoBUgAiAEBEg0KBWVycm9yGAMgASgJEg4KBnN0ZG91dBgEIAEoCRIOCgZzdGRlcnIYBSABKAkSGAoQc3Rkb3V0X3RydW5jYXRlZBgGIAEoCBIYChBzdGRlcnJfdHJ1bmNhdGVkGAcgASgIQgwKCl9leGl0X2NvZGUiNgohQ29kZXhMb2dzMkRhaWx5TWFpbnRlbmFuY2VSZXF1ZXN0EhEKCWFnZW50X3VpZBgBIAEoCSJLCiJDb2RleExvZ3MyRGFpbHlNYWludGVuYW5jZVJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIVCg1kZWxldGVkX2ZpbGVzGAIgAygJIu4BChdSZW5kZXJlZFdlYkZldGNoUmVxdWVzdBIMCgR1cmxzGAEgAygJElQKCndvcmtlcl9lbnYYAiADKAsyQC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUmVuZGVyZWRXZWJGZXRjaFJlcXVlc3QuV29ya2VyRW52RW50cnkSEwoLc3NyZl9maWx0ZXIYAyABKAgSGAoLaWRsZV90dGxfbXMYBCABKARIAIgBARowCg5Xb3JrZXJFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg4KDF9pZGxlX3R0bF9tcyItChhSZW5kZXJlZFdlYkZldGNoUmVzcG9uc2USEQoJYm9keV9qc29uGAEgASgMIjEKGlNraWxsT3ZlcmxheVJlc29sdmVSZXF1ZXN0EhMKC3NraWxsX25hbWVzGAEgAygJImMKFFNraWxsT3ZlcmxheVJlc3BvbnNlEhIKCnNraWxsX25hbWUYASABKAkSEwoLaGFzX292ZXJsYXkYAiABKAgSDAoEdGV4dBgDIAEoCRIUCgxjb250ZW50X2hhc2gYBCABKAkiXwobU2tpbGxPdmVybGF5UmVzb2x2ZVJlc3BvbnNlEkAKCG92ZXJsYXlzGAEgAygLMi4uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlNraWxsT3ZlcmxheVJlc3BvbnNlIq4BChlJbnN0YWxsZWRTa2lsbE9ic2VydmF0aW9uEhIKCnNraWxsX25hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSHAoPZGVmYXVsdF9lbmFibGVkGAQgASgISACIAQESDAoEdGFncxgJIAMoCRIQCghjYXRlZ29yeRgKIAEoCRIWCg5hbmtvbGVfcnVudGltZRgMIAEoCUISChBfZGVmYXVsdF9lbmFibGVkImkKHEluc3RhbGxlZFNraWxsUmVwbGFjZVJlcXVlc3QSSQoMb2JzZXJ2YXRpb25zGAEgAygLMjMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkluc3RhbGxlZFNraWxsT2JzZXJ2YXRpb24iHwodSW5zdGFsbGVkU2tpbGxSZXBsYWNlUmVzcG9uc2UiiQEKGVdvcmtlckZpbGVUcmFuc2ZlclJlcXVlc3QSEwoLdHJhbnNmZXJfaWQYASABKAkSCwoDdXJsGAIgASgJEgwKBHJvb3QYAyABKAkSFQoNcmVsYXRpdmVfcGF0aBgEIAEoCRIRCgltYXhfYnl0ZXMYBSABKAQSEgoKZXhwaXJlc19hdBgGIAEoCSJhChpXb3JrZXJGaWxlVHJhbnNmZXJSZXNwb25zZRIMCgRyb290GAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAkSDAoEc2l6ZRgDIAEoBBIQCgh4eGgzXzEyOBgEIAEoCSJkChVXb3JrZXJGaWxlTGlzdFJlcXVlc3QSDAoEcm9vdBgBIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAIgASgJEhEKCXJlY3Vyc2l2ZRgDIAEoCBITCgttYXhfZW50cmllcxgEIAEoBCJiChNXb3JrZXJGaWxlTGlzdEVudHJ5EhUKDXJlbGF0aXZlX3BhdGgYASABKAkSDAoEa2luZBgCIAEoCRIMCgRzaXplGAMgASgEEhgKEG1vZGlmaWVkX3VuaXhfbXMYBCABKAMikAEKFldvcmtlckZpbGVMaXN0UmVzcG9uc2USDAoEcm9vdBgBIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAIgASgJEhEKCXRydW5jYXRlZBgDIAEoCBI+CgdlbnRyaWVzGAQgAygLMi0uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlckZpbGVMaXN0RW50cnkibgoVV29ya2VyRmlsZU1vdmVSZXF1ZXN0EgwKBHJvb3QYASABKAkSGgoSZnJvbV9yZWxhdGl2ZV9wYXRoGAIgASgJEhgKEHRvX3JlbGF0aXZlX3BhdGgYAyABKAkSEQoJb3ZlcndyaXRlGAQgASgIIlwKFldvcmtlckZpbGVNb3ZlUmVzcG9uc2USDAoEcm9vdBgBIAEoCRIaChJmcm9tX3JlbGF0aXZlX3BhdGgYAiABKAkSGAoQdG9fcmVsYXRpdmVfcGF0aBgDIAEoCSJRChdXb3JrZXJGaWxlRGVsZXRlUmVxdWVzdBIMCgRyb290GAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAkSEQoJcmVjdXJzaXZlGAMgASgIIj8KGFdvcmtlckZpbGVEZWxldGVSZXNwb25zZRIMCgRyb290GAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAliBnByb3RvMw");
+  fileDesc("CiJhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvcnBjLnByb3RvEhhhbmtvbGUucnVudGltZV9mYWJyaWMudjEiLAoXSlNPTlBhc3N0aHJvdWdoUmVzcG9uc2USEQoJYm9keV9qc29uGAEgASgMIkwKFUFjdG9yVHVybkFib3J0UmVxdWVzdBIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSFAoMZGV0YWlsc19qc29uGAMgASgMIksKFkFjdG9yVHVybkFib3J0UmVzcG9uc2USFQoNZGVhZF9sZXR0ZXJlZBgCIAEoCBIaChJyZXRyeV9hdmFpbGFibGVfYXQYAyABKAkiGAoWQUlHYXRld2F5QVBJS2V5UmVxdWVzdCKHAQoXQUlHYXRld2F5QVBJS2V5UmVzcG9uc2USDwoHYXBpX2tleRgCIAEoCRISCgp0b2tlbl90eXBlGAMgASgJEhIKCmV4cGlyZXNfYXQYBCABKAMSEgoKZXhwaXJlc19pbhgFIAEoAxINCgVzY29wZRgGIAEoCRIQCghiYXNlX3VybBgHIAEoCSIvChdXb3JrZXJFbnZSZXNvbHZlUmVxdWVzdBIUCgxiaW5kaW5nX25hbWUYASABKAkitAMKGFdvcmtlckVudlJlc29sdmVSZXNwb25zZRJKCgR2YXJzGAEgAygLMjwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlckVudlJlc29sdmVSZXNwb25zZS5WYXJzRW50cnkSWwoNb3BlcmF0b3JfdmFycxgCIAMoCzJELmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Xb3JrZXJFbnZSZXNvbHZlUmVzcG9uc2UuT3BlcmF0b3JWYXJzRW50cnkSWQoMYmluZGluZ192YXJzGAMgAygLMkMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLldvcmtlckVudlJlc29sdmVSZXNwb25zZS5CaW5kaW5nVmFyc0VudHJ5GisKCVZhcnNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGjMKEU9wZXJhdG9yVmFyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaMgoQQmluZGluZ1ZhcnNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIjIKH09ic2VydmFiaWxpdHlTcGFuc0V4cG9ydFJlcXVlc3QSDwoHcGF5bG9hZBgBIAEoDCIiCiBPYnNlcnZhYmlsaXR5U3BhbnNFeHBvcnRSZXNwb25zZSKzAQoJRHJpdmVGaWxlEgwKBHBhdGgYASABKAkSDgoGc2hhMjU2GAIgASgJEgwKBHNpemUYAyABKAQSFAoMY29udGVudF90eXBlGAQgASgJEg4KBnNvdXJjZRgFIAEoCRIMCgRtb2RlGAYgASgNEhIKCnVwZGF0ZWRfYXQYByABKAkSGQoRc2lnbmFsX2NoYW5uZWxfaWQYCCABKAkSFwoPc291cmNlX2VudHJ5X2lkGAkgASgJIkAKEEZpbGVzTGlzdFJlcXVlc3QSDgoGcHJlZml4GAEgASgJEg0KBWxpbWl0GAIgASgNEg0KBWFmdGVyGAMgASgJIm0KEUZpbGVzTGlzdFJlc3BvbnNlEjIKBWZpbGVzGAEgAygLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkRyaXZlRmlsZRISCgpuZXh0X2FmdGVyGAIgASgJEhAKCHJldmlzaW9uGAMgASgJIjsKD0ZpbGVzR2V0UmVxdWVzdBIMCgRwYXRoGAEgASgJEhoKEmhvbWVfcmVsYXRpdmVfcGF0aBgCIAEoCSJFChBGaWxlc0dldFJlc3BvbnNlEjEKBGZpbGUYASABKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuRHJpdmVGaWxlIn8KEUZpbGVzQ29tbWl0VXBzZXJ0EgwKBHBhdGgYASABKAkSGgoSaG9tZV9yZWxhdGl2ZV9wYXRoGAIgASgJEg4KBnNoYTI1NhgDIAEoCRIUCgxjb250ZW50X3R5cGUYBCABKAkSDAoEbW9kZRgFIAEoDRIMCgRzaXplGAYgASgEImMKEkZpbGVzQ29tbWl0UmVxdWVzdBI8Cgd1cHNlcnRzGAEgAygLMisuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkZpbGVzQ29tbWl0VXBzZXJ0Eg8KB2RlbGV0ZXMYAiADKAkiWgoTRmlsZXNDb21taXRSZXNwb25zZRIyCgVmaWxlcxgBIAMoCzIjLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Ecml2ZUZpbGUSDwoHZGVsZXRlZBgCIAEoDSI9ChBDb252ZXJzYXRpb25JbmZvEhAKCHRpbWV6b25lGAQgASgJEhcKD2RyaXZlX2RpcmVjdG9yeRgFIAEoCSLAAQoTUnVudGltZVNraWxsU3VtbWFyeRISCgpza2lsbF9uYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEhMKC3NvdXJjZV9raW5kGAQgASgJEhcKD2FnZW50X3BsdWdpbl9pZBgFIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAYgASgJEhIKCnNraWxsX3Jvb3QYByABKAkSFQoNbWV0YWRhdGFfanNvbhgIIAEoDBIQCghjYXRlZ29yeRgJIAEoCSLOAwogQWdlbnRDb252ZXJzYXRpb25Db250ZXh0UmVzcG9uc2USQAoMY29udmVyc2F0aW9uGAIgASgLMiouYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkNvbnZlcnNhdGlvbkluZm8SDAoEc291bBgDIAEoCRIPCgdtaXNzaW9uGAQgASgJEg4KBmRlc2lnbhgFIAEoCRI9CgZza2lsbHMYCCADKAsyLS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUnVudGltZVNraWxsU3VtbWFyeRIeChZjb25maWRlbnRpYWxpdHlfcG9saWN5GAwgASgJEkgKDWFnZW50X3BsdWdpbnMYDiADKAsyMS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRQbHVnaW5DYXRhbG9nRW50cnkSFQoNc2tpbGxzX3Byb21wdBgPIAEoCUoECAkQCkoECAoQC0oECAsQDEoECA0QDlIRc291bF9jb250ZW50X2hhc2hSFG1pc3Npb25fY29udGVudF9oYXNoUhNkZXNpZ25fY29udGVudF9oYXNoUiNjb25maWRlbnRpYWxpdHlfcG9saWN5X2NvbnRlbnRfaGFzaCIvChdBZ2VudFBsdWdpbkNhdGFsb2dTa2lsbBIUCgxjYXRhbG9nX25hbWUYASABKAkiaAoXQWdlbnRQbHVnaW5DYXRhbG9nRW50cnkSCgoCaWQYASABKAkSQQoGc2tpbGxzGAUgAygLMjEuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50UGx1Z2luQ2F0YWxvZ1NraWxsIkUKHEJhY2tncm91bmRBZ2VudEpvYkdldFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEhUKDXJlc3VsdF9vZmZzZXQYBCABKAkixQIKI0JhY2tncm91bmRBZ2VudEpvYlR1cm5VcHNlcnRSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIPCgdhdHRlbXB0GAIgASgNEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAMgASgJEhcKD3J1bnRpbWVfdHVybl9pZBgEIAEoCRIMCgRraW5kGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIQCghyZXZpc2lvbhgHIAEoDRIXCg90cmFqZWN0b3J5X2pzb24YCCABKAwSFQoNcHJvZ3Jlc3NfanNvbhgKIAEoDBISCgp1c2FnZV9qc29uGAsgASgMEhIKCmVycm9yX2pzb24YDCABKAwSEgoKc3RhcnRlZF9hdBgNIAEoCRIUCgxjb21wbGV0ZWRfYXQYDiABKAkSFwoPdHVybl9pdGVtc19qc29uGA8gASgMIkgKJkJhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtc0xpc3RSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIOCgZjdXJzb3IYAiABKAkihwEKGkJhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAEgASgJEhcKD3J1bnRpbWVfdHVybl9pZBgCIAEoCRIQCghwb3NpdGlvbhgDIAEoDRIQCghpdGVtX2tleRgEIAEoCRIRCglpdGVtX2pzb24YBSABKAwikwEKJ0JhY2tncm91bmRBZ2VudEpvYlR1cm5JdGVtc0xpc3RSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSQwoFaXRlbXMYAiADKAsyNC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQmFja2dyb3VuZEFnZW50Sm9iVHVybkl0ZW0SEwoLbmV4dF9jdXJzb3IYAyABKAkiwwEKJUJhY2tncm91bmRBZ2VudEpvYlN0YXR1c1VwZGF0ZVJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIZChFydW50aW1lX3RocmVhZF9pZBgDIAEoCRITCgtyZXN1bHRfanNvbhgEIAEoDBISCgplcnJvcl9qc29uGAUgASgMEhUKDW1ldGFkYXRhX2pzb24YBiABKAwSHwoXYXBwbGllZF9hY3Rvcl9ldmVudF9pZHMYByADKAkiegolQmFja2dyb3VuZEFnZW50Sm9iQXR0ZW1wdEhpc3RvcnlFbnRyeRIPCgdhdHRlbXB0GAEgASgNEhUKDXR1cm5fc3RhdHVzZXMYAiADKAkSDwoHc3VtbWFyeRgDIAEoCRIYChB1c2VkX3NraWxsX25hbWVzGAQgAygJIqkDChpCYWNrZ3JvdW5kQWdlbnRKb2JSZXNwb25zZRIRCglhZ2VudF91aWQYAiABKAkSDgoGc3RhdHVzGAYgASgJEhkKEXJ1bnRpbWVfdGhyZWFkX2lkGAcgASgJEgwKBHRhc2sYCiABKAkSEAoIYXR0ZW1wdHMYDiABKA0SHQoVd29ya3NwYWNlX3RlbXBsYXRlX2lkGA8gASgJEh0KFWNvbnRpbnVlZF9mcm9tX2pvYl9pZBgQIAEoCRIeChZ3b3Jrc3BhY2Vfb3duZXJfam9iX2lkGBEgASgJEhUKDW1ldGFkYXRhX2pzb24YGSABKAwSWAoPYXR0ZW1wdF9oaXN0b3J5GBsgAygLMj8uYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYkF0dGVtcHRIaXN0b3J5RW50cnkSHwoXcnVudGltZV9wcm9qZWN0aW9uX2pzb24YHSABKAwSGgoScmVzdWx0X291dHB1dF90ZXh0GB8gASgJEiEKGXJlc3VsdF9vdXRwdXRfdG90YWxfYnl0ZXMYICABKAkixAIKFkJhY2tncm91bmRBZ2VudEpvYlR1cm4SCgoCaWQYASABKAkSDwoHYXR0ZW1wdBgCIAEoDRIZChFydW50aW1lX3RocmVhZF9pZBgDIAEoCRIXCg9ydW50aW1lX3R1cm5faWQYBCABKAkSDAoEa2luZBgFIAEoCRIOCgZzdGF0dXMYBiABKAkSEAoIcmV2aXNpb24YByABKA0SFwoPdHJhamVjdG9yeV9qc29uGAggASgMEhUKDXByb2dyZXNzX2pzb24YCSABKAwSEgoKdXNhZ2VfanNvbhgKIAEoDBISCgplcnJvcl9qc29uGAsgASgMEhIKCnN0YXJ0ZWRfYXQYDCABKAkSFAoMY29tcGxldGVkX2F0GA0gASgJEhMKC2luc2VydGVkX2F0GA4gASgJEhIKCnVwZGF0ZWRfYXQYDyABKAkidgokQmFja2dyb3VuZEFnZW50Sm9iVHVyblVwc2VydFJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRI+CgR0dXJuGAIgASgLMjAuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkJhY2tncm91bmRBZ2VudEpvYlR1cm4idgocV2ViaG9va0VuZHBvaW50Q3JlYXRlUmVxdWVzdBINCgVsYWJlbBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCmV4cGlyZXNfYXQYBCABKAkSGQoRYXV0b21hdGlvbl9qb2JfaWQYBiABKAlKBAgBEAJKBAgFEAYiOgoaV2ViaG9va0VuZHBvaW50TGlzdFJlcXVlc3QSEgoFbGltaXQYASABKA1IAIgBAUIICgZfbGltaXQiOwocV2ViaG9va0VuZHBvaW50VGFyZ2V0UmVxdWVzdBIbChN3ZWJob29rX2VuZHBvaW50X2lkGAEgASgJInAKGkF1dG9tYXRpb25Kb2JDcmVhdGVSZXF1ZXN0Eg0KBWxhYmVsGAIgASgJEhcKD3dha2Vfb25fZmFpbHVyZRgDIAEoCBIUCgxkcml2ZV9wcmVmaXgYBCABKAlKBAgBEAJSDmRpcmVjdG9yeV9wYXRoIjgKGEF1dG9tYXRpb25Kb2JMaXN0UmVxdWVzdBISCgVsaW1pdBgBIAEoDUgAiAEBQggKBl9saW1pdCJRChhBdXRvbWF0aW9uSm9iU2hvd1JlcXVlc3QSGQoRYXV0b21hdGlvbl9qb2JfaWQYASABKAkSEQoEcnVucxgCIAEoDUgAiAEBQgcKBV9ydW5zIjcKGkF1dG9tYXRpb25Kb2JUYXJnZXRSZXF1ZXN0EhkKEWF1dG9tYXRpb25fam9iX2lkGAEgASgJImMKGEF1dG9tYXRpb25Kb2JFbWl0UmVxdWVzdBIdChVhdXRvbWF0aW9uX2pvYl9ydW5faWQYASABKAkSEgoKYXR0ZW1wdF9pZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwiGwoZQXV0b21hdGlvbkpvYkVtaXRSZXNwb25zZSKfAgoXQXV0b21hdGlvbkpvYlJ1blJlcXVlc3QSHQoVYXV0b21hdGlvbl9qb2JfcnVuX2lkGAEgASgJEhIKCmF0dGVtcHRfaWQYAiABKAkSDQoFbGFiZWwYBSABKAkSEgoKZXZlbnRfanNvbhgGIAEoDBISCgp0aW1lb3V0X21zGAcgASgNEhkKEWF1dG9tYXRpb25fam9iX2lkGAggASgJEj0KBnNraWxscxgJIAMoCzItLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SdW50aW1lU2tpbGxTdW1tYXJ5EhQKDGJpbmRpbmdfbmFtZRgKIAEoCRIUCgxkcml2ZV9wcmVmaXgYCyABKAlKBAgEEAVSDmRpcmVjdG9yeV9wYXRoIrMBChhBdXRvbWF0aW9uSm9iUnVuUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhYKCWV4aXRfY29kZRgCIAEoBUgAiAEBEg0KBWVycm9yGAMgASgJEg4KBnN0ZG91dBgEIAEoCRIOCgZzdGRlcnIYBSABKAkSGAoQc3Rkb3V0X3RydW5jYXRlZBgGIAEoCBIYChBzdGRlcnJfdHJ1bmNhdGVkGAcgASgIQgwKCl9leGl0X2NvZGUiMQoaU2tpbGxPdmVybGF5UmVzb2x2ZVJlcXVlc3QSEwoLc2tpbGxfbmFtZXMYASADKAkiYwoUU2tpbGxPdmVybGF5UmVzcG9uc2USEgoKc2tpbGxfbmFtZRgBIAEoCRITCgtoYXNfb3ZlcmxheRgCIAEoCBIMCgR0ZXh0GAMgASgJEhQKDGNvbnRlbnRfaGFzaBgEIAEoCSJfChtTa2lsbE92ZXJsYXlSZXNvbHZlUmVzcG9uc2USQAoIb3ZlcmxheXMYASADKAsyLi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuU2tpbGxPdmVybGF5UmVzcG9uc2UiogEKGVdvcmtlckZpbGVUcmFuc2ZlclJlcXVlc3QSEwoLdHJhbnNmZXJfaWQYASABKAkSCwoDdXJsGAIgASgJEhoKEmhvbWVfcmVsYXRpdmVfcGF0aBgEIAEoCRIRCgltYXhfYnl0ZXMYBSABKAQSEgoKZXhwaXJlc19hdBgGIAEoCRIUCgxidW5kbGVfcGF0aHMYByADKAlKBAgDEARSBHJvb3QiWwoaV29ya2VyRmlsZVRyYW5zZmVyUmVzcG9uc2USDAoEc2l6ZRgDIAEoBEoECAEQAkoECAIQA0oECAQQBVIEcm9vdFINcmVsYXRpdmVfcGF0aFIIeHhoM18xMjhiBnByb3RvMw");
 
 /**
  * Response family whose body is model-facing JSON owned by the Elixir
@@ -32,113 +32,6 @@ export type JSONPassthroughResponse = Message<"ankole.runtime_fabric.v1.JSONPass
  */
 export const JSONPassthroughResponseSchema: GenMessage<JSONPassthroughResponse> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_rpc, 0);
-
-/**
- * Completion is a terminal write. The turn fence stays on the RPC frame so a
- * retry can carry the same durable completion anchor with a new request id.
- *
- * @generated from message ankole.runtime_fabric.v1.ActorTurnCompleteRequest
- */
-export type ActorTurnCompleteRequest = Message<"ankole.runtime_fabric.v1.ActorTurnCompleteRequest"> & {
-  /**
-   * @generated from field: string final_response_id = 1;
-   */
-  finalResponseId: string;
-
-  /**
-   * loop_finished | iteration_exhausted
-   *
-   * @generated from field: string outcome = 2;
-   */
-  outcome: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ActorTurnCompleteRequest.
- * Use `create(ActorTurnCompleteRequestSchema)` to create a new message.
- */
-export const ActorTurnCompleteRequestSchema: GenMessage<ActorTurnCompleteRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 1);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ActorTurnCompleteResponse
- */
-export type ActorTurnCompleteResponse = Message<"ankole.runtime_fabric.v1.ActorTurnCompleteResponse"> & {
-  /**
-   * turn_completed | turn_canceled | already_completed
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
-   * @generated from field: string final_response_id = 2;
-   */
-  finalResponseId: string;
-
-  /**
-   * @generated from field: string outcome = 3;
-   */
-  outcome: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ActorTurnCompleteResponse.
- * Use `create(ActorTurnCompleteResponseSchema)` to create a new message.
- */
-export const ActorTurnCompleteResponseSchema: GenMessage<ActorTurnCompleteResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 2);
-
-/**
- * A no-op consumes the applied input prefix without provider-visible output.
- * It commits through the same completion transaction with outcome `silent`.
- * `final_response_id` names the adopted Response when the worker ran a model
- * loop; it is empty when the turn produced no gateway Response.
- *
- * @generated from message ankole.runtime_fabric.v1.ActorTurnNoopRequest
- */
-export type ActorTurnNoopRequest = Message<"ankole.runtime_fabric.v1.ActorTurnNoopRequest"> & {
-  /**
-   * @generated from field: string reason = 1;
-   */
-  reason: string;
-
-  /**
-   * @generated from field: string final_response_id = 2;
-   */
-  finalResponseId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ActorTurnNoopRequest.
- * Use `create(ActorTurnNoopRequestSchema)` to create a new message.
- */
-export const ActorTurnNoopRequestSchema: GenMessage<ActorTurnNoopRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 3);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ActorTurnNoopResponse
- */
-export type ActorTurnNoopResponse = Message<"ankole.runtime_fabric.v1.ActorTurnNoopResponse"> & {
-  /**
-   * turn_completed | turn_canceled | already_completed
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
-   * @generated from field: string reason = 2;
-   */
-  reason: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ActorTurnNoopResponse.
- * Use `create(ActorTurnNoopResponseSchema)` to create a new message.
- */
-export const ActorTurnNoopResponseSchema: GenMessage<ActorTurnNoopResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 4);
 
 /**
  * An abort ends one worker attempt without consuming any ActorEvent input.
@@ -167,19 +60,12 @@ export type ActorTurnAbortRequest = Message<"ankole.runtime_fabric.v1.ActorTurnA
  * Use `create(ActorTurnAbortRequestSchema)` to create a new message.
  */
 export const ActorTurnAbortRequestSchema: GenMessage<ActorTurnAbortRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 5);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 1);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ActorTurnAbortResponse
  */
 export type ActorTurnAbortResponse = Message<"ankole.runtime_fabric.v1.ActorTurnAbortResponse"> & {
-  /**
-   * turn_failed | turn_dead_lettered | already_aborted
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
   /**
    * @generated from field: bool dead_lettered = 2;
    */
@@ -196,7 +82,7 @@ export type ActorTurnAbortResponse = Message<"ankole.runtime_fabric.v1.ActorTurn
  * Use `create(ActorTurnAbortResponseSchema)` to create a new message.
  */
 export const ActorTurnAbortResponseSchema: GenMessage<ActorTurnAbortResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 6);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 2);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AIGatewayAPIKeyRequest
@@ -209,20 +95,12 @@ export type AIGatewayAPIKeyRequest = Message<"ankole.runtime_fabric.v1.AIGateway
  * Use `create(AIGatewayAPIKeyRequestSchema)` to create a new message.
  */
 export const AIGatewayAPIKeyRequestSchema: GenMessage<AIGatewayAPIKeyRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 7);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 3);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AIGatewayAPIKeyResponse
  */
 export type AIGatewayAPIKeyResponse = Message<"ankole.runtime_fabric.v1.AIGatewayAPIKeyResponse"> & {
-  /**
-   * Subject echo consumed by the worker to verify a cached or refreshed key
-   * still belongs to this turn's agent.
-   *
-   * @generated from field: string agent_uid = 1;
-   */
-  agentUid: string;
-
   /**
    * @generated from field: string api_key = 2;
    */
@@ -261,65 +139,7 @@ export type AIGatewayAPIKeyResponse = Message<"ankole.runtime_fabric.v1.AIGatewa
  * Use `create(AIGatewayAPIKeyResponseSchema)` to create a new message.
  */
 export const AIGatewayAPIKeyResponseSchema: GenMessage<AIGatewayAPIKeyResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 8);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.AppConfigureResolveRequest
- */
-export type AppConfigureResolveRequest = Message<"ankole.runtime_fabric.v1.AppConfigureResolveRequest"> & {
-  /**
-   * @generated from field: repeated string keys = 1;
-   */
-  keys: string[];
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AppConfigureResolveRequest.
- * Use `create(AppConfigureResolveRequestSchema)` to create a new message.
- */
-export const AppConfigureResolveRequestSchema: GenMessage<AppConfigureResolveRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 9);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.AppConfigureResolution
- */
-export type AppConfigureResolution = Message<"ankole.runtime_fabric.v1.AppConfigureResolution"> & {
-  /**
-   * @generated from field: bytes value_json = 1;
-   */
-  valueJson: Uint8Array;
-
-  /**
-   * agent | global | default
-   *
-   * @generated from field: string source = 2;
-   */
-  source: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AppConfigureResolution.
- * Use `create(AppConfigureResolutionSchema)` to create a new message.
- */
-export const AppConfigureResolutionSchema: GenMessage<AppConfigureResolution> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 10);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.AppConfigureResolveResponse
- */
-export type AppConfigureResolveResponse = Message<"ankole.runtime_fabric.v1.AppConfigureResolveResponse"> & {
-  /**
-   * @generated from field: map<string, ankole.runtime_fabric.v1.AppConfigureResolution> values = 1;
-   */
-  values: { [key: string]: AppConfigureResolution };
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AppConfigureResolveResponse.
- * Use `create(AppConfigureResolveResponseSchema)` to create a new message.
- */
-export const AppConfigureResolveResponseSchema: GenMessage<AppConfigureResolveResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 11);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 4);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerEnvResolveRequest
@@ -336,7 +156,7 @@ export type WorkerEnvResolveRequest = Message<"ankole.runtime_fabric.v1.WorkerEn
  * Use `create(WorkerEnvResolveRequestSchema)` to create a new message.
  */
 export const WorkerEnvResolveRequestSchema: GenMessage<WorkerEnvResolveRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 12);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 5);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerEnvResolveResponse
@@ -363,7 +183,7 @@ export type WorkerEnvResolveResponse = Message<"ankole.runtime_fabric.v1.WorkerE
  * Use `create(WorkerEnvResolveResponseSchema)` to create a new message.
  */
 export const WorkerEnvResolveResponseSchema: GenMessage<WorkerEnvResolveResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 13);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 6);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ObservabilitySpansExportRequest
@@ -380,7 +200,7 @@ export type ObservabilitySpansExportRequest = Message<"ankole.runtime_fabric.v1.
  * Use `create(ObservabilitySpansExportRequestSchema)` to create a new message.
  */
 export const ObservabilitySpansExportRequestSchema: GenMessage<ObservabilitySpansExportRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 14);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 7);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ObservabilitySpansExportResponse
@@ -393,98 +213,273 @@ export type ObservabilitySpansExportResponse = Message<"ankole.runtime_fabric.v1
  * Use `create(ObservabilitySpansExportResponseSchema)` to create a new message.
  */
 export const ObservabilitySpansExportResponseSchema: GenMessage<ObservabilitySpansExportResponse> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 8);
+
+/**
+ * Drive files of the Agent. A drive path is relative and uses `/`.
+ * `home_relative_path` names a file in the calling Worker's Agent Home; the
+ * control plane moves its bytes over the WorkerFiles relay of that Worker.
+ *
+ * @generated from message ankole.runtime_fabric.v1.DriveFile
+ */
+export type DriveFile = Message<"ankole.runtime_fabric.v1.DriveFile"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string sha256 = 2;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: uint64 size = 3;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string content_type = 4;
+   */
+  contentType: string;
+
+  /**
+   * inbound | generated | sent | agent | console
+   *
+   * @generated from field: string source = 5;
+   */
+  source: string;
+
+  /**
+   * @generated from field: uint32 mode = 6;
+   */
+  mode: number;
+
+  /**
+   * @generated from field: string updated_at = 7;
+   */
+  updatedAt: string;
+
+  /**
+   * @generated from field: string signal_channel_id = 8;
+   */
+  signalChannelId: string;
+
+  /**
+   * @generated from field: string source_entry_id = 9;
+   */
+  sourceEntryId: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.DriveFile.
+ * Use `create(DriveFileSchema)` to create a new message.
+ */
+export const DriveFileSchema: GenMessage<DriveFile> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 9);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.FilesListRequest
+ */
+export type FilesListRequest = Message<"ankole.runtime_fabric.v1.FilesListRequest"> & {
+  /**
+   * @generated from field: string prefix = 1;
+   */
+  prefix: string;
+
+  /**
+   * @generated from field: uint32 limit = 2;
+   */
+  limit: number;
+
+  /**
+   * @generated from field: string after = 3;
+   */
+  after: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesListRequest.
+ * Use `create(FilesListRequestSchema)` to create a new message.
+ */
+export const FilesListRequestSchema: GenMessage<FilesListRequest> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 10);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.FilesListResponse
+ */
+export type FilesListResponse = Message<"ankole.runtime_fabric.v1.FilesListResponse"> & {
+  /**
+   * @generated from field: repeated ankole.runtime_fabric.v1.DriveFile files = 1;
+   */
+  files: DriveFile[];
+
+  /**
+   * @generated from field: string next_after = 2;
+   */
+  nextAfter: string;
+
+  /**
+   * Digest of the complete folder path, content, and mode manifest.
+   *
+   * @generated from field: string revision = 3;
+   */
+  revision: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesListResponse.
+ * Use `create(FilesListResponseSchema)` to create a new message.
+ */
+export const FilesListResponseSchema: GenMessage<FilesListResponse> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 11);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.FilesGetRequest
+ */
+export type FilesGetRequest = Message<"ankole.runtime_fabric.v1.FilesGetRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string home_relative_path = 2;
+   */
+  homeRelativePath: string;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesGetRequest.
+ * Use `create(FilesGetRequestSchema)` to create a new message.
+ */
+export const FilesGetRequestSchema: GenMessage<FilesGetRequest> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 12);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.FilesGetResponse
+ */
+export type FilesGetResponse = Message<"ankole.runtime_fabric.v1.FilesGetResponse"> & {
+  /**
+   * @generated from field: ankole.runtime_fabric.v1.DriveFile file = 1;
+   */
+  file?: DriveFile | undefined;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesGetResponse.
+ * Use `create(FilesGetResponseSchema)` to create a new message.
+ */
+export const FilesGetResponseSchema: GenMessage<FilesGetResponse> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 13);
+
+/**
+ * One file to name at `path`. The control plane pulls `home_relative_path`
+ * unless the Agent's drive already holds the content named by `sha256`.
+ *
+ * @generated from message ankole.runtime_fabric.v1.FilesCommitUpsert
+ */
+export type FilesCommitUpsert = Message<"ankole.runtime_fabric.v1.FilesCommitUpsert"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string home_relative_path = 2;
+   */
+  homeRelativePath: string;
+
+  /**
+   * @generated from field: string sha256 = 3;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: string content_type = 4;
+   */
+  contentType: string;
+
+  /**
+   * @generated from field: uint32 mode = 5;
+   */
+  mode: number;
+
+  /**
+   * Size of the local file; the control plane groups transfers by it and
+   * checks the bytes it receives.
+   *
+   * @generated from field: uint64 size = 6;
+   */
+  size: bigint;
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesCommitUpsert.
+ * Use `create(FilesCommitUpsertSchema)` to create a new message.
+ */
+export const FilesCommitUpsertSchema: GenMessage<FilesCommitUpsert> = /*@__PURE__*/
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 14);
+
+/**
+ * @generated from message ankole.runtime_fabric.v1.FilesCommitRequest
+ */
+export type FilesCommitRequest = Message<"ankole.runtime_fabric.v1.FilesCommitRequest"> & {
+  /**
+   * @generated from field: repeated ankole.runtime_fabric.v1.FilesCommitUpsert upserts = 1;
+   */
+  upserts: FilesCommitUpsert[];
+
+  /**
+   * Each delete removes the path and every path under it.
+   *
+   * @generated from field: repeated string deletes = 2;
+   */
+  deletes: string[];
+};
+
+/**
+ * Describes the message ankole.runtime_fabric.v1.FilesCommitRequest.
+ * Use `create(FilesCommitRequestSchema)` to create a new message.
+ */
+export const FilesCommitRequestSchema: GenMessage<FilesCommitRequest> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_rpc, 15);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.AgentConversationContextRequest
+ * @generated from message ankole.runtime_fabric.v1.FilesCommitResponse
  */
-export type AgentConversationContextRequest = Message<"ankole.runtime_fabric.v1.AgentConversationContextRequest"> & {
+export type FilesCommitResponse = Message<"ankole.runtime_fabric.v1.FilesCommitResponse"> & {
+  /**
+   * @generated from field: repeated ankole.runtime_fabric.v1.DriveFile files = 1;
+   */
+  files: DriveFile[];
+
+  /**
+   * @generated from field: uint32 deleted = 2;
+   */
+  deleted: number;
 };
 
 /**
- * Describes the message ankole.runtime_fabric.v1.AgentConversationContextRequest.
- * Use `create(AgentConversationContextRequestSchema)` to create a new message.
+ * Describes the message ankole.runtime_fabric.v1.FilesCommitResponse.
+ * Use `create(FilesCommitResponseSchema)` to create a new message.
  */
-export const AgentConversationContextRequestSchema: GenMessage<AgentConversationContextRequest> = /*@__PURE__*/
+export const FilesCommitResponseSchema: GenMessage<FilesCommitResponse> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_rpc, 16);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.AgentProfile
- */
-export type AgentProfile = Message<"ankole.runtime_fabric.v1.AgentProfile"> & {
-  /**
-   * @generated from field: string display_name = 1;
-   */
-  displayName: string;
-
-  /**
-   * @generated from field: string role = 2;
-   */
-  role: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AgentProfile.
- * Use `create(AgentProfileSchema)` to create a new message.
- */
-export const AgentProfileSchema: GenMessage<AgentProfile> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 17);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ConversationChannel
- */
-export type ConversationChannel = Message<"ankole.runtime_fabric.v1.ConversationChannel"> & {
-  /**
-   * @generated from field: string adapter = 1;
-   */
-  adapter: string;
-
-  /**
-   * @generated from field: string kind = 2;
-   */
-  kind: string;
-
-  /**
-   * @generated from field: string label = 3;
-   */
-  label: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ConversationChannel.
- * Use `create(ConversationChannelSchema)` to create a new message.
- */
-export const ConversationChannelSchema: GenMessage<ConversationChannel> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 18);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ConversationInfo
  */
 export type ConversationInfo = Message<"ankole.runtime_fabric.v1.ConversationInfo"> & {
   /**
-   * @generated from field: string id = 1;
-   */
-  id: string;
-
-  /**
-   * @generated from field: string key = 2;
-   */
-  key: string;
-
-  /**
-   * @generated from field: string started_at = 3;
-   */
-  startedAt: string;
-
-  /**
    * @generated from field: string timezone = 4;
    */
   timezone: string;
 
   /**
-   * @generated from field: ankole.runtime_fabric.v1.ConversationChannel origin_channel = 5;
+   * @generated from field: string drive_directory = 5;
    */
-  originChannel?: ConversationChannel | undefined;
+  driveDirectory: string;
 };
 
 /**
@@ -492,7 +487,7 @@ export type ConversationInfo = Message<"ankole.runtime_fabric.v1.ConversationInf
  * Use `create(ConversationInfoSchema)` to create a new message.
  */
 export const ConversationInfoSchema: GenMessage<ConversationInfo> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 19);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 17);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RuntimeSkillSummary
@@ -548,17 +543,12 @@ export type RuntimeSkillSummary = Message<"ankole.runtime_fabric.v1.RuntimeSkill
  * Use `create(RuntimeSkillSummarySchema)` to create a new message.
  */
 export const RuntimeSkillSummarySchema: GenMessage<RuntimeSkillSummary> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 20);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 18);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentConversationContextResponse
  */
 export type AgentConversationContextResponse = Message<"ankole.runtime_fabric.v1.AgentConversationContextResponse"> & {
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.AgentProfile agent = 1;
-   */
-  agent?: AgentProfile | undefined;
-
   /**
    * @generated from field: ankole.runtime_fabric.v1.ConversationInfo conversation = 2;
    */
@@ -585,34 +575,21 @@ export type AgentConversationContextResponse = Message<"ankole.runtime_fabric.v1
   skills: RuntimeSkillSummary[];
 
   /**
-   * @generated from field: string soul_content_hash = 9;
-   */
-  soulContentHash: string;
-
-  /**
-   * @generated from field: string mission_content_hash = 10;
-   */
-  missionContentHash: string;
-
-  /**
-   * @generated from field: string design_content_hash = 11;
-   */
-  designContentHash: string;
-
-  /**
    * @generated from field: string confidentiality_policy = 12;
    */
   confidentialityPolicy: string;
 
   /**
-   * @generated from field: string confidentiality_policy_content_hash = 13;
-   */
-  confidentialityPolicyContentHash: string;
-
-  /**
    * @generated from field: repeated ankole.runtime_fabric.v1.AgentPluginCatalogEntry agent_plugins = 14;
    */
   agentPlugins: AgentPluginCatalogEntry[];
+
+  /**
+   * The rendered Skill index of a Job turn; empty for a workspace context.
+   *
+   * @generated from field: string skills_prompt = 15;
+   */
+  skillsPrompt: string;
 };
 
 /**
@@ -620,7 +597,7 @@ export type AgentConversationContextResponse = Message<"ankole.runtime_fabric.v1
  * Use `create(AgentConversationContextResponseSchema)` to create a new message.
  */
 export const AgentConversationContextResponseSchema: GenMessage<AgentConversationContextResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 21);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 19);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentPluginCatalogSkill
@@ -637,7 +614,7 @@ export type AgentPluginCatalogSkill = Message<"ankole.runtime_fabric.v1.AgentPlu
  * Use `create(AgentPluginCatalogSkillSchema)` to create a new message.
  */
 export const AgentPluginCatalogSkillSchema: GenMessage<AgentPluginCatalogSkill> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 22);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 20);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AgentPluginCatalogEntry
@@ -649,19 +626,9 @@ export type AgentPluginCatalogEntry = Message<"ankole.runtime_fabric.v1.AgentPlu
   id: string;
 
   /**
-   * @generated from field: string description = 2;
-   */
-  description: string;
-
-  /**
    * @generated from field: repeated ankole.runtime_fabric.v1.AgentPluginCatalogSkill skills = 5;
    */
   skills: AgentPluginCatalogSkill[];
-
-  /**
-   * @generated from field: bool has_workspace_template = 6;
-   */
-  hasWorkspaceTemplate: boolean;
 };
 
 /**
@@ -669,93 +636,7 @@ export type AgentPluginCatalogEntry = Message<"ankole.runtime_fabric.v1.AgentPlu
  * Use `create(AgentPluginCatalogEntrySchema)` to create a new message.
  */
 export const AgentPluginCatalogEntrySchema: GenMessage<AgentPluginCatalogEntry> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 23);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobCreateRequest
- */
-export type BackgroundAgentJobCreateRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobCreateRequest"> & {
-  /**
-   * @generated from field: string source_tool_call_id = 1;
-   */
-  sourceToolCallId: string;
-
-  /**
-   * @generated from field: string title = 2;
-   */
-  title: string;
-
-  /**
-   * @generated from field: string task = 3;
-   */
-  task: string;
-
-  /**
-   * @generated from field: string workspace_template_id = 6;
-   */
-  workspaceTemplateId: string;
-
-  /**
-   * @generated from field: string model_profile = 11;
-   */
-  modelProfile: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobCreateRequest.
- * Use `create(BackgroundAgentJobCreateRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobCreateRequestSchema: GenMessage<BackgroundAgentJobCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 24);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobRespawnRequest
- */
-export type BackgroundAgentJobRespawnRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobRespawnRequest"> & {
-  /**
-   * @generated from field: string source_job_id = 1;
-   */
-  sourceJobId: string;
-
-  /**
-   * @generated from field: string message = 2;
-   */
-  message: string;
-
-  /**
-   * @generated from field: string source_tool_call_id = 3;
-   */
-  sourceToolCallId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobRespawnRequest.
- * Use `create(BackgroundAgentJobRespawnRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobRespawnRequestSchema: GenMessage<BackgroundAgentJobRespawnRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 25);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobRespawnResponse
- */
-export type BackgroundAgentJobRespawnResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobRespawnResponse"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobRespawnResponse.
- * Use `create(BackgroundAgentJobRespawnResponseSchema)` to create a new message.
- */
-export const BackgroundAgentJobRespawnResponseSchema: GenMessage<BackgroundAgentJobRespawnResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 26);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 21);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobGetRequest
@@ -765,16 +646,6 @@ export type BackgroundAgentJobGetRequest = Message<"ankole.runtime_fabric.v1.Bac
    * @generated from field: string job_id = 1;
    */
   jobId: string;
-
-  /**
-   * @generated from field: optional uint32 trajectory_limit = 2;
-   */
-  trajectoryLimit?: number | undefined;
-
-  /**
-   * @generated from field: string trajectory_cursor = 3;
-   */
-  trajectoryCursor: string;
 
   /**
    * UTF-8 byte offset; empty omits the result window
@@ -789,188 +660,7 @@ export type BackgroundAgentJobGetRequest = Message<"ankole.runtime_fabric.v1.Bac
  * Use `create(BackgroundAgentJobGetRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobGetRequestSchema: GenMessage<BackgroundAgentJobGetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 27);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobListRequest
- */
-export type BackgroundAgentJobListRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobListRequest"> & {
-  /**
-   * live | stop; empty means live
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
-   * @generated from field: string cursor = 2;
-   */
-  cursor: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobListRequest.
- * Use `create(BackgroundAgentJobListRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobListRequestSchema: GenMessage<BackgroundAgentJobListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 28);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendRequest
- */
-export type BackgroundAgentJobMessageSendRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendRequest"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string message = 2;
-   */
-  message: string;
-
-  /**
-   * @generated from field: string source_tool_call_id = 3;
-   */
-  sourceToolCallId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendRequest.
- * Use `create(BackgroundAgentJobMessageSendRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobMessageSendRequestSchema: GenMessage<BackgroundAgentJobMessageSendRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 29);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendResponse
- */
-export type BackgroundAgentJobMessageSendResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendResponse"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-
-  /**
-   * @generated from field: string command_event_id = 3;
-   */
-  commandEventId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendResponse.
- * Use `create(BackgroundAgentJobMessageSendResponseSchema)` to create a new message.
- */
-export const BackgroundAgentJobMessageSendResponseSchema: GenMessage<BackgroundAgentJobMessageSendResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 30);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultRequest
- */
-export type BackgroundAgentJobMessageResultRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultRequest"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string command_event_id = 2;
-   */
-  commandEventId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultRequest.
- * Use `create(BackgroundAgentJobMessageResultRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobMessageResultRequestSchema: GenMessage<BackgroundAgentJobMessageResultRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 31);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultResponse
- */
-export type BackgroundAgentJobMessageResultResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultResponse"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-
-  /**
-   * @generated from field: bool ready = 3;
-   */
-  ready: boolean;
-
-  /**
-   * @generated from field: bytes last_turn_trajectory_json = 4;
-   */
-  lastTurnTrajectoryJson: Uint8Array;
-
-  /**
-   * @generated from field: bool earlier_trajectory_omitted = 5;
-   */
-  earlierTrajectoryOmitted: boolean;
-
-  /**
-   * @generated from field: string lifecycle_actor_event_id = 6;
-   */
-  lifecycleActorEventId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultResponse.
- * Use `create(BackgroundAgentJobMessageResultResponseSchema)` to create a new message.
- */
-export const BackgroundAgentJobMessageResultResponseSchema: GenMessage<BackgroundAgentJobMessageResultResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 32);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobStopRequest
- */
-export type BackgroundAgentJobStopRequest = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobStopRequest"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobStopRequest.
- * Use `create(BackgroundAgentJobStopRequestSchema)` to create a new message.
- */
-export const BackgroundAgentJobStopRequestSchema: GenMessage<BackgroundAgentJobStopRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 33);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobStopResponse
- */
-export type BackgroundAgentJobStopResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobStopResponse"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobStopResponse.
- * Use `create(BackgroundAgentJobStopResponseSchema)` to create a new message.
- */
-export const BackgroundAgentJobStopResponseSchema: GenMessage<BackgroundAgentJobStopResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 34);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 22);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertRequest
@@ -1060,7 +750,7 @@ export type BackgroundAgentJobTurnUpsertRequest = Message<"ankole.runtime_fabric
  * Use `create(BackgroundAgentJobTurnUpsertRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnUpsertRequestSchema: GenMessage<BackgroundAgentJobTurnUpsertRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 35);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 23);
 
 /**
  * Pages the stored lead-thread turn items of one Job's workspace lineage in
@@ -1086,7 +776,7 @@ export type BackgroundAgentJobTurnItemsListRequest = Message<"ankole.runtime_fab
  * Use `create(BackgroundAgentJobTurnItemsListRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemsListRequestSchema: GenMessage<BackgroundAgentJobTurnItemsListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 36);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 24);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnItem
@@ -1123,7 +813,7 @@ export type BackgroundAgentJobTurnItem = Message<"ankole.runtime_fabric.v1.Backg
  * Use `create(BackgroundAgentJobTurnItemSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemSchema: GenMessage<BackgroundAgentJobTurnItem> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 37);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 25);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListResponse
@@ -1150,7 +840,7 @@ export type BackgroundAgentJobTurnItemsListResponse = Message<"ankole.runtime_fa
  * Use `create(BackgroundAgentJobTurnItemsListResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnItemsListResponseSchema: GenMessage<BackgroundAgentJobTurnItemsListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 38);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 26);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobStatusUpdateRequest
@@ -1187,6 +877,11 @@ export type BackgroundAgentJobStatusUpdateRequest = Message<"ankole.runtime_fabr
    * @generated from field: bytes metadata_json = 6;
    */
   metadataJson: Uint8Array;
+
+  /**
+   * @generated from field: repeated string applied_actor_event_ids = 7;
+   */
+  appliedActorEventIds: string[];
 };
 
 /**
@@ -1194,7 +889,7 @@ export type BackgroundAgentJobStatusUpdateRequest = Message<"ankole.runtime_fabr
  * Use `create(BackgroundAgentJobStatusUpdateRequestSchema)` to create a new message.
  */
 export const BackgroundAgentJobStatusUpdateRequestSchema: GenMessage<BackgroundAgentJobStatusUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 39);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 27);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobAttemptHistoryEntry
@@ -1226,60 +921,16 @@ export type BackgroundAgentJobAttemptHistoryEntry = Message<"ankole.runtime_fabr
  * Use `create(BackgroundAgentJobAttemptHistoryEntrySchema)` to create a new message.
  */
 export const BackgroundAgentJobAttemptHistoryEntrySchema: GenMessage<BackgroundAgentJobAttemptHistoryEntry> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 40);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobResultRef
- */
-export type BackgroundAgentJobResultRef = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobResultRef"> & {
-  /**
-   * background_agent_job
-   *
-   * @generated from field: string type = 1;
-   */
-  type: string;
-
-  /**
-   * @generated from field: string job_id = 2;
-   */
-  jobId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobResultRef.
- * Use `create(BackgroundAgentJobResultRefSchema)` to create a new message.
- */
-export const BackgroundAgentJobResultRefSchema: GenMessage<BackgroundAgentJobResultRef> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 41);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 28);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobResponse
  */
 export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobResponse"> & {
   /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
    * @generated from field: string agent_uid = 2;
    */
   agentUid: string;
-
-  /**
-   * @generated from field: string owner_session_id = 3;
-   */
-  ownerSessionId: string;
-
-  /**
-   * @generated from field: string source_actor_event_id = 4;
-   */
-  sourceActorEventId: string;
-
-  /**
-   * @generated from field: string source_tool_call_id = 5;
-   */
-  sourceToolCallId: string;
 
   /**
    * @generated from field: string status = 6;
@@ -1292,19 +943,9 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
   runtimeThreadId: string;
 
   /**
-   * @generated from field: string title = 9;
-   */
-  title: string;
-
-  /**
    * @generated from field: string task = 10;
    */
   task: string;
-
-  /**
-   * @generated from field: bytes reply_route_json = 13;
-   */
-  replyRouteJson: Uint8Array;
 
   /**
    * @generated from field: uint32 attempts = 14;
@@ -1327,26 +968,6 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
   workspaceOwnerJobId: string;
 
   /**
-   * @generated from field: string queued_at = 20;
-   */
-  queuedAt: string;
-
-  /**
-   * @generated from field: string started_at = 21;
-   */
-  startedAt: string;
-
-  /**
-   * @generated from field: string completed_at = 22;
-   */
-  completedAt: string;
-
-  /**
-   * @generated from field: bytes error_json = 24;
-   */
-  errorJson: Uint8Array;
-
-  /**
    * @generated from field: bytes metadata_json = 25;
    */
   metadataJson: Uint8Array;
@@ -1354,29 +975,14 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
   /**
    * Rich nested execution document rendered for the model.
    *
-   * @generated from field: bytes execution_json = 26;
-   */
-  executionJson: Uint8Array;
-
-  /**
    * @generated from field: repeated ankole.runtime_fabric.v1.BackgroundAgentJobAttemptHistoryEntry attempt_history = 27;
    */
   attemptHistory: BackgroundAgentJobAttemptHistoryEntry[];
 
   /**
-   * @generated from field: ankole.runtime_fabric.v1.BackgroundAgentJobResultRef result_ref = 28;
-   */
-  resultRef?: BackgroundAgentJobResultRef | undefined;
-
-  /**
    * @generated from field: bytes runtime_projection_json = 29;
    */
   runtimeProjectionJson: Uint8Array;
-
-  /**
-   * @generated from field: string model_profile = 30;
-   */
-  modelProfile: string;
 
   /**
    * @generated from field: string result_output_text = 31;
@@ -1387,15 +993,6 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
    * @generated from field: string result_output_total_bytes = 32;
    */
   resultOutputTotalBytes: string;
-
-  /**
-   * Result window only: {project_path, artifacts, artifact_roots} from the
-   * persisted result, so a reader locates the Job's real files without
-   * guessing a Workspace from the Job id.
-   *
-   * @generated from field: bytes result_paths_json = 33;
-   */
-  resultPathsJson: Uint8Array;
 };
 
 /**
@@ -1403,56 +1000,7 @@ export type BackgroundAgentJobResponse = Message<"ankole.runtime_fabric.v1.Backg
  * Use `create(BackgroundAgentJobResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobResponseSchema: GenMessage<BackgroundAgentJobResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 42);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobSummary
- */
-export type BackgroundAgentJobSummary = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobSummary"> & {
-  /**
-   * @generated from field: string job_id = 1;
-   */
-  jobId: string;
-
-  /**
-   * @generated from field: string title = 2;
-   */
-  title: string;
-
-  /**
-   * @generated from field: string status = 3;
-   */
-  status: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobSummary.
- * Use `create(BackgroundAgentJobSummarySchema)` to create a new message.
- */
-export const BackgroundAgentJobSummarySchema: GenMessage<BackgroundAgentJobSummary> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 43);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobListResponse
- */
-export type BackgroundAgentJobListResponse = Message<"ankole.runtime_fabric.v1.BackgroundAgentJobListResponse"> & {
-  /**
-   * @generated from field: repeated ankole.runtime_fabric.v1.BackgroundAgentJobSummary jobs = 1;
-   */
-  jobs: BackgroundAgentJobSummary[];
-
-  /**
-   * @generated from field: string next_cursor = 2;
-   */
-  nextCursor: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.BackgroundAgentJobListResponse.
- * Use `create(BackgroundAgentJobListResponseSchema)` to create a new message.
- */
-export const BackgroundAgentJobListResponseSchema: GenMessage<BackgroundAgentJobListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 44);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 29);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurn
@@ -1539,7 +1087,7 @@ export type BackgroundAgentJobTurn = Message<"ankole.runtime_fabric.v1.Backgroun
  * Use `create(BackgroundAgentJobTurnSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnSchema: GenMessage<BackgroundAgentJobTurn> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 45);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 30);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse
@@ -1561,704 +1109,12 @@ export type BackgroundAgentJobTurnUpsertResponse = Message<"ankole.runtime_fabri
  * Use `create(BackgroundAgentJobTurnUpsertResponseSchema)` to create a new message.
  */
 export const BackgroundAgentJobTurnUpsertResponseSchema: GenMessage<BackgroundAgentJobTurnUpsertResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 46);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowCreateRequest
- */
-export type WorkflowCreateRequest = Message<"ankole.runtime_fabric.v1.WorkflowCreateRequest"> & {
-  /**
-   * @generated from field: string source_tool_call_id = 1;
-   */
-  sourceToolCallId: string;
-
-  /**
-   * @generated from field: string title = 2;
-   */
-  title: string;
-
-  /**
-   * @generated from field: string script = 3;
-   */
-  script: string;
-
-  /**
-   * @generated from field: bytes args_json = 4;
-   */
-  argsJson: Uint8Array;
-
-  /**
-   * @generated from field: optional uint32 concurrency = 5;
-   */
-  concurrency?: number | undefined;
-
-  /**
-   * @generated from field: optional uint32 max_agent_calls = 6;
-   */
-  maxAgentCalls?: number | undefined;
-
-  /**
-   * @generated from field: string model_profile = 7;
-   */
-  modelProfile: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowCreateRequest.
- * Use `create(WorkflowCreateRequestSchema)` to create a new message.
- */
-export const WorkflowCreateRequestSchema: GenMessage<WorkflowCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 47);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowCreateResponse
- */
-export type WorkflowCreateResponse = Message<"ankole.runtime_fabric.v1.WorkflowCreateResponse"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowCreateResponse.
- * Use `create(WorkflowCreateResponseSchema)` to create a new message.
- */
-export const WorkflowCreateResponseSchema: GenMessage<WorkflowCreateResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 48);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowGetRequest
- */
-export type WorkflowGetRequest = Message<"ankole.runtime_fabric.v1.WorkflowGetRequest"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * UTF-8 byte offset; empty omits the result window
-   *
-   * @generated from field: string result_offset = 2;
-   */
-  resultOffset: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowGetRequest.
- * Use `create(WorkflowGetRequestSchema)` to create a new message.
- */
-export const WorkflowGetRequestSchema: GenMessage<WorkflowGetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 49);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowGetResponse
- */
-export type WorkflowGetResponse = Message<"ankole.runtime_fabric.v1.WorkflowGetResponse"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: string title = 2;
-   */
-  title: string;
-
-  /**
-   * @generated from field: string status = 3;
-   */
-  status: string;
-
-  /**
-   * @generated from field: bytes counts_json = 4;
-   */
-  countsJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes failure_summaries_json = 5;
-   */
-  failureSummariesJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes error_json = 6;
-   */
-  errorJson: Uint8Array;
-
-  /**
-   * @generated from field: string result_output_text = 7;
-   */
-  resultOutputText: string;
-
-  /**
-   * @generated from field: string result_output_total_bytes = 8;
-   */
-  resultOutputTotalBytes: string;
-
-  /**
-   * [{call_seq,label,status,note,attention,sleeping_until,wake_count}]
-   *
-   * @generated from field: bytes live_tasks_json = 9;
-   */
-  liveTasksJson: Uint8Array;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowGetResponse.
- * Use `create(WorkflowGetResponseSchema)` to create a new message.
- */
-export const WorkflowGetResponseSchema: GenMessage<WorkflowGetResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 50);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowListRequest
- */
-export type WorkflowListRequest = Message<"ankole.runtime_fabric.v1.WorkflowListRequest"> & {
-  /**
-   * live | done; empty means live
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
-   * @generated from field: string cursor = 2;
-   */
-  cursor: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowListRequest.
- * Use `create(WorkflowListRequestSchema)` to create a new message.
- */
-export const WorkflowListRequestSchema: GenMessage<WorkflowListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 51);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowListResponse
- */
-export type WorkflowListResponse = Message<"ankole.runtime_fabric.v1.WorkflowListResponse"> & {
-  /**
-   * [{run_id,title,status}]
-   *
-   * @generated from field: bytes runs_json = 1;
-   */
-  runsJson: Uint8Array;
-
-  /**
-   * @generated from field: string next_cursor = 2;
-   */
-  nextCursor: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowListResponse.
- * Use `create(WorkflowListResponseSchema)` to create a new message.
- */
-export const WorkflowListResponseSchema: GenMessage<WorkflowListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 52);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowCancelRequest
- */
-export type WorkflowCancelRequest = Message<"ankole.runtime_fabric.v1.WorkflowCancelRequest"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowCancelRequest.
- * Use `create(WorkflowCancelRequestSchema)` to create a new message.
- */
-export const WorkflowCancelRequestSchema: GenMessage<WorkflowCancelRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 53);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowCancelResponse
- */
-export type WorkflowCancelResponse = Message<"ankole.runtime_fabric.v1.WorkflowCancelResponse"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowCancelResponse.
- * Use `create(WorkflowCancelResponseSchema)` to create a new message.
- */
-export const WorkflowCancelResponseSchema: GenMessage<WorkflowCancelResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 54);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskResultSubmitRequest
- */
-export type WorkflowTaskResultSubmitRequest = Message<"ankole.runtime_fabric.v1.WorkflowTaskResultSubmitRequest"> & {
-  /**
-   * @generated from field: string call_id = 1;
-   */
-  callId: string;
-
-  /**
-   * @generated from field: bool ok = 2;
-   */
-  ok: boolean;
-
-  /**
-   * @generated from field: bytes value_json = 3;
-   */
-  valueJson: Uint8Array;
-
-  /**
-   * @generated from field: string code = 4;
-   */
-  code: string;
-
-  /**
-   * @generated from field: string summary = 5;
-   */
-  summary: string;
-
-  /**
-   * @generated from field: bool retryable = 6;
-   */
-  retryable: boolean;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskResultSubmitRequest.
- * Use `create(WorkflowTaskResultSubmitRequestSchema)` to create a new message.
- */
-export const WorkflowTaskResultSubmitRequestSchema: GenMessage<WorkflowTaskResultSubmitRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 55);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskResultSubmitResponse
- */
-export type WorkflowTaskResultSubmitResponse = Message<"ankole.runtime_fabric.v1.WorkflowTaskResultSubmitResponse"> & {
-  /**
-   * @generated from field: bool accepted = 1;
-   */
-  accepted: boolean;
-
-  /**
-   * @generated from field: string task_status = 2;
-   */
-  taskStatus: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskResultSubmitResponse.
- * Use `create(WorkflowTaskResultSubmitResponseSchema)` to create a new message.
- */
-export const WorkflowTaskResultSubmitResponseSchema: GenMessage<WorkflowTaskResultSubmitResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 56);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskSleepRequest
- */
-export type WorkflowTaskSleepRequest = Message<"ankole.runtime_fabric.v1.WorkflowTaskSleepRequest"> & {
-  /**
-   * @generated from field: string call_id = 1;
-   */
-  callId: string;
-
-  /**
-   * @generated from field: uint64 wake_after_ms = 2;
-   */
-  wakeAfterMs: bigint;
-
-  /**
-   * @generated from field: string note = 3;
-   */
-  note: string;
-
-  /**
-   * @generated from field: bool attention = 4;
-   */
-  attention: boolean;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskSleepRequest.
- * Use `create(WorkflowTaskSleepRequestSchema)` to create a new message.
- */
-export const WorkflowTaskSleepRequestSchema: GenMessage<WorkflowTaskSleepRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 57);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskSleepResponse
- */
-export type WorkflowTaskSleepResponse = Message<"ankole.runtime_fabric.v1.WorkflowTaskSleepResponse"> & {
-  /**
-   * @generated from field: string task_status = 1;
-   */
-  taskStatus: string;
-
-  /**
-   * @generated from field: uint32 wake_count = 2;
-   */
-  wakeCount: number;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskSleepResponse.
- * Use `create(WorkflowTaskSleepResponseSchema)` to create a new message.
- */
-export const WorkflowTaskSleepResponseSchema: GenMessage<WorkflowTaskSleepResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 58);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskMessageSendRequest
- */
-export type WorkflowTaskMessageSendRequest = Message<"ankole.runtime_fabric.v1.WorkflowTaskMessageSendRequest"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: uint32 call_seq = 2;
-   */
-  callSeq: number;
-
-  /**
-   * @generated from field: string message = 3;
-   */
-  message: string;
-
-  /**
-   * @generated from field: string source_tool_call_id = 4;
-   */
-  sourceToolCallId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskMessageSendRequest.
- * Use `create(WorkflowTaskMessageSendRequestSchema)` to create a new message.
- */
-export const WorkflowTaskMessageSendRequestSchema: GenMessage<WorkflowTaskMessageSendRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 59);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkflowTaskMessageSendResponse
- */
-export type WorkflowTaskMessageSendResponse = Message<"ankole.runtime_fabric.v1.WorkflowTaskMessageSendResponse"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: uint32 call_seq = 2;
-   */
-  callSeq: number;
-
-  /**
-   * @generated from field: string task_status = 3;
-   */
-  taskStatus: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkflowTaskMessageSendResponse.
- * Use `create(WorkflowTaskMessageSendResponseSchema)` to create a new message.
- */
-export const WorkflowTaskMessageSendResponseSchema: GenMessage<WorkflowTaskMessageSendResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 60);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCheckBackLaterCreateRequest
- */
-export type ScheduleCheckBackLaterCreateRequest = Message<"ankole.runtime_fabric.v1.ScheduleCheckBackLaterCreateRequest"> & {
-  /**
-   * @generated from field: string tool_call_id = 1;
-   */
-  toolCallId: string;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
-   */
-  idempotencyKey: string;
-
-  /**
-   * @generated from field: string reason = 3;
-   */
-  reason: string;
-
-  /**
-   * @generated from field: string check = 4;
-   */
-  check: string;
-
-  /**
-   * @generated from field: string context_summary = 5;
-   */
-  contextSummary: string;
-
-  /**
-   * @generated from field: bool quiet_success = 6;
-   */
-  quietSuccess: boolean;
-
-  /**
-   * @generated from field: bytes schedule_json = 7;
-   */
-  scheduleJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes reply_route_json = 8;
-   */
-  replyRouteJson: Uint8Array;
-
-  /**
-   * @generated from field: string automation_job_id = 9;
-   */
-  automationJobId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCheckBackLaterCreateRequest.
- * Use `create(ScheduleCheckBackLaterCreateRequestSchema)` to create a new message.
- */
-export const ScheduleCheckBackLaterCreateRequestSchema: GenMessage<ScheduleCheckBackLaterCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 61);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCheckBackLaterListRequest
- */
-export type ScheduleCheckBackLaterListRequest = Message<"ankole.runtime_fabric.v1.ScheduleCheckBackLaterListRequest"> & {
-  /**
-   * @generated from field: optional uint32 limit = 1;
-   */
-  limit?: number | undefined;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCheckBackLaterListRequest.
- * Use `create(ScheduleCheckBackLaterListRequestSchema)` to create a new message.
- */
-export const ScheduleCheckBackLaterListRequestSchema: GenMessage<ScheduleCheckBackLaterListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 62);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCheckBackLaterTargetRequest
- */
-export type ScheduleCheckBackLaterTargetRequest = Message<"ankole.runtime_fabric.v1.ScheduleCheckBackLaterTargetRequest"> & {
-  /**
-   * @generated from field: string scheduled_event_id = 1;
-   */
-  scheduledEventId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCheckBackLaterTargetRequest.
- * Use `create(ScheduleCheckBackLaterTargetRequestSchema)` to create a new message.
- */
-export const ScheduleCheckBackLaterTargetRequestSchema: GenMessage<ScheduleCheckBackLaterTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 63);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCheckBackLaterUpdateRequest
- */
-export type ScheduleCheckBackLaterUpdateRequest = Message<"ankole.runtime_fabric.v1.ScheduleCheckBackLaterUpdateRequest"> & {
-  /**
-   * @generated from field: string scheduled_event_id = 1;
-   */
-  scheduledEventId: string;
-
-  /**
-   * @generated from field: string tool_call_id = 2;
-   */
-  toolCallId: string;
-
-  /**
-   * @generated from field: string idempotency_key = 3;
-   */
-  idempotencyKey: string;
-
-  /**
-   * @generated from field: bytes updates_json = 4;
-   */
-  updatesJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes reply_route_json = 5;
-   */
-  replyRouteJson: Uint8Array;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCheckBackLaterUpdateRequest.
- * Use `create(ScheduleCheckBackLaterUpdateRequestSchema)` to create a new message.
- */
-export const ScheduleCheckBackLaterUpdateRequestSchema: GenMessage<ScheduleCheckBackLaterUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 64);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronListRequest
- */
-export type ScheduleCronListRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronListRequest"> & {
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronListRequest.
- * Use `create(ScheduleCronListRequestSchema)` to create a new message.
- */
-export const ScheduleCronListRequestSchema: GenMessage<ScheduleCronListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 65);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronTargetRequest
- */
-export type ScheduleCronTargetRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronTargetRequest"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronTargetRequest.
- * Use `create(ScheduleCronTargetRequestSchema)` to create a new message.
- */
-export const ScheduleCronTargetRequestSchema: GenMessage<ScheduleCronTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 66);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronRunsRequest
- */
-export type ScheduleCronRunsRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronRunsRequest"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * @generated from field: optional uint32 limit = 2;
-   */
-  limit?: number | undefined;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronRunsRequest.
- * Use `create(ScheduleCronRunsRequestSchema)` to create a new message.
- */
-export const ScheduleCronRunsRequestSchema: GenMessage<ScheduleCronRunsRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 67);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronAddRequest
- */
-export type ScheduleCronAddRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronAddRequest"> & {
-  /**
-   * @generated from field: string binding_name = 1;
-   */
-  bindingName: string;
-
-  /**
-   * @generated from field: string name = 2;
-   */
-  name: string;
-
-  /**
-   * @generated from field: bytes schedule_json = 3;
-   */
-  scheduleJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes payload_json = 4;
-   */
-  payloadJson: Uint8Array;
-
-  /**
-   * @generated from field: bytes delivery_json = 5;
-   */
-  deliveryJson: Uint8Array;
-
-  /**
-   * @generated from field: string idempotency_key = 6;
-   */
-  idempotencyKey: string;
-
-  /**
-   * @generated from field: string automation_job_id = 8;
-   */
-  automationJobId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronAddRequest.
- * Use `create(ScheduleCronAddRequestSchema)` to create a new message.
- */
-export const ScheduleCronAddRequestSchema: GenMessage<ScheduleCronAddRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 68);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronUpdateRequest
- */
-export type ScheduleCronUpdateRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronUpdateRequest"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * @generated from field: bytes updates_json = 2;
-   */
-  updatesJson: Uint8Array;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronUpdateRequest.
- * Use `create(ScheduleCronUpdateRequestSchema)` to create a new message.
- */
-export const ScheduleCronUpdateRequestSchema: GenMessage<ScheduleCronUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 69);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.ScheduleCronRunRequest
- */
-export type ScheduleCronRunRequest = Message<"ankole.runtime_fabric.v1.ScheduleCronRunRequest"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * @generated from field: string tool_call_id = 2;
-   */
-  toolCallId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.ScheduleCronRunRequest.
- * Use `create(ScheduleCronRunRequestSchema)` to create a new message.
- */
-export const ScheduleCronRunRequestSchema: GenMessage<ScheduleCronRunRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 70);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 31);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointCreateRequest
  */
 export type WebhookEndpointCreateRequest = Message<"ankole.runtime_fabric.v1.WebhookEndpointCreateRequest"> & {
-  /**
-   * @generated from field: string token = 1;
-   */
-  token: string;
-
   /**
    * @generated from field: string label = 2;
    */
@@ -2277,11 +1133,6 @@ export type WebhookEndpointCreateRequest = Message<"ankole.runtime_fabric.v1.Web
   expiresAt: string;
 
   /**
-   * @generated from field: bytes reply_route_json = 5;
-   */
-  replyRouteJson: Uint8Array;
-
-  /**
    * @generated from field: string automation_job_id = 6;
    */
   automationJobId: string;
@@ -2292,7 +1143,7 @@ export type WebhookEndpointCreateRequest = Message<"ankole.runtime_fabric.v1.Web
  * Use `create(WebhookEndpointCreateRequestSchema)` to create a new message.
  */
 export const WebhookEndpointCreateRequestSchema: GenMessage<WebhookEndpointCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 71);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 32);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointListRequest
@@ -2309,7 +1160,7 @@ export type WebhookEndpointListRequest = Message<"ankole.runtime_fabric.v1.Webho
  * Use `create(WebhookEndpointListRequestSchema)` to create a new message.
  */
 export const WebhookEndpointListRequestSchema: GenMessage<WebhookEndpointListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 72);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 33);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WebhookEndpointTargetRequest
@@ -2326,88 +1177,15 @@ export type WebhookEndpointTargetRequest = Message<"ankole.runtime_fabric.v1.Web
  * Use `create(WebhookEndpointTargetRequestSchema)` to create a new message.
  */
 export const WebhookEndpointTargetRequestSchema: GenMessage<WebhookEndpointTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 73);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 34);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.AmbientJudgmentRecordRequest
- */
-export type AmbientJudgmentRecordRequest = Message<"ankole.runtime_fabric.v1.AmbientJudgmentRecordRequest"> & {
-  /**
-   * @generated from field: string reason = 2;
-   */
-  reason: string;
-
-  /**
-   * The batch message the recognizer attributed the wake to; empty means the
-   * wake is proactive. The worker validates the id against the judged batch
-   * and sets asked_by_degraded when a proposed id fails that validation.
-   *
-   * @generated from field: string asked_by_source_entry_id = 3;
-   */
-  askedBySourceEntryId: string;
-
-  /**
-   * @generated from field: bool asked_by_degraded = 4;
-   */
-  askedByDegraded: boolean;
-
-  /**
-   * NOOP | FOREGROUND_REPLY | NEW_WORK | HANDOFF
-   *
-   * @generated from field: string action = 5;
-   */
-  action: string;
-
-  /**
-   * NONE | EXPLICIT_REQUEST | STANDING_ORDER
-   *
-   * @generated from field: string authority = 6;
-   */
-  authority: string;
-
-  /**
-   * exact candidate Job id; empty unless HANDOFF
-   *
-   * @generated from field: string handoff_job_id = 7;
-   */
-  handoffJobId: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.AmbientJudgmentRecordRequest.
- * Use `create(AmbientJudgmentRecordRequestSchema)` to create a new message.
- */
-export const AmbientJudgmentRecordRequestSchema: GenMessage<AmbientJudgmentRecordRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 74);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.SignalChannelStandingOrdersSetRequest
- */
-export type SignalChannelStandingOrdersSetRequest = Message<"ankole.runtime_fabric.v1.SignalChannelStandingOrdersSetRequest"> & {
-  /**
-   * Full replacement text of the channel standing orders; empty clears them.
-   *
-   * @generated from field: string orders = 1;
-   */
-  orders: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.SignalChannelStandingOrdersSetRequest.
- * Use `create(SignalChannelStandingOrdersSetRequestSchema)` to create a new message.
- */
-export const SignalChannelStandingOrdersSetRequestSchema: GenMessage<SignalChannelStandingOrdersSetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 75);
-
-/**
+ * `drive_prefix` names the drive folder that holds the script and its
+ * `main.ts`; the Worker copies the directory there before it calls create.
+ *
  * @generated from message ankole.runtime_fabric.v1.AutomationJobCreateRequest
  */
 export type AutomationJobCreateRequest = Message<"ankole.runtime_fabric.v1.AutomationJobCreateRequest"> & {
-  /**
-   * @generated from field: string directory_path = 1;
-   */
-  directoryPath: string;
-
   /**
    * @generated from field: string label = 2;
    */
@@ -2417,6 +1195,11 @@ export type AutomationJobCreateRequest = Message<"ankole.runtime_fabric.v1.Autom
    * @generated from field: bool wake_on_failure = 3;
    */
   wakeOnFailure: boolean;
+
+  /**
+   * @generated from field: string drive_prefix = 4;
+   */
+  drivePrefix: string;
 };
 
 /**
@@ -2424,7 +1207,7 @@ export type AutomationJobCreateRequest = Message<"ankole.runtime_fabric.v1.Autom
  * Use `create(AutomationJobCreateRequestSchema)` to create a new message.
  */
 export const AutomationJobCreateRequestSchema: GenMessage<AutomationJobCreateRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 76);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 35);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobListRequest
@@ -2441,7 +1224,7 @@ export type AutomationJobListRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobListRequestSchema)` to create a new message.
  */
 export const AutomationJobListRequestSchema: GenMessage<AutomationJobListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 77);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 36);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobShowRequest
@@ -2463,7 +1246,7 @@ export type AutomationJobShowRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobShowRequestSchema)` to create a new message.
  */
 export const AutomationJobShowRequestSchema: GenMessage<AutomationJobShowRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 78);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 37);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobTargetRequest
@@ -2480,7 +1263,7 @@ export type AutomationJobTargetRequest = Message<"ankole.runtime_fabric.v1.Autom
  * Use `create(AutomationJobTargetRequestSchema)` to create a new message.
  */
 export const AutomationJobTargetRequestSchema: GenMessage<AutomationJobTargetRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 79);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 38);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobEmitRequest
@@ -2507,7 +1290,7 @@ export type AutomationJobEmitRequest = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobEmitRequestSchema)` to create a new message.
  */
 export const AutomationJobEmitRequestSchema: GenMessage<AutomationJobEmitRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 80);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 39);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobEmitResponse
@@ -2520,7 +1303,7 @@ export type AutomationJobEmitResponse = Message<"ankole.runtime_fabric.v1.Automa
  * Use `create(AutomationJobEmitResponseSchema)` to create a new message.
  */
 export const AutomationJobEmitResponseSchema: GenMessage<AutomationJobEmitResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 81);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 40);
 
 /**
  * Control-plane-originated request handled by the Agent Computer worker.
@@ -2537,16 +1320,6 @@ export type AutomationJobRunRequest = Message<"ankole.runtime_fabric.v1.Automati
    * @generated from field: string attempt_id = 2;
    */
   attemptId: string;
-
-  /**
-   * @generated from field: string agent_uid = 3;
-   */
-  agentUid: string;
-
-  /**
-   * @generated from field: string directory_path = 4;
-   */
-  directoryPath: string;
 
   /**
    * @generated from field: string label = 5;
@@ -2577,6 +1350,13 @@ export type AutomationJobRunRequest = Message<"ankole.runtime_fabric.v1.Automati
    * @generated from field: string binding_name = 10;
    */
   bindingName: string;
+
+  /**
+   * Drive folder of the script; the Worker copies it to a run directory.
+   *
+   * @generated from field: string drive_prefix = 11;
+   */
+  drivePrefix: string;
 };
 
 /**
@@ -2584,7 +1364,7 @@ export type AutomationJobRunRequest = Message<"ankole.runtime_fabric.v1.Automati
  * Use `create(AutomationJobRunRequestSchema)` to create a new message.
  */
 export const AutomationJobRunRequestSchema: GenMessage<AutomationJobRunRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 82);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 41);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.AutomationJobRunResponse
@@ -2633,105 +1413,7 @@ export type AutomationJobRunResponse = Message<"ankole.runtime_fabric.v1.Automat
  * Use `create(AutomationJobRunResponseSchema)` to create a new message.
  */
 export const AutomationJobRunResponseSchema: GenMessage<AutomationJobRunResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 83);
-
-/**
- * Control-plane-originated best-effort maintenance for the Codex diagnostic
- * database owned by one Agent Home.
- *
- * @generated from message ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceRequest
- */
-export type CodexLogs2DailyMaintenanceRequest = Message<"ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceRequest"> & {
-  /**
-   * @generated from field: string agent_uid = 1;
-   */
-  agentUid: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceRequest.
- * Use `create(CodexLogs2DailyMaintenanceRequestSchema)` to create a new message.
- */
-export const CodexLogs2DailyMaintenanceRequestSchema: GenMessage<CodexLogs2DailyMaintenanceRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 84);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceResponse
- */
-export type CodexLogs2DailyMaintenanceResponse = Message<"ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceResponse"> & {
-  /**
-   * deleted | database_missing | skipped_runtime_active
-   *
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
-   * @generated from field: repeated string deleted_files = 2;
-   */
-  deletedFiles: string[];
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceResponse.
- * Use `create(CodexLogs2DailyMaintenanceResponseSchema)` to create a new message.
- */
-export const CodexLogs2DailyMaintenanceResponseSchema: GenMessage<CodexLogs2DailyMaintenanceResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 85);
-
-/**
- * Control-plane-originated rendered fetch through the Worker's supervised
- * ankole-browser runtime. The request carries the selected Agent's ephemeral
- * browser environment and policy because the Worker does not own operator
- * configuration.
- *
- * @generated from message ankole.runtime_fabric.v1.RenderedWebFetchRequest
- */
-export type RenderedWebFetchRequest = Message<"ankole.runtime_fabric.v1.RenderedWebFetchRequest"> & {
-  /**
-   * @generated from field: repeated string urls = 1;
-   */
-  urls: string[];
-
-  /**
-   * @generated from field: map<string, string> worker_env = 2;
-   */
-  workerEnv: { [key: string]: string };
-
-  /**
-   * @generated from field: bool ssrf_filter = 3;
-   */
-  ssrfFilter: boolean;
-
-  /**
-   * @generated from field: optional uint64 idle_ttl_ms = 4;
-   */
-  idleTtlMs?: bigint | undefined;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.RenderedWebFetchRequest.
- * Use `create(RenderedWebFetchRequestSchema)` to create a new message.
- */
-export const RenderedWebFetchRequestSchema: GenMessage<RenderedWebFetchRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 86);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.RenderedWebFetchResponse
- */
-export type RenderedWebFetchResponse = Message<"ankole.runtime_fabric.v1.RenderedWebFetchResponse"> & {
-  /**
-   * @generated from field: bytes body_json = 1;
-   */
-  bodyJson: Uint8Array;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.RenderedWebFetchResponse.
- * Use `create(RenderedWebFetchResponseSchema)` to create a new message.
- */
-export const RenderedWebFetchResponseSchema: GenMessage<RenderedWebFetchResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 87);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 42);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.SkillOverlayResolveRequest
@@ -2748,7 +1430,7 @@ export type SkillOverlayResolveRequest = Message<"ankole.runtime_fabric.v1.Skill
  * Use `create(SkillOverlayResolveRequestSchema)` to create a new message.
  */
 export const SkillOverlayResolveRequestSchema: GenMessage<SkillOverlayResolveRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 88);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 43);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.SkillOverlayResponse
@@ -2780,7 +1462,7 @@ export type SkillOverlayResponse = Message<"ankole.runtime_fabric.v1.SkillOverla
  * Use `create(SkillOverlayResponseSchema)` to create a new message.
  */
 export const SkillOverlayResponseSchema: GenMessage<SkillOverlayResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 89);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 44);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.SkillOverlayResolveResponse
@@ -2797,85 +1479,14 @@ export type SkillOverlayResolveResponse = Message<"ankole.runtime_fabric.v1.Skil
  * Use `create(SkillOverlayResolveResponseSchema)` to create a new message.
  */
 export const SkillOverlayResolveResponseSchema: GenMessage<SkillOverlayResolveResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 90);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 45);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.InstalledSkillObservation
- */
-export type InstalledSkillObservation = Message<"ankole.runtime_fabric.v1.InstalledSkillObservation"> & {
-  /**
-   * @generated from field: string skill_name = 1;
-   */
-  skillName: string;
-
-  /**
-   * @generated from field: string description = 3;
-   */
-  description: string;
-
-  /**
-   * @generated from field: optional bool default_enabled = 4;
-   */
-  defaultEnabled?: boolean | undefined;
-
-  /**
-   * @generated from field: repeated string tags = 9;
-   */
-  tags: string[];
-
-  /**
-   * @generated from field: string category = 10;
-   */
-  category: string;
-
-  /**
-   * @generated from field: string ankole_runtime = 12;
-   */
-  ankoleRuntime: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.InstalledSkillObservation.
- * Use `create(InstalledSkillObservationSchema)` to create a new message.
- */
-export const InstalledSkillObservationSchema: GenMessage<InstalledSkillObservation> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 91);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.InstalledSkillReplaceRequest
- */
-export type InstalledSkillReplaceRequest = Message<"ankole.runtime_fabric.v1.InstalledSkillReplaceRequest"> & {
-  /**
-   * @generated from field: repeated ankole.runtime_fabric.v1.InstalledSkillObservation observations = 1;
-   */
-  observations: InstalledSkillObservation[];
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.InstalledSkillReplaceRequest.
- * Use `create(InstalledSkillReplaceRequestSchema)` to create a new message.
- */
-export const InstalledSkillReplaceRequestSchema: GenMessage<InstalledSkillReplaceRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 92);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.InstalledSkillReplaceResponse
- */
-export type InstalledSkillReplaceResponse = Message<"ankole.runtime_fabric.v1.InstalledSkillReplaceResponse"> & {
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.InstalledSkillReplaceResponse.
- * Use `create(InstalledSkillReplaceResponseSchema)` to create a new message.
- */
-export const InstalledSkillReplaceResponseSchema: GenMessage<InstalledSkillReplaceResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 93);
-
-/**
- * Control-plane-originated file operations on the Worker-visible filesystem.
- * Bulk bytes never travel inside RuntimeFabric: `worker_files.pull` and
- * `worker_files.push` carry a one-time signed relay URL on the control-plane
- * Pod that owns the user request, and the Worker moves the bytes over HTTP.
+ * Control-plane-originated transfers into or out of the Agent Home of the
+ * Worker that receives the request; the connection names the Agent.
+ * File bytes do not travel inside RuntimeFabric: `worker_files.pull` and
+ * `worker_files.push` carry a one-time relay URL on the control-plane Pod
+ * that owns the transfer, and the Worker moves the bytes over HTTP.
  * `url` is a short-lived bearer credential and must not be logged.
  *
  * @generated from message ankole.runtime_fabric.v1.WorkerFileTransferRequest
@@ -2892,14 +1503,11 @@ export type WorkerFileTransferRequest = Message<"ankole.runtime_fabric.v1.Worker
   url: string;
 
   /**
-   * @generated from field: string root = 3;
+   * A path inside the Agent Home, without the Agent UID.
+   *
+   * @generated from field: string home_relative_path = 4;
    */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 4;
-   */
-  relativePath: string;
+  homeRelativePath: string;
 
   /**
    * @generated from field: uint64 max_bytes = 5;
@@ -2910,6 +1518,16 @@ export type WorkerFileTransferRequest = Message<"ankole.runtime_fabric.v1.Worker
    * @generated from field: string expires_at = 6;
    */
   expiresAt: string;
+
+  /**
+   * Push only: when set, `home_relative_path` is a directory and the Worker
+   * sends these files under it as one bundle. Each entry is a 4-byte
+   * big-endian path length, the UTF-8 path relative to that directory, an
+   * 8-byte big-endian content length, and the content, in this order.
+   *
+   * @generated from field: repeated string bundle_paths = 7;
+   */
+  bundlePaths: string[];
 };
 
 /**
@@ -2917,31 +1535,16 @@ export type WorkerFileTransferRequest = Message<"ankole.runtime_fabric.v1.Worker
  * Use `create(WorkerFileTransferRequestSchema)` to create a new message.
  */
 export const WorkerFileTransferRequestSchema: GenMessage<WorkerFileTransferRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 94);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 46);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.WorkerFileTransferResponse
  */
 export type WorkerFileTransferResponse = Message<"ankole.runtime_fabric.v1.WorkerFileTransferResponse"> & {
   /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 2;
-   */
-  relativePath: string;
-
-  /**
    * @generated from field: uint64 size = 3;
    */
   size: bigint;
-
-  /**
-   * @generated from field: string xxh3_128 = 4;
-   */
-  xxh3128: string;
 };
 
 /**
@@ -2949,210 +1552,4 @@ export type WorkerFileTransferResponse = Message<"ankole.runtime_fabric.v1.Worke
  * Use `create(WorkerFileTransferResponseSchema)` to create a new message.
  */
 export const WorkerFileTransferResponseSchema: GenMessage<WorkerFileTransferResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 95);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileListRequest
- */
-export type WorkerFileListRequest = Message<"ankole.runtime_fabric.v1.WorkerFileListRequest"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 2;
-   */
-  relativePath: string;
-
-  /**
-   * @generated from field: bool recursive = 3;
-   */
-  recursive: boolean;
-
-  /**
-   * @generated from field: uint64 max_entries = 4;
-   */
-  maxEntries: bigint;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileListRequest.
- * Use `create(WorkerFileListRequestSchema)` to create a new message.
- */
-export const WorkerFileListRequestSchema: GenMessage<WorkerFileListRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 96);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileListEntry
- */
-export type WorkerFileListEntry = Message<"ankole.runtime_fabric.v1.WorkerFileListEntry"> & {
-  /**
-   * @generated from field: string relative_path = 1;
-   */
-  relativePath: string;
-
-  /**
-   * file | directory | other
-   *
-   * @generated from field: string kind = 2;
-   */
-  kind: string;
-
-  /**
-   * @generated from field: uint64 size = 3;
-   */
-  size: bigint;
-
-  /**
-   * @generated from field: int64 modified_unix_ms = 4;
-   */
-  modifiedUnixMs: bigint;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileListEntry.
- * Use `create(WorkerFileListEntrySchema)` to create a new message.
- */
-export const WorkerFileListEntrySchema: GenMessage<WorkerFileListEntry> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 97);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileListResponse
- */
-export type WorkerFileListResponse = Message<"ankole.runtime_fabric.v1.WorkerFileListResponse"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 2;
-   */
-  relativePath: string;
-
-  /**
-   * @generated from field: bool truncated = 3;
-   */
-  truncated: boolean;
-
-  /**
-   * @generated from field: repeated ankole.runtime_fabric.v1.WorkerFileListEntry entries = 4;
-   */
-  entries: WorkerFileListEntry[];
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileListResponse.
- * Use `create(WorkerFileListResponseSchema)` to create a new message.
- */
-export const WorkerFileListResponseSchema: GenMessage<WorkerFileListResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 98);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileMoveRequest
- */
-export type WorkerFileMoveRequest = Message<"ankole.runtime_fabric.v1.WorkerFileMoveRequest"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string from_relative_path = 2;
-   */
-  fromRelativePath: string;
-
-  /**
-   * @generated from field: string to_relative_path = 3;
-   */
-  toRelativePath: string;
-
-  /**
-   * @generated from field: bool overwrite = 4;
-   */
-  overwrite: boolean;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileMoveRequest.
- * Use `create(WorkerFileMoveRequestSchema)` to create a new message.
- */
-export const WorkerFileMoveRequestSchema: GenMessage<WorkerFileMoveRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 99);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileMoveResponse
- */
-export type WorkerFileMoveResponse = Message<"ankole.runtime_fabric.v1.WorkerFileMoveResponse"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string from_relative_path = 2;
-   */
-  fromRelativePath: string;
-
-  /**
-   * @generated from field: string to_relative_path = 3;
-   */
-  toRelativePath: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileMoveResponse.
- * Use `create(WorkerFileMoveResponseSchema)` to create a new message.
- */
-export const WorkerFileMoveResponseSchema: GenMessage<WorkerFileMoveResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 100);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileDeleteRequest
- */
-export type WorkerFileDeleteRequest = Message<"ankole.runtime_fabric.v1.WorkerFileDeleteRequest"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 2;
-   */
-  relativePath: string;
-
-  /**
-   * @generated from field: bool recursive = 3;
-   */
-  recursive: boolean;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileDeleteRequest.
- * Use `create(WorkerFileDeleteRequestSchema)` to create a new message.
- */
-export const WorkerFileDeleteRequestSchema: GenMessage<WorkerFileDeleteRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 101);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.WorkerFileDeleteResponse
- */
-export type WorkerFileDeleteResponse = Message<"ankole.runtime_fabric.v1.WorkerFileDeleteResponse"> & {
-  /**
-   * @generated from field: string root = 1;
-   */
-  root: string;
-
-  /**
-   * @generated from field: string relative_path = 2;
-   */
-  relativePath: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.WorkerFileDeleteResponse.
- * Use `create(WorkerFileDeleteResponseSchema)` to create a new message.
- */
-export const WorkerFileDeleteResponseSchema: GenMessage<WorkerFileDeleteResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_rpc, 102);
+  messageDesc(file_ankole_runtime_fabric_v1_rpc, 47);

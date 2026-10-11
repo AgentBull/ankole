@@ -135,4 +135,34 @@ defmodule Ankole.Brain.Sources do
     })
     |> repo.update()
   end
+
+  @spec extraction_watermark(Source.t()) :: {DateTime.t(), String.t()} | nil
+  def extraction_watermark(%Source{
+        extracted_through_at: %DateTime{} = at,
+        extracted_through_entry_id: entry_id
+      })
+      when is_binary(entry_id),
+      do: {at, entry_id}
+
+  def extraction_watermark(%Source{}), do: nil
+
+  @spec channel_extraction_watermark(String.t()) :: {DateTime.t(), String.t()} | nil
+  def channel_extraction_watermark(channel_id) do
+    case Repo.get_by(Source, kind: "signal_channel", upstream_id: channel_id) do
+      %Source{} = source -> extraction_watermark(source)
+      nil -> nil
+    end
+  end
+
+  @doc "Records a slice boundary while the caller holds the Source row lock."
+  @spec record_extraction_watermark(module(), Source.t(), {DateTime.t(), String.t()}) :: :ok
+  def record_extraction_watermark(repo, %Source{id: id}, {%DateTime{} = at, entry_id})
+      when is_binary(entry_id) do
+    {1, _} =
+      Source
+      |> where([source], source.id == ^id)
+      |> repo.update_all(set: [extracted_through_at: at, extracted_through_entry_id: entry_id])
+
+    :ok
+  end
 end

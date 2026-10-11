@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ecto.Adapters.SQL
   alias Ankole.Repo
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.AppConfig
   alias Ankole.Plugins.ConfigSecrets
   alias Ankole.Principals
   alias Ankole.SignalsGateway.Actors
@@ -18,6 +19,13 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.SignalsGateway.SubjectNamespace
   alias Ankole.SignalsGateway.UnmatchedSenderPolicies
   alias Ankole.SignalsGateway.Utils
+
+  @application_binding_config_errors %{
+    "line" => :line_binding_config_unavailable,
+    "lark" => :lark_binding_config_unavailable,
+    "email" => :email_binding_config_unavailable,
+    "whatsapp" => :whatsapp_binding_config_unavailable
+  }
 
   @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
   def upsert_binding(attrs) when is_map(attrs) do
@@ -32,6 +40,30 @@ defmodule Ankole.SignalsGateway.Bindings do
       conflict_target: [:agent_uid, :name],
       returning: true
     )
+  end
+
+  @doc false
+  def delete_agent_config_rows_in_tx(repo, uid) do
+    binding = Ankole.SignalsGateway.Binding
+    refs = repo.all(from row in binding, where: row.agent_uid == ^uid, select: row.config_ref)
+
+    Enum.each(refs, fn
+      "app-config://" <> key = reference ->
+        if not Repo.across_tenants(fn ->
+             repo.exists?(
+               from row in binding, where: row.config_ref == ^reference and row.agent_uid != ^uid
+             )
+           end) do
+          repo.delete_all(
+            from config in AppConfig, where: config.scope == "global" and config.key == ^key
+          )
+        end
+
+      _ ->
+        :ok
+    end)
+
+    :ok
   end
 
   @spec list_adapters() :: {:ok, [map()]} | {:error, term()}
@@ -51,6 +83,8 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, definition} <- Adapters.fetch(adapter_id),
          {:ok, config} <- binding_config(attrs),
          {:ok, normalized_config} <- validate_binding_config(definition, config, true),
+         {:ok, application} <-
+           resolve_platform_application(definition.config_module, normalized_config, :binding),
          {:ok, mode} <- group_message_mode(attrs, GroupMessageModes.default_mode()),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
@@ -63,6 +97,7 @@ defmodule Ankole.SignalsGateway.Bindings do
              principal.uid,
              binding_name,
              normalized_config,
+             application,
              config_key,
              policy,
              unmatched_sender_policy
@@ -91,7 +126,19 @@ defmodule Ankole.SignalsGateway.Bindings do
          %Binding{} = source_binding <-
            Repo.get_by(Binding, agent_uid: source_principal.uid, name: binding_name),
          {:ok, definition} <- Adapters.fetch(source_binding.adapter),
+         {:ok, current_config} <- stored_binding_config(source_binding),
          {:ok, config_patch} <- binding_config(attrs),
+         {:ok, normalized_config} <-
+           validate_binding_config(
+             definition,
+             merge_binding_config(
+               current_config,
+               ConfigSecrets.preserve(definition.fields, config_patch, current_config)
+             ),
+             config_patch != %{}
+           ),
+         {:ok, application} <-
+           resolve_platform_application(definition.config_module, normalized_config, :binding),
          {:ok, mode} <- group_message_mode(attrs, nil),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- group_message_policy(mode),
@@ -104,7 +151,9 @@ defmodule Ankole.SignalsGateway.Bindings do
              source_principal.uid,
              target_principal.uid,
              binding_name,
-             config_patch,
+             current_config,
+             normalized_config,
+             application,
              config_key,
              policy,
              unmatched_sender_policy
@@ -435,17 +484,115 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
+  defp validate_application_bindings(
+         %Definition{application_bindings: nil},
+         _repo,
+         _uid,
+         _name,
+         _config,
+         _application
+       ),
+       do: :ok
+
+  defp validate_application_bindings(
+         %Definition{application_bindings: :one} = definition,
+         repo,
+         agent_uid,
+         binding_name,
+         config,
+         application
+       ) do
+    repo.all(
+      from binding in Binding,
+        left_join: config in AppConfig,
+        on:
+          config.scope == "global" and
+            binding.config_ref == fragment("'app-config://' || ?", config.key),
+        where:
+          binding.adapter == ^definition.id and binding.enabled == true and
+            (binding.agent_uid != ^agent_uid or binding.name != ^binding_name),
+        select: {binding, fragment("?->>'platform_application'", config.value)}
+    )
+    |> Enum.reduce_while(:ok, fn {binding, other_application}, :ok ->
+      case validate_application_binding(
+             repo,
+             definition,
+             binding,
+             other_application,
+             config,
+             application
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_application_binding(
+         repo,
+         definition,
+         binding,
+         other_application,
+         config,
+         application
+       ) do
+    # Public identity metadata cannot make an unreadable enabled binding safe.
+    # Keep the existing configuration rejection before comparing applications.
+    with {:ok, other} <- binding_config_in_tx(repo, binding, definition.config_module) do
+      if other_application == application do
+        {:error,
+         {:platform_application_already_bound, application, binding.agent_uid, binding.name}}
+      else
+        validate_binding_pair(definition.config_module, binding, config, other)
+      end
+    else
+      :error -> application_binding_config_missing(definition.id, binding)
+      {:error, reason} -> application_binding_config_error(definition.id, binding, reason)
+    end
+  end
+
+  defp validate_binding_pair(module, binding, config, other) do
+    if function_exported?(module, :validate_binding_pair, 3),
+      do: module.validate_binding_pair(binding, config, other),
+      else: :ok
+  end
+
+  defp application_binding_config_missing("lark", binding),
+    do: application_binding_config_error("lark", binding, :missing)
+
+  defp application_binding_config_missing(adapter_id, binding),
+    do:
+      {:error,
+       {Map.fetch!(@application_binding_config_errors, adapter_id), binding.agent_uid,
+        binding.name}}
+
+  defp application_binding_config_error(adapter_id, binding, reason),
+    do:
+      {:error,
+       {Map.fetch!(@application_binding_config_errors, adapter_id), binding.agent_uid,
+        binding.name, reason}}
+
   defp persist_binding_assignment(
          %Definition{} = definition,
          agent_uid,
          binding_name,
          normalized_config,
+         application,
          config_key,
          policy,
          unmatched_sender_policy
        ) do
     case Repo.transact(fn repo ->
-           with :ok <- lock_adapter_assignments(repo, definition.id),
+           with :ok <- validate_platform_application_in_tx(repo, application),
+                :ok <-
+                  validate_application_bindings(
+                    definition,
+                    repo,
+                    agent_uid,
+                    binding_name,
+                    normalized_config,
+                    application
+                  ),
                 :ok <-
                   validate_binding_assignment(
                     definition,
@@ -466,7 +613,8 @@ defmodule Ankole.SignalsGateway.Bindings do
                     enabled: true
                   }),
                 {:ok, committed_config} <-
-                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config) do
+                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config),
+                :ok <- record_platform_application_in_tx(repo, committed_config, application) do
              {:ok, {binding, committed_config}}
            end
          end) do
@@ -484,26 +632,19 @@ defmodule Ankole.SignalsGateway.Bindings do
          source_agent_uid,
          target_agent_uid,
          binding_name,
-         config_patch,
+         current_config,
+         normalized_config,
+         application,
          config_key,
          policy,
          unmatched_sender_policy
        ) do
     case Repo.transact(fn repo ->
-           with :ok <- lock_adapter_assignments(repo, definition.id),
-                %Binding{} = source_binding <-
-                  lock_binding(repo, source_agent_uid, binding_name),
+           with :ok <- validate_platform_application_in_tx(repo, application),
+                %Binding{} = source_binding <- lock_binding(repo, source_agent_uid, binding_name),
                 :ok <- ensure_binding_adapter(source_binding, definition.id),
-                {:ok, current_config} <- binding_config_in_tx(repo, source_binding),
-                {:ok, normalized_config} <-
-                  validate_binding_config(
-                    definition,
-                    merge_binding_config(
-                      current_config,
-                      ConfigSecrets.preserve(definition.fields, config_patch, current_config)
-                    ),
-                    config_patch != %{}
-                  ),
+                {:ok, locked_config} <- binding_config_in_tx(repo, source_binding),
+                true <- locked_config == current_config,
                 :ok <-
                   ensure_target_binding_available(
                     repo,
@@ -513,6 +654,15 @@ defmodule Ankole.SignalsGateway.Bindings do
                   ),
                 {:ok, _source_binding} <-
                   maybe_disable_source_binding(repo, source_binding, target_agent_uid),
+                :ok <-
+                  validate_application_bindings(
+                    definition,
+                    repo,
+                    target_agent_uid,
+                    binding_name,
+                    normalized_config,
+                    application
+                  ),
                 :ok <-
                   validate_binding_assignment(
                     definition,
@@ -536,10 +686,12 @@ defmodule Ankole.SignalsGateway.Bindings do
                     unavailable_reason: nil
                   }),
                 {:ok, committed_config} <-
-                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config) do
+                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config),
+                :ok <- record_platform_application_in_tx(repo, committed_config, application) do
              {:ok, {binding, committed_config, normalized_config}}
            else
              nil -> {:error, :binding_not_found}
+             false -> {:error, :binding_changed}
              {:error, _reason} = error -> error
            end
          end) do
@@ -618,11 +770,58 @@ defmodule Ankole.SignalsGateway.Bindings do
     |> repo.update()
   end
 
-  defp lock_adapter_assignments(repo, adapter_id) do
-    lock_key = "signals_gateway:binding_assignment:#{adapter_id}"
+  @doc "Adapter-owned identity resolution; callers run this before acquiring database locks."
+  def resolve_platform_application(
+        _module,
+        %{"sync" => %{"contacts" => false}},
+        :identity_provider
+      ),
+      do: {:ok, nil}
 
-    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
-      {:ok, _result} -> :ok
+  def resolve_platform_application(module, config, _source) when is_atom(module) do
+    if function_exported?(module, :platform_application, 1),
+      do: module.platform_application(config),
+      else: {:error, :platform_application_identity_unavailable}
+  end
+
+  @doc false
+  def validate_platform_application_in_tx(_repo, nil), do: :ok
+
+  def validate_platform_application_in_tx(repo, application) when is_binary(application) do
+    tenant_id = Repo.tenant_id!()
+
+    with {:ok, _} <-
+           SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [
+             "signals_gateway:application:" <> application
+           ]) do
+      conflict =
+        Repo.across_tenants(fn ->
+          repo.exists?(
+            from row in Ankole.AppConfigure.AppConfig,
+              left_join: binding in Binding,
+              on:
+                row.scope == "global" and
+                  binding.config_ref == fragment("'app-config://' || ?", row.key),
+              where:
+                fragment("?->>'platform_application' = ?", row.value, ^application) and
+                  (row.tenant_id != ^tenant_id or binding.tenant_id != ^tenant_id)
+          )
+        end)
+
+      if conflict, do: {:error, :platform_app_bound_to_another_tenant}, else: :ok
+    end
+  end
+
+  # Public identity metadata belongs to the same durable config row as its
+  # encrypted credentials. It is never accepted from an API request.
+  @doc false
+  def record_platform_application_in_tx(repo, {_parsed, scope, key}, application) do
+    case SQL.query(
+           repo,
+           "UPDATE app_configurations SET value = value || $1::jsonb WHERE scope = $2 AND key = $3",
+           [%{"platform_application" => application}, scope, key]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
@@ -689,20 +888,37 @@ defmodule Ankole.SignalsGateway.Bindings do
     |> repo.all()
   end
 
-  @spec outbox_binding_config_ref(OutboxEntry.t(), keyword()) ::
-          {:ok, String.t()} | {:error, term()}
-  def outbox_binding_config_ref(%OutboxEntry{} = outbox, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
+  @spec binding_config(Binding.t(), module()) :: {:ok, map()} | :error | {:error, term()}
+  def binding_config(%Binding{config_ref: "app-config://" <> key}, config_module) do
+    with {:ok, value} <- AppConfigure.get_by_key(key) do
+      config_module.validate_binding_config(value)
+    end
+  end
 
-    case repo.get_by(Binding,
-           agent_uid: outbox.agent_uid,
-           name: outbox.binding_name
-         ) do
-      %Binding{config_ref: config_ref} when is_binary(config_ref) ->
-        {:ok, config_ref}
+  def binding_config(%Binding{}, _config_module), do: {:error, :invalid_config_ref}
 
-      %Binding{} ->
+  @spec binding_config_in_tx(module(), Binding.t(), module()) ::
+          {:ok, map()} | :error | {:error, term()}
+  def binding_config_in_tx(repo, %Binding{config_ref: "app-config://" <> key}, config_module) do
+    with {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
+      config_module.validate_binding_config(value)
+    end
+  end
+
+  def binding_config_in_tx(_repo, %Binding{}, _config_module),
+    do: {:error, :invalid_config_ref}
+
+  @spec outbox_config(OutboxEntry.t(), module()) :: {:ok, map()} | {:error, term()}
+  def outbox_config(%OutboxEntry{} = outbox, config_module) do
+    case Repo.get_by(Binding, agent_uid: outbox.agent_uid, name: outbox.binding_name) do
+      %Binding{config_ref: nil} ->
         {:error, :binding_config_ref_missing}
+
+      %Binding{} = binding ->
+        case binding_config(binding, config_module) do
+          :error -> {:error, :binding_config_not_found}
+          result -> result
+        end
 
       nil ->
         {:error, :binding_not_found}

@@ -1,11 +1,18 @@
 defmodule Ankole.E2E.SlackLifecycleTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.E2E.FakeSlack.Server
-  alias Ankole.Plugins.SlackAdapter.{Channels, Config, IdentityProvider, Inbound}
+
+  alias Ankole.Plugins.SlackAdapter.{
+    Channels,
+    Config,
+    ConnectionReconciler,
+    IdentityProvider,
+    Inbound
+  }
+
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -92,28 +99,21 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     config = %{
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
-      "botUserID" => "UBOT",
       "userName" => "Slack"
     }
 
-    assert {:ok, _stored} =
-             AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+    on_exit(fn -> ConnectionReconciler.stop(Config.connection_key(config)) end)
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
-               agent_uid: agent.uid,
-               name: binding_name,
-               adapter: "slack",
-               config_ref: "app-config://#{Config.chat_config_key(binding_name)}",
-               filters: %{},
-               unaddressed_group_message_policy: :ignore,
-               unmatched_sender_policy: :create_standalone
+             SignalsGateway.Bindings.put_binding(agent.uid, "slack", binding_name, %{
+               "config" => config,
+               "unmatched_sender_policy" => "create_standalone"
              })
 
     assert {:ok, %{synced_channels: 1, marked_left: 0}} =
              Channels.sync_binding(agent.uid, binding_name)
 
-    assert %Channel{principal_group_id: group_id} = Repo.get(Channel, "slack:C1")
+    assert %Channel{principal_group_id: group_id} = Repo.get_by(Channel, id: "slack:C1")
     assert {:ok, group} = AuthZ.get_principal_group(group_id)
     assert BindingMembership.joined?(group.metadata, agent.uid, binding_name)
     assert {:ok, u1_uid} = Principals.resolve_platform_subject_uid("slack-main", "U1")
@@ -128,7 +128,8 @@ defmodule Ankole.E2E.SlackLifecycleTest do
         user_name: "Slack"
       )
 
-    consumer = Inbound.chat_consumer(context, config)
+    assert {:ok, runtime_config} = Config.resolve_runtime_bot_identity(config)
+    consumer = Inbound.chat_consumer(context, runtime_config)
 
     joined = %Event{
       type: "member_joined_channel",

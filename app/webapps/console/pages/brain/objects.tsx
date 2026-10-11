@@ -1,3 +1,4 @@
+import { ActorLabel } from '../../actor-label'
 import {
   Badge,
   Button,
@@ -26,7 +27,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from 'react-router'
@@ -34,13 +35,10 @@ import {
   ankoleWebBrainControllerForgetObjectMutation,
   ankoleWebBrainControllerForkObjectMutation,
   ankoleWebBrainControllerListObjectsOptions,
-  ankoleWebBrainControllerListObjectsQueryKey,
   ankoleWebBrainControllerObjectVersionsOptions,
-  ankoleWebBrainControllerObjectVersionsQueryKey,
   ankoleWebBrainControllerRestoreObjectMutation,
   ankoleWebBrainControllerRollbackObjectMutation,
-  ankoleWebBrainControllerShowObjectOptions,
-  ankoleWebBrainControllerShowObjectQueryKey
+  ankoleWebBrainControllerShowObjectOptions
 } from '../../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
@@ -140,7 +138,8 @@ function BrainObjectsList() {
                   key={candidate}
                   size="xs"
                   type="button"
-                  variant={prefix === candidate ? 'secondary' : 'ghost'}
+                  aria-pressed={prefix === candidate}
+                  variant={prefix === candidate ? 'outline' : 'ghost'}
                   className="font-mono"
                   onClick={() => setPrefix(current => (current === candidate ? '' : candidate))}>
                   {candidate}
@@ -154,7 +153,7 @@ function BrainObjectsList() {
       {rows.map(object => (
         <TableRow key={object.slug}>
           <TableCell className="font-mono text-xs">
-            <Link className="text-foreground hover:text-link hover:underline" to={brainObjectPath(object.slug)}>
+            <Link data-row-link className="text-foreground" to={brainObjectPath(object.slug)}>
               {object.slug}
             </Link>
           </TableCell>
@@ -179,7 +178,6 @@ function BrainObjectsList() {
 export function BrainObjectDrawer() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const params = useParams()
   const slug = params['*'] ?? ''
   const [forgetOpen, setForgetOpen] = useState(false)
@@ -197,21 +195,11 @@ export function BrainObjectDrawer() {
     enabled: Boolean(page)
   })
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListObjectsQueryKey() })
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebBrainControllerShowObjectQueryKey({ query: { slug } })
-    })
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebBrainControllerObjectVersionsQueryKey({ query: { slug } })
-    })
-  }
   const rollback = useMutation({
     ...ankoleWebBrainControllerRollbackObjectMutation(),
     onSuccess: () => {
       setRollbackVersionID(undefined)
       toast.success(t('console.brain.rollback_done', { slug }))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -220,7 +208,7 @@ export function BrainObjectDrawer() {
     onSuccess: () => {
       setForgetOpen(false)
       toast.success(t('console.brain.forget_object_done', { slug }))
-      invalidate()
+
       navigate('/brain/objects')
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -229,7 +217,6 @@ export function BrainObjectDrawer() {
     ...ankoleWebBrainControllerRestoreObjectMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.restore_object_done', { slug }))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -238,7 +225,6 @@ export function BrainObjectDrawer() {
     onSuccess: () => {
       setForkOpen(false)
       toast.success(t('console.brain.fork_object_done', { slug }))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -355,9 +341,7 @@ export function BrainObjectDrawer() {
                     <ul className="grid gap-1">
                       {detail.data.candidates.map(candidate => (
                         <li key={candidate.slug}>
-                          <Link
-                            className="font-mono text-xs text-link hover:underline"
-                            to={brainObjectPath(candidate.slug ?? '')}>
+                          <Link className="link font-mono text-xs" to={brainObjectPath(candidate.slug ?? '')}>
                             {candidate.slug}
                           </Link>
                           {candidate.title ? (
@@ -455,9 +439,7 @@ export function BrainObjectDrawer() {
                             </TableCell>
                             <TableCell className="font-mono text-xs">
                               {timeline.event_object_slug ? (
-                                <Link
-                                  className="text-link hover:underline"
-                                  to={brainObjectPath(timeline.event_object_slug)}>
+                                <Link className="link" to={brainObjectPath(timeline.event_object_slug)}>
                                   {timeline.event_object_slug}
                                 </Link>
                               ) : (
@@ -509,7 +491,9 @@ export function BrainObjectDrawer() {
                           {(versions.data?.versions ?? []).map(version => (
                             <TableRow key={version.id}>
                               <TableCell className="text-xs">{formatConsoleDate(version.snapshot_at)}</TableCell>
-                              <TableCell className="font-mono text-xs">{version.author_uid ?? '—'}</TableCell>
+                              <TableCell className="font-mono text-xs">
+                                <ActorLabel actor={version.author} />
+                              </TableCell>
                               <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
                                 {version.body}
                               </TableCell>
@@ -666,9 +650,7 @@ function LinkList({
           {links.map((link, index) => (
             <li key={`${link.slug}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2">
               <Badge variant="outline">{link.linkType}</Badge>
-              <Link
-                className="min-w-0 truncate font-mono text-xs text-link hover:underline"
-                to={brainObjectPath(link.slug)}>
+              <Link className="link min-w-0 truncate font-mono text-xs" to={brainObjectPath(link.slug)}>
                 {link.slug}
               </Link>
               {link.context ? <span className="text-xs text-muted-foreground">{link.context}</span> : null}

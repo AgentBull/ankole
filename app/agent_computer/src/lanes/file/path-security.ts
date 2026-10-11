@@ -1,49 +1,46 @@
 import { resolve } from 'node:path'
+import { agentHomePaths } from '../../core/agent-home-paths'
 import { relativePathWithin } from '../../core/path-boundary'
 import {
   assertCreatablePathWithin,
   assertExistingPathWithin,
   canonicalExistingRoots
 } from '../../core/real-path-boundary'
-import { assertFileRootContract, isFileRoot, rootPathFor } from './roots'
-import type { FileAddress } from './types'
-import type { WorkerConfig } from '../../worker/config'
+import type { AgentHomeConfig } from '../../worker/config'
 
 const transferScratchRoot = '/tmp/ankole-file-transfer'
 
-export function resolveFileAddress(
-  config: WorkerConfig,
-  address: FileAddress,
-  opts: { allowRoot?: boolean } = {}
-): string {
-  const rootPath = rootPathFor(config, address.root)
-  const relativePath = normalizeRelativePath(address.relativePath, opts)
-  if (!relativePath) throw new Error(`${address.root} requires an Agent-scoped path`)
-  assertFileRootContract(address.root, relativePath)
-  const resolvedRoot = resolve(rootPath)
-  const resolvedPath = resolve(resolvedRoot, relativePath)
-  const rel = relativePathWithin(resolvedRoot, resolvedPath)
+/**
+ * The absolute path of one path inside the Agent Home of the bound Agent.
+ *
+ * The control plane names every transfer relative to the Agent Home of the
+ * Worker that it calls, so the path never leaves that Agent Home.
+ */
+export function homePath(config: AgentHomeConfig, homeRelativePath: string): string {
+  const home = agentHome(config)
+  const path = resolve(home, normalizeRelativePath(homeRelativePath))
+  const rel = relativePathWithin(home, path)
 
-  if (rel === undefined || (!opts.allowRoot && rel === '')) {
-    throw new Error(`relative_path escapes root: ${address.relativePath}`)
+  if (rel === undefined || rel === '') {
+    throw new Error(`home_relative_path escapes the Agent Home: ${homeRelativePath}`)
   }
 
-  return resolvedPath
+  return path
 }
 
-export function assertExistingFileAddress(config: WorkerConfig, address: FileAddress, path: string): string {
+export function assertExistingHomePath(config: AgentHomeConfig, path: string, homeRelativePath: string): string {
   return assertExistingPathWithin(
-    canonicalExistingRoots([rootPathFor(config, address.root)]),
+    canonicalExistingRoots([agentHome(config)]),
     path,
-    `path resolves outside root: ${address.virtualPath}`
+    `path resolves outside the Agent Home: ${homeRelativePath}`
   )
 }
 
-export function assertCreatableFileAddress(config: WorkerConfig, address: FileAddress, path: string): string {
+export function assertCreatableHomePath(config: AgentHomeConfig, path: string, homeRelativePath: string): string {
   return assertCreatablePathWithin(
-    canonicalExistingRoots([rootPathFor(config, address.root)]),
+    canonicalExistingRoots([agentHome(config)]),
     path,
-    `path resolves outside root: ${address.virtualPath}`
+    `path resolves outside the Agent Home: ${homeRelativePath}`
   )
 }
 
@@ -59,43 +56,24 @@ export function scratchDirectoryFor(transferID: string): string {
   return tempDir
 }
 
-/**
- * Builds the validated address of one path inside a worker-visible root.
- */
-export function fileAddress(root: string, relativePath: unknown, opts: { allowRoot?: boolean } = {}): FileAddress {
-  if (!isFileRoot(root)) {
-    throw new Error(`unsupported file root: ${root}`)
-  }
-
-  const normalized = normalizeRelativePath(relativePath, opts)
-  return {
-    root,
-    relativePath: normalized,
-    virtualPath: normalized ? `/${root}/${normalized}` : `/${root}`
-  }
-}
-
-export function normalizeRelativePath(value: unknown, opts: { allowRoot?: boolean } = {}): string {
+export function normalizeRelativePath(value: unknown): string {
   if (typeof value !== 'string') {
-    throw new Error('relative_path must be a string')
+    throw new Error('home_relative_path must be a string')
   }
 
   const withForwardSeparators = value.replaceAll('\\', '/')
   if (withForwardSeparators.startsWith('/')) {
-    throw new Error(`relative_path must not be absolute: ${value}`)
+    throw new Error(`home_relative_path must not be absolute: ${value}`)
   }
 
   const normalized = withForwardSeparators.replace(/\/+/g, '/')
-  if (opts.allowRoot && (normalized.length === 0 || normalized === '.')) {
-    return ''
-  }
   if (
     normalized.length === 0 ||
     normalized === '.' ||
     normalized === '..' ||
     normalized.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
   ) {
-    throw new Error(`invalid relative_path: ${value}`)
+    throw new Error(`invalid home_relative_path: ${value}`)
   }
   return normalized
 }
@@ -105,4 +83,8 @@ export function safeTransferID(value: string): string {
     throw new Error(`invalid transfer_id: ${value}`)
   }
   return value
+}
+
+function agentHome(config: AgentHomeConfig): string {
+  return resolve(agentHomePaths(config.agentHomeRoot).home)
 }

@@ -15,10 +15,6 @@ spec:
       port: {{ .Values.controlPlane.service.port }}
       targetPort: http
       protocol: TCP
-    - name: fabric
-      port: {{ .Values.runtimeFabric.port }}
-      targetPort: fabric
-      protocol: TCP
   selector:
     {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
 ---

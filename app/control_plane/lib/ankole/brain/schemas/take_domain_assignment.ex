@@ -3,7 +3,7 @@ defmodule Ankole.Brain.Schemas.TakeDomainAssignment do
   One analysis-domain assignment of a Take claim.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 

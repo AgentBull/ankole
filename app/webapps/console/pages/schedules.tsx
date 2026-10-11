@@ -29,7 +29,7 @@ import {
 import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -60,7 +60,8 @@ import {
   LabeledField,
   ReadOnlyValue,
   ResourceEditorPage,
-  StatusIndicator
+  StatusIndicator,
+  type StatusTone
 } from '../console-form'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions, SubNav } from '../console-list-page'
 import {
@@ -75,12 +76,11 @@ import { useEditorDraft } from '../use-editor-draft'
 
 /** A pending checkback still has a wake edge ahead of it; the rest are history. */
 function pending(row: ScheduledEventItem): boolean {
-  return row.status === 'scheduled' || row.status === 'firing'
+  return row.status === 'scheduled'
 }
 
 export function SchedulesListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const scope = useAgentScope()
   const hasActiveAgents = activeAgents(scope.agents).length > 0
@@ -103,13 +103,10 @@ export function SchedulesListPage() {
     )
   )
 
-  const invalidate = () => void queryClient.invalidateQueries()
-
   const pauseCron = useMutation({
     ...ankoleWebScheduleControllerPauseCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.paused'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -117,7 +114,6 @@ export function SchedulesListPage() {
     ...ankoleWebScheduleControllerResumeCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.resumed'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -125,7 +121,6 @@ export function SchedulesListPage() {
     ...ankoleWebScheduleControllerRunCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.ran'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -133,7 +128,6 @@ export function SchedulesListPage() {
     ...ankoleWebScheduleControllerRemoveCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.deleted'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -190,7 +184,7 @@ export function SchedulesListPage() {
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={editTo}>
+              <Link data-row-link className="text-foreground" to={editTo}>
                 {row.name || row.binding_name}
               </Link>
               <div className="text-muted-foreground">{row.binding_name}</div>
@@ -260,7 +254,6 @@ export function SchedulesListPage() {
 
 export function ScheduleCheckbacksPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
@@ -288,7 +281,6 @@ export function ScheduleCheckbacksPage() {
     ...ankoleWebScheduleControllerCancelCheckbackMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.cancelled'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -396,7 +388,6 @@ export function ScheduleCronEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(ScheduleEditorModel)
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -461,7 +452,6 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerCreateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
-      void queryClient.invalidateQueries()
       navigate(backTo)
     }
   })
@@ -469,17 +459,14 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerUpdateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
-      void queryClient.invalidateQueries()
       navigate(backTo)
     }
   })
 
-  const invalidate = () => void queryClient.invalidateQueries()
   const runCron = useMutation({
     ...ankoleWebScheduleControllerRunCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.ran'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -487,7 +474,6 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerPauseCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.paused'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -495,7 +481,6 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerResumeCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.resumed'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -503,7 +488,7 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerRemoveCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.deleted'))
-      invalidate()
+
       navigate(backTo)
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -633,6 +618,9 @@ export function ScheduleCronEditorPage() {
       supplementary={
         editing ? (
           <div className="flex flex-col gap-3">
+            <LabeledField label={t('console.schedules.next_fire')}>
+              <ReadOnlyValue>{formatConsoleDate(existingRow?.next_fire_at)}</ReadOnlyValue>
+            </LabeledField>
             <h3 className="text-sm font-medium">{t('console.schedules.run_history')}</h3>
             <ErrorBlock error={runs.error} />
             {runs.error ? null : runRows.length === 0 ? (
@@ -678,7 +666,7 @@ export function ScheduleCronEditorPage() {
               <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
                 {agentList.map(agent => (
                   <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name} · {agent.uid}
+                    {agent.display_name} · {agent.handle}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -742,9 +730,7 @@ export function ScheduleCronEditorPage() {
           {!editing && agentUID && !bindings.isLoading && bindingList.length === 0 ? (
             <p className="text-xs leading-5 text-muted-foreground">
               {t('console.schedules.binding_empty_hint')}{' '}
-              <Link
-                className="text-link underline-offset-4 hover:underline"
-                to={`/signals/new?agent=${encodeURIComponent(agentUID)}`}>
+              <Link className="link" to={`/signals/new?agent=${encodeURIComponent(agentUID)}`}>
                 {t('console.schedules.binding_empty_action')}
               </Link>
             </p>
@@ -962,14 +948,12 @@ function statusTone(status: string): 'positive' | 'warning' | 'neutral' | 'dange
   }
 }
 
-function eventTone(status: string): 'positive' | 'warning' | 'neutral' | 'danger' | 'info' {
+function eventTone(status: string): StatusTone {
   switch (status) {
     case 'fired':
       return 'positive'
     case 'scheduled':
       return 'info'
-    case 'firing':
-      return 'warning'
     case 'cancelled':
       return 'neutral'
     case 'failed':

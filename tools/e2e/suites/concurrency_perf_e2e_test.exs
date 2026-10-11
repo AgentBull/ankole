@@ -1,8 +1,8 @@
 defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   @moduledoc """
-  Basic concurrency and throughput baseline: N independent chats drive direct
-  turns across two worker containers without cross-talk, and streamed final
-  replies land in their own chats.
+  Basic concurrency and throughput baseline: N independent chats of two Agents
+  drive direct turns on the two Agents' Worker containers without cross-talk,
+  and streamed final replies land in their own chats.
 
   The wall-clock ceiling is deliberately loose — it guards against order-of-
   magnitude regressions, not an SLA.
@@ -15,24 +15,28 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_for_completed_final_reply: 3, wait_until: 2]
 
+  alias Ankole.E2E.DockerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
   @chats 6
   @wall_clock_ceiling_ms 240_000
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "concurrent direct turns across two workers stay isolated per chat" do
-    ctx = start_worker_e2e_stack!()
-
-    second_worker_id = "lark-e2e-worker-#{System.unique_integer([:positive])}"
-
-    second_container =
-      start_additional_worker!(ctx.endpoint, second_worker_id, ctx.worker_auth_key)
-
+  test "concurrent direct turns of two Agents stay isolated per chat" do
+    ctx = start_worker_e2e_stack!(secondary: true)
+    workers = Map.new([ctx.agent, ctx.secondary_agent], &{&1.uid, Repo.get!(AgentWorker, &1.uid)})
     started_ms = System.monotonic_time(:millisecond)
 
     inputs =
       for index <- 1..@chats do
+        {agent, app_id, mention} =
+          if rem(index, 2) == 1,
+            do: {ctx.agent, primary_app_id(), lark_bot_mention()},
+            else:
+              {ctx.secondary_agent, secondary_app_id(),
+               lark_bot_mention("ou_lark_bot_b", "@_user_1", "Agent B")}
+
         assert :ok =
                  FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
                    event_id: "evt_perf_#{index}",
@@ -40,30 +44,26 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
                    chat_id: "oc_perf_chat_#{index}",
                    chat_type: "p2p",
                    text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
-                   mentions: [lark_bot_mention()]
+                   mentions: [mention],
+                   to_app: app_id
                  )
 
-        {index, actor_event_by_source_entry_id!(ctx.agent.uid, "om_perf_#{index}")}
+        {index, agent, actor_event_by_source_entry_id!(agent.uid, "om_perf_#{index}")}
       end
 
-    for {_index, input} <- inputs do
-      assert {:ok, %{send_outcome: "sent_or_queued"}} =
-               wait_until(deadline(180_000), fn ->
-                 case process_ready_event_for_actor!(
-                        input,
-                        DateTime.add(input.available_at, 1, :second)
-                      ) do
-                   {:error, :no_worker_available} -> nil
-                   {:ok, %{status: :idle}} -> nil
-                   result -> result
-                 end
-               end)
+    for {_index, _agent, input} <- inputs do
+      assert {:ok, %{status: :driving}} =
+               ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
     end
 
     completed =
-      for {index, input} <- inputs do
+      for {index, agent, input} <- inputs do
         assert {:ok, reply, _message} =
-                 wait_for_completed_final_reply(ctx.container, input.id, deadline(180_000))
+                 wait_for_completed_final_reply(
+                   DockerWorker.container(agent.uid),
+                   input.id,
+                   deadline(180_000)
+                 )
 
         assert reply.text =~ "CHAOS_DIRECT_OK"
         assert reply.signal_channel_id == "lark:oc_perf_chat_#{index}"
@@ -86,15 +86,11 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
       )
     end
 
-    # Both containers stayed admitted for the whole run.
-    assert Repo.get_by!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker,
-             worker_id: ctx.worker_id
-           )
-
-    assert Repo.get_by!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker,
-             worker_id: second_worker_id
-           )
-
-    _keep_referenced = second_container
+    # Both Workers stayed on the same computer and connection for the whole run.
+    for {agent_uid, before} <- workers do
+      assert %AgentWorker{state: "ready"} = after_run = Repo.get!(AgentWorker, agent_uid)
+      assert after_run.generation == before.generation
+      assert after_run.transport_route == before.transport_route
+    end
   end
 end

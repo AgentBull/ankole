@@ -5,12 +5,12 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Outbox
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.Entry
 
   import Ankole.PrincipalsFixtures
@@ -36,8 +36,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "started-unknown",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "maybe sent",
-                 created_source_entry_id: "maybe-provider-id"
+                 fallback_visible_text: "maybe sent"
                })
 
       {:ok, _sending} =
@@ -86,8 +85,12 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "started-reconcile",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "confirmed",
-                 created_source_entry_id: "confirmed-provider-id"
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "confirmed",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "confirmed"
                })
 
       {:ok, _sending} =
@@ -120,6 +123,46 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
              ).text == "confirmed"
     end
 
+    test "a generic sending row is marked unknown even when the adapter declares outbound_reconciliation" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, seed} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "generic-unknown",
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "maybe sent"
+               })
+
+      {:ok, _sending} =
+        seed
+        |> OutboxEntry.changeset(%{status: :sending, platform_send_started_at: @base_time})
+        |> Repo.update()
+
+      adapter =
+        outbox_adapter(
+          [:post_entry, :outbound_reconciliation],
+          fn _outbox -> flunk("recovery must not repeat a generic send") end,
+          fn _outbox -> flunk("a generic send has no reconciliation contract") end
+        )
+
+      assert {:ok, unknown} =
+               SignalsGateway.dispatch_outbox(agent.uid, "bot", "generic-unknown", adapter,
+                 now: DateTime.add(@base_time, 61, :second)
+               )
+
+      assert unknown.status == :unknown_after_send
+      assert unknown.last_error["reason"] == "provider send started without provider entry id"
+    end
+
     test "invalid reconcile result marks in-flight outbox unknown without crashing" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -136,8 +179,12 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "started-invalid-reconcile",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "maybe sent",
-                 created_source_entry_id: "maybe-sent-provider-id"
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "maybe sent",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "maybe sent"
                })
 
       {:ok, _sending} =
@@ -182,8 +229,12 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "late-send-error",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "delivered by takeover",
-                 created_source_entry_id: "takeover-provider-id"
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "delivered by takeover",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "delivered by takeover"
                })
 
       takeover_adapter =
@@ -261,9 +312,11 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  delivery_class: :durable_ai_reply,
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 payload: %{"text" => "reconciled reply"},
-                 fallback_visible_text: "reconciled reply",
-                 created_source_entry_id: "reconciled-provider-id"
+                 payload: %{
+                   "text" => "reconciled reply",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "reconciled reply"
                })
 
       {:ok, _sending} =
@@ -338,7 +391,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
              ).text == "reconciled reply"
     end
 
-    test "outbox runtime event dispatch picks up stale in-flight sends for reconciliation" do
+    test "Oban wakes a stale in-flight send for reconciliation" do
       use_mock_signal_provider_plugin()
       MockOutbox.put_reconcile_result({:ok, %{created_source_entry_id: "stale-provider-id"}})
 
@@ -359,19 +412,25 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "stale-sending",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "confirmed by reconcile",
-                 created_source_entry_id: "stale-provider-id"
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "confirmed by reconcile",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "confirmed by reconcile"
                })
 
       due_now = DateTime.add(@base_time, 61, :second)
 
-      {:ok, _sending} =
+      {:ok, sending} =
         stale_seed
         |> OutboxEntry.changeset(%{
           status: :sending,
           platform_send_started_at: @base_time
         })
         |> Repo.update()
+
+      schedule_recovery(sending)
 
       assert {:ok, fresh_seed} =
                SignalsGateway.commit_outbox(%{
@@ -380,17 +439,23 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  outbound_key: "fresh-sending",
                  operation: :post,
                  signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "still in flight",
-                 created_source_entry_id: "fresh-provider-id"
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "still in flight",
+                   "reply_presentation" => ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "still in flight"
                })
 
-      {:ok, _fresh} =
+      {:ok, fresh} =
         fresh_seed
         |> OutboxEntry.changeset(%{
           status: :sending,
           platform_send_started_at: DateTime.add(due_now, -30, :second)
         })
         |> Repo.update()
+
+      schedule_recovery(fresh)
 
       assert [%{"outbound_key" => "stale-sending"}] = due_outbox_events(due_now)
 
@@ -409,7 +474,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
              ).text == "confirmed by reconcile"
     end
 
-    test "outbox runtime event dispatch honors retry backoff" do
+    test "Oban wakeups honor the outbox retry backoff" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -820,6 +885,51 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
              )
     end
 
+    test "a reply whose attachment content is gone blocks at once for every adapter" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "missing-attachment",
+                 delivery_class: :durable_ai_reply,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "the report"
+               })
+
+      capture_log([level: :error], fn ->
+        assert {:ok, %OutboxEntry{status: :failed}} =
+                 SignalsGateway.dispatch_outbox(
+                   agent.uid,
+                   "bot",
+                   "missing-attachment",
+                   outbox_adapter([:post_entry], fn _outbox ->
+                     {:error, :attachment_file_missing}
+                   end),
+                   now: @base_time
+                 )
+      end)
+
+      blocked =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "missing-attachment"
+        )
+
+      assert blocked.next_attempt_at == nil
+      assert blocked.recovery_state["state"] == "blocked"
+      assert blocked.last_error["reason"]["code"] == "attachment_file_missing"
+    end
+
     test "operator-blocked durable replies wake when their binding is saved again" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -945,21 +1055,25 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
   end
 
   defp due_outbox_events(now) do
-    SignalsGateway.runtime_event_snapshot()
-    |> Enum.filter(fn {channel, payload} ->
-      channel == RuntimeEvents.outbox_due_channel() and runtime_event_due?(payload, now)
-    end)
-    |> Enum.map(fn {_channel, payload} -> payload end)
+    Repo.all(
+      from job in Oban.Job,
+        where:
+          job.worker == "Ankole.SignalsGateway.Jobs.OutboxDispatch" and
+            job.state in ["available", "scheduled", "retryable"] and job.scheduled_at <= ^now,
+        select: job.args
+    )
   end
 
-  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
-
-  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
-    case DateTime.from_iso8601(due_at) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      _invalid -> false
-    end
+  defp schedule_recovery(outbox) do
+    :ok =
+      Ankole.SignalsGateway.Jobs.OutboxDispatch.schedule_in_tx(
+        Repo,
+        %{
+          agent_uid: outbox.agent_uid,
+          binding_name: outbox.binding_name,
+          outbound_key: outbox.outbound_key
+        },
+        DateTime.add(outbox.platform_send_started_at, 60)
+      )
   end
-
-  defp runtime_event_due?(_payload, _now), do: true
 end

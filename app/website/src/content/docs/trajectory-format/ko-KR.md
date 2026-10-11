@@ -48,14 +48,13 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 ## 모델 가시 투영
 
-모델은 저장된 행을 보지 못합니다. worker의 `modelVisibleTrajectory`는 궤적을 모델이 봐야 하는 형태로 투영합니다:
+컨트롤 플레인은 `Ankole.Conversations.Tools.Jobs.visible_trajectory/1`로 저장된 Job 항목을 투영합니다. 모델 가시 투영은 다음을 포함합니다.
 
 - **저장된 프로토콜 식별자 제거** — 내부 메시지 id, 와이어 프로토콜 필드, 모델이 행동해서는 안 되는 모든 것.
 - **tool-call id를 턴 로컬 별칭으로 대체** — `call_1`, `call_2` 등. 모델은 이를 연결하는 내부 UUID 없이 어떤 tool result가 어떤 tool call에 속하는지(유일하게 유용한 관계)를 봅니다.
 - **내용과 역할 보존** — 실제 메시지, tool call과 그 결과를 발생 순서대로 유지합니다.
 - **제한 콘텐츠 사실 보존** — 궤적 수준의 `metadata.redacted`와 `metadata.content_truncated`가 계속 보입니다. 제어 플레인 투영은 페이지 한도를 맞추기 위해 선택된 메시지 내용을 줄여야 할 때 `content_truncated`를 설정합니다.
 
-moduledoc은 명확합니다: “턴 로컬 호출 별칭은 유일하게 유용한 관계, 즉 어떤 tool result가 어떤 tool call에 속하는지를 보존합니다.” 저장 행이 담는 나머지 모든 것은 모델이 아니라 시스템을 위한 것입니다.
 
 ## 두 형태의 관계
 
@@ -64,7 +63,7 @@ moduledoc은 명확합니다: “턴 로컬 호출 별칭은 유일하게 유용
 | 저장 내용 | 실시간 대화 전사 | 턴별 Job 실행 기록 |
 | 소유자 | AIGateway | Background Agent Jobs |
 | 정규 형식 | AIGateway의 메시지 스키마 | 시맨틱 항목을 ChatML로 투영 |
-| 모델이 보는 경로 | 상태 저장 Responses API | `modelVisibleTrajectory` 투영 |
+| 모델이 보는 경로 | 상태 저장 Responses API | `visible_trajectory/1` 투영 |
 | 압축 | AIGateway 압축이 이전 메시지 대체 | 압축 없음(Job은 재시도 예산으로 제한됨) |
 
 두 형태는 섞이지 않습니다. 대화의 메시지는 AIGateway의 것이고, Job의 궤적은 Job의 것입니다. Job은 대화의 메시지 저장소에 쓰는 것이 아니라 웨이크업 이벤트를 통해([Background Agent Jobs](../background-agent-jobs/) 참조) 소유 대화에 결과를 보고합니다.

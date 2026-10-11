@@ -1,104 +1,76 @@
 # Ankole Kernel
 
-Ankole Kernel is the shared Rust crate loaded by both the Elixir and Bun parts
-of Ankole.
-
-It is not a Bun package with an Elixir adapter, and not an Elixir NIF project
-with a Bun adapter. Rust owns the low-level semantics. Bun and Elixir are equal
-host runtimes that load those semantics through separate binding layers.
+Ankole Kernel is the Rust library loaded by the Elixir control plane through
+Rustler. The Bun Worker does not load a native kernel addon.
 
 ## Purpose
 
-The kernel exists to prevent the Bun side and the Elixir side from developing
-separate meanings for the same native behavior. If a behavior must be trusted by
-both runtimes, it belongs here as Rust first, with bindings second.
+The kernel provides native primitives and transport. The control plane owns
+durable state, provider policy, credentials, and domain commits.
 
-The current shared surface is:
+The current surface is:
 
 - `common/` - AEAD tokens, key derivation, hashing, password hashing,
-  encodings, UUID helpers, JWT helpers, phone normalization, and other
-  host-neutral primitives.
+  encodings, UUID helpers, JWT helpers, and phone normalization.
 - `authz/` - snapshot-only authorization evaluation, CEL condition validation,
   and resource-pattern validation and matching.
-- `runtime_fabric/` - RuntimeFabric v1 envelope protocol validation over
-  host-encoded protobuf bytes, including lanes, durability classes, correlation
-  rules, and turn/control/progress/RPC body semantics. `envelope.proto` under
-  `proto/` is the only structural declaration; each host derives its codec from
-  it (prost-build in Rust, protox in Elixir, protoc-gen-es in TypeScript).
-- `runtime_fabric/transport/` - Rust-owned ZeroMQ ROUTER/DEALER transport split
-  across auth, config, router, dealer, and framing modules, including ZAP/PLAIN
-  worker authentication, mandatory route sends, bounded socket options, and
-  route and decode errors. It carries protobuf envelopes only; Workers on the
-  `tcp://` transport use it during the dual-stack migration, and the Phoenix
-  Channel transport lives in the control plane.
-- `universal_ai_client/` - feature-gated native async streaming client for
-  prepared AI provider requests, including upstream HTTP SSE/EventStream and
-  WebSocket transport, provider response normalization, downstream SSE/WebSocket
-  chunk encoding, demand credit, and cancellation.
+- `universal_ai_client/` - native async streaming for prepared AI requests:
+  upstream HTTP SSE/EventStream and WebSocket transport, provider response
+  normalization, downstream JSON text chunk encoding, demand credit,
+  cancellation, and timeouts.
+- `object_store/` - file-service storage through OpenDAL over a local directory
+  or an S3-compatible bucket, with bounded retries and per-call timeouts.
+  Large objects move through local files; writes use 8 MiB parts.
+- `program_runner/` - one-shot AIGateway Programmatic Tool Calling execution
+  in a `deno_core` isolate.
+- `brain_markdoc/` - analysis of Brain bodies over CommonMark.
+- `model_image/` - model image validation and conversion.
+- `signals_gateway/` - CEL routing-policy evaluation over a supplied context.
 
 ## Identifier Generation
 
-The kernel owns Ankole's shared UUID helpers. `gen_uuid_v7` is exposed to
-Elixir as `Ankole.Kernel.gen_uuid_v7/0` and to Bun as `genUUIDv7()`.
+`Ankole.Kernel.gen_uuid_v7/0` supplies UUIDv7 identifiers to Elixir.
+Control-plane Ecto schemas use `Ankole.Ecto.UUIDv7` for opaque PostgreSQL `uuid`
+row IDs. Database migrations declare UUID primary keys without PostgreSQL
+defaults such as `gen_random_uuid()`.
 
-Control-plane Ecto schemas should use `Ankole.Ecto.UUIDv7` for opaque
-PostgreSQL `uuid` row ids. That type stores the same database value as
-`Ecto.UUID`, but its autogeneration calls the Rust kernel helper so Elixir and
-Bun do not grow separate UUID semantics.
-
-Database migrations should declare UUID primary keys without PostgreSQL-side
-defaults such as `gen_random_uuid()`. Semantic keys stay semantic: Principal
-`uid`, provider channel ids, and composite provider/runtime keys should not be
-replaced with opaque UUIDs merely for uniformity.
+Semantic keys remain semantic. Principal `uid`, provider channel IDs, and
+composite provider/runtime keys do not become opaque UUIDs for uniformity.
 
 ## Boundary
 
-The kernel owns shared mechanisms, not product ownership.
+The kernel owns mechanisms, not product state:
 
-It may own the evaluator, codec, verifier, socket loop, or protocol machinery.
-It does not own actor scheduling, PostgreSQL state, plugin lifecycle, provider
-policy, UI, final transcript commits, or the business meaning that uses those
-mechanisms.
+- AuthZ receives explicit snapshots. It never loads principals, grants,
+  groups, or request context from PostgreSQL.
+- UniversalAIClient receives prepared provider endpoints, headers, and model
+  requests. It encodes requests and owns the streaming data plane. The control
+  plane selects providers and credentials, applies policy, and commits results.
+- ObjectStore receives explicit storage specifications and operations. The
+  control plane owns the file lifecycle and durable references.
 
-Host runtimes provide complete inputs:
+The kernel owns no Worker socket or RuntimeFabric envelope codec.
+`proto/ankole/runtime_fabric/v1/envelope.proto` declares the protocol and its
+current version. Elixir uses Protox and the Worker uses protobuf-es. Each host
+writes the declared version on send and checks it on receive. Domain consumers
+check execution references against their authoritative state. Cross-language
+fixtures live in `proto/golden`.
 
-- AuthZ receives explicit snapshots. It never loads principals, grants, groups,
-  or request context from PostgreSQL.
-- RuntimeFabric receives protobuf envelope bytes produced by the host's
-  generated codec. The kernel validates them on every send and receive path,
-  but durable replay and commit authority stay in the control plane.
-- UniversalAIClient receives provider endpoint/header/transport specs plus the
-  public model request. The kernel owns model request body encoding, raw HTTP
-  execution, the live streaming data plane, API protocol normalization,
-  downstream-ready SSE or WebSocket text chunks, demand credit, cancellation,
-  and timeout handling. Provider selection, credentials, endpoint choice,
-  transcript commits, and policy stay in the host runtime and durable stores.
+## Build and Transport
 
-## Architecture
+The control plane uses one Cargo feature, `nif`, for development, tests, and
+production. `src/nif_exports.rs` translates BEAM values and errors, then calls
+the Rust modules. Complex inputs cross as JSON-shaped values (`Torque` in
+Elixir, `serde_json` in Rust); byte payloads stay binary.
 
-`app/kernel` is one Rust crate compiled through feature-gated binding layers:
+UniversalAIClient uses the same aws-lc-rs TLS backend in each environment. Its
+shared reqwest client uses HTTP/1.1. Upstream WebSocket calls use their own
+connection. There is no environment-specific TLS provider, HTTP protocol
+preference, or HTTP/3 build.
 
-| Host | Loader | Binding file | Cargo feature |
-|------|--------|--------------|---------------|
-| Elixir / BEAM (dev/test) | Rustler | `src/nif_exports.rs` | `nif_dev` |
-| Elixir / BEAM (production) | Rustler | `src/nif_exports.rs` | `nif_prod` |
-| Bun / Node | N-API | `src/napi_exports.rs` | `napi` |
+Run the declared kernel checks from the repository root:
 
-The host-neutral modules are compiled for tests and for both binding features.
-The binding files decode host values, preserve binary and JSON boundaries,
-translate errors, and forward to the shared modules.
-
-`universal_ai_client` is feature-gated separately and enabled by both Rustler
-builds. Development uses ring without HTTP/3 to keep cold compilation fast;
-production keeps reqwest's AWS-LC-backed HTTP/3 support. A development build
-falls back to HTTP/2 or HTTP/1 even when a transport preference only lists H3.
-Keep one-sided exports explicit in the binding layer until another host needs
-the same API.
-
-Binding layers may use host-native naming and types, but they must not introduce
-different behavior. Complex maps cross as JSON-shaped values (`Torque` on
-Elixir, `serde_json` in Rust, napi-rs JSON values on Bun). Byte payloads stay
-binary-safe across both hosts.
-
-One-sided exports are allowed, but they should stay explicit in the binding layer
-rather than changing the shared kernel contract by accident.
+```bash
+bun run --filter @ankole/kernel lint
+bun run --filter @ankole/kernel test
+```

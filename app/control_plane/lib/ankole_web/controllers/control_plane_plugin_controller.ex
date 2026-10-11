@@ -17,14 +17,11 @@ defmodule AnkoleWeb.ControlPlanePluginController do
 
   @responses [
     ok: {"Control Plane Plugins", "application/json", ControlPlanePluginListResponse},
-    unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-    forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-    not_found: {"Not found", "application/json", ErrorEnvelope},
-    unprocessable_entity: {"Invalid configuration", "application/json", ErrorEnvelope}
+    default: {"Error", "application/json", ErrorEnvelope}
   ]
 
   tags(["Control Plane Plugins"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer

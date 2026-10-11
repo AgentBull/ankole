@@ -10,6 +10,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
 
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
+  alias AnkoleWeb.Schemas.ConsoleAPI.ActorRef
 
   defmodule BrainObjectSummary do
     @moduledoc false
@@ -26,7 +27,6 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           subtype: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},
           effective_date: %Schema{type: :string, nullable: true},
-          emotional_weight: %Schema{type: :number, nullable: true},
           library_managed: %Schema{
             type: :boolean,
             description:
@@ -152,7 +152,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           superseded_by: %Schema{type: :string, nullable: true},
           provenance: %Schema{type: :string, nullable: true},
           audience_scope: %Schema{type: :string},
-          author_uid: %Schema{type: :string, nullable: true}
+          author: %Schema{allOf: [ActorRef], nullable: true}
         },
         required: [:id, :claim, :audience_scope],
         additionalProperties: false
@@ -188,7 +188,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           superseded_by: %Schema{type: :string, nullable: true},
           provenance: %Schema{type: :string, nullable: true},
           audience_scope: %Schema{type: :string},
-          author_uid: %Schema{type: :string, nullable: true}
+          author: %Schema{allOf: [ActorRef], nullable: true}
         },
         required: [:id, :claim, :audience_scope],
         additionalProperties: false
@@ -214,7 +214,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           provenance: %Schema{type: :string, nullable: true},
           event_object_slug: %Schema{type: :string, nullable: true},
           audience_scope: %Schema{type: :string},
-          author_uid: %Schema{type: :string, nullable: true}
+          author: %Schema{allOf: [ActorRef], nullable: true}
         },
         required: [:id, :date, :summary, :audience_scope],
         additionalProperties: false
@@ -334,8 +334,8 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           takes: %Schema{type: :array, items: BrainPageTake},
           contradictions: %Schema{type: :array, items: BrainPageContradiction},
           timelines: %Schema{type: :array, items: BrainPageTimeline},
-          links: BrainPageLinks,
-          tags: %Schema{type: :array, items: %Schema{type: :string}}
+          tags: %Schema{type: :array, items: %Schema{type: :string}},
+          links: BrainPageLinks
         },
         required: [
           :slug,
@@ -352,8 +352,8 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           :takes,
           :contradictions,
           :timelines,
-          :links,
-          :tags
+          :tags,
+          :links
         ],
         additionalProperties: false
       },
@@ -413,7 +413,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
         type: :object,
         properties: %{
           id: %Schema{type: :string},
-          author_uid: %Schema{type: :string, nullable: true},
+          author: %Schema{allOf: [ActorRef], nullable: true},
           body: %Schema{type: :string},
           meta: %Schema{type: :object, additionalProperties: true},
           snapshot_at: %Schema{type: :string}
@@ -522,25 +522,6 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
     )
   end
 
-  defmodule BrainObjectForkRequest do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "BrainObjectForkRequest",
-        type: :object,
-        properties: %{
-          slug: %Schema{type: :string}
-        },
-        required: [:slug],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
   defmodule BrainClaim do
     @moduledoc false
 
@@ -557,7 +538,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           kind: %Schema{type: :string, nullable: true},
           holder: %Schema{type: :string, nullable: true},
           audience_scope: %Schema{type: :string},
-          author_uid: %Schema{type: :string, nullable: true},
+          author: %Schema{allOf: [ActorRef], nullable: true},
           object_slug: %Schema{type: :string, nullable: true},
           signal_gateway_channel_id: %Schema{type: :string, nullable: true},
           notability: %Schema{type: :string, nullable: true},
@@ -780,93 +761,6 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           }
         },
         required: [:contradiction],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule BrainSuggestion do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "BrainSuggestion",
-        type: :object,
-        properties: %{
-          id: %Schema{type: :string},
-          kind: %Schema{type: :string},
-          term: %Schema{type: :string},
-          target_type: %Schema{type: :string, nullable: true},
-          evidence_count: %Schema{type: :integer},
-          rationale: %Schema{type: :string, nullable: true},
-          status: %Schema{type: :string},
-          created_at: %Schema{type: :string}
-        },
-        required: [:id, :kind, :term, :evidence_count, :status, :created_at],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule BrainSuggestionListResponse do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "BrainSuggestionListResponse",
-        type: :object,
-        properties: %{
-          suggestions: %Schema{type: :array, items: BrainSuggestion}
-        },
-        required: [:suggestions],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule BrainSuggestionDecideRequest do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "BrainSuggestionDecideRequest",
-        type: :object,
-        properties: %{
-          decision: %Schema{type: :string, enum: ["approve", "reject"]},
-          primitive: %Schema{type: :string, nullable: true},
-          slug_prefix: %Schema{type: :string, nullable: true},
-          target_type: %Schema{type: :string, nullable: true},
-          extractable: %Schema{type: :boolean, nullable: true}
-        },
-        required: [:decision],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule BrainPromotionResultResponse do
-    @moduledoc false
-
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "BrainPromotionResultResponse",
-        type: :object,
-        properties: %{
-          result: AnkoleWeb.Schemas.ConsoleAPI.JSONValue
-        },
-        required: [:result],
         additionalProperties: false
       },
       struct?: false
@@ -1191,8 +1085,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           provider_available: %Schema{type: :boolean, nullable: true},
           provider_error: %Schema{type: :string, nullable: true},
           profile: %Schema{type: :string, nullable: true},
-          profile_error: %Schema{type: :string, nullable: true},
-          fallback: %Schema{type: :string, nullable: true, enum: ["ankole_browser"]}
+          profile_error: %Schema{type: :string, nullable: true}
         },
         required: [:configured],
         additionalProperties: false
@@ -1390,10 +1283,9 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
         type: :object,
         properties: %{
           claims: %Schema{type: :array, items: BrainRecallClaim},
-          chunks: %Schema{type: :array, items: BrainRecallChunk},
-          sanitized_count: %Schema{type: :integer}
+          chunks: %Schema{type: :array, items: BrainRecallChunk}
         },
-        required: [:claims, :chunks, :sanitized_count],
+        required: [:claims, :chunks],
         additionalProperties: false
       },
       struct?: false
@@ -1434,6 +1326,112 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
         type: :object,
         properties: %{
           result: BrainRecallResult
+        },
+        required: [:result],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainObjectForkRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainObjectForkRequest",
+        type: :object,
+        properties: %{
+          slug: %Schema{type: :string}
+        },
+        required: [:slug],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainSuggestion do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSuggestion",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          kind: %Schema{type: :string},
+          term: %Schema{type: :string},
+          target_type: %Schema{type: :string, nullable: true},
+          evidence_count: %Schema{type: :integer},
+          rationale: %Schema{type: :string, nullable: true},
+          status: %Schema{type: :string},
+          created_at: %Schema{type: :string}
+        },
+        required: [:id, :kind, :term, :evidence_count, :status, :created_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainSuggestionListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSuggestionListResponse",
+        type: :object,
+        properties: %{
+          suggestions: %Schema{type: :array, items: BrainSuggestion}
+        },
+        required: [:suggestions],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainSuggestionDecideRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainSuggestionDecideRequest",
+        type: :object,
+        properties: %{
+          decision: %Schema{type: :string, enum: ["approve", "reject"]},
+          primitive: %Schema{type: :string, nullable: true},
+          slug_prefix: %Schema{type: :string, nullable: true},
+          target_type: %Schema{type: :string, nullable: true},
+          extractable: %Schema{type: :boolean, nullable: true}
+        },
+        required: [:decision],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BrainPromotionResultResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainPromotionResultResponse",
+        type: :object,
+        properties: %{
+          result: AnkoleWeb.Schemas.ConsoleAPI.JSONValue
         },
         required: [:result],
         additionalProperties: false

@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun", "vite/client"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "src",
+    "playground",
+    "test",
+    "e2e",
+    "scripts",
+    "upstream",
+    "playwright.config.ts",
+    "vite.config.ts",
+    "compat",
+    "playwright.compat.config.ts"
+  ]
+}

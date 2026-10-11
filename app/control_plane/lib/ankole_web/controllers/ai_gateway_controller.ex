@@ -21,7 +21,7 @@ defmodule AnkoleWeb.AIGatewayController do
   @json_object %Schema{type: :object, additionalProperties: true}
 
   tags(["AIGateway"])
-  security([%{"aiGatewayBearer" => []}, %{"consoleBearer" => []}])
+  security([%{"aiGatewayBearer" => []}])
 
   operation(:options, false)
 
@@ -43,7 +43,7 @@ defmodule AnkoleWeb.AIGatewayController do
     request_context = RequestContext.from_headers(conn.req_headers, "http")
     response_opts = response_opts(conn, subject_type, request_context)
 
-    with {:ok, request} <- bind_codex_request(conn, request) do
+    with {:ok, request} <- bind_codex_request(conn, request, request_context) do
       cond do
         # The trigger is a request item, so it must not reach the provider path
         # on any transport. Streaming renders the same reply as events.
@@ -362,17 +362,14 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp done_sse_chunk, do: "data: [DONE]\n\n"
 
-  defp bind_codex_request(conn, request) do
+  defp bind_codex_request(conn, request, request_context) do
     case get_req_header(conn, CodexModelBinding.header_name()) do
       [] ->
         {:ok, request}
 
       [encoded] ->
         with {:ok, binding} <- CodexModelBinding.decode(encoded) do
-          responses_lite? =
-            get_req_header(conn, CodexModelBinding.responses_lite_header_name()) == ["true"]
-
-          {:ok, CodexModelBinding.apply(request, binding, responses_lite?: responses_lite?)}
+          {:ok, CodexModelBinding.apply(request, binding, request_context)}
         end
 
       _values ->

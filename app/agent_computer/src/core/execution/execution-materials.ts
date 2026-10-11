@@ -1,5 +1,5 @@
 import type { BrowserRuntime, MaterializedBrowserRuntime } from '../../browser-runtime'
-import { browserSandboxRuntime, withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
+import { browserRuntimeEnv, withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 import type { RPCRequester } from '../../lanes/rpc_lane'
 import { materializeMCPorterConfig, type MaterializedMCPorterConfig, type MCPServerConfig } from '../../tools/mcp'
 import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
@@ -21,7 +21,6 @@ type BrowserMaterialInput = {
 }
 
 export type PrepareExecutionMaterialsInput = {
-  agentUID: string
   agentHome: string
   rpc: RPCRequester
   bindingName?: string
@@ -41,7 +40,7 @@ type MaterialCleanup = {
 }
 
 /**
- * Prepares the disposable environment for one sandbox execution.
+ * Prepares the disposable environment for one execution.
  *
  * The raw Lark token never enters the returned WorkerEnv. Browser source
  * settings are consumed before they are removed, and every caller gets the
@@ -56,11 +55,10 @@ export async function prepareExecutionMaterials(
 
   try {
     input.abortSignal?.throwIfAborted()
-    const resolved = await resolveAgentWorkerEnvParts(input.agentUID, input.rpc, input.bindingName)
+    const resolved = await resolveAgentWorkerEnvParts(input.rpc, input.bindingName)
     input.abortSignal?.throwIfAborted()
 
     lark = materializeLarkCredential({
-      agentUID: input.agentUID,
       agentHome: input.agentHome,
       rpc: input.rpc,
       workerEnv: resolved,
@@ -87,7 +85,7 @@ export async function prepareExecutionMaterials(
     }
     input.abortSignal?.throwIfAborted()
 
-    const browserEnv = browser ? browserSandboxRuntime(browser).env : {}
+    const browserEnv = browser ? browserRuntimeEnv(browser) : {}
     let cleaned = false
 
     return {

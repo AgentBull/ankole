@@ -105,7 +105,6 @@ const credentialStrategies = [
 
 export function ProvidersListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const providers = useQuery(providerIndexOptions())
   const providerKinds = useQuery(providerKindsOptions())
   const [query, setQuery] = useState('')
@@ -144,7 +143,6 @@ export function ProvidersListPage() {
           id: variables.path.provider_id
         })
       )
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -152,7 +150,6 @@ export function ProvidersListPage() {
     ...enableProviderMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.providers.enabled', { id: variables.path.provider_id }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -194,9 +191,7 @@ export function ProvidersListPage() {
         return (
           <TableRow key={provider.provider_id}>
             <TableCell className="font-mono text-xs">
-              <Link
-                className="text-foreground hover:text-link hover:underline"
-                to={encodeURIComponent(provider.provider_id)}>
+              <Link data-row-link className="text-foreground" to={encodeURIComponent(provider.provider_id)}>
                 {provider.provider_id}
               </Link>
             </TableCell>
@@ -268,7 +263,6 @@ export function ProviderEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(ProviderEditorModel)
   const params = useParams()
   const providerID = params.providerID
@@ -336,7 +330,6 @@ export function ProviderEditorPage() {
     onSuccess: response => {
       toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
       model.markSaved()
-      void queryClient.invalidateQueries()
       navigate(`/providers/${encodeURIComponent(response.ai_gateway_provider.provider_id)}`)
     }
   })
@@ -516,7 +509,7 @@ export function ProviderEditorPage() {
       {mode === 'edit' ? (
         <p className="text-xs text-muted-foreground">
           {t('console.providers.model_profiles_hint')}{' '}
-          <Link to="/agents" className="text-link underline underline-offset-4">
+          <Link to="/agents" className="link">
             {t('console.nav.agents')}
           </Link>
         </p>
@@ -533,12 +526,10 @@ function CredentialPoolEditor({
   providerKind: AIGatewayProviderKindItem
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [credentialEditor, setCredentialEditor] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
   const [chatGPTLoginEntry, setChatGPTLoginEntry] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
   const [enterpriseEntry, setEnterpriseEntry] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
   const isChatGPT = provider.provider_kind === 'chatgpt_subscription'
-  const refresh = () => void queryClient.invalidateQueries()
 
   const setStrategy = useMutation({
     ...putCredentialStrategyMutation(),
@@ -548,7 +539,6 @@ function CredentialPoolEditor({
           strategy: credentialStrategyLabel(t, response.ai_gateway_provider.credential_pool.strategy)
         })
       )
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -556,7 +546,6 @@ function CredentialPoolEditor({
     ...putCredentialMutation(),
     onSuccess: () => {
       toast.success(t('console.providers.credential_saved'))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -564,7 +553,6 @@ function CredentialPoolEditor({
     ...deleteCredentialMutation(),
     onSuccess: () => {
       toast.success(t('console.providers.credential_deleted'))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -780,7 +768,6 @@ function CredentialEditorDialog({
   providerKind: AIGatewayProviderKindItem
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   // ChatGPT pool entries hold OAuth tokens owned by the login flow, so the
   // editor exposes only label and priority; the control plane keeps the
   // stored values of every omitted field.
@@ -793,7 +780,6 @@ function CredentialEditorDialog({
 
   const finish = () => {
     toast.success(t('console.providers.credential_saved'))
-    void queryClient.invalidateQueries()
     onOpenChange(false)
   }
   const create = useMutation({
@@ -892,7 +878,7 @@ function CredentialEditorDialog({
           }}>
           <div className="grid max-h-[65vh] gap-4 overflow-y-auto py-1">
             {error ? (
-              <p className="text-sm text-destructive" aria-live="assertive">
+              <p className="text-sm text-destructive-foreground" aria-live="assertive">
                 {requestErrorMessage(error)}
               </p>
             ) : null}
@@ -983,18 +969,20 @@ function ChatGPTLoginDialog({
 
   const finish = () => {
     toast.success(t('console.providers.chatgpt_login_complete'))
-    void queryClient.invalidateQueries()
     onOpenChange(false)
   }
   const start = useMutation({
+    meta: { invalidates: false },
     ...startChatGPTLoginMutation(),
     onSuccess: response => setLogin(recordValue(response) ?? undefined)
   })
   const poll = useMutation({
+    meta: { invalidates: false },
     ...pollChatGPTLoginMutation(),
     onSuccess: response => {
       const update = recordValue(response) ?? {}
       if (update.status === 'complete') {
+        void queryClient.invalidateQueries()
         finish()
       } else {
         setLogin(current => ({ ...current, ...update }))
@@ -1097,7 +1085,7 @@ function ChatGPTLoginDialog({
 
           <div className="grid gap-4">
             {error ? (
-              <p className="text-sm text-destructive" aria-live="assertive">
+              <p className="text-sm text-destructive-foreground" aria-live="assertive">
                 {chatGPTLoginErrorText(error, t)}
               </p>
             ) : null}
@@ -1122,7 +1110,7 @@ function ChatGPTLoginDialog({
               <div className="grid gap-4 border border-border bg-muted/30 p-4">
                 <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
                 <a
-                  className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
+                  className="link inline-flex items-center gap-1 text-sm"
                   href={textValue(login?.verification_url)}
                   target="_blank"
                   rel="noreferrer">
@@ -1142,7 +1130,7 @@ function ChatGPTLoginDialog({
               <div className="grid gap-4 border border-border bg-muted/30 p-4">
                 <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
                 <a
-                  className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
+                  className="link inline-flex items-center gap-1 text-sm"
                   href={textValue(login?.authorization_url)}
                   target="_blank"
                   rel="noreferrer">
@@ -1203,7 +1191,6 @@ function EnterpriseCredentialDialog({
   provider: AIGatewayProviderItem
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [label, setLabel] = useState('')
   const [priority, setPriority] = useState('0')
   const [accessToken, setAccessToken] = useState('')
@@ -1219,7 +1206,6 @@ function EnterpriseCredentialDialog({
     ...addChatGPTEnterpriseCredentialMutation(),
     onSuccess: () => {
       toast.success(t('console.providers.enterprise_token_saved'))
-      void queryClient.invalidateQueries()
       onOpenChange(false)
     }
   })
@@ -1290,7 +1276,7 @@ function EnterpriseCredentialDialog({
           </DialogHeader>
           <div className="grid gap-4">
             {validationError || save.error ? (
-              <p className="text-sm text-destructive" aria-live="assertive">
+              <p className="text-sm text-destructive-foreground" aria-live="assertive">
                 {validationError ?? requestErrorMessage(save.error)}
               </p>
             ) : null}

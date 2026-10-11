@@ -52,7 +52,7 @@ content as a separate Plugin activation contract.
 
 Ankole includes these Agent Plugins:
 
-| ID | Member Skills | Global default |
+| ID | Member Skills | Shipped default |
 | --- | --- | --- |
 | `lark` | `lark-im`, `lark-oa`, `lark-office-suite` | Disabled |
 | `office` | `docx`, `xlsx`, `pptx` | Enabled |
@@ -103,13 +103,14 @@ GitHub adapter or store a copy of GitHub hook state.
 
 ### Decide Which Capabilities an Agent Can Use
 
-An Agent Plugin and each Skill have separate enabled states. Instance
-settings provide defaults. An Agent stores only values that override them.
+An Agent Plugin and each Skill have separate enabled states. Tenant settings
+provide defaults, with site inheritance when the tenant has no override. An
+Agent stores only values that override its tenant's effective defaults.
 
 ```text
-Agent Plugin effective = agent override ?? global default
-Plugin Skill effective = parent effective && (agent override ?? global default)
-Standalone Skill effective = agent override ?? global default
+Agent Plugin effective = agent override ?? tenant default
+Plugin Skill effective = parent effective && (agent override ?? tenant default)
+Standalone Skill effective = agent override ?? tenant default
 Agent-installed Skill effective = agent override ?? source default
 ```
 
@@ -117,7 +118,7 @@ Every member Skill starts enabled. Disabling the parent Plugin makes all members
 unavailable without changing their saved settings. Those settings apply again
 when the parent becomes enabled.
 
-AppConfigure stores the instance defaults in these global keys:
+AppConfigure stores the defaults in these tenant-scoped keys:
 
 - `ai_agent.library.agent_plugin_defaults` stores Agent Plugin booleans.
 - `ai_agent.library.skill_defaults` stores Skill booleans.
@@ -183,12 +184,13 @@ optional workspace template is copied once and does not change runtime Plugin
 selection.
 
 RuntimeFabric carries the enabled Agent Plugin catalog and Skill summaries in
-one Agent conversation context response.
+the Agent context of `workspace_open` and a starting `turn_start`.
 See [Background Agent Job](BackgroundAgentJob.md) for the complete Job contract.
 
 ### Change Capability Settings through the Console
 
-The Console API exposes global defaults and Agent-specific effective state.
+The Console API exposes the selected tenant's defaults and Agent-specific
+effective state.
 
 - `GET /api/v1/agent-library/capabilities`
 - `PUT /api/v1/agent-library/agent-plugins/:id`
@@ -197,7 +199,7 @@ The Console API exposes global defaults and Agent-specific effective state.
 - `PUT /api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id`
 - `PUT /api/v1/agents/:agent_uid/library-capabilities/skills/:id`
 
-Global writes use `{ "enabled": boolean }`.
+Tenant default writes use `{ "enabled": boolean }`.
 Agent writes use `{ "enabled": boolean | null }`.
 A null value restores inheritance.
 
@@ -206,6 +208,9 @@ Capability rows include these state fields:
 - `global_default_enabled`
 - `override_enabled`
 - `effective_enabled`
+
+The field name `global_default_enabled` is retained in the API. Its value is
+the effective default for the selected tenant, including site inheritance.
 
 Each Agent Plugin row contains its member Skills. The top-level Skill list
 contains standalone and Agent-installed Skills.
@@ -299,7 +304,8 @@ adapter and a related Agent Plugin can have different enabled states.
 - Store parent state and member Skill state independently.
 - Let `AgentCodexRuntime` install and trust same-release Agent Plugins before the
   first Job thread, then keep the global entries disabled.
-- Let each Job select only its projected Plugin roots at `thread/start`.
+- Limit each Job's Plugin member Skills through its projected Skill selection
+  and the Ankole Skill index and loader.
 - Use `workspace_template_id` only to copy one initial Job Workspace template.
 - Keep every compiled Control Plane Plugin active until first-run setup
   completes.

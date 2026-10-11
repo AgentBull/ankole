@@ -17,6 +17,7 @@ defmodule Ankole.AppConfigure do
   alias Ankole.Repo
 
   @global_scope "global"
+  @tenant_scope_prefix "tenant:"
   @agent_scope_prefix "agent:"
 
   @type definition :: Definition.t() | PatternDefinition.t()
@@ -80,9 +81,9 @@ defmodule Ankole.AppConfigure do
   @doc """
   Resolves a typed definition to its effective value and source metadata.
 
-  With `:agent_id`, resolution checks the agent scope first, then `global`, then
-  the code default. Without `:agent_id`, it starts at `global`. Only missing
-  rows fall back; invalid rows return a storage error.
+  Tenant keys resolve the selected Agent value, the tenant value, the global
+  value, then the code default. Site keys start at global. Only missing rows
+  fall back; invalid rows return a storage error.
   """
   @spec resolve(Definition.t(), keyword()) :: {:ok, Resolution.t()} | :error | {:error, term()}
   def resolve(%Definition{} = definition, opts \\ []) do
@@ -131,7 +132,7 @@ defmodule Ankole.AppConfigure do
   Reads the effective value for an exact definition.
 
   This is the common runtime API when callers only need the value and do not need
-  to know whether it came from agent, global, or default scope.
+  to know whether it came from tenant, global, or default scope.
   """
   @spec get(Definition.t(), keyword()) :: {:ok, term()} | :error | {:error, term()}
   def get(%Definition{} = definition, opts \\ []) do
@@ -246,30 +247,36 @@ defmodule Ankole.AppConfigure do
     {:ok, parsed}
   end
 
-  @doc """
-  Stores a validated agent-specific override for an exact definition.
-
-  Agent values never change the key path. The agent id only selects the
-  `agent:<id>` scope so global and agent values keep the same logical key.
-  """
+  @doc "Stores an override for an Agent in the current tenant."
   @spec put_for_agent(String.t(), Definition.t(), term()) :: {:ok, term()} | {:error, term()}
-  def put_for_agent(agent_id, %Definition{} = definition, value) do
-    with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_definition(definition),
-         :ok <- ensure_scope(registered, scope) do
+  def put_for_agent(agent_uid, %Definition{} = definition, value) do
+    with {:ok, scope} <- agent_scope(agent_uid),
+         {:ok, registered} <- Registry.require_definition(definition) do
       put(scope, registered.key, registered, value)
     end
   end
 
-  @doc """
-  Stores a validated agent-specific override for a concrete exact or pattern-backed key.
-  """
+  @doc "Stores an Agent override for one declared concrete key."
   @spec put_for_agent_by_key(String.t(), String.t(), term()) :: {:ok, term()} | {:error, term()}
-  def put_for_agent_by_key(agent_id, key, value) when is_binary(key) do
-    with {:ok, scope} <- agent_scope(agent_id),
+  def put_for_agent_by_key(agent_uid, key, value) when is_binary(key) do
+    with {:ok, scope} <- agent_scope(agent_uid),
+         {:ok, registered} <- Registry.require_key(key) do
+      put(scope, key, registered, value)
+    end
+  end
+
+  @doc "Deletes an Agent override so resolution uses the tenant, global, or default value."
+  @spec delete_for_agent(String.t(), Definition.t()) :: :ok | {:error, term()}
+  def delete_for_agent(agent_uid, %Definition{} = definition),
+    do: delete_for_agent_by_key(agent_uid, definition.key)
+
+  @doc "Deletes one declared concrete key from an Agent's overrides."
+  @spec delete_for_agent_by_key(String.t(), String.t()) :: :ok | {:error, term()}
+  def delete_for_agent_by_key(agent_uid, key) when is_binary(key) do
+    with {:ok, scope} <- agent_scope(agent_uid),
          {:ok, registered} <- Registry.require_key(key),
          :ok <- ensure_scope(registered, scope) do
-      put(scope, key, registered, value)
+      delete(scope, key)
     end
   end
 
@@ -296,120 +303,73 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc """
-  Deletes the agent-specific row for an exact definition.
-
-  After deletion, normal reads may fall back to `global` and then to the code
-  default.
-  """
-  @spec delete_for_agent(String.t(), Definition.t()) :: :ok | {:error, term()}
-  def delete_for_agent(agent_id, %Definition{} = definition) do
-    with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_definition(definition),
-         :ok <- ensure_scope(registered, scope) do
-      delete(scope, registered.key)
-    end
-  end
-
-  @doc """
-  Deletes the agent-specific row for a concrete exact or pattern-backed key.
-  """
-  @spec delete_for_agent_by_key(String.t(), String.t()) :: :ok | {:error, term()}
-  def delete_for_agent_by_key(agent_id, key) when is_binary(key) do
-    with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_key(key),
-         :ok <- ensure_scope(registered, scope) do
-      delete(scope, key)
-    end
-  end
-
-  @doc """
-  Lists AppConfigure entries that the console may display.
+  Lists the AppConfigure entries that the console may display in one scope.
 
   Exact definitions are always listed. Pattern definitions are listed as
-  read-only policy rows, while concrete pattern keys are listed only when a
-  global row already exists and matches exactly one registered pattern.
+  read-only policy rows. A concrete pattern key is listed when a row exists
+  for it in this scope or, for a tenant, in the global scope it inherits.
   """
-  @spec list_console_items() :: {:ok, [console_item()]} | {:error, term()}
-  def list_console_items do
-    rows_by_key = global_rows_by_key()
-    exact_keys = Registry.list_definitions() |> MapSet.new(& &1.key)
+  @spec list_console_items(:global | :tenant) :: {:ok, [console_item()]}
+  def list_console_items(scope) do
+    rows = scope_rows(scope)
+    inherited = if scope == :tenant, do: scope_rows(:global), else: %{}
+    definitions = Registry.list_definitions()
+    exact_keys = MapSet.new(definitions, & &1.key)
 
-    exact_items =
-      Registry.list_definitions()
-      |> Enum.map(&console_definition_item(&1, Map.get(rows_by_key, &1.key), :exact))
+    exact = Enum.map(definitions, &console_item(scope, &1, :exact, &1.key, rows[&1.key]))
+    patterns = Enum.map(Registry.list_patterns(), &console_pattern_policy_item/1)
 
-    pattern_policy_items =
-      Registry.list_patterns()
-      |> Enum.map(&console_pattern_policy_item/1)
+    concrete =
+      for {key, _row} <- Map.merge(inherited, rows),
+          not MapSet.member?(exact_keys, key),
+          {:ok, {:pattern_concrete, pattern}} <- [console_definition(scope, key)],
+          do: console_item(scope, pattern, :pattern_concrete, key, rows[key])
 
-    concrete_pattern_items =
-      rows_by_key
-      |> Enum.reject(fn {key, _row} -> MapSet.member?(exact_keys, key) end)
-      |> Enum.flat_map(&console_concrete_pattern_item/1)
+    {:ok, exact ++ patterns ++ concrete}
+  end
 
-    {:ok, exact_items ++ pattern_policy_items ++ concrete_pattern_items}
+  @doc "Returns one console-visible AppConfigure entry of one scope."
+  @spec console_detail(:global | :tenant, String.t()) :: {:ok, console_item()} | {:error, term()}
+  def console_detail(scope, key) when is_binary(key) do
+    with {:ok, {kind, definition}} <- console_definition(scope, key),
+         do: {:ok, console_item(scope, definition, kind, key, scope_row(scope, key))}
   end
 
   @doc """
-  Returns one console-visible AppConfigure detail projection.
+  Applies one console update. A request that omits `value` keeps an encrypted
+  value stored in this scope; otherwise it is invalid, so an empty request
+  cannot look like a successful write.
   """
-  @spec console_detail_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
-  def console_detail_by_key(key) when is_binary(key) do
-    with {:ok, {kind, definition}} <- console_definition(key) do
-      {:ok, console_definition_item(definition, global_row(key), kind, key)}
-    end
-  end
-
-  @doc """
-  Stores one console-editable global value.
-  """
-  @spec console_put_global_by_key(String.t(), term()) :: {:ok, console_item()} | {:error, term()}
-  def console_put_global_by_key(key, value) when is_binary(key) do
-    with {:ok, {_kind, _definition}} <- writable_console_definition(key),
-         {:ok, _value} <- put_global_by_key(key, value) do
-      console_detail_by_key(key)
-    end
-  end
-
-  @doc """
-  Applies one console update, preserving a present encrypted value when the
-  request intentionally omits `value`.
-
-  Missing values stay invalid for plaintext or unset configuration so an empty
-  request cannot accidentally look like a successful write.
-  """
-  @spec console_update_global_by_key(String.t(), map()) ::
+  @spec console_update(:global | :tenant, String.t(), map()) ::
           {:ok, console_item()} | {:error, term()}
-  def console_update_global_by_key(key, attrs) when is_binary(key) and is_map(attrs) do
-    case fetch_console_update_value(attrs) do
-      {:ok, value} ->
-        console_put_global_by_key(key, value)
+  def console_update(scope, key, attrs) when is_binary(key) and is_map(attrs) do
+    with {:ok, {_kind, definition}} <- writable_console_definition(scope, key) do
+      case fetch_console_update_value(attrs) do
+        {:ok, value} ->
+          with {:ok, _value} <- put_scope_value(scope, key, value),
+               do: console_detail(scope, key)
 
-      :error ->
-        with {:ok, {_kind, _definition}} <- writable_console_definition(key) do
-          preserve_encrypted_console_value(key)
-        end
+        :error ->
+          if definition.encrypted and scope_row(scope, key),
+            do: console_detail(scope, key),
+            else: {:error, :missing_value}
+      end
     end
   end
 
-  @doc """
-  Deletes one console-editable global value so normal resolution falls back.
-  """
-  @spec console_delete_global_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
-  def console_delete_global_by_key(key) when is_binary(key) do
-    with {:ok, {kind, definition}} <- writable_console_definition(key),
-         :ok <- delete_global_by_key(key) do
-      deleted_console_item(kind, definition, key)
-    end
+  @doc "Deletes one console-editable value so normal resolution falls back."
+  @spec console_delete(:global | :tenant, String.t()) :: {:ok, console_item()} | {:error, term()}
+  def console_delete(scope, key) when is_binary(key) do
+    with {:ok, {kind, definition}} <- writable_console_definition(scope, key),
+         :ok <- delete_scope_value(scope, key),
+         do: {:ok, console_item(scope, definition, kind, key, nil)}
   end
 
-  @doc """
-  Reveals one encrypted console-editable value on demand.
-  """
-  @spec console_decrypt_by_key(String.t()) :: {:ok, term()} | {:error, term()}
-  def console_decrypt_by_key(key) when is_binary(key) do
-    with {:ok, {_kind, %{encrypted: true}}} <- console_definition(key),
-         {:ok, value} <- get_by_key(key) do
+  @doc "Reveals one encrypted console-visible value on demand."
+  @spec console_decrypt(:global | :tenant, String.t()) :: {:ok, term()} | {:error, term()}
+  def console_decrypt(scope, key) when is_binary(key) do
+    with {:ok, {_kind, %{encrypted: true}}} <- console_definition(scope, key),
+         {:ok, value} <- get_by_key(key, resolution_opts(scope)) do
       {:ok, value}
     else
       {:ok, {_kind, %{encrypted: false}}} -> {:error, :not_encrypted}
@@ -425,14 +385,23 @@ defmodule Ankole.AppConfigure do
     end
   end
 
-  defp preserve_encrypted_console_value(key) do
-    with {:ok, %{encrypted: true, present: true} = item} <- console_detail_by_key(key) do
-      {:ok, item}
-    else
-      {:ok, _item} -> {:error, :missing_value}
-      {:error, _reason} = error -> error
-    end
+  defp put_scope_value(:global, key, value), do: put_global_by_key(key, value)
+  defp put_scope_value(:tenant, key, value), do: put_tenant_by_key(key, value)
+  defp delete_scope_value(:global, key), do: delete_global_by_key(key)
+  defp delete_scope_value(:tenant, key), do: delete_tenant_by_key(key)
+  defp resolution_opts(:global), do: [scope: :global]
+  defp resolution_opts(:tenant), do: []
+  defp storage_scope(:global), do: @global_scope
+  defp storage_scope(:tenant), do: tenant_scope()
+
+  defp scope_rows(scope) do
+    AppConfig
+    |> where([row], row.scope == ^storage_scope(scope))
+    |> Repo.all()
+    |> Map.new(&{&1.key, &1})
   end
+
+  defp scope_row(scope, key), do: Repo.get_by(AppConfig, scope: storage_scope(scope), key: key)
 
   # Pattern definitions use their pattern id for default generation, but reads
   # and writes must validate the concrete runtime key selected by the caller.
@@ -447,15 +416,16 @@ defmodule Ankole.AppConfigure do
   defp resolution_scopes(%{scope: :global}, _opts), do: [@global_scope]
 
   defp resolution_scopes(_definition, opts) do
-    case Keyword.fetch(opts, :agent_id) do
-      {:ok, agent_id} ->
-        case agent_scope(agent_id) do
-          {:ok, scope} -> [scope, @global_scope]
-          {:error, reason} -> {:error, reason}
-        end
-
-      :error ->
+    cond do
+      Keyword.get(opts, :scope) == :global ->
         [@global_scope]
+
+      Keyword.has_key?(opts, :agent_id) ->
+        with {:ok, scope} <- agent_scope(Keyword.fetch!(opts, :agent_id)),
+             do: [scope, tenant_scope(), @global_scope]
+
+      true ->
+        [tenant_scope(), @global_scope]
     end
   end
 
@@ -566,7 +536,7 @@ defmodule Ankole.AppConfigure do
     now = DateTime.utc_now(:second)
 
     changeset =
-      AppConfig.changeset(%AppConfig{}, %{
+      AppConfig.changeset(%AppConfig{tenant_id: scope_tenant_id(scope)}, %{
         scope: scope,
         key: key,
         value: envelope,
@@ -669,82 +639,36 @@ defmodule Ankole.AppConfigure do
 
   defp ensure_scope(_definition, _scope), do: :ok
 
-  defp console_definition(key) do
+  # A tenant does not see a global-scope pattern that its owner manages. A
+  # concrete pattern key is visible while a row backs it.
+  defp console_definition(scope, key) do
     case Registry.classify_key(key) do
       {:ok, {:exact, definition}} ->
         {:ok, {:exact, definition}}
 
+      {:ok, {:pattern, %PatternDefinition{scope: :global, console_writable: false}}}
+      when scope == :tenant ->
+        {:error, {:key_managed_by_owner, key}}
+
       {:ok, {:pattern, pattern}} ->
-        case global_row(key) do
-          %AppConfig{} -> {:ok, {:pattern_concrete, pattern}}
-          nil -> {:error, {:pattern_key_not_editable, key}}
-        end
+        if scope_row(scope, key) || (scope == :tenant && scope_row(:global, key)),
+          do: {:ok, {:pattern_concrete, pattern}},
+          else: {:error, {:pattern_key_not_editable, key}}
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp writable_console_definition(key) do
-    case Registry.classify_key(key) do
-      {:ok, {:exact, %Definition{console_writable: false}}} ->
-        {:error, {:key_managed_by_owner, key}}
-
-      {:ok, {:exact, definition}} ->
-        {:ok, {:exact, definition}}
-
-      {:ok, {:pattern, %PatternDefinition{console_writable: false}}} ->
-        {:error, {:key_managed_by_owner, key}}
-
-      {:ok, {:pattern, pattern}} ->
-        case global_row(key) do
-          %AppConfig{} -> {:ok, {:pattern_concrete, pattern}}
-          nil -> {:error, {:pattern_key_not_editable, key}}
-        end
-
-      {:error, _reason} = error ->
-        error
+  defp writable_console_definition(scope, key) do
+    with {:ok, {_kind, definition}} <- Registry.classify_key(key),
+         true <- definition.console_writable,
+         :ok <- ensure_scope(definition, storage_scope(scope)) do
+      console_definition(scope, key)
+    else
+      false -> {:error, {:key_managed_by_owner, key}}
+      error -> error
     end
-  end
-
-  defp console_definition_item(definition, row, kind, runtime_key \\ nil)
-
-  defp console_definition_item(%Definition{} = definition, row, :exact, _runtime_key) do
-    key = definition.key
-
-    %{
-      key: key,
-      kind: "exact",
-      description: definition.description,
-      encrypted: definition.encrypted,
-      scope: Atom.to_string(definition.scope),
-      editable: definition.console_writable,
-      default_present: definition.default?,
-      overridden: not is_nil(row)
-    }
-    |> Map.merge(value_projection(definition, key, row))
-  end
-
-  defp console_definition_item(
-         %PatternDefinition{} = definition,
-         row,
-         :pattern_concrete,
-         runtime_key
-       ) do
-    key = runtime_key || definition.id
-
-    %{
-      key: key,
-      kind: "pattern_concrete",
-      pattern_id: definition.id,
-      description: definition.description,
-      encrypted: definition.encrypted,
-      scope: Atom.to_string(definition.scope),
-      editable: definition.console_writable,
-      default_present: definition.default?,
-      overridden: not is_nil(row)
-    }
-    |> Map.merge(value_projection(definition, key, row))
   end
 
   defp console_pattern_policy_item(%PatternDefinition{} = pattern) do
@@ -763,71 +687,122 @@ defmodule Ankole.AppConfigure do
     }
   end
 
-  defp console_concrete_pattern_item({key, %AppConfig{} = row}) do
-    case Registry.classify_key(key) do
-      {:ok, {:pattern, pattern}} ->
-        [console_definition_item(pattern, row, :pattern_concrete, key)]
-
-      _not_console_editable ->
-        []
-    end
-  end
-
-  defp deleted_console_item(:exact, _definition, key), do: console_detail_by_key(key)
-
-  defp deleted_console_item(:pattern_concrete, %PatternDefinition{} = definition, key) do
+  # A global-scope key is read-only in a tenant, and a concrete pattern key is
+  # editable only while a row backs it. An encrypted value reports where it
+  # comes from without decrypting it.
+  defp console_item(scope, definition, kind, key, row) do
     item =
-      definition
-      |> console_definition_item(nil, :pattern_concrete, key)
-      |> Map.put(:editable, false)
-      |> Map.put(:overridden, false)
+      %{
+        key: key,
+        kind: Atom.to_string(kind),
+        description: definition.description,
+        encrypted: definition.encrypted,
+        scope: Atom.to_string(definition.scope),
+        editable:
+          definition.console_writable and (scope == :global or definition.scope != :global) and
+            (kind == :exact or not is_nil(row) or
+               (scope == :tenant and not is_nil(scope_row(:global, key)))),
+        default_present: definition.default?,
+        overridden: not is_nil(row)
+      }
+      |> then(
+        &if(kind == :pattern_concrete, do: Map.put(&1, :pattern_id, definition.id), else: &1)
+      )
 
-    {:ok, item}
-  end
+    if definition.encrypted do
+      Map.merge(item, encrypted_source(scope, definition, key, row))
+    else
+      case resolve_by_key(key, resolution_opts(scope)) do
+        {:ok, %Resolution{value: value, source: source}} ->
+          Map.merge(item, %{present: true, source: Atom.to_string(source), value: value})
 
-  defp value_projection(%{encrypted: true} = definition, _key, row) do
-    %{
-      present: not is_nil(row) or definition.default?,
-      source: encrypted_source(definition, row)
-    }
-  end
+        :error ->
+          Map.merge(item, %{present: false, source: "missing", value: nil})
 
-  defp value_projection(%{encrypted: false}, key, _row) do
-    case resolve_by_key(key) do
-      {:ok, %Resolution{value: value, source: source}} ->
-        %{present: true, source: Atom.to_string(source), value: value}
-
-      :error ->
-        %{present: false, source: "missing", value: nil}
-
-      {:error, reason} ->
-        %{present: false, source: "error", error: inspect(reason), value: nil}
+        {:error, reason} ->
+          Map.merge(item, %{present: false, source: "error", error: inspect(reason), value: nil})
+      end
     end
   end
 
-  defp encrypted_source(_definition, %AppConfig{}), do: "global"
-  defp encrypted_source(%{default?: true}, nil), do: "default"
-  defp encrypted_source(_definition, nil), do: "missing"
+  defp encrypted_source(scope, definition, key, row) do
+    source =
+      cond do
+        row -> Atom.to_string(scope)
+        scope == :tenant and scope_row(:global, key) -> "global"
+        definition.default? -> "default"
+        true -> "missing"
+      end
 
-  defp global_rows_by_key do
-    AppConfig
-    |> where([row], row.scope == ^@global_scope)
-    |> Repo.all()
-    |> Map.new(&{&1.key, &1})
+    %{present: source != "missing", source: source}
   end
 
-  defp global_row(key) do
-    AppConfig
-    |> where([row], row.scope == ^@global_scope and row.key == ^key)
-    |> Repo.one()
+  def update_tenant_in_tx(repo, %Definition{} = definition, updater) do
+    scope = tenant_scope()
+
+    with {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, scope),
+         {:ok, _} <-
+           SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+             "app_configure:#{scope}:#{registered.key}"
+           ]),
+         {:ok, current} <- get_tenant_by_key_in_tx(repo, registered.key),
+         {:ok, next} <- run_global_updater(updater, current) do
+      put_row(repo, scope, registered.key, registered, next)
+    end
   end
 
-  defp agent_scope(agent_id) when is_binary(agent_id) and agent_id != "" do
-    {:ok, @agent_scope_prefix <> agent_id}
+  def update_tenant(%Definition{} = definition, updater) do
+    case Repo.transact(fn repo -> update_tenant_in_tx(repo, definition, updater) end) do
+      {:ok, write} -> cache_committed_write(write)
+      error -> error
+    end
   end
 
-  defp agent_scope(_agent_id), do: {:error, :invalid_agent_id}
+  defp tenant_scope, do: @tenant_scope_prefix <> Repo.tenant_id!()
+  defp scope_tenant_id(@global_scope), do: nil
+  defp scope_tenant_id(@tenant_scope_prefix <> tenant_id), do: tenant_id
+  defp scope_tenant_id(@agent_scope_prefix <> _), do: Repo.tenant_id!()
+
+  defp agent_scope(agent_uid) when is_binary(agent_uid) and agent_uid != "" do
+    case Ankole.Principals.get_agent(agent_uid) do
+      {:ok, _agent} -> {:ok, @agent_scope_prefix <> agent_uid}
+      {:error, :not_found} -> {:error, :agent_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp agent_scope(_agent_uid), do: {:error, :invalid_agent_id}
+
+  def put_tenant_by_key(key, value) do
+    with {:ok, definition} <- Registry.require_key(key) do
+      put(tenant_scope(), key, definition, value)
+    end
+  end
+
+  def put_tenant_by_key_in_tx(repo, key, value) do
+    with {:ok, definition} <- Registry.require_key(key) do
+      put_row(repo, tenant_scope(), key, definition, value)
+    end
+  end
+
+  def get_tenant_by_key_in_tx(repo, key) do
+    with {:ok, definition} <- Registry.require_key(key) do
+      definition
+      |> resolution_scopes([])
+      |> resolve_scopes_in_tx(repo, definition, key)
+      |> value_result()
+    end
+  end
+
+  def delete_tenant_by_key(key) do
+    with {:ok, definition} <- Registry.require_key(key),
+         :ok <- ensure_scope(definition, tenant_scope()) do
+      delete(tenant_scope(), key)
+    end
+  end
 
   defp source_for_scope(@global_scope), do: :global
-  defp source_for_scope(@agent_scope_prefix <> _agent_id), do: :agent
+  defp source_for_scope(@tenant_scope_prefix <> _), do: :tenant
+  defp source_for_scope(@agent_scope_prefix <> _), do: :agent
 end

@@ -3,10 +3,10 @@ defmodule Ankole.Principals.Agent do
   Agent-specific subtype row keyed by `principals.uid`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
 
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.Principal
@@ -23,6 +23,7 @@ defmodule Ankole.Principals.Agent do
       type: Ankole.Ecto.PrincipalKey,
       primary_key: true
 
+    field :handle, :string
     field :type, Ecto.Enum, values: [:ai_colleague], default: :ai_colleague
     field :role, :string
     field :options, :map, default: %{}
@@ -36,10 +37,7 @@ defmodule Ankole.Principals.Agent do
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
 
-    belongs_to :created_by_principal, Principal,
-      foreign_key: :created_by_principal_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    field :created_by, Ankole.Ecto.ActorRef
 
     timestamps()
   end
@@ -52,16 +50,19 @@ defmodule Ankole.Principals.Agent do
     agent
     |> cast(attrs, [
       :uid,
+      :handle,
       :type,
       :role,
       :options,
       :owner_principal_uid,
       :group_memory_disclosure_mode,
-      :created_by_principal_uid
+      :created_by
     ])
-    |> normalize_blank([:role, :owner_principal_uid, :created_by_principal_uid])
+    |> normalize_blank([:handle, :role, :owner_principal_uid])
+    |> normalize_lower(:handle)
     |> validate_required([
       :uid,
+      :handle,
       :type,
       :role,
       :options,
@@ -71,8 +72,10 @@ defmodule Ankole.Principals.Agent do
     |> JSONPayload.validate_map(:options)
     |> foreign_key_constraint(:uid)
     |> foreign_key_constraint(:owner_principal_uid)
-    |> foreign_key_constraint(:created_by_principal_uid)
     |> unique_constraint(:uid, name: :agents_pkey)
+    |> unique_constraint(:handle, name: :agents_tenant_id_handle_index)
+    |> validate_format(:handle, ~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/)
+    |> check_constraint(:handle, name: :agents_handle_format)
     |> check_constraint(:role, name: :agents_role_present)
     |> check_constraint(:options, name: :agents_options_object)
     |> check_constraint(:group_memory_disclosure_mode,

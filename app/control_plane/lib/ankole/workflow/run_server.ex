@@ -26,7 +26,6 @@ defmodule Ankole.Workflow.RunServer do
           task_supervisor: GenServer.server(),
           replay: map() | nil,
           dirty: boolean(),
-          cancelling: boolean(),
           retry_timer: {reference(), reference()} | nil,
           watchdog_timer: reference() | nil,
           runtime_busy_retry_ms: pos_integer(),
@@ -34,9 +33,7 @@ defmodule Ankole.Workflow.RunServer do
           stale_after_seconds: pos_integer()
         }
 
-  @spec child_spec(pos_integer() | keyword()) :: Supervisor.child_spec()
-  def child_spec(run_id) when is_integer(run_id), do: child_spec(run_id: run_id)
-
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) when is_list(opts) do
     run_id = Keyword.fetch!(opts, :run_id)
 
@@ -48,9 +45,7 @@ defmodule Ankole.Workflow.RunServer do
     }
   end
 
-  @spec start_link(pos_integer() | keyword()) :: GenServer.on_start()
-  def start_link(run_id) when is_integer(run_id), do: start_link(run_id: run_id)
-
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) when is_list(opts) do
     run_id = Keyword.fetch!(opts, :run_id)
     name = Keyword.get(opts, :name, via(run_id))
@@ -60,21 +55,21 @@ defmodule Ankole.Workflow.RunServer do
   @spec ensure_started(pos_integer(), keyword()) :: {:ok, pid()} | {:error, term()}
   def ensure_started(run_id, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_list(opts) do
-    case ensure_started_with_status(run_id, opts) do
-      {:ok, pid, _status} -> {:ok, pid}
-      {:error, _reason} = error -> error
+    case Repo.get(Run, run_id) do
+      nil -> {:error, :workflow_not_found}
+      %Run{} = run -> start_server(run, opts)
     end
   end
 
-  defp ensure_started_with_status(run_id, opts) do
-    child_opts = Keyword.put(opts, :run_id, run_id)
+  defp start_server(run, opts) do
+    child_opts = Keyword.merge(opts, run_id: run.id, tenant_id: run.tenant_id)
 
     case DynamicSupervisor.start_child(
            Ankole.Workflow.RunSupervisor,
            {__MODULE__, child_opts}
          ) do
-      {:ok, pid} -> {:ok, pid, :started}
-      {:error, {:already_started, pid}} -> {:ok, pid, :existing}
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
       {:error, _reason} = error -> error
     end
   catch
@@ -85,64 +80,36 @@ defmodule Ankole.Workflow.RunServer do
   def poke(run_id, opts \\ []) do
     with {:ok, pid} <- ensure_started(run_id, opts) do
       GenServer.cast(pid, :poke)
+    else
+      # A stale durable wake needs no owner after its run has disappeared.
+      {:error, :workflow_not_found} -> :ok
+      {:error, _} = error -> error
     end
   end
 
-  @spec cancel(pos_integer(), String.t(), keyword()) ::
-          {:ok, %{run: struct(), running_session_ids: [String.t()]}} | {:error, term()}
-  def cancel(run_id, agent_uid, opts \\ [])
-      when is_integer(run_id) and run_id > 0 and is_binary(agent_uid) and is_list(opts) do
-    cancel_with_retry(run_id, agent_uid, opts, 1)
-  end
-
-  defp cancel_with_retry(run_id, agent_uid, opts, retries_left) do
-    with {:ok, pid} <- ensure_started(run_id, opts) do
-      case call_cancel(pid, agent_uid) do
-        {:call_exit, _reason} when retries_left > 0 ->
-          cancel_with_retry(run_id, agent_uid, opts, retries_left - 1)
-
-        {:call_exit, _reason} ->
-          cancel_without_server(run_id, agent_uid, opts)
-
-        result ->
-          result
-      end
-    end
-  end
-
-  defp call_cancel(pid, agent_uid) do
-    GenServer.call(
-      pid,
-      {:cancel, agent_uid},
-      :timer.seconds(30)
-    )
-  catch
-    :exit, reason -> {:call_exit, reason}
-  end
-
-  defp cancel_without_server(run_id, agent_uid, opts) do
-    case Workflow.cancel_in_storage(run_id, agent_uid) do
-      {:ok, result} ->
-        runner = Keyword.get(opts, :runner, ProgramRunner)
-        _ = safe_cancel_runner(runner, program_run_id(run_id))
-        Workflow.cleanup_terminal_transition({:ok, result})
-
-      {:error, _reason} = error ->
-        error
+  # An absent owner needs no replacement: a later replay reads the terminal
+  # run before native work.
+  @spec stop_replay(pos_integer()) :: :ok
+  def stop_replay(run_id) do
+    case whereis(run_id) do
+      nil -> :ok
+      pid -> GenServer.cast(pid, :stop_replay)
     end
   end
 
   @doc false
   @spec whereis(pos_integer()) :: pid() | nil
   def whereis(run_id) do
-    case Registry.lookup(Ankole.Workflow.Registry, run_id) do
-      [{pid, _value}] -> pid
-      [] -> nil
+    case :global.whereis_name({__MODULE__, run_id}) do
+      :undefined -> nil
+      pid -> pid
     end
   end
 
   @impl true
   def init(opts) do
+    Repo.put_tenant_id(Keyword.fetch!(opts, :tenant_id))
+
     {:ok,
      %{
        run_id: Keyword.fetch!(opts, :run_id),
@@ -150,7 +117,6 @@ defmodule Ankole.Workflow.RunServer do
        task_supervisor: Keyword.get(opts, :task_supervisor, Ankole.Workflow.ReplayTaskSupervisor),
        replay: nil,
        dirty: false,
-       cancelling: false,
        retry_timer: nil,
        watchdog_timer: nil,
        runtime_busy_retry_ms:
@@ -161,7 +127,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   @impl true
-  def handle_cast(:poke, %{cancelling: true} = state), do: {:noreply, state}
+  def handle_cast(:stop_replay, state), do: {:stop, :normal, state}
 
   def handle_cast(:poke, %{replay: %{}} = state) do
     {:noreply, %{state | dirty: true}}
@@ -170,37 +136,6 @@ defmodule Ankole.Workflow.RunServer do
   def handle_cast(:poke, state) do
     state = cancel_retry_timer(state)
     start_replay(state)
-  end
-
-  @impl true
-  def handle_call({:cancel, agent_uid}, _from, state) do
-    state = %{state | cancelling: true}
-
-    case Workflow.cancel_in_storage(state.run_id, agent_uid) do
-      {:ok, result} ->
-        state = cancel_in_flight_replay(state)
-        {:ok, result} = Workflow.cleanup_terminal_transition({:ok, result})
-
-        case result.run.cleanup_completed_at do
-          %DateTime{} ->
-            {:stop, :normal, {:ok, result}, state}
-
-          nil ->
-            state = schedule_retry(%{state | cancelling: false})
-
-            {:reply, {:ok, result}, state}
-        end
-
-      {:error, :workflow_not_found} = error ->
-        handle_hidden_cancel_miss(error, state)
-
-      {:error, reason} ->
-        state = %{state | cancelling: false}
-
-        if is_nil(state.replay),
-          do: {:stop, :normal, {:error, reason}, state},
-          else: {:reply, {:error, reason}, state}
-    end
   end
 
   @impl true
@@ -223,11 +158,7 @@ defmodule Ankole.Workflow.RunServer do
       ) do
     state = clear_replay(state, demonitor?: false)
 
-    if state.cancelling do
-      {:noreply, state}
-    else
-      {:noreply, schedule_retry(state)}
-    end
+    {:noreply, schedule_retry(state)}
   end
 
   def handle_info(
@@ -280,7 +211,6 @@ defmodule Ankole.Workflow.RunServer do
     :ok
   end
 
-  defp start_replay(%{cancelling: true} = state), do: {:noreply, state}
   defp start_replay(%{replay: %{}} = state), do: {:noreply, %{state | dirty: true}}
 
   defp start_replay(state) do
@@ -296,7 +226,9 @@ defmodule Ankole.Workflow.RunServer do
 
     result =
       try do
-        Task.Supervisor.start_child(state.task_supervisor, task, restart: :temporary)
+        Task.Supervisor.start_child(state.task_supervisor, Ankole.Repo.bind_tenant(task),
+          restart: :temporary
+        )
       catch
         :exit, reason -> {:error, {:task_supervisor_exit, reason}}
       end
@@ -578,38 +510,6 @@ defmodule Ankole.Workflow.RunServer do
     end
   end
 
-  defp handle_hidden_cancel_miss(error, state) do
-    state = %{state | cancelling: false}
-
-    case durable_run_status(state.run_id) do
-      {:ok, "running"} ->
-        if is_nil(state.replay), do: GenServer.cast(self(), :poke)
-        {:reply, error, state}
-
-      {:ok, _terminal_status} ->
-        {:stop, :normal, error, state}
-
-      :missing ->
-        {:stop, :normal, error, state}
-
-      {:error, _reason} ->
-        if is_nil(state.replay),
-          do: {:stop, :normal, error, state},
-          else: {:reply, error, state}
-    end
-  end
-
-  defp durable_run_status(run_id) do
-    case Repo.get(Run, run_id) do
-      %Run{status: status} -> {:ok, status}
-      nil -> :missing
-    end
-  rescue
-    exception -> {:error, exception}
-  catch
-    kind, reason -> {:error, {kind, reason}}
-  end
-
   defp safe_cancel_runner(runner, run_id) when is_atom(runner) do
     if function_exported?(runner, :cancel, 1), do: apply(runner, :cancel, [run_id]), else: :ok
   rescue
@@ -638,7 +538,7 @@ defmodule Ankole.Workflow.RunServer do
 
   defp program_run_id(run_id), do: "wf-" <> Integer.to_string(run_id)
 
-  defp via(run_id), do: {:via, Registry, {Ankole.Workflow.Registry, run_id}}
+  defp via(run_id), do: {:global, {__MODULE__, run_id}}
 
   defp positive_option(opts, key, default) do
     case Keyword.get(opts, key, default) do

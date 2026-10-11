@@ -7,11 +7,11 @@ order: 303
 
 Ankole Agent は、Worker が提供する shell ツールを通じて標準の git コマンドを使用します。同じツールは通常の会話でも Background Agent Job でも利用できます。
 
-最初に決定的な性質を示します。agent は **worker の sandbox 内**で `/agents/<key>/` ファイルシステムに対して git を実行します。特別な git 統合レイヤーはありません。他のすべてと同様に同じ shell ツールを使い、ファイルシステムが workspace になります。`design-md` skill と persona が規約を担い、ツールが実行を担います。
+Agent は自分の Worker で通常の shell とファイルツールを使い、永続 `/workspace` 内の git リポジトリを操作します。インスタンスやイメージを置換してもリポジトリは残ります。
 
 ## agent が git でできること
 
-`command` ツールを通じて、agent は sandbox が許可する任意の git コマンドを実行します。
+`command` ツールを通じて、agent は Worker のユーザーとして git コマンドを実行します。
 
 ```bash
 git clone https://github.com/your-org/your-repo.git
@@ -20,14 +20,14 @@ git add -A && git commit -m "Fix: resolve the null-pointer case"
 git push origin feature/agent-fix
 ```
 
-agent は workspace（`/agents/<key>/jobs/<job-id>/` または `sessions/<id>/`）にクローンし、ファイル編集と patch のツールで変更を加え、コミットしてプッシュします。すべて shell 経由で、すべて bubblewrap の制約下で実行されます。
+agent は workspace（`/workspace/jobs/<job-id>/` または `sessions/<id>/`）にクローンし、ファイル編集と patch のツールで変更を加え、コミットしてプッシュします。すべて shell 経由で、Worker のユーザーとして実行されます。
 
 通常の会話では、Agent はフォアグラウンドの shell とファイルツールを使います。作業を Background Agent Job に委任する場合、その Job は独自の workspace で実行され、結果を返すか、静かに終了します。このワークフローについては [Background Agent Jobs](../background-jobs/) を参照してください。
 
 ## 必要なもの
 
 - **Git の credential。** **Console → Environment variables** で、SSH key または PAT を `GIT_SSH_KEY` や `GIT_TOKEN` などの暗号化変数として保存します。新しい値は Agent の次の Turn から利用できます。[Environment variables](../worker-env/) を参照してください。
-- **worker からアクセスできる repo。** worker は git ホストに到達できるネットワークが必要です。プライベートネットワークでは、worker が git サーバーに到達できることを確認します。
+- **worker からアクセスできる repo。** worker は git ホストに到達できるネットワークが必要です。プライベートネットワークでは、worker が git サーバーに到達できることを確認します。Docker Compose のデプロイでは Worker コンテナは `ankole_workers` ネットワークに置かれ、コントロールプレーンとインターネットに到達できるため、パブリックな git ホストに到達できます。Helm chart の `networkPolicy.enabled` を有効にすると、Worker Pod はコントロールプレーン、DNS、パブリックアドレスに到達できます。プライベートアドレス上の git サーバーには、そのレンジが `networkPolicy.workerDeniedCIDRs` にある間は到達できません。
 - **必要な場合の Background Agent Job の model profile。** デフォルトのフォールバックで開始するには十分です。Job で異なる provider や model が必要な場合にのみ、この profile を構成します。
 
 ## workspace
@@ -35,14 +35,14 @@ agent は workspace（`/agents/<key>/jobs/<job-id>/` または `sessions/<id>/`�
 git repo はセッションまたは Job ごとの workspace にクローンされます。
 
 ```text
-/agents/<agent-key>/
+/workspace/
 └── jobs/<job-id>/
     └── your-repo/       # cloned here
         ├── .git/
         └── ...           # the working tree
 ```
 
-workspace は Agent Home ボリューム上で永続化されます。worker を再起動してもクローンは失われません。レイアウトについては [File management](../file-management/) を参照してください。
+`/workspace` 内のリポジトリは Worker 置換やイメージ変更後も残ります。ストレージ消失にはリモートリポジトリや別のバックアップを使ってください。`ankole-files put` はファイルを [Agent ドライブ](../file-management/)に公開します。
 
 ## 実践例
 
@@ -63,4 +63,4 @@ PR をレビューするコーディング agent をセットアップします�
 - shell ツールについては [Code execution](../code-execution/) を参照してください。
 - バックグラウンド実行については [Background Agent Jobs](../background-jobs/) を参照してください。
 - Git の credential については [Environment variables](../worker-env/) を参照してください。
-- ファイルシステムのレイアウトについては [File management](../file-management/) を参照してください。
+- Agent のドライブについては [File management](../file-management/) を参照してください。

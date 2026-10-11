@@ -24,9 +24,10 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     agent = agent_fixture(%{uid: unique_uid("console-agent"), display_name: "Console Agent"})
     disabled = human_fixture(%{uid: unique_uid("console-disabled")})
 
-    assert {:ok, _principal} = Ankole.Principals.disable_principal(disabled.principal.uid)
+    assert {:ok, _principal} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(disabled.principal.uid)
 
-    conn = conn |> bearer_conn() |> get(~p"/api/v1/principals")
+    conn = conn |> console_conn() |> get(~p"/api/v1/principals")
     assert %{"principals" => principals} = json_response(conn, 200)
 
     assert %{
@@ -52,8 +53,8 @@ defmodule AnkoleWeb.PrincipalControllerTest do
 
   test "admin can include disabled principals for audits", %{conn: conn} do
     disabled = agent_fixture(%{uid: unique_uid("audit-disabled")})
-    assert {:ok, _} = Ankole.Principals.disable_principal(disabled.principal.uid)
-    conn = bearer_conn(conn)
+    assert {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(disabled.principal.uid)
+    conn = console_conn(conn)
 
     for {include_disabled, expected} <- [{true, true}, {false, false}] do
       response =
@@ -69,7 +70,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
   end
 
   test "admin reads one principal with its groups and direct grants", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     %{principal: human} =
       human_fixture(%{uid: unique_uid("principal-detail"), display_name: "Detail Human"})
@@ -109,7 +110,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
 
   describe "local user management" do
     test "every local-account write requires an enabled local provider", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       %{principal: human} = human_fixture()
 
       create_conn =
@@ -138,7 +139,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     end
 
     test "creates a local user with a one-time initial password", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       enable_local_provider()
 
       conn =
@@ -153,7 +154,8 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       assert %{"principal" => principal, "initial_password" => initial_password} =
                json_response(conn, 200)
 
-      assert principal["uid"] == "new.user@example.com"
+      assert principal["uid"] != "new.user@example.com"
+      assert {:ok, _} = Ecto.UUID.cast(principal["uid"])
       assert principal["email"] == "new.user@example.com"
       assert principal["display_name"] == "New User"
       assert principal["has_external_identity"] == false
@@ -169,7 +171,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     end
 
     test "resets a local password for a human with an email", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       enable_local_provider()
       %{principal: human, human_user: human_user} = human_fixture()
 
@@ -199,7 +201,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     end
 
     test "resetting a password for an unknown principal returns 404", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       enable_local_provider()
 
       conn =
@@ -211,7 +213,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     end
 
     test "edits the display name and email of a locally managed user", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       enable_local_provider()
       %{principal: human} = human_fixture()
 
@@ -229,7 +231,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     end
 
     test "allows an email change even when an external identity is attached", %{conn: conn} do
-      conn = bearer_conn(conn)
+      conn = console_conn(conn)
       enable_local_provider()
       %{principal: human} = human_fixture()
 

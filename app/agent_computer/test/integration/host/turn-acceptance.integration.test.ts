@@ -1,0 +1,246 @@
+import { create, toBinary } from '@bufbuild/protobuf'
+import { describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { BrowserRuntime } from '../../../src/browser-runtime'
+import { createEnvelope, envelopeHeader, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope_proto'
+import {
+  ActorEventEnvelopeSchema,
+  TurnControlSchema,
+  TurnStartSchema
+} from '../../../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
+import { ActorTurnAbortResponseSchema } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { RuntimeFabricTransportError, type EnvelopeSender } from '../../../src/fabric/fabric'
+import { jobTurnRefToProto } from '../../../src/lanes/actor_lane'
+import { RuntimeRPCClient } from '../../../src/lanes/rpc_lane'
+import { ActiveTurns } from '../../../src/worker/active_turns'
+import type { WorkerConfig } from '../../../src/worker/config'
+import { WorkerDrainState } from '../../../src/worker/drain'
+import { Slots } from '../../../src/worker/lifecycle_messages'
+
+const turn = {
+  actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
+  job_id: 1000,
+  attempt: 1,
+  actor_event_id: '00000000-0000-0000-0000-000000000101'
+}
+
+function fixture(plans: Array<Error | undefined>) {
+  const root = mkdtempSync(join(tmpdir(), 'ank-accept-'))
+  const config: WorkerConfig = {
+    endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
+    workerAuthKey: 'secret',
+    workerID: 'agent-1',
+    incarnationID: 'incarnation-a',
+    agentHomeRoot: root,
+    builtinSkillsRoot: join(import.meta.dir, '../../../../library'),
+    browser: { daemonEntry: '/bin/true', runnerPath: '/bin/true', localChromiumExecutable: '/bin/true' },
+    maxConcurrentSlots: 1
+  }
+  const sent: Envelope[] = []
+  let resume!: () => void
+  const ready = new Promise<void>(resolve => {
+    resume = resolve
+  })
+  const send: EnvelopeSender = async envelope => {
+    sent.push(envelope)
+    if (envelope.body.case === 'turnAccepted') {
+      const error = plans.shift()
+      if (error) throw error
+    }
+    if (envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort') {
+      const request = envelope.body.value
+      queueMicrotask(() =>
+        rpc.resolve(
+          create(RPCResponseSchema, {
+            requestId: request.requestId,
+            payload: toBinary(ActorTurnAbortResponseSchema, create(ActorTurnAbortResponseSchema))
+          })
+        )
+      )
+    }
+  }
+  const rpc = new RuntimeRPCClient(send, {
+    awaitReady: signal =>
+      new Promise<void>((resolve, reject) => {
+        const aborted = () => reject(signal!.reason)
+        signal?.addEventListener('abort', aborted, { once: true })
+        void ready.then(() => {
+          signal?.removeEventListener('abort', aborted)
+          resolve()
+        })
+      })
+  })
+  const drain = new WorkerDrainState()
+  const slots = new Slots(config, drain, send)
+  const active = new ActiveTurns(config, {} as BrowserRuntime, send, rpc, drain, slots)
+  const input = createEnvelope({
+    ...envelopeHeader('start'),
+    body: {
+      case: 'turnStart',
+      value: create(TurnStartSchema, {
+        mode: 'start',
+        fetchRuntimeConfig: { ssrfFilter: true },
+        turn: jobTurnRefToProto(turn),
+        actorEvent: create(ActorEventEnvelopeSchema, {
+          actorEventId: turn.actor_event_id,
+          type: 'im.message.addressed'
+        })
+      })
+    }
+  })
+  const stopping = createEnvelope({
+    ...envelopeHeader('stop'),
+    body: {
+      case: 'turnControl',
+      value: create(TurnControlSchema, {
+        turn: jobTurnRefToProto(turn),
+        command: 'stop'
+      })
+    }
+  })
+  return {
+    active,
+    drain,
+    slots,
+    input,
+    stopping,
+    sent,
+    resume,
+    acceptanceCount: () => sent.filter(envelope => envelope.body.case === 'turnAccepted').length,
+    executionCount: () =>
+      sent.filter(envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'files.list')
+        .length,
+    cleanup: async () => {
+      await active.control(stopping)
+      await until(() => drain.activeTaskCount === 0)
+      rpc.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+}
+
+async function until(predicate: () => boolean) {
+  const deadline = Date.now() + 1000
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('local Turn lifecycle did not settle')
+    await Bun.sleep(1)
+  }
+}
+
+describe('Turn acceptance before execution', () => {
+  it('returns without blocking the receive loop and reconfirms one pending attempt before exactly one execution', async () => {
+    const f = fixture([new RuntimeFabricTransportError('socket_closed', 'closed'), undefined])
+    try {
+      await f.active.start(f.input)
+      await f.active.start(f.input)
+      await Bun.sleep(1)
+      expect(f.acceptanceCount()).toBe(1)
+      expect(f.executionCount()).toBe(0)
+      expect(f.slots.used()).toBe(1)
+      f.resume()
+      await until(() => f.executionCount() === 1)
+      await f.active.start(f.input)
+      await Bun.sleep(1)
+      expect(f.acceptanceCount()).toBe(3)
+      expect(f.executionCount()).toBe(1)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('retains an already running attempt across a duplicate uncertain ACK', async () => {
+    const f = fixture([undefined, new RuntimeFabricTransportError('timeout', 'no ACK'), undefined])
+    try {
+      await f.active.start(f.input)
+      await until(() => f.executionCount() === 1)
+      await f.active.start(f.input)
+      await f.active.start(f.input)
+      await Bun.sleep(1)
+      expect(f.acceptanceCount()).toBe(2)
+      expect(f.active.size).toBe(1)
+      expect(f.executionCount()).toBe(1)
+      f.resume()
+      await until(() => f.acceptanceCount() === 3)
+      expect(f.executionCount()).toBe(1)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  for (const reason of ['background_agent_job_attempt_changed', 'run_closed']) {
+    it(`releases a fresh explicitly rejected ${reason} attempt without executing`, async () => {
+      const f = fixture([new RuntimeFabricTransportError('rejected', reason, { reason })])
+      try {
+        await f.active.start(f.input)
+        await until(() => f.drain.activeTaskCount === 0)
+        expect(f.executionCount()).toBe(0)
+        expect(f.active.size).toBe(0)
+        expect(f.slots.used()).toBe(0)
+        expect(f.sent.filter(envelope => envelope.body.case === 'rpcRequest')).toHaveLength(0)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  it('stops only the already running attempt when its duplicate is explicitly invalid', async () => {
+    const f = fixture([undefined, new RuntimeFabricTransportError('rejected', 'run_closed', { reason: 'run_closed' })])
+    try {
+      await f.active.start(f.input)
+      await until(() => f.executionCount() === 1)
+      await f.active.start(f.input)
+      await until(() => f.drain.activeTaskCount === 0)
+      expect(f.active.size).toBe(0)
+      expect(f.slots.used()).toBe(0)
+      expect(
+        f.sent.filter(
+          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort'
+        )
+      ).toHaveLength(0)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  for (const command of ['stop', 'drain']) {
+    it(`does not execute a pending attempt after ${command}`, async () => {
+      const f = fixture([new RuntimeFabricTransportError('socket_closed', 'closed'), undefined])
+      try {
+        await f.active.start(f.input)
+        await Bun.sleep(1)
+        if (command === 'stop') await f.active.control(f.stopping)
+        else {
+          f.drain.begin('sigterm')
+          f.active.beginDrain()
+        }
+        await until(() => f.drain.activeTaskCount === 0)
+        f.resume()
+        await Bun.sleep(1)
+        expect(f.acceptanceCount()).toBe(1)
+        expect(f.executionCount()).toBe(0)
+        expect(f.slots.used()).toBe(0)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  it('reports an unrelated rejection instead of silently treating it as an invalid attempt', async () => {
+    const f = fixture([new RuntimeFabricTransportError('rejected', 'wrong_stream', { reason: 'wrong_stream' })])
+    try {
+      await f.active.start(f.input)
+      await until(() => f.drain.activeTaskCount === 0)
+      expect(f.executionCount()).toBe(0)
+      expect(
+        f.sent.filter(
+          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort'
+        )
+      ).toHaveLength(1)
+      expect(f.slots.used()).toBe(0)
+    } finally {
+      await f.cleanup()
+    }
+  })
+})

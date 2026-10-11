@@ -5,8 +5,11 @@ defmodule AnkoleWeb.WorkerChannel do
   The channel owns nothing durable. `join/3` admits the Worker through
   `WorkerAdmission` from the ready fields in the join payload, registers its
   `connection_id` (the transport route) in `WorkerTracker`, and then moves
-  protobuf envelopes between the socket and the inbound dispatcher. Domain
-  work never runs in this process except that one-time admission.
+  protobuf envelopes between the socket and the inbound dispatcher. Lifecycle
+  writes run in this process. Actor and RPC operations run in supervised tasks. When the
+  control plane closes the connection (`{:close_connection, reason}`), the
+  channel disconnects the socket, so a live Worker connects again and proves
+  its credential again.
 
   Three logical streams share the socket. Each has its own in-flight budget
   (messages and bytes) so telemetry cannot starve durable turn traffic. Every
@@ -55,25 +58,34 @@ defmodule AnkoleWeb.WorkerChannel do
   }
 
   @impl true
-  def join("worker/" <> rest, payload, socket) do
-    with {:ok, worker_id} <- topic_worker(rest),
-         :ok <- same_worker(worker_id, socket.assigns.worker_id),
-         {:ok, ready} <- ready_from_payload(payload, worker_id) do
+  def join("worker", payload, socket) do
+    with :ok <- Ankole.Repo.put_tenant_id(socket.assigns.tenant_id),
+         {:ok, ready} <- ready_from_payload(payload) do
+      worker_id = socket.assigns.worker_id
       connection_id = Ecto.UUID.generate()
 
-      auth = %{authenticated?: true, transport_route: connection_id, worker_id: worker_id}
+      auth = %{
+        transport_route: connection_id,
+        worker_id: worker_id,
+        generation: socket.assigns.worker_generation
+      }
 
-      case WorkerAdmission.admit_worker_ready(ready, auth) do
+      # The route is in the directory before admission makes it current:
+      # admission broadcasts to this Agent's drivers, and their first send must find
+      # the route. Until the admission commits, the route fence still names
+      # the previous connection, so nothing reaches this one early. A failed
+      # join ends this process, and the tracker drops its entry.
+      {:ok, _ref} =
+        Phoenix.Tracker.track(
+          WorkerTracker,
+          self(),
+          WorkerRoute.topic(worker_id),
+          connection_id,
+          WorkerRoute.directory_meta(ready.incarnation_id)
+        )
+
+      case WorkerAdmission.admit_join(ready, auth) do
         {:ok, _worker} ->
-          {:ok, _ref} =
-            Phoenix.Tracker.track(
-              WorkerTracker,
-              self(),
-              WorkerRoute.topic(worker_id),
-              connection_id,
-              WorkerRoute.directory_meta(worker_id, ready.incarnation_id, connection_id)
-            )
-
           limits = limits()
 
           socket =
@@ -207,7 +219,7 @@ defmodule AnkoleWeb.WorkerChannel do
     message_budget = min(limits.pending_command_limit, credit.messages)
 
     with true <- map_size(pending) < message_budget || {:error, :backpressure},
-         {:ok, bytes, seq} <- seal_sequenced(socket, envelope),
+         {bytes, seq} = seal_sequenced(socket, envelope),
          true <-
            (pending == %{} or pending_bytes + byte_size(bytes) <= credit.bytes) ||
              {:error, :backpressure} do
@@ -224,30 +236,16 @@ defmodule AnkoleWeb.WorkerChannel do
   end
 
   def handle_call({:push, %FabricProto.Envelope{} = envelope}, _from, socket) do
-    case push_sequenced(socket, "reply", envelope) do
-      {:ok, socket, _seq, _bytes} ->
-        {:reply, {:ok, :sent_or_queued}, release_rpc_task(socket, envelope)}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, socket}
-    end
+    socket = push_sequenced(socket, "reply", envelope)
+    {:reply, {:ok, :sent_or_queued}, release_rpc_task(socket, envelope)}
   end
 
   def handle_call({:request_rpc, %FabricProto.Envelope{} = envelope, timeout_ms}, from, socket) do
     {:rpc_request, request} = envelope.body
-
-    case push_sequenced(socket, "command", envelope) do
-      {:ok, socket, _seq, _bytes} ->
-        timer = Process.send_after(self(), {:rpc_request_timeout, request.request_id}, timeout_ms)
-
-        waiters =
-          Map.put(socket.assigns.rpc_waiters, request.request_id, %{from: from, timer: timer})
-
-        {:noreply, assign(socket, :rpc_waiters, waiters)}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, socket}
-    end
+    socket = push_sequenced(socket, "command", envelope)
+    timer = Process.send_after(self(), {:rpc_request_timeout, request.request_id}, timeout_ms)
+    waiters = Map.put(socket.assigns.rpc_waiters, request.request_id, %{from: from, timer: timer})
+    {:noreply, assign(socket, :rpc_waiters, waiters)}
   end
 
   @impl true
@@ -266,6 +264,16 @@ defmodule AnkoleWeb.WorkerChannel do
         GenServer.reply(from, {:error, :timeout})
         {:noreply, assign(socket, :pending_commands, pending)}
     end
+  end
+
+  def handle_info({:close_connection, reason}, socket) do
+    send(socket.transport_pid, %Phoenix.Socket.Broadcast{
+      topic: socket.id,
+      event: "disconnect",
+      payload: %{}
+    })
+
+    {:stop, {:shutdown, reason}, socket}
   end
 
   def handle_info({:rpc_request_timeout, request_id}, socket) do
@@ -408,24 +416,23 @@ defmodule AnkoleWeb.WorkerChannel do
   # Commands and replies share one sequence so the Worker's cumulative
   # acknowledgement covers everything it took in order.
   defp push_sequenced(socket, event, envelope) do
-    with {:ok, bytes, seq} <- seal_sequenced(socket, envelope) do
-      push(socket, event, {:binary, bytes})
-      {:ok, assign(socket, :out_seq, seq), seq, byte_size(bytes)}
-    end
+    {bytes, seq} = seal_sequenced(socket, envelope)
+    push(socket, event, {:binary, bytes})
+    assign(socket, :out_seq, seq)
   end
 
   defp seal_sequenced(socket, envelope) do
     seq = socket.assigns.out_seq + 1
 
-    case RuntimeFabric.seal_and_encode(%{envelope | stream: :STREAM_DURABLE, transport_seq: seq}) do
-      {:ok, bytes} -> {:ok, bytes, seq}
-      {:error, reason} -> {:error, {:invalid_envelope, reason}}
-    end
+    bytes =
+      RuntimeFabric.seal_and_encode(%{envelope | stream: :STREAM_DURABLE, transport_seq: seq})
+
+    {bytes, seq}
   end
 
   defp envelope_stream(%FabricProto.Envelope{body: {type, payload}}) do
     case type do
-      type when type in [:worker_ready, :worker_heartbeat, :worker_capacity, :control_shutdown] ->
+      type when type in [:worker_heartbeat, :control_shutdown] ->
         :control
 
       :rpc_request ->
@@ -478,11 +485,7 @@ defmodule AnkoleWeb.WorkerChannel do
   defp release_rpc_task(socket, _envelope), do: socket
 
   defp auth(socket) do
-    %{
-      authenticated?: true,
-      transport_route: socket.assigns.connection_id,
-      worker_id: socket.assigns.worker_id
-    }
+    %{transport_route: socket.assigns.connection_id, worker_id: socket.assigns.worker_id}
   end
 
   defp mailbox_overflow? do
@@ -492,44 +495,18 @@ defmodule AnkoleWeb.WorkerChannel do
     end
   end
 
-  # The topic is `worker/<scope>/<worker_id>`; the scope is a fixed namespace.
-  defp topic_worker(rest) do
-    case String.split(rest, "/", parts: 2) do
-      [scope, worker_id] when worker_id != "" ->
-        if scope == WorkerRoute.scope(),
-          do: {:ok, worker_id},
-          else: {:error, "unknown_topic"}
-
-      _parts ->
-        {:error, "unknown_topic"}
-    end
-  end
-
-  defp same_worker(worker_id, worker_id), do: :ok
-  defp same_worker(_topic_worker_id, _socket_worker_id), do: {:error, "identity_mismatch"}
-
-  # The join payload carries the same fields as the `worker_ready` envelope.
-  defp ready_from_payload(payload, worker_id) when is_map(payload) do
-    with {:ok, payload_worker_id} <- required_text(payload, "worker_id"),
-         :ok <- same_worker(payload_worker_id, worker_id),
-         {:ok, incarnation_id} <- required_text(payload, "incarnation_id"),
-         {:ok, runtime} <- required_text(payload, "runtime"),
-         {:ok, version} <- required_text(payload, "version"),
-         {:ok, max_turns} <- required_integer(payload, "max_turns"),
-         {:ok, available_turn_slots} <- required_integer(payload, "available_turn_slots") do
+  defp ready_from_payload(payload) when is_map(payload) do
+    with {:ok, incarnation_id} <- required_text(payload, "incarnation_id"),
+         {:ok, max_slots} <- required_integer(payload, "max_slots"),
+         true <- max_slots > 0 || {:error, "max_slots_must_be_positive"},
+         {:ok, available_slots} <- required_integer(payload, "available_slots"),
+         true <- available_slots <= max_slots || {:error, "available_slots_exceeds_max_slots"} do
       {:ok,
-       %FabricProto.AgentComputerWorkerReady{
-         worker_id: worker_id,
-         incarnation_id: incarnation_id,
-         runtime: runtime,
-         version: version,
-         max_turns: max_turns,
-         available_turn_slots: available_turn_slots
-       }}
+       %{incarnation_id: incarnation_id, max_slots: max_slots, available_slots: available_slots}}
     end
   end
 
-  defp ready_from_payload(_payload, _worker_id), do: {:error, "worker_ready_required"}
+  defp ready_from_payload(_payload), do: {:error, "worker_join_required"}
 
   defp required_text(payload, key) do
     case Map.get(payload, key) do

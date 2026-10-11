@@ -73,16 +73,21 @@ defmodule Ankole.OIDC.Logout do
   end
 
   def deliver_browser(browser_id) do
-    ids =
-      Repo.all(
-        from d in LogoutDelivery,
-          join: s in Session,
-          on: s.id == d.session_id,
-          where: s.browser_id == ^browser_id and d.status in [:pending, :delivering],
-          select: d.id
-      )
+    deliveries =
+      Repo.across_tenants(fn ->
+        Repo.all(
+          from d in LogoutDelivery,
+            join: s in Session,
+            on: s.id == d.session_id,
+            where: s.browser_id == ^browser_id and d.status in [:pending, :delivering],
+            select: {d.tenant_id, d.id}
+        )
+      end)
 
-    Enum.each(ids, &deliver/1)
+    Enum.each(deliveries, fn {tenant_id, id} ->
+      Repo.with_tenant(tenant_id, fn -> deliver(id) end)
+    end)
+
     :ok
   end
 

@@ -380,6 +380,7 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
     assert by_id["revoked"]["status"] == "dead"
     assert by_id["revoked"]["reauth_required"] == true
     assert by_id["limited"]["status"] == "exhausted"
+    assert by_id["limited"]["last_error_reason"] == "chatgpt_refresh_failed"
 
     assert {:ok, limited_retry_at, _offset} =
              DateTime.from_iso8601(by_id["limited"]["retry_at"])
@@ -463,6 +464,7 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
     by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
     assert by_id["revoked"]["status"] == "dead"
     assert by_id["limited"]["status"] == "exhausted"
+    assert by_id["limited"]["last_error_reason"] == "chatgpt_refresh_failed"
     assert by_id["fresh"]["status"] == "ok"
   end
 

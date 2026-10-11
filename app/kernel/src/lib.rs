@@ -1,39 +1,41 @@
-//! Shared native kernel loaded by Bun through N-API and by Elixir through Rustler.
+//! Native kernel loaded by Elixir through Rustler.
 //!
-//! Shared behavior lives in `common`, `authz`, and `runtime_fabric`;
+//! Native behavior lives in host-neutral modules;
 //! feature-gated modules only translate host runtime types, naming, and errors.
 
 use mimalloc::MiMalloc;
 
-#[cfg(all(feature = "nif_dev", feature = "nif_prod"))]
-compile_error!("nif_dev and nif_prod are mutually exclusive");
-
 // Native addons can be loaded by long-running host runtimes. Keeping the global
-// allocator explicit makes allocator behavior the same for the N-API and NIF
-// builds of this crate.
+// allocator explicit gives the NIF build one allocation policy.
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[cfg(any(
     test,
-    feature = "napi",
-    feature = "nif_dev",
-    feature = "nif_prod",
-    feature = "universal_ai_client"
+    feature = "nif",
+    feature = "universal_ai_client",
+    feature = "object_store",
+    feature = "model_image"
 ))]
 pub mod common;
 
-#[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
+#[cfg(any(test, feature = "nif"))]
 pub mod authz;
 
 #[cfg(feature = "brain_markdoc")]
 pub mod brain_markdoc;
 
-#[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
-pub mod runtime_fabric;
+#[cfg(feature = "markdown")]
+pub mod markdown;
 
-#[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
+#[cfg(any(test, feature = "nif"))]
 pub mod signals_gateway;
+
+#[cfg(feature = "object_store")]
+pub mod object_store;
+
+#[cfg(feature = "model_image")]
+pub mod model_image;
 
 #[cfg(feature = "program_runner")]
 pub mod program_runner;
@@ -41,8 +43,5 @@ pub mod program_runner;
 #[cfg(feature = "universal_ai_client")]
 pub mod universal_ai_client;
 
-#[cfg(feature = "napi")]
-mod napi_exports;
-
-#[cfg(any(feature = "nif_dev", feature = "nif_prod"))]
+#[cfg(feature = "nif")]
 mod nif_exports;

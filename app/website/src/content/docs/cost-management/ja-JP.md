@@ -23,7 +23,7 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
 
-Brain が持つインスタンス共通のモデル設定は embedding と rerank だけです。[AppConfigure](../app-configuration/) で有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、ローカルの `ankole-browser` を使います。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しとローカル URL 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます。全体の動作は [Brain](../brain/) を参照してください。
+Brain は [AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを読み取ります。各テナントで有効な Brain メンテナンス Agent を選択します。Brain のすべてのモデル呼び出しは、この Agent の ID で実行され、使用量もこの Agent に帰属します。その Agent の `light` profile は会話と Source の知識抽出、`heavy` profile は Dreaming と Skill 教訓の再確認、`web_fetch` profile は URL Source の取得に使います。`web_fetch` が未設定、または Provider request が失敗した場合は、Source の取得に失敗します。メンテナンス Agent を無効にすると、再度有効にするか変更するまで、モデル呼び出しと URL Source 取得の両方が停止します。**Brain → Health** で選択した Agent と各 profile の状態を確認できます。全体の動作は [Brain](../brain/) を参照してください。
 
 最も節約できる 2 つの動き:
 
@@ -83,7 +83,6 @@ background job は再試行で token を使えます。上限がレバーです�
 | `max_consecutive_turn_failures` | 5 | 連続する turn の失敗後に job があきらめる |
 | `max_running_per_agent` | 3 | agent ごとに同時実行できる job は最大 3 つ |
 | 再試行遅延 | 約 30 秒 | 再試行の間隔の下限 |
-| `agent_computer.background_agent_job.max_turns_per_worker` | 設定可能 | job 向けの worker ごとの turn 上限 |
 
 一時的に 5 回失敗する job は、5 回分の run の token を費やします。ほとんどの場合、上限があなたを守ります。設定エラーは速やかに失敗し、失敗のままです。注目すべきレバーは 3 つ目です。3 つの並行 job を持つ agent は、一度に 3 つのモデルループを実行しています。その並列性が不要なら、「一度に 1 つのことをする」という persona は、上限が許すより安く済みます。
 

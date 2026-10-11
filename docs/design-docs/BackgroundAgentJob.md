@@ -9,8 +9,8 @@ do not create different kinds of Job.
 
 ## What the Operator Console Can Do
 
-The Console Job board lists the newest matching Jobs across the deployment
-instance. Its optional Agent filter and search combine. Search matches an exact
+The Console Job board lists the newest matching Jobs in the selected tenant.
+Its optional Agent filter and search combine. Search matches an exact
 Job ID or a case-insensitive title fragment before the 100-row page limit is
 applied, so an older matching Job is not hidden by newer unrelated work.
 
@@ -170,8 +170,9 @@ runtime configuration. The tool returns only the new `job_id` and its initial
 `queued` status.
 
 The tool rejects a source Job that is not terminal, has no Codex thread, already
-has a successor, or has no original Job Workspace directory. It does not copy a
-Workspace and it does not create a replacement directory.
+has a successor, or has no original Job Workspace, neither on this Worker nor in
+the drive. It does not copy a Workspace and it does not create a replacement
+directory.
 
 `stop_background_job` accepts only `job_id`. It changes `queued`, `running`, or
 `waiting_on_user` to `stopped`. A terminal Job is an idempotent no-op. The tool
@@ -200,6 +201,14 @@ Agent's session, and the task shapes the outcome into its Workflow result. A
 run that reaches a terminal status stops the live Jobs its task sessions own.
 See [Workflow](Workflow.md).
 
+A Job retains the turn-local webhook and automation management CLIs. These
+long-lived resources use `ReplyRoute` to follow the persisted Job and Workflow
+owner chain to the originating Agent Session. Their callbacks do not target
+the Job or task that created them. This recipient resolution does not change
+the Job lifecycle wakeup described above, the calling ActorEvent, or its
+`WorkAccess` authorization. A missing or inconsistent owner fails creation
+before a resource is stored.
+
 When the parent is a cron turn, the Job reply route also freezes that cron
 event's delivery targets. A terminal Job notification keeps this snapshot. The
 parent Agent still handles the notification once, and SignalsGateway creates
@@ -208,15 +217,8 @@ created from ordinary turns keep the existing one-target route.
 
 Success, failure, and `waiting_on_user` write a notification for the originating
 conversation. A success notification includes the final Codex response.
-Stopping a Job does not send a notification.
-
-When the terminal result already reached its intended provider recipient, the
-originating conversation may complete without another provider-visible
-notification. The internal `silent_success` result stays private to the
-runtime and never becomes ordinary channel text. The control plane authorizes
-this outcome only when the persisted Job result contains a `verification`
-object with `ok: true`, a non-empty `message_id`, no `error`, and no `issues`.
-Missing or incomplete verification keeps the parent notification visible.
+Stopping a Job does not send a notification. The parent turn for a terminal
+notification always ends with a visible reply.
 
 A waiting notification gives the parent only each question's header, text,
 secret flag, and labeled choices. Codex thread, turn, item, question, and option
@@ -233,7 +235,8 @@ The Elixir control plane:
 - checks the optional workspace template
 - validates the requested custom Model Profile or selects `coding`
 - resolves the logical profile at first execution admission
-- selects workers and checks turn fences
+- places or adopts Codex Turns through the Job conversation Driver and checks
+  the Job attempt fence
 - notifies the originating conversation
 
 Agent Computer:
@@ -264,7 +267,7 @@ caller supplies its Agent as the trusted `created_by` source.
 
 The control plane checks authorization before creation, dispatch admission,
 and a new resume or retry. Revocation stops queued and waiting Jobs after any
-admitted delivery finishes. It does not interrupt that delivery or discard its
+admitted Codex turn finishes. It does not interrupt that turn or discard its
 result. Child work keeps the source Human even when it uses Agent credentials.
 
 ## What PostgreSQL Stores
@@ -301,11 +304,13 @@ metadata.
 
 A Job does not store provider credentials. Its runtime projection stores the
 resolved provider, model, effort, options, direct input modalities, optional
-directly image-capable vision fallback, Plugin and Skill selection, MCP
-selection, and non-secret Worker and browser parameters. Retry, continuation,
+directly image-capable vision fallback, Plugin and Skill selection, and
+non-secret Worker and browser parameters. Retry, continuation,
 and Worker migration use those values instead of silently reading a new Agent
 configuration. A respawn inherits `model_profile` but captures a new projection
 from its current binding.
+The reserved `native_mcp_servers` field is currently empty. Each execution
+resolves MCP dependencies from the selected Skills' current content.
 Credentials and mutable Skill content still come from their current owners. A
 Lark tenant token stays out of the Codex thread environment: Agent Computer
 refreshes an execution-local file, and each `lark-cli` command reads the current
@@ -383,13 +388,13 @@ lead and child counts and is not a count of compaction events.
 The Agent Home uses this path:
 
 ```text
-/agents/<agent-key>/
+/workspace/
 ```
 
 The first Job owns a Workspace at this path:
 
 ```text
-/agents/<agent-key>/jobs/<workspace-owner-job-id>/
+/workspace/jobs/<workspace-owner-job-id>/
 ├── .codex/config.toml
 ├── AGENTS.md
 ├── temp/
@@ -400,10 +405,11 @@ The first Job stores its own ID in `workspace_owner_job_id`. A respawned Job
 inherits this value, so every Job in the continuation chain uses the same
 directory. The Job Workspace is the real process directory and Codex project
 root. It must
-exist as a directory and must not be a Git repository.
+exist as a directory and must not be a Git repository. The directory is on
+persistent Home and survives Worker replacement.
 
-Ankole does not show the model a false alias for this path. The old
-`/workspace` path is invalid, and Job creation rejects a task that contains it.
+Agent Home is `/workspace`. The entrypoint links the former
+`/agents/<agent_uid>` path to it so existing task paths still work.
 
 A Job can see other files in the same Agent Home. Job workspaces separate
 current work, but they do not hide all files owned by the same Agent.
@@ -411,34 +417,27 @@ current work, but they do not hide all files owned by the same Agent.
 The runner sets these environment values:
 
 ```text
-HOME=/agents/<agent-key>
-CODEX_HOME=/var/lib/ankole/codex/<agent-key>/.codex
+HOME=/workspace
+CODEX_HOME=/workspace/.codex
+CODEX_SQLITE_HOME=/var/cache/ankole/codex
 ```
 
-The Agent Home is shared durable storage. The Codex Home is a rebuildable
-Worker-local shard because SQLite WAL cannot use the shared network filesystem.
-The Bubblewrap runtime mounts both paths and keeps the Codex Home writable.
+Home and Codex thread files are persistent. SQLite is a cache; Codex can
+resume from thread files after this cache is lost. See
+[Agent Workers](AgentWorkers.md).
 
 Plugin packages and their local marketplace are rebuildable Codex runtime
-files. Both live under the Worker-local Codex Home. They must not use the
-shared Agent Home: one Worker's startup cleanup could delete another Worker's
-active staging directory.
+files under the Codex Home. Codex also discovers
+`$HOME/.agents/plugins/marketplace.json`; a marketplace with the same name
+there would take over the Plugin IDs. The install check therefore selects the
+Worker marketplace by its path and fails with the path of each other
+marketplace.
 
-Workers before 1.6.8-rc.1 wrote the marketplace and package copies to the
-Agent Home. Codex still discovers `$HOME/.agents/plugins/marketplace.json`.
-A leftover marketplace with the same name takes over the Plugin IDs, so Codex
-would read the shared copies. Workers do not change these shared files. The
-install check selects the Worker marketplace by its path and fails with the
-path of each leftover marketplace. After all Workers run 1.6.8-rc.1 or later,
-an operator must remove `.agents/plugins/marketplace.json` and
-`runtime-materials/agent-plugins` from each Agent Home. Other
-`runtime-materials` entries, such as Lark credentials, stay in place.
-
-Each `(Agent, Worker)` pair owns one active Codex app-server process through
-`AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
-process. A parent-scoped `subAgentActivity` assigns each child thread to the
-owning Job. Different Workers use different Codex Homes and app-server
-processes, including when they run Jobs for the same Agent.
+The Worker owns one Codex app-server process for its Agent through
+`AgentCodexRuntimeManager`; the process starts with the first Job lease and
+closes after the last one. Each Background Agent Job owns one root thread in
+that process. A parent-scoped `subAgentActivity` assigns each child thread to
+the owning Job.
 
 When a Job tree is removed, the runtime keeps retired child thread IDs until the
 app-server exits. If Codex reports a late child whose parent is retired, the
@@ -460,8 +459,9 @@ thread, then leaves every global Plugin entry disabled. A Job never mutates
 that Agent-wide state or gives Codex a native Skill root. Ankole intersects the
 Job's persisted selection with the current effective catalog, renders the
 ordinary Skill index in `AGENTS.md`, and exposes full Skill content through its
-dynamic `skill_view` tool. MCP servers remain a separate projection. Job turns
-run concurrently after the serialized runtime setup finishes.
+dynamic `skill_view` tool. The runner prepares MCP configuration separately
+from the selected Skills' dependencies. Job turns run concurrently after the
+serialized runtime setup finishes.
 
 The last Job lease closes app-server input, gives the process a bounded clean
 exit period, and reaps it before the runtime owner is removed. It sends a kill
@@ -480,20 +480,14 @@ filter in
 [codex-logs-trigger-patch](https://github.com/yangtzech/codex-logs-trigger-patch/blob/main/patch_codex_logs.sh).
 It keeps `WARNING` and higher records and does not change the journal mode.
 
-The daily session-reset cron schedules one best-effort diagnostic database
-maintenance call for each Agent and date boundary. The selected Worker makes
-one non-blocking attempt to acquire the same per-Agent physical lock as the
-app-server. A held lock means that the Agent runtime is active, so maintenance
-changes nothing. If the lock is free, the Worker deletes only `logs_2.sqlite`
-and its exact `-wal`, `-shm`, and `-journal` sidecars. A later cold start also
-deletes those exact files while it holds the lock. The cleanup never deletes
-Codex thread, goal, memory, session, configuration, or `.nfs*` files.
+Cold start deletes only `logs_2.sqlite` and its `-wal`, `-shm`, and
+`-journal` sidecars while it holds the lock. Other Codex files remain.
 
 The cold-start lock owner atomically replaces the shared Codex runtime config
 and AIGateway token before it starts app-server. A Worker that loses the lock
 does not change those files. The lock command does not fork a separate holder;
-it executes the sandbox process while it owns the lock, so process reaping and
-lock release have one owner.
+it executes the Codex app-server process while it owns the lock, so process
+reaping and lock release have one owner.
 
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.
@@ -579,12 +573,11 @@ readable items after them, and logs a warning, so the Job's compaction
 completes instead of failing. The preserved Provider state still reads only on
 a compatible Provider on later turns.
 
-Worker placement selects the normal owner. The per-Agent `flock` on each
-Worker-local Codex Home is the final same-Worker exclusion boundary. An
-app-server holds that lock until it exits. A second process that cannot acquire
-it reports a retryable busy result instead of starting another app-server for
-that `(Agent, Worker)` pair. PostgreSQL placement and the Worker-local shard let
-different Workers run Jobs for the same Agent without sharing SQLite state.
+Each Agent has one Worker, so every Job of an Agent runs in that Worker's one
+app-server. The `flock` on the Codex Home is the final exclusion boundary: an
+app-server holds the lock until it exits, and a second process that cannot
+acquire it reports a retryable busy result instead of starting another
+app-server on the same Codex Home.
 
 ## Compose the Project AGENTS.md
 
@@ -592,6 +585,12 @@ Project initialization writes one `AGENTS.md` at the Job Workspace root. The
 optional workspace template supplies the first part. The runner appends the
 rendered Job context after it: the Agent SOUL and MISSION documents, and the
 execution-context facts.
+
+When the Job has a source channel, its context names the conversation's drive
+directory. The Job must save files that it needs to keep or deliver in that
+directory. The workspace is
+temporary. The Job must not read or write another conversation's workspace or
+drive directory. A Job without a source channel uses the shared drive.
 
 The rendered Job context includes the ordinary Skill index and can end with a
 `Job Guidance` section. A Skill with `brain-recall-only: true` stays out of the
@@ -604,6 +603,10 @@ maximum, so Codex keeps its default. This reduces repeated model turns after
 empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
 A resumed thread keeps the existing project `AGENTS.md`; the template applies
 when a Job initializes its Workspace.
+The runner also gives Codex these drive rules as developer instructions. After
+it resumes a native thread, it adds the current instructions to the thread with
+`thread/inject_items`. This keeps the rules in the model context without
+rewriting the existing project documents.
 
 ## Prepare Skills for Each Run
 
@@ -622,7 +625,7 @@ package.
 Agent-installed Skill source uses this path:
 
 ```text
-/agents/<agent-key>/installed-skills/<skill-name>/
+/workspace/installed-skills/<skill-name>/
 ```
 
 Before each run, Agent Computer derives the loadable Skill set by intersecting
@@ -686,8 +689,8 @@ most five execution failures and at most twenty-five total claims, so
 interruptions that never became execution failures cannot consume the task's own
 budget.
 
-The control plane increments `attempts` only after it acquires a real execution
-lease.
+The control plane increments `attempts` only when it claims a real Worker
+slot. Adoption of a running attempt does not claim or count again.
 A placement failure returns an unstarted attempt to `queued`.
 
 A retryable worker failure waits before the next execution attempt.
@@ -701,6 +704,13 @@ value is authoritative over the nested AIGateway value, and an explicit `false`
 is never provider capacity. The ordinary actor Turn reads the same
 classification but keeps its own shorter ladder, because a user waits on it.
 
+Worker `socket_closed`, `runtime_fabric_timeout`, and `runtime_rpc_timeout`
+failures use the infrastructure account. A generic `timeout` does not. Safe
+reads first recover within their original caller and deadline after rejoin;
+classification applies when an attempt actually needs to return to the queue.
+An unanswered write can already have completed and is not repeated by the
+generic RPC layer.
+
 Context overflow consumes no execution-failure budget, because that path
 compacts the context and retries instead of failing the task.
 
@@ -711,13 +721,12 @@ permanent rejection does not consume local Turn retries or return the Job to
 keep their bounded recovery, because AIGateway rotates its credential pool and
 a later attempt can reach a healthy credential or a recovered upstream.
 
-A retry keeps the Job's Worker assignment. The Job's Codex thread lives in that
-worker's local runtime shard, and releasing the assignment would return no turn
-capacity while discarding the one fact the retry needs. Placement revalidates
-the worker and moves the Job only when that worker is gone.
+A retry runs on the Agent's one Worker. A replacement mounts the same Home,
+so the retry uses the existing Job Workspace and resumes the Codex thread
+from its persistent file.
 
 AIGateway quota exhaustion with a known future recovery time returns the Job
-to `queued` and releases its Worker assignment until that time. The acquired
+to `queued` until that time. The acquired
 execution attempt stays consumed and the attempt charges no execution-failure
 budget. A stale or missing recovery time is an ordinary provider-capacity
 failure: the Job returns to `queued` on the fixed Job retry ladder and the
@@ -734,6 +743,11 @@ turn writes, and turn completion stay terminal because their effect or commit
 outcome cannot be repeated safely.
 
 One control-plane transaction stores the final state and the notification.
+After commit, the caller delivers the notification to the owner Session.
+If unapplied steers create a successor, the caller also delivers its dispatch
+event. External completion delivers both the owner notification and any stop
+command for the running Job. An outer transaction must deliver its returned
+events after commit; a rollback must not wake a Driver.
 If a worker disappears, the control plane dispatches the Job again.
 
 For a terminal result, Agent Computer commits the Job status before it cleans
@@ -741,52 +755,66 @@ the Job thread, materialized files, and runtime lease. A cleanup failure after
 that durable commit is an operational warning. It does not reopen or retry a
 model Turn that can already have external effects.
 
-An old worker process can briefly overlap the replacement. The turn fence
-rejects later writes from the old process.
+A replacement instance waits until the previous instance is gone. The Turn
+fence also rejects late control-plane writes from an earlier attempt.
 
-A Worker heartbeat and its activation lease only prove that the Worker process
-is alive. Codex can stop producing runtime notifications while the Worker keeps
-renewing both, which leaves the Job `running` and its Turn `in_progress` until
-the deployment ends. The Turn row's own `updated_at` is the one clock that moves
-only on real runtime progress, so it owns stall detection. Each Turn checkpoint
-arms one deadline for its Job, and the control plane rearms every deadline from
-storage on start and on each sweep.
+A Worker heartbeat proves only that the Worker process is alive. Codex can
+stop producing runtime notifications while the Worker keeps reporting capacity.
+`TurnWatchdog` reads the latest in-progress Turn checkpoint for the current
+attempt. Before the first Turn exists, it uses the Job's `updated_at`.
 
-One hour without a durable Turn checkpoint counts as a stall. The budget covers
-the longest legitimate silence, which is one model call that the AIGateway
-already fails after five minutes, or one foreground tool call. A delegated child
-Turn keeps its own row, so its checkpoints keep the Job clock alive while the
-lead Turn waits for it.
+One hour without durable progress counts as a stall. A delegated child has its
+own Turn row, so its checkpoints keep the Job clock alive while the lead waits.
+Worker heartbeats do not move this clock. The existing Oban sweep checks it;
+there is no activation lease or separate deadline process.
 
-A stall aborts the attempt exactly like a reported Worker failure: it supersedes
-the runtime fences, fails the activation, interrupts the stalled runtime Turns,
-and leaves the actor event open on the retry ladder. The control plane also
-sends the Worker a best-effort turn control so the abandoned Turn stops spending
-tokens and returns its turn slot. The third stall of one Job is not retryable
-and fails the Job with the stall cause, so a Job that only stalls cannot retry
-forever. A Job without a live activation is left to the activation and Worker
-deadlines, which already own that recovery.
+A stall interrupts the current attempt's Turns through the Job owner, leaves
+retryable input open, and sends a best-effort retry control to stop the old
+Worker execution. The third stall fails the Job with its cause. The attempt
+fence rejects late commits from the abandoned execution.
 
-If Codex cannot resume its thread, one attempt can create one replacement
-thread. Codex thread state lives on Worker-local disk, so a replaced Worker or
-a lost state file reaches this ladder instead of failing the Job:
+### Persistent thread files
 
-1. Replay. The Worker pages the stored lead-thread turn items of the Job's
-   workspace lineage over `background_agent_job.turn_items.list`, converts
-   them back to wire response items, and injects them into a fresh thread.
-   Each replayed `function_call` restores its stored `namespace` and `name` as
-   separate fields. An app-server restart during a deployment cannot turn a
-   namespaced tool into a root tool.
+Codex writes each thread under `/workspace/.codex/sessions/`. The file contains
+conversation items, reasoning content, and compaction references. Codex can
+resume by thread ID without its old SQLite database. Old files can be
+compressed as `.jsonl.zst`; Codex reads both forms. The Worker does not archive
+these threads.
+
+The Job Workspace and thread files survive instance deletion and image
+replacement through the provider's persistent storage. No thread-segment table,
+RPC, or workspace-checkpoint copy is involved. A crash can leave an incomplete
+last line; recovery resumes the complete prefix and can repeat work after it.
+PostgreSQL Turn items remain the audit and display record, not the normal
+thread recovery source. Cloudflare's backup timing has the storage limits
+listed in [Agent Workers](AgentWorkers.md#cloudflare).
+
+### Replacement threads
+
+If Codex still cannot resume its thread, one attempt can create one
+replacement thread:
+
+1. Replay, only for an existing Job marked `legacy_thread_replay` by the
+   one-time migration. The Worker pages the
+   stored lead-thread turn items of the Job's workspace lineage over
+   `background_agent_job.turn_items.list`, converts them back to wire response
+   items, and injects them into a fresh thread. Each replayed `function_call`
+   restores its stored `namespace` and `name` as separate fields. An app-server
+   restart during a deployment cannot turn a namespaced tool into a root tool.
    Codex re-compacts when the replayed history exceeds the model window. The
    Job metadata records `runtime_checkpoint_recovery: replayed_from_transcript`.
-2. Workspace rebuild. When the store has no items or the inject fails, the
-   fresh thread starts from the Job task, the durable Workspace, and a short
-   history of earlier attempts. A continued Job also receives its source Job's
-   task and final report from the source row. The metadata records
+2. Workspace rebuild. For a new Job, or when a legacy replay has no items
+   or fails, the fresh thread starts from the Job task, the
+   durable Workspace, and a short history of earlier attempts. A continued Job
+   also receives its source Job's task and final report from the source row.
+   The metadata records
    `runtime_checkpoint_recovery: new_thread_from_bounded_history`.
 
 Both outcomes are disclosed, bounded to one replacement per attempt, and apply
 to first-turn resume and to a thread lost inside a running attempt alike.
+The first successful runtime anchor clears `legacy_thread_replay`. Continued
+Jobs inherit it only while it remains set. Remove this migration path after
+all Jobs running or waiting at the upgrade have ended.
 
 ## Create and Dispatch a Job Once
 
@@ -839,14 +867,14 @@ A retry from the same parent tool call returns the existing successor. A
 different request for a source that already has a successor fails and identifies
 that successor.
 
-Agent Computer checks that the inherited Workspace is a real directory before
-it sends the respawn request. CodexRunner checks it again before execution. A
-missing directory is an error; neither path creates or copies one. CodexRunner
-resumes the stored thread and sends `task` as the first user message of the new
-Job. When Codex cannot resume that thread, the respawned Job takes the same
-replacement ladder as any lost thread: transcript replay first, then the
-disclosed Workspace rebuild seeded with the source Job's task and final
-report.
+Agent Computer checks that the inherited Workspace is a real directory in
+persistent Home before it sends the respawn request. CodexRunner checks it
+again before execution; a missing inherited directory is an error, and neither
+path creates one. CodexRunner resumes the stored thread and sends `task` as
+the first user message of the new Job. When Codex
+cannot resume that thread, the respawned Job takes the same replacement ladder
+as any lost thread, ending with the disclosed Workspace rebuild seeded with the
+source Job's task and final report.
 
 ## Send a Message and Wait for Its Turn
 
@@ -859,12 +887,10 @@ that received the message without a waiter table or a resident waiter process.
 A queued message does not replace or mutate `job.task`. Background Agent Job
 sessions execute open ActorEvents in `queue_sequence` order when no Turn is
 live. A deferred dispatch therefore blocks later messages until the dispatch
-can start. After the control plane sends that Turn, it replays the stored
-messages into the activation in queue order. This keeps one Job identity and
-one durable input path without a queued-only update operation.
-RuntimeEvents rebuilds the Job session timer from that same queue head after a
-control-plane restart. Ordinary actor sessions still use their earliest due
-event and can bypass an older event that is not due.
+can start. After start or adoption, the Driver sends unapplied messages in
+queue order. Due Oban `EnsureDriver` jobs and the conversation Reconciler recover
+that queue after process loss. Ordinary conversations can use a later due event
+when an older event is not yet due.
 
 A running Codex Turn receives the text through `turn/steer`. A Job in
 `waiting_on_user` starts a new Turn on the same Codex thread with the message as
@@ -874,18 +900,16 @@ The send request uses the source tool-call ID as its stable ActorEvent source
 key. A retry of the same parent Turn returns the existing command event and does
 not send the message twice.
 
-When `wait_reply=true`, Agent Computer reads the persisted result once per
-second. The foreground observation window defaults to 30 seconds and is
+When `wait_reply=true`, the parent conversation Driver reads the persisted
+result once per second. The foreground observation window defaults to 30 seconds and is
 bounded to 10–150 seconds. This is not a Job execution timeout. On expiry the
 Job remains durable and continues running. A new parent steer wakes the wait
-immediately without consuming the steer; the normal agent-loop boundary records
-the tool result and then applies and acknowledges that steer.
+immediately without consuming the steer. The Driver records the tool result
+and injects the steer at its next model boundary.
 
-After a new worker Turn is committed and sent, the control plane immediately
-drains already-persisted `command.steer` events into that activation. The
-ordinary ready-event wakeup handles steering that arrives later. Periodic
-recovery is therefore a fallback, not the correctness path for the short gap
-between replacing a delivery and starting its successor.
+After a Codex Turn starts or is adopted, the Driver immediately sends stored
+`command.steer` events. Later inbox wakes send new messages through the same
+mailbox owner. Worker deduplication uses each event ID.
 
 Codex must produce a lead runtime notification within 60 seconds after
 `turn/start` succeeds. Missing first progress is a retryable runtime failure;
@@ -901,19 +925,18 @@ commit. A completed, stopped, or dead-letter command that never appears in a
 trajectory returns a delivery error.
 
 If a succeeded commit finds open steer events outside the terminal Turn's
-applied delivery prefix, the same transaction creates one successor with those
-messages in order and then completes the events. The final Turn acknowledgement
-consumes messages inside the applied prefix. If the successor cannot be stored,
+`applied_actor_event_ids`, the same transaction creates one successor with
+those messages in order and completes the events. The terminal status commit
+consumes the applied IDs with the Job state and parent notification. If the successor cannot be stored,
 the transaction fails and leaves the source Job and unapplied steer events
 unchanged. A failed, stopped, or external completion answers open steers with
 the terminal notification instead.
 
-The successor continues the source Job's Codex thread, so the same transaction
-copies the source's Worker assignment onto it. Without that, the successor is a
-new Session and placement would choose by free capacity, landing on a worker that
-does not hold the thread. A successor cannot replace an inherited thread, because
-that would silently discard the context it was created to build on, so it fails
-with a stated cause when the worker holding the thread is gone.
+The successor continues the source Job's Codex thread on the Agent's one
+Worker: it resumes the thread from persistent Codex Home. When the thread
+cannot resume,
+the successor starts a [replacement thread](#replacement-threads) that carries
+the source Job's task and final report, and its metadata discloses that.
 
 Background Codex gives child agents `request_parent_input`, not
 `request_user_input`. A child sends its question to the lead agent.
@@ -966,8 +989,9 @@ Each field contains `total_count`, `paths`, and `truncated`. It keeps at most
 
 Artifacts are ordinary Job files. They do not have a separate lifecycle.
 
-An outbound attachment must exist in the current Agent `user-files` directory.
-The caller must copy or move the file there before delivery.
+An outbound attachment must be a file in the Agent's drive. `reply_attachment`
+accepts only `drive_path` and records the file's current digest. A file under
+`chats/<channel_id>/` can be delivered only to that channel (see [Files](Files.md)).
 The caller must provide a structured attachment record. Ankole never searches
 prose for an outbound file path.
 
@@ -984,6 +1008,8 @@ available:
   admission.
 - Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
   missing-Workspace errors.
+- Workspace save and restore: unchanged files, mode changes, deletions, left-out
+  files, and drive changes against local work after the last save.
 - Causal Turn lookup, bounded trajectory output, continuation, and delivery
   errors.
 - Root Turn trajectory, progress, causal lookup, and recovery when runtime
@@ -993,7 +1019,7 @@ available:
 - Atomic tool-result journaling and lifecycle-event completion, rollback, and
   retry behavior.
 - Same-Agent cross-session waiting without notification consumption.
-- Limits on reported file paths and `user-files` attachment checks.
+- Limits on reported file paths and drive checks of reply attachments.
 - Worker placement, capacity, recovery, and account reuse.
 - Turn stall detection, its retryable abort, its exhausted Job failure, and
   deadline rearming from storage.

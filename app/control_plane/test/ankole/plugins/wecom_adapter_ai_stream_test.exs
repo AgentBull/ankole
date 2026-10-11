@@ -75,7 +75,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
         })
       )
 
-    channel = Repo.get!(Channel, @channel_id)
+    channel = Repo.get_by!(Channel, id: @channel_id)
 
     channel
     |> Channel.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
@@ -112,7 +112,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     %Request{actor_event: event, presentation: presentation, mode: mode}
   end
 
-  for operation <- [:open, :update, :finalize] do
+  for operation <- [:update, :finalize] do
     defp unquote(operation)(request) do
       {:ok, adapter} = ReplyPreviewAdapter.from_module(AIStream)
       apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
@@ -123,7 +123,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     event = setup_stream_binding(fresh_anchor_metadata())
 
     assert {:ok, result} =
-             open(request(event, working("hello from the agent"), :working))
+             update(request(event, working("hello from the agent"), :working))
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-stream-1", body}
     assert body["msgtype"] == "stream"
@@ -141,7 +141,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "finalize refreshes the full snapshot and seals the stream without the status line" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = open(request(event, working("partial"), :working))
+    assert {:ok, _open} = update(request(event, working("partial"), :working))
     assert_receive {:bot_frame, "aibot_respond_msg", _req, _open_body}
 
     assert {:ok, result} =
@@ -195,7 +195,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "an over-age open page is frozen at its written source and the chain continues" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = open(request(event, working("first page text"), :working))
+    assert {:ok, _open} = update(request(event, working("first page text"), :working))
     assert_receive {:bot_frame, "aibot_respond_msg", _req, _body}
 
     # Age the open page past the 9-minute axis and clear the write throttle.
@@ -243,7 +243,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   test "a rapid second update is throttled and a later finalize still flushes" do
     event = setup_stream_binding(fresh_anchor_metadata())
 
-    assert {:ok, _open} = open(request(event, working("one"), :working))
+    assert {:ok, _open} = update(request(event, working("one"), :working))
     assert_receive {:bot_frame, _cmd, _req, _body}
 
     assert {:ok, _update} = update(request(fresh(event), working("one two"), :working))
@@ -261,7 +261,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     event = setup_stream_binding(%{})
 
     assert {:error, {:degraded, :plain_text, :no_reply_anchor}} =
-             open(request(event, working("hello"), :working))
+             update(request(event, working("hello"), :working))
 
     refute_receive {:bot_frame, _cmd, _req, _body}, 50
 

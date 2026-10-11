@@ -102,7 +102,7 @@ defmodule Ankole.IdentityProviders.Directory do
   # always wins and the conflict is only logged. The binding runs on the
   # caller's transaction, so the logged conflict never rolls back the upsert.
   defp bind_attested_email(repo, provider_id, principal_uid, attrs) do
-    case Principals.normalize_email(Map.get(attrs, :email) || Map.get(attrs, "email")) do
+    case Principals.normalize_email(Map.get(attrs, :email)) do
       nil ->
         :ok
 

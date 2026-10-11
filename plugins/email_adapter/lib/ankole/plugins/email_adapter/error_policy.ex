@@ -27,16 +27,6 @@ defmodule Ankole.Plugins.EmailAdapter.ErrorPolicy do
   def normalize_delivery_result({:error, :signal_channel_not_found}),
     do: {:error, {:reply_delivery, :permanent, %{"code" => "email_channel_missing"}}}
 
-  def normalize_delivery_result({:error, :outbound_attachment_path_missing}) do
-    {:error, {:reply_delivery, :operator_action_required, %{"code" => "attachment_path_missing"}}}
-  end
-
-  def normalize_delivery_result({:error, %{"code" => code}}) when is_binary(code) do
-    {:error,
-     {:reply_delivery, :operator_action_required,
-      %{"code" => "attachment_file_unavailable", "worker_file_code" => code}}}
-  end
-
   def normalize_delivery_result({:error, reason})
       when reason in [:binding_config_not_found, :invalid_config_ref] do
     {:error, {:reply_delivery, :operator_action_required, %{"code" => Atom.to_string(reason)}}}

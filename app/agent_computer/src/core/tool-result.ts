@@ -1,20 +1,8 @@
-import type { AgentToolResult, ReplyPresentationEvent } from './types'
+import type { AgentToolResult } from './types'
 
-export interface JSONToolResultOptions {
-  textPrefix?: string
-  presentation?: ReplyPresentationEvent[]
-  terminate?: boolean
-}
-
-export function jsonToolResult<TDetails>(
-  details: TDetails,
-  opts: JSONToolResultOptions = {}
-): AgentToolResult<TDetails> {
-  const text = JSON.stringify(details)
+export function jsonToolResult<TDetails>(details: TDetails): AgentToolResult<TDetails> {
   return {
-    content: [{ type: 'text', text: `${opts.textPrefix ?? ''}${text ?? 'undefined'}` }],
-    details,
-    ...(opts.presentation ? { presentation: opts.presentation } : {}),
-    ...(opts.terminate ? { terminate: true } : {})
+    content: [{ type: 'text', text: JSON.stringify(details) ?? 'undefined' }],
+    details
   }
 }

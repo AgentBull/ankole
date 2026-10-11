@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirAgentSync } from '../../common/agent-user'
+import { writeFileAtomicSync } from '../../common/atomic-write'
 import { join } from 'node:path'
 import { isRecord } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { webURLFacts } from '@ankole/kernel'
 import { truncateUtf16Safe, truncateUtf16SafeTail } from '../../common/text-sanitize'
 import { sanitizePathSegment } from '../../core/agent-home-paths'
 
@@ -66,19 +66,6 @@ const ScriptShellMaxChars = 1_000
 
 type RenderWarning = 'script_shell' | 'empty_text'
 
-/**
- * Renders web_fetch results for the model inside a fixed character budget.
- *
- * Page text is untrusted input of unbounded size. The complete text of a page
- * that does not fit is written to the workspace, and the result carries a
- * bounded head and tail plus the `read_file` call that shows the omitted
- * middle. The result holds one bounded view, and the workspace file holds the
- * only complete copy.
- */
-export function renderFetchedPages(body: unknown, options: RenderFetchedPagesOptions): RenderedFetchedPages {
-  return renderPreparedPages(prepareFetchedPages(body, options), options, body)
-}
-
 /** Keeps bounded text in memory and the complete stored copy for later renders. */
 export function prepareFetchedPages(body: unknown, options: RenderFetchedPagesOptions): FetchedPage[] {
   const record = isRecord(body) ? body : {}
@@ -123,7 +110,8 @@ export function renderPreparedPages(
 export function fetchedPageHost(url: string | undefined): string | undefined {
   if (!url) return undefined
   try {
-    return webURLFacts(url).host || undefined
+    const host = new URL(url).hostname
+    return (host.startsWith('[') ? host.slice(1, -1) : host) || undefined
   } catch {
     return undefined
   }
@@ -298,9 +286,9 @@ function truncationNote(head: string, tail: string, text: string, textChars: num
 function storeFullPage(workspaceRoot: string, url: string, text: string): string | undefined {
   try {
     const directory = join(workspaceRoot, ...StoredPageDirectory)
-    mkdirSync(directory, { recursive: true })
+    mkdirAgentSync(directory)
     const path = join(directory, storedPageName(url))
-    writeFileSync(path, storedPageText(text), 'utf8')
+    writeFileAtomicSync(path, storedPageText(text), 0o600)
     return path
   } catch {
     return undefined

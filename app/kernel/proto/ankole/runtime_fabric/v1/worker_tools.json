@@ -1,0 +1,225 @@
+[
+  {
+    "name": "command",
+    "description": "Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use create_background_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use apply_patch. Do not use shell grep/rg/find/fd/ls to search or list the workspace; use the grep, find, and ls tools.",
+    "execution_mode": "sequential",
+    "read_only": false,
+    "destructive": true,
+    "retry_safe": false,
+    "type": "function",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shell command to execute."
+        },
+        "workdir": {
+          "description": "Working directory for this command. Use one of the provided absolute paths or a path relative to the current workspace.",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Max seconds to wait for the command. Defaults to 180.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "env": {
+          "description": "Environment variables for this command only.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_file",
+    "description": "Read a text file from the computer with line numbers and pagination, or view an image file (PNG, JPEG, GIF, WebP, or BMP, up to 8 MiB). Use this instead of cat/head/tail in command. Text output format: 'LINE_NUM|CONTENT'. Relative paths resolve from workdir, defaulting to the current workspace. Use offset and limit for large text files; a page stops at about 100K characters and tells you the offset to continue from. To view a PDF page or another image format, convert it to PNG first, for example with pdftoppm or magick.",
+    "execution_mode": "parallel",
+    "read_only": true,
+    "destructive": false,
+    "retry_safe": true,
+    "type": "function",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File to read (absolute, relative, or ~/path)."
+        },
+        "offset": {
+          "description": "1-indexed start line (default 1).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "limit": {
+          "description": "Maximum lines to return (default 500, max 2000).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "workdir": {
+          "description": "Base directory for a relative path (default current workspace).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "find",
+    "description": "Find files by fuzzy path search over the indexed workspace. The pattern matches whole relative paths (not just filenames) and accepts globs; results are ranked by relevance and recency, so the first page is usually enough. Keep patterns to 1-2 terms; extra words narrow. Use path to scope and exclude to cut noise. For file contents use grep; for one directory listing use ls.",
+    "execution_mode": "parallel",
+    "read_only": true,
+    "destructive": false,
+    "retry_safe": true,
+    "type": "function",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "description": "Fuzzy query matched against whole relative paths, not just filenames; also accepts globs. Multi-word narrows (AND). May be omitted when path provides the filter, e.g. path 'dir/**' lists a directory.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Scope constraint: directory ('src/'), filename ('main.rs'), or glob ('src/**/*.ts'). Absolute and ~/ paths inside the agent home also work.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Paths to skip, same syntax as path; comma/space separated or an array, e.g. 'test/,*.min.js'.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "limit": {
+          "description": "Maximum results per page (default 30).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "description": "Continuation cursor from a previous result; when set, other arguments are ignored.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "grep",
+    "description": "Search file contents in the indexed workspace. Smart-case; regex vs literal is auto-detected; output is grouped by file with the most relevant files first, matches in source order with line numbers. Use path to scope and exclude to cut noise. After one or two greps, read the top file instead of grepping more. Long lines are clipped; use read_file for full lines.",
+    "execution_mode": "parallel",
+    "read_only": true,
+    "destructive": false,
+    "retry_safe": true,
+    "type": "function",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "description": "Text to search for: a literal string or a regex (auto-detected). Prefer bare identifiers or literal phrases. Required unless cursor is set.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Scope constraint: directory ('src/'), filename ('main.rs'), or glob ('*.ts'). Absolute and ~/ paths inside the agent home also work.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Paths to skip, same syntax as path; comma/space separated or an array, e.g. 'test/,*.min.js'.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "caseSensitive": {
+          "description": "Force case-sensitive matching. Default is smart-case: case-insensitive when the pattern is all lowercase.",
+          "type": "boolean"
+        },
+        "context": {
+          "description": "Lines of context before and after each match (default 0, max 20).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "limit": {
+          "description": "Maximum matches per page (default 20).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "cursor": {
+          "description": "Continuation cursor from a previous result; when set, other arguments are ignored.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ls",
+    "description": "List one directory's entries sorted alphabetically, with a trailing '/' on directories; dotfiles included. Defaults to the current workspace. Use find to locate files by name across the tree; use ls when you need the complete layout of one directory.",
+    "execution_mode": "parallel",
+    "read_only": true,
+    "destructive": false,
+    "retry_safe": true,
+    "type": "function",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Directory to list (absolute, relative, or ~/path). Defaults to the current workspace.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum entries to return (default 500).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "apply_patch",
+    "description": "The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+    "execution_mode": "sequential",
+    "read_only": false,
+    "destructive": true,
+    "retry_safe": false,
+    "type": "custom",
+    "format": {
+      "type": "grammar",
+      "syntax": "lark",
+      "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF"
+    }
+  }
+]

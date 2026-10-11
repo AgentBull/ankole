@@ -70,9 +70,17 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
              agent_plugin_sources: agent_plugins,
              agent_library_defaults: defaults
            ),
-         {:ok, _sync} <- Ankole.AIAgent.Library.sync_agent_skills(agent_uid, opts) do
+         {:ok, _sync} <- sync(agent_uid, opts) do
       capabilities_from_sources(agent_uid, agent_plugins, opts)
     end
+  end
+
+  # `sync: false` reads the Skill rows that the last sync wrote. A Turn syncs
+  # once when it resolves its context.
+  defp sync(agent_uid, opts) do
+    if Keyword.get(opts, :sync, true),
+      do: Ankole.AIAgent.Library.sync_agent_skills(agent_uid, opts),
+      else: {:ok, :not_synced}
   end
 
   @doc false

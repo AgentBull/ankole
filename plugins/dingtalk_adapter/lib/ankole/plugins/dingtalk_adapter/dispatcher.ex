@@ -78,8 +78,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Dispatcher do
   end
 
   defp handler(consumers, fun) do
+    tenant_id = Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers)
     # Consumer data is closed over at dispatcher build time so Stream callbacks
     # stay small and never query plugin state per frame.
-    fn key, %Event{} = event -> fun.(key, event, consumers) end
+    fn key, %Event{} = event ->
+      Ankole.Tenants.dispatch_inbound(tenant_id, fn -> fun.(key, event, consumers) end)
+    end
   end
 end

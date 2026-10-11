@@ -5,7 +5,7 @@ defmodule Ankole.Brain.Schemas.Object do
   projection lives in `brain_chunks`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 
@@ -22,9 +22,6 @@ defmodule Ankole.Brain.Schemas.Object do
     field :effective_date, :date
     field :content_hash, :string
     field :chunking_signature, :string
-    field :emotional_weight, :float, default: 0.0
-    field :emotional_weight_recomputed_at, :utc_datetime_usec
-    field :salience_touched_at, :utc_datetime_usec
     field :last_retrieved_at, :utc_datetime_usec
     field :links_extracted_at, :utc_datetime_usec
     field :deleted_at, :utc_datetime_usec
@@ -32,13 +29,12 @@ defmodule Ankole.Brain.Schemas.Object do
     # Non-nil marks a body projection owned by one Brain Source. The shared
     # changeset does not cast it, so instance writes cannot set or clear the
     # owner. Source learning and Library sync use their constrained projection
-    # paths; only an ordinary Library page can clear it through Fork.
+    # paths.
     field :managed_by_source_id, Ankole.Ecto.UUIDv7
 
     # `updated_at` means "logical page content last changed" and is written
     # only by the content write paths in `Objects`. Ecto's autoupdate would
-    # bump it on every status writeback (salience recompute, extraction
-    # stamps, chunk signatures), which permanently outruns the extraction
+    # bump it on every status writeback (extraction stamps, chunk signatures), which permanently outruns the extraction
     # watermark and re-extracts the whole corpus every Dreaming round.
     field :updated_at, :utc_datetime_usec
 
@@ -59,9 +55,6 @@ defmodule Ankole.Brain.Schemas.Object do
       :effective_date,
       :content_hash,
       :chunking_signature,
-      :emotional_weight,
-      :emotional_weight_recomputed_at,
-      :salience_touched_at,
       :last_retrieved_at,
       :links_extracted_at,
       :deleted_at
@@ -72,6 +65,5 @@ defmodule Ankole.Brain.Schemas.Object do
     |> check_constraint(:type, name: :brain_objects_type_present)
     |> check_constraint(:title, name: :brain_objects_title_present)
     |> check_constraint(:meta, name: :brain_objects_meta_object)
-    |> check_constraint(:emotional_weight, name: :brain_objects_emotional_weight_range)
   end
 end

@@ -149,8 +149,8 @@ Principal and does not need a LocalPassword credential.
 ## Materialize Attachments
 
 SignalsGateway first commits the admitted message with a pending attachment
-projection. The adapter then downloads the CDN bytes, writes them to the
-Agent's `user-files` lane, and updates the same entry. An unmatched sender
+projection. The adapter then downloads the CDN bytes, stores them in the file
+service ([Files](../Files.md)), and updates the same entry. An unmatched sender
 cannot make Ankole download a file.
 
 Discord serves attachments without a documented size ceiling, so Ankole applies
@@ -225,7 +225,7 @@ Repository tests cover declaration validation, token ownership, the intent and
 close-code taxonomy, payload classification, preflight blocking, rate-limit
 delay, token rotation, ordered resume, prompt interaction acknowledgement,
 message and reaction projection, identity policies, the 25 MB limit, attachment
-materialization into the user-files lane, replay deduplication, card actions,
+storage in the file service, replay deduplication, card actions,
 outbound request construction, mention suppression, and uncertain sends. Real
 Discord acceptance needs an operator bot token that the repository does not
 contain.

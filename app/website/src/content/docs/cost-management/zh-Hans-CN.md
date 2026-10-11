@@ -23,7 +23,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
 | `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
 
-Brain 只保留 embedding 和 rerank 两项实例级模型设置。在 [AppConfigure](../app-configuration/) 中选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，系统改用本地 `ankole-browser`。停用维护 Agent 后，模型调用和本地网页抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态。完整行为见 [Brain](../brain/)。
+Brain 从 [AppConfigure](../app-configuration/) 读取站点级 embedding 模型和租户级 rerank 模型。为每个租户选择负责维护 Brain 的活跃 Agent：Brain 的所有模型调用都以该 Agent 的身份执行，并把用量归到该 Agent。该 Agent 的 `light` profile 用于从对话和 Source 中抽取知识，`heavy` profile 用于 Dreaming 和技能教训复审，`web_fetch` profile 用于读取 URL Source。未配置 `web_fetch` 或 Provider 请求失败时，Source 抓取会失败。停用维护 Agent 后，模型调用和 URL Source 抓取都会停止，直到重新启用或更换 Agent。**Brain → 健康**会显示所选 Agent 和各 profile 的状态。完整行为见 [Brain](../brain/)。
 
 两招最省：
 
@@ -83,7 +83,6 @@ Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受�
 | `max_consecutive_turn_failures` | 5 | 连续回合失败后任务放弃 |
 | `max_running_per_agent` | 3 | 每个 agent 最多三个运行中任务 |
 | 重试延迟 | ~30 秒 | 重试之间的下限 |
-| `agent_computer.background_agent_job.max_turns_per_worker` | 可配置 | 每个任务的 worker 回合上限 |
 
 一个任务临时失败五次，就花五次运行的 token。多数时候上限保护你——配置错误快速失败并保持失败。要盯的是第三个：一个有三个并发任务的 agent 在同时跑三个模型循环。若不需要这种并行，用“一次只做一件事”这样的人设，花费会比上限允许的更低。
 

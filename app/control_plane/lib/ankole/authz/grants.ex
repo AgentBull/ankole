@@ -1,8 +1,6 @@
 defmodule Ankole.AuthZ.Grants do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
   alias Ecto.Changeset
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
@@ -57,22 +55,6 @@ defmodule Ankole.AuthZ.Grants do
       {:ok, grants} -> {:ok, Enum.reverse(grants)}
       {:error, _reason} = error -> error
     end
-  end
-
-  def console_admin_grants_ready?(repo, admin_group_id) do
-    actions =
-      Grant
-      |> where(
-        [grant],
-        grant.group_id == ^admin_group_id and
-          grant.resource_pattern == ^@console_admin_resource_pattern and
-          grant.action in ^@console_admin_actions and grant.condition == "true"
-      )
-      |> select([grant], grant.action)
-      |> repo.all()
-      |> MapSet.new()
-
-    Enum.all?(@console_admin_actions, &MapSet.member?(actions, &1))
   end
 
   defp grant_attrs(repo, attrs) do

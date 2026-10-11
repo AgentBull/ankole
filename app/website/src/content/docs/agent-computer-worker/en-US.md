@@ -1,60 +1,43 @@
 ---
 title: Agent Computer Worker
-description: How the Bun and TypeScript Worker runs model loops, tools, files, terminal state, and streaming output while the control plane fences each turn.
+description: Environment tools, Codex, persistent Home, and recovery across control-plane replacement.
 section: Developer guide
 order: 108
 ---
 
-An Agent Computer Worker is the execution node for an Agent. When a conversation wakes, Actor Runtime gives a fenced turn to a Worker. The Worker runs the model loop, tools, files, and terminal work, then returns the result to the control plane. This page describes the boundary implemented by `app/agent_computer`.
+An Agent Computer Worker is one Agent's computer. Agent creation saves the provider binding and an absent Worker row. The control plane starts it when an environment tool or Codex first needs it. Pure questions and control-plane tools work without it.
 
-The decisive property, stated up front: the worker owns live execution and rebuildable worker-local state, nothing more. Durable state — the transcript, the fences, the final commit — stays in the control plane. A worker is replaceable, and a late or stray worker write fails the fence and is discarded.
+## Execution and ownership
 
-## The ownership boundary
+The Bun Worker executes commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. `Ankole.Conversations` in the control plane runs the main Agent loop, commits input consumption and tool results, and owns final replies. AIGateway owns the stored Response chain and hosted tools.
 
-The split is explicit in the worker's own contract. Agent Computer Worker owns live execution and rebuildable worker-local state. The Elixir control plane owns PostgreSQL state, actor and delivery fences, final commit authority, provider outboxes, runtime credentials, and recovery facts. The worker must not invent durable control-plane state.
+The control plane supplies `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. The Worker serves its own Agent, removes credentials from child environments, and has no database connection. The container is the Agent's isolation boundary; commands run as uid 1000 without sudo.
 
-What this rules out in practice: `DATABASE_URL`, `ANKOLE_AGENT_UID`, `ANKOLE_SESSION_ID`, and `ANKOLE_ACTOR_EPOCH` are not worker inputs. Actor identity arrives in `turn_start`, not in the environment. The worker authenticates to RuntimeFabric with `WORKER_ID`, `ANKOLE_RUNTIME_FABRIC_ENDPOINT`, and the separate `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` secret. `ANKOLE_AGENTS_ROOT` locates its shared workspace. The worker does not hold a database connection and it does not decide who it is acting for.
+## Worker pools and the live connection
 
-## The turn fence
+The Agent's saved Worker provider selects its pool, platform, instance configuration, and storage. Several Agents can use the same pool; the platform creates a separate computer for each Agent. Idle release can remove or pause the instance while retaining Home. See [Worker pools](../worker-management/) for configuration and lifecycle rules.
 
-Every turn the worker runs is pinned by an `ActorTurnRef` with three fields — `activation_uid`, `actor_epoch`, and `actor_event_id`. One worker execution handles exactly one `actor_event_id`. The worker keys its in-memory active-turn state on `${activation_uid}:${actor_event_id}`, and every envelope it sends back to the control plane carries the ref.
+The Worker opens one authenticated WebSocket to `/runtime-fabric/worker/websocket` and joins its Phoenix Channel. RuntimeFabric protobuf envelopes carry environment calls, results, Codex control, and progress. Generation and incarnation checks reject a replaced Worker. File bytes use one-time HTTP relay URLs; PostgreSQL owns durable recovery facts.
 
-This is the worker side of the [Actor Runtime](../actor-runtime/) triple fence. The control plane checks each incoming worker write against the activation, the epoch, and the delivery rows; if the worker's ref no longer matches — because the activation was superseded, the lease expired, or the event was retried with a higher epoch — the write is rejected as stale. The worker does not get to commit to a turn it no longer owns.
+## Operation identity and recovery
 
-## The model loop
+Environment work uses a `RunRef` for the Agent, Session, and triggering input. A call is keyed by Response ID and call ID. A replacement Driver probes the existing workspace and adopts a running call or its result. Disconnecting the control plane leaves commands running. After Worker process loss, only safe calls retry; other unknown calls return `interrupted`.
 
-The agent loop is a worker-driven Responses loop over AIGateway's stateful transport, and it is deliberately small. Four steps:
+Codex uses `JobTurnRef` with the Job ID and attempt. An `adopt` request keeps the same running turn, thread, and workspace. The Job owner fences terminal writes and consumes applied input IDs in the same transaction. Codex keeps its own model loop.
 
-1. Call the model through a turn-scoped OpenAI Responses adapter.
-2. If the response carries function-call items, execute them locally.
-3. Record the function-call outputs through AIGateway.
-4. Continue from the recorded journal anchor until no function-call items come back.
-
-The worker owns loop termination and its local iteration budget. It does **not** own history expansion, compaction, continuation anchors, or durable response state — those stay in AIGateway. When the loop ends, the outcome is one of two: `loop_finished` (the model returned with no further tool calls) or `iteration_exhausted` (the worker hit its iteration limit, and the model is nudged to synthesize a final answer rather than call more tools). The worker reports the whole-turn outcome to the control plane; the control plane records it.
-
-## Tools: what runs inside the worker
-
-Tools are the local actions the model can drive during a loop. The worker ships them as categories, each backed by real worker code:
-
-- **Computer** — shell commands (under bubblewrap confinement), file read and patch, apply-patch, and the v4a computer-use tool that drives a real browser desktop. This is where terminal state and file edits live.
-- **Web** — web search and web fetch, routed through the worker.
-- **Schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
-- **Codex** — the CodexRunner job tools, for work delegated to a Background Agent Job.
-- **Library and mcporter** — access to enabled Skills and invocation-scoped MCP dependency configs.
-- **Background Agent Job** — the handoff tools that create or continue durable jobs.
-
-Every tool result the worker produces is recorded through AIGateway as a function-call output, not committed directly. The model sees the result; the control plane decides what is durable.
+An open environment workspace and a running Codex turn each use one Worker slot. Main and Workflow model calls do not use these slots.
 
 ## The filesystem contract
 
-The durable shared writable runtime mount is `/agents`, laid out per actor key:
+Agent Home is persistent storage at `/workspace`. The old `/agents/<agent_uid>` path links to it; path checks resolve symbolic links before checking the Home boundary. Its layout is:
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -63,22 +46,18 @@ The durable shared writable runtime mount is `/agents`, laid out per actor key:
     └── temp/
 ```
 
-The model sees the absolute container path. The Worker does not translate paths. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. The [Agent Library](../agent-library/) manages all three. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
+The model sees the absolute container path. The Worker does not translate paths, and a command's working directory must be inside the Agent Home. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. `ConfidentialityPolicy.md` guides audience selection for Brain writes. The [Agent Library](../agent-library/) manages all four documents. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
 
-The active Codex Home is a rebuildable Worker-local shard at `/var/lib/ankole/codex/<agent-key>/.codex`; it is not part of the Agent Home. Background Agent Jobs load Skills through Ankole `skill_view` and do not copy Skill roots into the Job workspace.
+Home survives instance deletion and image changes. A rebuild removes only `/var/cache/ankole`. Docker local volumes depend on their host; a forced Cloudflare stop can lose writes since the last R2 backup. See [Workers](../worker-management/) for provider storage limits.
 
-## Streaming and progress
+The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
 
-While a turn runs, the worker publishes progress as best-effort, non-overlapping envelopes — a checkpoint every interval, with an activity summary when there is something useful to say. Progress is intentionally not a durability mechanism: a stuck progress send must not pile up timers or block the loop it is describing. The streaming output the model and tools produce flows back through the same RuntimeFabric lanes; what becomes durable is decided by the control plane at commit, not by the worker as it streams.
+Codex Home is `/workspace/.codex`. Thread files survive replacement; Codex can resume them without the old SQLite cache at `/var/cache/ankole/codex`. Background Jobs load Skills through `skill_view` without copying Skill roots into their workspaces.
 
-The worker also publishes a small admission hint — remaining turn capacity from its in-memory state — so the control plane can avoid sending work to a full process. Scheduling stays with the control plane; the hint is just a hint.
+## Progress and capacity
 
-## What an Agent Computer Worker is not
+The Driver owns main-loop streaming and tool presentation. The Worker reports environment results and Codex progress over RuntimeFabric. Progress is best effort; PostgreSQL completion facts and stored results own recovery.
 
-It is not a standalone local CLI; it runs inside the Linux worker image, which supplies the native kernel bindings, bubblewrap, Chromium, Python/Jupyter and document tooling, ZeroMQ, and the shared agent filesystem. It is not a place to invent durable state — the worker's job is to execute a fenced turn and report back, and every durable decision is the control plane's. And it is not a second scheduler; the Actor Runtime owns waking, leasing, and retrying. The boundary is clean: the control plane owns the turn's identity and truth, the worker owns the turn's execution.
+Heartbeats report active workspaces, Codex turns, and free slots. The control plane manages idle release through provider YAML `idleReleaseAfter`; `never` retains an idle Worker. Reconnection keeps the process incarnation and in-flight work.
 
-## Next steps
-
-- For the fence that pins a worker to one activation, read the [Actor Runtime](../actor-runtime/) page.
-- For the stateful Responses transport the loop calls, read the [AIGateway API](../ai-gateway/).
-- For the skills and documents the worker reads from `/agents`, read the [Agent Library](../agent-library/) page.
+See [Actor Runtime](../actor-runtime/) for writer and operation fences, [AIGateway](../ai-gateway/) for Responses, [Agent Library](../agent-library/) for Skills, and [Workers](../worker-management/) for provider states.

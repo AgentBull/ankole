@@ -11,7 +11,7 @@ AIGateway 是 Ankole 实例统一的 AI 边界。外部应用、企业系统和 
 
 ## 它在哪里
 
-AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循环、控制台运维者，或一个外部集成——带上 bearer token，发出一个 OpenResponses 形态的请求。AIGateway 解析选择符，准备好请求，把它分发到绑定的 provider，再返回单个 JSON 响应或一个流。LLM、embedding、rerank、web 搜索、web 抓取，全都走同一个边界。
+AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循环、OIDC Human，或一个外部集成——带上 bearer token，发出一个 OpenResponses 形态的请求。AIGateway 解析选择符，准备好请求，把它分发到绑定的 provider，再返回单个 JSON 响应或一个流。LLM、embedding、rerank、web 搜索、web 抓取，全都走同一个边界。
 
 最关键的一点：调用方永远看不到 provider 凭证。控制面掌握凭证和路由策略，调用方只掌握自己的 token 和选择符。
 
@@ -20,7 +20,9 @@ AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循
 `/api/v1/ai-gateway` 下的每个端点都经过 `:ai_gateway_api` 管线和 `RequireAIGatewayAccessToken` 插件。请求必须在 `Authorization` 头里带上 bearer token，插件只接受两类：
 
 - **Agent Token**——以某个已启用 Agent 主体签发的 AIGateway API Key；调用范围只包含该 Agent 的模型绑定和选择符，`subject_type = "agent"`。
-- **admin token**——某个活跃人类管理员的控制台 token；调用范围限定在运维者能看到的 provider 视图内，`subject_type = "admin_human"`。
+- **OIDC 人类 token**——由声明 `ai_gateway.write` 的 OIDC Client 为活跃 Human 签发；请求只能使用该 Client 的模型别名，`subject_type = "oidc_human"`。
+
+获取 OIDC 人类 token：在控制台创建带 `ai_gateway.write` 作用域的 OIDC Client，配置允许的组和模型别名，再通过授权码加 PKCE 登录。需要长期使用时申请 `offline_access`，使用轮换的 Refresh Token。Human 必须属于允许的组，且只能使用 Client 的模型别名，不能使用原始 `provider_id/model` 选择符。
 
 缺失或无法验证的 token 返回 `401`，`code: "invalid_token"`。没有匿名路径。
 
@@ -117,7 +119,7 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 
 
 同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个有长度上限的 `query`，返回 Provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。这两类调用可以使用 `web_search.default` 和 `web_fetch.default`，由 AIGateway 解析当前 Agent 档案。
 
-`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中实例级的 `brain.embedding_model` 和 `brain.rerank_model`。[Brain](../brain/) 说明完整检索行为。
+`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中站点级的 `brain.embedding_model` 和租户级的 `brain.rerank_model`。[Brain](../brain/) 说明完整检索行为。
 
 文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
 

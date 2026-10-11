@@ -1,18 +1,15 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { jsonBytes } from '../../fabric/envelope_proto'
-import type { TurnStart } from '../../lanes/actor_lane'
-import { rpcMethods, type WebhookRPCRequester } from '../../lanes/rpc_lane'
+import { type WebhookRPCRequester } from '../../lanes/rpc_lane'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import {
+  CLI_REQUEST_MAX_BYTES,
+  parseCLIRequest,
   startSocketLineBridge,
   type SocketLineBridge,
   type SocketLineBridgeResponse
 } from '../../core/socket-line-bridge'
-import { currentReplyRoute } from '../../core/turns/reply_route'
 import { WebhookCLICommand } from './webhook-cli-protocol'
-
-const maxCommandBytes = 16 * 1024
 
 /**
  * Starts the turn-local bridge used by the shell webhook CLIs.
@@ -22,13 +19,12 @@ const maxCommandBytes = 16 * 1024
  * key or fabric endpoint.
  */
 export function startWebhookCLIBridge(opts: {
-  turnStart: TurnStart
   requestWebhookRPC: WebhookRPCRequester
   socketRoot?: string
 }): SocketLineBridge {
   return startSocketLineBridge({
     socketPath: join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-wh-${randomUUID()}.sock`),
-    maxRequestBytes: maxCommandBytes,
+    maxRequestBytes: CLI_REQUEST_MAX_BYTES,
     oversizeError: 'webhook CLI request is too large',
     handleLine: line => executeLine(line, opts)
   })
@@ -37,53 +33,28 @@ export function startWebhookCLIBridge(opts: {
 async function executeLine(
   line: string,
   opts: {
-    turnStart: TurnStart
     requestWebhookRPC: WebhookRPCRequester
   }
 ): Promise<SocketLineBridgeResponse> {
-  let raw: unknown
-
-  try {
-    raw = JSON.parse(line)
-  } catch {
-    return { ok: false, error: 'webhook CLI request must be one JSON object' }
-  }
-
-  const parsed = WebhookCLICommand.safeParse(raw)
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues.map(issue => issue.message).join('; ') }
-  }
-
-  const command = parsed.data
+  const command = parseCLIRequest(line, WebhookCLICommand, 'webhook CLI request must be one JSON object')
   const call = opts.requestWebhookRPC
 
   if (command.operation === 'create') {
-    const replyRoute = currentReplyRoute(opts.turnStart)
-    if (!replyRoute) {
-      return {
-        ok: false,
-        error: 'create-webhook-cli requires a provider reply route from the current turn'
-      }
-    }
-
-    const token = `wh_${randomBytes(32).toString('base64url')}`
-    const result = await call(rpcMethods.webhookEndpointCreate, {
-      token,
+    const result = await call('webhook.endpoint.create', {
       label: command.label,
       mode: command.mode,
       expiresAt: command.expires_at,
-      replyRouteJson: jsonBytes(replyRoute),
       ...(command.automation_job_id === undefined ? {} : { automationJobId: String(command.automation_job_id) })
     })
     return { ok: true, result }
   }
 
   if (command.operation === 'list') {
-    const result = await call(rpcMethods.webhookEndpointList, command.limit ? { limit: command.limit } : {})
+    const result = await call('webhook.endpoint.list', command.limit ? { limit: command.limit } : {})
     return { ok: true, result }
   }
 
-  const result = await call(rpcMethods.webhookEndpointCancel, {
+  const result = await call('webhook.endpoint.cancel', {
     webhookEndpointId: command.webhook_endpoint_id
   })
   return { ok: true, result }

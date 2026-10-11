@@ -17,6 +17,25 @@ defmodule Ankole.IdentityProviders.DirectorySync do
   @full_sync_capability "directory_full_sync"
   @realtime_sync_capability "directory_realtime_sync"
 
+  def enqueue_site_directory_syncs(opts \\ []) do
+    Ankole.Tenants.map_active(fn -> enqueue_directory_syncs(opts) end)
+    |> Enum.reduce({:ok, %{enqueued: [], skipped: [], errors: []}}, fn {tenant_id, result},
+                                                                       {:ok, acc} ->
+      case result do
+        {:ok, result} ->
+          {:ok,
+           %{
+             acc
+             | enqueued: acc.enqueued ++ result.enqueued,
+               skipped: acc.skipped ++ result.skipped
+           }}
+
+        {:error, reason} ->
+          {:ok, %{acc | errors: acc.errors ++ [%{tenant_id: tenant_id, reason: reason}]}}
+      end
+    end)
+  end
+
   @doc """
   Enqueues a full directory sync for one active identity provider.
   """
@@ -272,7 +291,7 @@ defmodule Ankole.IdentityProviders.DirectorySync do
   defp event_triggered_sync_unique_opts do
     [
       fields: [:worker, :args],
-      keys: [:provider_id, :source],
+      keys: [:tenant_id, :provider_id, :source],
       period: 300
     ]
   end
@@ -282,7 +301,7 @@ defmodule Ankole.IdentityProviders.DirectorySync do
       {:ok,
        [
          fields: [:worker, :args],
-         keys: [:provider_id, :reason, :source],
+         keys: [:tenant_id, :provider_id, :reason, :source],
          period: period,
          states: :successful
        ]}

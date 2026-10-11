@@ -38,9 +38,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     def delete_refresh_result, do: :persistent_term.erase(@refresh_result_key)
 
     @impl true
-    def open(_request), do: {:ok, %{}}
-
-    @impl true
     def update(_request), do: {:ok, %{}}
 
     @impl true
@@ -180,7 +177,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   test "preview starts only for a dispatched turn and consumes opaque actor metadata" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("dispatch")
 
-    assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id) == []
+    assert AIReplyPreview.lookup(actor_event.id) == []
 
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
@@ -352,7 +349,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert initial.operation == :reply
     preview_entry_id = :sys.get_state(pid).preview_entry_id
 
-    assert :ok = AIReplyPreview.input_superseded(actor_event.id)
+    assert :ok = AIReplyPreview.input_superseded(actor_event)
 
     assert_receive {:mock_provider_outbox_sent, superseded_edit}
     assert superseded_edit.operation == :edit
@@ -402,12 +399,10 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
   test "tool activity preview uses the current locale" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("tool-activity-i18n")
-    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    %{response: response} = start_dispatched_preview(subject.uid, actor_event)
 
-    :sys.replace_state(pid, fn state ->
-      {:ok, _tag} = Ankole.I18n.put_locale("zh-Hans-CN")
-      state
-    end)
+    allow_cache_database_access()
+    {:ok, _locale} = Ankole.I18n.put_default_locale("zh-Hans-CN")
 
     assert :ok =
              Events.publish(response, :tool_call_started, %{
@@ -531,7 +526,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
     }
@@ -541,13 +535,13 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     end)
 
     assert :ok =
-             AIReplyPreview.presentation_event(actor_event.id, %{
+             AIReplyPreview.presentation_event(actor_event, %{
                "kind" => "turn.phase",
                "payload" => %{"revision" => 1, "state" => "working"}
              })
 
     assert :ok =
-             AIReplyPreview.presentation_event(actor_event.id, %{
+             AIReplyPreview.presentation_event(actor_event, %{
                "kind" => "tool.activity",
                "payload" => %{
                  "operation_id" => "quiet-tool",
@@ -590,7 +584,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     refute_receive {:mock_provider_outbox_sent, _terminal_reply}, 100
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
   end
 
@@ -605,7 +599,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       })
       |> Repo.update!()
 
-    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    %{response: response, pid: pid, conversation: conversation} =
+      start_dispatched_preview(subject.uid, actor_event)
 
     assert :ok = Events.publish(response, :output_text_delta, %{text: "<sাইলent_success/>"})
     send(pid, :flush_edit)
@@ -615,7 +610,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _ -> {:ok, %{}} end,
       update_fun: fn _ -> {:ok, %{}} end,
       finalize_fun: fn _ -> {:ok, %{}} end
     }
@@ -635,10 +629,18 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert state.presentation["answer"] in [nil, ""]
     stop_preview_and_wait(actor_event.id)
 
+    driver_name = Ankole.Conversations.Driver.name(actor_event)
+    assert :yes = :global.register_name(driver_name, self())
+    on_exit(fn -> :global.unregister_name(driver_name) end)
     assert :ok = AIReplyPreview.recover(steer.id)
+    stream_id = actor_event.id
+    assert_receive {:recover_preview, ^stream_id}
+    assert AIReplyPreview.lookup(actor_event.id) == []
+    :global.unregister_name(driver_name)
+    assert :ok = AIReplyPreview.maybe_start_for(actor_event, subject.uid, conversation.id)
 
     assert [{recovered_pid, _}] =
-             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+             AIReplyPreview.lookup(actor_event.id)
 
     assert :sys.get_state(recovered_pid).structured_reply
   end
@@ -651,7 +653,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         send(owner, {:rich_sync, request.presentation["answer"]})
         {:ok, %{}}
@@ -681,7 +682,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         send(owner, {:rich_owner_update, request.actor_event.id, request.presentation})
         persist_preview_request(request, "open")
@@ -719,12 +719,12 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     new_checkpoint = Repo.get!(ActorEvent, steer_event.id).reply_preview_checkpoint
     assert new_checkpoint["presentation_owner"] == true
     assert new_checkpoint["stream_actor_event_id"] == actor_event.id
-    assert new_checkpoint["owner_generation"] == 1
+    assert new_checkpoint["owner_generation"] == old_checkpoint["owner_generation"] + 1
 
     state = :sys.get_state(pid)
     assert state.stream_actor_event_id == actor_event.id
     assert state.actor_event.id == steer_event.id
-    assert state.owner_generation == 1
+    assert state.owner_generation == new_checkpoint["owner_generation"]
 
     assert :ok = AIReplyPreview.continue_on(actor_event.id, steer_event)
     refute_receive {:rich_owner_finalize, _owner_id, _presentation}, 100
@@ -752,7 +752,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     next_checkpoint = Repo.get!(ActorEvent, next_steer_event.id).reply_preview_checkpoint
     assert next_checkpoint["presentation_owner"] == true
     assert next_checkpoint["stream_actor_event_id"] == actor_event.id
-    assert next_checkpoint["owner_generation"] == 2
+    assert next_checkpoint["owner_generation"] == new_checkpoint["owner_generation"] + 1
 
     assert :ok = Events.publish(response, :response_started, %{})
     assert :ok = Events.publish(response, :output_text_delta, %{text: "第三张卡片续接"})
@@ -772,7 +772,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request ->
         send(owner, :unexpected_empty_card_finalize)
@@ -786,25 +785,27 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     assert :ok = AIReplyPreview.continue_on(actor_event.id, steer_event)
     refute_receive :unexpected_empty_card_finalize, 100
-    assert Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint == nil
+    old_checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert old_checkpoint["presentation_owner"] == false
+    refute Map.has_key?(old_checkpoint, "presentation")
 
     state = :sys.get_state(pid)
     assert state.actor_event.id == steer_event.id
-    assert state.owner_generation == 1
+    assert state.owner_generation == old_checkpoint["owner_generation"] + 1
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     next_steer_event = steer_actor_event(subject.uid, steer_event, "steer-no-card-recovered")
     assert :ok = AIReplyPreview.continue_on(actor_event.id, next_steer_event)
 
     assert [{recovered_pid, _value}] =
-             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+             AIReplyPreview.lookup(actor_event.id)
 
     recovered_state = :sys.get_state(recovered_pid)
     assert recovered_state.actor_event.id == next_steer_event.id
-    assert recovered_state.owner_generation == 2
+    assert recovered_state.owner_generation == state.owner_generation + 2
   end
 
   test "a failed old-card finalization keeps a recoverable continued checkpoint" do
@@ -816,7 +817,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn request ->
         result = persist_preview_request(request, "open")
         send(owner, :old_card_opened)
@@ -842,11 +842,9 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert old_checkpoint["refresh_pending"] == true
     assert old_checkpoint["refresh_reason"] == "owner_handoff"
 
-    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
-
     state = :sys.get_state(pid)
     assert state.actor_event.id == steer_event.id
-    assert state.owner_generation == 1
+    assert state.owner_generation == 2
   end
 
   test "lifecycle stop returns while the preview process is busy" do
@@ -858,7 +856,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     :ok = :sys.suspend(pid)
 
     spawn(fn ->
-      send(parent, {:stop_returned, AIReplyPreview.stop(actor_event.id)})
+      send(parent, {:stop_returned, AIReplyPreview.stop(actor_event)})
     end)
 
     assert_receive {:stop_returned, :ok}, 500
@@ -875,7 +873,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
     }
@@ -885,7 +882,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     end)
 
     assert :ok =
-             AIReplyPreview.presentation_event(actor_event.id, %{
+             AIReplyPreview.presentation_event(actor_event, %{
                "kind" => "plan.snapshot",
                "payload" => %{
                  "operation_id" => "todo",
@@ -897,7 +894,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
              })
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
@@ -947,7 +944,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request -> {:ok, %{}} end,
       finalize_fun: fn _request -> {:ok, %{}} end
     }
@@ -977,7 +973,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
              })
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
@@ -1008,7 +1004,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     |> Repo.update!()
 
     assert {:error, :reply_preview_not_recoverable} = AIReplyPreview.recover(actor_event.id)
-    assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id) == []
+    assert AIReplyPreview.lookup(actor_event.id) == []
   end
 
   test "checkpoint notifications do not recover a preview that already has a live owner" do
@@ -1018,7 +1014,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert :ok = AIReplyPreview.recover(actor_event.id)
 
     assert [{^pid, _value}] =
-             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+             AIReplyPreview.lookup(actor_event.id)
   end
 
   test "preview posts its first message when the adapter cannot thread replies" do
@@ -1167,7 +1163,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       recovery_state: %{}
     })
 
-    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
     assert :ok = AIReplyPreview.recover(actor_event.id)
 
     assert_receive {:recovery_refresh, request}
@@ -1259,8 +1254,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       recovery_state: %{}
     })
 
-    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
-
     assert {:error, {:reply_delivery, :operator_action_required, _detail}} =
              AIReplyPreview.recover(actor_event.id)
 
@@ -1271,8 +1264,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert blocked["recovery_state"]["reason"] == "operator_action_required"
     assert blocked["recovery_state"]["detail"]["code"] == 230_099
     refute Map.has_key?(blocked, "refresh_pending")
-
-    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
 
     assert {:error, :reply_preview_not_recoverable} = AIReplyPreview.recover(actor_event.id)
     refute_receive {:recovery_refresh, _request}
@@ -1285,7 +1276,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     woken = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
     refute Map.has_key?(woken, "recovery_state")
-    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
 
     RecoveryReplyPreview.put_refresh_result(
       {:error,
@@ -1302,7 +1292,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert permanent["recovery_state"]["state"] == "permanent"
     assert permanent["recovery_state"]["reason"] == "permanent_failure"
     assert permanent["recovery_state"]["detail"]["code"] == 40_201
-    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
 
     assert :ok =
              Actors.wake_blocked_reply_previews(
@@ -1407,7 +1396,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert blocked["recovery_state"]["state"] == "blocked"
     assert blocked["recovery_state"]["detail"]["reason"] == "auth"
     assert blocked["recovery_state"]["detail"]["code"] == "token.notExisted"
-    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
   end
 
   test "a plain-text fallback delegates preview recovery to durable outbox ownership" do
@@ -1501,7 +1489,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
         recovery_state: %{}
       })
 
-    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
     assert :ok = AIReplyPreview.recover(actor_event.id)
 
     assert_receive {:recovery_refresh, request}
@@ -1515,8 +1502,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert delegated["recovery_state"]["reason"] == "plain_text_fallback"
     assert delegated["recovery_state"]["detail"]["code"] == 230_099
     refute Map.has_key?(delegated, "refresh_pending")
-
-    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
 
     assert Repo.get_by!(OutboxEntry,
              agent_uid: outbox.agent_uid,
@@ -1557,7 +1542,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert :ok = AIReplyPreview.recover(open_event.id)
     assert_receive {:recovery_refresh, open_request}
     assert open_request.mode == :working
-    assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, open_event.id) == []
+    assert AIReplyPreview.lookup(open_event.id) == []
 
     open_delegated = Repo.get!(ActorEvent, open_event.id).reply_preview_checkpoint
     assert open_delegated["presentation_owner"] == false
@@ -1572,7 +1557,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request ->
         Repo.checkout(fn ->
           send(owner, {:rich_update_started, self()})
@@ -1590,7 +1574,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     end)
 
     assert :ok =
-             AIReplyPreview.presentation_event(actor_event.id, %{
+             AIReplyPreview.presentation_event(actor_event, %{
                "kind" => "plan.snapshot",
                "payload" => %{
                  "operation_id" => "todo",
@@ -1606,7 +1590,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:rich_update_started, task_pid}
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
     assert Process.alive?(task_pid)
 
@@ -1632,7 +1616,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       surface_ids_fun: &MockReplyPreview.surface_ids/1,
       surface_open_fun: &MockReplyPreview.surface_open?/1,
-      open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request ->
         send(owner, {:hung_rich_update_started, self()})
 
@@ -1648,7 +1631,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     end)
 
     assert :ok =
-             AIReplyPreview.presentation_event(actor_event.id, %{
+             AIReplyPreview.presentation_event(actor_event, %{
                "kind" => "plan.snapshot",
                "payload" => %{
                  "operation_id" => "timeout",
@@ -1663,7 +1646,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:hung_rich_update_started, task_pid}
 
     monitor = Process.monitor(pid)
-    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert :ok = AIReplyPreview.stop(actor_event)
     refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
     assert Process.alive?(task_pid)
 
@@ -1696,19 +1679,22 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
-    %{actor_event: actor_event} =
-      emit_addressed_actor_event(
-        subject.uid,
-        "mock",
-        group_entry(%{
-          source_event_id: "preview-#{suffix}-event",
-          signal_channel_id: "mock:chat:preview-#{suffix}",
-          source_entry_id: "human-message-#{suffix}",
-          provider_thread_id: "mock-thread-#{suffix}",
-          explicit: true,
-          text: "ping"
-        })
-      )
+    {:ok, %{actor_event: actor_event}} =
+      Repo.transact(fn _repo ->
+        {:ok,
+         emit_addressed_actor_event(
+           subject.uid,
+           "mock",
+           group_entry(%{
+             source_event_id: "preview-#{suffix}-event",
+             signal_channel_id: "mock:chat:preview-#{suffix}",
+             source_entry_id: "human-message-#{suffix}",
+             provider_thread_id: "mock-thread-#{suffix}",
+             explicit: true,
+             text: "ping"
+           })
+         )}
+      end)
 
     %{subject: subject, actor_event: actor_event}
   end
@@ -1720,7 +1706,9 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert :ok =
              AIReplyPreview.maybe_start_for(actor_event, subject_uid, conversation.id)
 
-    on_exit(fn -> stop_preview_and_wait(actor_event.id) end)
+    on_exit(fn ->
+      Repo.with_tenant(actor_event.tenant_id, fn -> stop_preview_and_wait(actor_event.id) end)
+    end)
 
     {:ok, response} =
       start_response_run(%{
@@ -1731,26 +1719,28 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       })
 
     assert [{pid, _value}] =
-             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+             AIReplyPreview.lookup(actor_event.id)
 
     %{conversation: conversation, response: response, pid: pid}
   end
 
   defp steer_actor_event(subject_uid, source_event, suffix) do
     assert {:ok, %{status: :accepted, actor_event: %ActorEvent{} = steer_event}} =
-             Ankole.SignalsGateway.Ingress.emit_entry(
-               subject_uid,
-               source_event.binding_name,
-               group_entry(%{
-                 source_event_id: "preview-#{suffix}-event",
-                 signal_channel_id: source_event.signal_channel_id,
-                 source_entry_id: "human-message-#{suffix}",
-                 provider_thread_id: source_event.provider_thread_id,
-                 explicit: true,
-                 text: "/steer 继续"
-               }),
-               now: DateTime.add(base_time(), 1, :second)
-             )
+             Repo.transact(fn _repo ->
+               Ankole.SignalsGateway.Ingress.emit_entry(
+                 subject_uid,
+                 source_event.binding_name,
+                 group_entry(%{
+                   source_event_id: "preview-#{suffix}-event",
+                   signal_channel_id: source_event.signal_channel_id,
+                   source_entry_id: "human-message-#{suffix}",
+                   provider_thread_id: source_event.provider_thread_id,
+                   explicit: true,
+                   text: "/steer 继续"
+                 }),
+                 now: DateTime.add(base_time(), 1, :second)
+               )
+             end)
 
     steer_event
   end
@@ -1779,7 +1769,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   defp request_metadata(metadata), do: %{"request_metadata" => metadata}
 
   defp stop_preview_and_wait(actor_event_id) do
-    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+    case AIReplyPreview.lookup(actor_event_id) do
       [{pid, _value}] ->
         monitor = Process.monitor(pid)
         :ok = AIReplyPreview.stop(actor_event_id)

@@ -1,5 +1,7 @@
+import { writeFileAtomicSync } from '../../../common/atomic-write'
+import { mkdirAgentSync } from '../../../common/agent-user'
 import { isRecord, ms } from '@agentbull/active-support'
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { TOML } from 'bun'
 import { errorMessage } from '../../../common/errors'
@@ -34,7 +36,8 @@ export function materializeCodexJobProjectConfig(input: {
   applyRunnerSafety(config, input.hostedWebSearch)
   // The published Bun types drift around the documented stringify API, so the
   // local declaration stays authoritative: a string comes back or this throws.
-  atomicWrite(path, (TOML as unknown as { stringify(value: object): string }).stringify(config))
+  mkdirAgentSync(dirname(path))
+  writeFileAtomicSync(path, (TOML as unknown as { stringify(value: object): string }).stringify(config), 0o600)
 
   return { path }
 }
@@ -102,12 +105,4 @@ function tableAt(parent: TomlTable, key: string): TomlTable {
   }
   if (!isRecord(current)) throw new Error(`Codex config ${key} must be a table`)
   return current
-}
-
-function atomicWrite(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`
-  writeFileSync(temporary, content, { mode: 0o600 })
-  renameSync(temporary, path)
-  chmodSync(path, 0o600)
 }

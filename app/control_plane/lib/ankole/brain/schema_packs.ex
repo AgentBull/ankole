@@ -5,7 +5,7 @@ defmodule Ankole.Brain.SchemaPacks do
   Seeds are repository files under `priv/brain/schema_packs/`. Installation
   materializes the selected seeds into the `brain_schema_*` tables in one
   transaction; after that the tables own the instance ontology, and later
-  promotions or pack additions write the same tables through the same merge
+  pack additions write the same tables through the same merge
   validation. Pack seeds are never read on the write path.
   """
 
@@ -328,16 +328,7 @@ defmodule Ankole.Brain.SchemaPacks do
             {:cont, {:ok, Map.put(acc, name, merged)}}
 
           existing ->
-            if same_type_core?(existing, type) do
-              merged =
-                Map.update!(existing, "subtypes", fn subtypes ->
-                  Enum.uniq(subtypes ++ Map.get(type, "subtypes", []))
-                end)
-
-              {:cont, {:ok, Map.put(acc, name, merged)}}
-            else
-              {:halt, {:error, {:type_declaration_conflict, name, pack_name}}}
-            end
+            merge_existing_type(existing, type, name, pack_name, acc)
         end
       end)
       |> case do
@@ -345,6 +336,19 @@ defmodule Ankole.Brain.SchemaPacks do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  defp merge_existing_type(existing, type, name, pack_name, acc) do
+    if same_type_core?(existing, type) do
+      merged =
+        Map.update!(existing, "subtypes", fn subtypes ->
+          Enum.uniq(subtypes ++ Map.get(type, "subtypes", []))
+        end)
+
+      {:cont, {:ok, Map.put(acc, name, merged)}}
+    else
+      {:halt, {:error, {:type_declaration_conflict, name, pack_name}}}
+    end
   end
 
   defp same_type_core?(existing, type) do
@@ -456,7 +460,7 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(SchemaPack, rows)
+    repo.insert_all(SchemaPack, Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!())))
     :ok
   end
 
@@ -524,7 +528,7 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(SchemaLinkType, rows)
+    repo.insert_all(SchemaLinkType, Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!())))
     :ok
   end
 
@@ -545,7 +549,11 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(SchemaCalibrationDomain, rows)
+    repo.insert_all(
+      SchemaCalibrationDomain,
+      Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!()))
+    )
+
     :ok
   end
 

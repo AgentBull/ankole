@@ -11,10 +11,3 @@ export function relativePathWithin(rootPath: string, candidatePath: string): str
 export function pathIsWithin(rootPath: string, candidatePath: string): boolean {
   return relativePathWithin(rootPath, candidatePath) !== undefined
 }
-
-export function resolvePathWithin(rootPath: string, relativePath: string, errorMessage: string): string {
-  const root = resolve(rootPath)
-  const candidate = resolve(root, relativePath)
-  if (relativePathWithin(root, candidate) === undefined) throw new Error(errorMessage)
-  return candidate
-}

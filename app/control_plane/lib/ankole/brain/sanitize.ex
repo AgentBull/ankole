@@ -1,12 +1,9 @@
 defmodule Ankole.Brain.Sanitize do
   @moduledoc """
-  Prompt-injection neutralization for recalled memory text.
+  Pattern detection for the Skill lesson write gate.
 
-  Recalled content is attacker-adjacent data: a claim or chunk can carry
-  jailbreak phrasing that a prompt would otherwise embed verbatim. Hits are
-  neutralized in place and reported, never silently dropped; the caller
-  wraps the result in a data envelope. The pattern set follows the GBrain
-  INJECTION_PATTERNS list.
+  SkillLessons rejects a lesson when this function reports a match. Brain
+  read paths preserve the stored text after access and disclosure checks.
   """
 
   @patterns [
@@ -21,7 +18,7 @@ defmodule Ankole.Brain.Sanitize do
     {"new-instructions", ~r/(?:new|updated|revised)\s+instructions?:/iu, "[redacted]:"},
     {"system-prompt", ~r/system\s*:\s*(?:you\s+are|you\s+must|never|always)/iu, "[redacted]"},
     {"role-jailbreak", ~r/you\s+are\s+(?:now|actually|really)\s+(?:a|an)\s+\w+/iu, "[redacted]"},
-    {"do-anything-now", ~r/\b(?:DAN|do\s+anything\s+now|developer\s+mode\s+enabled?)\b/iu,
+    {"do-anything-now", ~r/\b(?:do\s+anything\s+now|developer\s+mode\s+enabled?)\b/iu,
      "[redacted]"},
     {"open-system", ~r/<\s*system\s*>/iu, "&lt;system&gt;"},
     {"open-instructions", ~r/<\s*instructions?\s*>/iu, "&lt;instructions&gt;"},

@@ -68,7 +68,7 @@ ChatGPT サブスクリプションを使うには、まず [ChatGPT subscriptio
 
 | ステータス | 意味 | 対処 |
 |---|---|---|
-| `queued` | 受け付けられ、利用可能な Worker を待機中 | 通常は待ちます。動かない場合は Worker の可用性を確認します。 |
+| `queued` | 受け付けられ、Agent の Worker または空いた Job スロットを待機中 | 通常は待ちます。動かない場合は **Console → Workers** で Agent の Worker を確認します。 |
 | `running` | 作業が進行中 | Job を開いてプランと最新の進捗を確認します。 |
 | `waiting_on_user` | Agent またはあなたの回答を待機中 | Agent は答えられる質問に自分で答えます。Agent から質問されたら、Job を作成した会話で返信します。 |
 | `succeeded` | 完了 | 結果を読みます。更新を依頼した場合は、元の会話がそれを受け取ったか確認します。 |
@@ -87,7 +87,7 @@ Job を開いて **Cancel** を選択します。すでに開始したターン�
 
 ## よくある問題
 
-- **Job が `queued` のまま:** 少なくとも 1 台の Worker が ready で、他の Job がすべての容量を使っていないことを確認します。
+- **Job が `queued` のまま:** Agent の Worker が ready で、同じ Agent の他の Job が Job スロット（`agent_computer.background_agent_job.max_running_per_agent`）をすべて使っていないことを確認します。
 - **開始直後に失敗する:** 保存された Background Agent Jobs モデルプロファイルと、選択した provider の認証情報プールのステータスを確認します。
 - **`waiting_on_user` なのに質問が届かず、Agent も自分で答えていない:** 元の会話のシグナルルーティングルールと Channel Provider を確認します。
 - **成功したのにチャットに戻らない:** まずサイレントにするよう依頼されていなかったか確認します。されていなければ Job を開いて結果があるか確認し、元の会話のルーティングルールを確認します。

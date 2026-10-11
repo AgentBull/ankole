@@ -79,10 +79,15 @@ export const BOUNDARY_RULES: BoundaryRule[] = [
 // unused: Knip
 // ---------------------------------------------------------------------------
 
-/** Top-level dirs whose paths are real repo files in Knip's compact output. */
-export const UNUSED_REPO_PATH_PREFIX = /^(app|libs|plugins|tools)\//
-
-export const UNUSED_KNIP_ARGS = ['--no-progress', '--reporter', 'compact', '--files', '--no-config-hints'] as const
+export const UNUSED_KNIP_ARGS = [
+  '--production',
+  '--include',
+  'files,exports,types,dependencies',
+  '--no-progress',
+  '--reporter',
+  'json',
+  '--no-config-hints'
+] as const
 
 // ---------------------------------------------------------------------------
 // structure: konsistent

@@ -33,7 +33,7 @@ order: 1
 | **Background job** | Session から実行する長時間の仕事です。完了した結果は、元のチャネルへ配信します。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | 特定の仕事を実行するための確定した手順です。Agent が改善を提案し、人が次の Session で使う変更を承認します。 | [Skills](../skills/) |
 | **Principal** | 人と Agent を表す権限主体です。ランタイムは、両方に権限と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | モデルループ、ツール、ファイル、ターミナルの状態、ストリーミング出力を実行します。 | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent Computer Worker** | ツール、ファイル操作、ターミナル、ブラウザー、Codex Job を実行する環境です。主モデルループは control plane が実行します。 | [Agent Computer Worker](../agent-computer-worker/) |
 
 Agent は、複数の情報源を使う長時間の調査に [Deep Research](../deep-research-job/) を使えます。[ブラウザー自動化](../browser-automation/)では、実際の Web ページを操作できます。
 

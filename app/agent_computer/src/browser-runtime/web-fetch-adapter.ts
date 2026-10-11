@@ -1,24 +1,13 @@
 import { isRecord, ms } from '@agentbull/active-support'
 import { errorMessage } from '../common/errors'
-import { spawn } from 'node:child_process'
 import { rm } from 'node:fs/promises'
-import {
-  BrowserDataError,
-  BrowserErrorCodeSchema,
-  BrowserResponseSchema,
-  sendBrowserCommand,
-  type BrowserErrorCode
-} from '@ankole/browser'
-import type {
-  BrowserRouteMaterializer,
-  MaterializedBrowserRuntime,
-  RenderedFetchBrowserMaterializeSettings
-} from './materializer'
+import { BrowserDataError, BrowserErrorCodeSchema, sendBrowserCommand, type BrowserErrorCode } from '@ankole/browser'
+import type { BrowserRouteMaterializer, BrowserRoute, RenderedFetchBrowserMaterializeSettings } from './materializer'
 
-const maxCLIOutputBytes = 8 * 1024 * 1024
+const RenderedFetchTimeoutMs = ms('5m')
 
 export type BrowserWebFetchFailureEvent = {
-  backendKind: MaterializedBrowserRuntime['material']['backend']['kind']
+  backendKind: BrowserRoute['material']['backend']['kind']
   stage: 'invoke' | 'url'
   errorCode: BrowserErrorCode
   errorMessage: string
@@ -48,7 +37,18 @@ export class BrowserWebFetchAdapter {
     try {
       let result: unknown
       try {
-        result = await invokeBrowserFetchCLI(runtime, urls, signal)
+        const response = await sendBrowserCommand(
+          { ...runtime, timeoutMs: RenderedFetchTimeoutMs },
+          { name: 'fetch', args: { urls } },
+          { timeoutMs: RenderedFetchTimeoutMs, signal }
+        )
+        if (!response.ok) {
+          throw new BrowserDataError(response.error.code, response.error.message, {
+            retryable: response.error.retryable,
+            details: response.error.details
+          })
+        }
+        result = response.data
       } catch (error) {
         if (!signal?.aborted) this.reportFailure(runtime, { stage: 'invoke', ...observedFailure(error) })
         throw error
@@ -57,12 +57,11 @@ export class BrowserWebFetchAdapter {
       return result
     } finally {
       await this.purge(runtime)
-      await runtime.cleanup()
       await rm(runtime.artifactRoot, { recursive: true, force: true })
     }
   }
 
-  private reportResultFailures(runtime: MaterializedBrowserRuntime, value: unknown, urls: string[]): void {
+  private reportResultFailures(runtime: BrowserRoute, value: unknown, urls: string[]): void {
     if (!isRecord(value) || !Array.isArray(value.results)) return
     for (const [urlIndex, result] of value.results.entries()) {
       if (!isRecord(result) || typeof result.error !== 'string') continue
@@ -78,10 +77,7 @@ export class BrowserWebFetchAdapter {
     }
   }
 
-  private reportFailure(
-    runtime: MaterializedBrowserRuntime,
-    failure: Omit<BrowserWebFetchFailureEvent, 'backendKind'>
-  ): void {
+  private reportFailure(runtime: BrowserRoute, failure: Omit<BrowserWebFetchFailureEvent, 'backendKind'>): void {
     try {
       this.options.onFailure?.({ backendKind: runtime.material.backend.kind, ...failure })
     } catch {
@@ -89,7 +85,7 @@ export class BrowserWebFetchAdapter {
     }
   }
 
-  private async purge(runtime: MaterializedBrowserRuntime): Promise<void> {
+  private async purge(runtime: BrowserRoute): Promise<void> {
     const send = async (): Promise<void> => {
       const response = await sendBrowserCommand(
         {
@@ -114,80 +110,6 @@ export class BrowserWebFetchAdapter {
       await send().catch(() => undefined)
     }
   }
-}
-
-async function invokeBrowserFetchCLI(
-  runtime: MaterializedBrowserRuntime,
-  urls: string[],
-  signal?: AbortSignal
-): Promise<unknown> {
-  if (signal?.aborted) throw signal.reason
-  const executable = process.env.ANKOLE_BROWSER_CLI ?? 'ankole-browser'
-  const timeoutMs = ms('5m')
-  const child = spawn(executable, ['--json', '--timeout', String(timeoutMs), 'fetch', ...urls], {
-    env: {
-      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      HOME: process.env.HOME ?? '/agents',
-      LANG: process.env.LANG ?? 'C.UTF-8',
-      ANKOLE_BROWSER_SOCKET: runtime.socketPath,
-      ANKOLE_BROWSER_ROUTE: runtime.route,
-      ANKOLE_BROWSER_SESSION: runtime.session,
-      ANKOLE_BROWSER_MATERIAL: runtime.materialPath,
-      ANKOLE_BROWSER_ARTIFACT_ROOT: runtime.artifactRoot,
-      ANKOLE_BROWSER_RUNNER: runtime.runnerPath
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  let stdout: Buffer = Buffer.alloc(0)
-  let stderr: Buffer = Buffer.alloc(0)
-  const abort = (): void => {
-    child.kill('SIGTERM')
-  }
-  signal?.addEventListener('abort', abort, { once: true })
-  child.stdout?.on('data', chunk => {
-    stdout = appendBounded(stdout, Buffer.from(chunk))
-  })
-  child.stderr?.on('data', chunk => {
-    stderr = appendBounded(stderr, Buffer.from(chunk))
-  })
-
-  try {
-    const { code, childSignal } = await new Promise<{ code: number | null; childSignal: NodeJS.Signals | null }>(
-      (resolveExit, reject) => {
-        child.once('error', reject)
-        child.once('exit', (code, childSignal) => resolveExit({ code, childSignal }))
-      }
-    )
-    if (signal?.aborted) throw signal.reason
-    const line = stdout.toString('utf8').trim().split(/\r?\n/).at(-1)
-    if (!line) {
-      throw new BrowserDataError(
-        'backend_unavailable',
-        `ankole-browser fetch failed (${code ?? childSignal ?? 'no output'})`,
-        {
-          retryable: true,
-          details: { stderr: stderr.toString('utf8').trim().slice(0, 2_000) }
-        }
-      )
-    }
-    const parsed = BrowserResponseSchema.safeParse(JSON.parse(line))
-    if (!parsed.success) throw new BrowserDataError('invalid_result', 'ankole-browser fetch returned invalid JSON')
-    if (!parsed.data.ok) {
-      throw new BrowserDataError(parsed.data.error.code, parsed.data.error.message, {
-        retryable: parsed.data.error.retryable,
-        details: parsed.data.error.details
-      })
-    }
-    return parsed.data.data
-  } finally {
-    signal?.removeEventListener('abort', abort)
-  }
-}
-
-function appendBounded(current: Buffer, chunk: Buffer): Buffer {
-  const next = Buffer.concat([current, chunk])
-  if (next.length <= maxCLIOutputBytes) return next
-  return next.subarray(next.length - maxCLIOutputBytes)
 }
 
 function observedFailure(

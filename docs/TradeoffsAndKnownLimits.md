@@ -3,91 +3,87 @@
 This page explains what Ankole does not guarantee. Each subsystem design
 document describes the related behavior in more detail.
 
-## One Instance Is One Trust Boundary
+## Tenants Share Site Infrastructure
 
-Each enterprise should operate its own private deployment instance. One instance
-contains one set of Agents, accounts, configuration, provider connections, and
-data.
+A site can contain several tenants. Principal, AuthZ, conversation and Brain
+queries are restricted to the selected tenant. Missing tenant context fails.
+Site administrators can select any tenant's data context.
 
-Principal and AuthZ control access inside that instance. They do not isolate
-organizations that do not trust the same infrastructure. Run a separate
-deployment instance for each organization.
+All tenants trust the site operator and share PostgreSQL, model providers,
+Worker providers and the control-plane plugins. Tenant filtering is not a
+sandbox for hostile plugins or a substitute for protecting the control plane.
+Use separate deployments when organizations cannot share that infrastructure.
+See [Tenants](design-docs/Tenants.md).
 
-## An Equal Principal UID Is Not an Identity
+## A Worker Is One Agent's Computer
 
-A Principal UID is a name. A local account uses its sign-in email as its UID,
-and a directory-created Principal uses the provider subject id. When a
-provider subject has no binding and matches no attested contact, admission
-creates a new Principal; it does not join an existing Principal whose UID
-equals the subject id, and it refuses the write when that UID is taken.
+Each Agent has its own Worker instance, and Agents never share a
+Worker, persistent Home, cache, or credential. The container is the only isolation
+boundary: commands, the Codex app-server, Automation scripts, and the browser
+run as uid 1000 without an inner sandbox or sudo.
 
-The cost is that a provider subject whose id equals an existing Principal UID
-gets no account by itself: identity admission holds the sender for manual
-review, and the subject stays unmapped until an operator binds it to a
-Principal. Ankole accepts this cost because the alternative silently gives an
-account to whoever controls a matching identifier, which for an email address
-can be anyone on the internet. See [Principal](design-docs/Principal.md).
+Ankole does not protect a Worker from its own Agent. An Agent can install
+user-space software, change its own files, or break its Worker. It cannot
+install system packages. The Worker credential stands
+for that one Agent only, and the Agent's commands can already read every file
+and use every credential of that Agent. A Worker that does not become ready is
+rebuilt with a new cache disk after `agent_computer.worker.ready_timeout`.
 
-## The Worker Container Protects the Host
+A Worker container is a trusted, first-party component. Kubernetes can add
+gVisor through the Pod template's runtime class. An attacker who controls a
+Worker can act as its Agent, but not as another Agent. The control plane that
+creates Workers holds the Docker socket or a namespace Role; protect it as a
+root-equivalent component.
 
-Ankole treats each Agent Computer container or pod as a trusted, first-party
-worker. The container forms the main security barrier around Agent code.
+## Persistent Home and Rebuildable Cache
 
-Bubblewrap adds command isolation inside the container. Strong mode mounts a new
-`/proc`. Weak mode uses the container's `/proc` when the outer runtime blocks
-that mount. The worker reports weak mode and refuses to start if both modes fail.
+Agent Home at `/workspace` survives instance deletion and image replacement.
+The provider uses a local volume, PVC, R2 backup, Vercel Drive, EFS directory,
+AgenticSpace, or OSS prefix.
+Codex thread files stay under `/workspace/.codex`; SQLite and process locks
+are caches under `/var/cache/ankole`. A rebuild removes the cache after the
+old instance is gone. It does not remove Home.
 
-The current Docker setup grants `SYS_ADMIN` and uses an unconfined seccomp
-profile. Kubernetes must grant equivalent kernel access for strong mode.
+Durability depends on the selected storage. A Docker local volume or a
+local-path PVC does not survive loss of its host. Cloudflare saves Home at a
+planned stop; a forced platform stop can lose writes after the last backup.
+Vercel Drive failure durability and AWS EFS recovery after long MicroVM
+suspension still need deployment checks. Real-account checks cover planned
+instance replacement, image changes, and short Lambda memory pause. Lambda
+storage helpers also need capacity in the account's memory quota. Operators
+must back up persistent Home and the control-plane drive. See
+[Agent Workers](design-docs/AgentWorkers.md).
 
-Bubblewrap does not make hostile code safe inside one trusted worker. Use
-separate containers or deployment instances for hostile workloads. An attacker
-who controls a worker can control a trusted part of Ankole.
+Function Compute follows the official Sandbox, NAS, and E2B protocols, but its
+AgenticFS and OSS paths still need cloud validation. OSS does not provide full
+POSIX semantics. Memory pause and template capture also need an enabled Aliyun
+account. ACS remains unavailable until its default hibernation can be shown
+to preserve process memory.
 
-All sandboxes in one Worker can read and write `/var/share`. This directory is
-Worker-local and disposable. It is suitable for caches, but it does not isolate
-Agents and does not provide durable storage.
-
-## All Workers Must See the Same Agent Files
-
-Every worker in one deployment instance must mount the same `/agents`
-filesystem.
-A local directory works for one worker. Several workers need shared storage that
-supports read and write access from each worker.
-
-Agent Home contains Codex state, Agent documents, user files, installed Skills,
-Session workspaces, and Job workspaces. PostgreSQL records when those resources
-exist and how Ankole uses them.
-
-WorkerPool keeps one Agent's live work on one worker. It selects that worker
-with the Agent UID. New work waits when the selected worker has no capacity.
-
-This placement choice can disappear after a restart. It is not a filesystem
-lock and cannot guarantee one execution. A database turn fence rejects an old
-worker when two executions overlap.
-
-The control plane does not scan shared storage to discover business data.
-Workers report file and Skill changes through explicit protocols.
+The control plane waits for all previous instances, including paused and
+terminating ones, to disappear before a new generation. An uncertain create
+keeps its generation for retry. Loss of platform access can therefore leave
+an Agent waiting; it cannot justify creating a possible second writer.
 
 ## Sessions Separate Work, Not All Agent Data
 
 A Session uses the Actor identity `{agent_uid, session_id}` and runs in
-`/agents/<agent-key>/sessions/<workspace-id>`. PostgreSQL assigns the stable
+`/workspace/sessions/<workspace-id>`. PostgreSQL assigns the stable
 model-visible workspace ID from 10000; it does not replace the Actor identity.
 
 Each Session has its own current directory, live processes, and temporary data.
-The sandbox also mounts the complete Agent Home, so Sessions for the same Agent
-can see shared files, installed Skills, `.codex`, and other same-Agent
-workspaces.
+All Sessions of an Agent run on the same Worker and can see its complete Agent
+Home, with shared files, installed Skills, and other workspaces of the same
+Agent, and the Agent's Codex state.
 
 Use Sessions to separate current work. Do not use them to hide Agent-owned data
 from another Session of the same Agent.
 
 ## RuntimeFabric Does Not Store Work
 
-RuntimeFabric carries live traffic through one Phoenix Channel per worker. This
+RuntimeFabric carries live traffic through one Phoenix Channel per Worker. This
 traffic includes turn control, RPC calls, worker status, and flow control.
-File bytes move over HTTP through a signed relay URL.
+File bytes move over HTTP through a one-time relay URL.
 
 The worker connection is not a durable queue. PostgreSQL keeps any fact that Ankole must replay,
 check, reconcile, or commit after a restart.
@@ -103,13 +99,13 @@ directly.
 AIGateway stores one Response and publishes model events. It does not complete
 an ActorEvent or mark a provider delivery as complete.
 
-When its model loop ends, Agent Computer reports the final Response ID.
-SignalsGateway checks the turn fence and the Response chain. One database
-transaction then completes the ActorEvent and records the final replies.
+The control-plane Driver runs the main model loop. Its final transaction
+checks the persisted Driver fence, completes the ActorEvents, and records the
+final replies. A terminal Response alone does not complete a conversation.
+Recovery reads the persisted input and Response tape after a Driver restart.
 
-SignalsGateway does not acknowledge this completion message. If it does not
-receive the message, the ActorEvent stays open and the lease can expire. A
-terminal Response alone does not prove that the turn completed.
+Codex Jobs run on the Worker. The control plane checks the Job attempt fence
+before it commits the Worker's terminal report.
 
 ## Provider Delivery Can Repeat
 
@@ -133,7 +129,7 @@ possible-duplicate notice. Other uncertain operations remain
 
 ## A Steered Turn Splits Its Record Across Two Events
 
-A `/steer` that reaches the Worker while a Turn runs becomes a separate
+A `/steer` that reaches the Driver while a conversation runs becomes a separate
 ActorEvent. At Turn completion the latest applied steer owns the final reply and
 its outbox, so the answer lands under the message the user sent last instead of
 the one that opened the Turn.
@@ -208,10 +204,10 @@ AIGateway stores metadata without interpreting it. It does not inspect
 `actor_event_id` or check whether an ActorEvent remains active.
 
 One WebSocket generates one Response at a time. AIGateway rejects
-`background=true`. ActorRuntime, not an AIGateway lock, orders Session turns.
+`background=true`. The conversation Driver orders Session model requests.
 
-`max_tool_calls` limits hosted tools inside one Response. The Agent Computer
-iteration limit controls model calls during one worker turn. The two limits
+`max_tool_calls` limits hosted tools inside one Response. The conversation Driver
+iteration limit controls model calls during one run. The two limits
 serve different purposes.
 
 ## Compaction Trusts Two Declarations It Cannot Verify
@@ -250,8 +246,10 @@ secrecy.
 The control plane stores provider details and encrypted secrets. It sends a
 worker only a narrower credential when a declared worker capability needs one.
 
-Normal model work receives only an Agent-scoped AIGateway key. The worker keeps
-that key in memory.
+Codex model work receives an Agent-scoped AIGateway key. `AgentCodexRuntime`
+keeps it in a private token file under the Agent's Codex Home and refreshes it
+for Codex command authentication. The main model loop runs in the control
+plane. See [Background Agent Job](design-docs/BackgroundAgentJob.md).
 
 Do not put live secrets in Agent files, Skill settings, progress updates,
 AIGateway requests, or logs.
@@ -323,14 +321,13 @@ An enabled MCP-backed Skill calls its selected server through the foreground
 `mcporter` CLI. Each call has an explicit time limit and does not create
 background work.
 
-## RuntimeEvents Uses One Scheduler per Node
+## Durable Wakeups Use Oban
 
-Each control-plane node runs one RuntimeEvents scheduler. PostgreSQL stores
-deadlines, and the scheduler creates exact in-memory timers.
-
-Handler tasks run separately, so they do not delay timer bookkeeping. Do not
-split the scheduler until measurements show that its timer map or mailbox
-limits the system.
+Domain rows in PostgreSQL hold deadlines and completion facts. Their owners
+insert Oban jobs in the same transaction. Oban delivers the wakeup; the owner
+checks the current domain row before it acts. A periodic Reconciler repairs
+lost conversation and Workflow wakeups. Progress in process memory is
+reconstructed from input rows and the stored Response chain.
 
 ## Phoenix and Vite Have Separate Jobs
 
@@ -353,7 +350,6 @@ live worker, provider, database restart, or network failure.
 
 Ankole currently does not provide:
 
-- long-term memory (the prior Brain module is removed and awaiting a rewrite)
 - public admission for untrusted workers
 - a durable worker message queue
 - automatic discovery of business data from worker files

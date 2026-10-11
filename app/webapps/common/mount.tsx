@@ -1,3 +1,4 @@
+import type { MutationCache } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -14,7 +15,7 @@ type AppContainer = HTMLElement & {
 }
 
 /** Mounts a React tree into the Phoenix-provided `#ankole-app` container. */
-export async function mountApp(children: ReactNode | AppFactory) {
+export async function mountApp(children: ReactNode | AppFactory, mutationCache?: MutationCache) {
   const container = document.getElementById('ankole-app') as AppContainer | null
   // A missing container means the route did not come from the Phoenix shell.
   // Returning quietly keeps tests and story-like embeds from crashing.
@@ -25,7 +26,7 @@ export async function mountApp(children: ReactNode | AppFactory) {
   // active one so missing keys resolve without a second wait.
   await Promise.all([loadLocale(activeLocale()), loadLocale('en-US')])
 
-  const queryClient = container.__ankoleQueryClient ?? createQueryClient()
+  const queryClient = container.__ankoleQueryClient ?? createQueryClient(mutationCache)
   const root = container.__ankoleRoot ?? createRoot(container)
 
   container.__ankoleQueryClient = queryClient

@@ -17,7 +17,7 @@ defmodule FakeFeishu.CLI do
   fake-feishu — standalone fake Feishu platform for local e2e work
 
   Server:
-    fake-feishu serve [--port 7788] [--app ID:SECRET[:BOT_OPEN_ID]]...
+    fake-feishu serve [--ip 127.0.0.1] [--port 7788] [--app ID:SECRET[:BOT_OPEN_ID]]...
                       [--user NAME]... [--no-cardkit] [--strict-apps]
 
   User side (target server: --url URL or FAKE_FEISHU_URL, default #{@default_url}):
@@ -78,6 +78,7 @@ defmodule FakeFeishu.CLI do
     {opts, _rest, _invalid} =
       OptionParser.parse(args,
         strict: [
+          ip: :string,
           port: :integer,
           app: :keep,
           user: :keep,
@@ -87,6 +88,14 @@ defmodule FakeFeishu.CLI do
       )
 
     port = opts[:port] || 7788
+    ip_text = opts[:ip] || "127.0.0.1"
+
+    ip =
+      case :inet.parse_address(String.to_charlist(ip_text)) do
+        {:ok, address} -> address
+        {:error, _reason} -> abort("--ip requires an IP address")
+      end
+
     apps = for app <- Keyword.get_values(opts, :app), do: parse_app(app)
 
     users =
@@ -99,6 +108,7 @@ defmodule FakeFeishu.CLI do
 
     {:ok, _supervisor} =
       FakeFeishu.Standalone.start_link(
+        ip: ip,
         port: port,
         apps: apps,
         users: users,
@@ -107,7 +117,7 @@ defmodule FakeFeishu.CLI do
       )
 
     IO.puts("""
-    fake-feishu platform listening on http://127.0.0.1:#{port}
+    fake-feishu platform listening on #{URI.to_string(%URI{scheme: "http", host: ip_text, port: port})}
       cardkit: #{Keyword.get(opts, :cardkit, true)}   auto-register apps: #{not Keyword.get(opts, :strict_apps, false)}
       apps: #{case apps do
       [] -> "(none yet — unknown apps register on first authentication)"

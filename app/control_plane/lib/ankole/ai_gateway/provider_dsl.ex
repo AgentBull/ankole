@@ -19,7 +19,6 @@ defmodule Ankole.AIGateway.ProviderDSL do
     :web_fetch,
     :image_generate
   ]
-  @upstream_kinds [:sse, :eventstream, :websocket_text, :json]
 
   @doc false
   defmacro __using__(_opts) do
@@ -103,19 +102,6 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc "Declares the provider's image-generation capability."
   defmacro image_generate(do: block), do: capability(:image_generate, block)
-
-  @doc """
-  Declares the upstream wire shape consumed by UniversalAIClient.
-
-  This is deliberately separate from `api_resolver`: unusual providers can use
-  an existing API protocol over a different transport without adding a combo
-  registry.
-  """
-  defmacro upstream(kind) do
-    quote do
-      @ai_provider_capability_attrs {:upstream, unquote(kind)}
-    end
-  end
 
   @doc """
   Declares the Rust API protocol resolver used for this capability.
@@ -246,7 +232,6 @@ defmodule Ankole.AIGateway.ProviderDSL do
       |> Enum.reverse()
       |> Map.new()
 
-    upstream = Map.fetch!(attrs, :upstream)
     api_resolver = Map.fetch!(attrs, :api_resolver)
     prepare = Map.fetch!(attrs, :prepare)
     supports_parallel_tool_calls? = Map.get(attrs, :supports_parallel_tool_calls, false)
@@ -255,11 +240,6 @@ defmodule Ankole.AIGateway.ProviderDSL do
       Map.get(attrs, :supports_native_image_generation, false)
 
     supports_native_web_search? = Map.get(attrs, :supports_native_web_search, false)
-
-    unless upstream in @upstream_kinds do
-      raise ArgumentError,
-            "unsupported upstream #{inspect(upstream)} for #{inspect(module)} #{kind}"
-    end
 
     unless is_boolean(supports_parallel_tool_calls?) do
       raise ArgumentError,
@@ -273,7 +253,7 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
     capability = %Capability{
       kind: kind,
-      upstream: upstream,
+      upstream: upstream(kind),
       api_resolver: api_resolver,
       prepare: prepare,
       timeout_ms: Map.get(attrs, :timeout_ms),
@@ -286,9 +266,15 @@ defmodule Ankole.AIGateway.ProviderDSL do
     Module.delete_attribute(module, :ai_provider_capability_attrs)
   end
 
+  # Language models stream Server-Sent Events; every other capability returns
+  # one JSON body. A request that needs another transport, such as OpenAI's
+  # WebSocket mode, chooses it in `UniversalAIRequest.new/4`.
+  defp upstream(:language_model), do: :sse
+  defp upstream(_kind), do: :json
+
   # Capability attributes are scoped to one block. Deleting the temporary
   # attribute before and after the block prevents one capability declaration
-  # from accidentally inheriting resolver or upstream settings from another.
+  # from accidentally inheriting resolver or prepare settings from another.
   defp capability(kind, block) do
     quote do
       Module.delete_attribute(__MODULE__, :ai_provider_capability_attrs)

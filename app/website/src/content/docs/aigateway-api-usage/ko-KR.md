@@ -1,13 +1,13 @@
 ---
 title: AIGateway API 사용법
-description: 외부 호출자가 AIGateway REST API를 사용하는 방법 — OpenResponses 호환 endpoint, agent vs admin 토큰, 상태비저장(stateless) 및 상태보존(stateful) 호출, 작업 예시.
+description: 외부 호출자가 AIGateway REST API를 사용하는 방법 — OpenResponses 호환 endpoint, Agent 및 OIDC Human 토큰, 상태비저장(stateless) 및 상태보존(stateful) 호출, 작업 예시.
 section: Developer guide
 order: 126
 ---
 
 AIGateway는 Worker가 호출하는 내부 경계일 뿐만 아니라, 외부 애플리케이션, 엔터프라이즈 시스템, SDK가 직접 호출할 수 있는 REST API입니다. 이 페이지는 호출자를 위한 실용 가이드입니다 — endpoint, 인증, 두 가지 호출 모드, 작업 예시를 다룹니다. [AIGateway](../ai-gateway/) 개념 페이지를 실사용과 함께 보완합니다.
 
-가장 중요한 특성을 먼저 말하면: AIGateway API는 **OpenResponses 호환이며 Principal 스코프입니다**. 호출자는 bearer 토큰(agent 또는 admin)을 제시하고 OpenResponses 형태의 요청을 보내며, JSON 응답 또는 스트림을 받습니다. 호출자는 provider 자격 증명을 볼 수 없습니다 — 그 자격 증명은 control plane이 소유합니다.
+가장 중요한 특성을 먼저 말하면: AIGateway API는 **OpenResponses 호환이며 Principal 스코프입니다**. 호출자는 bearer 토큰(Agent 또는 OIDC Human)을 제시하고 OpenResponses 형태의 요청을 보내며, JSON 응답 또는 스트림을 받습니다. 호출자는 provider 자격 증명을 볼 수 없습니다 — 그 자격 증명은 control plane이 소유합니다.
 
 ## 인증
 
@@ -23,7 +23,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 두 가지 토큰 종류가 허용됩니다:
 
 - **Agent token** — 한 Agent의 모델 바인딩으로 스코프가 제한됩니다. 통합이 특정 Agent를 대신해 행동할 때 사용하세요.
-- **Admin token** — 모든 provider로 스코프가 제한됩니다. 운영자 측 스크립트와 Console용입니다.
+- **OIDC Human token** — `ai_gateway.write`를 가진 OIDC Client가 활성 Human에게 발급합니다. 해당 Client의 model alias만 사용할 수 있으며 `subject_type = "oidc_human"`입니다.
+
+OIDC Human token을 받으려면 Console에서 `ai_gateway.write` scope를 가진 OIDC Client를 만들고 허용할 group과 model alias를 설정합니다. Authorization Code와 PKCE로 로그인합니다. 장기 사용에는 `offline_access`를 요청하고 회전하는 Refresh Token을 사용합니다. Human은 허용된 group에 속해야 하며 Client의 model alias만 사용할 수 있습니다. 원시 `provider_id/model` selector는 사용할 수 없습니다.
 
 토큰이 Principal로 어떻게 해석되는지는 [Principal and AuthZ](../principal-authz/)를 참조하세요.
 

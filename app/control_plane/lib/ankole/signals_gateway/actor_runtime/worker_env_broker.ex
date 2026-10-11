@@ -15,12 +15,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
   @doc """
   Handles `worker_env.resolve`.
   """
-  @spec handle_request(String.t() | nil, FabricProto.WorkerEnvResolveRequest.t(), map()) ::
+  @spec handle_request(String.t(), FabricProto.WorkerEnvResolveRequest.t(), map()) ::
           {:ok, FabricProto.WorkerEnvResolveResponse.t()} | {:error, map()}
   def handle_request(agent_uid, %FabricProto.WorkerEnvResolveRequest{} = request, ctx) do
     result =
-      with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
-           {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+      with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
            {:ok, %{operator: operator, binding: binding}} <-
              WorkerEnv.effective_env_parts(principal.uid,
@@ -41,9 +40,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
     end
   end
 
-  defp frame_agent_uid(nil), do: {:error, :missing_agent_uid}
-  defp frame_agent_uid(agent_uid), do: Principals.normalize_uid(agent_uid)
-
   defp optional_text(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
@@ -57,7 +53,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
     RPCWire.error_payload(request_id, reason,
       fallback_code: "worker_env_resolve_failed",
       message_style: :tuple_inspect,
-      details_json: %{"agent_uid" => agent_uid || ""}
+      details_json: %{"agent_uid" => agent_uid}
     )
   end
 end

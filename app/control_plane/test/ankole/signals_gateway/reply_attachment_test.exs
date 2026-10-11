@@ -1,14 +1,19 @@
 defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
+
+  import Ankole.FilesFixtures
+  import Ankole.PrincipalsFixtures
 
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyAttachment
 
+  @blob_ref String.duplicate("0123456789abcdef", 4)
+
   test "extracts canonical attachments from reply_attachment tool outputs" do
     attachment = %{
-      "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
-      "user_files_relative_path" => "reports/chaos-report.txt",
+      "path" => "sent/0123456789abcdef/chaos-report.txt",
+      "blob_ref" => @blob_ref,
       "name" => "chaos-report.txt",
       "mime_type" => "text/plain",
       "size" => 28,
@@ -18,20 +23,15 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
     assert {:ok,
             [
               %{
-                "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
-                "user_files_relative_path" => "reports/chaos-report.txt",
+                "path" => "sent/0123456789abcdef/chaos-report.txt",
+                "blob_ref" => @blob_ref,
                 "name" => "chaos-report.txt",
                 "mime_type" => "text/plain",
                 "size" => 28
-              }
+              } = extracted
             ]} =
              ReplyAttachment.attachments_from_response_items([
-               %{
-                 "type" => "function_call",
-                 "call_id" => "call_reply_attachment",
-                 "name" => "reply_attachment",
-                 "arguments" => "{}"
-               },
+               reply_attachment_call("call_reply_attachment"),
                %{
                  "type" => "function_call_output",
                  "call_id" => "call_reply_attachment",
@@ -43,39 +43,8 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
                    })
                }
              ])
-  end
 
-  test "extracts wrapped reply_attachment tool outputs for matching calls" do
-    attachment = %{
-      "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
-      "user_files_relative_path" => "reports/chaos-report.txt",
-      "name" => "chaos-report.txt",
-      "mime_type" => "text/plain",
-      "size" => 28
-    }
-
-    output =
-      %{
-        "tool" => "reply_attachment",
-        "ok" => true,
-        "attachments" => [attachment]
-      }
-      |> Ankole.JSON.encode!()
-
-    assert {:ok, [^attachment]} =
-             ReplyAttachment.attachments_from_response_items([
-               %{
-                 "type" => "function_call",
-                 "call_id" => "call_reply_attachment",
-                 "name" => "reply_attachment",
-                 "arguments" => "{}"
-               },
-               %{
-                 "type" => "function_call_output",
-                 "call_id" => "call_reply_attachment",
-                 "output" => output
-               }
-             ])
+    refute Map.has_key?(extracted, "ignored")
   end
 
   test "ignores other function_call_output items" do
@@ -98,19 +67,11 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
 
   test "ignores spoofed reply_attachment JSON from a different tool output" do
     output =
-      %{
+      Ankole.JSON.encode!(%{
         "tool" => "reply_attachment",
         "ok" => true,
-        "attachments" => [
-          %{
-            "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
-            "user_files_relative_path" => "reports/chaos-report.txt",
-            "name" => "chaos-report.txt",
-            "size" => 28
-          }
-        ]
-      }
-      |> Ankole.JSON.encode!()
+        "attachments" => [attachment("report.txt")]
+      })
 
     assert {:ok, []} =
              ReplyAttachment.attachments_from_response_items([
@@ -131,74 +92,84 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
   test "rejects malformed reply_attachment tool outputs" do
     assert {:error,
             {:invalid_reply_attachment_output, "call_bad",
-             {:reply_attachment_required_text_missing, "user_files_relative_path"}}} =
+             {:reply_attachment_required_text_missing, "path"}}} =
              ReplyAttachment.attachments_from_response_items([
-               %{
-                 "type" => "function_call",
-                 "call_id" => "call_bad",
-                 "name" => "reply_attachment",
-                 "arguments" => "{}"
-               },
+               reply_attachment_call("call_bad"),
                %{
                  "type" => "function_call_output",
                  "call_id" => "call_bad",
                  "output" => %{
                    "tool" => "reply_attachment",
-                   "attachments" => [
-                     %{
-                       "agent_computer_path" => "/agents/agent-1/user-files/report.txt",
-                       "name" => "report.txt",
-                       "size" => 1
-                     }
-                   ]
+                   "attachments" => [%{"blob_ref" => @blob_ref, "name" => "a.txt", "size" => 1}]
                  }
                }
              ])
   end
 
-  test "rejects paths outside the user-files worker root" do
-    assert {:error, :reply_attachment_path_not_under_user_files} =
-             ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/agents/agent-1/jobs/job-1/report.txt",
-               "user_files_relative_path" => "report.txt",
-               "name" => "report.txt",
-               "size" => 1
-             })
-  end
+  test "rejects invalid drive paths and content digests" do
+    for path <- ["/agents/agent-1/user-files/a.txt", "reports/../secret.txt", "a//b"] do
+      assert {:error, :reply_attachment_path_invalid} =
+               ReplyAttachment.normalize_attachment(%{attachment("a.txt") | "path" => path})
+    end
 
-  test "rejects path traversal under the user-files worker root" do
-    assert {:error, :reply_attachment_relative_path_invalid} =
-             ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/agents/agent-1/user-files/reports/../secret.txt",
-               "user_files_relative_path" => "reports/../secret.txt",
-               "name" => "secret.txt",
-               "size" => 1
-             })
+    for blob_ref <- [nil, "abc", String.upcase(@blob_ref)] do
+      assert {:error, :reply_attachment_blob_ref_invalid} =
+               ReplyAttachment.normalize_attachment(%{
+                 attachment("a.txt")
+                 | "blob_ref" => blob_ref
+               })
+    end
   end
 
   test "rejects null bytes in attachment paths" do
-    assert {:error, :reply_attachment_path_contains_null_byte} =
+    assert {:error, :unsupported_nul_byte} =
              ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/agents/agent-1/user-files/reports/evil.txt" <> <<0>>,
-               "user_files_relative_path" => "reports/evil.txt",
-               "name" => "evil.txt",
-               "size" => 1
+               attachment("evil.txt")
+               | "path" => "sent/0123456789abcdef/evil.txt" <> <<0>>
              })
   end
 
+  test "verify_in_drive requires the content at the path in the Agent's drive" do
+    %{principal: agent} = agent_fixture()
+    %{principal: other} = agent_fixture()
+    file = drive_file_fixture(agent.uid, "sent/abc/report.txt", "report", "sent")
+    blob_ref = Base.encode16(file.sha256, case: :lower)
+    sent = %{attachment("report.txt") | "path" => file.path, "blob_ref" => blob_ref}
+
+    assert :ok = ReplyAttachment.verify_in_drive(agent.uid, [sent])
+
+    assert {:error, {:reply_attachment_not_in_drive, "sent/abc/report.txt"}} =
+             ReplyAttachment.verify_in_drive(other.uid, [sent])
+
+    assert {:error, {:reply_attachment_not_in_drive, "sent/abc/report.txt"}} =
+             ReplyAttachment.verify_in_drive(agent.uid, [%{sent | "blob_ref" => @blob_ref}])
+  end
+
   test "outbox commits reject attachments before route lookup when schema is invalid" do
-    assert {:error, {:reply_attachment_required_text_missing, "user_files_relative_path"}} =
+    assert {:error, {:reply_attachment_required_text_missing, "path"}} =
              Outbox.commit_reply_attachment_outboxes_in_tx(
                Ankole.Repo,
                %ActorEvent{},
                "message-1",
-               [
-                 %{
-                   "agent_computer_path" => "/agents/agent-1/user-files/report.txt",
-                   "name" => "report.txt",
-                   "size" => 1
-                 }
-               ]
+               [%{"blob_ref" => @blob_ref, "name" => "report.txt", "size" => 1}]
              )
+  end
+
+  defp reply_attachment_call(call_id) do
+    %{
+      "type" => "function_call",
+      "call_id" => call_id,
+      "name" => "reply_attachment",
+      "arguments" => "{}"
+    }
+  end
+
+  defp attachment(name) do
+    %{
+      "path" => "sent/0123456789abcdef/" <> name,
+      "blob_ref" => @blob_ref,
+      "name" => name,
+      "size" => 1
+    }
   end
 end

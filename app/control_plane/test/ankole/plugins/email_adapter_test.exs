@@ -215,6 +215,7 @@ end
 
 defmodule Ankole.Plugins.EmailAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.SignalsGatewayFixtures, only: [owner_serves?: 4, start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -226,7 +227,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
     Authentication,
     Config,
     ConnectionOwner,
-    ConnectionSupervisor,
+    ConnectionReconciler,
     ErrorPolicy,
     Inbound,
     MailboxSession,
@@ -304,8 +305,9 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                })
 
       assert binding.config_ref =~ ~r/signals_gateway\.email\.bindings\.[a-f0-9]{64}\z/
+      {:ok, application} = Config.platform_application(binding_config())
 
-      assert {:error, {:email_mailbox_already_bound, _agent, "mail"}} =
+      assert {:error, {:platform_application_already_bound, ^application, _agent, "mail"}} =
                SignalsGateway.put_binding(second.uid, "email", "other", %{
                  "config" => binding_config()
                })
@@ -317,7 +319,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       %{principal: third} = agent_fixture()
 
-      assert {:error, {:email_mailbox_already_bound, _agent, "mail"}} =
+      assert {:error, {:platform_application_already_bound, ^application, _agent, "mail"}} =
                SignalsGateway.put_binding(third.uid, "email", "cased", %{
                  "config" => Map.put(binding_config(), "username", "AGENT")
                })
@@ -507,7 +509,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       channel_id = Inbound.signal_channel_id(@mailbox, "first@example.com")
 
       assert %Channel{kind: :im_dm, name: "Budget review", reply_mode: :entry} =
-               channel = Repo.get(Channel, channel_id)
+               channel = Repo.get_by(Channel, id: channel_id)
 
       assert channel.metadata["participants"] == ["ada@example.com"]
 
@@ -543,7 +545,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                Repo.get_by(Entry, source_entry_id: "second@example.com")
 
       assert %Channel{kind: :im_group, name: "Budget review"} =
-               channel = Repo.get(Channel, channel_id)
+               channel = Repo.get_by(Channel, id: channel_id)
 
       assert channel.metadata["participants"] == ["ada@example.com", "bob@example.org"]
 
@@ -713,7 +715,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert notice_row.payload["metadata"]["unmatched_sender"]["platform_subject"] ==
                "ada@example.com"
 
-      drifted = Repo.get!(Channel, notice_row.signal_channel_id)
+      drifted = Repo.get_by!(Channel, id: notice_row.signal_channel_id)
 
       {:ok, _channel} =
         drifted
@@ -760,51 +762,36 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert matched.uid == human.uid
     end
 
-    test "holds a sender whose address is a local account's UID under either policy" do
+    test "standalone email admission never treats the sender address as a local account identity" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, %{principal: local}} =
-               Principals.create_local_user(
-                 %{uid: "owner@corp.example", email: "owner@corp.example"},
-                 false
-               )
+               Principals.create_local_user(%{email: "owner@corp.example"}, false)
 
-      standalone = bound_consumer(agent.uid, "mail", "create_standalone")
+      consumer = bound_consumer(agent.uid, "mail", "create_standalone")
 
-      assert {:ok, [%{status: :held_unmapped_sender}]} =
+      assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive(
                  "message",
                  event(
                    1,
                    raw_mail(message_id: "owner1@corp.example", from: "Owner <owner@corp.example>")
                  ),
-                 [standalone]
+                 [consumer]
                )
 
-      assert [request] = MappingRequests.list_requests()
-      assert request.external_id == "owner@corp.example"
-
-      assert {:error, :not_found} =
+      assert {:ok, external} =
                Principals.resolve_platform_subject("email", "owner@corp.example")
 
-      assert Repo.aggregate(Entry, :count) == 0
-
-      assert {:ok, _identity} = MappingRequests.bind_request(request.id, local.uid)
-
-      assert {:ok, [%{status: :accepted}]} =
-               Inbound.handle_message_receive(
-                 "message",
-                 event(
-                   2,
-                   raw_mail(message_id: "owner2@corp.example", from: "Owner <owner@corp.example>")
-                 ),
-                 [standalone]
-               )
+      refute external.uid == local.uid
 
       assert %Entry{author: %{"principal_uid" => uid}} =
-               Repo.get_by(Entry, source_entry_id: "owner2@corp.example")
+               Repo.get_by(Entry, source_entry_id: "owner1@corp.example")
 
-      assert uid == local.uid
+      assert uid == external.uid
+      assert Repo.get!(Ankole.Principals.HumanUser, local.uid).email == "owner@corp.example"
+      assert Repo.get!(Ankole.Principals.HumanUser, external.uid).email == nil
+      assert MappingRequests.list_requests() == []
     end
 
     test "keeps a message over the size limit as headers only" do
@@ -834,7 +821,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert text =~ "exceeds the 25 MB limit"
 
       assert %Channel{name: "Huge"} =
-               Repo.get(Channel, Inbound.signal_channel_id(@mailbox, "big@example.com"))
+               Repo.get_by(Channel, id: Inbound.signal_channel_id(@mailbox, "big@example.com"))
     end
   end
 
@@ -911,15 +898,23 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       consumer = bound_consumer(agent.uid, "mail", "create_standalone")
       key = {agent.uid, "mail"}
 
-      assert {:ok, blocked} = ConnectionSupervisor.ensure_started(validated_config(), [consumer])
+      assert {:ok, blocked} =
+               start_connection_owner(ConnectionReconciler, validated_config(), [consumer])
+
       assert eventually(fn -> ConnectionOwner.status(blocked).state == :blocked end)
       assert %{blocked_reason: :authentication_failed} = ConnectionOwner.status(blocked)
       refute inspect(ConnectionOwner.status(blocked)) =~ "secret"
 
       rotated = Map.put(validated_config(), "password", "rotated")
 
+      refute owner_serves?(ConnectionReconciler, key, rotated, [
+               Inbound.chat_consumer(consumer.context, rotated)
+             ])
+
+      assert :ok = ConnectionReconciler.stop(key)
+
       assert {:ok, running} =
-               ConnectionSupervisor.ensure_started(rotated, [
+               start_connection_owner(ConnectionReconciler, rotated, [
                  Inbound.chat_consumer(consumer.context, rotated)
                ])
 
@@ -931,8 +926,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert eventually(fn -> Repo.get_by(Entry, source_entry_id: "owner@example.com") != nil end)
       assert eventually(fn -> received_store?(1) end)
 
-      assert :ok = ConnectionSupervisor.stop(key)
-      assert eventually(fn -> ConnectionSupervisor.registered_keys() == [] end)
+      assert :ok = ConnectionReconciler.stop(key)
+      assert eventually(fn -> ConnectionReconciler.registered_keys() == [] end)
     end
   end
 
@@ -1112,7 +1107,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
           "attachments" => [
             %{
               "name" => "big.bin",
-              "user_files_relative_path" => "out/big.bin",
+              "path" => "sent/abababababababab/big.bin",
+              "blob_ref" => "abababababababababababababababababababababababababababababababab",
               "size" => 30_000_000
             }
           ]

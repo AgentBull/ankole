@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { create } from '@bufbuild/protobuf'
+import { create, toBinary } from '@bufbuild/protobuf'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdirAgentSync } from '../src/common/agent-user'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { runCodexJobSession } from '../src/core/codex-runner/job/session'
 import type { PreparedCodexJobExecution } from '../src/core/codex-runner/job/setup'
 import { prepareAgentPlugins } from '../src/core/codex-runner/runtime/agent-plugin-materializer'
-import type { CodexJobOptions } from '../src/core/turns/turn_options'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import type { CodexJobOptions } from '../src/core/codex-runner/options'
+import { jsonBytes, jsonObjectFromBytes, RPCResponseSchema } from '../src/fabric/envelope_proto'
 import {
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobTurnItemsListResponseSchema,
@@ -16,11 +17,14 @@ import {
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import {
-  rpcMethods,
+  RuntimeRPCClient,
   type BackgroundAgentJobResponse,
   type RPCRequester,
   type RPCRequestInit
 } from '../src/lanes/rpc_lane'
+import { RuntimeFabricTransportError } from '../src/fabric/fabric'
+import { throwingRPCRequester } from '../src/worker/rpc_requests'
+import { FakeDrive } from './support/fake-drive'
 
 /**
  * These tests drive the recovery ladder through a handoff built from the
@@ -60,6 +64,91 @@ afterEach(() => {
 })
 
 describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
+  it('restores continuation source context through its read owner after reconnect', async () => {
+    const fixture = sessionFixture('continuation-reconnect', { turns: [{ status: 'completed', text: 'Continued.' }] })
+    fixture.job.continuedFromJobId = '999'
+    fixture.prepared.replaceLegacySkillThread = true
+    const baseRPC = fixture.opts.rpc
+    let requests = 0
+    const rpc = new RuntimeRPCClient(
+      async (envelope, options) => {
+        if (envelope.body.case !== 'rpcRequest') throw new Error('expected RPC request')
+        const request = envelope.body.value
+        requests += 1
+        options?.onSent?.(requests === 1 ? 'old' : 'new')
+        if (requests === 1) {
+          queueMicrotask(() => rpc.disconnected('old'))
+        } else {
+          queueMicrotask(() =>
+            rpc.resolve(
+              create(RPCResponseSchema, {
+                requestId: request.requestId,
+                payload: toBinary(
+                  BackgroundAgentJobResponseSchema,
+                  create(BackgroundAgentJobResponseSchema, {
+                    task: 'Original source task.',
+                    resultOutputText: 'Durable source report.',
+                    resultOutputTotalBytes: '22'
+                  })
+                )
+              })
+            )
+          )
+        }
+      },
+      { awaitReady: async () => {} }
+    )
+    const sourceRPC = throwingRPCRequester(rpc)
+    fixture.opts.rpc = (async (method, payload, frame, options) =>
+      method === 'background_agent_job.get'
+        ? sourceRPC(method, payload, frame, options)
+        : baseRPC(method, payload, frame, options)) as RPCRequester
+    try {
+      await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+      expect(requests).toBe(2)
+      const input = String(fixture.log().find(entry => entry.received === 'turn/start')?.input)
+      expect(input).toContain('Original source task.')
+      expect(input).toContain('Durable source report.')
+    } finally {
+      rpc.close()
+    }
+  })
+
+  it('fails honestly when continuation source transport cannot recover instead of silently dropping context', async () => {
+    const fixture = sessionFixture('continuation-unavailable', {
+      turns: [{ status: 'completed', text: 'Must not run.' }]
+    })
+    fixture.job.continuedFromJobId = '999'
+    fixture.prepared.replaceLegacySkillThread = true
+    const baseRPC = fixture.opts.rpc
+    fixture.opts.rpc = (async (method, payload, frame, options) => {
+      if (method === 'background_agent_job.get') {
+        throw new RuntimeFabricTransportError('socket_closed', 'source connection lost')
+      }
+      return baseRPC(method, payload, frame, options)
+    }) as RPCRequester
+    await expect(runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)).rejects.toThrow(
+      'source connection lost'
+    )
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(0)
+  })
+
+  it('keeps completed files in the persistent workspace without a drive checkpoint', async () => {
+    const fixture = sessionFixture('agent-persistent-workspace', {
+      turns: [{ status: 'completed', text: 'Published the report once.' }]
+    })
+    const report = join(fixture.prepared.project.root, 'report.md')
+    writeFileSync(report, 'completed report')
+
+    await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(1)
+    expect(fixture.statusUpdates.at(-1)?.status).toBe('succeeded')
+    expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe('Published the report once.')
+    expect(readFileSync(report, 'utf8')).toBe('completed report')
+    expect(fixture.drive.paths()).toEqual([])
+  })
+
   it('retries a transient turn failure on the same thread with the continuation input', async () => {
     const fixture = sessionFixture('agent-c3-retry', {
       turns: [
@@ -70,7 +159,7 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
 
     const result = await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
 
-    expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+    expect(result).toBeUndefined()
     expect(fixture.statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
     expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)).toMatchObject({
       output_text: 'done after retry',
@@ -107,7 +196,7 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
     const result = await run
 
     expect(rejection).toBeUndefined()
-    expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+    expect(result).toBeUndefined()
     expect(fixture.statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
     expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)).toMatchObject({ output_text: 'done after compaction' })
     expect(
@@ -159,7 +248,7 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
 
     const result = await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
 
-    expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+    expect(result).toBeUndefined()
     expect(fixture.statusUpdates.map(update => [update.status, update.runtimeThreadId])).toEqual([
       ['running', 'thread-1'],
       ['running', 'thread-2'],
@@ -176,7 +265,7 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
     expect(String(secondTurn?.input)).toContain(continuationInput)
   })
 
-  it('replays the stored transcript into the replacement thread when the store has items', async () => {
+  it('rebuilds a new Job from its workspace even when audit turn items exist', async () => {
     const fixture = sessionFixture(
       'agent-c3-replay',
       {
@@ -198,14 +287,14 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
     await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
 
     expect(parsedJSON(fixture.statusUpdates[1]?.metadataJson)).toEqual({
-      runtime_thread_recreated_reason: 'replayed_from_transcript'
+      runtime_thread_recreated_reason: 'new_thread_from_bounded_history'
     })
-    expect(fixture.log().find(entry => entry.received === 'thread/inject_items')).toMatchObject({
-      threadId: 'thread-2',
-      itemCount: 2
-    })
+    expect(fixture.log().some(entry => entry.received === 'thread/inject_items')).toBe(false)
+    expect(fixture.calledMethods()).not.toContain('background_agent_job.turn_items.list')
     const secondTurn = fixture.log().filter(entry => entry.received === 'turn/start')[1]
-    expect(secondTurn).toMatchObject({ threadId: 'thread-2', input: continuationInput })
+    expect(secondTurn?.threadId).toBe('thread-2')
+    expect(String(secondTurn?.input)).toContain(continuationInput)
+    expect(String(secondTurn?.input)).toContain(fixture.job.task)
     expect(fixture.statusUpdates.at(-1)?.status).toBe('succeeded')
   })
 })
@@ -257,12 +346,15 @@ function sessionFixture(
   prepared: PreparedCodexJobExecution
   opts: CodexJobOptions
   job: BackgroundAgentJobResponse
+  drive: FakeDrive
   statusUpdates: RecordedStatusUpdate[]
   turnUpserts: RecordedTurnUpsert[]
+  calledMethods(): string[]
   log(): LogEntry[]
   cleanupCalls(): number
 } {
   const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-session-'))
+  mkdirAgentSync(root, 0o700)
   roots.push(root)
   const agentHome = join(root, 'agent-home')
   const codexHome = join(root, 'codex-home')
@@ -272,7 +364,7 @@ function sessionFixture(
   const flock = join(root, 'fake-flock')
   const scenarioPath = join(root, 'scenario.json')
   const logPath = join(root, 'requests.log')
-  for (const path of [agentHome, codexHome, projectRoot, libraryRoot]) mkdirSync(path, { recursive: true })
+  for (const path of [agentHome, codexHome, projectRoot, libraryRoot]) mkdirAgentSync(path)
   writeFileSync(scenarioPath, JSON.stringify(scenario))
   writeFakeAppServer(script)
   writeFileSync(flock, '#!/bin/sh\nset -eu\nshift 5\nexec "$@"\n', { mode: 0o755 })
@@ -281,21 +373,21 @@ function sessionFixture(
 
   const statusUpdates: RecordedStatusUpdate[] = []
   const turnUpserts: RecordedTurnUpsert[] = []
+  const calledMethods: string[] = []
   let cleanupCalls = 0
   const job = create(BackgroundAgentJobResponseSchema, {
-    jobId: jobID,
     agentUid: agentUID,
-    ownerSessionId: 'parent-session',
     status: 'queued',
-    title: 'Prepare launch brief',
     task: 'Write and verify the launch brief.',
     attempts: 1,
     workspaceOwnerJobId: jobID,
+    runtimeThreadId: '',
     metadataJson: jsonBytes({})
   })
   const rpc = (async (method: unknown, payload: unknown) => {
+    calledMethods.push(String(method))
     switch (method) {
-      case rpcMethods.backgroundAgentJobStatusUpdate: {
+      case 'background_agent_job.status.update': {
         const request = payload as RecordedStatusUpdate
         statusUpdates.push(request)
         return create(BackgroundAgentJobResponseSchema, {
@@ -304,7 +396,7 @@ function sessionFixture(
           runtimeThreadId: request.runtimeThreadId ?? ''
         })
       }
-      case rpcMethods.backgroundAgentJobTurnUpsert: {
+      case 'background_agent_job.turn.upsert': {
         const request = payload as RecordedTurnUpsert
         turnUpserts.push(request)
         return create(BackgroundAgentJobTurnUpsertResponseSchema, {
@@ -322,7 +414,7 @@ function sessionFixture(
           }
         })
       }
-      case rpcMethods.backgroundAgentJobTurnItemsList:
+      case 'background_agent_job.turn_items.list':
         return create(BackgroundAgentJobTurnItemsListResponseSchema, {
           jobId: jobID,
           items: storedTurnItems.map(entry => ({
@@ -344,11 +436,11 @@ function sessionFixture(
       agentUID,
       agentHome,
       codexHome,
+      sqliteHome: root,
       aiGatewayBaseURL: 'http://gateway.test/v1',
       aiGatewayAPIKey: 'agent-key',
-      sandbox: {
+      appServer: {
         cwd: root,
-        codexCwd: root,
         commandArgv: [process.execPath, script],
         env: {
           PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -387,11 +479,11 @@ function sessionFixture(
       cleanupCalls += 1
     }
   }
+  const drive = new FakeDrive(agentHome)
   const opts: CodexJobOptions = {
-    agentsRoot: root,
     agentHome,
     workspaceRoot: projectRoot,
-    userFilesRoot: join(agentHome, 'user-files'),
+    drive: drive.drive(),
     builtinSkillsRoot: join(root, 'builtin-skills'),
     agentInstalledSkillsRoot: join(agentHome, 'installed-skills'),
     rpc,
@@ -402,8 +494,10 @@ function sessionFixture(
     prepared,
     opts,
     job,
+    drive,
     statusUpdates,
     turnUpserts,
+    calledMethods: () => calledMethods,
     log: () =>
       existsSync(logPath)
         ? readFileSync(logPath, 'utf8')
@@ -417,23 +511,20 @@ function sessionFixture(
 
 function turnStart(): TurnStart {
   return {
-    workspace_id: 10_000,
+    mode: 'start',
+    fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { agent_uid: 'agent-1', session_id: `job:${jobID}` },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
-      revision: 0
+      actor: { session_id: `job:${jobID}` },
+      job_id: Number(jobID),
+      attempt: 1,
+      actor_event_id: '00000000-0000-0000-0000-000000000001'
     },
     actor_event: {
       actor_event_id: '00000000-0000-0000-0000-000000000001',
-      queue_sequence: 1,
       type: 'background_agent_job.dispatch',
-      source_event_id: 'background-agent-job-dispatch-1',
       payload_json: { data: { job_id: Number(jobID), owner_session_id: 'parent-session', attempts: 1 } }
     },
     model_ref: {
-      profile: 'coding',
       provider_id: 'openai',
       provider_kind: 'openai',
       model: 'gpt-5.6-sol',

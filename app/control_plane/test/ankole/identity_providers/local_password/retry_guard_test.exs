@@ -3,92 +3,94 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuardTest do
 
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
 
-  @max_account_keys 10_000
+  @tenant_a "00000000-0000-7000-8000-000000000001"
+  @tenant_b "00000000-0000-7000-8000-000000000002"
+  @hash "$argon2id$v=19$m=8,t=1,p=1$lN2XWliZcQl4gHsXITedAg$DDmr4D0bb5laGYLf46hR2ubMwUfsd5HD1Oz71V/yDAo"
 
   setup do
-    RetryGuard.reset_for_test()
-    on_exit(&RetryGuard.reset_for_test/0)
+    start_supervised!({Task.Supervisor, name: :b16_callers})
     :ok
   end
 
-  test "reserves five attempts and then locks" do
-    for _attempt <- 1..5 do
-      assert :ok = RetryGuard.register_attempt("user@example.com")
-    end
-
-    assert {:locked, retry_after} = RetryGuard.register_attempt("user@example.com")
-    assert retry_after in 1..(30 * 60)
+  defp start_guard(concurrency \\ 2) do
+    start_supervised!(
+      {RetryGuard.Supervisor,
+       name: :b16_supervisor,
+       guard: :b16_guard,
+       task_supervisor: :b16_verifiers,
+       max_concurrency: concurrency}
+    )
   end
 
-  test "locks per account key" do
-    for _attempt <- 1..5, do: RetryGuard.register_attempt("locked@example.com")
-
-    assert {:locked, _seconds} = RetryGuard.register_attempt("locked@example.com")
-    assert :ok = RetryGuard.register_attempt("free@example.com")
+  defp verify(tenant \\ @tenant_a, key \\ "user@example.com", hash \\ @hash, opts \\ []) do
+    RetryGuard.verify_password(tenant, key, "wrong", hash, Keyword.put(opts, :server, :b16_guard))
   end
 
-  test "concurrent attempts cannot exceed the limit" do
+  defp launch(label) do
+    owner = self()
+    Task.Supervisor.start_child(:b16_callers, fn -> send(owner, {label, verify()}) end)
+  end
+
+  test "five attempts are reserved per tenant and account" do
+    start_guard()
+    for _ <- 1..5, do: assert({:ok, false} = verify())
+    assert {:locked, seconds} = verify()
+    assert seconds in 1..1_800
+    assert {:ok, false} = verify(@tenant_a, "another@example.com")
+    assert {:ok, false} = verify(@tenant_b)
+  end
+
+  test "a matching dummy hash does not clear unknown-account attempts" do
+    start_guard()
+    hash = Ankole.Kernel.argon2id_hash("wrong")
+
+    for _ <- 1..5,
+        do:
+          assert(
+            {:ok, true} = verify(@tenant_a, "missing@example.com", hash, clear_on_match?: false)
+          )
+
+    assert {:locked, _} = verify(@tenant_a, "missing@example.com", hash, clear_on_match?: false)
+  end
+
+  test "concurrent verification cannot reserve more than five guesses" do
+    start_guard(20)
+    for index <- 1..20, do: launch(index)
+
     results =
-      1..20
-      |> Task.async_stream(
-        fn _index -> RetryGuard.register_attempt("user@example.com") end,
-        max_concurrency: 20
-      )
-      |> Enum.map(fn {:ok, result} -> result end)
+      for index <- 1..20 do
+        assert_receive {^index, result}, 1_000
+        result
+      end
 
-    assert Enum.count(results, &(&1 == :ok)) == 5
-    assert Enum.count(results, &match?({:locked, _seconds}, &1)) == 15
+    assert Enum.count(results, &(&1 == {:ok, false})) == 5
+    assert Enum.count(results, &match?({:locked, _}, &1)) == 15
   end
 
-  test "clear/1 removes the attempt history" do
-    for _attempt <- 1..5, do: RetryGuard.register_attempt("user@example.com")
-    assert {:locked, _seconds} = RetryGuard.register_attempt("user@example.com")
+  test "new credentials remove old attempts and sweep retains in-window history" do
+    start_guard()
+    for _ <- 1..5, do: assert({:ok, false} = verify())
+    send(Process.whereis(:b16_guard), :sweep)
+    assert {:locked, _} = verify()
 
-    RetryGuard.clear("user@example.com")
-    assert :ok = RetryGuard.register_attempt("user@example.com")
-  end
-
-  test "attempts at or before :not_before_ms do not count" do
-    for _attempt <- 1..5, do: RetryGuard.register_attempt("user@example.com")
-    assert {:locked, _seconds} = RetryGuard.register_attempt("user@example.com")
-
-    assert :ok =
-             RetryGuard.register_attempt("user@example.com",
+    assert {:ok, false} =
+             verify(@tenant_a, "user@example.com", @hash,
                not_before_ms: System.system_time(:millisecond)
              )
   end
 
-  test "the sweep keeps in-window attempts and survives idle keys" do
-    assert :ok = RetryGuard.register_attempt("user@example.com")
+  test "a tenant with 10,000 keys cannot lock another tenant" do
+    start_guard()
 
-    send(Process.whereis(RetryGuard), :sweep)
-
-    # The attempt is still inside the window, so the key survives the sweep
-    # and the remaining budget is unchanged.
-    for _attempt <- 1..4 do
-      assert :ok = RetryGuard.register_attempt("user@example.com")
+    for index <- 1..10_000 do
+      assert {:ok, false} = verify(@tenant_a, "user-#{index}@example.com")
     end
 
-    assert {:locked, _seconds} = RetryGuard.register_attempt("user@example.com")
-  end
-
-  test "saturation bounds state and locks every account key the same way" do
-    for index <- 1..@max_account_keys do
-      assert :ok = RetryGuard.register_attempt("user-#{index}@example.com")
-    end
-
-    assert {:locked, overflow_retry_after} =
-             RetryGuard.register_attempt("overflow@example.com")
-
-    assert {:locked, admitted_retry_after} =
-             RetryGuard.register_attempt("user-1@example.com")
-
-    assert abs(overflow_retry_after - admitted_retry_after) <= 1
-
-    assert %{attempts_by_account: attempts_by_account, saturated_until_ms: saturated_until_ms} =
-             :sys.get_state(RetryGuard)
-
-    assert map_size(attempts_by_account) == @max_account_keys
-    assert is_integer(saturated_until_ms)
+    assert {:locked, _} = verify(@tenant_a, "overflow@example.com")
+    assert {:locked, _} = verify(@tenant_a, "user-1@example.com")
+    assert {:ok, false} = verify(@tenant_b)
+    state = :sys.get_state(:b16_guard)
+    assert map_size(state.tenants[@tenant_a]) == 10_000
+    assert map_size(state.tenants[@tenant_b]) == 1
   end
 end

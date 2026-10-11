@@ -7,7 +7,7 @@ order: 309
 
 Ankole의 자동화는 세 가지 트리거 중 하나와 두 가지 소비자 중 하나를 결합합니다. Agent session은 판단, memory 또는 대화가 필요한 작업을 처리합니다. automation job은 기계적인 처리를 위해 결정적 스크립트를 실행합니다. 이 페이지는 일반적인 형태에 바로 사용할 수 있는 블루프린트를 제공합니다.
 
-이 페이지의 automation job은 워크플로 언어나 단계 그래프가 아닙니다. Agent Home 안의 평범한 Bun `main.ts`로, 고정된 이벤트를 기계적으로 처리합니다. [Workflow](../workflows/)는 별도의 기능으로, Main Agent가 한 번 시작하는 고정되고 유한한 서브에이전트 orchestration입니다. Workflow도 scheduler, YAML 단계 목록 또는 범용 이벤트 버스는 아닙니다.
+이 페이지의 automation job은 워크플로 언어나 단계 그래프가 아닙니다. Agent 드라이브 폴더 안의 평범한 Bun `main.ts`로, 고정된 이벤트를 기계적으로 처리합니다. [Workflow](../workflows/)는 별도의 기능으로, Main Agent가 한 번 시작하는 고정되고 유한한 서브에이전트 orchestration입니다. Workflow도 scheduler, YAML 단계 목록 또는 범용 이벤트 버스는 아닙니다.
 
 ## 세 가지 트리거
 
@@ -36,9 +36,12 @@ Agent session이 유한한 배치를 받으면 Agent는 그 session 안에서 Wo
 
 스케줄이 하루에 한 번 Agent를 깨웁니다. Agent는 요청된 정보를 수집하고 요약한 다음 결과를 바인딩된 chat channel에 게시합니다. 일일 cron 표현식을 설정하기 전에 [스케줄](../schedules/) 문서로 만들고 테스트하세요.
 
+이 Console 요청을 실행하기 전에 로그인한 browser에서 session cookie와 `x-csrf-token` 값을 가져옵니다.
+
 ```bash
 curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
+  -H "Cookie: $CONSOLE_COOKIE" \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "owner_session_id": "<session_id>",

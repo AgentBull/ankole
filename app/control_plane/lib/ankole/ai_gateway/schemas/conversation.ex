@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
   run is the `ai_gateway_messages.previous_message_id` of the generating row.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

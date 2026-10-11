@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { writeFileAtomicSync } from '../../../common/atomic-write'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { labeledZonedDateTime } from '../../../prompts/zoned_time'
+import { labeledZonedDateTime } from '../../../common/zoned-time'
 
 const legacySkillMigrationMarker = '<!-- ankole-background-job-skill-view-v1='
 
@@ -10,6 +11,7 @@ export function renderCodexJobAgents(input: {
   mission: string
   jobGuidance?: string
   skillsPrompt?: string
+  driveDirectory?: string
   lazySkillRouting?: boolean
   timezone?: string | null
   now?: Date
@@ -21,6 +23,7 @@ export function renderCodexJobAgents(input: {
       mission: input.mission,
       jobGuidance: input.jobGuidance,
       skillsPrompt: input.skillsPrompt,
+      driveDirectory: input.driveDirectory,
       lazySkillRouting: input.lazySkillRouting,
       timezone: input.timezone,
       now: input.now ?? new Date()
@@ -56,7 +59,11 @@ export function migrateLegacyCodexJobSkillRoots(input: {
     const skillsPrompt = input.skillsPrompt.trim()
     const separator =
       existing.length === 0 ? '' : existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
-    atomicWrite(agentsPath, `${existing}${separator}${[marker, skillsPrompt].filter(Boolean).join('\n\n')}\n`)
+    writeFileAtomicSync(
+      agentsPath,
+      `${existing}${separator}${[marker, skillsPrompt].filter(Boolean).join('\n\n')}\n`,
+      0o600
+    )
     migratedThreadID = input.runtimeThreadID
   }
 
@@ -75,14 +82,14 @@ function legacySkillMigrationThreadID(content: string): string | undefined {
   return decodeURIComponent(content.slice(valueStart, valueEnd))
 }
 
-function atomicWrite(path: string, content: string): void {
-  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`
-  try {
-    writeFileSync(temporary, content, { mode: 0o600 })
-    renameSync(temporary, path)
-  } finally {
-    rmSync(temporary, { force: true })
-  }
+export function codexJobDriveContext(driveDirectory?: string): string {
+  return [
+    driveDirectory ? `Source conversation drive directory: ${driveDirectory}/.` : '',
+    'The Job workspace is a temporary working directory. Save files that must be kept or delivered in the source conversation drive directory with ankole-files put. If this Job has no source channel, use the shared drive. Fetch received attachments with ankole-files get.',
+    "Other conversations' workspaces (/workspace/sessions/<other-id>) and drive directories (chats/<other-channel>/) belong to other people. Do not read or write them. Drive files outside chats/ are shared."
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function renderTaskAgents(input: {
@@ -91,6 +98,7 @@ function renderTaskAgents(input: {
   mission: string
   jobGuidance?: string
   skillsPrompt?: string
+  driveDirectory?: string
   lazySkillRouting?: boolean
   background?: string
   notes?: string
@@ -104,6 +112,7 @@ function renderTaskAgents(input: {
       : '',
     `Job workspace (the process cwd): ${input.jobRoot}.`,
     'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
+    codexJobDriveContext(input.driveDirectory),
     'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
     'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',

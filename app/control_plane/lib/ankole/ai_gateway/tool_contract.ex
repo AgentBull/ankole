@@ -140,7 +140,7 @@ defmodule Ankole.AIGateway.ToolContract do
 
               container ->
                 updated =
-                  Map.update!(container, "tools", &(&1 ++ [response_leaf_spec(descriptor)]))
+                  Map.update!(container, "tools", &[response_leaf_spec(descriptor) | &1])
 
                 {order_rev, Map.put(entries, key, updated)}
             end
@@ -150,7 +150,12 @@ defmodule Ankole.AIGateway.ToolContract do
     order_rev
     |> Enum.reverse()
     |> Enum.uniq()
-    |> Enum.map(&Map.fetch!(entries, &1))
+    |> Enum.map(fn key ->
+      case Map.fetch!(entries, key) do
+        %{"type" => "namespace"} = namespace -> Map.update!(namespace, "tools", &Enum.reverse/1)
+        tool -> tool
+      end
+    end)
   end
 
   @doc "Returns the canonical structured identity for one descriptor."
@@ -688,7 +693,8 @@ defmodule Ankole.AIGateway.ToolContract do
     {namespace, name}
   end
 
-  defp default_namespace?(namespace),
+  @doc false
+  def default_namespace?(namespace),
     do: namespace in [nil, "", @default_function_namespace]
 
   defp effective_namespace_description(%Descriptor{namespace: nil}), do: nil

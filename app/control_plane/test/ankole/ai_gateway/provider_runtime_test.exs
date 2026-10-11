@@ -4,10 +4,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 4,
+      handle_rpc: 3,
       rpc_response_payload!: 2,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
+
+  import Ankole.AIGatewayCase, only: [assign_worker_route: 2]
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
 
@@ -17,23 +20,19 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.CodexModels
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
+  alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Crypto
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AppConfigure
-  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
+  alias Ankole.Conversations.Context
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.Repo
 
   test "provider kind projection uses provider_kind vocabulary" do
@@ -104,20 +103,20 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
       assert is_nil(service_tier["default"])
     end
 
-    assert "transport" in openrouter["connection_options"]
-    assert "transport" in openai_compatible["connection_options"]
-
-    for provider_kind <- ~w(openai openrouter google_ai_studio_openai azure_openai claude) do
-      provider = Enum.find(kinds, &(&1["provider_kind"] == provider_kind))
-
-      assert Enum.find(provider["capability_specs"], &(&1["kind"] == "llm"))[
-               "supports_parallel_tool_calls"
-             ]
+    for kind <- ~w(openrouter openai_compatible) do
+      assert {:ok, definition} = Providers.fetch(kind)
+      assert "transport" in Providers.connection_option_keys(definition)
     end
 
-    refute Enum.find(openai_compatible["capability_specs"], &(&1["kind"] == "llm"))[
-             "supports_parallel_tool_calls"
-           ]
+    for kind <- ~w(openai openrouter google_ai_studio_openai azure_openai claude) do
+      assert {:ok, definition} = Providers.fetch(kind)
+      assert {:ok, capability} = ProviderDefinition.capability(definition, :language_model)
+      assert capability.supports_parallel_tool_calls?
+    end
+
+    assert {:ok, definition} = Providers.fetch("openai_compatible")
+    assert {:ok, capability} = ProviderDefinition.capability(definition, :language_model)
+    refute capability.supports_parallel_tool_calls?
 
     assert is_nil(azure_openai["default_base_url"])
 
@@ -199,16 +198,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
                },
                connection_options: %{
-                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+                 "transport" => %{"proxy" => "http://proxy.test:8080"}
                }
              })
 
     assert {:ok, overridden_connection} = ProviderConfigs.runtime_connection(overridden_provider)
 
-    assert overridden_connection["transport"] == %{
-             "http_versions" => ["h1"],
-             "compression" => ["gzip"]
-           }
+    assert overridden_connection["transport"] == %{"proxy" => "http://proxy.test:8080"}
 
     json_secret = %{"access_key" => "ak-test", "secret_key" => "sk-test"}
 
@@ -400,7 +396,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                },
                connection_options: %{
                  "headers" => %{"X-Route" => "helper"},
-                 "transport" => %{"http_versions" => ["h1"]}
+                 "transport" => %{"proxy" => "http://proxy.test:8080"}
                }
              })
 
@@ -417,7 +413,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert ctx.connection["api_key"] == "sk-helper"
     assert ctx.settings[:api_key] == "sk-helper"
     assert ctx.settings[:headers] == %{"X-Route" => "helper"}
-    assert ctx.settings[:transport] == %{"http_versions" => ["h1"]}
+    assert ctx.settings[:transport] == %{"proxy" => "http://proxy.test:8080"}
     assert ctx.timeout_ms == 2_500
     assert ctx.http_client == http_client
     refute Map.has_key?(ctx, :request)
@@ -435,8 +431,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                },
                connection_options: %{
                  "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["gzip"],
                    "proxy" => "http://proxy.test:8080"
                  }
                }
@@ -447,8 +441,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
       assert {"authorization", "Bearer sk-test"} in request.headers
 
       assert request.transport == %{
-               "http_versions" => ["h1"],
-               "compression" => ["gzip"],
                "proxy" => "http://proxy.test:8080"
              }
 
@@ -810,7 +802,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert runtime["profile"] == "kimi"
 
     assert {:ok, turn_start_spec} =
-             TurnPolicy.build_turn_start_spec(
+             Context.runtime(
                %{agent_uid: agent.uid, session_id: "session-custom-profile"},
                profile: "kimi"
              )
@@ -872,7 +864,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              })
 
     assert {:ok, turn_start_spec} =
-             TurnPolicy.build_turn_start_spec(%{
+             Context.runtime(%{
                agent_uid: agent.uid,
                session_id: "session-vision"
              })
@@ -950,7 +942,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     actor_key = %{agent_uid: agent.uid, session_id: "session-turn-hosted-tools"}
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
 
     assert {:ok, _profile} =
@@ -962,7 +954,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     # This Agent's model provider cannot generate images. While the capability is
     # left to that provider, the Agent simply has none: the configured profile is
     # not a silent substitute.
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
 
     assert {:ok, _capabilities} =
@@ -970,13 +962,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                "image_generate" => false
              })
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
 
     assert {:ok, %{profile: nil}} =
              ModelProfiles.put_model_profile(agent.uid, "image_generate", nil)
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
 
     assert {:ok, _provider} =
@@ -999,7 +991,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, _capabilities} =
              ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"image_generate" => true})
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
 
     assert turn_start_spec.hosted_tools == [
              %{"type" => "image_generation"},
@@ -1031,14 +1023,14 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     # Hosted web search rides the Responses wire, so declaring that endpoint kind
     # is the capability statement. New Agents leave the capability to it.
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     assert turn_start_spec.hosted_tools == [%{"type" => "web_search"}]
 
     # The Agent can take the capability back for its own search provider.
     assert {:ok, _capabilities} =
              ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"web_search" => false})
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
 
     assert {:ok, _capabilities} =
@@ -1051,7 +1043,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                "connection_options" => %{"endpoint_kind" => "chat_completions"}
              })
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
   end
 
@@ -1077,11 +1069,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     actor_key = %{agent_uid: agent.uid, session_id: "session-hosted-brain"}
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     assert turn_start_spec.hosted_tools == [%{"type" => "brain"}]
 
     assert {:ok, _write} = AppConfigure.put_global_by_key("brain.enabled", false)
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
   end
 
@@ -1093,9 +1085,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert :ok = AppConfigure.delete_global(max_output_tokens_definition)
     assert :ok = AppConfigure.delete_global(inactivity_timeout_definition)
     assert :ok = AppConfigure.delete_global(max_iterations_definition)
-    assert :ok = AppConfigure.delete_for_agent(agent.uid, max_output_tokens_definition)
-    assert :ok = AppConfigure.delete_for_agent(agent.uid, inactivity_timeout_definition)
-    assert :ok = AppConfigure.delete_for_agent(agent.uid, max_iterations_definition)
+    assert :ok = AppConfigure.delete_tenant_by_key(max_output_tokens_definition.key)
+    assert :ok = AppConfigure.delete_tenant_by_key(inactivity_timeout_definition.key)
+    assert :ok = AppConfigure.delete_tenant_by_key(max_iterations_definition.key)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -1112,7 +1104,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     actor_key = %{agent_uid: agent.uid, session_id: "session-agent-policy"}
 
-    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, turn_start_spec} = Context.runtime(actor_key)
 
     assert turn_start_spec.model_ref["max_completion_tokens"] == 16_384
     assert get_in(turn_start_spec.request_context, ["ai_agent", "max_output_tokens"]) == nil
@@ -1126,20 +1118,20 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, 120_000} = AppConfigure.put_global(inactivity_timeout_definition, 120_000)
     assert {:ok, 120} = AppConfigure.put_global(max_iterations_definition, 120)
 
-    assert {:ok, global_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, global_spec} = Context.runtime(actor_key)
     assert get_in(global_spec.request_context, ["ai_agent", "max_output_tokens"]) == 16_384
     assert get_in(global_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 120_000
     assert get_in(global_spec.request_context, ["ai_agent", "max_iterations"]) == 120
 
     assert {:ok, 12_000} =
-             AppConfigure.put_for_agent(agent.uid, max_output_tokens_definition, 12_000)
+             AppConfigure.put_tenant_by_key(max_output_tokens_definition.key, 12_000)
 
-    assert {:ok, 0} = AppConfigure.put_for_agent(agent.uid, inactivity_timeout_definition, 0)
+    assert {:ok, 0} = AppConfigure.put_tenant_by_key(inactivity_timeout_definition.key, 0)
 
     assert {:ok, 7} =
-             AppConfigure.put_for_agent(agent.uid, max_iterations_definition, 7)
+             AppConfigure.put_tenant_by_key(max_iterations_definition.key, 7)
 
-    assert {:ok, agent_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert {:ok, agent_spec} = Context.runtime(actor_key)
     assert get_in(agent_spec.request_context, ["ai_agent", "max_output_tokens"]) == 12_000
     assert get_in(agent_spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) == 0
     assert get_in(agent_spec.request_context, ["ai_agent", "max_iterations"]) == 7
@@ -1360,7 +1352,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   end
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
+    {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
+    :ok = Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(coding["provider_id"])
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
@@ -1418,42 +1412,60 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     })
     |> Repo.update!()
 
-    mixed_case_turn = %{turn | actor: %{turn.actor | agent_uid: " #{String.upcase(agent.uid)} "}}
+    assert {:ok, %{job: job, dispatch_event: input}} =
+             Repo.transact(fn _repo ->
+               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => turn.actor.session_id,
+                 "source_actor_event_id" => turn.actor_event_id,
+                 "source_tool_call_id" => "context-job-#{Ecto.UUID.generate()}",
+                 "title" => "Resolve Job context",
+                 "task" => "Read the owner conversation context.",
+                 "reply_route" => %{"binding_name" => "lark", "signal_channel_id" => channel_id}
+               })
+             end)
 
-    assert {:ok, context_envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "turn-context-1",
-                 "agent_conversation.context.resolve",
-                 %FabricProto.AgentConversationContextRequest{},
-                 turn: mixed_case_turn
-               ),
-               route
-             )
+    # A running attempt has the projection its claim captured.
+    {:ok, projection} =
+      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(Repo, agent.uid, %{
+        model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
+      })
 
-    assert envelope_body_type(context_envelope) == :rpc_response,
-           inspect(context_envelope)
+    job
+    |> Ecto.Changeset.change(status: "running", attempts: 1, runtime_projection: projection)
+    |> Repo.update!()
+
+    job_turn = %FabricProto.JobTurnRef{
+      actor_event_id: input.id,
+      job_id: job.id,
+      attempt: 1
+    }
+
+    assert {:ok, context} =
+             Context.resolve(agent.uid, Ankole.BackgroundAgentJobs.job_session_id(job.id))
+
+    assert {:ok, selected_context} =
+             Context.job(context, Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id))
 
     context_payload =
-      rpc_response_payload!(context_envelope, FabricProto.AgentConversationContextResponse)
+      Ankole.SignalsGateway.ActorRuntime.TurnEnvelope.agent_context(selected_context)
 
-    assert context_payload.agent.display_name == agent.display_name
-    assert context_payload.agent.role == "Research Analyst"
-    assert context_payload.conversation.key == "signal-channel:#{channel_id}"
-    assert context_payload.conversation.origin_channel.adapter == "lark"
-    assert context_payload.conversation.origin_channel.kind == "im_group"
-    assert context_payload.conversation.origin_channel.label == "策略讨论"
+    assert context.agent.display_name == agent.display_name
+    assert context.agent.role == "Research Analyst"
+    assert context.conversation.key == "signal-channel:#{channel_id}"
+    assert context.conversation.origin_channel.adapter == "lark"
+    assert context.conversation.origin_channel.kind == "im_group"
+    assert context.conversation.origin_channel.label == "策略讨论"
+    assert context_payload.conversation.timezone == context.conversation.timezone
     assert context_payload.mission == "Own the next-turn research workflow."
     assert context_payload.soul == "Be exact, calm, and evidence-led."
     assert context_payload.design == "Use cobalt accents and generous whitespace."
 
     assert {:ok, current_documents} = Library.list_agent_documents(agent.uid)
 
-    assert context_payload.mission_content_hash ==
-             current_documents["mission"]["content_hash"]
+    assert context_payload.confidentiality_policy ==
+             current_documents["confidentiality_policy"]["content"]
 
-    assert context_payload.soul_content_hash == current_documents["soul"]["content_hash"]
-    assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
 
     research_plugin = Enum.find(context_payload.agent_plugins, &(&1.id == "deep-research"))
@@ -1464,18 +1476,19 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                agent.uid,
                "pdf",
                "Prefer page-by-page verification.",
-               agent.uid
+               Ankole.ActorRef.from_principal(agent)
              )
 
     assert {:ok, resolve_envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "skill-overlay-resolve-1",
                  "skills.overlay.resolve",
                  %FabricProto.SkillOverlayResolveRequest{skill_names: ["pdf", "xlsx"]},
-                 turn: mixed_case_turn
+                 job_turn: job_turn
                ),
-               route
+               route,
+               agent.uid
              )
 
     resolve_payload =
@@ -1491,77 +1504,61 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     refute List.last(resolve_payload.overlays).has_overlay
   end
 
-  test "runtime RPCLane rejects agent conversation context requests from an unassigned worker route" do
-    %{principal: target_agent} = agent_fixture()
+  test "runtime RPCLane rejects Job reads from another Agent's Worker" do
+    %{principal: target_agent} = Ankole.AIGatewayCase.background_agent_fixture()
     %{principal: other_agent} = agent_fixture()
 
-    {_target_route, target_turn} =
+    {target_route, target_turn} =
       assign_worker_route(target_agent.uid, "signal-channel:target-context")
 
     {other_route, _other_turn} =
       assign_worker_route(other_agent.uid, "signal-channel:other-context")
 
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "turn-context-wrong-route",
-                 "agent_conversation.context.resolve",
-                 %FabricProto.AgentConversationContextRequest{},
-                 turn: target_turn
-               ),
-               other_route
-             )
+    assert {:ok, %{job: job, dispatch_event: input}} =
+             Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => target_agent.uid,
+               "owner_session_id" => target_turn.actor.session_id,
+               "source_actor_event_id" => target_turn.actor_event_id,
+               "source_tool_call_id" => "context-auth-#{Ecto.UUID.generate()}",
+               "title" => "Authorize Job context",
+               "task" => "Read the owner conversation context.",
+               "reply_route" => %{"binding_name" => "test"}
+             })
 
-    assert envelope_body_type(envelope) == :rpc_error
-    assert envelope_body!(envelope, :rpc_error).code == "worker_not_assigned_to_turn"
-  end
+    # A running attempt has the projection its claim captured.
+    {:ok, projection} =
+      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(Repo, target_agent.uid, %{
+        model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
+      })
 
-  test "runtime RPCLane accepts turn writes after active steer bumps revision" do
-    %{principal: agent} = agent_fixture()
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-write")
-
-    turn.activation_uid
-    |> then(&Repo.get_by!(ActorSessionActivation, activation_uid: &1))
-    |> Ecto.Changeset.change(%{revision: 1})
+    job
+    |> Ecto.Changeset.change(status: "running", attempts: 1, runtime_projection: projection)
     |> Repo.update!()
 
-    now = DateTime.utc_now(:microsecond)
-
-    channel =
-      Repo.insert!(
-        Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
-          id: "test:steered-write-#{System.unique_integer([:positive])}",
-          kind: :im_group,
-          reply_mode: :entry,
-          metadata: %{},
-          raw_payload: %{},
-          first_seen_at: now,
-          last_seen_at: now
-        })
+    request =
+      rpc_request(
+        "turn-context-wrong-route",
+        "background_agent_job.get",
+        %FabricProto.BackgroundAgentJobGetRequest{job_id: Integer.to_string(job.id)},
+        job_turn: %FabricProto.JobTurnRef{
+          actor_event_id: input.id,
+          job_id: job.id,
+          attempt: 1
+        }
       )
 
-    ActorEvent
-    |> Repo.get!(turn.actor_event_id)
-    |> Ecto.Changeset.change(signal_channel_id: channel.id)
-    |> Repo.update!()
+    assert {:ok, accepted} = handle_rpc(request, target_route, target_agent.uid)
+    assert envelope_body_type(accepted) == :rpc_response
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "standing-orders-after-steer",
-                 "signal_channel.standing_orders.set",
-                 %FabricProto.SignalChannelStandingOrdersSetRequest{
-                   orders: "Steered turns can still write channel state."
-                 },
-                 turn: turn
-               ),
-               route
-             )
+             handle_rpc(request, other_route, other_agent.uid)
 
-    assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
+    assert envelope_body_type(envelope) == :rpc_error
+    assert envelope_body!(envelope, :rpc_error).code == "background_agent_job_attempt_changed"
   end
 
   test "worker auth key is global AppConfigure state" do
+    agent_fixture()
     definition = WorkerAuthKey.definition()
 
     assert :ok = AppConfigure.delete_global(definition)
@@ -1572,113 +1569,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert first =~ ~r/\A[0-9a-f]{64}\z/
 
     assert {:error, {:global_scope_only, _key}} =
-             AppConfigure.put_for_agent("agent-a", definition, "agent-specific")
-  end
-
-  defp assign_worker_route(agent_uid, session_id) do
-    route = "route-#{System.unique_integer([:positive])}"
-    worker_id = "worker-#{System.unique_integer([:positive])}"
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: worker_id,
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
-
-    Repo.insert!(%ActorSessionWorkerAssignment{
-      agent_uid: agent_uid,
-      session_id: session_id,
-      worker_id: worker_id,
-      transport_route: route,
-      status: "assigned",
-      assigned_at: now,
-      metadata: %{}
-    })
-
-    conversation =
-      Repo.insert!(%Conversation{
-        id: Ecto.UUID.generate(),
-        subject_uid: agent_uid,
-        conversation_key: session_id,
-        metadata: %{},
-        inserted_at: now,
-        updated_at: now
-      })
-
-    actor_event =
-      Repo.insert!(
-        ActorEvent.changeset(%ActorEvent{}, %{
-          agent_uid: agent_uid,
-          binding_name: "test",
-          session_id: session_id,
-          source_event_id: "test-turn-#{System.unique_integer([:positive])}",
-          type: "test.turn",
-          available_at: now,
-          queue_sequence: 1,
-          input_state: "open",
-          payload: %{}
-        })
-      )
-
-    Repo.insert!(%Message{
-      subject_uid: agent_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      status: "generating",
-      content: [],
-      metadata: %{
-        "actor_event_id" => actor_event.id,
-        "profile" => "primary",
-        "provider" => "test-provider",
-        "model" => "z-ai/glm-5.2",
-        "request_context" => %{},
-        "request_refs" => [],
-        "request_patches" => [],
-        "response" => %{},
-        "tool_results" => [],
-        "usage" => %{},
-        "provider_metadata" => %{},
-        "started_at" => now
-      },
-      inserted_at: now,
-      updated_at: now
-    })
-
-    activation_uid = "activation-#{System.unique_integer([:positive])}"
-
-    Repo.insert!(%ActorSessionActivation{
-      activation_uid: activation_uid,
-      agent_uid: agent_uid,
-      session_id: session_id,
-      actor_epoch: 1,
-      status: "active",
-      controller_node: "test",
-      lease_id: "lease-#{System.unique_integer([:positive])}",
-      lease_expires_at: DateTime.add(now, 60, :second),
-      assigned_worker_id: worker_id,
-      current_actor_event_id: actor_event.id,
-      revision: 0,
-      started_at: now,
-      metadata: %{},
-      inserted_at: now,
-      updated_at: now
-    })
-
-    {route,
-     %FabricProto.ActorTurnRef{
-       actor: %FabricProto.ActorKey{agent_uid: agent_uid, session_id: session_id},
-       activation_uid: activation_uid,
-       actor_epoch: 1,
-       actor_event_id: actor_event.id,
-       revision: 0
-     }}
+             AppConfigure.put_tenant_by_key(definition.key, "agent-specific")
   end
 end

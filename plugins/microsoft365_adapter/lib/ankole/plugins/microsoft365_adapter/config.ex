@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.Config do
+  def platform_application(%{"appID" => id}), do: {:ok, "microsoft:" <> String.downcase(id)}
+  def platform_application(%{"clientID" => id}), do: {:ok, "microsoft:" <> String.downcase(id)}
   @moduledoc "Validation and runtime helpers for the first-party Microsoft 365 adapter."
 
   alias Ankole.AppConfigure
@@ -26,6 +28,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
     [
       AppConfigure.define_pattern(
         id: "signals_gateway.teams.bindings.*",
+        console_writable: false,
         key_pattern: @chat_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_chat_config/1),
@@ -33,6 +36,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.entra-id.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),
@@ -40,6 +45,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
       ),
       AppConfigure.define_pattern(
         id: "principals.entra_id.graph_subscriptions.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @subscription_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_subscription_state/1),
@@ -50,6 +57,18 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
 
   @spec chat_config_key(String.t()) :: String.t()
   def chat_config_key(id), do: "signals_gateway.teams.bindings.#{id}"
+
+  @spec binding_config_key(String.t(), String.t()) :: String.t()
+  def binding_config_key(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    id =
+      [agent_uid, binding_name]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "signals_gateway.teams.bindings.#{id}"
+  end
 
   @spec identity_config_key(String.t()) :: String.t()
   def identity_config_key(id), do: "principals.identity_providers.entra-id.#{id}"
@@ -138,16 +157,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   end
 
   def validate_subscription_state(_value), do: {:error, :invalid_graph_subscription_state}
-
-  @spec load_chat_config_ref(String.t()) :: {:ok, chat_config()} | {:error, term()} | :error
-  def load_chat_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key) do
-      validate_chat_config(value)
-    end
-  end
-
-  def load_chat_config_ref(_config_ref), do: {:error, :invalid_config_ref}
 
   @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
   def load_identity_config_key(key) when is_binary(key) do
@@ -239,10 +248,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
         if value in allowed, do: {:ok, value}, else: {:error, {:invalid_select, key, allowed}}
     end
   end
-
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key), do: {:ok, key}
 
   defp require_when(true, nil, key), do: {:error, {:missing, key}}
   defp require_when(_enabled, _value, _key), do: :ok

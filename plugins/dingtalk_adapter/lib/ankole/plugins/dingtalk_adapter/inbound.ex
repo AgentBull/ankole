@@ -13,13 +13,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   never stores a `downloadCode` or temporary URL.
   """
 
-  alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress
-  alias Ankole.WorkerFiles
   alias DingTalkOpenAPI.Event
   alias DingTalkOpenAPI.Robot
 
@@ -90,7 +88,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
                "dm_user_id" =>
                  if(channel_kind == :im_dm, do: optional_text(payload, "senderStaffId"))
              }),
-           raw_payload: compact_map(payload)
+           raw_payload: durable_media_payload(compact_map(payload))
          },
          text: text,
          formatted_content: formatted_content(text),
@@ -106,7 +104,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
              "corp_id" => optional_text(payload, "senderCorpId"),
              "is_admin" => fetch_value(payload, "isAdmin")
            }),
-         raw_payload: compact_map(payload),
+         raw_payload: durable_media_payload(compact_map(payload)),
          provider_time: provider_time
        }}
     end
@@ -401,80 +399,39 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     end
   end
 
-  defp maybe_materialize_attachments(%{attachments: []} = input, _consumer), do: {:ok, input}
-
-  defp maybe_materialize_attachments(%{attachments: attachments} = input, %{
-         config: config,
-         context: %{agent_uid: agent_uid}
-       }) do
+  defp maybe_materialize_attachments(input, %{config: config}) do
     client = Config.client(config)
     robot_code = Config.effective_robot_code(config)
 
-    materialized =
-      Enum.map(attachments, &materialize_attachment(&1, client, robot_code, agent_uid))
+    attachments =
+      Ingress.materialize_attachments(
+        input.attachments,
+        "dingtalk",
+        fn attachment ->
+          download_attachment(attachment, client, robot_code)
+        end,
+        drop_keys: ["download_code"]
+      )
 
-    {:ok, %{input | attachments: materialized}}
+    {:ok, %{input | attachments: attachments}}
   end
 
-  defp materialize_attachment(
-         %{"download_code" => code} = attachment,
-         client,
-         robot_code,
-         agent_uid
-       )
+  defp download_attachment(%{"download_code" => code} = attachment, client, robot_code)
        when is_binary(code) do
-    case Robot.download_message_file(client, robot_code, code) do
-      {:ok, %{body: body, filename: filename}} ->
-        name = attachment["name"] || filename || "attachment"
-        relative_path = materialized_relative_path(attachment, name)
-
-        lane_path = Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path)
-
-        case WorkerFiles.put("user_files", lane_path, body) do
-          {:ok, result} ->
-            attachment
-            |> Map.drop(["download_code"])
-            |> Map.put(
-              "agent_computer_path",
-              Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
-            )
-            |> Map.put("user_files_relative_path", relative_path)
-            |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-            |> MapHelpers.put_present("size", result["size"])
-
-          {:error, reason} ->
-            log_materialization_skip(attachment, reason)
-            Map.drop(attachment, ["download_code"])
-        end
-
-      {:error, reason} ->
-        log_materialization_skip(attachment, reason)
-        Map.drop(attachment, ["download_code"])
+    with {:ok, %{body: body, filename: filename}} <-
+           Robot.download_message_file(client, robot_code, code) do
+      {:ok,
+       %{
+         body: body,
+         filename: attachment["name"] || filename || "attachment",
+         content_type: nil,
+         put: %{}
+       }}
     end
-  rescue
-    error ->
-      log_materialization_skip(attachment, error)
-      Map.drop(attachment, ["download_code"])
   end
 
-  defp materialize_attachment(attachment, _client, _robot_code, _agent_uid), do: attachment
-
-  defp log_materialization_skip(attachment, reason) do
-    Logging.warning(
-      "dingtalk_adapter.attachment.materialization_skipped",
-      "dingtalk attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: inspect(reason)}
-    )
-  end
-
-  defp materialized_relative_path(attachment, name) do
-    Path.join([
-      "inbox",
-      "dingtalk",
-      WorkerFiles.sanitize_path_segment(attachment["provider_ref"]),
-      WorkerFiles.sanitize_path_segment(name)
-    ])
-  end
+  defp download_attachment(_attachment, _client, _robot_code),
+    do: {:error, :attachment_reference_missing}
 
   # channel / helpers
 
@@ -594,4 +551,16 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       nil -> {:error, {:missing, key}}
     end
   end
+
+  # A download code expires after this call and must not enter durable facts.
+  defp durable_media_payload(payload) when is_map(payload) do
+    payload
+    |> Map.delete("downloadCode")
+    |> Map.new(fn {key, value} -> {key, durable_media_payload(value)} end)
+  end
+
+  defp durable_media_payload(payload) when is_list(payload),
+    do: Enum.map(payload, &durable_media_payload/1)
+
+  defp durable_media_payload(payload), do: payload
 end

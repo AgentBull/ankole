@@ -45,24 +45,31 @@ defmodule Ankole.Principals.HumanAccess do
   """
   def recover_admin(uid, operator, reason) when is_binary(operator) and operator != "" do
     Repo.transact(fn repo ->
-      with {:ok, principal} <- AuthZ.recover_admin_in_tx(repo, uid),
-           {:ok, _} <-
-             record(repo, principal, principal, "operator_admin_recovery", %{
-               source: "operator",
-               reason: reason,
-               operation_id: Ankole.Kernel.gen_uuid_v7(),
-               details: %{"operator" => operator, "identity_verified" => true}
-             }) do
-        {:ok, principal}
+      with {:ok, _} <- Ankole.Tenants.lock_administration(repo),
+           {:ok, tenant} <- Ankole.Tenants.privileged() do
+        Repo.with_tenant(tenant.id, fn -> recover_site_admin(repo, uid, operator, reason) end)
       end
     end)
+  end
+
+  defp recover_site_admin(repo, uid, operator, reason) do
+    with {:ok, principal} <- AuthZ.recover_admin_in_tx(repo, uid),
+         {:ok, _} <-
+           record(repo, principal, principal, "operator_admin_recovery", %{
+             source: "operator",
+             reason: reason,
+             operation_id: Ankole.Kernel.gen_uuid_v7(),
+             details: %{"operator" => operator, "identity_verified" => true}
+           }) do
+      {:ok, principal}
+    end
   end
 
   def disable(uid, reason, actor_uid, operation_id) do
     restrict(uid, %{
       source: "manual",
       reason: reason,
-      actor_uid: actor_uid,
+      actor: actor_uid,
       operation_id: operation_id
     })
   end
@@ -102,7 +109,7 @@ defmodule Ankole.Principals.HumanAccess do
     end)
   end
 
-  defp lock_disable(_repo, uid, %{source: "manual", actor_uid: uid}),
+  defp lock_disable(_repo, uid, %{source: "manual", actor: %Ankole.ActorRef{uid: uid}}),
     do: {:error, :cannot_disable_self}
 
   defp lock_disable(repo, uid, %{source: "manual"}),
@@ -207,7 +214,7 @@ defmodule Ankole.Principals.HumanAccess do
               record(repo, principal, principal, "clear_restriction", %{
                 source: "manual",
                 reason: reason,
-                actor_uid: actor_uid,
+                actor: actor_uid,
                 operation_id: operation_id,
                 details: %{"restriction_id" => restriction.id}
               })
@@ -223,6 +230,7 @@ defmodule Ankole.Principals.HumanAccess do
 
       with {:ok, %Principal{type: :human, status: :disabled} = principal} <-
              Store.fetch_principal_for_update(repo, uid),
+           :ok <- tenant_allows_restoration(principal.tenant_id),
            false <-
              repo.exists?(
                from r in AccessRestriction,
@@ -235,7 +243,7 @@ defmodule Ankole.Principals.HumanAccess do
              record(repo, principal, restored, "restore", %{
                source: "manual",
                reason: reason,
-               actor_uid: actor_uid,
+               actor: actor_uid,
                operation_id: operation_id,
                details: %{
                  "approved_permissions" => review.permissions,
@@ -251,6 +259,13 @@ defmodule Ankole.Principals.HumanAccess do
         error -> error
       end
     end)
+  end
+
+  defp tenant_allows_restoration(tenant_id) do
+    case Ankole.Tenants.get(tenant_id) do
+      {:ok, %{deleting_at: nil}} -> :ok
+      _ -> {:error, :tenant_deleting}
+    end
   end
 
   defp recovery_allowed(%AccessRestriction{source: "manual"}), do: :ok
@@ -275,7 +290,7 @@ defmodule Ankole.Principals.HumanAccess do
           :operation_id,
           :source,
           :reason,
-          :actor_uid,
+          :actor,
           :provider_time,
           :details
         ]),

@@ -71,6 +71,12 @@ pub(super) trait APIProtocol: std::fmt::Debug + Send + Sync {
         None
     }
 
+    /// Returns the HTTP status that the Provider API declares for an exception
+    /// that the Provider sends inside an open stream.
+    fn provider_exception_status(&self, _exception_type: &str) -> Option<u16> {
+        None
+    }
+
     fn is_terminal(&self) -> bool {
         false
     }
@@ -144,6 +150,10 @@ impl APIResolver {
             .classify_provider_rejection(&self.context, status, body)
     }
 
+    pub fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
+        self.protocol.provider_exception_status(exception_type)
+    }
+
     fn check_prepared(&self) -> Result<(), StreamError> {
         match &self.prepare_error {
             Some(error) => Err(error.clone()),
@@ -157,13 +167,9 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::OpenAIResponses => Box::new(OpenAIResponsesState::default()),
         APIResolverKind::OpenAIChatCompletions => Box::new(ChatState::new(context.model.clone())),
         APIResolverKind::AnthropicMessages => Box::new(AnthropicState::new(context.model.clone())),
-        APIResolverKind::GeminiGenerateContent => {
-            Box::new(GoogleGeminiState::new(context.model.clone()))
-        }
         APIResolverKind::BedrockConverse => {
             Box::new(AWSBedrockConverseState::new(context.model.clone()))
         }
-        APIResolverKind::OpenAIEmbeddings => Box::new(OpenAIEmbeddings),
         APIResolverKind::OpenrouterEmbeddings => Box::new(OpenrouterEmbeddings),
         APIResolverKind::JinaEmbeddings => Box::new(JinaEmbeddings),
         APIResolverKind::GoogleEmbeddings => Box::new(GoogleEmbeddings),

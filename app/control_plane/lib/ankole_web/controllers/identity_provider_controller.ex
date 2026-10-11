@@ -21,17 +21,17 @@ defmodule AnkoleWeb.IdentityProviderController do
   alias AnkoleWeb.Schemas.ConsoleAPI.IdentityProviderWriteRequest
 
   tags(["Identity Providers"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
-  plug OpenAPISpex.Plug.CastAndValidate,
+  plug(OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
 
   operation(:adapters,
     summary: "List identity-provider adapters",
     responses: [
       ok: {"Identity-provider adapters", "application/json", IdentityProviderAdapterListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -39,8 +39,7 @@ defmodule AnkoleWeb.IdentityProviderController do
     summary: "List configured identity providers",
     responses: [
       ok: {"Identity providers", "application/json", IdentityProviderListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -51,10 +50,7 @@ defmodule AnkoleWeb.IdentityProviderController do
       {"Identity provider", "application/json", IdentityProviderWriteRequest, required: true},
     responses: [
       ok: {"Identity provider", "application/json", IdentityProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid provider", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -63,10 +59,7 @@ defmodule AnkoleWeb.IdentityProviderController do
     parameters: [provider_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Identity-provider sync run", "application/json", IdentityProviderSyncRunResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Sync disabled", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -149,6 +142,34 @@ defmodule AnkoleWeb.IdentityProviderController do
       default_provider_id: adapter.default_provider_id
     }
   end
+
+  defp error(conn, {:platform_application_identity_unavailable, reference}),
+    do:
+      error(
+        conn,
+        422,
+        "platform_application_identity_unavailable",
+        "Could not verify an existing platform application; repair the referenced credentials before retrying",
+        [reference]
+      )
+
+  defp error(conn, :platform_application_identity_unavailable),
+    do:
+      error(
+        conn,
+        422,
+        "platform_application_identity_unavailable",
+        "Could not verify the platform application; check the bot credentials and provider availability"
+      )
+
+  defp error(conn, :platform_app_bound_to_another_tenant),
+    do:
+      error(
+        conn,
+        409,
+        "platform_app_bound_to_another_tenant",
+        "This platform application belongs to another tenant"
+      )
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
 

@@ -1,0 +1,20 @@
+{
+  "name": "@ankole/cloudflare-agent-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "bun scripts/deploy.ts",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "1.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261003.1",
+    "typescript": "6.0.3",
+    "wrangler": "^4.147.0"
+  }
+}

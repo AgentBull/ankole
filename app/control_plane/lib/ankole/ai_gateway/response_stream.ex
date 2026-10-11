@@ -4,16 +4,16 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   The owner is the only receiver of Kernel stream messages. It enforces image
   persistence, durable/public projections, stateful terminal commits, tool-call
-  limits, live events, telemetry, demand, and cancellation before a transport
+  limits, live events, demand, and cancellation before a transport
   can observe an event. Phoenix only asks for the next batch and frames the maps.
   """
 
   use GenServer
 
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
-  alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseStream.State
@@ -62,10 +62,12 @@ defmodule Ankole.AIGateway.ResponseStream do
         :program_runner,
         :program_task_supervisor,
         :collect_timeout,
-        :describe_timeout
+        :describe_timeout,
+        :authorize_run_in_tx
       ])
 
     child_opts = [
+      tenant_id: Ankole.Repo.tenant_id!(),
       subject_uid: subject_uid,
       request: stream_policy(request),
       observation_request: request,
@@ -79,7 +81,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       program_task_supervisor: Keyword.get(opts, :program_task_supervisor),
       upstream_opts: upstream_opts,
       receiver: receiver,
-      telemetry_spec: telemetry_spec(prepared_request),
+      hosted_image_spec: hosted_image_spec(prepared_request),
       diagnostics: stream_diagnostics(request, prepared_request),
       prepared_request: prepared_request
     ]
@@ -242,7 +244,6 @@ defmodule Ankole.AIGateway.ResponseStream do
           public_open?: state.public_open?,
           ref: state.ref,
           stateful?: not is_nil(state.stateful),
-          telemetry_emitted?: state.telemetry_emitted?,
           failure_logged?: state.failure_logged?,
           describe_waiter_count: length(state.describe_waiters),
           opening?: not is_nil(state.opening),
@@ -264,6 +265,7 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   @impl true
   def init(opts) do
+    Ankole.Repo.put_tenant_id(Keyword.fetch!(opts, :tenant_id))
     receiver = Keyword.fetch!(opts, :receiver)
     owner_monitor = Process.monitor(receiver)
     prepared_request = Keyword.get(opts, :prepared_request, %{})
@@ -297,8 +299,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       hosted_credential_attempt: Keyword.get(opts, :hosted_credential_attempt),
       upstream_opts: Keyword.get(opts, :upstream_opts, []),
       open_fun: Keyword.get(opts, :open_fun),
-      telemetry_spec: Keyword.fetch!(opts, :telemetry_spec),
-      telemetry_emitted?: false,
+      hosted_image_spec: Keyword.fetch!(opts, :hosted_image_spec),
       diagnostics: Keyword.get(opts, :diagnostics, %{}),
       failure_logged?: false,
       prepared_request: prepared_request,
@@ -440,7 +441,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp start_open_candidate(%{opening: %{spec: spec} = opening} = state) do
-    case UniversalAIRequest.start_stream(spec, :websocket_text, receiver: self()) do
+    case UniversalAIRequest.start_stream(spec, receiver: self()) do
       {:ok, native_stream} ->
         opening = %{opening | native_stream: native_stream}
         {:noreply, %{state | opening: opening}}
@@ -560,7 +561,6 @@ defmodule Ankole.AIGateway.ResponseStream do
     else
       state = log_failure_once(state, reason)
       state = fail_observation(state, reason)
-      maybe_emit_open_failure(state.telemetry_spec, reason)
 
       had_waiters? = state.describe_waiters != []
       Enum.each(state.describe_waiters, &GenServer.reply(&1, {:error, reason}))
@@ -665,7 +665,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         prepared_request: prepared_request,
         round_open: round_open_fun(tool_loop),
         hosted_credential_attempt: hosted_credential_attempt,
-        telemetry_spec: telemetry_spec(prepared_request),
+        hosted_image_spec: hosted_image_spec(prepared_request),
         meta: meta,
         attempt_context: attempt_context,
         attempt_spec: attempt_spec,
@@ -729,7 +729,9 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp start_recovery_task(fun) do
-    Task.Supervisor.start_child(@recovery_task_supervisor, fun, restart: :temporary)
+    Task.Supervisor.start_child(@recovery_task_supervisor, Ankole.Repo.bind_tenant(fun),
+      restart: :temporary
+    )
   catch
     :exit, reason -> {:error, reason}
   end
@@ -1006,7 +1008,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       ) do
     if State.terminal?(state.semantic) do
       # The public terminal event is already committed and delivered. Keep the
-      # native owner alive briefly so its final hosted-tool summary can arrive.
+      # native owner alive until Done arrives or the shutdown timer expires.
       {:noreply, %{state | receiver: nil}}
     else
       _ = cancel_native(state.native_stream)
@@ -1078,10 +1080,10 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp native_stream_event(
-         %UniversalAIClient.Done{ref: ref, summary: summary},
+         %UniversalAIClient.Done{ref: ref, summary: _summary},
          %{native_stream: %{ref: ref}, program_task: %{}} = state
        ) do
-    {:noreply, state |> emit_summary_once(summary) |> Map.put(:native_done?, true)}
+    {:noreply, state |> Map.put(:native_done?, true)}
   end
 
   defp native_stream_event(
@@ -1102,7 +1104,6 @@ defmodule Ankole.AIGateway.ResponseStream do
          %UniversalAIClient.Chunk{
            ref: ref,
            sequence: sequence,
-           kind: :websocket_text,
            payload: chunk
          },
          %{native_stream: %{ref: ref}} = state
@@ -1130,20 +1131,11 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp native_stream_event(
-         %UniversalAIClient.Chunk{ref: ref, kind: _kind},
-         %{native_stream: %{ref: ref}} = state
-       ) do
-    stop_with_failure(state,
-      code: "unexpected_downstream_chunk_kind"
-    )
-  end
-
-  defp native_stream_event(
-         %UniversalAIClient.Done{ref: ref, summary: summary},
+         %UniversalAIClient.Done{ref: ref, summary: _summary},
          %{native_stream: %{ref: ref}} = state
        ) do
     if State.terminal?(state.semantic) do
-      {:stop, :normal, emit_summary_once(state, summary)}
+      {:stop, :normal, state}
     else
       if not state.provider_output? do
         reopen_stream(state, %{
@@ -1179,7 +1171,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           reopen_stream(state, error)
 
         true ->
-          state = state |> log_failure_once(error) |> emit_failure_once(error)
+          state = state |> log_failure_once(error)
 
           {state, events, outcome} =
             fail_stream(state,
@@ -1272,7 +1264,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:noreply, state}
 
       {:error, semantic, events, :continue, reason} ->
-        state = %{state | semantic: semantic} |> emit_failure_once(reason)
+        state = %{state | semantic: semantic} |> log_failure_once(reason)
 
         {state, failure_events, outcome} =
           fail_stream(state,
@@ -1285,7 +1277,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:noreply, state}
 
       {:error, semantic, events, {:terminal, outcome, _action}, reason} ->
-        state = %{state | semantic: semantic} |> emit_failure_once(reason)
+        state = %{state | semantic: semantic} |> log_failure_once(reason)
         state = finish_observation(state, outcome)
         state = finish_public_stream(state, :cancel_upstream)
         send_events(state, events, {:terminal, outcome})
@@ -1460,7 +1452,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp stop_after_provider_failure(state, reason, failure_opts) do
-    state = state |> log_failure_once(reason) |> emit_failure_once(reason)
+    state = state |> log_failure_once(reason)
 
     {state, events, outcome} =
       fail_stream(state, failure_opts)
@@ -1500,24 +1492,10 @@ defmodule Ankole.AIGateway.ResponseStream do
          state,
          %{"type" => "response.failed", "response" => %{"error" => %{} = error}}
        ) do
-    details =
-      case Map.get(error, "details_json") do
-        %{} = details -> details
-        _missing -> %{}
-      end
-
-    stage = Map.get(details, "stage", "provider_response")
-
-    failure = %{
-      "code" => Map.get(error, "code", "provider_status_rejected"),
-      "stage" => stage,
-      "message" => Map.get(error, "message", "provider request failed"),
-      "provider_status" => Map.get(error, "status") || Map.get(details, "provider_status"),
-      "provider_headers" => Map.get(details, "provider_headers", %{})
-    }
+    failure = ProviderFailure.from_event_error(error)
 
     attempt_context =
-      if stage == "image_generation" and
+      if failure.stage == "image_generation" and
            is_map(state.hosted_credential_attempt) do
         state.hosted_credential_attempt.context
       else
@@ -1546,13 +1524,13 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp issue_native_credit(state), do: {:ok, state}
 
   defp ready_timeout_error do
-    {:universal_ai_request_failed,
-     %{
-       "code" => "universal_ai_stream_ready_timeout",
-       "stage" => "open",
-       "message" => "provider stream did not become ready before the open deadline",
-       "retryable" => true
-     }}
+    %ProviderFailure{
+      kind: :other,
+      code: "universal_ai_stream_ready_timeout",
+      stage: "open",
+      message: "provider stream did not become ready before the open deadline",
+      retryable: true
+    }
   end
 
   defp finish_public_stream(state, upstream_action) do
@@ -1627,7 +1605,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       end
 
     if event["type"] in ["response.completed", "response.failed", "response.incomplete"] do
-      hosted? = hosted_request?(state.telemetry_spec)
+      hosted? = hosted_request?(state.hosted_image_spec)
 
       :ok =
         CredentialAttempts.record_usage(state.attempt_context, event,
@@ -1674,7 +1652,6 @@ defmodule Ankole.AIGateway.ResponseStream do
     state =
       state
       |> log_failure_once(failure)
-      |> emit_failure_once(failure)
 
     {semantic, events, outcome} = State.fail(state.semantic, opts)
 
@@ -1696,34 +1673,6 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp maybe_send_events(_state, [], :continue), do: :ok
   defp maybe_send_events(state, events, status), do: send_events(state, events, status)
 
-  defp emit_summary_once(%{telemetry_emitted?: true} = state, _summary), do: state
-
-  defp emit_summary_once(state, summary) do
-    HostedToolTelemetry.emit_summary(summary)
-    %{state | telemetry_emitted?: hosted_summary?(summary)}
-  end
-
-  defp emit_failure_once(%{telemetry_emitted?: true} = state, _reason), do: state
-
-  defp emit_failure_once(state, reason) do
-    if hosted_request?(state.telemetry_spec) or hosted_error?(reason) do
-      HostedToolTelemetry.emit_failure(state.telemetry_spec, reason)
-      %{state | telemetry_emitted?: true}
-    else
-      state
-    end
-  end
-
-  defp maybe_emit_open_failure(telemetry_spec, reason) do
-    if hosted_request?(telemetry_spec) or hosted_error?(reason) do
-      HostedToolTelemetry.emit_failure(telemetry_spec, reason)
-    end
-  end
-
-  defp hosted_summary?(%{"hosted_tool_metadata" => %{}}), do: true
-  defp hosted_summary?(%{hosted_tool_metadata: %{}}), do: true
-  defp hosted_summary?(_summary), do: false
-
   defp hosted_error?(%{"stage" => stage})
        when stage in ["hosted_responses", "image_generation"],
        do: true
@@ -1735,17 +1684,26 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp hosted_request?(_spec), do: false
 
   defp log_terminal_failure_once(state, %{terminal_error: %{} = error}),
-    do: state |> log_failure_once(error) |> emit_failure_once(error)
+    do: state |> log_failure_once(error)
 
   defp log_terminal_failure_once(state, _outcome), do: state
 
   defp log_failure_once(%{failure_logged?: true} = state, _reason), do: state
 
   defp log_failure_once(state, reason) do
+    context =
+      if hosted_request?(state.hosted_image_spec) or hosted_error?(reason),
+        do:
+          Map.merge(
+            ImageGeneration.failure_log_fields(state.hosted_image_spec, reason),
+            state.diagnostics
+          ),
+        else: state.diagnostics
+
     FailureDiagnostics.log(
       "ai_gateway.response_failed",
       "AIGateway provider response failed",
-      state.diagnostics,
+      context,
       reason
     )
 
@@ -1754,11 +1712,10 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   defp stream_diagnostics(request, prepared_request) do
     response_context =
-      Map.get(prepared_request, :response_context) ||
-        Map.get(prepared_request, "response_context") || %{}
+      Map.get(prepared_request, :response_context) || %{}
 
     upstream =
-      Map.get(prepared_request, :upstream) || Map.get(prepared_request, "upstream") || %{}
+      Map.get(prepared_request, :upstream) || %{}
 
     {input_image_count, inline_image_chars} = request_image_stats(request)
 
@@ -1859,12 +1816,12 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp string(value) when is_atom(value), do: Atom.to_string(value)
   defp string(_value), do: nil
 
-  defp telemetry_spec(prepared_request) do
+  defp hosted_image_spec(prepared_request) do
     hosted_tools =
-      Map.get(prepared_request, :hosted_tools) || Map.get(prepared_request, "hosted_tools") || %{}
+      Map.get(prepared_request, :hosted_tools) || %{}
 
     image =
-      Map.get(hosted_tools, :image_generation) || Map.get(hosted_tools, "image_generation")
+      Map.get(hosted_tools, :image_generation)
 
     case image do
       %{} ->
@@ -1888,17 +1845,17 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp stream_policy(request) do
-    %{"max_tool_calls" => Map.get(request, "max_tool_calls") || Map.get(request, :max_tool_calls)}
+    %{"max_tool_calls" => Map.get(request, "max_tool_calls")}
   end
 
   defp resolver_meta(spec) when is_map(spec) do
     meta =
-      case Map.get(spec, :api_resolver) || Map.get(spec, "api_resolver") do
+      case Map.get(spec, :api_resolver) do
         nil -> %{}
         resolver -> %{"api_resolver" => resolver}
       end
 
-    case Map.get(spec, :issuer) || Map.get(spec, "issuer") do
+    case Map.get(spec, :issuer) do
       issuer when is_binary(issuer) -> Map.put(meta, "issuer", issuer)
       _absent -> meta
     end

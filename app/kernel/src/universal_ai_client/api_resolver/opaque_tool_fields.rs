@@ -2,7 +2,6 @@ use super::*;
 use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
 const OPAQUE_CONTENT_PREFIX: &str = "ankole-aigateway-opaque-v1:";
-const LEGACY_CHAT_CONTENT_PREFIX: &str = "ankole-chat-encoded-v1:";
 const NATIVE_ENCRYPTED_TOOL_FIELDS: &str = "__ankole_native_encrypted_tool_fields";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -868,11 +867,11 @@ fn lower_function_call(call: &mut Map<String, Value>) -> Result<(), StreamError>
 }
 
 fn contains_opaque_prefix(text: &str) -> bool {
-    text.contains(OPAQUE_CONTENT_PREFIX) || text.contains(LEGACY_CHAT_CONTENT_PREFIX)
+    text.contains(OPAQUE_CONTENT_PREFIX)
 }
 
 fn starts_with_opaque_prefix(text: &str) -> bool {
-    text.starts_with(OPAQUE_CONTENT_PREFIX) || text.starts_with(LEGACY_CHAT_CONTENT_PREFIX)
+    text.starts_with(OPAQUE_CONTENT_PREFIX)
 }
 
 // The prefix may also appear inside a longer plain value, for example a shell
@@ -974,14 +973,11 @@ fn encode_opaque_content(text: &str) -> String {
 }
 
 fn decode_opaque_content(encoded: &str) -> Result<String, StreamError> {
-    let payload = encoded
-        .strip_prefix(OPAQUE_CONTENT_PREFIX)
-        .or_else(|| encoded.strip_prefix(LEGACY_CHAT_CONTENT_PREFIX))
-        .ok_or_else(|| {
-            invalid_encrypted_content_error(
-                "AIGateway cannot decode encrypted_content from another gateway",
-            )
-        })?;
+    let payload = encoded.strip_prefix(OPAQUE_CONTENT_PREFIX).ok_or_else(|| {
+        invalid_encrypted_content_error(
+            "AIGateway cannot decode encrypted_content from another gateway",
+        )
+    })?;
     let decoded = base64_url_safe_decode(payload).map_err(|_| {
         invalid_encrypted_content_error("AIGateway encrypted_content is not valid Base64URL")
     })?;

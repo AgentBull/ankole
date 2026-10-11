@@ -28,7 +28,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     {:ok, %{accepted: Enum.reverse(state.accepted), rejected: Enum.reverse(state.rejected)}}
   end
 
-  def create_in_tx(repo, agent_uid, skill_name, content, author_uid) do
+  def create_in_tx(repo, agent_uid, skill_name, content, author) do
     with :ok <- validate_lesson_content(content, :human) do
       %AgentSkillLesson{}
       |> AgentSkillLesson.changeset(%{
@@ -36,7 +36,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
         skill_name: skill_name,
         content: String.trim(content),
         author_kind: "human",
-        author_uid: author_uid
+        author: author
       })
       |> repo.insert()
     end

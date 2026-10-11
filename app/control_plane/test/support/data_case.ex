@@ -31,19 +31,49 @@ defmodule Ankole.DataCase do
 
   setup tags do
     Ankole.DataCase.setup_sandbox(tags)
+    tenant = create_tenant()
+    Ankole.Repo.put_tenant_id(tenant.id)
+    {:ok, tenant: tenant}
+  end
+
+  @doc "Creates an isolated tenant without changing site configuration."
+  def create_tenant do
+    %Ankole.Tenants.Tenant{}
+    |> Ankole.Tenants.Tenant.changeset(%{
+      slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+      display_name: "Test tenant"
+    })
+    |> Ankole.Repo.insert!()
+  end
+
+  @doc "Selects the privileged tenant for a serial test of site administration."
+  def set_privileged_tenant(%Ankole.Tenants.Tenant{} = tenant) do
+    {:ok, _} = Ankole.AppConfigure.put_global_by_key("tenants.privileged_slug", tenant.slug)
     :ok
   end
 
   @doc """
   Sets up the sandbox based on the test tags.
   """
+  def setup_sandbox(%{sandbox: false}) do
+    # These serial integration tests need independent, committed transactions.
+    # A shared owner would make every process wait on one connection.
+    :ok = Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
+    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual) end)
+  end
+
   def setup_sandbox(tags) do
     opts =
       [shared: not tags[:async]]
       |> maybe_put_ownership_timeout(tags[:ownership_timeout])
 
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ankole.Repo, opts)
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    drivers = if not tags[:async], do: Ankole.SignalsGateway.ActorRuntimeCase.driver_pids()
+
+    on_exit(fn ->
+      if drivers, do: Ankole.SignalsGateway.ActorRuntimeCase.stop_new_drivers(drivers)
+      Ecto.Adapters.SQL.Sandbox.stop_owner(pid)
+    end)
   end
 
   defp maybe_put_ownership_timeout(opts, timeout) when is_integer(timeout) and timeout > 0,

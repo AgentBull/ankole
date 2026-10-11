@@ -64,8 +64,8 @@ location to fix.
 ## Connect to WeCom
 
 `ConnectionReconciler` selects one long connection for each bot.
-`ConnectionSupervisor` runs each connection. The identity face is pure REST
-and holds no connection.
+`Ankole.Plugins.ConnectionLifecycle` supervises one owner process for each
+connection. The identity face is pure REST and holds no connection.
 
 The client opens the WebSocket, authenticates in-band with the bot
 credentials, and sends a heartbeat every 30 seconds. All outbound frames wait
@@ -114,8 +114,8 @@ attachments.
 
 Attachment URLs live five minutes and their bytes are AES-encrypted with a
 per-item key. The adapter downloads and decrypts each attachment before
-ingress and saves it through WorkerFiles. It never stores the temporary URL or
-the key.
+ingress and stores it in the file service ([Files](../Files.md)). It never
+stores the temporary URL or the key.
 
 WeCom does not provide inbound edit, recall, or reaction events. Images,
 voice, files, and video arrive in direct messages only.
@@ -134,6 +134,10 @@ attachment without a respond anchor fails with a clear error.
 Text uses the WeCom Markdown subset. Tables pass through; images degrade to
 links. An oversized image or video and a non-AMR voice file all ship as plain
 files; an oversized file fails loudly.
+
+Markdown conversion changes prose only. The kernel uses CommonMark source
+positions to protect the original bytes of fenced, indented, and inline code.
+The existing AI Stream keeps its own rendering and paging rules.
 
 Template cards are plain JSON. Card buttons round-trip only a `key` string, so
 the portable interaction protocol packs into the key and the source actor

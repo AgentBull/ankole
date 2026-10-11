@@ -131,38 +131,10 @@ defmodule Ankole.Config.Bootstrap do
   defp read_env_files(files) do
     # Include the OS env before dotenv files for interpolation and after dotenv
     # files for final precedence.
-    apply(Dotenvy, :source!, [
+    Dotenvy.source!(
       [System.get_env() | files] ++ [System.get_env()],
-      [require_files: false, side_effect: false]
-    ])
-  rescue
-    UndefinedFunctionError ->
-      files
-      |> Enum.reduce(%{}, fn path, acc -> Map.merge(acc, read_env_file(path)) end)
-      |> Map.merge(System.get_env())
-  end
-
-  defp read_env_file(path) do
-    case File.read(path) do
-      {:ok, content} -> parse_env(content)
-      {:error, _reason} -> %{}
-    end
-  end
-
-  defp parse_env(content) do
-    content
-    |> String.split("\n")
-    |> Enum.reduce(%{}, fn line, acc ->
-      line = String.trim(line)
-
-      with false <- line == "" or String.starts_with?(line, "#"),
-           [key, value] <- String.split(line, "=", parts: 2),
-           key = String.trim(key),
-           true <- key != "" do
-        Map.put(acc, key, String.trim(value))
-      else
-        _ -> acc
-      end
-    end)
+      require_files: false,
+      side_effect: false
+    )
   end
 end

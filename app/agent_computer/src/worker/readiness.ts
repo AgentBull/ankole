@@ -1,29 +1,34 @@
 import { spawnSync } from 'node:child_process'
-import { accessSync, constants, existsSync, lstatSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join, resolve } from 'node:path'
-import { WORKER_SHARE_ROOT } from '../core/agent-home-paths'
-import { resolveBubblewrapSupport } from '../sandbox/bubblewrap'
+import { agentHomePaths, codexSQLiteHome, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import type { WorkerConfig } from './config'
-import { workerLogger } from './logging'
 
 /**
- * Runs blocking image and filesystem checks before ready, then reports the
- * available bubblewrap mode. Missing image resources block startup; weak
- * bubblewrap does not.
+ * Runs blocking disk and image checks before ready.
+ *
+ * The Agent Home of the bound Agent must be a writable directory; the Worker
+ * creates it on an empty persistent volume. The turn loop also needs the configured
+ * Skill roots, and BackgroundAgentJob execution needs the Codex app server and
+ * the private browser data-plane runtime that the worker image ships.
  */
 export function verifyWorkerReadiness(config: WorkerConfig): void {
-  verifyWorkerFilesystem(config)
-  logBubblewrapSupport(config.agentsRoot)
-}
-
-/**
- * These checks catch bad mounts early: the turn loop assumes shared files and
- * configured skill roots are accessible once ready is sent.
- * BackgroundAgentJob execution also requires the Codex app server and private
- * browser data-plane runtime shipped in the worker image.
- */
-function verifyWorkerFilesystem(config: WorkerConfig): void {
-  assertDirectory(config.agentsRoot, 'ANKOLE_AGENTS_ROOT', true)
+  const agentHome = agentHomePaths(config.agentHomeRoot).home
+  mkdirSync(agentHome, { recursive: true })
+  assertDirectory(agentHome, 'Agent Home', true)
+  const sqliteHome = codexSQLiteHome()
+  mkdirSync(sqliteHome, { recursive: true })
+  assertDirectory(sqliteHome, 'Codex SQLite Home', true)
   assertDirectory(WORKER_SHARE_ROOT, 'Worker share', true)
   assertDirectory(config.builtinSkillsRoot, 'ANKOLE_BUILTIN_SKILLS_ROOT', false)
   if (config.internalSkillsRoot) {
@@ -31,50 +36,17 @@ function verifyWorkerFilesystem(config: WorkerConfig): void {
   }
   assertExecutable('codex')
   assertExecutable('ankole-browser', ['--help'])
-  assertFile(
-    process.env.ANKOLE_BROWSER_DAEMON_ENTRY ?? '/opt/ankole-browser/dist/daemon/main.js',
-    'ANKOLE_BROWSER_DAEMON_ENTRY',
-    false
-  )
-  assertFile(
-    process.env.ANKOLE_BROWSER_RUNNER ?? '/opt/ankole-browser/dist/runner/bootstrap.js',
-    'ANKOLE_BROWSER_RUNNER',
-    false
-  )
-  const chromiumExecutable =
-    process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell'
-  assertFile(chromiumExecutable, 'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE', true)
-  assertExecutable(chromiumExecutable)
+  assertFile(config.browser.daemonEntry, 'ANKOLE_BROWSER_DAEMON_ENTRY', false)
+  assertFile(config.browser.runnerPath, 'ANKOLE_BROWSER_RUNNER', false)
+  assertFile(config.browser.localChromiumExecutable, 'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE', true)
+  assertExecutable(config.browser.localChromiumExecutable)
 }
 
 /**
- * Logs whether command tools can use the stronger bubblewrap isolation mode.
+ * Checks a directory and optionally performs a write/read probe.
  *
- * Weak mode is allowed because the Worker still runs inside the Agent Computer
- * container. The warning tells operators which host or container setting to fix.
- */
-function logBubblewrapSupport(workspaceRoot: string): void {
-  const support = resolveBubblewrapSupport(workspaceRoot)
-  if (support.mode === 'strong') {
-    workerLogger.info('worker.bubblewrap_ready', 'worker bubblewrap ready', { mode: 'strong' })
-    return
-  }
-
-  workerLogger.warning(
-    'worker.bubblewrap_warning',
-    'Strong bubblewrap is unavailable; using weaker nested bubblewrap with the container procfs. Prefer Docker/Kubernetes settings that allow a fresh bwrap /proc mount.',
-    {
-      mode: 'weak',
-      strong_probe_error: support.strong.ok ? undefined : support.strong.reason
-    }
-  )
-}
-
-/**
- * Checks a mounted directory and optionally performs a write/read probe.
- *
- * Plain access is not enough for some container volume failures. The probe
- * catches mounts that appear writable but cannot persist a small file.
+ * Plain access is not enough for some disk failures. The probe catches a
+ * directory that appears writable but cannot keep a small file.
  */
 function assertDirectory(path: string, label: string, writable: boolean): void {
   const resolved = resolve(path)

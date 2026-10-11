@@ -249,7 +249,7 @@ defmodule Ankole.Brain.Objects do
           {:ok, Object.t()} | {:error, term()}
   def update_object(slug, attrs, writer, opts \\ []) when is_map(attrs) do
     repo = Keyword.get(opts, :repo, Repo)
-    author_uid = author_uid(writer, opts)
+    author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
     expected_hash = attrs[:expected_content_hash]
 
     repo.transact(fn repo ->
@@ -261,7 +261,7 @@ defmodule Ankole.Brain.Objects do
            new_meta = Map.get(attrs, :meta, object.meta),
            :ok <- validate_body_scopes(new_body, writer),
            {:ok, subtype} <- updated_subtype(attrs, object),
-           {:ok, _version} <- snapshot_version(repo, object, author_uid) do
+           {:ok, _version} <- snapshot_version(repo, object, author) do
         changes = %{
           title: new_title,
           body: new_body,
@@ -312,9 +312,9 @@ defmodule Ankole.Brain.Objects do
   @doc """
   Projects one parsed Library page while its Source still owns the body.
 
-  Source and Object locks keep archive and Fork decisions current through
-  the write. File validation belongs to LibraryKnowledge. File history owns
-  versions, so this projection does not create instance version snapshots.
+  Source and Object locks keep archive decisions current through the write.
+  LibraryKnowledge validates the inventory. Published Skills own their
+  history, so this projection does not create instance version snapshots.
   """
   @spec upsert_library_projection(Source.t(), map(), keyword()) ::
           {:ok, :projected | :unchanged | :shadowed | :conflicted} | {:error, term()}
@@ -429,14 +429,14 @@ defmodule Ankole.Brain.Objects do
           {:ok, Object.t()} | {:error, term()}
   def rollback(slug, version_id, writer, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
-    author_uid = author_uid(writer, opts)
+    author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
            :ok <- guard_unmanaged(object, repo),
            %ObjectVersion{} = version <- repo.get(ObjectVersion, version_id),
            true <- version.object_id == object.id or {:error, :version_object_mismatch},
-           {:ok, _snapshot} <- snapshot_version(repo, object, author_uid) do
+           {:ok, _snapshot} <- snapshot_version(repo, object, author) do
         changes = %{
           body: version.body,
           meta: version.meta,
@@ -527,11 +527,8 @@ defmodule Ankole.Brain.Objects do
   end
 
   defp insert_canonical_object(repo, principal_uid, principal_type, display_name) do
-    {slug, type} =
-      case principal_type do
-        :human -> {"people/" <> principal_uid, "person"}
-        :agent -> {"agents/" <> principal_uid, "agent"}
-      end
+    slug = Scope.principal_page_slug(principal_type, principal_uid)
+    type = if principal_type == :human, do: "person", else: "agent"
 
     row = %{
       id: UUIDv7.autogenerate(),
@@ -546,7 +543,10 @@ defmodule Ankole.Brain.Objects do
       updated_at: DateTime.utc_now(:microsecond)
     }
 
-    repo.insert_all(Object, [row], on_conflict: :nothing, conflict_target: :slug)
+    repo.insert_all(Object, [Map.put(row, :tenant_id, Repo.tenant_id!())],
+      on_conflict: :nothing,
+      conflict_target: [:tenant_id, :slug]
+    )
 
     case repo.get_by(Object, slug: slug) do
       %Object{type: ^type, subtype: "internal", deleted_at: nil} -> :ok
@@ -825,10 +825,7 @@ defmodule Ankole.Brain.Objects do
     )
   end
 
-  # Type is a closed validation against the installed ontology. The error
-  # carries the installed type set and the closest vocabulary terms so a tool
-  # caller can re-choose explicitly at the moment of the mistake instead of
-  # silently degrading or needing a separate vocabulary lookup.
+  # The error carries the installed types so the caller can select one.
   defp validate_type(type, _repo) when type in @reserved_types,
     do: {:error, {:reserved_object_type, type}}
 
@@ -941,8 +938,8 @@ defmodule Ankole.Brain.Objects do
   end
 
   # A Source-managed page takes its body from the Source, so every instance
-  # edit path refuses it. Claims, links, timelines, and tags stay open as
-  # instance-owned periphery. Only ordinary Library pages have a fork path.
+  # edit path refuses it. Claims, links, and timelines stay open as
+  # instance-owned periphery.
   defp guard_unmanaged(%Object{managed_by_source_id: nil}, _repo), do: :ok
 
   defp guard_unmanaged(%Object{slug: slug, managed_by_source_id: source_id}, repo) do
@@ -991,11 +988,11 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp snapshot_version(repo, %Object{} = object, author_uid) do
+  defp snapshot_version(repo, %Object{} = object, author) do
     repo.insert(%ObjectVersion{
       id: UUIDv7.autogenerate(),
       object_id: object.id,
-      author_uid: author_uid,
+      author: author,
       body: object.body,
       meta: object.meta,
       snapshot_at: DateTime.utc_now(:microsecond)
@@ -1014,9 +1011,6 @@ defmodule Ankole.Brain.Objects do
       nil -> {:error, :not_found}
     end
   end
-
-  defp author_uid(:system, opts), do: Keyword.get(opts, :author_uid)
-  defp author_uid(writer, _opts) when is_binary(writer), do: writer
 
   defp normalize_optional(nil), do: nil
 

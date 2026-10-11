@@ -51,7 +51,7 @@ export function ObservabilitySettingsEditor({
 
   return (
     <div className="grid gap-7">
-      <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
+      <p className="border border-warning/50 bg-warning-subtle px-4 py-3 text-xs leading-5 text-muted-foreground">
         {t('console.settings.observability_restart_hint')}
       </p>
 

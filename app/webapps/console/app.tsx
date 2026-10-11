@@ -1,9 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router'
-import { configureConsoleAPIClient } from './api/tokens'
+import { configureConsoleAPIClient } from './api/client'
+import { applyDataTenantNavigation } from './api/data-context'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
+import { AgentFilesPage } from './pages/agent-files'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
 import { IdentityMappingCreatePage, IdentityMappingsPage } from './pages/identity-mappings'
 import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
@@ -13,7 +15,8 @@ import { ScheduleCheckbacksPage, ScheduleCronEditorPage, SchedulesListPage } fro
 import { WebhooksPage } from './pages/webhooks'
 import { AutomationJobsPage } from './pages/automation-jobs'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
-import { WorkerFilesPage, WorkersListPage } from './pages/workers'
+import { WorkersListPage } from './pages/workers'
+import { WorkerProviderEditorPage, WorkerProvidersListPage } from './pages/worker-providers'
 import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
@@ -21,9 +24,9 @@ import { BrainObjectDrawer, BrainObjectsPage } from './pages/brain/objects'
 import { BrainObjectEditorPage } from './pages/brain/object-editor'
 import { BrainClaimsPage } from './pages/brain/claims'
 import { BrainContradictionsPage } from './pages/brain/contradictions'
-import { BrainSuggestionsPage } from './pages/brain/suggestions'
 import { BrainMergeSuggestionsPage } from './pages/brain/merge-suggestions'
 import { BrainSourcesPage } from './pages/brain/sources'
+import { BrainSuggestionsPage } from './pages/brain/suggestions'
 import { BrainSearchPreviewPage } from './pages/brain/search-preview'
 import { BrainPrincipalAuditPage } from './pages/brain/principal-audit'
 import { BrainHealthPage } from './pages/brain/health'
@@ -34,12 +37,9 @@ import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
 import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
 import { OIDCClientEditorPage, OIDCClientsListPage } from './pages/oidc-clients'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
+import { TenantsListPage, TenantEditorPage } from './pages/tenants'
 
-// Configure the bearer-token API client at module load, before any route
-// component can render or fire a query. This must run eagerly and NOT inside a
-// `useMemo`/effect: it is a side effect, and the React Compiler may drop or
-// defer a memo whose result is unused — which would let the first `/api/v1`
-// requests go out with no Authorization header ("bearer token required").
+// Set the session and CSRF configuration before route components start queries.
 configureConsoleAPIClient()
 
 const shouldPreloadRoute: NonNullable<RouteObject['shouldRevalidate']> = ({ currentUrl, nextUrl }) =>
@@ -49,11 +49,14 @@ function preloadRoute(loader: RouteObject['loader']) {
   return { loader, shouldRevalidate: shouldPreloadRoute }
 }
 
-// The Phoenix shell serves the console SPA under `/console/*`, so client-side
-// routing is anchored there. Each resource is a list route plus its editor
+// The authenticated Phoenix shell supplies the runtime mount for client-side
+// routing. Each resource is a list route plus its editor
 // routes. Settings are the exception: the key route is nested so its editor can
 // stay deep-linkable while opening as a drawer over the list.
 export function createConsoleRouter(queryClient: QueryClient) {
+  applyDataTenantNavigation()
+  const basename = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-admin-console-path"]')?.content
+  if (!basename) throw new Error('The authenticated console shell did not provide its mount path')
   const loaders = createConsoleRouteLoaders(queryClient)
 
   return createBrowserRouter(
@@ -71,8 +74,12 @@ export function createConsoleRouter(queryClient: QueryClient) {
             children: [
               { index: true, element: <HomePage />, ...preloadRoute(loaders.home) },
               { path: 'agents', element: <AgentsListPage />, ...preloadRoute(loaders.agents) },
+              { path: 'tenants', element: <TenantsListPage /> },
+              { path: 'tenants/new', element: <TenantEditorPage /> },
+              { path: 'tenants/:tenantID', element: <TenantEditorPage /> },
               { path: 'agents/new', element: <AgentEditorPage /> },
               { path: 'agents/:uid', element: <AgentEditorPage /> },
+              { path: 'agents/:uid/files', element: <AgentFilesPage /> },
               { path: 'agent-library', element: <AgentLibraryPage />, ...preloadRoute(loaders.agentLibrary) },
               { path: 'agent-library/agent-plugins/:pluginID', element: <AgentPluginDetailPage /> },
               { path: 'brain', element: <Navigate to="/brain/objects" replace /> },
@@ -85,9 +92,9 @@ export function createConsoleRouter(queryClient: QueryClient) {
               },
               { path: 'brain/claims', element: <BrainClaimsPage /> },
               { path: 'brain/contradictions', element: <BrainContradictionsPage /> },
-              { path: 'brain/suggestions', element: <BrainSuggestionsPage /> },
               { path: 'brain/merge-suggestions', element: <BrainMergeSuggestionsPage /> },
               { path: 'brain/sources', element: <BrainSourcesPage /> },
+              { path: 'brain/suggestions', element: <BrainSuggestionsPage /> },
               { path: 'brain/search-preview', element: <BrainSearchPreviewPage /> },
               { path: 'brain/principal-audit', element: <BrainPrincipalAuditPage /> },
               { path: 'brain/health', element: <BrainHealthPage /> },
@@ -148,11 +155,13 @@ export function createConsoleRouter(queryClient: QueryClient) {
                   { path: ':key', element: <SettingEditorDrawer /> }
                 ]
               },
+              { path: 'settings/worker-providers', element: <WorkerProvidersListPage /> },
+              { path: 'settings/worker-providers/new', element: <WorkerProviderEditorPage /> },
+              { path: 'settings/worker-providers/:providerID', element: <WorkerProviderEditorPage /> },
               { path: 'worker-envs', element: <WorkerEnvsListPage />, ...preloadRoute(loaders.workerEnvs) },
               { path: 'worker-envs/new', element: <WorkerEnvEditorPage /> },
               { path: 'worker-envs/:name', element: <WorkerEnvEditorPage /> },
               { path: 'workers', element: <WorkersListPage />, ...preloadRoute(loaders.workers) },
-              { path: 'workers/:workerID/files', element: <WorkerFilesPage /> },
               {
                 path: 'background-agent-jobs',
                 element: <BackgroundAgentJobsPage />,
@@ -170,7 +179,7 @@ export function createConsoleRouter(queryClient: QueryClient) {
         ]
       }
     ],
-    { basename: '/console' }
+    { basename }
   )
 }
 

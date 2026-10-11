@@ -16,6 +16,8 @@ defmodule Ankole.Observability.Provider do
   @type observation :: :turn | :response | :generation
 
   @type trace_context :: %{
+          tenant_id: String.t(),
+          tenant_slug: String.t(),
           principal_uid: String.t() | nil,
           principal_type: String.t() | nil,
           user_id: String.t() | nil,

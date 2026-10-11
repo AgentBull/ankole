@@ -38,10 +38,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.ErrorPolicy do
      {:reply_delivery, :operator_action_required, %{"code" => "binding_phone_number_mismatch"}}}
   end
 
-  def normalize_delivery_result({:error, :outbound_attachment_path_missing}) do
-    {:error, {:reply_delivery, :operator_action_required, %{"code" => "attachment_path_missing"}}}
-  end
-
   def normalize_delivery_result(result), do: result
 
   defp action(%Client.Error{kind: :transport}), do: :retryable

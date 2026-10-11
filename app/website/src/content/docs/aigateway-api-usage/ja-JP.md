@@ -1,13 +1,13 @@
 ---
 title: AIGateway API の使い方
-description: 外部の呼び出し側が AIGateway REST API を使う方法——OpenResponses 互換エンドポイント、agent と admin の token の違い、ステートレス/ステートフル呼び出し、実践例。
+description: 外部の呼び出し側が AIGateway REST API を使う方法——OpenResponses 互換エンドポイント、Agent と OIDC Human の token の違い、ステートレス/ステートフル呼び出し、実践例。
 section: Developer guide
 order: 126
 ---
 
 AIGateway は worker が呼び出す内部境界だけではありません。外部アプリケーション、企業システム、SDK が直接呼び出せる REST API です。このページは、呼び出し側のための実践ガイドです。エンドポイント、認証、2 つの呼び出しモード、実践例を説明し、[AIGateway](../ai-gateway/) のコンセプトページを実践的な使い方で補完します。
 
-決定的な性質を先に述べます。AIGateway API は**OpenResponses 互換であり、Principal にスコープされます**。呼び出し側は bearer token（agent または admin）を提示し、OpenResponses 形式のリクエストを送り、JSON レスポンスまたはストリームを受け取ります。呼び出し側が provider credential を見ることは決してありません——それらは control plane が所有します。
+決定的な性質を先に述べます。AIGateway API は**OpenResponses 互換であり、Principal にスコープされます**。呼び出し側は bearer token（Agent または OIDC Human）を提示し、OpenResponses 形式のリクエストを送り、JSON レスポンスまたはストリームを受け取ります。呼び出し側が provider credential を見ることは決してありません——それらは control plane が所有します。
 
 ## 認証
 
@@ -23,7 +23,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 2 種類の token が受け入れられます。
 
 - **Agent token**——1 つの Agent の model binding にスコープされます。統合が特定の Agent に代わって行動するときに使います。
-- **Admin token**——すべての provider にスコープされます。オペレーター側のスクリプトと Console に使います。
+- **OIDC Human token** — `ai_gateway.write` を持つ OIDC Client が active Human に発行します。その Client の model alias のみ使用でき、`subject_type = "oidc_human"` です。
+
+OIDC Human token を取得するには、Console で `ai_gateway.write` scope を持つ OIDC Client を作成し、許可する group と model alias を設定します。Authorization Code と PKCE でログインしてください。長期利用には `offline_access` を要求し、ローテーションする Refresh Token を使用します。Human は許可された group に所属する必要があり、Client の model alias のみ使用できます。直接の `provider_id/model` selector は使用できません。
 
 token がどのように Principal に解決されるかは、[Principal and AuthZ](../principal-authz/) を参照してください。
 

@@ -19,7 +19,6 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   @fingerprint_max_bindings 128
   @fingerprint_max_global_name_bytes 256
   @max_nested_tool_calls 256
-  @default_function_namespace "functions"
 
   defmodule Plan do
     @moduledoc false
@@ -34,13 +33,16 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
             synthesized_tool: map()
           }
 
-    @type resume :: %{
-            optional(:bindings) => [Descriptor.t()],
-            call_id: String.t(),
-            code: String.t(),
-            fingerprint: String.t(),
-            memo: [map()]
-          }
+    @type resume ::
+            %{
+              call_id: String.t(),
+              code: String.t(),
+              fingerprint: String.t(),
+              bindings: [Descriptor.t()],
+              runtime_bindings: [map()],
+              memo: [map()]
+            }
+            | %{call_id: String.t(), preflight_outcome: map()}
 
     @type t :: %__MODULE__{
             enabled?: boolean(),
@@ -128,25 +130,6 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   def load_bindings(%Plan{} = plan, bindings) do
     with {:ok, program} <- merge_program(plan.program, bindings, plan.enabled?) do
       {:ok, %{plan | program: program}}
-    end
-  end
-
-  @spec ensure_no_collision([Descriptor.t()], [map()], Plan.t()) :: :ok | {:error, term()}
-  def ensure_no_collision(_base_tools, _passthrough_tools, %Plan{program: nil}), do: :ok
-
-  def ensure_no_collision(base_tools, passthrough_tools, %Plan{
-        program: %{tool_name: tool_name}
-      }) do
-    collision? =
-      Enum.any?(
-        base_tools,
-        &(&1.namespace in [nil, "", @default_function_namespace] and &1.name == tool_name)
-      ) or
-        Enum.any?(passthrough_tools, &(Map.get(&1, "name") == tool_name))
-
-    case collision? do
-      false -> :ok
-      true -> {:error, {:invalid_program, {:tool_name_collision, tool_name}}}
     end
   end
 
@@ -318,47 +301,6 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   def job(_plan, call_item, _memo),
     do: {:error, {:program_runtime_unavailable, Map.get(call_item, "call_id")}}
-
-  @spec resume_job(Plan.t(), map()) :: {:ok, map()} | {:error, term()}
-  def resume_job(%Plan{program: %{bindings: bindings}}, %{} = resume) do
-    case frozen_program_bindings(resume.fingerprint, resume.code, bindings) do
-      {:ok, frozen_bindings, runtime_bindings} ->
-        {:ok,
-         %{
-           call_id: resume.call_id,
-           code: resume.code,
-           fingerprint: resume.fingerprint,
-           bindings: frozen_bindings,
-           runtime_bindings: runtime_bindings,
-           memo: resume.memo
-         }}
-
-      {:error, _reason} ->
-        {:error, {:program_fingerprint_mismatch, resume.call_id}}
-    end
-  end
-
-  def resume_job(_plan, resume),
-    do: {:error, {:program_runtime_unavailable, Map.get(resume, :call_id)}}
-
-  @spec build_resume_jobs(Plan.t(), [Plan.resume()]) :: {:ok, [map()]}
-  def build_resume_jobs(%Plan{} = plan, resumes) do
-    jobs =
-      Enum.map(resumes, fn resume ->
-        case resume_job(plan, resume) do
-          {:ok, job} ->
-            job
-
-          {:error, reason} ->
-            %{
-              call_id: resume.call_id,
-              preflight_outcome: failed_outcome("program_contract_changed", reason)
-            }
-        end
-      end)
-
-    {:ok, jobs}
-  end
 
   @spec build_jobs(Plan.t(), [map()]) :: {:ok, [map()]} | {:error, term()}
   def build_jobs(%Plan{} = plan, program_calls) do
@@ -592,101 +534,6 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   def provider_history_item(%{"caller" => %{"type" => "program"}}), do: {:handled, nil}
   def provider_history_item(_item), do: :unhandled
 
-  @doc false
-  @spec history_error(term(), map(), ResponseItems.t()) :: term()
-  def history_error(reason, %{"type" => "program", "call_id" => call_id}, _ledger)
-      when elem(reason, 0) in [
-             :duplicate_history_item,
-             :conflicting_call_pair,
-             :conflicting_duplicate_item
-           ],
-      do: {:duplicate_program_call_id, call_id}
-
-  def history_error(reason, %{"type" => "program_output", "call_id" => call_id}, _ledger)
-      when elem(reason, 0) in [
-             :duplicate_history_item,
-             :conflicting_output_pair,
-             :conflicting_duplicate_item
-           ],
-      do: {:duplicate_program_output, call_id}
-
-  def history_error(
-        reason,
-        %{"type" => type, "call_id" => call_id, "caller" => %{"caller_id" => program_id}},
-        _ledger
-      )
-      when type in ["function_call", "custom_tool_call"] and
-             elem(reason, 0) in [
-               :duplicate_history_item,
-               :conflicting_call_pair,
-               :conflicting_duplicate_item
-             ],
-      do: {:duplicate_nested_call_id, program_id, call_id}
-
-  def history_error(
-        reason,
-        %{"type" => type, "call_id" => call_id, "caller" => %{"caller_id" => program_id}},
-        _ledger
-      )
-      when type in [
-             "function_call_output",
-             "custom_tool_call_output"
-           ] and
-             elem(reason, 0) in [
-               :duplicate_history_item,
-               :conflicting_output_pair,
-               :conflicting_duplicate_item
-             ],
-      do: {:duplicate_program_call_output, program_id, call_id}
-
-  def history_error(
-        {:orphan_call_output, _pair_key, "program_output"},
-        %{"call_id" => call_id},
-        _ledger
-      ),
-      do: {:orphan_program_output, call_id}
-
-  def history_error(
-        {:orphan_call_output, _pair_key, _type},
-        %{"call_id" => call_id, "caller" => %{"caller_id" => program_id}},
-        ledger
-      ) do
-    if program_closed?(ledger, program_id),
-      do: {:late_program_call_output, program_id, call_id},
-      else: {:orphan_program_call_output, program_id, call_id}
-  end
-
-  def history_error(
-        {:mismatched_call_output, _pair_key, _expected},
-        %{"call_id" => call_id, "caller" => %{"caller_id" => program_id}},
-        _ledger
-      ),
-      do: {:invalid_program_call_output, program_id, call_id, :type_mismatch}
-
-  def history_error(
-        {:mismatched_call_output_name, _pair_key},
-        %{"call_id" => call_id, "caller" => %{"caller_id" => program_id}},
-        _ledger
-      ),
-      do: {:invalid_program_call_output, program_id, call_id, :name_mismatch}
-
-  def history_error(
-        {:invalid_tool_call_output, _call_id},
-        %{"call_id" => call_id, "caller" => %{"caller_id" => program_id}} = item,
-        _ledger
-      ) do
-    detail = if Map.has_key?(item, "output"), do: :invalid_output, else: :missing_output
-    {:invalid_program_call_output, program_id, call_id, detail}
-  end
-
-  def history_error(reason, _item, _ledger), do: reason
-
-  defp program_closed?(ledger, program_id) do
-    Enum.any?(ResponseItems.program_groups(ledger), fn group ->
-      group.call_id == program_id and not is_nil(group.output)
-    end)
-  end
-
   defp resolve_resumes(%ResponseItems.History{} = history, program) do
     with :ok <- validate_program_children(history.entries),
          {:ok, groups} <- validate_program_groups(ResponseItems.program_groups(history.ledger)) do
@@ -802,7 +649,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       fingerprint = group.root.item["fingerprint"]
 
       case frozen_program_bindings(fingerprint, code, program.bindings) do
-        {:ok, frozen_bindings, _runtime_bindings} ->
+        {:ok, frozen_bindings, runtime_bindings} ->
           with {:ok, calls} <- replay_calls(group.children),
                {:ok, memo} <- replay_memo(calls, frozen_bindings) do
             round = %{
@@ -810,6 +657,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
               code: code,
               fingerprint: fingerprint,
               bindings: frozen_bindings,
+              runtime_bindings: runtime_bindings,
               memo: memo
             }
 
@@ -819,7 +667,12 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
           end
 
         {:error, _reason} ->
-          round = %{call_id: call_id, code: code, fingerprint: fingerprint, memo: []}
+          round = %{
+            call_id: call_id,
+            preflight_outcome:
+              failed_outcome("program_contract_changed", {:program_fingerprint_mismatch, call_id})
+          }
+
           {:cont, {:ok, [round | rounds_rev]}}
       end
     end)
@@ -1108,15 +961,15 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   defp binding_name(%Descriptor{namespace: namespace, name: name}),
     do: binding_name(namespace, name)
 
-  defp binding_name(namespace, name)
-       when namespace in [nil, "", @default_function_namespace],
-       do: normalize_code_mode_identifier(name)
-
   defp binding_name(namespace, name) do
-    separator =
-      if String.ends_with?(namespace, "_") or String.starts_with?(name, "_"), do: "", else: "__"
+    if ToolContract.default_namespace?(namespace) do
+      normalize_code_mode_identifier(name)
+    else
+      separator =
+        if String.ends_with?(namespace, "_") or String.starts_with?(name, "_"), do: "", else: "__"
 
-    normalize_code_mode_identifier(namespace <> separator <> name)
+      normalize_code_mode_identifier(namespace <> separator <> name)
+    end
   end
 
   defp normalize_code_mode_identifier(value) do

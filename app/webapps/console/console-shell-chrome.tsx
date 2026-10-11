@@ -39,8 +39,9 @@ import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { ThemeToggle } from '../common/theme-toggle'
-import { logoutConsoleSession } from './api/tokens'
+import { logoutConsoleSession } from './api/client'
 import { ConsoleReadiness } from './console-readiness'
+import { TenantSwitcher } from './tenant-switcher'
 
 /**
  * Routed console shell: the header, sidebar navigation, and page outlet every
@@ -101,6 +102,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_platform',
     items: [
       { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
+      { to: '/tenants', label: 'console.tenants.title', icon: RiShieldKeyholeLine },
       { to: '/access/groups', match: '/access', label: 'console.nav.access', icon: RiKey2Line },
       { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
     ]
@@ -113,22 +115,23 @@ export function ConsoleLayout() {
   const [navigationOpen, setNavigationOpen] = useState(false)
   const navigationTriggerRef = useRef<HTMLButtonElement>(null)
   const logout = useMutation({
+    meta: { invalidates: false },
     mutationFn: logoutConsoleSession,
     onSettled: () => window.location.assign('/sessions/new')
   })
 
   return (
     <TooltipProvider>
-      <div className="h-screen overflow-y-scroll bg-background text-foreground [scrollbar-gutter:stable]">
+      <div className="h-screen overflow-y-scroll bg-ground text-foreground [scrollbar-gutter:stable]">
         {/* Reaching the page content by keyboard meant tabbing past the header and
             every navigation link, on every page. The bypass sits first in the
             tab order and shows itself only while focused. */}
         <a
           href="#console-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground">
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-background">
           {t('console.aria.skip_to_content')}
         </a>
-        <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border bg-background px-3 text-foreground">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-between bg-ground px-3 text-foreground">
           <div className="flex min-w-0 items-center gap-3">
             <Sheet
               open={navigationOpen}
@@ -152,7 +155,7 @@ export function ConsoleLayout() {
               <SheetContent
                 side="left"
                 showCloseButton={false}
-                className="w-[min(320px,88vw)] border-border bg-background p-0 text-foreground">
+                className="data-[side=left]:w-[min(320px,88vw)] p-0 text-foreground">
                 <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
                   <div className="grid min-w-0 gap-0.5">
                     <SheetTitle className="truncate text-base text-foreground">{t('console.title')}</SheetTitle>
@@ -172,7 +175,7 @@ export function ConsoleLayout() {
             {/* The brand mark repeats the sign-in screen's letter mark. It used to
                 be the same gear the "AppConfigure" nav item carries, which read as
                 a link into settings rather than as the product. */}
-            <Link to="/" className="flex min-w-0 items-center gap-3 hover:text-link">
+            <Link to="/" className="flex min-w-0 items-center gap-3">
               <span
                 className="grid size-8 shrink-0 place-items-center bg-primary text-sm font-semibold text-primary-foreground"
                 aria-hidden>
@@ -187,6 +190,7 @@ export function ConsoleLayout() {
             </Link>
           </div>
           <div className="flex items-center gap-2">
+            <TenantSwitcher />
             <ConsoleReadiness />
             <ThemeToggle />
             <Tooltip>
@@ -210,11 +214,16 @@ export function ConsoleLayout() {
         </header>
 
         <div className="grid grid-cols-1 min-h-[calc(100vh-3rem)] lg:grid-cols-[256px_minmax(0,1fr)]">
-          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] flex-col border-r border-border bg-background lg:flex">
+          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] flex-col bg-ground lg:flex">
             <ConsoleNavigation />
           </aside>
 
-          <main id="console-content" tabIndex={-1} className="min-w-0 p-4 md:p-6 xl:p-8">
+          {/* The page is a sheet of paper on the ground, as in the design language: the header and the
+              navigation stay on the ground, and only the sheet carries the page. */}
+          <main
+            id="console-content"
+            tabIndex={-1}
+            className="m-1.5 mt-0 min-w-0 rounded-panel bg-background p-4 shadow-[0_0_0_1px_var(--color-border),0_1px_3px_rgb(38_40_42/0.04)] md:p-6 lg:ml-0 xl:p-8">
             <Outlet />
           </main>
         </div>
@@ -249,11 +258,11 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={onNavigate}
                   className={({ isActive, isPending }) =>
                     cn(
-                      'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',
                       isPending
-                        ? 'border-primary/60 bg-accent text-accent-foreground'
+                        ? 'border-foreground/40 bg-accent text-accent-foreground'
                         : isActive || matchesArea
-                          ? 'border-primary bg-accent text-accent-foreground'
+                          ? 'border-foreground bg-accent text-accent-foreground'
                           : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
                     )
                   }>

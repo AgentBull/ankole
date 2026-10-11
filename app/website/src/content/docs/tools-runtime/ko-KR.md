@@ -1,108 +1,33 @@
 ---
 title: Tool 런타임
-description: worker가 turn이 model에 제공하는 tool을 수집하고 schema로 변환하며 dispatch하는 방식 — WorkerAgentTool contract, turn별 조립, schema 변환, dispatch 경로.
+description: 제어 플레인의 도구 선언과 Worker 환경 실행 경계.
 section: Developer guide
 order: 120
 ---
 
-turn 중에 worker는 model이 호출할 수 있는 tool 집합을 조립하고, 각 tool의 schema를 model이 보는 JSON Schema로 변환하며, model이 만든 각 function call을 해당 tool의 `execute` 함수로 dispatch합니다. 이 페이지는 그 런타임을 설명합니다. `WorkerAgentTool` contract, turn별 tool 집합이 조립되는 방식, schema가 수집되는 방식, loop가 호출을 dispatch하는 방식이 그것입니다. 이 문서는 [Agent loop](../agent-loop/)와 [Agent Computer Worker](../agent-computer-worker/)를 기반으로 합니다.
+제어 플레인은 주 Agent의 모델 루프와 도구 분배를 소유합니다. `Ankole.Conversations.Driver`는 AIGateway를 호출하고 요청한 도구를 실행하며 결과를 기록한 뒤 턴을 계속합니다. Agent Computer는 환경 작업과 Codex Job을 실행합니다. [Agent loop](../agent-loop/)와 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
 
-핵심 속성을 먼저 말하면, tool은 **turn마다 조립됩니다**. 각 turn은 computer, web, schedule, background job 및 기타 현재 소스에서 최종 tool 집합을 구성합니다. Agent가 소유한 전역 tool 집합은 없습니다. MCP-backed Skill은 computer command tool과 mcporter를 사용합니다.
+## 현재 도구 집합
 
-## WorkerAgentTool 계약
+`Ankole.Conversations.ToolCatalog.for_run/1`은 현재 도메인 선언과 `worker_tools.json`의 Worker 선언을 결합합니다. 실행 종류, 모델 기능, 선택한 Skill과 플러그인, ambient 권한에 따라 구성하며 Agent의 전역 도구 집합으로 저장하지 않습니다.
 
-모든 Worker tool은 `defineWorkerTool`로 `WorkerAgentTool`을 구성합니다. 런타임이 신경 쓰는 필드는 다음과 같습니다.
+`Ankole.Conversations.Tool`은 모델에 보이는 schema, 실행 주체, 실행 순서, 허용된 호출자와 읽기·파괴·재시도 메타데이터를 보관합니다. `Ankole.Conversations.Tools.prepare/2`는 호출자를 확인하고 인수를 파싱한 다음 도구 소유자가 정규화하고 JSON Schema를 검증한 뒤 실행합니다.
 
-| 필드 | 타입 | 역할 |
-|---|---|---|
-| `name` | string | model이 보고 호출하는 tool 이름 |
-| `description` | string | tool이 하는 일 — model은 이것을 읽고 호출 여부를 결정합니다 |
-| `schema` | Zod schema | `execute`가 실행되기 전에 검증되는 입력 매개변수 |
-| `jsonSchema` | JSON Schema(선택) | 생성된 Zod schema 대신 사용되는 라이브 외부 schema |
-| `strict` | boolean(선택) | Provider가 해당 function schema를 strict mode로 적용할지 여부 |
-| `namespace` / `namespaceDescription` | string(선택) | 관련 외부 tool을 하나의 provider namespace 아래로 묶습니다 |
-| `deferLoading` | boolean(선택) | 하위 schema를 선택될 때까지 Tool Search 뒤에 유지합니다 |
-| `executionMode` | `'parallel' \| 'sequential'` | 같은 응답에서 다른 tool과 함께 실행될 수 있는지 여부 |
-| `isReadOnly` / `isDestructive` | boolean | 활동 보고와 안전 검사를 위한 메타데이터 |
-| `describeActivity` | function | 검증된 매개변수에서 짧은 사람이 읽을 수 있는 라벨을 만듭니다(진행 상황용) |
-| `describeCompletedActivity` | function(선택) | tool이 끝나면 라벨을 결과 요약으로 교체합니다 |
-| `execute` | function | tool을 실행합니다. 콘텐츠, 세부 정보, 선택적 presentation 이벤트를 반환하며 turn을 종료할 수 있습니다 |
+## 소유자에서 실행
 
-`execute` 함수가 tool의 실제 작업입니다. 검증된 매개변수(schema가 이미 파싱하고 검사함)와 abort signal을 받아 `AgentToolResult`를 반환합니다. 이는 model이 보는 콘텐츠, 로깅용 구조화된 세부 정보, 선택적 응답 presentation 이벤트, 그리고 actor event를 완료하거나 turn을 종료하는 선택적 플래그로 구성됩니다.
+- Session 계획, 일정, Background Agent Job, Workflow, Skill 읽기와 도메인 Web 작업은 제어 플레인의 해당 소유자가 실행합니다.
+- Computer 작업은 RuntimeFabric을 통해 Agent의 Worker에 위임합니다. 첫 환경 작업이 Session workspace를 엽니다. Worker는 슬롯과 프로세스 상태를, 제어 플레인은 영구 결과를 소유합니다.
+- MCP-backed Skill은 Worker의 computer command 도구와 mcporter를 사용합니다.
+- Provider hosted tool은 AIGateway를 통해 실행하며 선택한 모델이 선언한 기능을 따릅니다.
 
-## turn마다 tool 집합이 조립되는 방식
+Driver는 선언에 따라 병렬 또는 순차 호출을 예약합니다. 영구 변경은 `Ankole.Conversations.Receipts`를 사용해 도메인 변경과 결과를 같은 트랜잭션에서 커밋합니다. AIGateway는 다음 모델 반복에 사용할 도구 출력을 저장합니다. Worker가 끊기면 Driver가 선언된 재시도 계약에 따라 결과가 불확실한 환경 작업을 처리합니다.
 
-`text_turn.ts`는 각 turn 시작 시 category creator에서 tool을 조합하여 tool 집합을 구성합니다.
+## Workflow 작업 도구
 
-```typescript
-tools = [
-  createTodoTool(...),
-  ...createComputerTools({...}),
-  ...webTools,
-  ...scheduleTools,
-  ...backgroundAgentJobTools,
-  createWorkflowTool(...),
-  createShowWorkflowTool(...),
-  createListWorkflowsTool(...),
-  createCancelWorkflowTool(...),
-  ...
-]
-```
+제한된 목록은 Web 작업, 위임 및 확인용 Background Agent Job 작업, `sleep`, `submit_result`입니다. Hosted Brain은 `recall`과 `get_page`만 허용합니다. Computer, shell, Skill, 일정, Workflow 생성 도구는 제공하지 않습니다.
 
-각 category creator는 turn의 context(worker 환경, agent의 홈, RPC client, abort signal)로 구성된 하나 이상의 `WorkerAgentTool` 객체를 반환하는 함수입니다. 조립은 명시적이고 순서가 있으며, reflection도 auto-discovery도 decorator 스캔도 없습니다. tool이 배열에 있으면 사용 가능하고, 없으면 사용할 수 없습니다.
+`submit_result`는 저장된 결과 schema로 값을 검증합니다. 거부되면 수정할 수 있고 수락되면 작업이 끝납니다. 제출 전에 실행 중인 위임 Job을 정리해야 합니다. [Workflows](../workflows/)를 참조하세요.
 
-turn별 조립 덕분에 tool 집합이 동적입니다.
+## 도구 추가
 
-- **Skill 지식**은 Agent의 현재 활성화된 Skill에서 투영됩니다. MCP-backed Skill은 도메인 tool을 선택하고 기존 computer command tool을 사용하여 mcporter를 호출합니다.
-- **Web tools**는 worker의 `web_search`/`web_fetch` provider 가용성에서 만들어집니다. profile이 바인딩되지 않으면 tool이 없습니다.
-- **Background job tools**는 turn의 context에서 만들어지며, turn이 job 생성을 지원할 때만 사용할 수 있습니다.
-- **Workflow tools**는 일반 text turn에 `workflow`, `show_workflow`, `list_workflows`, `cancel_workflow`를 추가합니다. Workflow task turn은 이 조립 경로를 사용하지 않습니다.
-
-최종 tool 집합은 여전히 turn별 결과이지, Agent 기능 데이터베이스나 준비된 연결 풀이 아닙니다.
-
-## Schema 수집
-
-model은 Zod가 아닌 JSON Schema가 필요합니다. `tool-schema.ts`는 각 tool의 Zod schema를 변환합니다.
-
-```typescript
-export function zodToJSONSchema(schema: z.ZodType): JSONObject {
-  const jsonSchema = z.toJSONSchema(schema) as JSONObject
-  if (jsonSchema.type !== 'object') {
-    throw new Error('function tool parameters must use a root object schema')
-  }
-  return jsonSchema
-}
-```
-
-수집된 schema(tool당 하나, 여기에 tool 이름과 설명 포함)는 Responses 요청으로 model에 전송됩니다. 구체적인 외부 adapter가 `jsonSchema`를 제공하면 Ankole은 Zod에서 생성하는 대신 해당 schema를 경계에서 변경 없이 전송하며, `minimum`과 `maximum` 같은 제약 조건도 그대로 유지됩니다. 이후의 projection은 별도의 native runtime이 담당합니다. 지연된(deferred) children은 선택될 때까지 Tool Search 뒤에 남습니다.
-
-model이 function call을 반환하면 해당 인수는 JSON 문자열로 도착합니다. `validateToolArguments`는 tool의 Zod schema를 기준으로 문자열을 파싱하며, 잘못된 형태의 인수(잘린 JSON, 코드 fence 안의 JSON, 균형이 맞지 않는 객체)를 위한 제한된 복구 사다리가 있습니다. tool의 `execute`는 원시 model 출력을 절대 받지 않으며, schema로 검증된 매개변수를 받습니다.
-
-### Workflow task의 동적 결과 schema
-
-Workflow task는 일반 text turn과 다른 고정 tool 목록을 사용합니다. Web tools, Brain이 활성화된 경우의 읽기 전용 `recall`/`get_page`, 그리고 task별 `submit_result`만 제공합니다. 따라서 task는 다른 Workflow나 Background Agent Job을 만들 수 없습니다.
-
-`submit_result`의 `jsonSchema`는 Workflow script가 해당 task에 저장한 result schema에서 만듭니다. Worker는 이 schema를 `strict: true`로 Provider에 보내고, 제어 플레인은 제출된 값을 다시 검증한 뒤에만 PostgreSQL에 저장합니다. schema 거부는 task turn을 종료하지 않으므로 서브에이전트가 값을 고쳐 다시 제출할 수 있습니다. 지원되는 닫힌 schema 형태는 [Workflows](../workflows/)에서 설명합니다.
-
-## loop가 호출을 dispatch하는 방식
-
-model의 응답에 function-call 항목이 포함되면 agent loop은 다음을 수행합니다.
-
-1. **tool map 구성** — `agentToolMap(tools)`가 배열을 tool 이름을 키로 하는 `Map<string, AgentTool>`로 변환합니다.
-2. **인수 검증** — 각 호출의 인수 문자열을 tool의 schema에 대해 파싱하고 검증하며, 필요하면 복구합니다.
-3. **실행** — tool의 `execute` 함수가 검증된 매개변수와 abort signal로 실행됩니다. `executionMode: 'parallel'`인 tool은 동시에 실행될 수 있고, sequential tool은 순서대로 실행됩니다.
-4. **결과 기록** — `AgentToolResult`가 function-call-output 메시지로 AIGateway에 전송되며, model은 다음 반복에서 이를 봅니다.
-
-loop가 반복을 소유합니다. model을 호출하고, tool을 실행하고, 결과를 기록하며 model이 더 이상 function call을 반환하지 않을 때까지 반복합니다. tool은 언제 실행할지 결정하지 않으며, loop가 model이 요청한 내용에 따라 결정합니다.
-
-## 이 가이드가 다루지 않는 것
-
-이 가이드는 tool 작성 튜토리얼이 아닙니다. 새 tool은 `defineWorkerTool`로 `WorkerAgentTool`을 구성하며, 기존 category(`tools/computer/`, `tools/web/`)가 참조 예시입니다. model 행동 가이드도 아닙니다. model이 어떤 tool을 호출하는지는 런타임이 아니라 persona의 영역입니다. 그리고 agent loop 페이지를 대체하지도 않습니다. dispatch 경로는 loop의 일부이며, loop 페이지가 그 맥락입니다.
-
-## 다음 단계
-
-- tool 호출을 dispatch하는 loop는 [Agent loop](../agent-loop/)를 참조하세요.
-- tool을 실행하는 Agent Computer Worker는 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
-- Skill 뒤의 MCP 실행 dependency는 [MCP server 참조](../mcp/)를 참조하세요.
-- MCP dependency를 지니는 skill은 [Skill 작성](../writing-a-skill/)을 참조하세요.
-- 동적 task result schema와 서브에이전트 도구 경계는 [Workflows](../workflows/)를 참조하세요.
+도메인 도구의 선언과 구현은 제어 플레인의 소유자에 둡니다. 환경 도구는 Worker에 추가하고 `worker_tools.json`을 다시 생성합니다. `WorkerAgentTool`과 Zod는 Worker의 구현 계약이며 주 모델 루프를 소유하지 않습니다. Schema와 실행 경계를 함께 일치시켜야 합니다.

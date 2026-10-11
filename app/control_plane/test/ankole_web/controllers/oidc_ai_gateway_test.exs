@@ -11,7 +11,6 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AuthZ
   alias Ankole.OIDC
-  alias Ankole.Principals
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayResponsesSocket
 
@@ -40,6 +39,45 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
 
       assert %{"error" => %{"code" => "model_not_allowed"}} = json_response(response, 403)
     end
+  end
+
+  test "an already-open human socket refuses new responses after tenant suspension", %{
+    tenant: tenant
+  } do
+    fixture = oidc_gateway_fixture("suspended-socket")
+    assert {:ok, grant} = Ankole.OIDC.Grant.authorize(fixture.access_token, nil)
+
+    assert {:ok, state} =
+             AIGatewayResponsesSocket.init(%{
+               subject_uid: fixture.human.principal.uid,
+               subject_type: "oidc_human",
+               tenant_id: tenant.id,
+               oidc_grant: grant
+             })
+
+    payload =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => fixture.allowed_model,
+        "input" => "new request",
+        "generate" => false
+      })
+
+    assert {:push, [{:text, created}, {:text, completed}], state} =
+             AIGatewayResponsesSocket.handle_in({payload, [opcode: :text]}, state)
+
+    assert Ankole.JSON.decode!(created)["type"] == "response.created"
+    assert Ankole.JSON.decode!(completed)["type"] == "response.completed"
+
+    Repo.update!(Ecto.Changeset.change(tenant, suspended_at: DateTime.utc_now()))
+
+    assert {:push, {:text, frame}, ^state} =
+             AIGatewayResponsesSocket.handle_in({payload, [opcode: :text]}, state)
+
+    error = Ankole.JSON.decode!(frame)["error"]
+    assert error["code"] == "access_denied"
+    assert Ankole.JSON.decode!(frame)["status"] == 403
+    assert {:error, :tenant_suspended} = Ankole.OIDC.Grant.authorize(fixture.access_token, nil)
   end
 
   test "models returns only Client custom aliases", %{conn: conn} do
@@ -211,7 +249,9 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(response, 401)
 
     assert {:ok, _client} = OIDC.update_client(fixture.client.id, %{enabled: true})
-    assert {:ok, _human} = Principals.disable_principal(fixture.human.principal.uid)
+
+    assert {:ok, _human} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(fixture.human.principal.uid)
 
     response =
       conn
@@ -278,6 +318,40 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
 
     assert %{"status" => 403, "error" => %{"code" => "access_denied"}} =
              Ankole.JSON.decode!(denied)
+  end
+
+  test "an open socket refuses the next response after Human disable or gateway scope removal" do
+    for change <- [:human, :scope] do
+      fixture = oidc_gateway_fixture("socket-revocation-#{change}")
+
+      upgraded =
+        build_conn()
+        |> websocket_conn(fixture.access_token, @origin)
+        |> get("/api/v1/ai-gateway/responses")
+
+      assert upgraded.state == :upgraded
+
+      assert_receive {_ref, :upgrade,
+                      {:websocket, {AIGatewayResponsesSocket, socket_state, _opts}}}
+
+      prewarm = Ankole.JSON.encode!(%{"type" => "response.create", "generate" => false})
+
+      assert {:push, chunks, state} =
+               AIGatewayResponsesSocket.handle_in({prewarm, [opcode: :text]}, socket_state)
+
+      assert Enum.any?(text_chunks(chunks), &(&1["type"] == "response.completed"))
+
+      case change do
+        :human -> assert {:ok, _} = disable_principal_fixture(fixture.human.principal.uid)
+        :scope -> assert {:ok, _} = OIDC.update_client(fixture.client.id, %{scopes: ["openid"]})
+      end
+
+      assert {:push, {:text, denied}, _state} =
+               AIGatewayResponsesSocket.handle_in({prewarm, [opcode: :text]}, state)
+
+      assert %{"status" => 401, "error" => %{"code" => "invalid_token"}} =
+               Ankole.JSON.decode!(denied)
+    end
   end
 
   test "browser WebSocket requires the registered Origin while native Authorization remains valid",

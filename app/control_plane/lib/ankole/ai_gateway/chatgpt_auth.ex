@@ -191,6 +191,8 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
 
   This is used once after an upstream 401 before the credential is marked
   unavailable. Enterprise access tokens cannot be refreshed.
+  This function records credential health for permanent failures and 429;
+  callers only select another credential.
   """
   @spec force_refresh(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def force_refresh(provider_id, credential_id, opts \\ []) do
@@ -220,9 +222,21 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
               refresh_from_authority(provider, credential, opts)
           end
 
-        record_refresh_health(provider, entry, result)
+        case result do
+          {:error, _} = error -> {:error, {:refresh_failed, provider, entry, error}}
+          success -> success
+        end
       end
     )
+    |> case do
+      # A failed exchange rolls its transaction back. Health uses the original
+      # revision after that rollback, so replacement credentials are protected.
+      {:error, {:refresh_failed, provider, entry, error}} ->
+        record_refresh_health(provider, entry, error)
+
+      result ->
+        result
+    end
   end
 
   defp record_refresh_health(
@@ -241,7 +255,13 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
          {:error, {:chatgpt_refresh_transient, 429, headers, reason}} = error
        ) do
     log_refresh_failure(provider, entry, "transient", 429, reason)
-    :ok = CredentialPool.mark_exhausted(provider.id, entry, 429, headers, %{"code" => reason})
+
+    :ok =
+      CredentialPool.mark_exhausted(provider.id, entry, 429, headers, %{
+        "code" => reason,
+        "reason" => "chatgpt_refresh_failed"
+      })
+
     error
   end
 

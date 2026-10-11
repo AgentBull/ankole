@@ -30,17 +30,18 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.BackgroundAgentJobs.Schemas.Turn, as: BackgroundAgentJobTurn
+  alias Ankole.E2E.DockerWorker
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @real_coding_model "z-ai/glm-5.2"
   @real_vision_model "google/gemini-3.1-flash-lite"
-  @real_tool_model "z-ai/glm-5.2"
+  @real_tool_model "deepseek/deepseek-v4.1-flash"
   @real_text_only_model "z-ai/glm-5.2"
   @codex_real_llm_inactivity_timeout_ms 300_000
   @pptx_name "ankole-skill-handoff.pptx"
-  @pptx_user_files_relative_path "background-agent-jobs/ankole-codex-pptx-real/#{@pptx_name}"
+  @pptx_relative_path "deliverables/ankole-codex-pptx-real/#{@pptx_name}"
   @pptx_task """
   Create exactly one PowerPoint file named #{@pptx_name} in the current Job Workspace.
   The audience is Ankole maintainers evaluating whether BackgroundAgentJob execution receives the Agent's currently enabled capabilities.
@@ -56,7 +57,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
 
-  def run_real_lark_direct_turn(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
+  def run_real_lark_direct_turn(%{fake_feishu: fake_feishu, agent: agent}) do
     mention = lark_bot_mention()
 
     assert :ok =
@@ -71,11 +72,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, input.id, deadline(120_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(120_000))
 
     assert reply.text =~ "ANKOLE_LARK_REAL_OK"
     assert_actor_event_completed!(input.id)
@@ -85,8 +86,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
   def run_real_lark_skill_tool_loop(%{
         fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
+        agent: agent
       }) do
     mention = lark_bot_mention()
 
@@ -107,11 +107,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_skill_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, input.id, deadline(180_000))
+             wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(180_000))
 
     assert reply.text =~ "ANKOLE_LARK_REAL_SKILL_OK"
 
@@ -151,8 +151,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_web_fetch_rendered_fallback_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(240_000))
@@ -228,8 +228,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_terminal_tools_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply_with_trace(container, input.id, deadline(360_000))
@@ -290,7 +290,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     )
 
     put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
-    install_ptc_mcp_skill!(container, agent.uid)
+    install_ptc_mcp_skill!(agent.uid)
 
     mention = lark_bot_mention()
 
@@ -339,8 +339,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_ptc_mcp_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, start_message} =
              wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
@@ -389,7 +389,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       )
 
     assert {:ok, _result} =
-             process_ready_event_for_actor!(
+             ensure_input_driver!(
                dispatch_event,
                DateTime.add(dispatch_event.available_at, 1, :second)
              )
@@ -463,20 +463,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert Enum.count(called_tools, &(&1 == "e2e-ptc.lookup_ptc_marker")) == 2
 
-    job_project = Ankole.AgentHomePaths.job_workspace(agent.uid, job.id)
+    job_project = "/workspace/jobs/#{job.id}"
 
     project_config =
-      docker_exec!(container, ["sed", "-n", "1,240p", "#{job_project}/.codex/config.toml"])
+      DockerWorker.exec!(container, ["sed", "-n", "1,240p", "#{job_project}/.codex/config.toml"])
 
     assert project_config =~ "[features.code_mode]"
     assert project_config =~ "enabled = true"
     assert project_config =~ "mcp_servers"
     assert project_config =~ "e2e-ptc"
 
-    session_root = Path.join([Ankole.AgentHomePaths.home(agent.uid), ".codex", "sessions"])
+    session_root = Path.join([Ankole.AgentHomePaths.home(), ".codex", "sessions"])
 
     session_evidence =
-      docker_exec!(container, [
+      DockerWorker.exec!(container, [
         "sh",
         "-lc",
         "rg -n --glob '*.jsonl' '\"cli_version\":\"0.158.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
@@ -488,10 +488,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert session_evidence =~ "tool_search_output"
     assert session_evidence =~ "lookup_ptc_marker"
 
-    legacy_auth_path = Path.join([Ankole.AgentHomePaths.home(agent.uid), ".codex", "auth.json"])
+    legacy_auth_path = Path.join([Ankole.AgentHomePaths.home(), ".codex", "auth.json"])
 
     assert container
-           |> docker_exec!([
+           |> DockerWorker.exec!([
              "sh",
              "-lc",
              "test ! -e #{shell_quote(legacy_auth_path)} && printf absent"
@@ -524,8 +524,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     mention = lark_bot_mention()
 
-    pptx_path =
-      Path.join(Ankole.AgentHomePaths.user_files(agent.uid), @pptx_user_files_relative_path)
+    pptx_path = Path.join(Ankole.AgentHomePaths.home(), @pptx_relative_path)
 
     # The heredoc keeps a trailing newline that no model can see inside the JSON
     # string it must copy; the Job task contract does not carry it either.
@@ -566,8 +565,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_pptx_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, start_message} =
              wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
@@ -605,7 +604,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       )
 
     assert {:ok, _result} =
-             process_ready_event_for_actor!(
+             ensure_input_driver!(
                dispatch_event,
                DateTime.add(dispatch_event.available_at, 1, :second)
              )
@@ -660,13 +659,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     # the work, and the artifact checks prove the outcome.
     assert trajectory_text =~ "officecli"
 
-    pptx_job_path = Path.join(Ankole.AgentHomePaths.job_workspace(agent.uid, job.id), @pptx_name)
-    validate_output = docker_exec!(container, ["officecli", "validate", pptx_job_path])
+    pptx_job_path = Path.join("/workspace/jobs/#{job.id}", @pptx_name)
+    validate_output = DockerWorker.exec!(container, ["officecli", "validate", pptx_job_path])
 
     outline_output =
-      docker_exec!(container, ["officecli", "view", pptx_job_path, "outline"])
+      DockerWorker.exec!(container, ["officecli", "view", pptx_job_path, "outline"])
 
-    text_output = docker_exec!(container, ["officecli", "view", pptx_job_path, "text"])
+    text_output = DockerWorker.exec!(container, ["officecli", "view", pptx_job_path, "text"])
 
     assert is_binary(validate_output)
     assert outline_output =~ "2 slides"
@@ -690,7 +689,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     if is_nil(wakeup_event.completed_at) do
       assert {:ok, _result} =
-               process_ready_event_for_actor!(
+               ensure_input_driver!(
                  wakeup_event,
                  DateTime.add(wakeup_event.available_at, 1, :second)
                )
@@ -705,11 +704,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     end
 
     assert [attachment] = outbox.payload["attachments"]
-    assert attachment["agent_computer_path"] == pptx_path
-
-    assert attachment["user_files_relative_path"] ==
-             @pptx_user_files_relative_path
-
+    assert "sent/" <> _digest_and_name = attachment["path"]
+    assert Path.basename(attachment["path"]) == @pptx_name
+    assert is_binary(attachment["blob_ref"])
     assert attachment["name"] == @pptx_name
 
     assert attachment["mime_type"] ==
@@ -847,8 +844,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                       signal_channel_id: "lark:#{chat_id}",
                       source_entry_id: message_id
                     ) do
-                 %Entry{attachments: [%{"agent_computer_path" => path}]} = entry
-                 when is_binary(path) ->
+                 %Entry{attachments: [%{"blob_ref" => blob_ref, "path" => path}]} = entry
+                 when is_binary(blob_ref) and is_binary(path) ->
                    entry
 
                  %Entry{} ->
@@ -872,11 +869,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                ~w(provider_ref provider source_message_id file_key download_type resource_type)
              )
 
-    assert is_binary(attachment["agent_computer_path"])
+    assert is_binary(attachment["blob_ref"])
 
-    relative_path = attachment["user_files_relative_path"]
-    assert Path.basename(relative_path) == "vision-dog.jpeg"
-    assert String.starts_with?(relative_path, "inbox/")
+    drive_path = attachment["path"]
+    assert Path.basename(drive_path) == "vision-dog.jpeg"
+    assert String.starts_with?(drive_path, "inbox/")
 
     assert {:ok, %ActorEvent{} = input} =
              wait_until(deadline(10_000), fn ->
@@ -887,8 +884,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  else: nil
              end)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(180_000))
@@ -908,11 +905,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              })
   end
 
-  defp put_agent_inactivity_timeout!(agent_uid, timeout_ms) do
+  defp put_agent_inactivity_timeout!(_agent_uid, timeout_ms) do
     assert {:ok, ^timeout_ms} =
-             AppConfigure.put_for_agent(
-               agent_uid,
-               AgentConfig.inactivity_timeout_ms_definition(),
+             AppConfigure.put_tenant_by_key(
+               AgentConfig.inactivity_timeout_ms_definition().key,
                timeout_ms
              )
   end
@@ -1024,14 +1020,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
   defp vision_image_jpeg, do: File.read!(@vision_fixture_path)
 
-  defp install_ptc_mcp_skill!(container, agent_uid) do
-    skill_root = Path.join(Ankole.AgentHomePaths.installed_skills(agent_uid), "e2e-ptc")
-    server_path = Path.join(skill_root, "server.ts")
-    docker_exec!(container, ["mkdir", "-p", Path.join(skill_root, "agents")])
+  # An installed Skill lives in the Agent's drive. The Worker materializes the
+  # drive folder `skills/<name>/` into `installed-skills/<name>/` of its Agent
+  # Home before each turn, where the MCP command runs the server.
+  defp install_ptc_mcp_skill!(agent_uid) do
+    server_path =
+      Path.join(Ankole.AgentHomePaths.home(), "installed-skills/e2e-ptc/server.ts")
 
-    docker_write_text!(
-      container,
-      Path.join(skill_root, "SKILL.md"),
+    put_drive_file!(
+      agent_uid,
+      "skills/e2e-ptc/SKILL.md",
       """
       ---
       name: e2e-ptc
@@ -1046,9 +1044,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       """
     )
 
-    docker_write_text!(
-      container,
-      Path.join(skill_root, "agents/openai.yaml"),
+    put_drive_file!(
+      agent_uid,
+      "skills/e2e-ptc/agents/openai.yaml",
       """
       dependencies:
         tools:
@@ -1061,9 +1059,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       """
     )
 
-    docker_write_text!(
-      container,
-      server_path,
+    put_drive_file!(
+      agent_uid,
+      "skills/e2e-ptc/server.ts",
       """
       const targetTool = {
         name: 'lookup_ptc_marker',
@@ -1187,30 +1185,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       "import re,sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(sum(1 for n in z.namelist() if re.fullmatch(r'ppt/slides/slide[0-9]+[.]xml', n)))"
 
     container
-    |> docker_exec!(["python3", "-c", script, path])
+    |> DockerWorker.exec!(["python3", "-c", script, path])
     |> String.trim()
     |> String.to_integer()
   end
 
-  defp docker_exec!(container, args) do
-    {output, status} =
-      System.cmd(docker_path(), ["exec", container.name | args], stderr_to_stdout: true)
-
-    assert status == 0, output
-    output
-  end
-
-  defp docker_write_text!(container, path, text) do
-    script = "cat > #{shell_quote(path)} <<'EOF'\n#{text}\nEOF\n"
-    docker_exec!(container, ["sh", "-lc", script])
-  end
-
   defp shell_quote(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
-  end
-
-  defp docker_path do
-    System.find_executable("docker") || flunk("docker executable was not found on PATH")
   end
 
   defp wait_for_completed_final_reply_with_trace(container, actor_event_id, deadline) do

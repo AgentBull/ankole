@@ -139,8 +139,8 @@ LocalPassword and LINE. The mapping target can be any existing human Principal.
 
 SignalsGateway first commits the admitted message with a pending attachment
 observation inside the webhook request. A supervised task then downloads the
-bytes from `api-data.line.me`, writes them to the Agent's `user-files` lane,
-and updates the same entry. The webhook answer does not wait for the download.
+bytes from `api-data.line.me`, stores them in the file service
+([Files](../Files.md)), and updates the same entry. The webhook answer does not wait for the download.
 If the task cannot start, the webhook fails and LINE delivers the event again;
 the pending observation is already durable, so that redelivery fetches the
 file. An unmatched sender cannot make Ankole download a file. A redelivered event
@@ -219,8 +219,8 @@ not enter logs, persisted errors, or stored raw provider payloads.
 
 Repository tests cover declaration validation, channel ownership, signature
 validation, the Verify probe, redelivery deduplication, message and mention
-projection, quote recognition, attachment limits and materialization into the
-user-files lane, unsend removal, identity policies with profile hydration,
+projection, quote recognition, attachment limits and storage in the file
+service, unsend removal, identity policies with profile hydration,
 postback buttons and token resolution, outbound request construction, retry
 keys, accepted retries, and failure classification. Real LINE acceptance needs
 an operator channel that the repository does not contain.

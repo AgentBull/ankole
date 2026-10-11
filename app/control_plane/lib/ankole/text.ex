@@ -26,12 +26,11 @@ defmodule Ankole.Text do
     end
   end
 
-  @spec utf8_prefix(String.t(), non_neg_integer()) :: String.t()
-  def utf8_prefix(text, max_bytes) when byte_size(text) <= max_bytes, do: text
-
-  def utf8_prefix(text, max_bytes) when is_binary(text) and max_bytes >= 0 do
+  @spec utf8_prefix(binary(), non_neg_integer()) :: String.t()
+  def utf8_prefix(text, max_bytes)
+      when is_binary(text) and is_integer(max_bytes) and max_bytes >= 0 do
     text
-    |> binary_part(0, max_bytes)
+    |> binary_part(0, min(byte_size(text), max_bytes))
     |> trim_invalid_utf8_suffix()
   end
 
@@ -66,6 +65,40 @@ defmodule Ankole.Text do
       text
       |> binary_part(0, byte_size(text) - 1)
       |> trim_invalid_utf8_suffix()
+    end
+  end
+
+  @spec utf16_length(String.t()) :: non_neg_integer()
+  def utf16_length(text),
+    do:
+      Enum.reduce(String.to_charlist(text), 0, fn c, n -> n + if(c > 0xFFFF, do: 2, else: 1) end)
+
+  @spec utf16_prefix(String.t(), non_neg_integer()) :: String.t()
+  def utf16_prefix(text, max) do
+    {chars, _} =
+      Enum.reduce_while(String.to_charlist(text), {[], 0}, fn c, {chars, count} ->
+        size = if c > 0xFFFF, do: 2, else: 1
+
+        if count + size > max,
+          do: {:halt, {chars, count}},
+          else: {:cont, {[c | chars], count + size}}
+      end)
+
+    chars |> Enum.reverse() |> List.to_string()
+  end
+
+  @spec utf16_slice(String.t(), non_neg_integer(), non_neg_integer()) :: String.t()
+  def utf16_slice(text, offset, length) do
+    text
+    |> :unicode.characters_to_binary(:utf8, {:utf16, :little})
+    |> binary_part(offset * 2, length * 2)
+    |> decode_utf16()
+  end
+
+  defp decode_utf16(units) do
+    case :unicode.characters_to_binary(units, {:utf16, :little}, :utf8) do
+      text when is_binary(text) -> text
+      {_error, prefix, <<_surrogate::16, rest::binary>>} -> prefix <> "�" <> decode_utf16(rest)
     end
   end
 end

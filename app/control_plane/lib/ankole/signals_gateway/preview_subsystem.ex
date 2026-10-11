@@ -12,13 +12,10 @@ defmodule Ankole.SignalsGateway.PreviewSubsystem do
   @spec init(keyword()) :: {:ok, tuple()}
   def init(_opts) do
     children = [
-      {Registry, keys: :unique, name: Ankole.SignalsGateway.PreviewRegistry},
       {Task.Supervisor, name: Ankole.SignalsGateway.PreviewTaskSupervisor},
       {DynamicSupervisor, name: Ankole.SignalsGateway.PreviewSupervisor, strategy: :one_for_one}
     ]
 
-    # A preview handler registers through PreviewRegistry only once at startup.
-    # If the registry is replaced, its sibling handlers must be rebuilt too.
     Supervisor.init(children, strategy: :one_for_all)
   end
 end

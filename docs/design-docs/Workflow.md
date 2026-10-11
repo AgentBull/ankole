@@ -63,8 +63,8 @@ starting the run again. Cancellation does not send a completion event.
 
 Each Workflow task receives one private `submit_result` tool. This tool is not
 available to the main Agent. A successful submission must match the task schema.
-Agent Computer sends this tool with provider strict mode. The control plane
-validates the value again. A rejected value does not end the task turn, so the
+The control plane declares this tool with provider strict mode and validates
+the value when it commits the result. A rejected value does not end the task turn, so the
 subagent can correct it and submit it again.
 
 ## Task Sleep and Wake
@@ -177,7 +177,9 @@ The Elixir control plane:
 - authorizes create, read, list, cancel, and task-result requests
 - stores each run and call in PostgreSQL
 - limits task admission for one run and one Agent
-- dispatches each task as an Actor turn with its own conversation
+- runs each task through a conversation Driver on the control plane
+- gives tasks Web and read-only Brain tools, Job delegation, sleep, and submit_result
+- keeps the same conversation and committed tool history on retries
 - starts deterministic replay and commits each replay result
 - runs each task at most three times
 - sends the terminal event to the owner Session
@@ -190,17 +192,20 @@ The Rust kernel:
 - enforces execution, output, pending-call, and memo limits
 - cancels an in-flight isolate when the control plane cancels the run
 
-Agent Computer:
+Agent Computer runs Codex Jobs delegated by a task. A Workflow task itself
+holds no Worker slot. The Driver applies the task's model, iteration, output,
+and inactivity limits and up to three repair attempts when it neither submits
+nor sleeps. The Workflow owner keeps the three-call-attempt limit. Recovery of
+a crashed Driver adopts its running call without another call attempt.
 
-- runs each `wf_task:<call_id>` turn in an independent conversation and
-  continues that conversation on every wake turn
-- gives the task Web tools, optional read-only Brain tools, the four
-  BackgroundAgentJob delegation tools, `sleep`, and `submit_result`
-- applies the turn model, iteration, output-token, and inactivity limits
-- makes one repair attempt when the model neither submits a result nor sleeps
+PostgreSQL is the durable owner. RunServer performs replay; `PokeRun` is its
+Oban wakeup. The existing conversation Reconciler also repairs a missing
+RunServer or pending terminal cleanup when no task event exists yet.
 
-PostgreSQL is the durable owner. RuntimeFabric only transports live turn and
-RPC traffic.
+After a replay commit, the caller delivers new task events to their Drivers.
+Terminal cleanup delivers the owner event after the state commit. An attention
+sleep returns its owner event to the tool's existing post-commit actions.
+Future task wakeups use EnsureDriver. Reconciler repairs a missed delivery.
 
 ## Human Work Authorization
 
@@ -289,23 +294,37 @@ while the completed dispatch event cannot re-dispatch a queued row. A terminal
 state cannot return to a live state.
 
 One temporary `RunServer` serializes replay for one run. PostgreSQL remains the
-source of truth. RuntimeEvents rebuilds drivers for all `running` rows after a
-control-plane restart. A new replay reads the script and memo from PostgreSQL,
-so completed tasks do not run again.
+source of truth. The conversation Reconciler asks the Workflow owner for runs
+without a `RunServer` and terminal runs that need cleanup, then inserts the
+existing `PokeRun` job. This also covers a crash before the first task event.
+A new replay reads the script and memo from PostgreSQL, so completed tasks do
+not run again.
 
 The replay supervisor runs at most four kernel replay isolates at one time. If
 all four slots are in use, another running run stays durable and its `RunServer`
 retries after 30 seconds. This limit controls replay isolates, not Workflow task
 concurrency.
 
+If a successful `sleep` or `submit_result` result has committed for the current
+input, recovery reads its receipt or recorded tape and closes that input without
+a new task claim or model request. It preserves the committed Workflow state,
+even when the tenant is suspended. Without a committed ending result, recovery
+uses the existing retry or adoption path.
+
 If a task turn exits before it submits a result or sleeps, the control plane
 returns the same call to `queued`, or to `sleeping` after its first sleep. The
 third failed attempt inside one wake segment makes the call `failed`. The same
 triggering event stays open through these attempts, and a Workflow task event
 follows the Job rule for dead-letter accounting: recoverable Worker errors keep
-the event open because the call row owns the retry budget. A one-hour watchdog
-applies the same compensation to a stale running call and recovers overdue
-sleeping calls as described under Task Sleep and Wake.
+the event open because the call row owns the retry budget. The hourly watchdog
+applies the same compensation when a running call has no newly committed
+tool-result round for one hour. Run locks the current Workflow call in the
+existing slot, run, and call order before it records the round. The new round
+and the call's progress timestamp commit in the same transaction. An existing
+journal, a rolled-back round, an earlier attempt, or a cancelled or terminal
+call does not renew that timestamp. A single model or tool round with no
+committed progress remains subject to the watchdog. The watchdog also recovers
+overdue sleeping calls as described under Task Sleep and Wake.
 
 A dead-lettered `workflow.run.completed` or `workflow.run.failed` wakeup keeps
 the Job-wakeup guarantee: the notice renders the run counts and result preview
@@ -327,9 +346,11 @@ records one cleanup completion time only after all stop operations succeed.
 Startup recovery includes terminal runs without that time and repeats the
 idempotent cleanup before it marks them complete.
 
-Cancellation uses the same durable call cleanup. The control plane also cancels
-the kernel run after the transaction commits. A late task result observes the
-cancelled call and cannot revive the run.
+Cancellation uses the same durable call cleanup. After the transaction commits,
+cleanup tells the existing `RunServer` to stop. On normal exit, that owner
+cancels any running kernel replay and stops its replay task. Cleanup does not
+start a replacement `RunServer`; a later wake reads the terminal state before
+native replay. A late replay or task result cannot revive the cancelled run.
 
 The current control-plane deployment model uses one control-plane node. A
 duplicate driver is still safe: PostgreSQL state guards, unique call and event

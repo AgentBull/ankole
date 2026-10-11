@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig do
   def definition do
     AppConfigure.define(
       key: @rendered_fetch_idle_ttl_ms_key,
-      scope: :scoped,
+      scope: :tenant,
       encrypted: false,
       schema: schema(),
       default_value: @default_rendered_fetch_idle_ttl_ms,
@@ -32,8 +32,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig do
   end
 
   @spec resolve(String.t()) :: {:ok, Resolution.t()} | {:error, term()} | :error
-  def resolve(agent_uid) when is_binary(agent_uid) do
+  def resolve(agent_uid) do
     AppConfigure.resolve(definition(), agent_id: agent_uid)
+  end
+
+  @doc "Builds the fetch policy shared by Job and environment execution."
+  @spec runtime_config(String.t()) ::
+          {:ok, Ankole.RuntimeFabric.V1.FetchRuntimeConfig.t()} | {:error, term()} | :error
+  def runtime_config(agent_uid) do
+    with {:ok, fetch} <- resolve(agent_uid),
+         {:ok, ssrf?} <- Ankole.Security.SSRFFilter.enabled?(agent_uid) do
+      {:ok,
+       %Ankole.RuntimeFabric.V1.FetchRuntimeConfig{
+         ssrf_filter: ssrf?,
+         rendered_fetch_idle_ttl_ms: fetch.value
+       }}
+    end
   end
 
   defp schema do

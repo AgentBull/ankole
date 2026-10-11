@@ -224,7 +224,6 @@ install_linux_packages() {
       libwxgtk3.2-dev \
       libxml2-utils \
       libxslt1-dev \
-      libzmq3-dev \
       m4 \
       make \
       openssl \
@@ -259,7 +258,6 @@ install_linux_packages() {
       unzip \
       wxGTK3-devel \
       xz \
-      zeromq-devel \
       zlib-devel
     return
   fi
@@ -285,7 +283,6 @@ install_linux_packages() {
       unzip \
       wxGTK3-devel \
       xz \
-      zeromq-devel \
       zlib-devel
     return
   fi
@@ -310,7 +307,6 @@ install_linux_packages() {
       unzip \
       wxwidgets-gtk3 \
       xz \
-      zeromq \
       zlib \
       zstd
     return
@@ -336,12 +332,11 @@ install_linux_packages() {
       unzip \
       wxWidgets-3_2-devel \
       xz \
-      zeromq-devel \
       zlib-devel
     return
   fi
 
-  warn "No supported Linux package manager found. Install compiler, OpenSSL, ncurses, wxWidgets, unixODBC, ZeroMQ, curl, and git manually."
+  warn "No supported Linux package manager found. Install compiler, OpenSSL, ncurses, wxWidgets, unixODBC, curl, and git manually."
 }
 
 install_system_packages() {
@@ -350,7 +345,7 @@ install_system_packages() {
   if [[ "$OS" == "macos" ]]; then
     ensure_homebrew
     log "Installing macOS build packages."
-    brew_install_missing autoconf automake cmake curl fop git libtool libxslt openssl@3 pkg-config unixodbc wxwidgets zeromq zstd
+    brew_install_missing autoconf automake cmake curl fop git libtool libxslt openssl@3 pkg-config unixodbc wxwidgets zstd
     return
   fi
 

@@ -49,7 +49,14 @@ defmodule FakeFeishu.Router do
 
       case State.authenticate_app(state(conn), app_id, app_secret) do
         :ok ->
-          url = "ws://127.0.0.1:#{conn.port}/ws?service_id=1001&app=#{app_id}"
+          url =
+            URI.to_string(%URI{
+              scheme: "ws",
+              host: conn.host,
+              port: conn.port,
+              path: "/ws",
+              query: URI.encode_query(%{"service_id" => 1001, "app" => app_id})
+            })
 
           send_json(conn, 200, %{
             "code" => 0,
@@ -312,6 +319,18 @@ defmodule FakeFeishu.Router do
       {:delay, ms} ->
         Process.sleep(ms)
         fun.(conn)
+
+      {:fail, :accepted_then_http_500} ->
+        conn
+        |> register_before_send(fn response ->
+          %{
+            response
+            | status: 500,
+              resp_body:
+                JSON.encode!(%{"code" => 500_100, "msg" => "response failed after acceptance"})
+          }
+        end)
+        |> fun.()
 
       {:fail, :http_500} ->
         send_json(conn, 500, %{"code" => 500_100, "msg" => "fake feishu injected 500"})

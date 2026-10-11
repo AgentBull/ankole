@@ -1,4 +1,5 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.GoogleWorkspaceAdapter.Config
   @moduledoc false
 
   alias Ankole.AuthZ

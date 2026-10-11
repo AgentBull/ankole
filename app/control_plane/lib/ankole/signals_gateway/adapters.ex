@@ -32,6 +32,7 @@ defmodule Ankole.SignalsGateway.Adapters do
       :display_name,
       :config_key_pattern,
       :config_module,
+      :application_bindings,
       :worker_env_module,
       :binding_saved_module,
       :author_hydrator,
@@ -49,6 +50,7 @@ defmodule Ankole.SignalsGateway.Adapters do
             fields: [map()],
             config_key_pattern: String.t() | nil,
             config_module: module() | nil,
+            application_bindings: :one | nil,
             worker_env_module: module() | nil,
             binding_saved_module: module() | nil,
             author_hydrator: module() | nil,
@@ -158,17 +160,11 @@ defmodule Ankole.SignalsGateway.Adapters do
          :ok <-
            validate_optional_adapter_module(
              declaration,
-             :connection_supervisor,
-             :ensure_started,
-             2
-           ),
-         :ok <-
-           validate_optional_adapter_module(
-             declaration,
              :config_module,
              :validate_binding_config,
              1
            ),
+         :ok <- validate_application_bindings(declaration),
          :ok <-
            validate_optional_adapter_module(
              declaration,
@@ -200,6 +196,7 @@ defmodule Ankole.SignalsGateway.Adapters do
          fields: list_value(declaration, :fields),
          config_key_pattern: value(declaration, :config_key_pattern),
          config_module: value(declaration, :config_module),
+         application_bindings: value(declaration, :application_bindings),
          worker_env_module: value(declaration, :worker_env_module),
          binding_saved_module: value(declaration, :binding_saved_module),
          author_hydrator: value(declaration, :author_hydrator),
@@ -218,6 +215,19 @@ defmodule Ankole.SignalsGateway.Adapters do
     do: {:ok, category}
 
   defp validate_adapter_category(category), do: {:error, {:invalid_adapter_category, category}}
+
+  defp validate_application_bindings(declaration) do
+    case value(declaration, :application_bindings) do
+      nil ->
+        :ok
+
+      :one ->
+        with {:ok, _module} <- declaration_module(declaration, :config_module), do: :ok
+
+      value ->
+        {:error, {:invalid_application_bindings, value}}
+    end
+  end
 
   defp validate_inbound_adapter(declaration) do
     capabilities = list_value(declaration, :inbound_capabilities)

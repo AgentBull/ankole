@@ -4,7 +4,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-sup
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
 import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
-import { RPCRejectedError } from '../src/lanes/rpc_lane'
+import { RPCRejectedError, type RPCRejection } from '../src/lanes/rpc_lane'
 import {
   actorTurn,
   decodedUpsert,
@@ -21,7 +21,8 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
   it('retries an explicitly retryable control-plane checkpoint failure and preserves its failure id', async () => {
     const { recorder, attempts } = rejectingFixture({
       code: 'rpc_handler_failed',
-      details: { failure_id: 'failure-read-1', retryable: true }
+      retryable: true,
+      details: { failure_id: 'failure-read-1' }
     })
     recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
 
@@ -31,7 +32,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       details: {
         retryable: true,
         rpc_code: 'rpc_handler_failed',
-        rpc_details: { failure_id: 'failure-read-1', retryable: true }
+        rpc_details: { failure_id: 'failure-read-1' }
       }
     })
     expect(attempts()).toBe(3)
@@ -50,7 +51,8 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
         if (attempts.length === 2) {
           throw new RPCRejectedError('checkpoint handler failed', {
             code: 'rpc_handler_failed',
-            details: { failure_id: 'failure-upsert-1', retryable: true }
+            retryable: true,
+            details: { failure_id: 'failure-upsert-1' }
           })
         }
         persisted.push(decodedUpsert(request))
@@ -83,7 +85,8 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
   it('does not retry an authoritative domain checkpoint rejection', async () => {
     const { recorder, attempts } = rejectingFixture({
       code: 'background_agent_job_turn_stale_revision',
-      details: { retryable: false }
+      retryable: false,
+      details: {}
     })
     recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '原始任务', 'event-1')
 
@@ -763,7 +766,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
   })
 })
 
-function rejectingFixture(rejection: { code: string; message?: string; details?: JSONObject }): {
+function rejectingFixture(rejection: RPCRejection): {
   recorder: BackgroundAgentJobTurnRecorder
   attempts: () => number
 } {

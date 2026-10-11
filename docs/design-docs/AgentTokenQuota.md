@@ -8,14 +8,16 @@ or the operator resets the quota.
 
 The Elixir control plane owns every part of the quota. `Ankole.AIAgent.TokenQuota`
 owns the configuration and the usage query. AIGateway owns the usage ledger and
-the rejection. SignalsGateway owns the user notice. Agent Computer only
-classifies the rejection as a terminal error; it keeps no usage counters.
+the rejection. SignalsGateway owns the user notice. The conversation Driver reads the
+AIGateway rejection directly. The Worker reports a Codex usage-limit error as pool exhaustion. The control
+plane checks the quota before it settles a Job failure. The Worker keeps no
+usage counters.
 
 ## What Counts
 
 A request counts when it carries an Agent token, so its `subject_type` is
 `agent`, and it uses the `llm` capability. This covers every model call in a
-Worker turn, including scheduled, workflow, and ambient turns, and every request
+control-plane conversation, including scheduled, Workflow, and ambient runs, and every request
 of a Background Agent Job. A compaction that such a request starts with the
 `compaction_trigger` item, including the Codex remote compaction call, is that
 request's own model work and counts the same way.
@@ -34,7 +36,7 @@ These requests do not count:
   inside a stateful Response, and manual compaction from the Console or a chat
   command. They also run in-process.
 - Embedding, rerank, web search, web fetch, and image generation tool usage.
-- Requests with an OIDC Human token or an administrator Console token.
+- Requests with an OIDC Human token.
 
 The ledger starts empty at deployment. Usage before that is not counted.
 
@@ -50,7 +52,7 @@ can therefore end above the limit by its own usage.
 | --- | --- |
 | `id` | UUIDv7 primary key |
 | `subject_uid` | The Agent Principal |
-| `origin` | `agent` for a Worker turn, `codex` for a Background Agent Job request |
+| `origin` | `agent` for a control-plane conversation, `codex` for a Background Agent Job request |
 | `model` | The resolved `provider_id/model` selector |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
 | `inserted_at` | Record time; the window query uses it |
@@ -127,23 +129,15 @@ The rejection is HTTP 429 with this error object:
 ```
 
 The response carries the same `retry-after` and reset headers as a credential
-pool rejection, with the window end as the recovery time, and the header
-`x-codex-promo-message` whose text contains the code. `retryable: false` tells
-the Worker that a retry cannot succeed.
+pool rejection, with the window end as the recovery time. `retryable: false`
+tells callers that a retry cannot succeed.
 
-The `type` and the header are the Codex boundary contract. The pinned Codex
-runtime never retries a 429 whose `type` is `usage_limit_reached`; it reports
-its own usage-limit error and repeats the `x-codex-promo-message` text
-verbatim in that error's message. Every other 429 body becomes a Codex
-retry-limit error whose message keeps only the status, so the code would not
-reach the Worker. The main Agent path reads the code from the error object
-directly.
-
-Agent Computer classifies `agent_token_quota_exceeded` as a non-retryable error
-before its generic 429 rule, so the turn ends on the first rejection without
-local retries. The Codex runner finds the code in the Codex error message
-before its credential-pool-exhaustion rule and ends the Job turn with the same
-code, `retryable: false`, and status 429.
+The `type` is the Codex boundary contract. The pinned Codex runtime does not
+retry a 429 whose `type` is `usage_limit_reached`. The main Agent path reads
+the code from the error object. The Worker reports the Codex usage-limit
+failure as `credential_pool_exhausted`. When the control plane settles a Job
+attempt, it checks the Agent quota. An exhausted quota produces the terminal
+`agent_token_quota_exceeded` verdict.
 
 AIGateway records ledger rows at its two existing usage observation points:
 the streaming terminal event in `ResponseStream` and the completed
@@ -151,22 +145,21 @@ non-streaming request in `AIGateway`. Every transport uses one of them.
 
 ## Tell the User
 
-Before a conversation turn starts, `TurnLifecycle` checks the quota through
-`Ankole.AIAgent.TokenQuota`. Job turns pass `conversation: :none` and skip
-this check. When the Agent is at its limit, the turn does not start:
-`TurnStartFailure` completes the ActorEvent and, for a channel-reply-eligible
-event, commits one localized notice through the Outbox with the
-`ai-token-quota-exceeded` key prefix. The notice uses
-`signals_gateway.reply.token_quota_exceeded` and states the used tokens, the
-limit, and the time the window ends in the installation timezone
-(`system.timezone`). An ambient `im.message.may_intervene` event completes
+Before a main or Workflow conversation turn starts, `Conversations.Admission`
+checks the quota through `Ankole.AIAgent.TokenQuota`. Job admission skips this
+check. At the limit, `Conversations.Notices` closes the input and commits one
+localized Outbox notice for a reply-eligible event. It first restores any
+existing tool records and applied inputs, so a failed preflight does not erase
+work that already committed. The Outbox keeps the `ai-token-quota-exceeded`
+key prefix. The notice uses `signals_gateway.reply.token_quota_exceeded` and
+states the used tokens, limit, and window end in the installation timezone
+(`system.timezone`). An ambient `im.message.may_intervene` input completes
 without a notice, as for a missing model profile.
 
-A turn that starts under the limit can cross it. AIGateway then rejects a
-later model call, the Worker aborts the turn as non-retryable, and ActorRuntime
-moves the event to `dead_letter`. The dead-letter notice uses the same quota
-text when the abort reason carries the `agent_token_quota_exceeded` code, so
-the user does not receive the generic retry text.
+A turn can cross its limit after admission. AIGateway rejects a later model
+call, and the Driver settles the non-retryable failure as dead letter. The
+notice uses the quota text when the failure carries
+`agent_token_quota_exceeded`, instead of the generic retry text.
 
 After a reset or a new window, the user sends the message again. Nothing
 replays a blocked message.
@@ -174,9 +167,10 @@ replays a blocked message.
 ## Background Agent Jobs
 
 Job creation and admission do not check the quota. The first Codex request of
-an over-limit Job is rejected, the Worker ends the turn with
-`agent_token_quota_exceeded`, and the control plane fails the Job with that
-code through the existing terminal path. The Job does not return to `queued`
+an over-limit Job is rejected. The Worker reports `credential_pool_exhausted`.
+The control plane checks the Agent quota and fails the Job with
+`agent_token_quota_exceeded` through the existing terminal path. The Job does
+not return to `queued`
 and does not wait for the next window. The owner session receives the ordinary
 `background_agent_job.failed` event. When the main Agent is also at its limit,
 that turn produces the quota notice above.

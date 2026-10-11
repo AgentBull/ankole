@@ -54,7 +54,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.1
+          bun-version: 1.4.2
 
       - name: Read Ankole release version
         id: version
@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          protocol_version="$(sed -nE 's/^pub const PROTOCOL_VERSION: u32 = ([0-9]+);$/\1/p' app/kernel/src/runtime_fabric/mod.rs)"
+          protocol_version="$(sed -nE 's/^  PROTOCOL_VERSION_CURRENT = ([0-9]+);$/\1/p' app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto)"
           if [[ ! "${protocol_version}" =~ ^[1-9][0-9]*$ ]]; then
             echo "Could not read RuntimeFabric protocol version" >&2
             exit 1
@@ -398,7 +398,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.1
+          bun-version: 1.4.2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -422,30 +422,18 @@ jobs:
             "${WORKER_IMAGE}:${RELEASE_REVISION}" \
             --format '{{json .}}' > "${RUNNER_TEMP}/worker-image.json"
 
-      - name: Verify pair labels and render digest-pinned rollout values
+      - name: Verify pair labels
         shell: bash
         run: |
           set -euo pipefail
 
-          pair_dir="${RUNNER_TEMP}/runtime-image-pair"
           bun tools/devkit/src/runtime-image-pair.ts verify \
             --revision "${RELEASE_REVISION}" \
             --protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}" \
             --control-plane-ref "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}" \
             --control-plane-metadata "${RUNNER_TEMP}/control-plane-image.json" \
             --worker-ref "${WORKER_IMAGE}:${RELEASE_REVISION}" \
-            --worker-metadata "${RUNNER_TEMP}/worker-image.json" \
-            --pair-output "${pair_dir}/runtime-image-pair.json" \
-            --control-plane-values-output "${pair_dir}/runtime-pair-control-plane.values.yaml" \
-            --worker-values-output "${pair_dir}/runtime-pair-worker.values.yaml"
-
-      - name: Upload verified pair rollout artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: runtime-image-pair-${{ env.RELEASE_REVISION }}
-          path: ${{ runner.temp }}/runtime-image-pair
-          if-no-files-found: error
-          retention-days: 30
+            --worker-metadata "${RUNNER_TEMP}/worker-image.json"
 
       - name: Publish latest RuntimeFabric image pair
         if: ${{ github.ref == 'refs/heads/main' }}
@@ -497,7 +485,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.1
+          bun-version: 1.4.2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

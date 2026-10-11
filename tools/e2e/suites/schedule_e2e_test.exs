@@ -1,10 +1,11 @@
 defmodule Ankole.E2E.ScheduleE2ETest do
   @moduledoc """
   Schedule tools end to end: check_back_later and cron creation through the
-  real worker tool loop, then firing the scheduled events back into turns.
+  control-plane loop, then due scheduled events through the same driver.
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
 
@@ -20,7 +21,6 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [
       ai_messages_for_actor_event: 1,
-      cron_event_for_schedule!: 1,
       deadline: 1,
       wait_for_actor_event_dead_letter: 3,
       wait_for_completed_actor_event_message: 3,
@@ -33,11 +33,14 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000
@@ -65,8 +68,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_admitted")
     assert input.human_uid == uid
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1))
 
     assert_receive {:fake_llm_request, :followup_slow, 1, _}, 15_000
 
@@ -156,8 +159,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     fresh = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_fresh")
     assert fresh.human_access_version == disabled.access_version
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(fresh, DateTime.add(fresh.available_at, 1))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(fresh, DateTime.add(fresh.available_at, 1))
 
     assert {:ok, _message} =
              wait_for_completed_actor_event_message(ctx.container, fresh.id, deadline(60_000))
@@ -302,26 +305,12 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert command_tool_succeeded?(messages)
     assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
 
-    activation =
-      Repo.get_by!(ActorSessionActivation,
-        agent_uid: fire_input.agent_uid,
-        session_id: fire_input.session_id
-      )
+    assert {:ok, :idle} = Ankole.Conversations.Run.rebuild(fire_input)
 
-    refute ActorSessionActivation.live?(activation)
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(fire_input, DateTime.utc_now(:microsecond))
 
-    refute Repo.exists?(
-             from(delivery in ActorEventDelivery,
-               where: delivery.actor_event_id == ^fire_input.id,
-               where: delivery.state in ^ActorEventDelivery.live_states()
-             )
-           )
-
-    assert {:ok, %{status: :idle}} =
-             process_ready_event_for_actor!(
-               fire_input,
-               DateTime.add(activation.lease_expires_at, 1, :second)
-             )
+    refute_receive {:fake_llm_request, :cron_invalid_result, _, _}, 1_000
 
     assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
     assert [_command] = tool_call_items(ai_messages_for_actor_event(fire_input.id), "command")
@@ -364,7 +353,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     # The route disappears after the schedule froze its target list. One
     # unreachable target must not cancel the others.
     secondary_channel_id = "lark:oc_chaos_schedule_secondary"
-    assert %Channel{} = channel = Repo.get(Channel, secondary_channel_id)
+    assert %Channel{} = channel = Repo.get_by(Channel, id: secondary_channel_id)
     assert {:ok, _deleted} = Repo.delete(channel)
 
     fire_input = fire_cron_schedule!(schedule)
@@ -406,7 +395,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     schedule = configure_cron_fanout(ctx, cron.cron_schedule)
 
     for channel_id <- ["lark:oc_chaos_schedule", "lark:oc_chaos_schedule_secondary"] do
-      assert %Channel{} = channel = Repo.get(Channel, channel_id)
+      assert %Channel{} = channel = Repo.get_by(Channel, id: channel_id)
       assert {:ok, _deleted} = Repo.delete(channel)
     end
 
@@ -433,15 +422,21 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   end
 
   defp fire_cron_schedule!(schedule) do
-    cron_event = cron_event_for_schedule!(schedule.id)
+    due_at = schedule.next_fire_at
+
+    assert {:ok, :due} =
+             wait_until(deadline(60_000), fn ->
+               if DateTime.compare(due_at, DateTime.utc_now(:microsecond)) != :gt,
+                 do: :due
+             end)
 
     assert {:ok, %{status: :fired, actor_event: fire_input}} =
-             Schedule.fire_due_event(cron_event.id, now: cron_event.due_at)
+             Schedule.fire_cron(schedule.id)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                fire_input,
-               DateTime.add(cron_event.due_at, 1, :second)
+               DateTime.add(due_at, 1, :second)
              )
 
     fire_input

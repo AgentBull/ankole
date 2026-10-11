@@ -15,7 +15,7 @@ Resolver、Provider 模块、kernel 各自拥有一个阶段。Resolver 拥有�
 
 每个 Agent 有八个内置模型档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`。`coding` 是面向用户的“后台 Agent 任务”档案所使用的 API 和存储名称。前五个档案选择语言模型，后三个档案分别选择网页搜索、网页抓取和图像生成能力。
 
-Embedding 和 rerank 不属于 Agent 档案。直接调用 AIGateway 的这两项能力时，必须提供显式 `provider_id/model` 选择符。Brain 则从 [AppConfigure](../app-configuration/) 的 `brain.embedding_model` 和 `brain.rerank_model` 读取实例级模型。[Brain](../brain/) 说明这两个模型如何影响检索。
+Embedding 和 rerank 不属于 Agent 档案。直接调用 AIGateway 的这两项能力时，必须提供显式 `provider_id/model` 选择符。Brain 从 [AppConfigure](../app-configuration/) 的 `brain.embedding_model` 读取站点级 embedding 模型，从 `brain.rerank_model` 读取租户级 rerank 模型。[Brain](../brain/) 说明这两个模型如何影响检索。
 
 解析到 Provider 行后，Resolver 选择一份可用凭据。thread 亲和优先于该行的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略。运行时 map 把准确的 credential ID 带到之后每个失败路径。对 ChatGPT 订阅的 OAuth 成员，Resolver 会在 Provider 行锁内刷新接近过期或过久未刷新的 token。永久刷新失败把该成员标成 `dead`，临时失败标成 `exhausted`，两者都会继续选择下一个可用成员。
 

@@ -6,21 +6,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ObservabilityBroker do
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
 
   @spec handle_export(
-          String.t() | nil,
+          String.t(),
           FabricProto.ObservabilitySpansExportRequest.t(),
           map()
         ) ::
           {:ok, FabricProto.ObservabilitySpansExportResponse.t()} | {:error, map()}
   def handle_export(
-        agent_uid,
+        _agent_uid,
         %FabricProto.ObservabilitySpansExportRequest{payload: payload},
         ctx
       ) do
-    with true <- is_binary(agent_uid) and agent_uid != "",
-         :ok <- Observability.export_worker_spans(payload) do
-      {:ok, %FabricProto.ObservabilitySpansExportResponse{}}
-    else
-      false -> {:error, error_payload(ctx, :missing_agent_uid)}
+    case Observability.export_worker_spans(payload) do
+      :ok -> {:ok, %FabricProto.ObservabilitySpansExportResponse{}}
       {:error, reason} -> {:error, error_payload(ctx, reason)}
     end
   end

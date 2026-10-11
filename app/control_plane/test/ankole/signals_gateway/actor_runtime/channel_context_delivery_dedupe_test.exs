@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
+  alias Ankole.Conversations.{Admission, Run}
 
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -49,11 +50,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
       adapter: "mock-provider"
     )
 
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
-
     channel_id = "mock:chat:context-dedupe"
 
     assert {:ok, %{status: :recorded}} =
@@ -70,8 +66,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
                now: @base_time
              )
 
-    %{actor_event: first_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+    {:ok, %{actor_event: first_event}} =
+      emit_entry(
         agent.uid,
         "mock",
         group_entry(%{
@@ -81,26 +77,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
           explicit: true,
           provider_time: DateTime.add(@base_time, 1, :second)
         }),
-        DateTime.add(@base_time, 1, :second)
+        now: DateTime.add(@base_time, 1, :second)
       )
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 10, :second),
-               lease_seconds: @long_lease_seconds
+    assert {:ok, first_run} =
+             Admission.admit(
+               %{agent_uid: agent.uid, session_id: first_event.session_id},
+               first_event
              )
 
-    assert_receive {:actor_lane, first_envelope}, 2_000
-    first_turn_start = turn_start_payload!(first_envelope)
-    first_turn_ref = first_turn_start.turn
-    assert first_turn_start.actor_event.actor_event_id == first_event.id
-
-    # The first turn of the conversation has no visible history, so its quote
-    # block arrives intact.
-    assert ["backdrop-1"] = delivered_context_entry_ids(first_turn_start)
-
-    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_turn_ref))
+    assert ["backdrop-1"] = delivered_context_entry_ids(first_run)
 
     # While the first turn is still generating, one more backdrop message and
     # the next addressed message arrive. The appended event quotes everything,
@@ -119,8 +105,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
                now: DateTime.add(@base_time, 12, :second)
              )
 
-    %{actor_event: second_event} =
-      Ankole.SignalsGatewayFixtures.emit_addressed_actor_event(
+    {:ok, %{actor_event: second_event}} =
+      emit_entry(
         agent.uid,
         "mock",
         group_entry(%{
@@ -130,7 +116,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
           explicit: true,
           provider_time: DateTime.add(@base_time, 13, :second)
         }),
-        DateTime.add(@base_time, 13, :second)
+        now: DateTime.add(@base_time, 13, :second)
       )
 
     stored_ids = stored_context_entry_ids(second_event.id)
@@ -164,22 +150,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
                }
              ])
 
-    assert {:ok, %{status: :turn_completed}} =
-             commit_turn_completion(first_turn_ref, "resp_#{committed.id}")
+    assert {:ok, %{status: :completed}} = Run.finalize(%{first_run | anchor: committed.id})
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 30, :second),
-               lease_seconds: @long_lease_seconds
+    assert {:ok, second_run} =
+             Admission.admit(
+               %{agent_uid: agent.uid, session_id: second_event.session_id},
+               second_event
              )
 
-    assert_receive {:actor_lane, second_envelope}, 2_000
-    second_turn_start = turn_start_payload!(second_envelope)
-    assert second_turn_start.actor_event.actor_event_id == second_event.id
-
-    # Delivery drops the quotes the first turn already carried into the
-    # conversation and keeps the one the model has never seen.
-    assert ["backdrop-2"] = delivered_context_entry_ids(second_turn_start)
+    assert second_run.actor_event_id == second_event.id
+    assert ["backdrop-2"] = delivered_context_entry_ids(second_run)
 
     # The stored event keeps its full payload; only the delivered copy shrinks.
     assert stored_context_entry_ids(second_event.id) == stored_ids
@@ -216,9 +196,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
     }
   end
 
-  defp delivered_context_entry_ids(turn_start) do
-    turn_start.actor_event.payload_json
-    |> decoded_json_bytes()
+  defp delivered_context_entry_ids(run) do
+    run.delivered_event.payload
     |> get_in(["data", "channel_context", "messages"])
     |> List.wrap()
     |> Enum.map(& &1["source_entry_id"])

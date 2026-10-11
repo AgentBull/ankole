@@ -1,89 +1,53 @@
 ---
 title: バックアップとリストア
-description: バックアップしなければならない 2 つのもの — PostgreSQL と Agent Home — のバックアップ方法、リストア方法、そして未テストのバックアップがバックアップではない理由。
+description: PostgreSQL、ファイルストア、永続 Agent Home、デプロイの秘密情報を一緒にバックアップして検証します。
 section: Guides
 order: 315
 ---
 
-Ankole のデプロイメントインスタンスは、再構築できない 2 つのものを保持します。PostgreSQL データベースと Agent Home ボリュームです。PostgreSQL は永続的な control-plane 状態を保存します。Agent Home は workspace、永続的な Agent ドキュメント、インストール済みの Skill、会話と Job のファイルを保存します。
+PostgreSQL、control plane のファイルストア、各 Agent の永続 Home を一緒にバックアップします。デプロイの秘密情報は別の secret manager に保存します。Worker インスタンスとキャッシュは再作成できますが、Home は復元が必要です。
 
-最初に決定的な性質を述べます。データベースの migration は、イメージをロールバックしても元に戻せません。リストアしていないバックアップは、バックアップではなく期待にすぎません。このページの要点はすべてリストアのステップです。それに依存する前に、別のホストでテストしてください。
+## バックアップ対象
 
-## 何をバックアップすべきか、何をすべきでないか
-
-| バックアップ | 理由 | 方法 |
+| データ | 内容 | 取得元 |
 |---|---|---|
-| **PostgreSQL**（Compose では `ankole_postgresql_data`、Helm では外部サーバー） | すべての永続的な意味論的事実 | `pg_dump -Fc` アーカイブ |
-| **Agent Home**（Compose では `ankole_agents_data`、Helm では RWX claim） | Agent ごとの workspace、永続的なドキュメント、インストール済みの Skill、会話と Job のファイル | ボリュームスナップショットまたはファイルシステムレベルのバックアップ。Ankole を停止した状態で実施する |
+| PostgreSQL | Principal、Session、Job、provider 設定、暗号化認証情報、generation、ストレージ参照 | `pg_dump -Fc` |
+| ファイルストア | 添付ファイル、公開ファイル、Skill、Automation スクリプト | Compose `files_data`、PVC、S3 バケット |
+| Agent Home | workspace、ユーザーパッケージ、`/workspace/.codex` のスレッド | provider の volume、共有ディレクトリ、Drive、EFS、Cloudflare R2 バックアップ |
+| デプロイの秘密情報 | `ANKOLE_SECRET_BASE` と起動時の認証情報 | 別の secret manager |
 
-コンテナイメージはバックアップ**しないで**ください。レジストリから再構築できます。Caddy のデータや一時的な worker 状態もバックアップしないでください。どちらも再作成できないものを保持していません。また、2 つのうち片方だけをバックアップしないでください。PostgreSQL は Agent Home 内のファイルを参照し、それを指すデータベース行のない Agent Home は孤児です。
+`/var/cache/ankole` とイメージは再作成できます。Home はキャッシュではありません。Docker Home のバックアップは別のホストにも保存します。Cloudflare は R2 バックアップと一致する `storage_ref` をデータベースに含める必要があります。強制停止では最後のバックアップ後の書き込みが失われる場合があります。
 
-## PostgreSQL をバックアップする
+## 整合性のあるバックアップ
 
-カスタム形式のアーカイブを作成します（リストアのステップがこれを期待します）。
+1. 新しい要求と定期処理を止め、Agent を無効にし、実行中の作業の終了を待ちます。Worker の終了中は control plane を動かしたままにします。
+2. 各プラットフォームの通常の停止または削除操作で、一時停止中を含む Worker インスタンスを終了します。強制削除、Kubernetes の猶予 0、Agent の削除は使いません。control plane が不在を確認し、現在のストレージ参照を保存するまで待ちます。Cloudflare はディレクトリバックアップの完了も確認します。未確定の作成要求がある場合は、確定するまで続行できません。
+3. control plane を停止します。これだけでは別管理の Worker は停止しません。Home への書き込みがないことを確認します。
+4. PostgreSQL を起動したままアーカイブを取得します。書き込みを止めた状態でファイルストアと全 Home を保存します。volume 名、provider 設定、Agent UID、所有者、権限を保持します。
+5. control plane を起動し、Agent を有効にして既知の Home ファイルとドライブファイルを確認します。
+
+Compose のデータベースバックアップ:
 
 ```bash
 docker compose exec -T postgresql \
-  pg_dump -U ankole -d ankole -Fc \
-  > "ankole-$(date +%Y%m%d).dump"
+  pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-Helm でバンドル版 PostgreSQL を使う場合は、`kubectl exec` で PostgreSQL pod に入り、同じ `pg_dump` を実行します。外部 PostgreSQL を使う場合は、そのサーバーでいつも実行している場所で `pg_dump` を実行します。コマンドの形は同じです。
+volume とバケットにはストレージのバックアップ機能を使います。アップグレードや破壊的な保守の前にも取得します。イメージ変更ではデータベース migration を戻せません。旧プール型 Home volume は Compose の一度限りの移行とファイル確認が完了するまで保持します。
 
-このバックアップは、すべてのアップグレードの前、破壊的な操作（`kit app-db rebuild`、`docker compose down -v`）の前、そしてデータ損失の許容度が求める頻度で取得してください。小規模なデプロイメントインスタンスでは、日次アーカイブが妥当なデフォルトです。
+## 復元と検証
 
-## Agent Home をバックアップする
-
-Agent Home はデータベースではなくファイルシステムです。Ankole を**停止**した状態でバックアップし、バックアップ中に worker が書き込まないようにします。
+復元中は全 control plane と Worker を停止します。対象データベースで次を実行します。
 
 ```bash
-# Compose: 名前付きボリュームをスナップショットするか、スタック停止中にコピーする
-docker compose down
-# ankole_agents_data のボリュームスナップショットまたはファイルシステムレベルのバックアップを取る
-docker compose up -d
-```
-
-Helm では、Agent Home は RWX claim です。StorageClass が提供する任意のスナップショット機構を使ってください。ファイルシステムレベルのコピー（rsync、restic、クラウドのボリュームスナップショット）はどれでも機能します。ただし、一貫していること、つまり 1 つの時点で取得し、ライターと競走しないことが条件です。
-
-スタックを停止する（または少なくとも worker を静かにする）理由は、バックアップの途中で worker がファイルを書き込むと、引き裂かれたコピーが生じるためです。PostgreSQL の `pg_dump` はトランザクション的に一貫したアーカイブを提供します。Agent Home にはそのような保証がないので、タイミングでそれを提供します。
-
-## PostgreSQL をリストアする
-
-毎回、最初に別のホストへリストアしてください。テストしていないリストアは、インシデントの中で最も高くつくものです。
-
-```bash
-# 新しい Ankole データベースがあるテストホストで
 docker compose exec -T postgresql \
-  pg_restore -U ankole -d ankole --clean --if-exists \
-  < "ankole-YYYYMMDD.dump"
+  pg_restore -U ankole -d ankole --clean --if-exists < ankole-backup.dump
 ```
 
-次に migration を実行して（ローカルでは `bun run control-plane:setup`、Helm では init コンテナに任せる）、スキーマをイメージの水準に合わせます。migration の前に取得したバックアップは、migration 前のスキーマにリストアされるためです。Principal、agent、既知の session など、データが期待どおりであることを確認してから、リストアが成功したと宣言してください。
+起動前に対応するファイルストア、Home、provider の配置、元の `ANKOLE_SECRET_BASE` を復元します。このキーは provider 認証情報と未確定 generation の再試行認証情報を復号します。新しいキーの生成だけでは復旧できません。
 
-## Agent Home をリストアする
+元のストレージ構成と uid 1000 の所有権を保持します。Agent の provider、provider の配置と永続ストレージ設定は変更できません。別の構成への移動には移行計画が必要です。
 
-スナップショットから、ボリュームを同じパス（`/agents`。Compose では `ankole_agents_data` から、Helm では RWX claim からマウントされる）にリストアします。ディレクトリ構造は agent-key ごとなので、正しいリストアは `/agents/<agent-key>/...` を正確に再作成します。これをデータベースのリストアと組み合わせてください。データベースの行は Agent Home の下のファイルを参照し、一致しないペアは、生きているように見えて欠落または古いファイルを指すデプロイメントを生み出します。
+復旧演習ではプラットフォームの復元リソースを本番から隔離します。独立した 2 つの control plane が同じ Home を管理してはいけません。未確定の結果を避けるために generation を消去しないでください。
 
-## ペアを一緒にテストする
-
-README の指示がルールです。「別のホストでデータベースと Agent Home のリストアを一緒にテストする」。この 2 つはペアであり、片方だけをリストアしても何も証明されません。使い捨てホストでの月次サイクル（昨夜の PostgreSQL と Agent Home をリストアし、スタックを起動し、実際の turn を 1 回実行する）が、バックアップと期待の違いです。
-
-テストホストでリストアが機能すれば、本番のバックアップは本物です。機能しなければ、インシデント中ではなくテストホストで発見できたことになります。
-
-## バックアップが任意でない場合
-
-いくつかの操作では、バックアップは推奨ではなく必須になります。
-
-- **すべてのアップグレード** — migration は元に戻せません。バックアップがスキーマに対する唯一のロールバック経路です。
-- **`kit app-db rebuild --yes`** — ローカルの `ankole_dev` データベースを削除します。データが本当に破棄可能な場合にのみ実行し、何か重要なものが含まれているなら先にバックアップしてください。
-- **`docker compose down -v`** — PostgreSQL と Agent Home を含む名前付きボリュームを削除します。これは再起動ではなく削除です。
-- **永続的な状態に影響しうるあらゆる障害** — 修復またはロールバックの前にバックアップを取ってください。
-
-## このガイドがそうでないもの
-
-バックアップ製品の推奨ではありません。すでに運用しているボリュームスナップショット、restic、クラウドスナップショットのツールを使ってください。リストアのテストの代替でもありません。リストアのステップこそが要点です。また、気になる部分だけをバックアップする方法でもありません。PostgreSQL と Agent Home はペアであり、部分的なバックアップは壊れたデプロイメントにリストアされます。
-
-## 次のステップ
-
-- クロスホストのリカバリとリハーサルについては、[Disaster recovery](../disaster-recovery/)を参照してください。
-- これらのボリュームに名前を付けるデプロイメント構成については、[Quick start のデプロイメントのセクション](../quickstart/#deployment)を参照してください。
+既知の workspace ファイルとドライブファイル、Home からの Job 再開、実際の Turn を検証します。構成や手順が変わったら再度演習します。[ディザスタリカバリ](../disaster-recovery/)と [Worker](../worker-management/)も参照してください。

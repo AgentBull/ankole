@@ -3,7 +3,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   Agent-owned writable library-container entry.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]

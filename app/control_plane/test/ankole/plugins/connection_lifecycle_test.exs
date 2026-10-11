@@ -1,72 +1,430 @@
 defmodule Ankole.Plugins.ConnectionLifecycleTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: false
+  import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
 
-  alias Ankole.Plugins.ConnectionLifecycle
+  @registry Ankole.Plugins.ConnectionLifecycleTest.Registry
+  @supervisor Ankole.Plugins.ConnectionLifecycleTest.Supervisor
 
-  test "runs on startup and on an explicit reconcile" do
-    parent = self()
-    name = unique_name()
+  defmodule Connections do
+    use Ankole.Plugins.ConnectionLifecycle,
+      adapter: "connection_lifecycle_test",
+      registry: Ankole.Plugins.ConnectionLifecycleTest.Registry,
+      supervisor: Ankole.Plugins.ConnectionLifecycleTest.Supervisor
 
-    start_supervised!(%{
-      id: name,
-      start:
-        {ConnectionLifecycle, :start_link,
-         [
-           [name: name, interval_ms: nil],
-           [
-             name: name,
-             default_interval_ms: 60_000,
-             reconcile_opts: :adapter_options,
-             reconcile: fn opts ->
-               send(parent, {:reconciled, opts})
-               %{errors: []}
-             end
-           ]
-         ]}
-    })
+    @impl true
+    def binding_spec(%{config_ref: "bad"}, _opts), do: {:error, :bad_config}
 
-    assert_receive {:reconciled, :adapter_options}
-    assert %{errors: []} = ConnectionLifecycle.reconcile(name)
-    assert_receive {:reconciled, :adapter_options}
+    def binding_spec(binding, _opts),
+      do:
+        {:ok,
+         %{
+           config: %{"key" => binding.config_ref, "secret" => binding.filters["cel"]},
+           consumers: [%{agent_uid: binding.agent_uid}],
+           secret_fingerprint: "same"
+         }}
 
-    assert :ok = ConnectionLifecycle.reconcile_async(name)
-    assert_receive {:reconciled, :adapter_options}
+    @impl true
+    def connection_key(config, _consumers), do: Map.fetch!(config, "key")
+
+    @impl true
+    def owner_child_spec(key, config, consumers) do
+      name =
+        {:via, Registry,
+         {Ankole.Plugins.ConnectionLifecycleTest.Registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
+
+      %{id: key, start: {Agent, :start_link, [fn -> config end, [name: name]]}}
+    end
   end
 
-  test "stops only registered keys outside the desired set" do
-    parent = self()
+  defmodule TemporaryClient do
+    use GenServer
 
-    assert 1 ==
-             ConnectionLifecycle.stop_undesired(
-               ConnectionLifecycle.desired_snapshot(%{:desired => %{}}, []),
-               [:desired, :zombie],
-               fn key ->
-                 send(parent, {:stopped, key})
-                 :ok
-               end
-             )
+    def start_link(opts),
+      do: GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
 
-    assert_receive {:stopped, :zombie}
-    refute_receive {:stopped, :desired}
+    @impl true
+    def init(opts) do
+      config = Keyword.fetch!(opts, :config)
+
+      send(
+        config["observer"],
+        {:client_started, config["key"], self(), System.monotonic_time(:millisecond)}
+      )
+
+      if config["key"] == "fatal" and config["exit_counter"] do
+        attempt = :ets.update_counter(config["exit_counter"], :attempt, 1)
+        if attempt <= 10, do: send(self(), :exit)
+      end
+
+      {:ok, config}
+    end
+
+    @impl true
+    def handle_info(:exit, state), do: {:stop, {:shutdown, :fatal}, state}
   end
 
-  test "keeps registered keys when the desired snapshot is incomplete" do
-    parent = self()
+  defmodule TemporaryConnections do
+    use Ankole.Plugins.ConnectionLifecycle,
+      adapter: "connection_lifecycle_test",
+      registry: Ankole.Plugins.ConnectionLifecycleTest.Registry,
+      supervisor: Ankole.Plugins.ConnectionLifecycleTest.Supervisor
 
-    assert 0 ==
-             ConnectionLifecycle.stop_undesired(
-               ConnectionLifecycle.desired_snapshot(%{}, [:config_unavailable]),
-               [:live],
-               fn key ->
-                 send(parent, {:stopped, key})
-                 :ok
-               end
-             )
+    @impl true
+    def binding_spec(%{config_ref: "blocked"}, _opts),
+      do: {:blocked, "retry", :runtime_bot_identity_unavailable}
 
-    refute_receive {:stopped, :live}
+    def binding_spec(binding, opts) do
+      {:ok, spec} = Connections.binding_spec(binding, opts)
+
+      config =
+        spec.config
+        |> Map.put("observer", Keyword.fetch!(opts, :observer))
+        |> Map.put("exit_counter", Keyword.get(opts, :exit_counter))
+
+      {:ok, %{spec | config: config}}
+    end
+
+    @impl true
+    def connection_key(config, consumers), do: Connections.connection_key(config, consumers)
+    @impl true
+    def owner_child_spec(key, config, consumers) do
+      via =
+        {:via, Registry,
+         {Ankole.Plugins.ConnectionLifecycleTest.Registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
+
+      %{
+        id: key,
+        start: {TemporaryClient, :start_link, [[name: via, config: config]]},
+        restart: :temporary
+      }
+    end
   end
 
-  defp unique_name do
-    {:global, {__MODULE__, make_ref()}}
+  for timing <- [:during_restart, :after_restart] do
+    @timing timing
+
+    test "blocked connection recovers when its client exits #{@timing}" do
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, binding} =
+               Ankole.SignalsGateway.upsert_binding(%{
+                 agent_uid: agent.uid,
+                 name: "retry",
+                 adapter: "connection_lifecycle_test",
+                 config_ref: "retry"
+               })
+
+      name = {:global, {__MODULE__, make_ref()}}
+      opts = [name: name, interval_ms: nil, observer: self()]
+      start_supervised!({TemporaryConnections, opts})
+      assert_receive {:client_started, "retry", original, _}, 1_000
+      assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
+      assert [{^original, value}] = Registry.lookup(@registry, "retry")
+
+      binding |> Ecto.Changeset.change(config_ref: "blocked") |> Repo.update!()
+
+      assert %{errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               TemporaryConnections.reconcile(name)
+
+      supervisor = Process.whereis(@supervisor)
+      stop_supervised!(TemporaryConnections)
+      exit_before_restart(@timing, original)
+      start_supervised!({TemporaryConnections, opts})
+
+      assert %{errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               TemporaryConnections.reconcile(name)
+
+      exit_after_restart(@timing, original)
+      assert_receive {:client_started, "retry", replacement, _}, 1_000
+      refute replacement == original
+      assert [{^replacement, ^value}] = Registry.lookup(@registry, "retry")
+      assert Process.whereis(@supervisor) == supervisor
+    end
+  end
+
+  defp exit_before_restart(:during_restart, client), do: exit_client(client)
+  defp exit_before_restart(:after_restart, _client), do: :ok
+  defp exit_after_restart(:after_restart, client), do: exit_client(client)
+  defp exit_after_restart(:during_restart, _client), do: :ok
+
+  defp exit_client(client) do
+    ref = Process.monitor(client)
+    send(client, :exit)
+    assert_receive {:DOWN, ^ref, :process, ^client, _}, 1_000
+  end
+
+  test "a disabled binding cannot return from a delayed retry or cached start arguments" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, binding} =
+             Ankole.SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: "retry",
+               adapter: "connection_lifecycle_test",
+               config_ref: "retry"
+             })
+
+    name = {:global, {__MODULE__, make_ref()}}
+    opts = [name: name, interval_ms: nil, restart_backoff_ms: [0, 200], observer: self()]
+    start_supervised!({TemporaryConnections, opts})
+    assert_receive {:client_started, "retry", first, _}, 1_000
+    assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
+    exit_client(first)
+    assert_receive {:client_started, "retry", second, _}, 1_000
+    exit_client(second)
+    binding |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
+    assert %{started: 0, errors: []} = TemporaryConnections.reconcile(name)
+    refute_receive {:client_started, "retry", _, _}, 250
+
+    stop_supervised!(TemporaryConnections)
+    start_supervised!({TemporaryConnections, opts})
+    assert %{started: 0, errors: []} = TemporaryConnections.reconcile(name)
+    refute_receive {:client_started, "retry", _, _}, 250
+    assert Registry.lookup(@registry, "retry") == []
+  end
+
+  setup do
+    allow_cache_database_access()
+    start_supervised!({Registry, keys: :unique, name: @registry})
+    start_supervised!({DynamicSupervisor, name: @supervisor, strategy: :one_for_one})
+    :ok
+  end
+
+  test "temporary clients restart immediately once, then back off by key" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: "retry",
+               adapter: "connection_lifecycle_test",
+               config_ref: "retry"
+             })
+
+    name = {:global, {__MODULE__, make_ref()}}
+
+    start_supervised!(
+      {TemporaryConnections,
+       name: name, interval_ms: nil, restart_backoff_ms: [0, 200, 400], observer: self()}
+    )
+
+    assert_receive {:client_started, "retry", first, _}, 1_000
+    assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
+    assert [{^first, value}] = Registry.lookup(@registry, "retry")
+    send(first, :exit)
+    assert_receive {:client_started, "retry", second, _}, 1_000
+    refute first == second
+    assert [{^second, ^value}] = Registry.lookup(@registry, "retry")
+    started = System.monotonic_time(:millisecond)
+    send(second, :exit)
+    refute_receive {:client_started, "retry", _, _}, 150
+    assert_receive {:client_started, "retry", third, second_time}, 1_000
+    assert second_time - started >= 200
+    started = System.monotonic_time(:millisecond)
+    send(third, :exit)
+    refute_receive {:client_started, "retry", _, _}, 350
+    assert_receive {:client_started, "retry", fourth, third_time}, 1_000
+    assert third_time - started >= 400
+    assert [{^fourth, ^value}] = Registry.lookup(@registry, "retry")
+  end
+
+  test "ten exits immediately after startup leave the other tenant and supervisor alive", %{
+    tenant: tenant
+  } do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: "fatal",
+               adapter: "connection_lifecycle_test",
+               config_ref: "fatal"
+             })
+
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      %{principal: other_agent} = agent_fixture()
+
+      assert {:ok, _} =
+               Ankole.SignalsGateway.upsert_binding(%{
+                 agent_uid: other_agent.uid,
+                 name: "healthy",
+                 adapter: "connection_lifecycle_test",
+                 config_ref: "healthy"
+               })
+    end)
+
+    assert Repo.tenant_id!() == tenant.id
+    name = {:global, {__MODULE__, make_ref()}}
+    counter = :ets.new(:connection_startup_failures, [:public])
+    :ets.insert(counter, {:attempt, 0})
+
+    start_supervised!(
+      {TemporaryConnections,
+       name: name,
+       interval_ms: nil,
+       restart_backoff_ms: [0, 1, 1],
+       observer: self(),
+       exit_counter: counter}
+    )
+
+    assert_receive {:client_started, "fatal", first, _}, 1_000
+    assert_receive {:client_started, "healthy", healthy, _}, 1_000
+    supervisor = Process.whereis(@supervisor)
+
+    Enum.reduce(1..10, first, fn _attempt, client ->
+      assert_receive {:client_started, "fatal", replacement, _}, 1_000
+      refute client == replacement
+      assert [{^healthy, {tenant_id, _}}] = Registry.lookup(@registry, "healthy")
+      assert tenant_id == other.id
+      assert Process.whereis(@supervisor) == supervisor
+      assert Process.alive?(healthy)
+      replacement
+    end)
+
+    assert [{:attempt, 11}] = :ets.lookup(counter, :attempt)
+  end
+
+  test "reconciliation reuses an owner and replaces it after the durable config changes" do
+    %{principal: agent} = agent_fixture()
+
+    attrs = %{
+      agent_uid: agent.uid,
+      name: "main",
+      adapter: "connection_lifecycle_test",
+      config_ref: "app",
+      filters: %{"cel" => "true"}
+    }
+
+    assert {:ok, _} = Ankole.SignalsGateway.upsert_binding(attrs)
+    assert %{started: 1, errors: []} = Connections.reconcile_once()
+    assert [{owner, _}] = Registry.lookup(@registry, "app")
+    assert %{started: 1, errors: []} = Connections.reconcile_once()
+    assert [{^owner, _}] = Registry.lookup(@registry, "app")
+
+    assert {:ok, _} =
+             Ankole.SignalsGateway.upsert_binding(%{attrs | filters: %{"cel" => "false"}})
+
+    assert %{started: 1, errors: []} = Connections.reconcile_once()
+    assert [{replacement, _}] = Registry.lookup(@registry, "app")
+    refute replacement == owner
+    refute Process.alive?(owner)
+    assert Agent.get(replacement, & &1["secret"]) == "false"
+  end
+
+  test "lists only supervised owners as connections" do
+    assert {:ok, _owner} =
+             start_connection_owner(Connections, %{"key" => "app"}, [%{kind: :chat}])
+
+    assert {:ok, _registered} = Registry.register(@registry, {:client, "app"}, nil)
+
+    assert Connections.registered_keys() == ["app"]
+  end
+
+  test "stops owners that no enabled binding wants on startup and on request" do
+    assert {:ok, zombie} =
+             start_connection_owner(Connections, %{"key" => "zombie"}, [%{kind: :chat}])
+
+    zombie_ref = Process.monitor(zombie)
+    name = {:global, {__MODULE__, make_ref()}}
+
+    start_supervised!({Connections, name: name, interval_ms: nil})
+    assert_receive {:DOWN, ^zombie_ref, :process, ^zombie, _reason}
+
+    assert {:ok, _owner} =
+             start_connection_owner(Connections, %{"key" => "late"}, [%{kind: :chat}])
+
+    assert %{started: 0, stopped: 1, errors: []} = Connections.reconcile(name)
+    assert Connections.registered_keys() == []
+
+    assert :ok = Connections.reconcile_async(name)
+    assert %{started: 0, stopped: 0, errors: []} = Connections.reconcile(name)
+  end
+
+  test "one tenant's bad config retains only its own orphaned owner", %{tenant: tenant} do
+    %{principal: first} = agent_fixture()
+
+    {:ok, _} =
+      Ankole.SignalsGateway.upsert_binding(%{
+        agent_uid: first.uid,
+        name: "old",
+        adapter: "connection_lifecycle_test",
+        config_ref: "first"
+      })
+
+    other = create_tenant()
+
+    second =
+      Repo.with_tenant(other.id, fn ->
+        %{principal: second} = agent_fixture()
+
+        {:ok, _} =
+          Ankole.SignalsGateway.upsert_binding(%{
+            agent_uid: second.uid,
+            name: "old",
+            adapter: "connection_lifecycle_test",
+            config_ref: "second"
+          })
+
+        second
+      end)
+
+    assert %{started: 2, errors: []} = Connections.reconcile_once()
+    {:ok, _} = Ankole.SignalsGateway.Bindings.disable_binding(first.uid, "old")
+
+    {:ok, _} =
+      Ankole.SignalsGateway.upsert_binding(%{
+        agent_uid: first.uid,
+        name: "bad",
+        adapter: "connection_lifecycle_test",
+        config_ref: "bad"
+      })
+
+    Repo.with_tenant(other.id, fn ->
+      Ankole.SignalsGateway.Bindings.disable_binding(second.uid, "old")
+    end)
+
+    assert %{stopped: 1, errors: [%{tenant_id: id, reason: :bad_config}]} =
+             Connections.reconcile_once()
+
+    assert id == tenant.id
+    assert Connections.registered_keys() == ["first"]
+  end
+
+  test "a conflicting new tenant cannot stop an existing owner" do
+    %{principal: first} = agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.SignalsGateway.upsert_binding(%{
+               agent_uid: first.uid,
+               name: "main",
+               adapter: "connection_lifecycle_test",
+               config_ref: "shared"
+             })
+
+    assert %{started: 1, errors: []} = Connections.reconcile_once()
+    assert ["shared"] = Connections.registered_keys()
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      %{principal: second} = agent_fixture()
+
+      assert {:ok, _} =
+               Ankole.SignalsGateway.upsert_binding(%{
+                 agent_uid: second.uid,
+                 name: "main",
+                 adapter: "connection_lifecycle_test",
+                 config_ref: "shared"
+               })
+    end)
+
+    assert %{started: 1, stopped: 0, errors: [%{reason: :connection_tenant_mismatch}]} =
+             Connections.reconcile_once()
+
+    assert ["shared"] = Connections.registered_keys()
   end
 end

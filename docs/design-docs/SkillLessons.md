@@ -54,7 +54,9 @@ output enters `Library.apply_skill_lesson_adds` through mechanical gates:
 - At most 2 accepted adds per Skill per round, and at most 10 active lessons
   per Skill.
 - Content: non-blank, no URLs, at most 100 estimated tokens, and no
-  prompt-injection scanner hit.
+  prompt-injection scanner hit. The scanner checks explicit bypass phrases,
+  including `do anything now` and `developer mode enable` or `enabled`; a bare
+  `DAN` token or the name `Dan` does not trigger this rule. Other rules still apply.
 - Evidence: at least two bundle Jobs, or one bundle Job that carried human
   input; every cited id must be inside the round's bundle.
 - Dedup against active lessons and immunity against human-revoked lessons,

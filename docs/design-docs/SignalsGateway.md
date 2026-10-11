@@ -5,6 +5,29 @@ incoming messages, starts Agent work, and sends the resulting replies.
 
 AIGateway separately stores model Responses and their history.
 
+## Platform application ownership
+
+A platform application used by credential-bearing configuration belongs to one
+tenant. Bindings and identity providers with directory sync share the existing
+binding-assignment lock during saves, including disabled configurations. The
+same tenant can share an application where its adapter permits it. A different
+tenant receives a conflict; an unverifiable credential fails without a write.
+Login-only identity providers do not participate because callbacks use the login
+transaction's tenant and those configurations neither open message connections
+nor synchronize a directory.
+
+Slack resolves a bot token through `auth.test` and then `bots.info` to obtain the
+stable `app_id`. Socket Mode validates the connected application's identity
+before acknowledging or dispatching events. Discord and Telegram resolve stable
+bot IDs through their existing platform APIs. Token rotation cannot change the
+application's tenant. Repair or remove an invalid old credential before saving
+a cross-tenant configuration whose ownership cannot be verified.
+
+Slack and Teams binding configuration keys hash `[agent_uid, binding_name]`.
+They remain in AppConfigure's global storage because the key is globally unique;
+the owning Agent's deletion removes the configuration. Adapter processes enter
+the binding's tenant before reading or writing business records.
+
 ## Four Records in One Message Flow
 
 One incoming message can produce four different records:
@@ -28,8 +51,7 @@ SignalsGateway stores these tables in PostgreSQL:
 | `signal_gateway_inbound_batches` | Nearby messages waiting to become one Agent input |
 | `signal_gateway_webhook_endpoints` | Callback capabilities that wake one Agent session |
 | `actor_events` | Work that an Agent session must process |
-| `actor_event_deliveries` | Attempts to send that work to a worker |
-| `actor_session_workspaces` | Stable workspace identity for one Agent session |
+| `actor_session_workspaces` | Stable workspace identity and writer epoch for one Agent session |
 | `signal_gateway_outbox_entries` | Operations that Ankole must send to a provider |
 
 ## Use a Different ID for Each Record
@@ -101,7 +123,7 @@ rejects new input without deleting the configuration.
 For a group message that does not address the Agent, the binding chooses one
 policy:
 
-- `ignore` stores nothing and does not wake the Agent.
+- `ignore` skips identity admission and does not mirror the message or wake the Agent. The inbound batch retains the complete message and raw provider data for later reply references.
 - `record_only` stores the message but does not wake the Agent.
 - `may_intervene` stores the message and can let the Agent decide whether to reply.
 
@@ -124,6 +146,24 @@ An ingress adapter can declare these input capabilities:
 The adapter converts provider data to Ankole's common format before it calls
 SignalsGateway. SignalsGateway rejects data that PostgreSQL cannot store before
 it acknowledges the provider.
+
+An adapter that receives events over long connections declares its connections
+with `use Ankole.Plugins.ConnectionLifecycle`. The adapter builds one connection
+spec for each enabled binding. If its identity provider shares the connection,
+the adapter also builds one spec for each active identity provider.
+`ConnectionLifecycle` merges the specs that have the same connection key,
+refuses two specs for one key that have different app secrets, and supervises
+one connection process for each key. Lark, Slack, and DingTalk use the SDK
+client as this process. Their clients are temporary children. If a client
+exits, `ConnectionLifecycle` restarts that key immediately once, then waits
+5 seconds and 30 seconds between further attempts. Other keys stay connected.
+It stops a process that no spec wants only after a pass that read all bindings
+and identity providers without an error.
+
+The connection Registry keeps the last successful start config and consumers.
+A new reconciler can use them to resume a connection while its binding is
+blocked. A stop removes those arguments, so a late retry cannot restore a
+connection that the successful snapshot no longer needs.
 
 An adapter can also keep its own provider fact on the channel mirror through
 `update_channel_metadata`, which applies the adapter's function to the stored
@@ -168,6 +208,12 @@ name. A module can also answer that the surface cannot show a presentation and
 plain text must go through the durable outbox instead; SignalsGateway then
 stops the preview without a retry.
 
+When a reply-preview module sends its first provider message, it records the
+sent checkpoint and the first source entry in one transaction. The first source
+entry wins, and recording the same entry is idempotent. A conflict with another
+source entry keeps the sent checkpoint committed and returns the source error.
+Recovery uses that checkpoint and does not send the completed message again.
+
 A version 2 reply-preview checkpoint keeps lifecycle, interaction, owner,
 deadline, and presentation fields at the top level. It keeps provider fields
 under `adapter_state`. Reply-preview modules receive one flattened logical view,
@@ -178,9 +224,8 @@ after every supported upgrade has run and PostgreSQL contains no flat
 reply-preview checkpoint.
 
 SignalsGateway filters provider-visible text immediately before it calls an
-outbound or reply-preview adapter. The filter replaces the exact RuntimeFabric
-worker authentication key and the declared or custom WorkerEnv secrets of that
-Agent. It does not redact content only because it looks like a JWT, bearer
+outbound or reply-preview adapter. The filter replaces the exact
+operator-configured WorkerEnv secrets of that Agent. It does not redact content only because it looks like a JWT, bearer
 token, private key, or credential assignment. If it cannot resolve the
 configured secret set, it does not call the provider adapter.
 
@@ -204,7 +249,7 @@ Provider-specific setup and webhook behavior belong in each Plugin document.
 
 ## Receive a Capability Callback
 
-A Worker can mint one callback capability for its current Agent session through
+A Worker can request one callback capability for its current Agent session through
 `create-webhook-cli`. It selects `one_shot` or `standing`, a label, and an
 expiry time. `list-webhooks-cli` lists safe endpoint metadata, and
 `cancel-webhook-cli` makes an endpoint terminal. The Console can list and
@@ -213,7 +258,8 @@ callback URL or its digest.
 
 The callback path is
 `/webhooks/v1/event-callbacks/wh_<43-character-base64url-token>`. Creation
-returns the full URL once. PostgreSQL stores only its SHA-256 digest. A request
+returns the full URL once. SignalsGateway generates the token for each new
+endpoint. PostgreSQL stores only its SHA-256 digest. A request
 body can contain at most 1 MiB. SignalsGateway stores only `content-type`,
 `x-hub-signature-256`, and headers whose names start with `ce-` or `x-github-`.
 It discards authentication and all other HTTP headers. Ankole redacts
@@ -291,6 +337,14 @@ unknown reference; enabling or moving a binding sends no config and keeps its
 reference. Identities recorded under the adapter default before a provider
 existed stay in that namespace until an operator binds them.
 
+Reply references determine whether an IM message addresses the Agent before
+identity admission. A reply to this Agent or a reference in a thread where
+this Agent participated still requires admission. Unaddressed group messages
+with `ignore` skip admission: they do not create or refresh a Principal,
+identity binding, or group membership. Their complete message and raw provider
+data remain in the inbound batch for later references. Other group policies,
+direct messages, and addressed messages use the admission rules below.
+
 What an unmatched sender means is the binding's `unmatched_sender_policy`:
 
 - `manual_review` (default): the sender gets no processing at all — no
@@ -303,19 +357,20 @@ What an unmatched sender means is the binding's `unmatched_sender_policy`:
   must read it from the row. Unaddressed group chatter from an
   unmatched sender is ignored silently.
 - `create_standalone`: the gateway creates a standalone human Principal for
-  the sender and serves them at once. When the subject id is already a
-  Principal UID, such as a local account whose UID is its sign-in email, the
-  gateway does not create or join an account; the sender waits for manual
-  review as above, because only an operator can decide that they are the
-  same person.
+  the sender with a new opaque UUIDv7 UID and serves them at once. An external
+  subject equal to an existing Principal UID does not select that Principal.
+  Without an identity binding or verified contact match, the standalone
+  policy creates a separate account; `manual_review` holds the sender for
+  an operator to bind.
 
-A sender whose Principal is disabled is ignored without a notice. Admission
+For messages that require admission, a sender whose Principal is disabled is
+ignored without a notice. Admission
 locks the Human and captures `access_version` before it stores the observation.
 Batched and Ambient work retain that observed version; later contact updates
 cannot renew it. ActorEvents store `authorization_kind`, `human_uid`, and
 `human_access_version`, as defined in [Human Offboarding](HumanOffboarding.md).
-Each new execution attempt checks these fields before it claims a delivery.
-Already admitted deliveries can finish. Revocation removes only the disabled
+Each new execution attempt checks these fields before it admits an input.
+An already admitted run can finish. Revocation removes only the disabled
 Human's pending work from a shared Agent or Session.
 
 Every admitted sender also joins the binding's `signal_source` AuthZ group
@@ -380,11 +435,18 @@ An adapter that must fetch attachment bytes first writes a pending attachment
 observation. While it holds the existing entry lock, SignalsGateway assigns each
 new attachment a PostgreSQL sequence ID that starts at 10000. A later
 observation with the same source entry ID and provider reference reuses that ID
-and replaces the pending state with `complete` or `failed`. A later observation
-from the same Agent without a readable path never replaces a stored attachment
-that this Agent can read, so a redelivered event cannot take a completed
-download away. A path that a different Agent wrote does not count; each Agent
-downloads its own copy. The attachment
+and replaces the pending state with `complete` or `failed`. A completed
+observation carries `blob_ref` and the drive `path` of bytes that the file
+service holds ([Files](Files.md)). A later observation without them never
+replaces a stored attachment, so a redelivered event cannot take a completed
+download away. The stored bytes serve every Agent, so with an adapter that
+writes the pending observation (Lark, Slack, Discord, Telegram, WhatsApp,
+LINE, and email), an attachment that one Agent's adapter downloaded is not
+downloaded again for another Agent. DingTalk, WeCom, and Microsoft 365 write no
+pending observation and download the attachment for each Agent; the file
+service keeps one copy of the bytes. The gateway names the content in each
+Agent's drive when it mirrors the entry and again before it delivers an
+ActorEvent. The attachment
 window starts at the pending observation, not after the download. An open batch
 waits for all pending attachments, with a four second materialization cap.
 
@@ -406,9 +468,12 @@ older event when a newer event covers the same Session and channel.
 
 ### Ambient Judgments and the Channel Cursor
 
-The Worker recognizer reports one action through the
-`signal_channel.ambient_judgment.record` RPC operation before a visible turn
-starts or the event completes silently. The action is `NOOP`,
+The control-plane ambient recognizer records one action through
+`AmbientCuration.record_judgment/4` before a visible turn starts or the
+event completes silently. This operation takes the Agent and Session key,
+the event ID, and the validated route. It locks the same Session and event
+before it checks current database facts. The Driver owns recognition and uses the light
+model for a visible ambient reply. The action is `NOOP`,
 `FOREGROUND_REPLY`, `NEW_WORK`, or `HANDOFF`. `NEW_WORK` also reports whether a
 direct human request, a standing order, or neither source authorizes the work.
 The recognizer never creates a Job.
@@ -467,6 +532,7 @@ Common ActorEvent types include:
 - `signal.entry.removed`
 - `command.new`
 - `command.steer`
+- `input.revised`
 - `command.llm_help`
 - `command.llm`
 - `check_back_later.wakeup`
@@ -516,71 +582,64 @@ plus a scheduled wake event, and holds no Worker resources. See
 [Workflow](Workflow.md) and [BackgroundAgentJob](BackgroundAgentJob.md) for the
 per-kind lifecycles.
 
-ActorRuntime orders open events with `queue_sequence` for each Session. Each
-delivery row records one worker attempt and its turn fence.
+Conversations orders open events with `queue_sequence`. One `:gen_statem`
+Driver owns each Agent and Session through a `:global` name. Its state is derived
+from PostgreSQL input and the AIGateway Response tape. It retires after five idle
+minutes. A new input wakes it immediately; the per-minute Reconciler repairs
+lost wakeups, including runs that crashed after admission without another input.
 
-The Session controller serializes Turn starts and asynchronous Worker updates.
-It exits normally after five idle minutes only when no live delivery remains.
-Live deliveries keep it available for acceptance and progress messages;
-terminal commits use the independent RPC lane. A ready call that races with
-normal retirement starts a new controller and retries once. PostgreSQL keeps
-the Session facts throughout retirement.
+`actor_session_workspaces` stores the stable workspace ID and epoch. Admission
+increments the epoch and the trigger's `attempt_count` under the row lock.
+Control-plane tool writes, round recording, and terminal commits check that
+epoch in their transaction. Tool results and consumed wait events enter the tape
+in one transaction. Tool receipts hold committed control-plane results until
+that transaction records them, so recovery does not repeat a domain write.
 
-An `actor_session_workspaces` row identifies a real Actor session. Some Actor
-sessions, such as Background Agent Jobs, do not have an AIGateway conversation.
-The daily reset selects an active conversation only when its subject and key
-match an Actor session workspace. It also excludes Background Agent Job
-execution sessions. AIGateway conversations that store internal traces do not
-enter this lifecycle.
+Recovery counts an appended input as consumed only when a complete row in the
+visible run tape records it. Admission and preparation defer inbox messages.
+After the tape is restored, the Driver processes the durable inbox before it
+continues model or tool I/O. This includes a stop that arrived while the Driver
+was absent. Short database transitions run in the state callback. Model streams,
+tools, and Worker I/O use supervised tasks.
 
-At the configured 04:30 local boundary, daily reset enqueues one
-`session.reset_due` lifecycle barrier for each due session. The barrier waits
-behind earlier work. It then ends the current conversation and creates the
-successor under the same session key.
+Tool definitions, results, waits, Driver state, and pending calls use typed
+structs. Domain operations return explicit events for delivery. If the caller
+still owns a transaction, delivery inserts a unique EnsureDriver job. An error
+in an after-commit notification cannot replace a committed tool receipt.
 
-A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
-and invalidates the old turn fence.
+The Driver runs ordinary and Workflow model requests on the control plane.
+Environment tools request a Worker only when needed. Codex Jobs retain their
+Worker execution and Job attempt budgets. A lost environment result is probed
+on the current Worker; an unknown unsafe call is recorded as interrupted.
 
-The failure decides the wait. ActorRuntime reads one shared classification of
-the Worker turn failure: an infrastructure interruption (a lost runtime, the
-shared-runtime lock, or a failed steer delivery) is not the task failing, a
-retryable provider-capacity failure schedules on the capacity ladder, and every
-other failure is an execution failure. A provider-capacity failure is a
-retryable failure whose kind is `server` or `rate_limit`, or a credential pool
-exhaustion. The Worker records the retryable conclusion for a failed turn, and
-that top-level value is authoritative; the nested AIGateway value is only a
-fallback when the top level is absent.
+The daily reset enqueues a `session.reset_due` barrier at the configured 04:30
+local boundary. It waits behind earlier input, ends the current conversation,
+and creates its successor under the same Session key. Internal trace
+conversations and Job execution Sessions do not enter this lifecycle.
 
-An ordinary Turn waits 30, 120, 300, and then 750 seconds for a
-provider-capacity failure, using the delivery attempt number that the delivery
-ledger keeps across compaction and restarts. The Worker does not retry that
-class locally, because a saturated upstream needs a minute-scale wait rather
-than three sub-second re-issues inside the same outage window. A transient
-Worker failure keeps the shorter exponential wait that starts at 5 seconds and
-stops growing at 120 seconds. A failure that changes class between deliveries
-uses its current class and current attempt number, so no earlier schedule is
-reset or accumulated.
+A retryable provider-capacity failure waits 30, 120, 300, then 750 seconds.
+Other retryable failures start at 5 seconds and double to a 120-second ceiling.
+The sixth admission writes input dead-letter state. After a crash, the Driver
+uses the persisted `last_attempt_at` as the backoff start. A planned Driver
+shutdown refunds one admission; a stale Driver refunds it on a best-effort
+basis while its input stays open. Job failures use the Job owner's separate
+claim and execution budgets.
 
-For an ordinary Turn, a credential pool recovery time never schedules a wait.
-When that time is later than every wait this event has left, the Turn
-dead-letters at once instead of spending its remaining deliveries on a
-known-failing window; a shorter time costs at most one wasted delivery. An
-ordinary Turn admits at most five deliveries, so the automatic retry strategy
-schedules no more than 20 minutes of backoff. Execution time, queueing, and
-control-plane downtime are outside that budget.
-
-`/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
+`/llm` creates `command.llm_help`. Conversations.Commands returns localized usage plus
 the current Agent's custom model names and descriptions. This command does not
 start a worker Turn, interrupt live work, or supersede a pending interaction.
 
 `/llm <profile> [message]` creates `command.llm`. The profile and stripped
 message body are separate ActorEvent fields. A profile with no message is a
-valid worker Turn. The event queues as normal input when another Turn is live;
-it does not steer or cancel that Turn. ActorRuntime resolves the custom profile
+valid control-plane run. The event queues as normal input when another Turn is live;
+it does not steer or cancel that Turn. Conversations resolves the custom profile
 for this Turn only. The next normal input uses `primary`. `/retry` copies the
 logical profile from the original ActorEvent and resolves its current binding.
 
-A bare `/retry` controls only the live Turn in its current Session. Retrying a
+A bare `/retry` controls only the live run in its current Session. Before any
+tool call, it retracts the request and repeats the original input. After a tool
+call, it cancels pending work, keeps the tape and committed results, and injects
+the retry instruction on that tape. Retrying a
 terminal Turn requires an exact target: the user replies to that Agent message
 with `/retry`, or sends `/retry actor-event::<id>`. Ingress resolves a replied-to
 provider message through its succeeded durable-reply Outbox row. It does not use
@@ -591,15 +650,23 @@ provider send, the Outbox row also makes an unmentioned group reply explicit.
 Ingress does not invent the missing reply content.
 
 Ingress assigns an exact retry command to the target ActorEvent's Session before
-it appends the command. ActorRuntime therefore serializes the command and the
-replacement under the existing single-Session lock. It revalidates the exact
+it appends the command. The Driver therefore serializes the command and its
+replacement with the Session epoch. It revalidates the exact
 terminal target and either replays that ActorEvent or refuses; it never selects
 a substitute. The replacement keeps the target event's input, execution route,
 and frozen scheduled delivery. It takes `sender_key` from the retry command, so
 the user who requested the new execution is its runtime requester; the replayed
 payload still contains the original input author. A target that is no longer
-the Session tail, crosses a conversation reset, or contains unsafe external
-effects cannot be replayed.
+the Session tail, crosses a conversation reset, or shares its Response with
+other inputs cannot be retried as one exact input.
+
+Bare and targeted retries use the same history rule. A suffix that contains
+tool calls or results stays visible. The replacement asks for another answer
+to the original input, using the recorded results without repeating committed
+effects. Only a suffix with no tool calls or results is retracted and replayed.
+Failed Responses remain audit facts outside visible history. A target whose
+failed Response contains tool fragments is still refused. Manual recovery is
+required because these effects are outside the model's history.
 
 When a command does not identify an exact target, the reply explains the two
 supported target forms. When a resolved target can no longer be replayed, the
@@ -608,21 +675,22 @@ does not itself advance the retry tail. A successful terminal retry appends a
 replacement ActorEvent, and that replacement does advance the tail. All other
 intermediate ActorEvents remain retry fences.
 
-After five retryable abort results, ActorRuntime moves the event to `dead_letter`.
+An unretryable failure or exhausted admission budget moves the read input to
+`dead_letter`. Run first records pending committed tool results in the tape.
 For a visible chat message, the same transaction records a localized failure
 notice for the provider. The notice hides the Worker error by default. When the
 installation-wide `signals_gateway.show_dead_letter_error_details` AppConfigure
 setting is `true`, it appends a bounded and redacted error preview. If the
 channel takes no replies, or its channel or binding row is deleted, the notice
-has no route. ActorRuntime then logs the skipped notice and keeps the
+has no route. Conversations then logs the skipped notice and keeps the
 `dead_letter` row as the record. It does not fail the transaction, because that
-transaction can also be a Worker takeover.
+transaction also closes the run.
 
 A conversation turn can also stop before any Worker attempt. When the Agent's
 model profile is unavailable or the Agent is at its
-[token quota](AgentTokenQuota.md), ActorRuntime completes the ActorEvent in the
-same transaction that records one localized notice for a channel-reply-eligible
-event. An ambient `may_intervene` event completes without a notice. A turn that
+[token quota](AgentTokenQuota.md), Conversations completes the read input in the
+same transaction that preserves committed tool results and records one
+localized notice for a channel-reply-eligible event. An ambient `may_intervene` event completes without a notice. A turn that
 crosses the token quota while it runs reaches `dead_letter` through the normal
 abort path, and its notice uses the quota text instead of the retry text.
 
@@ -697,6 +765,15 @@ Outbox states are:
 The dispatcher claims a row in one transaction, calls the provider without a
 database lock, and then stores the result in another transaction.
 
+Each dispatch deadline and its Oban job commit in the same domain transaction.
+The existing minute Reconciler calls the Outbox owner to restore due dispatch
+jobs that are missing. The query selects only outbox keys and tenant IDs. An
+index excludes succeeded, unsupported, and stopped rows that have no automatic
+recovery deadline. An available, scheduled, retryable, or executing job prevents a
+new job, so recovery preserves the job's current deadline and retry count. A
+discarded or pruned job does not stop delivery; the Outbox row owns that decision.
+Recovery does not restart blocked, permanent, or exhausted deliveries.
+
 Retryable failures use delays from five seconds to five minutes. Every delivery
 class stops at `max_attempts`, which defaults to ten. The row remains stored with
 an `exhausted` recovery state and no next deadline.
@@ -714,8 +791,11 @@ same row, so an operator can grant one provider call without creating a second
 reply intent. A row without visible reply text remains visible but has no Retry
 action.
 
-A `sending` row can recover after 60 seconds. SignalsGateway asks the provider
-for its result only when the adapter supports that check and has enough IDs.
+A `sending` row can recover after 60 seconds. Only a durable AI reply with a
+reply presentation and an adapter that declares `outbound_reconciliation` can
+be reconciled. SignalsGateway repeats preview finalization when the source
+ActorEvent and preview module are available; otherwise it calls the provider
+reconciliation function.
 
 Otherwise, SignalsGateway sets `unknown_after_send`. If the row is a visible
 durable reply, SignalsGateway writes a localized possible-duplicate notice into
@@ -729,87 +809,51 @@ It also links a final reply to `ai_message_id` when available.
 
 When an exact `/retry` supersedes a completed or failed turn, the same actor
 transaction stores one delete outbox intent for each known provider reply. A
-completed Response also becomes `retracted`; a failed Response remains an error
+completed Response becomes `retracted` only if the suffix has no tool calls or
+results; otherwise the tape stays visible. A failed Response remains an error
 audit fact. A provider deletion failure does not stop the replacement turn. The
 outbox records its retries and final result.
 
 ## Show Progress before the Final Reply
 
-A live preview can show model progress, but Ankole can lose it. It is not the
-final reply record.
+A preview is a recoverable projection, separate from the durable final reply.
+The Driver sends activity as an i18n key with bounded display bindings.
+`ReplyPresentation` resolves it with the installation locale.
 
-Agent Computer sends progress text as an i18n key with bounded display
-bindings. `ReplyPresentation` resolves the key with the installation locale
-before it stores or renders the projection. It accepts a literal label from an
-older Worker, but new tool activity, Turn phases, memory receipts, and schedule
-receipts do not own translated text.
+The stream identity stays on the trigger ActorEvent. Its reply owner is the
+last input on that stream which `AIReplyPreview.channel_reply_eligible?/1`
+accepts. Ordinary appended IM input and `/steer` use the same `continue_on/2`
+handoff. `input.revised` and an internal retry instruction keep the previous
+reply owner. Input that has not reached the model remains open for the next run.
 
-The preview follows one immutable AIGateway Turn stream. Its presentation owner
-is one ActorEvent and can change when `/steer` adds a visible reply fragment.
-An adapter updates only the provider message that belongs to the current owner.
+Handoff freezes the old provider message with the `continued` state. It keeps
+displayed answers, plans, results, and activity, removes transient thought, and
+keeps live plans live. It then switches to the new owner. If no old provider
+message exists, it creates no empty continued message. A failed provider update
+stores `refresh_pending`; the existing recovery job finishes that old message.
 
-After the first successful preview, the ActorEvent stores the provider message
-ID. The final outbox can edit that message instead of sending another one.
-A channel whose adapter declares no reply-preview module and no `edit_entry`
-gets no preview at all: the first fragment would become the only message the
-channel can show. Its final reply, failure notice, and tool activity arrive as
-one new message.
+Each checkpoint stores its stream ID and owner generation. Old provider tasks
+cannot replace a newer generation. On Driver recovery, the tape identifies
+already-injected input and the preview restores the persisted reply owner with
+a new generation. Repeated input wakeups do not create another handoff.
 
-After an active `/steer` event is stored, the current owner stays active. It
-continues to receive presentation updates from the model round that is already
-running. The stored delivery and `mailbox_updated` message only queue the steer;
-they do not change the preview owner.
+An edit, attachment supplement, or withdrawal before a tool call cancels and
+retracts the model request, then prepares the current input again. After a tool
+call, the Driver keeps the tape, cancels pending work, and injects the revision.
+A partial withdrawal follows this rule; withdrawal of the only input stops the
+run. Committed effects remain visible to the model.
 
-When the Worker sends `turn_accepted` for the steer revision, SignalsGateway
-freezes the old owner with the provider-neutral `continued` state. This state
-keeps displayed answers, plans, results, and activity, removes transient
-thought, and does not mark a live plan as completed or cancelled. After that
-provider update commits, SignalsGateway makes the steer ActorEvent the new
-owner. If no old provider message exists, it switches the owner without creating
-an empty continued message. This prevents an old provider call from running
-behind a card that SignalsGateway already marked as continued.
+The terminal source check includes explicit input and referenced channel
+context. If only a context message was withdrawn, the run stops and commits a
+notice to a surviving input. The notice asks the user to send the question
+again. It does not contain the old partial answer or the withdrawn text. If
+explicit input was also withdrawn, the ordinary input-withdrawal rule wins.
+The notice does not undo committed tool effects.
 
-An exact-revision `turn_accepted` retry repeats the same idempotent owner
-handoff. A redelivered envelope can repair a failure between the durable
-acceptance update and the preview operation. A delivery that terminal
-completion already superseded cannot trigger a late handoff.
-
-If the old provider update fails, SignalsGateway persists the intended
-`continued` checkpoint with `refresh_pending` and switches the owner. The
-existing preview recovery path then finishes the old card. A provider failure
-does not block a durable steer from reaching the Worker.
-
-Every owner checkpoint stores the immutable Turn stream ID and an owner
-generation. A provider task can write a checkpoint only for its generation.
-This fence prevents an old update from replacing a newer card after a handoff.
-Consecutive accepted steer events repeat the same owner change. If the current
-Turn finishes at an older revision, SignalsGateway does not hand off the owner.
-It supersedes the stale delivery attempt, keeps the steer ActorEvent open, and
-starts that event as the next Turn.
-
-If the same sender adds a contiguous attachment while that ActorEvent is still
-running, SignalsGateway can supersede the incomplete input. A reply edge to
-another message or another structured mention prevents this association. The
-gateway retracts the generating Response, invalidates the old turn fence, adds
-the attachment to the same ActorEvent, and runs that event again after
-materialization. The preview edits the same provider message to say that the
-full request is being analyzed again. Late output from the old fence cannot
-replace the new run.
-
-SignalsGateway does not replay a turn after it observes a tool call, a tool
-result, or a committed outbox operation. Those facts can represent an external
-write whose result is unknown. In that case the attachment becomes a new
-addressed turn after the current turn. The ActorEvent row lock decides a race
-with normal completion: supersession wins by invalidating the old delivery, or
-completion wins and the attachment becomes the next turn.
-
-The final reply waits up to 30 seconds for the preview to finish. If preview
-delivery fails, the stored outbox operation still sends the answer.
-
-At Turn completion, the latest visible steer delivery with `revision <= R`
-owns the final reply and outbox. A steer delivery with `revision > R` stays open
-and starts the next Turn. An aborted attempt keeps all ActorEvents and preview
-checkpoints for retry.
+After a successful preview, the ActorEvent stores the provider message ID. The
+final Outbox can edit that message. An adapter with no preview or edit support
+gets one final message. The final reply waits up to 30 seconds for the preview;
+a provider failure leaves the durable Outbox responsible for delivery.
 
 ## Which Component Does What
 

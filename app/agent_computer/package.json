@@ -11,36 +11,36 @@
     "gen:proto": "bun scripts/gen-proto.ts",
     "gen:proto:check": "bun scripts/gen-proto.ts --check",
     "gen:rpc-contract": "bun scripts/gen-rpc-contract.ts",
+    "tools:export": "bun scripts/export-worker-tools.ts",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
-    "//test": "Docker-only: Devkit resolves the published or content-addressed Worker image, consumes the control-plane container bootstrap contract, then adds the package source/test mounts and Bun command. For full runtime coverage use the control-plane Docker worker e2e.",
-    "test": "cd ../.. && bun run kit agent-computer-test --suite unit",
-    "test:integration": "cd ../.. && bun run kit agent-computer-test --suite integration"
+    "test": "bun test --path-ignore-patterns=test/integration/**",
+    "test:docker": "cd ../.. && bun run kit agent-computer-test --suite unit",
+    "test:integration": "TMPDIR=/tmp bun test ./test/integration/host",
+    "test:integration:linux": "TMPDIR=/tmp bun test ./test/integration/linux",
+    "test:integration:docker": "cd ../.. && bun run kit agent-computer-test --suite image",
+    "gen:golden": "bun scripts/gen-golden.ts"
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
     "@ankole/browser": "workspace:*",
-    "@ankole/kernel": "workspace:*",
     "@bufbuild/protobuf": "2.16.0",
-    "@earendil-works/pi-agent-core": "1.0.0",
-    "@earendil-works/pi-ai": "1.0.0",
     "@ff-labs/fff-bun": "0.11.0",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/otlp-transformer": "^0.222.0",
-    "@opentelemetry/resources": "^2.11.0",
-    "@opentelemetry/sdk-trace-base": "^2.11.0",
-    "openai": "^7.27.0",
+    "@opentelemetry/otlp-transformer": "^0.223.0",
+    "@opentelemetry/resources": "^2.12.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.0",
     "phoenix": "1.8.15",
-    "pino": "^10.1.0",
-    "typebox": "1.3.34",
+    "pino": "^10.4.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.73.0",
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/bun": "latest",
-    "@types/phoenix": "^1.6.7"
+    "@types/phoenix": "^1.6.7",
+    "gpt-tokenizer": "4.0.0"
   }
 }

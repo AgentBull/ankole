@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   live here.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

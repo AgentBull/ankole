@@ -21,7 +21,6 @@ defmodule Ankole.Brain.Synthesis do
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
-  alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Kernel, as: NativeKernel
@@ -200,7 +199,7 @@ defmodule Ankole.Brain.Synthesis do
              %{
                object_slug: timeline.object_slug,
                date: timeline.date,
-               summary: elem(Sanitize.sanitize(timeline.summary), 0)
+               summary: timeline.summary
              }
            end)
        }}
@@ -285,12 +284,10 @@ defmodule Ankole.Brain.Synthesis do
     do: where(query, [row], row.object_slug in ^slugs)
 
   defp claim_summary(claim) do
-    {text, _matched} = Sanitize.sanitize(claim.claim)
-
     %{
       id: claim.id,
       claim_type: claim.claim_type,
-      claim: text,
+      claim: claim.claim,
       kind: claim.kind,
       holder: claim.holder,
       object_slug: claim.object_slug,

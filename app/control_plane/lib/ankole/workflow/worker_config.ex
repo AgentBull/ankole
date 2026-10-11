@@ -31,6 +31,7 @@ defmodule Ankole.Workflow.WorkerConfig do
   @spec max_agent_calls_definition() :: Definition.t()
   def max_agent_calls_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @max_agent_calls_key,
       encrypted: false,
       schema: Schema.new(&validate_max_agent_calls/1),
@@ -42,6 +43,7 @@ defmodule Ankole.Workflow.WorkerConfig do
   @spec max_running_definition() :: Definition.t()
   def max_running_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @max_running_key,
       encrypted: false,
       schema: Schema.new(&validate_max_running/1),
@@ -53,6 +55,7 @@ defmodule Ankole.Workflow.WorkerConfig do
   @spec max_concurrency_definition() :: Definition.t()
   def max_concurrency_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @max_concurrency_key,
       encrypted: false,
       schema: Schema.new(&validate_max_concurrency/1),
@@ -62,22 +65,19 @@ defmodule Ankole.Workflow.WorkerConfig do
   end
 
   @spec max_agent_calls_per_run() :: pos_integer()
-  def max_agent_calls_per_run,
-    do: configured(max_agent_calls_definition(), @max_agent_calls_default)
+  def max_agent_calls_per_run, do: configured(max_agent_calls_definition())
 
   @spec max_running_per_agent() :: pos_integer()
-  def max_running_per_agent,
-    do: configured(max_running_definition(), @max_running_default)
+  def max_running_per_agent, do: configured(max_running_definition())
 
   @spec max_concurrency_per_run() :: pos_integer()
-  def max_concurrency_per_run,
-    do: configured(max_concurrency_definition(), @max_concurrency_default)
+  def max_concurrency_per_run, do: configured(max_concurrency_definition())
 
-  defp configured(definition, default) do
-    case AppConfigure.get(definition) do
-      {:ok, value} -> value
-      _error -> default
-    end
+  # A missing setting already resolves to its declared default. A read or
+  # stored-value failure raises instead of hiding the operator's value.
+  defp configured(definition) do
+    {:ok, value} = AppConfigure.get(definition)
+    value
   end
 
   defp validate_max_agent_calls(value)

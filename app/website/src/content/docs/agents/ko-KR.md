@@ -10,12 +10,14 @@ Agent는 Ankole Agent Harness 안에서 업무를 지속해서 수행하는 작�
 ## Agent 생성
 
 1. **Console → Agents**를 열고 **New Agent**를 선택합니다.
-2. 필수 display name을 입력합니다. Console은 영어 또는 중국어 텍스트에서 UID를 생성합니다. 예를 들어 `Research Analyst`는 `research-analyst`, `研究分析师`는 `yan-jiu-fen-xi-shi`가 됩니다. 혼합 언어 이름도 동작합니다.
-3. UID를 검토하거나 변경한 다음 역할과 선택적 avatar URL을 입력합니다. UID는 이 deployment 인스턴스 안에서 고유한 안정적인 식별자이며, Agent를 저장한 후에는 변경할 수 없습니다. display name은 나중에 변경해도 기존 configuration이 깨지지 않습니다.
+2. 표시 이름을 입력하고 자동 생성된 handle을 확인합니다. handle은 나중에 변경할 수 있습니다. 저장할 때 Ankole이 전역에서 고유한 불투명 UID를 생성합니다.
+3. 역할, 선택적 아바타 URL, Worker provider를 설정합니다.
 4. Agent를 소유할 사람 Principal과 group memory 공개 모드를 선택합니다.
 5. Agent를 저장합니다. 그러면 페이지에 해당 Agent의 durable 지침, model profile, Agent별 environment variable이 표시됩니다.
 
 역할(role)은 “Research Analyst”나 “Customer Support”처럼 작업에 대한 짧은 요약을 제공합니다. 아래의 네 가지 durable 문서가 책임, 동작, 시각적 디자인, 기밀성을 관리합니다.
+
+Worker provider는 Agent의 [Worker pool](../worker-management/)을 선택합니다. 요청에서 생략하면 site 기본 pool을 사용하며 기본값이 없으면 생성에 실패합니다. 저장 후 선택은 바꿀 수 없습니다. 같은 pool의 Agent도 각각 전용 Worker와 영구 Home을 가집니다. Agent를 저장할 때 인스턴스는 시작하지 않으며 컴퓨터 작업이 필요할 때 control plane이 시작합니다.
 
 ## 소유자와 group memory 공개 설정
 
@@ -76,13 +78,13 @@ Agent가 한도에 도달하면 chat 메시지는 답변 대신 사용한 token,
 
 ## 기능과 environment variable 구성
 
-Agent는 Agent Plugins와 Skills의 deployment 인스턴스 기본값을 상속합니다. 이를 변경하려면 **Console → Agent Library**를 열고 기본값을 편집하거나 이 Agent에 대한 override를 설정하십시오.
+Agent는 Agent Plugins와 Skills의 테넌트 기본값을 상속합니다. 이를 변경하려면 **Console → Agent Library**를 열고 기본값을 편집하거나 이 Agent에 대한 override를 설정하십시오.
 
 전체 절차는 [Agent Library](../skills/)를 참조하십시오.
 
 Skill, 명령줄 tool 또는 MCP service에 API key가 필요하면 Agent 페이지의 **Environment variables**에 추가하십시오. Agent별 값은 이 Agent에서만 사용할 수 있습니다.
 
-같은 이름의 전역 값을 override합니다. [Environment variables](../worker-env/)를 참조하십시오.
+같은 이름의 테넌트 값을 override하며 테넌트 값이 없으면 사이트 값을 override합니다. [Environment variables](../worker-env/)를 참조하십시오.
 
 ## chat channel 연결
 
@@ -103,9 +105,9 @@ display name, 역할, durable 지침, 모델, 기능은 언제든 변경할 수 
 다음 항목을 순서대로 확인하십시오.
 
 1. Agent가 활성화되어 있는지.
-2. `primary`, `light`, `heavy` profile이 구성되어 있고 LLM Provider를 사용할 수 있는지.
-3. signal routing 규칙이 이 Agent를 가리키는지.
-4. worker가 하나 이상 준비되었는지.
+2. `primary`, `light`, `heavy` profile이 설정되어 있고 LLM Provider를 사용할 수 있습니다.
+3. 시그널 라우팅 규칙이 이 Agent를 가리킵니다.
+4. **Console → Workers**에서 Agent의 Worker가 ready이거나, 실패 이유 없이 시작 중인지.
 5. **Console → Conversations**에 메시지가 있고 유용한 오류가 표시되는지.
 
 channel별 확인 사항은 [Quick start troubleshooting](../quickstart/#agent-not-replying)을 참조하십시오.

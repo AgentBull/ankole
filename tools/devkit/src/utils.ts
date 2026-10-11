@@ -98,12 +98,6 @@ export async function runChildCaptured(
   })
 }
 
-/** Captures a Mix command with the same local toolchain setup as {@link runMix}. */
-export async function runMixCaptured(args: string[], options: SpawnOptions = {}): Promise<CapturedChild> {
-  const mix = mixCommand(args)
-  return await runChildCaptured(mix.command, mix.args, options)
-}
-
 /**
  * Resolve a locally-installed binary such as Knip. Prefer the repo-root
  * workspace install so analyze uses the same versions pinned by the root

@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   message id is the source event id.
   """
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.{Logging, SignalsGateway}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.{Config, Inbound, Signature}
@@ -117,6 +118,12 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   defp dispatch_change(_change, _consumers), do: {:ok, [%{status: :ignored_change_field}]}
 
   defp dispatch_value(value, consumer) do
+    Ankole.Tenants.dispatch_inbound(consumer.tenant_id, fn ->
+      dispatch_active_value(value, consumer)
+    end)
+  end
+
+  defp dispatch_active_value(value, consumer) do
     with {:ok, status_results} <- Inbound.handle_statuses(value, consumer),
          {:ok, message_results} <- dispatch_messages(value, consumer) do
       {:ok, [status_results | message_results]}
@@ -148,14 +155,18 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
     do: {:ok, [%{status: :ignored_invalid_message}]}
 
   defp consumers_for_app(app_id) do
-    "whatsapp"
-    |> SignalsGateway.list_enabled_bindings()
-    |> Enum.flat_map(&binding_consumer(&1, app_id))
+    Ankole.Repo.across_tenants(fn ->
+      "whatsapp"
+      |> SignalsGateway.list_enabled_bindings()
+      |> Enum.flat_map(&binding_consumer(&1, app_id))
+    end)
   end
 
   defp binding_consumer(binding, app_id) do
-    case Config.load_config_ref(binding.config_ref) do
-      {:ok, %Config.Runtime{app_id: ^app_id} = config} ->
+    case Bindings.binding_config(binding, Config) do
+      {:ok, %{"appId" => ^app_id} = config} ->
+        config = Config.runtime_config(config)
+
         context =
           AdapterContext.new(
             agent_uid: binding.agent_uid,
@@ -164,7 +175,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
             user_name: "WhatsApp"
           )
 
-        [Inbound.chat_consumer(context, config)]
+        [Map.put(Inbound.chat_consumer(context, config), :tenant_id, binding.tenant_id)]
 
       {:ok, _other_app} ->
         []

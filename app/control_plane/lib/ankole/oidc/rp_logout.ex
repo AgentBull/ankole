@@ -6,8 +6,14 @@ defmodule Ankole.OIDC.RPLogout do
 
   def prepare(ref, params) do
     with {:ok, browser} <- BrowserSessions.get(ref),
-         {:ok, client} <- request_client(params),
-         :ok <- validate_hint(params["id_token_hint"], client),
+         {:ok, client} <- Repo.across_tenants(fn -> request_client(params) end),
+         {:ok, tenant_id} <- request_tenant(client, browser) do
+      Repo.with_tenant(tenant_id, fn -> prepare_request(browser, client, params) end)
+    end
+  end
+
+  defp prepare_request(browser, client, params) do
+    with :ok <- validate_hint(params["id_token_hint"], client),
          :ok <- validate_redirect(params["post_logout_redirect_uri"], client),
          true <- is_nil(params["state"]) or is_binary(params["state"]) do
       %LogoutRequest{}
@@ -26,10 +32,32 @@ defmodule Ankole.OIDC.RPLogout do
     end
   end
 
+  defp request_tenant(%{tenant_id: id}, _browser), do: {:ok, id}
+
+  defp request_tenant(nil, browser) do
+    authentication = browser.oauth_auth || browser.admin_auth || %{}
+
+    principal =
+      Repo.across_tenants(fn ->
+        case authentication["principal_uid"] do
+          uid when is_binary(uid) -> Repo.get(Ankole.Principals.Principal, uid)
+          _ -> nil
+        end
+      end)
+
+    case principal do
+      %{tenant_id: id} ->
+        {:ok, id}
+
+      nil ->
+        with {:ok, tenant} <- Ankole.Tenants.privileged(), do: {:ok, tenant.id}
+    end
+  end
+
   def confirmation(ref, id) do
     with {:ok, browser} <- BrowserSessions.get(ref),
          {:ok, id} <- Ecto.UUID.cast(id),
-         %LogoutRequest{} = request <- Repo.get(LogoutRequest, id),
+         %LogoutRequest{} = request <- Repo.across_tenants(fn -> Repo.get(LogoutRequest, id) end),
          true <-
            request.browser_id == browser.id and request.browser_generation == browser.generation and
              is_nil(request.confirmed_at) and
@@ -41,21 +69,27 @@ defmodule Ankole.OIDC.RPLogout do
   end
 
   def confirm(ref, id) do
-    Repo.transact(fn repo ->
-      with {:ok, request} <- confirmation(ref, id),
-           {:ok, client} <- current_client(request.client_id),
-           :ok <- validate_redirect(request.redirect_uri, client),
-           {:ok, browser} <- BrowserSessions.logout(ref),
-           {:ok, request} <-
-             request |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now()) |> repo.update() do
-        {:ok, %{request: request, browser: browser}}
-      end
-    end)
+    with {:ok, request} <- confirmation(ref, id) do
+      Repo.with_tenant(request.tenant_id, fn ->
+        Repo.transact(fn repo ->
+          with {:ok, request} <- confirmation(ref, id),
+               {:ok, client} <- current_client(request.client_id),
+               :ok <- validate_redirect(request.redirect_uri, client),
+               {:ok, browser} <- BrowserSessions.logout(ref),
+               {:ok, request} <-
+                 request
+                 |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now())
+                 |> repo.update() do
+            {:ok, %{request: request, browser: browser}}
+          end
+        end)
+      end)
+    end
   end
 
   def cancel(ref, id) do
     with {:ok, request} <- confirmation(ref, id),
-         do: Repo.delete(request)
+         do: Repo.with_tenant(request.tenant_id, fn -> Repo.delete(request) end)
   end
 
   def redirect_uri(%LogoutRequest{redirect_uri: nil}), do: nil

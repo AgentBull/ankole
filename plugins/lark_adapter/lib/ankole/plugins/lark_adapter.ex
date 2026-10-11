@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.LarkAdapter do
 
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -52,13 +51,13 @@ defmodule Ankole.Plugins.LarkAdapter do
         display_name: adapter_display_name(),
         config_key_pattern: "signals_gateway.lark.binding_configs.<id>",
         config_module: Config,
+        application_bindings: :one,
         worker_env_module: RuntimeEnv,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
         reply_preview_module: CardKit,
-        connection_supervisor: ConnectionSupervisor,
         binding_saved_module: IMGroups,
         author_hydrator: IdentityProvider,
         inbound_capabilities: [
@@ -107,7 +106,8 @@ defmodule Ankole.Plugins.LarkAdapter do
       {DynamicSupervisor,
        name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
       ConnectionReconciler,
-      IMGroups.StartupSync
+      {Ankole.Plugins.ChannelSync,
+       adapter: "lark", worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups}
     ]
   end
 
@@ -150,7 +150,8 @@ defmodule Ankole.Plugins.LarkAdapter do
         "identityProvider",
         %{"default" => "Identity provider", "zh-Hans-CN" => "身份源提供商"},
         %{
-          "default" => "Identity provider whose users the senders of this binding resolve to. A single provider is adopted by default; choose one when several exist.",
+          "default" =>
+            "Identity provider whose users the senders of this binding resolve to. A single provider is adopted by default; choose one when several exist.",
           "zh-Hans-CN" => "此绑定的发信人解析到哪个身份源的用户。只有一个身份源时默认采用；有多个时必须选择。"
         },
         :identity_provider,

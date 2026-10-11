@@ -1,0 +1,571 @@
+defmodule Ankole.TenancyGuardTest do
+  use Ankole.DataCase, async: false
+
+  alias Ecto.Adapters.SQL
+
+  # Counts identify reviewed operations without parsing SQL. Changes within them still need review.
+  @reviewed_query_escapes %{
+    "across_tenants:../../plugins/line_adapter/lib/ankole/plugins/line_adapter/webhook.ex:consumer_for_channel" =>
+      1,
+    "across_tenants:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/teams_webhook.ex:consumers_for_app" =>
+      1,
+    "across_tenants:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/webhook.ex:consumers_for_app" =>
+      1,
+    "across_tenants:lib/ankole/ai_gateway/jobs/cleanup_expired_artifacts.ex:run" => 1,
+    "across_tenants:lib/ankole/authz/snapshot.ex:load_authorization_snapshot" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:authentication" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
+    "across_tenants:lib/ankole/conversations/reconciler.ex:reconcile_inputs" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:agents" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_jobs" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_outboxes" => 1,
+    "across_tenants:lib/ankole/files/jobs/collect_unreferenced.ex:run" => 1,
+    "across_tenants:lib/ankole/oidc/jobs/cleanup_expired_credentials.ex:run" => 1,
+    "across_tenants:lib/ankole/oidc/logout.ex:deliver_browser" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:request_tenant" => 1,
+    "across_tenants:lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
+    "across_tenants:lib/ankole/oidc/tokens.ex:validate_access_claims" => 1,
+    "across_tenants:lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:classify" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:from_sender" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:list_for_human" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:lock_authorizer" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:valid_subject_now?" => 1,
+    "across_tenants:lib/ankole/principals/work_cleanup.ex:cleanup" => 2,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/lambda.ex:rows" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:delete" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:list_projections" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:projection" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:update" =>
+      2,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers/seed.ex:import_file" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:run" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
+    "across_tenants:lib/ankole/signals_gateway/bindings.ex:delete_agent_config_rows_in_tx" => 1,
+    "across_tenants:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/jobs/cleanup_expired_state.ex:run" => 1,
+    "across_tenants:lib/ankole/signals_gateway/outbox.ex:reconcile_wakeups" => 1,
+    "across_tenants:lib/ankole/signals_gateway/webhooks.ex:receive" => 1,
+    "across_tenants:lib/ankole/workflow.ex:reconcile_run_wakeups" => 1,
+    "across_tenants:lib/ankole_web/channels/runtime_fabric_socket.ex:connect" => 1,
+    "across_tenants:lib/ankole_web/controllers/auth_controller.ex:current_identity" => 1,
+    "across_tenants:lib/ankole_web/controllers/oidc_controller.ex:put_client_tenant" => 1,
+    "across_tenants:lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" => 2,
+    "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
+    "across_tenants:lib/ankole_web/plugs/require_ai_gateway_access_token.ex:put_subject_tenant" =>
+      1,
+    "across_tenants:lib/ankole_web/plugs/require_site_admin_session.ex:call" => 1,
+    "raw_sql:lib/ankole/ai_agent/library.ex:lock_agent_document" => 1,
+    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 1,
+    "raw_sql:lib/ankole/ai_gateway/stateful_responses.ex:chain_messages" => 1,
+    "raw_sql:lib/ankole/ai_gateway/stateful_responses.ex:run_message_chain" => 1,
+    "raw_sql:lib/ankole/app_configure.ex:lock_global_key" => 1,
+    "raw_sql:lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:lock_start_idempotency" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/lifecycle.ex:lock_agent_slots" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
+    "raw_sql:lib/ankole/files.ex:lock_drive" => 1,
+    "raw_sql:lib/ankole/files.ex:upsert_blob" => 1,
+    "raw_sql:lib/ankole/files/jobs/collect_unreferenced.ex:mark_unreferenced" => 1,
+    "raw_sql:lib/ankole/files/jobs/collect_unreferenced.ex:remove_one" => 1,
+    "raw_sql:lib/ankole/principals.ex:advisory_xact_lock" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/config.ex:database_now" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:lock_registry" =>
+      2,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/reconcile_job.ex:decide_with" =>
+      1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:sweep_objects" =>
+      1,
+    "raw_sql:lib/ankole/signals_gateway/actors.ex:lock_actor_session_in_tx" => 1,
+    "raw_sql:lib/ankole/signals_gateway/bindings.ex:record_platform_application_in_tx" => 1,
+    "raw_sql:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" => 1,
+    "raw_sql:lib/ankole/signals_gateway/im_group_projection.ex:lock_group" => 1,
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_entry" => 1,
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_inbound_batch" => 2,
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:next_attachment_id" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_batches" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
+    "raw_sql:lib/ankole/workflow.ex:lock_agent_slots" => 1,
+    "raw_sql:lib/ankole/workflow.ex:lock_idempotency" => 1,
+    "sql_fragment:lib/ankole/ai_gateway/console_queries.ex:maybe_filter_min_messages" => 1,
+    "sql_fragment:lib/ankole/ai_gateway/stateful_responses.ex:latest_visible_leaf_for_uuid" => 1,
+    "sql_fragment:lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:candidates" =>
+      1,
+    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/turn_retry.ex:candidate_events_for_source_entry" =>
+      1,
+    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/turn_retry.ex:event_for_supplement_source_entry" =>
+      1,
+    "sql_fragment:lib/ankole/signals_gateway/actors.ex:actor_events_for_entry_in_tx" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/inbound_batches.ex:entry_snapshot" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
+      1,
+    "sql_fragment:lib/ankole/signals_gateway/reply_interactions.ex:older_reply_interaction_events" =>
+      1
+  }
+
+  # Independent classification: changing a tenant schema to :site must fail.
+  @site_tables ~w(app_configurations browser_login_transactions browser_sessions
+    ai_gateway_providers oidc_signing_keys agent_computer_worker_envs files
+    worker_providers tenants oban_jobs oban_peers schema_migrations)
+
+  @global_unique_indexes %{
+    "actor_cron_schedules_agent_name_index" =>
+      "The key includes a globally unique Principal uid.",
+    "actor_cron_schedules_idempotency_index" =>
+      "The key includes a globally unique Principal uid.",
+    "actor_cron_schedules_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "actor_events_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "actor_events_queue_sequence_index" => "The key includes a globally unique Principal uid.",
+    "actor_events_signal_idempotency_index" =>
+      "The key includes a globally unique Principal uid.",
+    "actor_scheduled_events_cron_slot_index" =>
+      "The key includes a globally unique owning row id.",
+    "actor_scheduled_events_idempotency_index" =>
+      "The key includes a globally unique Principal uid.",
+    "actor_scheduled_events_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "actor_session_workspaces_actor_index" => "The key includes a globally unique Principal uid.",
+    "actor_session_workspaces_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "agent_files_pkey" => "The key includes a globally unique Principal uid.",
+    "agent_library_container_entries_active_path_index" =>
+      "The key includes a globally unique Principal uid.",
+    "agent_library_container_entries_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "agent_plugin_overrides_agent_plugin_index" =>
+      "The key includes a globally unique Principal uid.",
+    "agent_plugin_overrides_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "agent_skill_lessons_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "agent_skills_agent_skill_index" => "The key includes a globally unique Principal uid.",
+    "agent_skills_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "agent_workers_pkey" => "The key includes a globally unique Principal uid.",
+    "agent_workers_transport_route_index" =>
+      "RuntimeFabric transport routes are unique across the site.",
+    "agents_pkey" => "The key includes a globally unique Principal uid.",
+    "ai_gateway_artifacts_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "ai_gateway_compaction_artifacts_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "ai_gateway_conversations_active_key_index" =>
+      "The key includes a globally unique Principal uid.",
+    "ai_gateway_conversations_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "ai_gateway_messages_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "ai_gateway_messages_tool_result_journal_key_index" =>
+      "The journal digest includes the globally unique subject uid and message id.",
+    "ai_gateway_usage_records_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "automation_job_runs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "automation_jobs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "background_agent_job_turn_items_item_key_index" =>
+      "The key includes a globally unique owning row id.",
+    "background_agent_job_turn_items_pkey" => "The key includes a globally unique owning row id.",
+    "background_agent_job_turns_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "background_agent_job_turns_runtime_turn_index" =>
+      "The key includes a globally unique owning row id.",
+    "background_agent_jobs_continued_from_job_index" =>
+      "The key includes a globally unique owning row id.",
+    "background_agent_jobs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "background_agent_jobs_source_tool_call_index" =>
+      "The key includes a globally unique Principal uid.",
+    "brain_tags_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_schema_suggestions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_chunks_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_claims_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_contradictions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_links_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_merge_suggestions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_object_aliases_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_object_versions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_objects_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_schema_calibration_domains_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_schema_link_types_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_schema_packs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_schema_types_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_slug_aliases_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_sources_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_take_domain_assignments_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "brain_timelines_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "conversation_tool_receipts_pkey" =>
+      "The response id is a globally unique AI Gateway message id.",
+    "human_access_events_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "human_access_events_source_operation_id_principal_uid_index" =>
+      "The key includes a globally unique Principal uid.",
+    "human_access_restrictions_active_index" =>
+      "The key includes a globally unique Principal uid.",
+    "human_access_restrictions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "human_user_local_credentials_pkey" => "The key includes a globally unique Principal uid.",
+    "human_users_pkey" => "The key includes a globally unique Principal uid.",
+    "identity_directory_events_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "identity_directory_states_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "identity_mapping_requests_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "oidc_authorization_codes_pkey" =>
+      "A random protocol token digest must resolve before tenant discovery.",
+    "oidc_client_groups_pkey" => "The key includes a globally unique group id.",
+    "oidc_clients_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "oidc_logout_deliveries_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "oidc_logout_deliveries_session_id_index" =>
+      "The key includes a globally unique owning row id.",
+    "oidc_logout_requests_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "oidc_refresh_tokens_pkey" =>
+      "A random protocol token digest must resolve before tenant discovery.",
+    "oidc_sessions_client_id_browser_id_browser_generation_provider_" =>
+      "The key includes a globally unique OIDC client id.",
+    "oidc_sessions_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "permission_grants_group_natural_index" => "The key includes a globally unique group id.",
+    "permission_grants_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "permission_grants_principal_natural_index" =>
+      "The key includes a globally unique Principal uid.",
+    "principal_external_identities_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "principal_group_memberships_pkey" => "The key includes a globally unique Principal uid.",
+    "principal_groups_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "principals_pkey" => "The key includes a globally unique Principal uid.",
+    "signal_gateway_ambient_judgments_pkey" =>
+      "The key includes a globally unique owning row id.",
+    "signal_gateway_bindings_pkey" => "The key includes a globally unique Principal uid.",
+    "signal_gateway_inbound_batches_open_index" =>
+      "The key includes a globally unique Principal uid.",
+    "signal_gateway_inbound_batches_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "signal_gateway_input_tombstones_pkey" => "The key includes a globally unique Principal uid.",
+    "signal_gateway_outbox_entries_pkey" => "The key includes a globally unique Principal uid.",
+    "signal_gateway_webhook_endpoints_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "signal_gateway_webhook_endpoints_token_digest_index" =>
+      "A random webhook token digest must resolve before tenant discovery.",
+    "workflow_agent_calls_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "workflow_agent_calls_run_sequence_index" =>
+      "The key includes a globally unique owning row id.",
+    "workflow_runs_pkey" =>
+      "The durable row id is generated globally, not from a tenant-local name.",
+    "workflow_runs_source_tool_call_index" => "The key includes a globally unique Principal uid."
+  }
+
+  defmodule CronProbe do
+    use Ankole.Job, tenancy: :site, queue: :tenancy_guard
+    @impl true
+    def run(_job), do: :ok
+  end
+
+  test "every table has an explicit site declaration or a required tenant foreign key" do
+    schemas = schemas()
+
+    declared_site =
+      for schema <- schemas, schema.__tenancy__() == :site, do: schema.__schema__(:source)
+
+    assert MapSet.new(declared_site ++ ["oban_jobs", "oban_peers", "schema_migrations"]) ==
+             MapSet.new(@site_tables)
+
+    site_tables = MapSet.new(@site_tables)
+
+    rows =
+      SQL.query!(Repo, """
+        SELECT tables.table_name, columns.data_type, columns.is_nullable,
+          EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'f' AND c.conrelid = (quote_ident(tables.table_schema) || '.' || quote_ident(tables.table_name))::regclass
+              AND c.confrelid = 'tenants'::regclass AND a.attname = 'tenant_id' AND c.confdeltype = 'r'
+          )
+        FROM information_schema.tables tables
+        LEFT JOIN information_schema.columns columns
+          ON columns.table_schema = tables.table_schema AND columns.table_name = tables.table_name AND columns.column_name = 'tenant_id'
+        WHERE tables.table_schema = current_schema() AND tables.table_type = 'BASE TABLE'
+        ORDER BY tables.table_name
+      """).rows
+
+    for [table, type, nullable, foreign_key] <- rows, not MapSet.member?(site_tables, table) do
+      assert {type, nullable, foreign_key} == {"uuid", "NO", true},
+             "#{table} has no required tenant ownership"
+    end
+
+    for schema <- schemas do
+      [row] = Enum.filter(rows, &(hd(&1) == schema.__schema__(:source)))
+
+      if schema.__tenancy__() == :tenant do
+        assert schema.__schema__(:type, :tenant_id) == Ankole.Ecto.UUIDv7
+        assert Enum.at(row, 2) == "NO"
+      else
+        assert MapSet.member?(site_tables, hd(row))
+      end
+    end
+  end
+
+  test "tenant deletion covers every table with tenant ownership" do
+    tables =
+      SQL.query!(
+        Repo,
+        "SELECT table_name FROM information_schema.columns WHERE table_schema = current_schema() AND column_name = 'tenant_id'"
+      ).rows
+      |> List.flatten()
+
+    assert MapSet.new(Ankole.Tenants.Jobs.Delete.tenant_tables()) == MapSet.new(tables)
+  end
+
+  test "every tenant unique key includes tenant_id or has a documented global identity" do
+    tenant_tables =
+      for schema <- schemas(), schema.__tenancy__() == :tenant, do: schema.__schema__(:source)
+
+    rows =
+      SQL.query!(Repo, """
+        SELECT table_class.relname, index_class.relname,
+          EXISTS (
+            SELECT 1 FROM pg_attribute column_row
+            WHERE column_row.attrelid = table_class.oid AND column_row.attname = 'tenant_id'
+              AND column_row.attnum = ANY(index_row.indkey)
+          )
+        FROM pg_index index_row
+        JOIN pg_class table_class ON table_class.oid = index_row.indrelid
+        JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+        WHERE index_row.indisunique AND table_class.relnamespace = current_schema()::regnamespace
+      """).rows
+
+    unscoped = for [table, name, false] <- rows, table in tenant_tables, do: name
+
+    for name <- unscoped do
+      assert Map.has_key?(@global_unique_indexes, name),
+             "#{name} has no tenant key or reviewed global identity"
+    end
+
+    assert MapSet.new(unscoped) == MapSet.new(Map.keys(@global_unique_indexes))
+  end
+
+  test "durable authorization keeps the historical human UID without owning the human row" do
+    work_schemas =
+      Enum.filter(schemas(), fn schema ->
+        Enum.all?(
+          [:authorization_kind, :human_uid, :human_access_version],
+          &(&1 in schema.__schema__(:fields))
+        )
+      end)
+
+    assert work_schemas != []
+
+    for schema <- work_schemas do
+      table = schema.__schema__(:source)
+
+      assert [["text", false]] =
+               SQL.query!(
+                 Repo,
+                 """
+                   SELECT columns.data_type, EXISTS (
+                     SELECT 1 FROM pg_constraint constraint_row
+                     JOIN pg_attribute column_row
+                       ON column_row.attrelid = constraint_row.conrelid
+                         AND column_row.attnum = ANY(constraint_row.conkey)
+                     WHERE constraint_row.contype = 'f'
+                       AND constraint_row.conrelid = $1::text::regclass
+                       AND column_row.attname = 'human_uid'
+                   )
+                   FROM information_schema.columns columns
+                   WHERE columns.table_schema = current_schema()
+                     AND columns.table_name = $1 AND columns.column_name = 'human_uid'
+                 """,
+                 [table]
+               ).rows
+    end
+  end
+
+  test "every Oban worker declares its execution scope" do
+    for module <- Application.spec(:ankole, :modules),
+        Code.ensure_loaded?(module),
+        function_exported?(module, :__opts__, 0) do
+      assert function_exported?(module, :__tenancy__, 0), "#{inspect(module)} must use Ankole.Job"
+      assert module.__tenancy__() in [:site, :tenant]
+    end
+  end
+
+  test "request changesets cannot cast tenant_id" do
+    for file <- source_files() do
+      ast = file |> File.read!() |> Code.string_to_quoted!()
+
+      Macro.prewalk(ast, fn
+        {:cast, _, args} = node when is_list(args) ->
+          refute Enum.any?(args, &(is_list(&1) and :tenant_id in &1)),
+                 "#{file} casts tenant_id from request data"
+
+          node
+
+        {{:., _, [_module, :cast]}, _, args} = node when is_list(args) ->
+          refute Enum.any?(args, &(is_list(&1) and :tenant_id in &1)),
+                 "#{file} casts tenant_id from request data"
+
+          node
+
+        node ->
+          node
+      end)
+    end
+  end
+
+  test "query escape hatches stay in reviewed functions with reviewed call counts" do
+    calls =
+      for file <- source_files(),
+          ast = file |> File.read!() |> Code.string_to_quoted!(),
+          call <- query_escapes(ast, file),
+          do: call
+
+    assert Enum.frequencies(calls) == @reviewed_query_escapes,
+           "Review new raw SQL, SQL fragments and across_tenants calls at their domain owner"
+  end
+
+  test "Database peer elects a leader and cron inserts without a tenant" do
+    name = Module.concat(__MODULE__, DatabasePeer)
+
+    Repo.without_tenant(fn ->
+      start_supervised!(
+        {Oban,
+         name: name,
+         repo: Repo,
+         testing: :disabled,
+         peer: Oban.Peers.Database,
+         notifier: Oban.Notifiers.PG,
+         queues: [],
+         cron: [crontab: [{"* * * * *", CronProbe}]]}
+      )
+
+      assert Oban.Peer.leader?(name)
+      cron = Oban.Registry.whereis(name, {:plugin, Oban.Cron})
+      assert is_pid(cron)
+      send(cron, :evaluate)
+      :sys.get_state(cron)
+
+      assert Repo.exists?(
+               from job in Oban.Job, where: job.worker == ^Oban.Worker.to_string(CronProbe)
+             )
+
+      assert %{success: 1, failure: 0} =
+               Oban.drain_queue(name, queue: :tenancy_guard, with_safety: false)
+    end)
+  end
+
+  defp source_files,
+    do: Path.wildcard("lib/**/*.ex") ++ Path.wildcard("../../plugins/**/lib/**/*.ex")
+
+  defp query_escapes(ast, file) do
+    {_ast, calls} =
+      Macro.prewalk(ast, [], fn
+        {definition, _, [head, body]} = node, calls
+        when definition in [:def, :defp, :defmacro, :defmacrop] ->
+          name = function_name(head)
+
+          {_body, found} =
+            Macro.prewalk(body, [], fn node, found ->
+              case query_escape_kind(node) do
+                nil -> {node, found}
+                kind -> {node, ["#{kind}:#{file}:#{name}" | found]}
+              end
+            end)
+
+          {node, found ++ calls}
+
+        node, calls ->
+          {node, calls}
+      end)
+
+    calls
+  end
+
+  defp function_name({:when, _, [head | _]}), do: function_name(head)
+  defp function_name({name, _, _args}), do: name
+
+  defp query_escape_kind({{:., _, [_module, :across_tenants]}, _, args}) when is_list(args),
+    do: :across_tenants
+
+  defp query_escape_kind({{:., _, [module, call]}, _, args})
+       when call in [:query, :query!, :query_many, :query_many!] and is_list(args) do
+    if Macro.to_string(module) in [
+         "SQL",
+         "Ecto.Adapters.SQL",
+         "Repo",
+         "repo",
+         "Ankole.Repo",
+         "Postgrex"
+       ],
+       do: :raw_sql
+  end
+
+  defp query_escape_kind({{:., _, [module, :stream]}, _, args}) when is_list(args) do
+    if Macro.to_string(module) in ["SQL", "Ecto.Adapters.SQL", "Postgrex"], do: :raw_sql
+  end
+
+  defp query_escape_kind({{:., _, [_module, :fragment]}, meta, args}),
+    do: query_escape_kind({:fragment, meta, args})
+
+  defp query_escape_kind({:fragment, _, [sql | _args]}) when is_binary(sql) do
+    if Regex.match?(~r/\b(?:SELECT|INSERT|UPDATE|DELETE)\b/i, sql), do: :sql_fragment
+  end
+
+  defp query_escape_kind(_node), do: nil
+
+  defp schemas do
+    for module <- Application.spec(:ankole, :modules),
+        Code.ensure_loaded?(module),
+        function_exported?(module, :__schema__, 1),
+        module.__schema__(:source) != nil do
+      assert function_exported?(module, :__tenancy__, 0),
+             "#{inspect(module)} must use Ankole.Schema"
+
+      module
+    end
+  end
+end

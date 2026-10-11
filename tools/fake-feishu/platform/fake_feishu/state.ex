@@ -221,7 +221,8 @@ defmodule FakeFeishu.State do
   `:get_message`, `:download_file`, `:list_chats`, `:get_chat`,
   `:list_chat_members`, `:create_card`, `:card_element`, `:card_batch`.
   Errors: `{:code, n}`, `{:code, n, msg}`, `:http_500`, `:rate_limited`,
-  `:token_invalid`.
+  `:token_invalid`, `:accepted_then_http_500`. The last fault changes platform
+  state before the HTTP response fails. Use it only for mutation endpoints.
   """
   def fail_next(state, op, error), do: GenServer.call(state, {:arm_fault, op, {:fail, error}})
 

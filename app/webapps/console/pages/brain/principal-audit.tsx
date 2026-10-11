@@ -1,3 +1,5 @@
+import { principalLabel } from '../../state/principal-label'
+import { ActorLabel } from '../../actor-label'
 import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Skeleton } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -44,7 +46,8 @@ export function BrainPrincipalAuditPage() {
               label:
                 principal.status === 'disabled'
                   ? `${principal.display_name} · ${t('console.status.disabled')}`
-                  : principal.display_name
+                  : principalLabel(principal),
+              description: principal.email ?? principal.handle
             }))}
             error={principals.error}
             isLoading={principals.isLoading}
@@ -96,10 +99,12 @@ export function BrainPrincipalAuditPage() {
                   </Badge>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{claim.holder ?? '—'}</TableCell>
-                <TableCell className="font-mono text-xs">{claim.author_uid ?? '—'}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <ActorLabel actor={claim.author} />
+                </TableCell>
                 <TableCell className="font-mono text-xs">
                   {claim.object_slug ? (
-                    <Link className="text-link hover:underline" to={brainObjectPath(claim.object_slug)}>
+                    <Link className="link" to={brainObjectPath(claim.object_slug)}>
                       {claim.object_slug}
                     </Link>
                   ) : (

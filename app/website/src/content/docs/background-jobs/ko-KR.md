@@ -67,7 +67,7 @@ ChatGPT 구독을 사용하려면 먼저 [ChatGPT subscription provider](../chat
 
 | 상태 | 의미 | 해야 할 일 |
 |---|---|---|
-| `queued` | 승인되었고 사용 가능한 Worker를 기다리는 중 | 보통 기다립니다. 움직이지 않으면 Worker 가용성을 확인하세요. |
+| `queued` | 승인되었고 Agent의 Worker 또는 빈 Job 슬롯을 기다리는 중 | 보통 기다립니다. 움직이지 않으면 **Console → Workers**에서 Agent의 Worker를 확인하세요. |
 | `running` | 작업이 진행 중 | Job을 열어 계획과 최신 진행 상황을 확인하세요. |
 | `waiting_on_user` | Agent 또는 사용자의 답변을 기다리는 중 | Agent는 답할 수 있는 질문에 직접 답합니다. Agent가 질문하면 Job을 만든 대화에서 답하세요. |
 | `succeeded` | 완료됨 | 결과를 읽으세요. 업데이트를 요청했다면 원래 대화가 받았는지 확인하세요. |
@@ -86,7 +86,7 @@ Job을 열고 **Cancel**을 선택하세요. 이미 시작한 turn은 멈추는 
 
 ## 일반적인 문제
 
-- **Job이 `queued`로 남아 있음:** Worker가 하나 이상 준비되었고 다른 Job이 모든 가용 용량을 쓰고 있지 않은지 확인하세요.
+- **Job이 `queued`로 남아 있음:** Agent의 Worker가 준비되었는지, 같은 Agent의 다른 Job이 Job 슬롯(`agent_computer.background_agent_job.max_running_per_agent`)을 모두 쓰고 있지 않은지 확인하세요.
 - **시작하자마자 실패함:** 저장된 Background Agent Jobs 모델 프로필과 선택한 provider의 자격 증명 풀 상태를 확인하세요.
 - **`waiting_on_user`인데 질문이 오지 않고 Agent도 직접 답하지 않음:** 원래 대화의 시그널 라우팅 규칙과 Channel Provider를 확인하세요.
 - **성공했는데 채팅으로 돌아오지 않음:** 먼저 조용히 있으라고 요청받지 않았는지 확인하세요. 아니라면 Job을 열고 결과가 있는지 확인한 다음 원래 대화의 라우팅 규칙을 확인하세요.

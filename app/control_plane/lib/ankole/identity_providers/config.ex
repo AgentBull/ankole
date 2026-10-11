@@ -4,7 +4,9 @@ defmodule Ankole.IdentityProviders.Config do
   """
 
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Codec
   alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Repo
@@ -24,6 +26,7 @@ defmodule Ankole.IdentityProviders.Config do
   @spec active_definition() :: Definition.t()
   def active_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @active_key,
       encrypted: false,
       schema: Schema.new(&validate_activations/1),
@@ -42,6 +45,7 @@ defmodule Ankole.IdentityProviders.Config do
   @spec directory_full_sync_interval_minutes_definition() :: Definition.t()
   def directory_full_sync_interval_minutes_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @directory_full_sync_interval_minutes_key,
       encrypted: false,
       schema: Schema.new(&validate_directory_full_sync_interval_minutes/1),
@@ -80,19 +84,40 @@ defmodule Ankole.IdentityProviders.Config do
   @spec save_provider(map(), map()) :: {:ok, map()} | {:error, term()}
   def save_provider(attrs, config) when is_map(attrs) and is_map(config) do
     with {:ok, next} <- validate_activation(attrs),
+         {:ok, definition} <- Registry.require_key(next["config_key"]),
+         {:ok, config} <- Codec.validate(definition, config),
+         {:ok, adapter} <- Ankole.IdentityProviders.fetch_adapter(next["adapter_id"]),
+         {:ok, module} <- Ankole.IdentityProviders.adapter_module(adapter),
+         {:ok, application} <-
+           Ankole.SignalsGateway.Bindings.resolve_platform_application(
+             module,
+             config,
+             :identity_provider
+           ),
          {:ok, {activation_write, config_write}} <-
            Repo.transact(fn repo ->
              with :ok <-
+                    Ankole.SignalsGateway.Bindings.validate_platform_application_in_tx(
+                      repo,
+                      application
+                    ),
+                  :ok <-
                     Ankole.IdentityProviders.DirectoryAccess.configuration_changed_in_tx(
                       repo,
                       next["provider_id"]
                     ),
                   {:ok, activation_write} <-
-                    AppConfigure.update_global_in_tx(repo, active_definition(), fn providers ->
+                    AppConfigure.update_tenant_in_tx(repo, active_definition(), fn providers ->
                       providers |> upsert(next) |> validate_activations()
                     end),
                   {:ok, config_write} <-
-                    AppConfigure.put_global_by_key_in_tx(repo, next["config_key"], config) do
+                    AppConfigure.put_tenant_by_key_in_tx(repo, next["config_key"], config),
+                  :ok <-
+                    Ankole.SignalsGateway.Bindings.record_platform_application_in_tx(
+                      repo,
+                      config_write,
+                      application
+                    ) do
                {:ok, {activation_write, config_write}}
              end
            end) do

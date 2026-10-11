@@ -23,7 +23,7 @@ The eight built-in Agent profiles control separate paid paths. Five select langu
 | `web_search`, `web_fetch` | web tools | see Lever 3 |
 | `image_generate` | image generation | expensive per call; only bound if used |
 
-Brain keeps only embedding and rerank as instance-wide model settings. Select an active Brain maintainer Agent in [AppConfigure](../app-configuration/): all Brain model calls run as this Agent and attribute usage to it. Its `light` profile extracts conversations and Sources, its `heavy` profile runs Dreaming and Skill lesson review, and its `web_fetch` profile reads URL Sources. An absent or unavailable `web_fetch` provider falls back to the local `ankole-browser`. Disabling the maintainer stops both model calls and local URL fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status. See [Brain](../brain/) for the full behavior.
+Brain reads the site embedding model and the tenant rerank model from [AppConfigure](../app-configuration/). Select an active Brain maintainer Agent for each tenant: all Brain model calls run as this Agent and attribute usage to it. Its `light` profile extracts conversations and Sources, its `heavy` profile runs Dreaming and Skill lesson review, and its `web_fetch` profile reads URL Sources. An absent `web_fetch` profile or a failed Provider request makes the Source fetch fail. Disabling the maintainer stops model calls and URL Source fetching until the Agent is enabled or replaced. **Brain → Health** reports the selected Agent and profile status. See [Brain](../brain/) for the full behavior.
 
 Two moves save the most:
 
@@ -83,7 +83,6 @@ Background jobs can spend tokens on retries, and the caps are the lever:
 | `max_consecutive_turn_failures` | 5 | consecutive turn failures before the job gives up |
 | `max_running_per_agent` | 3 | at most three running jobs per agent |
 | retry delay | ~30s | the floor between retries |
-| `agent_computer.background_agent_job.max_turns_per_worker` | configurable | per-worker turn cap for jobs |
 
 A job that fails transiently five times spends five runs' worth of tokens. Most of the time the caps protect you — a configuration error fails fast and stays failed. The lever to watch is the third one: an agent with three concurrent jobs is running three model loops at once. If you do not need that parallelism, the persona ("do one thing at a time") is cheaper than the cap allows.
 

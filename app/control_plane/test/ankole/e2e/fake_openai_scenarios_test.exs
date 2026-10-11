@@ -237,7 +237,7 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
           %{
             "role" => "tool",
             "tool_call_id" => "call_lark_chaos_reply_attachment_command",
-            "content" => "exit_code=0\ncreated ~/user-files/reports/chaos-report.txt"
+            "content" => "exit_code=0\ncreated reports/chaos-report.txt"
           }
         ]
       }
@@ -252,7 +252,7 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
             "role" => "tool",
             "tool_call_id" => "call_lark_chaos_reply_attachment",
             "content" =>
-              ~s({"attachments":[{"name":"chaos-report.txt","user_files_relative_path":"reports/chaos-report.txt"}]})
+              ~s({"attachments":[{"name":"chaos-report.txt","path":"sent/0123456789abcdef/chaos-report.txt"}]})
           }
         ]
       }

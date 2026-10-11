@@ -55,13 +55,16 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                      "ai_gateway.test_failed",
                      "AIGateway test failed",
                      %{},
-                     {:invalid_upstream_response, 200,
-                      %{
-                        "error" => %{
-                          "code" => "invalid_shape",
-                          "message" => "private provider body"
-                        }
-                      }}
+                     %Ankole.AIGateway.ProviderFailure{
+                       kind: :invalid_response,
+                       provider_status: 200,
+                       provider_body: %{
+                         "error" => %{
+                           "code" => "invalid_shape",
+                           "message" => "private provider body"
+                         }
+                       }
+                     }
                    )
         end
       )
@@ -123,7 +126,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                      "ai_gateway.test_failed",
                      "AIGateway test failed",
                      %{},
-                     {:universal_ai_request_failed, %{"stage" => "connect"}}
+                     %Ankole.AIGateway.ProviderFailure{kind: :other, stage: "connect"}
                    )
         end
       )
@@ -139,19 +142,21 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              error_stage: "connect",
              retryable: true
            } =
-             FailureDiagnostics.classify(
-               {:universal_ai_request_failed,
-                %{"code" => "transport_failed", "stage" => "connect"}}
-             )
+             FailureDiagnostics.classify(%Ankole.AIGateway.ProviderFailure{
+               kind: :other,
+               code: "transport_failed",
+               stage: "connect"
+             })
 
     assert %{
              failure_kind: :timeout,
              error_code: "total_timeout",
              retryable: true
            } =
-             FailureDiagnostics.classify(
-               {:universal_ai_request_failed, %{"code" => "total_timeout"}}
-             )
+             FailureDiagnostics.classify(%Ankole.AIGateway.ProviderFailure{
+               kind: :other,
+               code: "total_timeout"
+             })
 
     assert %{
              failure_kind: :timeout,
@@ -159,10 +164,11 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              error_stage: "connect",
              retryable: true
            } =
-             FailureDiagnostics.classify(
-               {:universal_ai_request_failed,
-                %{"code" => "connect_timeout", "stage" => "connect"}}
-             )
+             FailureDiagnostics.classify(%Ankole.AIGateway.ProviderFailure{
+               kind: :other,
+               code: "connect_timeout",
+               stage: "connect"
+             })
   end
 
   test "builds safe public messages from the stable failure kind" do
@@ -188,10 +194,11 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
       "This request requires more credits, or fewer max_tokens."
 
     classification =
-      FailureDiagnostics.classify(
-        {:upstream_response_failed, 402,
-         %{"error" => %{"code" => 402, "message" => upstream_message}}}
-      )
+      FailureDiagnostics.classify(%Ankole.AIGateway.ProviderFailure{
+        kind: :status_rejected,
+        provider_status: 402,
+        provider_body: %{"error" => %{"code" => 402, "message" => upstream_message}}
+      })
 
     assert classification.failure_kind == :provider_response
     assert classification.provider_status == 402
@@ -202,9 +209,11 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     long_message = String.duplicate("上", 2_001)
 
     bounded =
-      FailureDiagnostics.classify(
-        {:upstream_response_failed, 403, %{"error" => %{"message" => long_message}}}
-      )
+      FailureDiagnostics.classify(%Ankole.AIGateway.ProviderFailure{
+        kind: :status_rejected,
+        provider_status: 403,
+        provider_body: %{"error" => %{"message" => long_message}}
+      })
 
     assert String.length(bounded.provider_message) == 2_000
     assert FailureDiagnostics.public_message(bounded) == String.slice(long_message, 0, 2_000)
@@ -384,6 +393,95 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              FailureDiagnostics.classify(%{"code" => "server_error"})
   end
 
+  test "does not read the kernel envelope type as a provider capacity alias" do
+    for code <- ["invalid_provider_event", "provider_terminal_rejected"] do
+      envelope = %{
+        "code" => code,
+        "type" => "server_error",
+        "message" => "kernel stream failure",
+        "details_json" => %{"stage" => "api_resolver"}
+      }
+
+      classification =
+        FailureDiagnostics.classify({:provider_event_failed, %{"error" => envelope}})
+
+      refute Map.get(classification, :retryable) == true
+      refute Map.has_key?(classification, :provider_error_type)
+    end
+  end
+
+  test "takes the Provider code of a kernel envelope from its body excerpt, not the envelope code" do
+    envelope = fn excerpt ->
+      %{
+        "code" => "provider_status_rejected",
+        "type" => "server_error",
+        "message" => "You exceeded your current quota.",
+        "status" => 429,
+        "details_json" => %{
+          "stage" => "api_resolver",
+          "provider_status" => 429,
+          "provider_body_excerpt" => excerpt
+        }
+      }
+    end
+
+    quota =
+      envelope.(
+        ~s({"error":{"code":"insufficient_quota","type":"insufficient_quota","message":"You exceeded your current quota."}})
+      )
+
+    assert %{
+             error_code: "provider_status_rejected",
+             provider_error_code: "insufficient_quota",
+             provider_error_type: "insufficient_quota",
+             provider_message: "You exceeded your current quota."
+           } = FailureDiagnostics.classify({:provider_event_failed, %{"error" => quota}})
+
+    overloaded =
+      envelope.(~s({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}))
+
+    classification =
+      FailureDiagnostics.classify({:provider_event_failed, %{"error" => overloaded}})
+
+    assert %{provider_error_type: "overloaded_error", retryable: true} = classification
+    refute Map.has_key?(classification, :provider_error_code)
+  end
+
+  test "classifies a Bedrock stream exception by its declared status and keeps its type" do
+    for {exception_type, status, retryable} <- [
+          {"throttlingException", 429, true},
+          {"serviceUnavailableException", 503, true},
+          {"internalServerException", 500, true},
+          {"modelStreamErrorException", 424, false},
+          {"validationException", 400, false}
+        ] do
+      envelope = bedrock_stream_envelope(exception_type, status)
+
+      assert %{
+               failure_kind: :provider_response,
+               error_code: "provider_eventstream_error",
+               error_stage: "read",
+               provider_status: ^status,
+               provider_error_type: ^exception_type,
+               provider_message: "provider message",
+               retryable: ^retryable
+             } = FailureDiagnostics.classify({:provider_event_failed, %{"error" => envelope}})
+    end
+  end
+
+  test "reports a Bedrock validation exception as a permanent request rejection" do
+    classification =
+      FailureDiagnostics.classify(
+        {:provider_event_failed,
+         %{"error" => bedrock_stream_envelope("validationException", 400)}}
+      )
+
+    assert FailureDiagnostics.provider_validation_failure?(classification)
+
+    assert FailureDiagnostics.public_error_code(classification, "provider_response_failed") ==
+             "invalid_prompt"
+  end
+
   test "classifies a canonical invalid prompt as a terminal provider failure" do
     assert %{
              error_code: "invalid_prompt",
@@ -471,10 +569,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
         {{:context_overflow, %{"budget" => 1}}, 422, "context_overflow", nil},
         {:empty_compaction_summary, 502, "empty_compaction_summary", nil},
         {:invalid_summary_shape, 502, "invalid_summary_shape", nil},
-        {{:tool_results_record_unavailable, %{"attempts" => 3}}, 503,
-         "tool_results_record_unavailable", nil},
         {:response_stream_collect_timeout, 504, "upstream_timeout", nil},
-        {:universal_ai_stream_ready_timeout, 504, "upstream_timeout", nil},
         {:response_stream_missing_terminal_response, 502, "invalid_upstream_response", nil},
         {:response_stream_closed, 502, "provider_stream_error", nil},
         {{:response_stream_closed, :killed}, 502, "provider_stream_error", nil},
@@ -521,7 +616,12 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  }
                }
              } =
-               FailureDiagnostics.project({:upstream_response_failed, 429, body},
+               FailureDiagnostics.project(
+                 %Ankole.AIGateway.ProviderFailure{
+                   kind: :status_rejected,
+                   provider_status: 429,
+                   provider_body: body
+                 },
                  stage: "socket_open"
                )
 
@@ -533,7 +633,12 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "details_json" => details
                }
              } =
-               FailureDiagnostics.project({:upstream_response_failed, 503, "private body", %{}})
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :status_rejected,
+                 provider_status: 503,
+                 provider_body: %{"raw_body" => "private body"},
+                 provider_headers: []
+               })
 
       assert details["provider_status"] == 503
       refute Map.has_key?(details, "stage")
@@ -544,7 +649,12 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "code" => "invalid_upstream_response",
                  "message" => "The upstream provider returned an invalid response."
                }
-             } = FailureDiagnostics.project({:invalid_upstream_response, 200, ["private"]})
+             } =
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :invalid_response,
+                 provider_status: 200,
+                 provider_body: %{"body" => ["private"]}
+               })
 
       assert %{
                status: 504,
@@ -553,9 +663,10 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "message" => "The upstream provider timed out."
                }
              } =
-               FailureDiagnostics.project(
-                 {:universal_ai_request_failed, %{"code" => "total_timeout"}}
-               )
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :other,
+                 code: "total_timeout"
+               })
 
       assert %{
                status: 502,
@@ -569,16 +680,18 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  }
                }
              } =
-               FailureDiagnostics.project(
-                 {:universal_ai_request_failed,
-                  %{"code" => "websocket_connect_failed", "stage" => "connect"}}
-               )
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :other,
+                 code: "websocket_connect_failed",
+                 stage: "connect"
+               })
 
       assert %{status: 400, error: %{"code" => "upstream_response_failed"}} =
-               FailureDiagnostics.project(
-                 {:universal_ai_request_failed,
-                  %{"code" => "upstream_response_failed", "provider_status" => 400}}
-               )
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :other,
+                 code: "upstream_response_failed",
+                 provider_status: 400
+               })
 
       assert %{
                status: 502,
@@ -586,7 +699,11 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "code" => "ai_gateway_request_failed",
                  "message" => "The AIGateway request failed."
                }
-             } = FailureDiagnostics.project({:universal_ai_request_failed, %{"code" => "other"}})
+             } =
+               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+                 kind: :other,
+                 code: "other"
+               })
     end
 
     test "a Google error array keeps the provider message" do
@@ -604,7 +721,11 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
           "provider_body_excerpt" => excerpt
         })
 
-      invalid = {:invalid_upstream_response, 400, Ankole.JSON.decode!(excerpt)}
+      invalid = %Ankole.AIGateway.ProviderFailure{
+        kind: :invalid_response,
+        provider_status: 400,
+        provider_body: Ankole.JSON.decode!(excerpt)
+      }
 
       for reason <- [rejected, invalid] do
         assert FailureDiagnostics.classify(reason)[:provider_message] == message
@@ -675,8 +796,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                status: 429,
                headers: %{
                  "retry-after" => retry_after,
-                 "x-codex-primary-reset-at" => reset_header,
-                 "x-codex-promo-message" => promo_message
+                 "x-codex-primary-reset-at" => reset_header
                },
                error: %{
                  "type" => "usage_limit_reached",
@@ -693,7 +813,6 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              } = FailureDiagnostics.project({:agent_token_quota_exceeded, window})
 
       assert window_ends_at_iso == DateTime.to_iso8601(window_ends_at)
-      assert promo_message =~ "agent_token_quota_exceeded"
       assert resets_at == DateTime.to_unix(window_ends_at)
       assert reset_header == Integer.to_string(resets_at)
       assert {seconds, ""} = Integer.parse(retry_after)
@@ -751,5 +870,23 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                }
              } = FailureDiagnostics.project(error)
     end
+  end
+
+  # The error that the kernel puts in `response.failed` for an AWS eventstream
+  # exception frame.
+  defp bedrock_stream_envelope(exception_type, status) do
+    %{
+      "code" => "provider_eventstream_error",
+      "type" => "server_error",
+      "message" => "provider message",
+      "param" => nil,
+      "status" => status,
+      "details_json" => %{
+        "stage" => "read",
+        "provider_status" => status,
+        "provider_error_type" => exception_type,
+        "provider_body_excerpt" => ~s({"message":"provider message"})
+      }
+    }
   end
 end

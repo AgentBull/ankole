@@ -3,7 +3,7 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
   Durable queue and replay-memo entry for one Workflow Agent call.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

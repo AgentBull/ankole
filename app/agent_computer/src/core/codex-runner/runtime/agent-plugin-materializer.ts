@@ -1,3 +1,5 @@
+import { writeFileAtomicSync } from '../../../common/atomic-write'
+import { chownAgentPathSync, mkdirAgentSync } from '../../../common/agent-user'
 import { compareCodePointStrings } from '../../../common/ordering'
 import {
   chmodSync,
@@ -8,8 +10,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
-  rmSync,
-  writeFileSync
+  rmSync
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { AgentPluginCatalogEntry } from '../../../lanes/rpc_lane'
@@ -89,11 +90,11 @@ export function prepareAgentPlugins(input: {
 
 /**
  * Builds packages in the Worker-local Codex Home. AgentCodexRuntime serializes
- * setup in this shard; another Worker must never clean or replace these files.
+ * the setup in this Codex Home.
  */
 export function materializeAgentPluginPackages(prepared: PreparedAgentPlugins, input: { rebuild: boolean }): void {
   const pluginsRoot = join(prepared.materializedRoot, 'plugins')
-  mkdirSync(pluginsRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(pluginsRoot, { recursive: true, mode: 0o755 })
   if (input.rebuild) removeStaleMaterializedPlugins(pluginsRoot, prepared.agentPlugins)
   for (const agentPlugin of prepared.agentPlugins) {
     if (input.rebuild || !existsSync(agentPlugin.materializedRoot)) {
@@ -213,11 +214,11 @@ function initializeJobProjectAtomically(
   agentsContent: string
 ): void {
   const parent = dirname(projectRoot)
-  mkdirSync(parent, { recursive: true })
+  mkdirAgentSync(parent)
   const stagedRoot = join(parent, `.project-init-${crypto.randomUUID()}`)
   try {
-    mkdirSync(stagedRoot, { mode: 0o700 })
-    mkdirSync(join(stagedRoot, 'temp'))
+    mkdirAgentSync(stagedRoot, 0o700)
+    mkdirAgentSync(join(stagedRoot, 'temp'))
     initializeWorkspaceTemplate(stagedRoot, agentPlugins, workspaceTemplateId)
     appendProjectAgents(stagedRoot, agentsContent)
     if (existsSync(projectRoot)) {
@@ -241,7 +242,7 @@ function appendProjectAgents(projectRoot: string, content: string): void {
 
   const path = join(projectRoot, 'AGENTS.md')
   const existing = existsSync(path) ? readFileSync(path, 'utf8').trimEnd() : ''
-  writeFileSync(path, `${existing ? `${existing}\n\n` : ''}${guidance}\n`, { mode: 0o600 })
+  writeFileAtomicSync(path, `${existing ? `${existing}\n\n` : ''}${guidance}\n`, 0o600)
 }
 
 function initializeWorkspaceTemplate(
@@ -264,14 +265,15 @@ function initializeWorkspaceTemplate(
   for (const entry of listTemplateEntries(templateRoot)) {
     const target = join(projectRoot, ...entry.relativePath.split('/'))
     if (entry.kind === 'directory') {
-      mkdirSync(target, { recursive: true })
+      mkdirAgentSync(target)
       continue
     }
     if (existsSync(target)) {
       throw new Error(`Agent Plugin workspace template conflicts with existing Job project file: ${entry.relativePath}`)
     }
-    mkdirSync(dirname(target), { recursive: true })
+    mkdirAgentSync(dirname(target))
     copyFileSync(entry.absolutePath, target)
+    chownAgentPathSync(target)
     chmodSync(target, lstatSync(entry.absolutePath).mode & 0o777)
   }
 }
@@ -348,7 +350,7 @@ function removeStaleMaterializedPlugins(pluginsRoot: string, agentPlugins: Prepa
 
 function replaceMaterializedPlugin(agentPlugin: PreparedAgentPlugin): void {
   const parent = dirname(agentPlugin.materializedRoot)
-  mkdirSync(parent, { recursive: true, mode: 0o700 })
+  mkdirSync(parent, { recursive: true, mode: 0o755 })
   const stagedRoot = join(parent, `.plugin-${agentPlugin.id}-${crypto.randomUUID()}`)
   try {
     copyDirectoryStrict(agentPlugin.sourceRoot, stagedRoot)
@@ -381,7 +383,7 @@ function commitStagedDirectory(stagedRoot: string, targetRoot: string): void {
 
 function copyDirectoryStrict(sourceRoot: string, targetRoot: string): void {
   if (existsSync(targetRoot)) throw new Error(`Agent Plugin materialization target already exists: ${targetRoot}`)
-  mkdirSync(targetRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(targetRoot, { recursive: true, mode: 0o755 })
   for (const entry of listTemplateEntries(sourceRoot)) {
     const target = join(targetRoot, ...entry.relativePath.split('/'))
     if (entry.kind === 'directory') {
@@ -390,7 +392,7 @@ function copyDirectoryStrict(sourceRoot: string, targetRoot: string): void {
     }
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(entry.absolutePath, target)
-    chmodSync(target, lstatSync(entry.absolutePath).mode & 0o777)
+    chmodSync(target, (lstatSync(entry.absolutePath).mode & 0o555) | 0o444)
   }
 }
 
@@ -462,13 +464,10 @@ function pluginKey(agentPlugin: PreparedAgentPlugin, prepared: PreparedAgentPlug
 }
 
 function atomicWriteJSON(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  mkdirAgentSync(dirname(path), 0o700)
   const content = `${JSON.stringify(value, null, 2)}\n`
   if (existsSync(path) && readFileSync(path, 'utf8') === content) return
-  const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`
-  writeFileSync(temporary, content, { mode: 0o600 })
-  renameSync(temporary, path)
-  chmodSync(path, 0o600)
+  writeFileAtomicSync(path, content, 0o600)
 }
 
 function arrayOfObjects(value: unknown): Record<string, unknown>[] {

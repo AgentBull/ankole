@@ -1,6 +1,7 @@
 defmodule Ankole.Plugins.WhatsAppAdapterTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -19,8 +20,6 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
   alias Ankole.SignalsGateway
-  alias Ankole.WorkerFilesFake
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.Actors
 
   alias Ankole.SignalsGateway.{
@@ -73,7 +72,6 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert adapter.adapter_category == "consumer_im"
       refute Map.has_key?(adapter, :author_hydrator)
       refute Map.has_key?(adapter, :reply_preview_module)
-      refute Map.has_key?(adapter, :connection_supervisor)
       assert adapter.supported_group_message_modes == ["addressed_only"]
       assert adapter.inbound_capabilities == ["entry_receive", "action_event"]
       assert adapter.outbound_capabilities == ["post_entry", "reply_entry", "divider", "card"]
@@ -137,7 +135,9 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, _binding} =
                SignalsGateway.put_binding(first_agent.uid, "whatsapp", "wa-one", attrs)
 
-      assert {:error, {:whatsapp_phone_number_already_bound, first_uid, "wa-one"}} =
+      {:ok, application} = Config.platform_application(binding_config())
+
+      assert {:error, {:platform_application_already_bound, ^application, first_uid, "wa-one"}} =
                SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
 
       assert first_uid == first_agent.uid
@@ -471,11 +471,10 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   end
 
   describe "attachment materialization" do
-    test "assigns the durable attachment ID before writing an admitted file to user-files" do
+    test "assigns the durable attachment ID before storing an admitted file" do
       parent = self()
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-media")
-      register_file_writer!("wa-media")
 
       Req.Test.stub(__MODULE__, fn conn ->
         send(parent, {:whatsapp_request, conn.request_path})
@@ -507,22 +506,15 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert is_integer(pending["attachment_id"])
       refute pending["materialization_state"] == "complete"
 
-      expected_relative = "inbox/#{pending["attachment_id"]}/image-media-photo.jpg"
       assert eventually(fn -> complete?(@channel_id, photo["id"]) end)
 
       %Entry{attachments: [attachment]} =
         Repo.get_by(Entry, signal_channel_id: @channel_id, source_entry_id: photo["id"])
 
       assert attachment["attachment_id"] == pending["attachment_id"]
-      assert attachment["user_files_relative_path"] == expected_relative
       assert attachment["mimetype"] == "image/jpeg"
-
-      assert attachment["agent_computer_path"] ==
-               "/agents/#{agent.uid}/user-files/#{expected_relative}"
-
+      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-media-photo.jpg")
       assert_received {:whatsapp_request, "/media/media-photo/bytes"}
-      expected_lane = "/user_files/#{agent.uid}/user-files/#{expected_relative}"
-      assert_receive {:materialized_attachment_path, ^expected_lane}
 
       # Meta delivers the same change again after a non-200 answer. The
       # completed download stays and no second fetch runs.
@@ -538,11 +530,11 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert %Entry{attachments: [kept]} = redelivered.signal_entry
       assert kept["materialization_state"] == "complete"
-      assert kept["agent_computer_path"] == attachment["agent_computer_path"]
+      assert kept["blob_ref"] == attachment["blob_ref"]
       refute_received {:whatsapp_request, "/media/media-photo/bytes"}
     end
 
-    test "a file over the download budget keeps the provider fact and no local path" do
+    test "a file over the download budget keeps the provider fact and stores no bytes" do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-large")
 
@@ -573,7 +565,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         Repo.get_by(Entry, signal_channel_id: @channel_id, source_entry_id: large["id"])
 
       assert attachment["restriction"] =~ "25 MB"
-      refute Map.has_key?(attachment, "agent_computer_path")
+      refute Map.has_key?(attachment, "blob_ref")
     end
 
     test "a materialization task that cannot start fails the request so Meta delivers again" do
@@ -603,7 +595,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert metadata["attachment_materialization"]["state"] == "pending"
       assert is_integer(pending["attachment_id"])
-      refute Map.has_key?(pending, "agent_computer_path")
+      refute Map.has_key?(pending, "blob_ref")
     end
   end
 
@@ -820,7 +812,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       parent = self()
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-files")
-      register_file_reader!(%{"report.pdf" => "report bytes"})
+      {:ok, %{sha256: blob_ref}} = Ankole.Files.store("report bytes")
 
       Req.Test.stub(__MODULE__, fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -833,7 +825,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         end
       end)
 
-      outbox = attachment_outbox(agent.uid, "wa-files", "report.pdf", "application/pdf", 12)
+      outbox =
+        attachment_outbox(agent.uid, "wa-files", "report.pdf", "application/pdf", 12, blob_ref)
 
       assert {:ok, %{created_source_entry_id: "wamid.file-1", payload: payload}} =
                Outbox.send(outbox)
@@ -1069,7 +1062,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       # Meta counts that tap as a user action, and so does the pre-check: the
       # channel now carries the time WhatsApp reported for it.
       assert %Channel{metadata: %{"last_interactive_reply_at" => tapped_at}} =
-               Repo.get(Channel, @channel_id)
+               Repo.get_by(Channel, id: @channel_id)
 
       assert {:ok, _at, _offset} = DateTime.from_iso8601(tapped_at)
 
@@ -1130,7 +1123,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Inbound.handle_card_action("interactive", envelope(tap), [consumer])
 
       assert %Channel{metadata: %{"last_interactive_reply_at" => kept}} =
-               Repo.get(Channel, @channel_id)
+               Repo.get_by(Channel, id: @channel_id)
 
       assert {:ok, ^tapped_at, _offset} = DateTime.from_iso8601(kept)
 
@@ -1163,7 +1156,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                )
 
       assert %Channel{metadata: %{"last_interactive_reply_at" => fresh}} =
-               Repo.get(Channel, @channel_id)
+               Repo.get_by(Channel, id: @channel_id)
 
       # Meta delivers an older tap afterwards. The fact is monotonic, so the
       # window the fresh tap opened stays open.
@@ -1181,7 +1174,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Inbound.handle_card_action("interactive", envelope(stale_tap), [consumer])
 
       assert %Channel{metadata: %{"last_interactive_reply_at" => ^fresh}} =
-               Repo.get(Channel, @channel_id)
+               Repo.get_by(Channel, id: @channel_id)
 
       follow_up = %OutboxEntry{
         agent_uid: agent.uid,
@@ -1250,7 +1243,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
   defp clarification(binding_name, action_count) do
     %{principal: agent} = agent_fixture()
-    human_fixture(%{uid: "human-#{binding_name}"})
+    %{principal: human} = human_fixture()
     assert {:ok, _binding} = put_whatsapp_binding(agent.uid, binding_name)
     now = DateTime.utc_now(:microsecond)
 
@@ -1265,7 +1258,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "deploy?",
           explicit: true,
-          author: %{principal_uid: "human-#{binding_name}", id: @wa_id},
+          author: %{principal_uid: human.uid, id: @wa_id},
           provider_time: now
         },
         now
@@ -1410,7 +1403,14 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     })
   end
 
-  defp attachment_outbox(agent_uid, binding_name, name, mime_type, size) do
+  defp attachment_outbox(
+         agent_uid,
+         binding_name,
+         name,
+         mime_type,
+         size,
+         blob_ref \\ String.duplicate("ab", 32)
+       ) do
     %OutboxEntry{
       agent_uid: agent_uid,
       binding_name: binding_name,
@@ -1420,8 +1420,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       payload: %{
         "attachments" => [
           %{
-            "agent_computer_path" => "/agents/#{agent_uid}/user-files/outbox/#{name}",
-            "user_files_relative_path" => "outbox/#{name}",
+            "path" => "sent/#{String.slice(blob_ref, 0, 16)}/#{name}",
+            "blob_ref" => blob_ref,
             "name" => name,
             "size" => size,
             "mime_type" => mime_type
@@ -1563,40 +1563,5 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       nil -> built
       %DateTime{} = at -> Map.put(built, "timestamp", Integer.to_string(DateTime.to_unix(at)))
     end
-  end
-
-  # A fake worker that accepts the user-files write of a downloaded attachment.
-  defp register_file_writer!(binding_name) do
-    route = "#{binding_name}-write-#{System.unique_integer([:positive])}"
-    insert_ready_worker!(route)
-    WorkerFilesFake.start!(route, notify: self())
-  end
-
-  # The outbox reads attachment bytes through WorkerFiles, so a ready worker
-  # has to answer the push relay for each attachment path.
-  defp register_file_reader!(contents) do
-    route = "whatsapp-read-#{System.unique_integer([:positive])}"
-    insert_ready_worker!(route)
-
-    WorkerFilesFake.start!(route,
-      on_read: fn path -> {:ok, Map.fetch!(contents, Path.basename(path))} end
-    )
-  end
-
-  defp insert_ready_worker!(route) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.insert!(%AgentComputerWorker{
-      worker_id: "whatsapp-worker-#{System.unique_integer([:positive])}",
-      incarnation_id: Ecto.UUID.generate(),
-      status: "ready",
-      version: "test",
-      capacity: %{},
-      load: %{},
-      transport_route: route,
-      last_worker_heartbeat_at: now,
-      started_at: now,
-      metadata: %{"runtime" => "test"}
-    })
   end
 end

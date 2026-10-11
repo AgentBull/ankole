@@ -5,8 +5,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   The loop rewrites provider `function_call` events for the synthesized search
   tool into public `tool_search_call` items, executes server-mode searches, and
   turns intermediate provider terminals into continuation rounds. One public
-  response can span several provider responses; the loop renumbers public
-  events and accumulates raw provider items for the continuation input.
+  response can span several provider responses. The loop accumulates raw
+  provider items for the continuation input.
 
   Internal rounds share one budget: search and program continuations cannot
   amplify provider spend independently.
@@ -40,7 +40,6 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
             usage: nil,
             tool_usage: nil,
             rounds: 0,
-            sequence: -1,
             incomplete_reason: nil,
             limits: @default_limits
 
@@ -125,10 +124,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   def take_initial_local_effect(
         %__MODULE__{plan: %ToolSearch.Plan{ptc: %PTC.Plan{resumes: [_ | _]}} = plan} = loop
       ) do
-    {resumes, ptc} = PTC.take_resumes(plan.ptc)
+    {programs, ptc} = PTC.take_resumes(plan.ptc)
     loop = %{loop | plan: %{plan | ptc: ptc}}
-
-    {:ok, programs} = PTC.build_resume_jobs(plan.ptc, resumes)
 
     {programs, loop} = preflight_resume_jobs(loop, programs)
 
@@ -224,8 +221,6 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
           loop.rounds > 0 ->
         {:suppress, loop}
 
-      # Terminal events are numbered by the terminal path after any appended
-      # loop items, so their sequence stays behind the items they follow.
       type in @terminal_event_types ->
         {:emit, event, loop}
 
@@ -239,7 +234,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
         observe_item_done(loop, event)
 
       true ->
-        {:emit, renumber(event, loop), bump_sequence(loop, event)}
+        {:emit, event, loop}
     end
   end
 
@@ -420,40 +415,32 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
   def accumulated_tool_usage(_loop), do: nil
 
-  @doc false
-  @spec next_sequence(t()) :: non_neg_integer()
-  def next_sequence(%__MODULE__{sequence: sequence}), do: sequence + 1
-
-  @doc false
-  @spec bump(t()) :: t()
-  def bump(%__MODULE__{} = loop), do: %{loop | sequence: loop.sequence + 1}
-
   # Event observation
 
   defp observe_item_added(loop, %{"item" => %{} = item} = event) do
     if rewritable_call_item?(loop, item) do
       {:suppress, remember_suppressed(loop, item)}
     else
-      {:emit, renumber(event, loop), bump_sequence(loop, event)}
+      {:emit, event, loop}
     end
   end
 
   defp observe_item_added(loop, event),
-    do: {:emit, renumber(event, loop), bump_sequence(loop, event)}
+    do: {:emit, event, loop}
 
   defp observe_item_done(loop, %{"item" => %{} = item} = event) do
     loop = %{loop | current_round_items_rev: [item | loop.current_round_items_rev]}
 
     if rewritable_call_item?(loop, item) do
-      event = event |> Map.put("item", rewrite_call_item(loop, item)) |> renumber(loop)
-      {:emit, event, bump_sequence(loop, event)}
+      event = Map.put(event, "item", rewrite_call_item(loop, item))
+      {:emit, event, loop}
     else
-      {:emit, renumber(event, loop), bump_sequence(loop, event)}
+      {:emit, event, loop}
     end
   end
 
   defp observe_item_done(loop, event),
-    do: {:emit, renumber(event, loop), bump_sequence(loop, event)}
+    do: {:emit, event, loop}
 
   defp rewritable_call_item?(loop, item) do
     ToolSearch.search_call_item?(loop.plan, item) or
@@ -491,22 +478,6 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
       _missing ->
         loop
-    end
-  end
-
-  # Public sequence numbers restart per provider round; the loop renumbers all
-  # public events monotonically so one response has one sequence.
-  defp renumber(event, loop) do
-    case Map.get(event, "sequence_number") do
-      nil -> event
-      _sequence -> Map.put(event, "sequence_number", loop.sequence + 1)
-    end
-  end
-
-  defp bump_sequence(loop, event) do
-    case Map.get(event, "sequence_number") do
-      nil -> loop
-      _sequence -> bump(loop)
     end
   end
 

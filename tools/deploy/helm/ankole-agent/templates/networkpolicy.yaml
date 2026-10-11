@@ -28,3 +28,43 @@ spec:
         - port: dist
           protocol: TCP
 {{- end }}
+{{- if and .Values.networkPolicy.enabled .Values.worker.localPods }}
+---
+# Workers accept no connection. They reach the control plane (Channel and file
+# relay), DNS, and public addresses, but not private ranges or the node
+# metadata address: a Worker with node credentials would have the node role.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ankole-agent.workerName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      ankole.io/task: worker
+      ankole.io/installation: {{ include "ankole-agent.workerInstallation" . | quote }}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.controlPlane.port }}
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with .Values.networkPolicy.workerDeniedCIDRs }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+{{- end }}

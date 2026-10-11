@@ -48,14 +48,13 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_it
 
 ## モデル可視プロジェクション
 
-モデルは保存行を見ません。worker の `modelVisibleTrajectory` は軌跡を、モデルが見るべきものにプロジェクションします:
+control plane は `Ankole.Conversations.Tools.Jobs.visible_trajectory/1` で保存済み Job item を投影します。モデル可視の投影には次を含みます。
 
 - **保存されたプロトコルのアイデンティティを取り除く** — 内部メッセージ id、ワイヤープロトコルフィールド、モデルが作用すべきでないもの。
 - **ツール呼び出し id をターンローカルなエイリアスに置き換える** — `call_1`、`call_2` など。モデルはどのツール結果がどのツール呼び出しに属するか（唯一有用な関係）を見ます。それらを配線する内部 UUID は見ません。
 - **コンテンツとロールを保持する** — 実際のメッセージ、ツール呼び出しとその結果を、起こった順に。
 - **境界付きコンテンツの事実を保持する** — 軌跡レベルの `metadata.redacted` と `metadata.content_truncated` は可視のまま残ります。コントロールプレーンのプロジェクションは、選択したメッセージコンテンツをページ制限に合わせて縮小する必要があるとき、`content_truncated` を設定します。
 
-モジュール doc は明示的です:「ターンローカルな呼び出しエイリアスは、唯一有用な関係、どのツール結果がどのツール呼び出しに属するかを保持する。」保存行が運ぶそれ以外のすべては、モデルのためではなくシステムのためのものです。
 
 ## 2 つの形状の関係
 
@@ -64,7 +63,7 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_it
 | 保存するもの | ライブ会話トランスクリプト | ターンごとの Job 実行記録 |
 | 所有者 | AIGateway | Background Agent Jobs |
 | 正規形式 | AIGateway のメッセージスキーマ | セマンティックアイテムを ChatML にプロジェクション |
-| モデルが見る経路 | ステートフル Responses API | `modelVisibleTrajectory` プロジェクション |
+| モデルが見る経路 | ステートフル Responses API | `visible_trajectory/1` プロジェクション |
 | 圧縮 | AIGateway の圧縮が古いメッセージを置き換える | 圧縮されない（Job は再試行予算で境界付けられる）|
 
 この 2 つは混ざりません。会話のメッセージは AIGateway のものであり、Job の軌跡は Job のものです。Job は起床イベント（[Background Agent Jobs](../background-agent-jobs/) を参照）を通じて結果を所有会話に報告します。会話のメッセージストアに書き込むわけではありません。

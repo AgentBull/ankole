@@ -5,18 +5,11 @@ defmodule AnkoleWeb.Session do
   import Plug.Conn
   alias Ankole.BrowserSessions
   alias Ankole.Principals.HumanAccess
+  alias Ankole.SiteAdminAuth
 
   @browser_key :browser_session
   @setup_ttl 24 * 60 * 60
   @state_ttl 10 * 60
-  @legacy_keys [
-    :admin_session,
-    :oauth_session,
-    :admin_oidc_state,
-    :oauth_oidc_state,
-    :oauth_authorization,
-    :local_password_change
-  ]
 
   def browser_reference(conn), do: get_session(conn, @browser_key)
 
@@ -29,7 +22,6 @@ defmodule AnkoleWeb.Session do
         {:ok, browser} = BrowserSessions.create()
 
         conn
-        |> clear_legacy_auth()
         |> put_session(@browser_key, BrowserSessions.reference(browser))
     end
   end
@@ -43,7 +35,15 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def login_transaction(conn, id), do: BrowserSessions.login(browser_reference(conn), id)
+  def login_transaction(conn, id) do
+    BrowserSessions.login(browser_reference(conn), id)
+  end
+
+  def put_privileged_tenant do
+    with {:ok, tenant} <- Ankole.Tenants.privileged() do
+      Ankole.Repo.put_tenant_id(tenant.id)
+    end
+  end
 
   def complete_login(conn, id, auth, before_commit \\ fn -> :ok end) do
     with {:ok, %{browser: browser, transaction: transaction}} <-
@@ -53,7 +53,6 @@ defmodule AnkoleWeb.Session do
       conn =
         conn
         |> configure_session(renew: true)
-        |> clear_legacy_auth()
         |> put_session(@browser_key, BrowserSessions.reference(browser))
 
       {:ok, conn, transaction}
@@ -84,6 +83,17 @@ defmodule AnkoleWeb.Session do
   end
 
   def admin_session(conn), do: BrowserSessions.authentication(browser_reference(conn), :console)
+
+  def site_admin_session(conn) do
+    case admin_session(conn) do
+      %{"principal_uid" => uid} = session ->
+        if SiteAdminAuth.active_human_site_admin?(uid), do: session
+
+      _missing ->
+        nil
+    end
+  end
+
   def oauth_session(conn), do: BrowserSessions.authentication(browser_reference(conn), :oauth)
 
   def logout(conn) do
@@ -103,10 +113,8 @@ defmodule AnkoleWeb.Session do
 
   defp drop_browser(conn) do
     Plug.CSRFProtection.delete_csrf_token()
-    conn |> configure_session(renew: true) |> delete_session(@browser_key) |> clear_legacy_auth()
+    conn |> configure_session(renew: true) |> delete_session(@browser_key)
   end
-
-  defp clear_legacy_auth(conn), do: Enum.reduce(@legacy_keys, conn, &delete_session(&2, &1))
 
   def put_setup_session(conn), do: put_expiring_session(conn, :setup_session, %{}, @setup_ttl)
 
@@ -141,10 +149,10 @@ defmodule AnkoleWeb.Session do
   def safe_return_to(value) when is_binary(value) do
     if String.starts_with?(value, "/") and not String.starts_with?(value, ["//", "/\\"]),
       do: value,
-      else: "/console"
+      else: AnkoleWeb.SiteAdminConsole.path()
   end
 
-  def safe_return_to(_), do: "/console"
+  def safe_return_to(_), do: AnkoleWeb.SiteAdminConsole.path()
 
   defp put_expiring_session(conn, key, attrs, ttl) do
     now = System.system_time(:second)

@@ -63,12 +63,12 @@ export const commonIssues = [
     cause: 'Console の経路も失敗する場合、共通の下流経路が原因の可能性が高いです。すなわち、LLM Provider、Agent の model profile、Worker であって、あるプラットフォームのイベント権限ではありません。',
     resolution: [
       'LLM Provider が有効で、その credential と model 名が機能することを確認してください。',
-      'Agent に primary、light、heavy の profile があり、Worker が少なくとも 1 台 ready であることを確認してください。',
+      'Agent に primary、light、heavy の profile があり、Console → Workers でその Agent の Worker に失敗の理由が表示されていないことを確認してください。',
       'Console で実際の model 会話を 1 回完了してから、選択したチャットプラットフォームのタブに戻ってください。'
     ],
     links: [
       { href: '../quickstart/#llm-providers', label: 'LLM Provider と Agent を設定する' },
-      { href: '../worker-management/', label: 'Worker fleet' }
+      { href: '../worker-management/', label: 'Workers' }
     ]
   },
   {
@@ -91,7 +91,7 @@ export const commonIssues = [
     resolution: [
       '実行記録を開き、その結果を確認し、最初のエラーを読んでください。',
       '対象の Agent、会話やチャットの宛先、その signal routing rule を確認してください。',
-      'Agent の model profile が機能し、Worker が少なくとも 1 台 ready であることを確認してください。'
+      'Agent の model profile が機能し、Console → Workers でその Agent の Worker に失敗の理由が表示されていないことを確認してください。'
     ],
     links: [
       { href: '../schedules/', label: 'スケジュールの実行を確認する' },

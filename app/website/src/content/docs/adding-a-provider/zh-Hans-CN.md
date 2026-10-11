@@ -24,7 +24,6 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
@@ -86,7 +85,6 @@ setting(:reasoningEffort, type: :select, default: "high",
 
 ```elixir
 language_model do
-  upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
   supports_parallel_tool_calls()
@@ -97,7 +95,7 @@ end
 | 字段 | 含义 |
 |---|---|
 | `kind` | `:language_model`、`:embedding_model`、`:rerank_model`、`:web_search`、`:web_fetch`、`:image_generate` 之一 |
-| `upstream` | 线上形态：`:sse`、`:eventstream`、`:websocket_text`、`:json` |
+| `upstream` | 线上形态，由 `kind` 决定：`:language_model` 为 `:sse`，其他所有 kind 为 `:json` |
 | `api_resolver` | Rust 侧的 resolver atom（如 `:openai_responses`），拥有编码和传输 |
 | `prepare` | 构建准备好的请求的 Elixir 函数 |
 | `timeout_ms` | 可选的按能力超时 |

@@ -23,7 +23,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalGroupUpdateRequest
 
   tags(["AuthZ"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -32,8 +32,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     summary: "List Principal groups",
     responses: [
       ok: {"Principal groups", "application/json", PrincipalGroupListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -43,9 +42,7 @@ defmodule AnkoleWeb.AuthZGroupController do
       {"Principal group", "application/json", PrincipalGroupCreateRequest, required: true},
     responses: [
       ok: {"Principal group", "application/json", PrincipalGroupResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid group", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -54,9 +51,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Principal group", "application/json", PrincipalGroupResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -67,10 +62,7 @@ defmodule AnkoleWeb.AuthZGroupController do
       {"Principal group", "application/json", PrincipalGroupUpdateRequest, required: true},
     responses: [
       ok: {"Principal group", "application/json", PrincipalGroupResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid group", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -79,10 +71,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Principal group", "application/json", PrincipalGroupResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Group cannot be deleted", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -94,9 +83,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Principal group members", "application/json", PrincipalGroupMemberListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -108,10 +95,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     ],
     responses: [
       ok: {"Principal group members", "application/json", PrincipalGroupMemberListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Membership cannot change", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -123,10 +107,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     ],
     responses: [
       ok: {"Principal group members", "application/json", PrincipalGroupMemberListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Membership cannot change", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -135,9 +116,7 @@ defmodule AnkoleWeb.AuthZGroupController do
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Permission grants", "application/json", PermissionGrantListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -148,9 +127,7 @@ defmodule AnkoleWeb.AuthZGroupController do
        required: true},
     responses: [
       ok: {"Principal group members", "application/json", PrincipalGroupMemberListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid condition", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

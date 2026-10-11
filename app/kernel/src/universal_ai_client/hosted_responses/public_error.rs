@@ -32,7 +32,7 @@ pub(super) fn normalize_image_error(error: StreamError) -> StreamError {
         }
         None => error,
     };
-    normalized.stage = "image_generation".to_string();
+    normalized.stage = "image_generation";
     normalized
 }
 

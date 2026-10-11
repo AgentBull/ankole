@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
                     end)
 
   @enforce_keys [:capabilities, :send_fun, :reconcile_fun]
-  defstruct [:capabilities, :send_fun, :reconcile_fun, reply_preview: nil]
+  defstruct [:capabilities, :send_fun, :reconcile_fun, :open_conversation_fun, reply_preview: nil]
 
   @type adapter_result :: {:ok, map()} | {:error, term()} | :unknown
 
@@ -56,8 +56,10 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
 
   @callback send(term()) :: adapter_result() | term()
   @callback reconcile(term()) :: adapter_result() | term()
+  @callback open_conversation(Ankole.SignalsGateway.Binding.t(), String.t()) ::
+              {:ok, Ankole.SignalsGateway.Channel.t()} | {:error, term()}
 
-  @optional_callbacks reconcile: 1
+  @optional_callbacks reconcile: 1, open_conversation: 2
 
   @doc """
   Constructs an executable adapter from its module and declared capabilities.
@@ -76,7 +78,8 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
        %__MODULE__{
          capabilities: capabilities,
          send_fun: module_fun(module, :send, 1),
-         reconcile_fun: module_fun(module, :reconcile, 1)
+         reconcile_fun: module_fun(module, :reconcile, 1),
+         open_conversation_fun: module_fun(module, :open_conversation, 2)
        }}
     end
   end
@@ -100,6 +103,13 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   end
 
   def deliver(%__MODULE__{}, _outbox), do: {:error, :adapter_send_missing}
+
+  @doc "Resolves a Principal to an existing provider conversation without creating one."
+  def open_conversation(%__MODULE__{open_conversation_fun: callback}, binding, uid)
+      when is_function(callback, 2), do: callback.(binding, uid)
+
+  def open_conversation(%__MODULE__{}, _binding, _uid),
+    do: {:error, :principal_destination_not_supported}
 
   @doc """
   Calls the adapter reconciliation function.

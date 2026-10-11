@@ -8,6 +8,8 @@ defmodule Ankole.AIGateway.ToolSearch.Index do
   underscores, and Han runs become character bigrams.
   """
 
+  alias Ankole.AIGateway.ToolContract.Descriptor
+
   @bm25_k1 1.2
   @bm25_b 0.75
 
@@ -17,7 +19,7 @@ defmodule Ankole.AIGateway.ToolSearch.Index do
   Tools with zero overlap are excluded; an empty or unmatched query returns an
   empty list rather than arbitrary tools.
   """
-  @spec search([map()], String.t(), pos_integer()) :: [map()]
+  @spec search([Descriptor.t()], String.t(), pos_integer()) :: [Descriptor.t()]
   def search(catalog, query, limit) when is_list(catalog) and is_binary(query) do
     query_tokens = tokenize(query)
 
@@ -49,20 +51,20 @@ defmodule Ankole.AIGateway.ToolSearch.Index do
     |> Enum.flat_map(&run_tokens/1)
   end
 
-  defp document_text(tool) do
+  defp document_text(%Descriptor{} = tool) do
     [
-      Map.get(tool, "__ankole_search_text"),
-      Map.get(tool, "name"),
-      Map.get(tool, "namespace"),
-      Map.get(tool, "namespace_description"),
-      Map.get(tool, "description"),
+      tool.search_text,
+      tool.name,
+      tool.namespace,
+      tool.namespace_description,
+      tool.description,
       parameter_names(tool)
     ]
     |> Enum.filter(&is_binary/1)
     |> Enum.join(" ")
   end
 
-  defp parameter_names(%{"parameters" => %{"properties" => %{} = properties}}),
+  defp parameter_names(%Descriptor{parameters: %{"properties" => %{} = properties}}),
     do: properties |> Map.keys() |> Enum.join(" ")
 
   defp parameter_names(_tool), do: nil

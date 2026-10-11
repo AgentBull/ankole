@@ -6,7 +6,7 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
   alias Ankole.OIDC
 
   test "admin creates, reads, updates, rotates, and deletes OIDC Clients", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     {:ok, group} =
       AuthZ.create_principal_group(%{
@@ -99,7 +99,7 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
     allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
 
     attrs = %{
@@ -160,7 +160,7 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
   end
 
   test "public Client has no secret and cannot rotate one", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     create =
       conn
@@ -188,7 +188,7 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
   end
 
   test "Client validation rejects unsafe redirects and incomplete Gateway policy", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     unsafe_redirect =
       conn

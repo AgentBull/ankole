@@ -8,10 +8,10 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   """
 
   alias Ankole.AIGateway.ModelMetadata.Cache
-  alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.Logging
 
@@ -125,19 +125,14 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
              request,
              Keyword.put(identity, :stream?, true)
            ),
-         {:ok, %{body: body}} <-
-           Observability.record_compact(subject_uid, runtime, request, fn ->
-             with {:ok, outcome, _meta} <-
-                    ResponseStream.collect(
-                      subject_uid,
-                      request,
-                      prepared_request,
-                      Keyword.put(identity, :caller, "compaction.upstream")
-                    ),
-                  {:ok, body} <- terminal_body(outcome) do
-               {:ok, %{body: body}}
-             end
-           end) do
+         {:ok, outcome, _meta} <-
+           ResponseStream.collect(
+             subject_uid,
+             request,
+             prepared_request,
+             Keyword.put(identity, :caller, "compaction.upstream")
+           ),
+         {:ok, body} <- terminal_body(outcome) do
       compact_response(body)
     else
       {:error, reason} -> classify_error(reason)
@@ -172,13 +167,8 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   defp compaction_item?(%{"type" => "compaction"}), do: true
   defp compaction_item?(_item), do: false
 
-  defp classify_error({:upstream_response_failed, status, _body} = reason)
-       when status in [404, 405],
-       do: {:unsupported, reason}
-
-  defp classify_error({:upstream_response_failed, status, _body, _headers} = reason)
-       when status in [404, 405],
-       do: {:unsupported, reason}
+  defp classify_error(%ProviderFailure{kind: :status_rejected, provider_status: status} = reason)
+       when status in [404, 405], do: {:unsupported, reason}
 
   defp classify_error(reason), do: {:fallback, reason}
 

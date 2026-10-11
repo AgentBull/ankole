@@ -1,6 +1,6 @@
 defmodule Ankole.WorkerFiles.RelayError do
   @moduledoc """
-  Raised by a `Ankole.WorkerFiles.get/3` body stream when the Worker or the
+  Raised by a `Ankole.WorkerFiles.stream/3` body when the Worker or the
   relay fails after the stream has started.
   """
 

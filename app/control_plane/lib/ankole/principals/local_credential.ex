@@ -6,7 +6,7 @@ defmodule Ankole.Principals.LocalCredential do
   hold a local credential; the table keys on `human_users.principal_uid`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

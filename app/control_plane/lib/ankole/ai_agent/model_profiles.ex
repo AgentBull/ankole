@@ -4,8 +4,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   Profiles live under `agents.options["ai_agent"]["models"]`; provider rows own
   endpoint and encrypted option details. Embedding and rerank are not Agent
-  profile slots: Brain owns those models instance-wide through `brain.*`
-  AppConfigure keys.
+  profile slots: Brain owns the site embedding model and tenant rerank model
+  through `brain.*` AppConfigure keys.
   """
 
   import Ecto.Query, warn: false
@@ -282,33 +282,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   end
 
   def effective_input_modalities(_model_ref), do: ["text"]
-
-  @doc false
-  @spec complete_legacy_model_ref(String.t(), map()) :: map()
-  def complete_legacy_model_ref(agent_uid, model_ref)
-      when is_binary(agent_uid) and is_map(model_ref) do
-    model_ref
-    |> Map.delete("vision_fallback_model_ref")
-    |> Map.put("input_modalities", input_modalities_for_frozen_model_ref(model_ref))
-    |> maybe_put_vision_fallback_model_ref(agent_uid)
-  end
-
-  defp input_modalities_for_frozen_model_ref(%{
-         "provider_id" => provider_id,
-         "provider_kind" => provider_kind,
-         "model" => model
-       })
-       when is_binary(provider_id) and is_binary(provider_kind) and is_binary(model) do
-    case ProviderConfigs.fetch_active_provider(provider_id) do
-      {:ok, %Provider{provider_kind: ^provider_kind} = provider} ->
-        input_modalities(provider, model)
-
-      _unavailable_or_changed ->
-        ["text"]
-    end
-  end
-
-  defp input_modalities_for_frozen_model_ref(_model_ref), do: ["text"]
 
   @doc false
   @spec model_ref_from_runtime_profile(map()) :: map()

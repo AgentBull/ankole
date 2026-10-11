@@ -34,7 +34,7 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
     onError: error => model.reportLoginError(error)
   })
   const formError = model.formError.value
-  const locked = formError?.kind === 'locked'
+  const waiting = formError?.kind === 'locked' || formError?.kind === 'busy'
   // Classified failures render inline below; everything else keeps the
   // generic surface. Deriving from the mutation error (not the model) keeps a
   // cleared inline error from resurfacing as raw text.
@@ -42,7 +42,7 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (locked || login.isPending) return
+    if (waiting || login.isPending) return
     model.clearFormError()
     login.mutate({ email, password })
   }
@@ -86,11 +86,11 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
         />
       </Field>
       {formError ? (
-        <p role="alert" className="text-sm leading-5 text-destructive">
+        <p role="alert" className="text-sm leading-5 text-destructive-foreground">
           {formErrorText(formError, t)}
         </p>
       ) : null}
-      <Button aria-busy={login.isPending} className="w-full" disabled={login.isPending || locked} type="submit">
+      <Button aria-busy={login.isPending} className="w-full" disabled={login.isPending || waiting} type="submit">
         {login.isPending ? t('auth.signing_in') : t('auth.sign_in')}
         {login.isPending ? <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" /> : null}
       </Button>
@@ -107,6 +107,8 @@ function formErrorText(error: LoginFormError, t: (key: string, values?: Record<s
       return t('auth.not_admin')
     case 'account_disabled':
       return t('auth.account_disabled')
+    case 'busy':
+      return t('auth.busy_seconds', { seconds: error.remainingSeconds })
     case 'locked': {
       const delay = formatRetryDelay(error.remainingSeconds)
       return delay.unit === 'seconds'

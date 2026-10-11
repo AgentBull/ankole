@@ -9,7 +9,8 @@ defmodule Ankole.Brain.Jobs.LearnSource do
   many model calls.
   """
 
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 3,
     unique: [
@@ -20,8 +21,12 @@ defmodule Ankole.Brain.Jobs.LearnSource do
 
   alias Ankole.Brain.SourceLearning
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"source_id" => source_id}}) do
+  @impl Ankole.Job
+  def run(job) do
+    if Ankole.Tenants.accepting_work?(Ankole.Repo.tenant_id!()), do: run_active(job), else: :ok
+  end
+
+  defp run_active(%Oban.Job{args: %{"source_id" => source_id}}) do
     case SourceLearning.learn(source_id) do
       {:ok, _report} -> :ok
       # Archived while queued: the run has nothing left to do.

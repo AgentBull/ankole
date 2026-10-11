@@ -3,8 +3,8 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   Owns ambient channel curation state: judgment records, the per-channel
   judged-until cursor, reply attribution anchors, and standing orders.
 
-  The worker recognizer reports each `im.message.may_intervene` decision here
-  before it starts (or skips) the visible turn. One transaction stores the
+  `Ankole.Conversations.Ambient` selects each ambient route. This module checks
+  database facts under locks before it starts or skips the visible turn. One transaction stores the
   judgment, applies an accepted asked_by attribution to the actor event reply
   anchor, and advances the channel cursor to the batch watermark. Standing
   orders are member-set channel policy; they only drive behavior on bindings
@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AmbientIntervention
+  alias Ankole.Conversations.Ambient
   alias Ankole.SignalsGateway.AmbientJudgment
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Channel
@@ -28,53 +28,44 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
 
   @ambient_event_type "im.message.may_intervene"
   @standing_orders_max_chars 4_000
-  @actions ~w(NOOP FOREGROUND_REPLY NEW_WORK HANDOFF)
-  @authorities ~w(NONE EXPLICIT_REQUEST STANDING_ORDER)
 
   @doc """
-  Commits one canonical recognizer route and advances the channel cursor.
+  Checks and commits one canonical route for the Agent and Session.
+  The caller validates model output before this operation. The transaction
+  checks current database facts and advances the channel cursor.
 
   An accepted asked_by attribution also becomes the actor event reply anchor,
   so a visible reply threads to the asking message. A HANDOFF appends its Job
   steer in this transaction. A retry returns the first committed route instead
   of selecting another action or target.
   """
-  @spec record_judgment(String.t(), String.t(), map(), keyword()) ::
+  @spec record_judgment(Ambient.actor_key(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def record_judgment(agent_uid, actor_event_id, attrs, opts \\ []) when is_map(attrs) do
-    with {:ok, proposed_route} <- proposed_route(attrs) do
-      now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+  def record_judgment(key, actor_event_id, attrs, opts \\ []) when is_map(attrs) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    route = Map.take(attrs, [:action, :authority, :handoff_job_id])
 
-      Repo.transact(fn repo ->
-        with {:ok, snapshot} <- ambient_event(repo, agent_uid, actor_event_id) do
-          case repo.get(AmbientJudgment, snapshot.id) do
-            %AmbientJudgment{} = judgment ->
-              {:ok, judgment_result(judgment)}
+    Repo.transact(fn repo ->
+      with :ok <- Keyword.get(opts, :authorize_in_tx, fn _repo -> :ok end).(repo) do
+        lock_and_commit_judgment(repo, key, actor_event_id, route, attrs, now)
+      end
+    end)
+    |> Ankole.Conversations.deliver_committed(&[Map.get(&1, :command_event)])
+    |> case do
+      {:ok, result} -> {:ok, Map.delete(result, :command_event)}
+      error -> error
+    end
+  end
 
-            nil ->
-              locked_handoff_job = lock_handoff_job(repo, snapshot, proposed_route)
+  defp lock_and_commit_judgment(repo, key, actor_event_id, route, attrs, now) do
+    locked_handoff_job = lock_handoff_job(repo, key, route)
 
-              with :ok <-
-                     Actors.lock_actor_session_in_tx(repo, agent_uid, snapshot.session_id),
-                   {:ok, event} <- locked_ambient_event(repo, agent_uid, actor_event_id) do
-                case repo.get(AmbientJudgment, event.id) do
-                  %AmbientJudgment{} = judgment ->
-                    {:ok, judgment_result(judgment)}
-
-                  nil ->
-                    commit_new_judgment(
-                      repo,
-                      event,
-                      proposed_route,
-                      locked_handoff_job,
-                      attrs,
-                      now
-                    )
-                end
-              end
-          end
-        end
-      end)
+    with :ok <- Actors.lock_actor_session_in_tx(repo, key.agent_uid, key.session_id),
+         {:ok, event} <- locked_ambient_event(repo, key, actor_event_id) do
+      case repo.get(AmbientJudgment, event.id) do
+        %AmbientJudgment{} = judgment -> {:ok, judgment_result(judgment)}
+        nil -> commit_new_judgment(repo, event, route, locked_handoff_job, attrs, now)
+      end
     end
   end
 
@@ -118,7 +109,7 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   """
   @spec channel_standing_orders(String.t()) :: {:ok, map()} | {:error, :channel_not_found}
   def channel_standing_orders(channel_id) when is_binary(channel_id) do
-    case Repo.get(Channel, channel_id) do
+    case Repo.get_by(Channel, id: channel_id) do
       %Channel{} = channel -> {:ok, standing_orders_projection(channel)}
       nil -> {:error, :channel_not_found}
     end
@@ -178,43 +169,9 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
     match?(%Binding{unaddressed_group_message_policy: :may_intervene}, binding)
   end
 
-  defp proposed_route(attrs) do
-    explicit_route(presence(Map.get(attrs, :action)), attrs)
-  end
-
-  defp explicit_route(action, attrs) when action in @actions do
-    authority = presence(Map.get(attrs, :authority))
-    handoff_job_id = presence(Map.get(attrs, :handoff_job_id))
-
-    with :ok <- validate_authority(action, authority),
-         {:ok, handoff_job_id} <- validate_handoff_job_id(action, handoff_job_id) do
-      {:ok, %{action: action, authority: authority, handoff_job_id: handoff_job_id}}
-    end
-  end
-
-  defp explicit_route(action, _attrs), do: {:error, {:invalid_ambient_action, action}}
-
-  defp validate_authority("NEW_WORK", authority) when authority in @authorities, do: :ok
-  defp validate_authority(action, "NONE") when action in @actions, do: :ok
-
-  defp validate_authority(_action, authority),
-    do: {:error, {:invalid_ambient_authority, authority}}
-
-  defp validate_handoff_job_id("HANDOFF", job_id) do
-    case BackgroundAgentJobs.parse_job_id(job_id) do
-      {:ok, parsed} -> {:ok, parsed}
-      :error -> {:error, {:invalid_ambient_handoff_job_id, job_id}}
-    end
-  end
-
-  defp validate_handoff_job_id(_action, nil), do: {:ok, nil}
-
-  defp validate_handoff_job_id(_action, job_id),
-    do: {:error, {:invalid_ambient_handoff_job_id, job_id}}
-
   defp lock_handoff_job(
          repo,
-         %ActorEvent{agent_uid: agent_uid},
+         %{agent_uid: agent_uid},
          %{action: "HANDOFF", handoff_job_id: job_id}
        ) do
     BackgroundAgentJobs.lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id)
@@ -223,10 +180,10 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   defp lock_handoff_job(_repo, _event, _route), do: nil
 
   defp commit_new_judgment(repo, event, route, locked_handoff_job, attrs, now) do
-    with :ok <- AmbientIntervention.ensure_fresh_in_tx(repo, event, now),
-         {asked_by_id, asked_by_state} <- resolve_route_asked_by(repo, event, route, attrs),
+    with :ok <- Ambient.ensure_fresh_in_tx(repo, event, now),
+         {asked_by_id, asked_by_state, authorization} <- resolve_asked_by(repo, event, attrs),
          route <- enforce_authority(repo, event, route, asked_by_state),
-         {:ok, handoff_job_id} <-
+         {:ok, {handoff_job_id, command_event}} <-
            commit_handoff(repo, event, route, locked_handoff_job, now),
          judged_until = batch_watermark(event) || now,
          {:ok, judgment} <-
@@ -239,17 +196,11 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
              asked_by_state,
              judged_until
            ),
-         :ok <- apply_asked_anchor(repo, event, asked_by_id, asked_by_state),
+         :ok <- apply_asked_anchor(repo, event, asked_by_id, asked_by_state, authorization),
          :ok <- advance_cursor(repo, event.signal_channel_id, judged_until) do
-      {:ok, judgment_result(judgment)}
+      {:ok, Map.put(judgment_result(judgment), :command_event, command_event)}
     end
   end
-
-  defp resolve_route_asked_by(repo, event, %{action: action}, attrs)
-       when action in ["FOREGROUND_REPLY", "NEW_WORK"],
-       do: resolve_asked_by(repo, event, attrs)
-
-  defp resolve_route_asked_by(_repo, _event, _route, _attrs), do: {nil, nil}
 
   defp enforce_authority(
          repo,
@@ -300,7 +251,7 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
          now
        ) do
     with {:ok, message} <- ambient_handoff_message(event),
-         {:ok, _result} <-
+         {:ok, %{command_event: command_event}} <-
            BackgroundAgentJobs.handoff_ambient_message_in_tx(
              repo,
              event,
@@ -308,7 +259,7 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
              message,
              now
            ) do
-      {:ok, job_id}
+      {:ok, {job_id, command_event}}
     end
   end
 
@@ -321,7 +272,7 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
        ),
        do: {:error, :job_not_found}
 
-  defp commit_handoff(_repo, _event, _route, _locked_handoff_job, _now), do: {:ok, nil}
+  defp commit_handoff(_repo, _event, _route, _locked_handoff_job, _now), do: {:ok, {nil, nil}}
 
   defp ambient_handoff_message(%ActorEvent{payload: payload}) do
     messages =
@@ -372,24 +323,11 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
     }
   end
 
-  defp ambient_event(repo, agent_uid, actor_event_id) do
-    case event_for_agent(repo, agent_uid, actor_event_id) do
-      {:ok, %ActorEvent{type: @ambient_event_type, signal_channel_id: channel_id} = event}
-      when is_binary(channel_id) ->
-        {:ok, event}
-
-      {:ok, %ActorEvent{}} ->
-        {:error, :not_an_ambient_event}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp locked_ambient_event(repo, agent_uid, actor_event_id) do
+  defp locked_ambient_event(repo, %{agent_uid: agent_uid, session_id: session_id}, actor_event_id) do
     case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
       %ActorEvent{
         agent_uid: ^agent_uid,
+        session_id: ^session_id,
         type: @ambient_event_type,
         signal_channel_id: channel_id,
         completed_at: nil,
@@ -434,22 +372,25 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   end
 
   defp resolve_asked_by(repo, event, attrs) do
-    proposed = presence(Map.get(attrs, :asked_by_source_entry_id))
+    proposed = Map.get(attrs, :asked_by_source_entry_id)
 
     cond do
       proposed == nil ->
-        {nil, nil}
+        {nil, nil, nil}
 
-      Map.get(attrs, :asked_by_degraded) == true ->
-        {proposed, "degraded"}
+      Map.get(attrs, :asked_by_state) == "degraded" ->
+        {proposed, "degraded", nil}
 
       observed_human_entry?(event, proposed) and
-        entry_exists?(repo, event.signal_channel_id, proposed) and
-          Ankole.Principals.WorkAccess.valid_now?(asked_authorization(repo, event, proposed)) ->
-        {proposed, "accepted"}
+          entry_exists?(repo, event.signal_channel_id, proposed) ->
+        authorization = asked_authorization(repo, event, proposed)
+
+        if Ankole.Principals.WorkAccess.valid_now?(authorization),
+          do: {proposed, "accepted", authorization},
+          else: {proposed, "degraded", nil}
 
       true ->
-        {proposed, "degraded"}
+        {proposed, "degraded", nil}
     end
   end
 
@@ -500,19 +441,20 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
     |> repo.insert()
   end
 
-  defp apply_asked_anchor(repo, event, asked_by_id, "accepted") when is_binary(asked_by_id) do
+  defp apply_asked_anchor(repo, event, asked_by_id, "accepted", authorization)
+       when is_binary(asked_by_id) do
     ActorEvent
     |> where([event_row], event_row.id == ^event.id)
     |> repo.update_all(
       set:
         [ambient_asked_source_entry_id: asked_by_id] ++
-          Map.to_list(asked_authorization(repo, event, asked_by_id))
+          Map.to_list(authorization)
     )
 
     :ok
   end
 
-  defp apply_asked_anchor(_repo, _event, _asked_by_id, _state), do: :ok
+  defp apply_asked_anchor(_repo, _event, _asked_by_id, _state, _authorization), do: :ok
 
   defp advance_cursor(repo, signal_channel_id, %DateTime{} = judged_until) do
     Channel

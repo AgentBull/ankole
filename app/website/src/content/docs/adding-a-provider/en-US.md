@@ -24,7 +24,6 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
@@ -86,7 +85,6 @@ A `Capability` binds a user-facing model capability to the prepare function and 
 
 ```elixir
 language_model do
-  upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
   supports_parallel_tool_calls()
@@ -97,7 +95,7 @@ end
 | Field | Meaning |
 |---|---|
 | `kind` | one of `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate` |
-| `upstream` | the wire shape: `:sse`, `:eventstream`, `:websocket_text`, or `:json` |
+| `upstream` | the wire shape, set from `kind`: `:sse` for `:language_model` and `:json` for every other kind |
 | `api_resolver` | the Rust-side resolver atom (e.g. `:openai_responses`) that owns encoding and transport |
 | `prepare` | the Elixir function that builds the prepared request |
 | `timeout_ms` | optional per-capability timeout |

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { BrowserRuntime } from '../src/browser-runtime'
-import { renderedFetchBrowserSettings } from '../src/core/turns/rendered_fetch_runtime_config'
+import { renderedFetchBrowserSettings } from '../src/core/rendered-fetch-runtime-config'
 
 describe('rendered web_fetch fallback projection', () => {
   test('projects config knobs into browser settings with the full worker env', () => {
@@ -16,7 +16,12 @@ describe('rendered web_fetch fallback projection', () => {
   })
 
   test('mirrors the settings SSRF filter and forwards fetchBatch to fetchRendered unchanged', async () => {
-    const runtime = new BrowserRuntime({ runtimeRoot: '/tmp/ankole-rendered-fallback-projection' })
+    const runtime = new BrowserRuntime({
+      runtimeRoot: '/tmp/ankole-rendered-fallback-projection',
+      daemonEntry: '/bin/true',
+      runnerPath: '/bin/true',
+      localChromiumExecutable: '/bin/true'
+    })
     const fetchRendered = mock(async (..._args: unknown[]) => ({ results: [] }))
     runtime.fetchRendered = fetchRendered as unknown as typeof runtime.fetchRendered
 

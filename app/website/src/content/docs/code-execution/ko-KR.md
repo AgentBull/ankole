@@ -7,13 +7,13 @@ order: 122
 
 Agent는 일반 대화 중에 명령을 실행하고 파일을 편집할 수 있습니다. 또한 영구 작업을 Background Agent Job에 위임할 수도 있습니다. 이들은 별개의 런타임 경로입니다: 대화는 Agent Computer Worker의 포그라운드 도구를 사용하고, 모든 Background Agent Job은 CodexRunner를 사용합니다. 메시지의 코드 양이 둘 사이를 선택하지 않습니다.
 
-먼저 핵심 속성을 밝힙니다: 모든 명령은 제한된 환경에서 실행됩니다. 셸 명령은 bubblewrap 아래에서 `SYS_ADMIN`, 무제한 seccomp, 마스킹되지 않은 `/proc`으로 실행됩니다 — 이것은 운영자 선택이 아니라 worker의 하드 요구 사항입니다. 에이전트는 `/agents` 아래의 에이전트별 파일 시스템 안에서 작업하며, 셸을 통해 그 샌드박스를 벗어날 수 없습니다.
+먼저 핵심 속성을 밝힙니다: 모든 명령은 Agent 자신의 컴퓨터에서 실행됩니다. 각 Agent는 자신의 Worker 컨테이너를 가지며, 컨테이너가 유일한 격리 경계입니다. 명령은 내부 샌드박스 없이 Worker의 사용자로 실행되고, 에이전트는 `/workspace` 아래의 자신의 Agent Home에서 작업합니다. Agent는 자신의 컴퓨터를 바꿀 수 있지만, 다른 Agent와 Worker, 캐시 디스크, 자격 증명을 공유하지 않습니다.
 
-## bubblewrap 아래의 셸 명령
+## 셸 명령
 
-Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`와 `bubblewrap.ts`의 bubblewrap 제한에 기반한 command 도구를 통해 셸 명령을 실행합니다. 모델이 요청하는 모든 명령은 `SYS_ADMIN`, 무제한 seccomp 정책, 마스킹되지 않은 `/proc`으로 bubblewrap 아래에서 실행됩니다. 마스킹되지 않은 `/proc`과 `SYS_ADMIN` 능력은 [browser](../browser-automation/) 데몬과 Jupyter 커널이 동일한 제한 환경에서 실행되게 합니다. 이 프로파일은 [Quick start](../quickstart/#deployment)에 문서화된 Worker 이미지 요구 사항이며, Agent마다 튜닝하지 않습니다.
+Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 기반한 command 도구를 통해 셸 명령을 실행합니다. 각 명령은 Worker의 사용자로 자체 프로세스 그룹에서 실행되며, Worker 자격 증명이 들어 있지 않은 새 환경을 사용합니다. 취소나 시간 초과는 그룹 전체를 종료합니다. 기본 포그라운드 예산은 180초입니다. 작업 디렉터리는 Agent Home 안에 있어야 합니다. [browser](../browser-automation/) 데몬, Codex app-server, Automation 스크립트도 Worker의 사용자로 실행되며, Worker에는 추가 커널 권한이 필요하지 않습니다.
 
-실제로 의미하는 바: 셸 명령은 에이전트 워크스페이스 아래의 파일을 읽고 쓸 수 있고, 설치된 도구를 실행할 수 있으며, worker 이미지가 제공하는 하위 프로세스를 시작할 수 있습니다. 다른 에이전트의 워크스페이스에는 도달할 수 없고 제어 플레인 상태에도 도달할 수 없습니다. 샌드박스가 경계입니다.
+명령은 sudo 없이 uid 1000으로 실행됩니다. Home 쓰기, 사용자 패키지 설치, 하위 프로세스 실행은 가능하지만 시스템 패키지는 설치할 수 없습니다. 같은 Agent의 Session과 Job은 파일을 볼 수 있습니다. 인스턴스가 Agent를 격리하며 Worker는 데이터베이스 연결이나 객체 저장소 자격 증명이 없습니다.
 
 ## 파일 읽기와 apply_patch
 
@@ -26,16 +26,16 @@ Main Agent는 원시 패치를 `custom_tool_call`로 AIGateway를 통해 보냅�
 
 이 공유 경로는 일반 대화와 Background Agent Jobs가 하나의 편집 프로토콜을 사용하게 합니다. 일치하지 않는 패치는 네이티브 도구에서 실패하고 그 실패가 모델에게 반환됩니다. 빠른 검색에는 셸이 충분합니다. 파일 편집에는 `apply_patch`를 사용하세요.
 
-## /agents 파일 시스템
+## /workspace 파일 시스템
 
-에이전트가 읽고 쓰는 모든 것은 에이전트 키별로 배치된 `/agents` 아래에 있습니다. 에이전트는 컨테이너 경로를 직접 봅니다 — worker는 모델을 위해 경로를 변환하지 않습니다:
+Agent Home은 `/workspace`의 영구 스토리지입니다. 이전 경로 `/agents/<agent_uid>`는 Home으로 연결됩니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -45,6 +45,10 @@ Main Agent는 원시 패치를 `custom_tool_call`로 AIGateway를 통해 보냅�
 ```
 
 `SOUL.md`, `MISSION.md`, `DESIGN.md`는 [Agent Library](../agent-library/)의 영구 문서입니다. 처음 두 개는 책임과 동작을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. `installed-skills/`는 Agent Skills를 보관합니다. `sessions/`는 10000에서 시작하는 안정적인 PostgreSQL 소유 숫자 ID를 가진 대화 워크스페이스를 보관하고, `jobs/`는 별도의 Background Agent Job 워크스페이스를 보관합니다.
+
+Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. 재구축은 `/var/cache/ankole`만 삭제합니다. Docker 로컬 volume은 호스트에 의존하며 Cloudflare 강제 중지는 마지막 R2 백업 이후 쓰기를 잃을 수 있습니다. 제한은 [Worker](../worker-management/)를 참조하세요.
+
+control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. `ankole-files`로 읽고 씁니다. Job 작업 공간과 Codex 스레드는 영구 Home에 남습니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
 
 Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skill root를 Job workspace에 복사하지 않습니다.
 
@@ -70,7 +74,7 @@ Console은 해당 모델 프로파일을 **Background Agent Jobs**라고 부릅�
 
 ## 다음 단계
 
-- 이러한 도구를 실행하고 `/agents` 파일 시스템을 소유하는 Worker에 대해서는 [Agent Computer Worker](../agent-computer-worker/)를 읽으세요.
+- 이러한 도구를 실행하고 `/workspace` 파일 시스템을 소유하는 Worker에 대해서는 [Agent Computer Worker](../agent-computer-worker/)를 읽으세요.
 - Jupyter 스킬 뒤의 스킬 및 활성화 모델에 대해서는 [Agent Library](../agent-library/)를 읽으세요.
 - 내부 키가 `coding`으로 유지되는 Background Agent Jobs 프로파일에 대해서는 [Background Agent Jobs](../background-jobs/#모델-provider-선택)를 읽으세요.
-- Worker 이미지가 요구하는 제한 환경에 대해서는 [Quick start](../quickstart/#deployment)를 읽으세요.
+- Worker 신뢰 경계와 강화 방법에 대해서는 [Security hardening](../security-hardening/)을 읽으세요.

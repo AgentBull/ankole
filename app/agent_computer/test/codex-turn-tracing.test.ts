@@ -264,17 +264,19 @@ function traceFixture() {
   configureWorkerTracing(async payload => {
     exports.push(payload)
   })
-  const turnTrace = workerTurnTrace({
-    workspace_id: 10_000,
-    turn: actorTurn,
-    actor_event: {
-      actor_event_id: actorTurn.actor_event_id,
-      queue_sequence: 1,
-      type: 'background_agent_job.dispatch',
-      source_event_id: 'job-1000'
+  const turnTrace = workerTurnTrace(
+    {
+      mode: 'start',
+      fetch_runtime_config: { ssrfFilter: true },
+      turn: actorTurn,
+      actor_event: {
+        actor_event_id: actorTurn.actor_event_id,
+        type: 'background_agent_job.dispatch'
+      },
+      request_context: { traceparent: '00-11111111111111111111111111111111-1111111111111111-01' }
     },
-    request_context: { traceparent: '00-11111111111111111111111111111111-1111111111111111-01' }
-  })
+    'agent-1'
+  )
   expect(turnTrace).toBeDefined()
   return { ...fixture(0, turnTrace), exports }
 }

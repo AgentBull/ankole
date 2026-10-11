@@ -26,9 +26,9 @@ order: 200
 | `kit external-services start` | devkit Docker Compose service(PostgreSQL 등)를 시작합니다. `bun run services:start`로 래핑되어 있습니다. |
 | `kit external-services stop` | devkit Compose service를 중지합니다. `bun run services:stop`으로 래핑되어 있습니다. |
 | `kit external-services status` | devkit service 상태를 보고합니다. `bun run services:status`로 래핑되어 있습니다. |
-| `kit dev` | 완전한 개발 환경(Phoenix, 프런트엔드 자산, 관리형 Docker worker 하나)을 시작합니다. `bun run dev`로 래핑되어 있습니다. 이 터미널을 열어 둡니다. |
+| `kit dev` | 완전한 개발 환경(Phoenix와 프런트엔드 자산, 그리고 Agent마다 Worker container를 하나 만드는 Docker Worker backend)을 시작합니다. `bun run dev`로 래핑되어 있습니다. 이 터미널을 열어 둡니다. |
 
-`kit dev`는 전체 스택을 실행하는 유일한 명령입니다. PostgreSQL을 시작하거나 확인하고, 로컬 database를 생성 및 migrate하며, 없거나 오래된 worker image를 빌드하고 관리형 worker를 시작합니다. 두 번째 `kit dev`를 시작하지 마십시오. 해당 터미널에서 `Ctrl+C`로 중지하십시오.
+`kit dev`는 전체 스택을 실행하는 유일한 명령입니다. PostgreSQL을 시작하거나 확인하고, 로컬 database를 생성 및 migrate하며, 없거나 오래된 worker image를 빌드하고, Docker Worker backend로 control plane을 시작합니다. control plane은 Agent가 생성될 때 그 Agent의 Worker container를 만들고, container는 로컬 Agent Computer 소스를 `bun --watch`로 실행합니다. container 목록은 `docker ps -a --filter label=ankole.installation=dev`로 확인합니다. 두 번째 `kit dev`를 시작하지 마십시오. 해당 터미널에서 `Ctrl+C`로 중지하십시오. 이때 `dev` 설치의 Worker container도 제거되므로, 재시작 후에는 기존 Agent가 다음에 Worker를 필요로 할 때 control plane이 그 Worker를 다시 만듭니다.
 
 ## 데이터베이스 라이프사이클
 
@@ -63,7 +63,7 @@ order: 200
 
 ## Worker 테스트 실행기
 
-`kit agent-computer-test`는 Agent Computer Worker 패키지 테스트를 표준 worker container runtime에서 실행하므로, 실제 turn이 사용하는 것과 동일한 환경에서 테스트가 실행됩니다. `--suite`로 `unit` 또는 `integration`을 받고, `--prebuilt-image`로 이미지를 빌드하는 대신 특정 Agent Computer Worker Docker image를 대상으로 실행할 수 있습니다.
+`kit agent-computer-test`는 Agent Computer Worker 패키지 테스트를 표준 worker container runtime에서 실행하므로, 실제 turn이 사용하는 것과 동일한 환경에서 테스트가 실행됩니다. `--suite`로 `unit` 또는 `integration`을 받고, `--image`로 이미지를 빌드하는 대신 특정 Agent Computer Worker Docker image를 대상으로 실행할 수 있습니다.
 
 ## 더 알아보기
 

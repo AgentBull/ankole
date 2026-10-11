@@ -5,21 +5,51 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntime.WorkerTracker
+  alias Ankole.SignalsGateway.ActorRuntimeCase
   alias AnkoleWeb.RuntimeFabricSocket
   alias AnkoleWeb.WorkerChannel
 
   setup do
-    worker_id = "channel-worker-#{System.unique_integer([:positive])}"
-    incarnation_id = "incarnation-#{System.unique_integer([:positive])}"
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    :ok = ActorRuntimeCase.provision_worker(agent.uid)
 
-    {:ok, worker_id: worker_id, incarnation_id: incarnation_id, auth_key: WorkerAuthKey.ensure!()}
+    {:ok,
+     worker_id: agent.uid,
+     incarnation_id: "incarnation-#{System.unique_integer([:positive])}",
+     token: Process.get({:worker_token, agent.uid})}
   end
 
   describe "socket connect" do
+    test "authentication discovers the tenant with no inherited context", ctx do
+      socket =
+        Repo.without_tenant(fn ->
+          assert {:ok, socket} =
+                   connect(RuntimeFabricSocket, %{"worker_id" => ctx.worker_id},
+                     connect_info: %{auth_token: ctx.token}
+                   )
+
+          socket
+        end)
+
+      assert {:ok, _, joined} =
+               Repo.without_tenant(fn ->
+                 subscribe_and_join(
+                   socket,
+                   WorkerChannel,
+                   "worker",
+                   join_payload(ctx)
+                 )
+               end)
+
+      assert joined.assigns.worker_id == ctx.worker_id
+      assert Repo.get!(AgentWorker, ctx.worker_id).tenant_id == ctx.tenant.id
+      assert Repo.get!(AgentWorker, ctx.worker_id).transport_route == joined.assigns.connection_id
+    end
+
     test "rejects a wrong auth token", %{worker_id: worker_id} do
       assert :error =
                connect(RuntimeFabricSocket, %{"worker_id" => worker_id},
@@ -27,40 +57,109 @@ defmodule AnkoleWeb.WorkerChannelTest do
                )
     end
 
-    test "rejects a missing worker id", %{auth_key: key} do
-      assert :error = connect(RuntimeFabricSocket, %{}, connect_info: %{auth_token: key})
+    test "rejects a missing worker id", %{token: token} do
+      assert :error = connect(RuntimeFabricSocket, %{}, connect_info: %{auth_token: token})
     end
 
-    test "accepts the worker key and binds the worker id", %{worker_id: worker_id, auth_key: key} do
+    test "rejects the credential of another Agent's Worker", %{token: token} do
+      %{principal: other} = Ankole.PrincipalsFixtures.agent_fixture()
+      :ok = ActorRuntimeCase.provision_worker(other.uid)
+
+      assert :error =
+               connect(RuntimeFabricSocket, %{"worker_id" => other.uid},
+                 connect_info: %{auth_token: token}
+               )
+    end
+
+    test "rejects the credential of a paused Worker", ctx do
+      Repo.update_all(from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id),
+        set: [state: "paused"]
+      )
+
+      assert :error =
+               connect(RuntimeFabricSocket, %{"worker_id" => ctx.worker_id},
+                 connect_info: %{auth_token: ctx.token}
+               )
+    end
+
+    test "accepts the generation credential and binds the Agent as the worker id", %{
+      worker_id: worker_id,
+      token: token
+    } do
       assert {:ok, socket} =
                connect(RuntimeFabricSocket, %{"worker_id" => worker_id},
-                 connect_info: %{auth_token: key}
+                 connect_info: %{auth_token: token}
                )
 
       assert socket.assigns.worker_id == worker_id
+      assert socket.assigns.worker_generation == Repo.get!(AgentWorker, worker_id).generation
       assert RuntimeFabricSocket.id(socket) == "runtime_fabric_worker:" <> worker_id
     end
   end
 
   describe "join and admission" do
-    test "rejects a topic for another worker", ctx do
-      assert {:error, %{"reason" => "identity_mismatch"}} =
-               ctx
-               |> connect!()
-               |> subscribe_and_join(
+    test "a socket authenticated before replacement cannot join the new generation", ctx do
+      old_socket = connect!(ctx)
+      next_generation = "nextgen001"
+      {:ok, credential} = AgentWorkers.issue_credential(ctx.worker_id, next_generation)
+
+      Repo.update_all(from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id),
+        set: [generation: next_generation] ++ Map.to_list(credential)
+      )
+
+      assert {:ok, next_token} = AgentWorkers.credential(Repo.get!(AgentWorker, ctx.worker_id))
+
+      # The join payload cannot replace the generation proved by the socket.
+      assert {:error, %{"reason" => "stale_worker_generation"}} =
+               subscribe_and_join(
+                 old_socket,
                  WorkerChannel,
-                 "worker/installation/other",
-                 join_payload(ctx)
+                 "worker",
+                 Map.put(join_payload(ctx), "generation", next_generation)
                )
+
+      assert %AgentWorker{
+               state: "starting",
+               generation: ^next_generation,
+               transport_route: nil,
+               incarnation_id: nil
+             } = Repo.get!(AgentWorker, ctx.worker_id)
+
+      {_socket, route} = join!(%{ctx | token: next_token})
+
+      assert %AgentWorker{generation: ^next_generation, transport_route: ^route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
     end
 
-    test "rejects a topic outside the installation scope", ctx do
+    test "a socket keeps its credential across pause and resume of the same generation", ctx do
+      socket = connect!(ctx)
+
+      Repo.update_all(from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id),
+        set: [state: "paused"]
+      )
+
+      Repo.update_all(from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id),
+        set: [state: "starting"]
+      )
+
+      assert {:ok, %{"connection_id" => route}, _socket} =
+               subscribe_and_join(
+                 socket,
+                 WorkerChannel,
+                 "worker",
+                 join_payload(ctx)
+               )
+
+      assert Repo.get!(AgentWorker, ctx.worker_id).transport_route == route
+    end
+
+    test "rejects an unknown topic", ctx do
       assert {:error, %{"reason" => "unknown_topic"}} =
                ctx
                |> connect!()
                |> subscribe_and_join(
                  WorkerChannel,
-                 "worker/tenant-a/#{ctx.worker_id}",
+                 "unknown",
                  join_payload(ctx)
                )
     end
@@ -68,61 +167,57 @@ defmodule AnkoleWeb.WorkerChannelTest do
     test "join admits the worker and registers its route in the tracker", ctx do
       {socket, route} = join!(ctx)
 
-      assert %AgentComputerWorker{status: "ready", transport_route: ^route} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert %AgentWorker{state: "ready", transport_route: ^route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
 
       assert [{pid, meta}] = directory_entries(ctx.worker_id, route)
       assert pid == socket.channel_pid
 
-      assert %{
-               worker_id: worker_id,
-               incarnation_id: incarnation_id,
-               connection_id: ^route,
-               node: node
-             } = meta
-
-      assert worker_id == ctx.worker_id
-      assert incarnation_id == ctx.incarnation_id
-      assert node == node()
-    end
-
-    test "rejects a join payload with another worker identity", ctx do
-      assert {:error, %{"reason" => "identity_mismatch"}} =
-               ctx
-               |> connect!()
-               |> subscribe_and_join(
-                 WorkerChannel,
-                 "worker/installation/#{ctx.worker_id}",
-                 Map.put(join_payload(ctx), "worker_id", "other")
-               )
-
-      assert Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id) == nil
+      assert meta.incarnation_id == ctx.incarnation_id
+      refute Map.has_key?(meta, :worker_id)
+      refute Map.has_key?(meta, :connection_id)
+      refute Map.has_key?(meta, :channel_pid)
+      refute Map.has_key?(meta, :node)
     end
 
     test "rejects a join payload without the ready fields", ctx do
-      assert {:error, %{"reason" => "max_turns_required"}} =
+      assert {:error, %{"reason" => "max_slots_required"}} =
                ctx
                |> connect!()
                |> subscribe_and_join(
                  WorkerChannel,
-                 "worker/installation/#{ctx.worker_id}",
-                 Map.delete(join_payload(ctx), "max_turns")
+                 "worker",
+                 Map.delete(join_payload(ctx), "max_slots")
                )
     end
 
-    test "a same-incarnation rejoin moves the route to the new connection", ctx do
-      {_old_socket, old_route} = join!(ctx)
+    test "a same-incarnation rejoin moves the route and closes the old connection", ctx do
+      {old_socket, old_route} = join!(ctx)
+      Process.unlink(old_socket.channel_pid)
+      monitor = Process.monitor(old_socket.channel_pid)
       {_new_socket, new_route} = join!(ctx)
       refute old_route == new_route
 
-      assert %AgentComputerWorker{status: "ready", transport_route: ^new_route} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert_receive {:DOWN, ^monitor, :process, _pid, {:shutdown, :worker_route_replaced}},
+                     1_000
+
+      assert %AgentWorker{state: "ready", transport_route: ^new_route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
     end
 
-    test "a worker_ready envelope after join is an ordinary lifecycle message", ctx do
+    test "rejects an envelope from an older protocol", ctx do
       {socket, _route} = join!(ctx)
-      ref = push(socket, "control", {:binary, sealed(ready_envelope(ctx), :control, 1)})
-      assert_reply ref, :ok, %{"stream" => "control", "acked_seq" => 1}
+
+      bytes =
+        RuntimeFabric.encode_envelope(%{
+          heartbeat_envelope(ctx)
+          | protocol_version: 5,
+            stream: :STREAM_CONTROL,
+            transport_seq: 1
+        })
+
+      ref = push(socket, "control", {:binary, bytes})
+      assert_reply ref, :error, %{"reason" => "invalid_envelope"}
     end
 
     test "rejects invalid bytes", ctx do
@@ -187,16 +282,18 @@ defmodule AnkoleWeb.WorkerChannelTest do
       }
 
       # The two RPC tasks answer through `reply` pushes, which return their
-      # slots; the rejected message is accepted with the same sequence.
-      assert_push "reply", {:binary, _bytes}
-      assert_push "reply", {:binary, _bytes}
+      # slots; the rejected message is accepted with the same sequence. The
+      # tasks read PostgreSQL, so the waits allow for a slow machine.
+      assert_push "reply", {:binary, _bytes}, 1_000
+      assert_push "reply", {:binary, _bytes}, 1_000
       assert_reply Enum.at(refs, 0), :ok, %{}
       assert_reply Enum.at(refs, 1), :ok, %{}
 
       ref =
         push(socket, "durable", {:binary, sealed(rpc_request_envelope("probe-3"), :durable, 3)})
 
-      assert_reply ref, :ok, %{"stream" => "durable"}
+      assert_reply ref, :ok, %{"stream" => "durable"}, 1_000
+      assert_push "reply", {:binary, _bytes}, 1_000
     end
 
     test "credits recover as messages complete and the cumulative sequence advances", ctx do
@@ -207,11 +304,17 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
       # The RPC task may already have answered; the credit is the budget left
       # at reply time, never more than the configured two slots.
-      assert_reply ref, :ok, %{"acked_seq" => 1, "message_credit" => credit_after_first}
+      assert_reply ref, :ok, %{"acked_seq" => 1, "message_credit" => credit_after_first}, 1_000
       assert credit_after_first in 0..2
 
       ref = push(socket, "control", {:binary, sealed(heartbeat_envelope(ctx), :control, 1)})
-      assert_reply ref, :ok, %{"stream" => "control", "acked_seq" => 1, "message_credit" => 32}
+
+      assert_reply ref,
+                   :ok,
+                   %{"stream" => "control", "acked_seq" => 1, "message_credit" => 32},
+                   1_000
+
+      assert_push "reply", {:binary, _bytes}, 1_000
     end
   end
 
@@ -219,7 +322,11 @@ defmodule AnkoleWeb.WorkerChannelTest do
     test "send_mandatory returns after the worker acknowledges", ctx do
       {socket, route} = join!(ctx)
       envelope = command_envelope()
-      task = Task.async(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+
+      task =
+        Task.async(
+          Repo.bind_tenant(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+        )
 
       assert_push "command", {:binary, bytes}
 
@@ -239,7 +346,10 @@ defmodule AnkoleWeb.WorkerChannelTest do
       tasks =
         for _index <- 1..2 do
           envelope = command_envelope()
-          Task.async(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+
+          Task.async(
+            Repo.bind_tenant(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+          )
         end
 
       assert_push "command", {:binary, first}
@@ -260,7 +370,12 @@ defmodule AnkoleWeb.WorkerChannelTest do
     test "a worker credit of zero is backpressure", ctx do
       {socket, route} = join!(ctx)
       envelope = command_envelope()
-      task = Task.async(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+
+      task =
+        Task.async(
+          Repo.bind_tenant(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+        )
+
       assert_push "command", {:binary, _bytes}
       push(socket, "ack", %{"acked_seq" => 1, "message_credit" => 0, "byte_credit" => 0})
       assert {:ok, :sent_or_queued} = Task.await(task, 1_000)
@@ -282,7 +397,10 @@ defmodule AnkoleWeb.WorkerChannelTest do
       tasks =
         for _index <- 1..2 do
           envelope = command_envelope()
-          Task.async(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+
+          Task.async(
+            Repo.bind_tenant(fn -> WorkerRoute.send_mandatory(target(ctx, route), envelope) end)
+          )
         end
 
       assert_push "command", {:binary, _bytes}
@@ -306,24 +424,25 @@ defmodule AnkoleWeb.WorkerChannelTest do
       {_socket, route} = join!(ctx)
 
       Repo.update_all(
-        from(worker in AgentComputerWorker, where: worker.worker_id == ^ctx.worker_id),
+        from(worker in AgentWorker, where: worker.agent_uid == ^ctx.worker_id),
         set: [transport_route: "replaced-elsewhere"]
       )
 
       assert {:error, :stale_route} =
                WorkerRoute.send_mandatory(target(ctx, route), command_envelope())
 
-      assert %AgentComputerWorker{status: "ready"} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert %AgentWorker{state: "ready"} = Repo.get!(AgentWorker, ctx.worker_id)
     end
 
     test "request_rpc resolves with the worker response", ctx do
       {socket, route} = join!(ctx)
 
       task =
-        Task.async(fn ->
-          WorkerRoute.request_rpc(target(ctx, route), "test.probe", "ping", timeout_ms: 1_000)
-        end)
+        Task.async(
+          Repo.bind_tenant(fn ->
+            WorkerRoute.request_rpc(target(ctx, route), "test.probe", "ping", timeout_ms: 1_000)
+          end)
+        )
 
       assert_push "command", {:binary, bytes}
 
@@ -347,9 +466,11 @@ defmodule AnkoleWeb.WorkerChannelTest do
       {socket, route} = join!(ctx)
 
       task =
-        Task.async(fn ->
-          WorkerRoute.request_rpc(target(ctx, route), "test.probe", <<>>, timeout_ms: 1_000)
-        end)
+        Task.async(
+          Repo.bind_tenant(fn ->
+            WorkerRoute.request_rpc(target(ctx, route), "test.probe", <<>>, timeout_ms: 1_000)
+          end)
+        )
 
       assert_push "command", {:binary, bytes}
 
@@ -369,7 +490,8 @@ defmodule AnkoleWeb.WorkerChannelTest do
               %{
                 "code" => "file_not_found",
                 "message" => "missing",
-                "details_json" => %{"retryable" => false}
+                "retryable" => false,
+                "details_json" => %{}
               }} = Task.await(task, 1_000)
     end
 
@@ -395,9 +517,11 @@ defmodule AnkoleWeb.WorkerChannelTest do
       {socket, route} = join!(ctx)
 
       task =
-        Task.async(fn ->
-          WorkerRoute.request_rpc(target(ctx, route), "test.probe", <<>>, timeout_ms: 5_000)
-        end)
+        Task.async(
+          Repo.bind_tenant(fn ->
+            WorkerRoute.request_rpc(target(ctx, route), "test.probe", <<>>, timeout_ms: 5_000)
+          end)
+        )
 
       assert_push "command", {:binary, _bytes}
 
@@ -406,8 +530,8 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
       assert {:error, :socket_closed} = Task.await(task, 1_000)
 
-      assert %AgentComputerWorker{status: "stale", stop_reason: "socket_closed"} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert %AgentWorker{state: "stale", transport_route: nil} =
+               Repo.get!(AgentWorker, ctx.worker_id)
 
       assert directory_entries(ctx.worker_id, route) == []
     end
@@ -420,11 +544,58 @@ defmodule AnkoleWeb.WorkerChannelTest do
       Process.unlink(old_socket.channel_pid)
       close(old_socket)
 
-      assert %AgentComputerWorker{status: "ready", transport_route: ^new_route} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert %AgentWorker{state: "ready", transport_route: ^new_route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
 
       assert directory_entries(ctx.worker_id, old_route) == []
       assert [_entry] = directory_entries(ctx.worker_id, new_route)
+    end
+
+    @tag :capture_log
+    test "a crashing RPC handler answers rpc_error and the connection stays open", ctx do
+      # An invalid gateway URL makes the API key handler raise.
+      config_owner = Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+      previous = Application.fetch_env(:ankole, config_owner)
+      Application.put_env(:ankole, config_owner, base_url: :invalid_test_value)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:ankole, config_owner, value)
+          :error -> Application.delete_env(:ankole, config_owner)
+        end
+      end)
+
+      {socket, route} = join!(ctx)
+
+      request = %FabricProto.Envelope{
+        message_id: "request-handler-crash",
+        body:
+          {:rpc_request,
+           %FabricProto.RPCRequest{
+             request_id: "handler-crash",
+             method: "ai_gateway.api_key_for.create_or_find_by_agent",
+             payload: ActorRuntimeCase.encode_proto!(%FabricProto.AIGatewayAPIKeyRequest{})
+           }}
+      }
+
+      ref = push(socket, "durable", {:binary, sealed(request, :durable, 1)})
+      assert_reply ref, :ok, %{"stream" => "durable", "acked_seq" => 1}, 2_000
+      assert_push "reply", {:binary, bytes}, 2_000
+
+      assert {:ok,
+              %FabricProto.Envelope{
+                body:
+                  {:rpc_error,
+                   %FabricProto.RPCError{request_id: "handler-crash", code: "rpc_handler_failed"}}
+              }} = RuntimeFabric.decode_and_validate(bytes)
+
+      # The same connection carries the next message of the Worker.
+      assert Process.alive?(socket.channel_pid)
+      ref = push(socket, "control", {:binary, sealed(heartbeat_envelope(ctx), :control, 1)})
+      assert_reply ref, :ok, %{"stream" => "control", "acked_seq" => 1}, 2_000
+
+      assert %AgentWorker{state: "ready", transport_route: ^route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
     end
   end
 
@@ -441,8 +612,8 @@ defmodule AnkoleWeb.WorkerChannelTest do
         )
 
       {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
-      topic = "worker/installation/#{ctx.worker_id}"
-      token = "base64url.bearer.phx." <> Base.encode64(ctx.auth_key, padding: false)
+      topic = "worker"
+      token = "base64url.bearer.phx." <> Base.encode64(ctx.token, padding: false)
       path = "/runtime-fabric/worker/websocket?vsn=2.0.0&worker_id=#{ctx.worker_id}"
 
       {:ok, conn} = Mint.HTTP.connect(:http, "127.0.0.1", port, protocols: [:http1])
@@ -459,8 +630,11 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert ["1", "1", ^topic, "phx_reply", %{"status" => "ok"}] =
                Ankole.JSON.decode!(join_reply)
 
-      assert %AgentComputerWorker{status: "ready"} =
-               Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+      assert %AgentWorker{state: "ready", transport_route: route} =
+               Repo.get!(AgentWorker, ctx.worker_id)
+
+      [{channel_pid, _meta}] = directory_entries(ctx.worker_id, route)
+      channel_monitor = Process.monitor(channel_pid)
 
       heartbeat = sealed(heartbeat_envelope(ctx), :control, 1)
 
@@ -474,6 +648,8 @@ defmodule AnkoleWeb.WorkerChannelTest do
                Ankole.JSON.decode!(heartbeat_reply)
 
       Mint.HTTP.close(conn)
+      assert_receive {:DOWN, ^channel_monitor, :process, ^channel_pid, _reason}, 5_000
+      assert %AgentWorker{state: "stale"} = Repo.get!(AgentWorker, ctx.worker_id)
     end
   end
 
@@ -542,21 +718,20 @@ defmodule AnkoleWeb.WorkerChannelTest do
     end
   end
 
-  defp connect!(%{worker_id: worker_id, auth_key: key}) do
+  defp connect!(%{worker_id: worker_id, token: token}) do
     {:ok, socket} =
-      connect(RuntimeFabricSocket, %{"worker_id" => worker_id}, connect_info: %{auth_token: key})
+      connect(RuntimeFabricSocket, %{"worker_id" => worker_id},
+        connect_info: %{auth_token: token}
+      )
 
     socket
   end
 
-  defp join_payload(%{worker_id: worker_id, incarnation_id: incarnation_id}) do
+  defp join_payload(%{incarnation_id: incarnation_id}) do
     %{
-      "worker_id" => worker_id,
       "incarnation_id" => incarnation_id,
-      "runtime" => "bun",
-      "version" => "test",
-      "max_turns" => 2,
-      "available_turn_slots" => 2
+      "max_slots" => 2,
+      "available_slots" => 2
     }
   end
 
@@ -571,7 +746,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       |> connect!()
       |> subscribe_and_join(
         WorkerChannel,
-        "worker/installation/#{ctx.worker_id}",
+        "worker",
         join_payload(ctx)
       )
 
@@ -585,7 +760,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
   }
 
   defp sealed(envelope, stream, seq) do
-    {:ok, bytes} =
+    bytes =
       RuntimeFabric.seal_and_encode(%{
         envelope
         | stream: Map.fetch!(@stream_enums, stream),
@@ -604,36 +779,16 @@ defmodule AnkoleWeb.WorkerChannelTest do
     )
   end
 
-  defp ready_envelope(%{worker_id: worker_id, incarnation_id: incarnation_id}) do
-    %FabricProto.Envelope{
-      message_id: "ready-#{System.unique_integer([:positive])}",
-      body:
-        {:worker_ready,
-         %FabricProto.AgentComputerWorkerReady{
-           worker_id: worker_id,
-           incarnation_id: incarnation_id,
-           runtime: "bun",
-           version: "test",
-           max_turns: 2,
-           available_turn_slots: 2
-         }}
-    }
-  end
-
-  defp heartbeat_envelope(%{worker_id: worker_id, incarnation_id: incarnation_id}) do
+  defp heartbeat_envelope(%{incarnation_id: incarnation_id}) do
     %FabricProto.Envelope{
       message_id: "heartbeat-#{System.unique_integer([:positive])}",
       body:
         {:worker_heartbeat,
          %FabricProto.AgentComputerWorkerHeartbeat{
-           worker_id: worker_id,
            incarnation_id: incarnation_id,
-           monotonic_ms: 1,
-           runtime: "bun",
-           version: "test",
-           max_turns: 2,
-           active_turns: 0,
-           available_turn_slots: 2
+           max_slots: 2,
+           active_slots: 0,
+           available_slots: 2
          }}
     }
   end
@@ -641,13 +796,11 @@ defmodule AnkoleWeb.WorkerChannelTest do
   defp rpc_request_envelope(request_id) do
     %FabricProto.Envelope{
       message_id: "request-#{request_id}",
-      correlation_id: request_id,
       body:
         {:rpc_request,
          %FabricProto.RPCRequest{
            request_id: request_id,
            method: "worker_env.resolve",
-           agent_uid: "agent-missing",
            payload: <<>>
          }}
     }
@@ -656,7 +809,6 @@ defmodule AnkoleWeb.WorkerChannelTest do
   defp rpc_response_envelope(request_id, payload) do
     %FabricProto.Envelope{
       message_id: "response-#{request_id}",
-      correlation_id: request_id,
       body: {:rpc_response, %FabricProto.RPCResponse{request_id: request_id, payload: payload}}
     }
   end
@@ -664,14 +816,14 @@ defmodule AnkoleWeb.WorkerChannelTest do
   defp rpc_error_envelope(request_id) do
     %FabricProto.Envelope{
       message_id: "error-#{request_id}",
-      correlation_id: request_id,
       body:
         {:rpc_error,
          %FabricProto.RPCError{
            request_id: request_id,
            code: "file_not_found",
            message: "missing",
-           details_json: Ankole.JSON.encode!(%{"retryable" => false})
+           retryable: false,
+           details_json: "{}"
          }}
     }
   end

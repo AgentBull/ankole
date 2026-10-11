@@ -33,7 +33,7 @@ order: 1
 | **后台任务** | 独立于发起会话运行数小时的任务。任务完成后，结果会发送到发起任务的频道。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **技能** | 针对特定工作的标准作业程序。Agent 可以提出改进方案，经人工批准后在后续会话中生效。 | [Skills](../skills/) |
 | **主体（Principal）** | 人员和 Agent 都以 Principal 作为权限主体。运行时对每个 Principal 应用权限与审计规则。 | [主体与 AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | 运行 LLM 循环、工具调用、文件管理、终端状态与流式输出的执行环境。 | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent Computer Worker** | 执行工具、文件操作、终端、浏览器与 Codex Job 的工作环境；主模型循环由控制面运行。 | [Agent Computer Worker](../agent-computer-worker/) |
 
 Agent 还可以通过 [Deep Research](../deep-research-job/) 完成长时间、多来源调研，并通过 [浏览器自动化](../browser-automation/) 操作真实网页。
 

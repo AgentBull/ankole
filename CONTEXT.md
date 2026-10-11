@@ -1,7 +1,7 @@
 # Ankole
 
-Ankole is a private Agent system that one enterprise operates for its employees,
-Agents, and services.
+Ankole is an Agent system that a site operator runs for organizations, their
+employees, Agents, and services. A new site starts with one tenant named `default`.
 
 ## Canonical terminology
 
@@ -17,6 +17,6 @@ Use these mappings when code or an API keeps a different internal name:
   interfaces and **信号路由规则** in Chinese interfaces.
 - `Channel Provider` is **Channel Provider** in English and **聊天渠道** in
   Chinese.
-- Do not use Installation, tenant, or multi-tenant to describe an Ankole
-  deployment instance. Keep platform-specific terms such as a Microsoft tenant
-  or Lark tenant token.
+- A **site** is one Ankole deployment and its infrastructure. A **tenant** is one
+  organization and its data inside that site. Keep platform-specific terms such
+  as a Microsoft tenant or Lark tenant token distinct from an Ankole tenant.

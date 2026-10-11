@@ -12,63 +12,29 @@ use std::sync::{Arc, Mutex};
 
 use crate::authz;
 use crate::common;
-use crate::runtime_fabric;
-use crate::runtime_fabric::transport::{RouterEvent, RouterHandle, TransportError};
+use crate::object_store;
 use crate::signals_gateway;
 use crate::universal_ai_client;
 
 mod atoms {
     rustler::atoms! {
         ok,
-        runtime_fabric_router_received,
-        runtime_fabric_router_decode_failed,
-        runtime_fabric_router_socket_error,
         universal_ai_client,
         universal_ai_client_request,
+        object_store,
         ready,
         chunk,
-        sse,
-        websocket_text,
         done,
         error,
         aborted,
         metadata,
         private,
         public,
-        unknown_route,
-        backpressure,
-        timeout,
-        socket_closed,
-    }
-}
-
-/// Owns the native RuntimeFabric ROUTER handle across BEAM calls.
-///
-/// Rustler stores this in a `ResourceArc` so Elixir can pass the router between
-/// start, send, endpoint, and stop calls without exposing the ZeroMQ socket.
-pub struct RuntimeFabricRouterResource(pub RouterHandle);
-
-#[rustler::resource_impl]
-impl rustler::Resource for RuntimeFabricRouterResource {
-    /// Stops the native transport when BEAM releases its last resource reference.
-    const IMPLEMENTS_DESTRUCTOR: bool = true;
-    /// Stops the native transport when the monitored BEAM owner exits.
-    const IMPLEMENTS_DOWN: bool = true;
-
-    fn destructor(self, _env: Env<'_>) {
-        self.0.request_stop();
-    }
-
-    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
-        self.0.request_stop();
     }
 }
 
 /// Owns a native UniversalAIClient stream task across BEAM demand calls.
 pub struct UniversalAIClientStreamResource(pub universal_ai_client::StreamHandle);
-
-impl std::panic::RefUnwindSafe for UniversalAIClientStreamResource {}
-impl std::panic::UnwindSafe for UniversalAIClientStreamResource {}
 
 #[rustler::resource_impl]
 impl rustler::Resource for UniversalAIClientStreamResource {
@@ -85,6 +51,12 @@ impl rustler::Resource for UniversalAIClientStreamResource {
         let _ = self.0.cancel();
     }
 }
+
+/// Owns one opened object store for the control-plane file service.
+pub struct ObjectStoreResource(pub object_store::Store);
+
+#[rustler::resource_impl]
+impl rustler::Resource for ObjectStoreResource {}
 
 /// Holds the Elixir stream ref in an owned environment so Rust-owned async tasks
 /// can tag messages without keeping a BEAM scheduler thread occupied.
@@ -132,37 +104,13 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
-/// Transliterates Unicode text to an ASCII approximation.
+/// Image decode and compression run on a dirty CPU scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn any_ascii(input: Term<'_>) -> NIFResult<String> {
-    let input = decode_string(input, "input")?;
-    Ok(common::any_ascii(&input))
-}
-
-/// Seals host-encoded RuntimeFabric envelope bytes for the wire.
-///
-/// The kernel writes the protocol version, lane, and durability that the body
-/// type owns and validates the result, so Elixir and Bun send one protocol.
-#[rustler::nif]
-pub fn runtime_fabric_seal_envelope(envelope_bytes: Term<'_>) -> NIFResult<OwnedBinary> {
-    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-
-    runtime_fabric::seal_envelope_bytes(envelope_bytes.as_slice())
+pub fn normalize_model_image_nif(bytes: Term<'_>) -> NIFResult<OwnedBinary> {
+    let bytes = decode_binary(bytes, "image")?;
+    crate::model_image::normalize(bytes.as_slice())
         .map_err(error)
         .and_then(binary_from_vec)
-}
-
-/// Validates received RuntimeFabric envelope bytes.
-///
-/// The kernel stays the single semantic checker for received envelopes; the
-/// host decodes the bytes structurally with its generated codec afterwards.
-#[rustler::nif]
-pub fn runtime_fabric_validate_envelope(envelope_bytes: Term<'_>) -> NIFResult<bool> {
-    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-
-    runtime_fabric::validate_envelope_bytes(envelope_bytes.as_slice())
-        .map(|_| true)
-        .map_err(error)
 }
 
 /// Parses one Brain body against its canonical CommonMark audience grammar.
@@ -174,6 +122,14 @@ pub fn runtime_fabric_validate_envelope(envelope_bytes: Term<'_>) -> NIFResult<b
 pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
     let body = decode_string(body, "body")?;
     crate::brain_markdoc::analyze_json(&body).map_err(error_message)
+}
+
+/// Parses original CommonMark code ranges on a dirty CPU scheduler.
+#[cfg(feature = "markdown")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize)>> {
+    let source = decode_string(source, "source")?;
+    Ok(crate::markdown::code_ranges(&source))
 }
 
 /// Runs one PTC program to completion or to its next pending tool-call batch.
@@ -258,65 +214,6 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
     authz::validate_pattern_source(&pattern)
         .map(|_| true)
         .map_err(error)
-}
-
-/// Starts a Rust-owned ZeroMQ ROUTER socket for RuntimeFabric traffic.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn runtime_fabric_router_start(
-    env: Env<'_>,
-    endpoint: Term<'_>,
-    owner_pid: LocalPid,
-    opts_json: Term<'_>,
-) -> NIFResult<ResourceArc<RuntimeFabricRouterResource>> {
-    let endpoint = decode_string(endpoint, "endpoint")?;
-    let opts_json = decode_string(opts_json, "opts_json")?;
-    let mut config =
-        runtime_fabric::transport::RouterConfig::from_json(&opts_json).map_err(error)?;
-    config.endpoint = endpoint;
-
-    let sink = Arc::new(move |event| send_router_event(owner_pid, event));
-    let handle = runtime_fabric::transport::start_router(config, sink).map_err(error)?;
-
-    let resource = ResourceArc::new(RuntimeFabricRouterResource(handle));
-    let _ = resource.monitor(Some(env), &owner_pid);
-    Ok(resource)
-}
-
-/// Returns the bound ROUTER endpoint, after wildcard port expansion.
-#[rustler::nif]
-pub fn runtime_fabric_router_endpoint(
-    router: ResourceArc<RuntimeFabricRouterResource>,
-) -> NIFResult<String> {
-    Ok(router.0.endpoint().to_string())
-}
-
-/// Sends a RuntimeFabric envelope to one ROUTER identity with mandatory routing.
-///
-/// The envelope arrives as protobuf bytes produced by the Elixir generated
-/// codec; the router seals the header from the body and validates protocol
-/// invariants before the socket send.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn runtime_fabric_router_send_mandatory(
-    router: ResourceArc<RuntimeFabricRouterResource>,
-    transport_route: Term<'_>,
-    envelope_bytes: Term<'_>,
-) -> NIFResult<String> {
-    let transport_route = decode_string(transport_route, "transport_route")?;
-    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-
-    router
-        .0
-        .send_mandatory(transport_route, envelope_bytes.as_slice())
-        .map(|_| "sent_or_queued".to_string())
-        .map_err(transport_error_term)
-}
-
-/// Stops a ROUTER socket owner thread.
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn runtime_fabric_router_stop(
-    router: ResourceArc<RuntimeFabricRouterResource>,
-) -> NIFResult<bool> {
-    router.0.stop().map(|_| true).map_err(transport_error_term)
 }
 
 /// Opens a native UniversalAIClient stream from a prepared request spec.
@@ -434,6 +331,173 @@ fn universal_ai_client_request_sink(
             (atoms::universal_ai_client_request(), request_ref, result).encode(env)
         });
     })
+}
+
+/// Opens one object store from its JSON spec.
+///
+/// Opening does no network I/O. The fs scheme creates its root and temporary
+/// directory, which is why the NIF runs on a dirty I/O scheduler.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_open_nif<'a>(env: Env<'a>, spec: Term<'a>) -> NIFResult<Term<'a>> {
+    let spec = decode_string(spec, "spec")?;
+
+    match object_store::open(&spec) {
+        Ok(store) => Ok((atoms::ok(), ResourceArc::new(ObjectStoreResource(store))).encode(env)),
+        Err(reason) => Ok((atoms::error(), encode_object_store_error(env, &reason)).encode(env)),
+    }
+}
+
+/// Starts reading one object into a BEAM binary.
+///
+/// Every object store NIF starts the operation and returns at once. The result
+/// arrives later as one `{:object_store, ref, result}` message.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_read_nif<'a>(
+    env: Env<'a>,
+    store: ResourceArc<ObjectStoreResource>,
+    key: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let key = decode_string(key, "key")?;
+    start_object_store_operation(
+        env,
+        &store,
+        object_store::Operation::Read { key },
+        owner_pid,
+        request_ref,
+    )
+}
+
+/// Starts copying one object into a local file on the control-plane host.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_read_to_file_nif<'a>(
+    env: Env<'a>,
+    store: ResourceArc<ObjectStoreResource>,
+    key: Term<'a>,
+    path: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let key = decode_string(key, "key")?;
+    let path = decode_string(path, "path")?.into();
+    start_object_store_operation(
+        env,
+        &store,
+        object_store::Operation::ReadToFile { key, path },
+        owner_pid,
+        request_ref,
+    )
+}
+
+/// Starts writing one BEAM binary as an object.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_write_nif<'a>(
+    env: Env<'a>,
+    store: ResourceArc<ObjectStoreResource>,
+    key: Term<'a>,
+    bytes: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let key = decode_string(key, "key")?;
+    let bytes = decode_binary(bytes, "bytes")?.as_slice().to_vec();
+    start_object_store_operation(
+        env,
+        &store,
+        object_store::Operation::Write { key, bytes },
+        owner_pid,
+        request_ref,
+    )
+}
+
+/// Starts writing one local file on the control-plane host as an object.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_write_from_file_nif<'a>(
+    env: Env<'a>,
+    store: ResourceArc<ObjectStoreResource>,
+    key: Term<'a>,
+    path: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let key = decode_string(key, "key")?;
+    let path = decode_string(path, "path")?.into();
+    start_object_store_operation(
+        env,
+        &store,
+        object_store::Operation::WriteFromFile { key, path },
+        owner_pid,
+        request_ref,
+    )
+}
+
+/// Starts deleting one object. Deleting a missing object succeeds.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn object_store_delete_nif<'a>(
+    env: Env<'a>,
+    store: ResourceArc<ObjectStoreResource>,
+    key: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let key = decode_string(key, "key")?;
+    start_object_store_operation(
+        env,
+        &store,
+        object_store::Operation::Delete { key },
+        owner_pid,
+        request_ref,
+    )
+}
+
+fn start_object_store_operation<'a>(
+    env: Env<'a>,
+    store: &ResourceArc<ObjectStoreResource>,
+    operation: object_store::Operation,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let request_ref = BeamStreamRef::new(request_ref);
+    let sink: object_store::ResultSink = Box::new(move |result| {
+        let mut env = OwnedEnv::new();
+        let _ = env.send_and_clear(&owner_pid, |env| {
+            let request_ref = request_ref.encode(env);
+            let result = match result {
+                Ok(object_store::Outcome::Done) => atoms::ok().encode(env),
+                Ok(object_store::Outcome::Bytes(buffer)) => match binary_from_buf(buffer) {
+                    Some(binary) => (atoms::ok(), binary.release(env)).encode(env),
+                    None => (
+                        atoms::error(),
+                        encode_object_store_error(
+                            env,
+                            &object_store::StoreError {
+                                code: "allocation_failed",
+                                message: "failed to allocate the object binary".to_string(),
+                            },
+                        ),
+                    )
+                        .encode(env),
+                },
+                Err(reason) => {
+                    (atoms::error(), encode_object_store_error(env, &reason)).encode(env)
+                }
+            };
+            (atoms::object_store(), request_ref, result).encode(env)
+        });
+    });
+
+    match object_store::start(&store.0, operation, sink) {
+        Ok(()) => Ok(atoms::ok().encode(env)),
+        Err(reason) => Ok((atoms::error(), encode_object_store_error(env, &reason)).encode(env)),
+    }
+}
+
+fn encode_object_store_error<'a>(env: Env<'a>, error: &object_store::StoreError) -> Term<'a> {
+    encode_json_value(
+        env,
+        &serde_json::json!({"code": error.code, "message": error.message}),
+    )
 }
 
 /// Returns whether a resource pattern matches a concrete resource key.
@@ -634,6 +698,14 @@ fn binary_from_vec(bytes: Vec<u8>) -> NIFResult<OwnedBinary> {
     Ok(binary)
 }
 
+/// Copies a buffer of one or more chunks into a new BEAM binary, or returns
+/// `None` when the binary cannot be allocated.
+fn binary_from_buf(mut buffer: impl bytes::Buf) -> Option<OwnedBinary> {
+    let mut binary = OwnedBinary::new(buffer.remaining())?;
+    buffer.copy_to_slice(binary.as_mut_slice());
+    Some(binary)
+}
+
 /// Decodes a BEAM term as binary and reports the field name on failure.
 ///
 /// The explicit `is_binary` check gives callers a stable, simple error message
@@ -688,58 +760,6 @@ fn error_message(message: impl Into<String>) -> Error {
     Error::Term(Box::new(message.into()))
 }
 
-/// Encodes a transport error for Elixir callers.
-///
-/// The closed scheduling codes cross the seam as atoms, so the host matches
-/// them without a string parse. Parameterized errors keep the
-/// `"code: reason"` diagnostic string.
-fn transport_error_term(error: TransportError) -> Error {
-    match error {
-        TransportError::UnknownRoute => Error::Term(Box::new(atoms::unknown_route())),
-        TransportError::Backpressure => Error::Term(Box::new(atoms::backpressure())),
-        TransportError::Timeout => Error::Term(Box::new(atoms::timeout())),
-        TransportError::SocketClosed => Error::Term(Box::new(atoms::socket_closed())),
-        parameterized => error_message(parameterized.ffi_message()),
-    }
-}
-
-fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
-    let mut env = OwnedEnv::new();
-
-    let _ = env.send_and_clear(&owner_pid, |env| match event {
-        RouterEvent::Received {
-            transport_route,
-            authenticated_worker_id,
-            envelope_bytes,
-        } => {
-            let worker_id = authenticated_worker_id.unwrap_or_default();
-
-            match encode_binary_term(env, envelope_bytes) {
-                Ok(envelope_term) => (
-                    atoms::runtime_fabric_router_received(),
-                    transport_route,
-                    worker_id,
-                    envelope_term,
-                )
-                    .encode(env),
-                Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
-            }
-        }
-        RouterEvent::DecodeFailed {
-            transport_route,
-            reason,
-        } => (
-            atoms::runtime_fabric_router_decode_failed(),
-            transport_route,
-            reason,
-        )
-            .encode(env),
-        RouterEvent::SocketError { reason } => {
-            (atoms::runtime_fabric_router_socket_error(), reason).encode(env)
-        }
-    });
-}
-
 fn send_universal_ai_client_event(
     owner_pid: LocalPid,
     stream_ref: Arc<Mutex<BeamStreamRef>>,
@@ -761,14 +781,13 @@ fn send_universal_ai_client_event(
                 encode_json_value(env, &meta),
             )
                 .encode(env),
-            universal_ai_client::StreamEvent::Chunk { seq, kind, bytes } => {
+            universal_ai_client::StreamEvent::Chunk { seq, bytes } => {
                 match binary_term(env, bytes) {
                     Ok(binary) => (
                         atoms::universal_ai_client(),
                         stream_ref,
                         atoms::chunk(),
                         seq,
-                        downstream_kind_atom(kind),
                         binary,
                     )
                         .encode(env),
@@ -807,13 +826,6 @@ fn send_universal_ai_client_event(
             }
         }
     });
-}
-
-fn downstream_kind_atom(kind: universal_ai_client::DownstreamKind) -> rustler::Atom {
-    match kind {
-        universal_ai_client::DownstreamKind::SSE => atoms::sse(),
-        universal_ai_client::DownstreamKind::WebSocketText => atoms::websocket_text(),
-    }
 }
 
 fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Term<'a>, String> {
@@ -856,15 +868,6 @@ fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {
             map
         }
     }
-}
-
-fn encode_binary_term(env: Env<'_>, bytes: Vec<u8>) -> Result<Term<'_>, String> {
-    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
-        return Err("failed to allocate runtime fabric binary frame".to_string());
-    };
-
-    binary.as_mut_slice().copy_from_slice(&bytes);
-    Ok(binary.release(env).encode(env))
 }
 
 rustler::init!("Elixir.Ankole.Kernel");

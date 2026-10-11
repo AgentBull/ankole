@@ -36,7 +36,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     if unresolved_urls == [] do
       {:ok, apply_resolved(presentation, state), state}
     else
-      with {:ok, ssrf_filter?} <- SSRFFilter.enabled?(agent_uid),
+      with {:ok, ssrf_filter?} <- SSRFFilter.enabled?(),
            {:ok, state} <-
              resolve_urls(unresolved_urls, state, client, ssrf_filter?) do
         {:ok, apply_resolved(presentation, state), state}

@@ -11,6 +11,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.SignalsLearning
+  alias Ankole.Brain.Sources
   alias Ankole.Repo
 
   setup do
@@ -73,6 +74,7 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     assert id == channel.id
     assert first == initial.first_seen_at
     assert {:ok, %{status: :complete}} = SignalsLearning.process_channel(channel.id)
+    assert Sources.channel_extraction_watermark(channel.id) == {initial.first_seen_at, "m1"}
     assert SignalsLearning.idle_pending_slices() == []
 
     next = insert_entry!(channel.id, "m2", "One more message.", alice.uid)
@@ -88,6 +90,80 @@ defmodule Ankole.Brain.SignalsLearningWritebackTest do
     )
 
     assert SignalsLearning.idle_pending_slices() == []
+  end
+
+  test "same-id channels keep their own pending entries and completion watermark",
+       %{channel: channel} do
+    alias Ankole.SignalsGateway.{Channel, Entry}
+    old = DateTime.add(DateTime.utc_now(:microsecond), -3600, :second)
+    Repo.update_all(from(c in Channel, where: c.id == ^channel.id), set: [last_seen_at: old])
+    initial = Repo.get_by!(Entry, signal_channel_id: channel.id, source_entry_id: "m1")
+    other = Ankole.DataCase.create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      insert_channel!(%{id: channel.id, last_seen_at: old})
+      # The first tenant's message must not supply this empty channel's slice.
+      assert SignalsLearning.idle_pending_slices() == []
+    end)
+
+    assert {:ok, %{status: :complete}} = SignalsLearning.process_channel(channel.id)
+    assert SignalsLearning.idle_pending_slices() == []
+
+    Repo.with_tenant(other.id, fn ->
+      %{principal: author} = human_fixture()
+      entry = insert_entry!(channel.id, "m1", "The other team's pending message", author.uid)
+      earlier = DateTime.add(initial.first_seen_at, -60, :second)
+      entry |> Ecto.Changeset.change(first_seen_at: earlier) |> Repo.update!()
+      # A later completion in the first tenant must not hide this message.
+      assert [%{channel_id: id, first_seen_at: ^earlier}] = SignalsLearning.idle_pending_slices()
+      assert id == channel.id
+    end)
+
+    assert SignalsLearning.idle_pending_slices() == []
+  end
+
+  test "a slice from a moved Source watermark writes no memory", %{
+    tenant: tenant,
+    alice: alice,
+    channel: channel
+  } do
+    entry =
+      Repo.get_by!(Ankole.SignalsGateway.Entry,
+        signal_channel_id: channel.id,
+        source_entry_id: "m1"
+      )
+
+    base_url =
+      start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        Repo.with_tenant(tenant.id, fn ->
+          {:ok, source} =
+            Sources.get_or_create(%{
+              kind: "signal_channel",
+              upstream_id: channel.id,
+              name: channel.id
+            })
+
+          assert :ok =
+                   Sources.record_extraction_watermark(Repo, source, {entry.first_seen_at, "m1"})
+        end)
+
+        output = Ankole.JSON.encode!(%{"items" => [valid_item(alice.uid)]})
+        {:json, 200, chat_completion_body(body["model"], output)}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "brain-extract-watermark-race",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    configure_brain_maintainer_profile!("light", "brain-extract-watermark-race", "fake-extract")
+
+    assert {:error, :extraction_watermark_moved} = SignalsLearning.process_channel(channel.id)
+    refute Repo.exists?(Claim |> where([claim], claim.signal_gateway_channel_id == ^channel.id))
+    assert Sources.channel_extraction_watermark(channel.id) == {entry.first_seen_at, "m1"}
   end
 
   test "a private chat leaves the preference behind with its holder and audience",

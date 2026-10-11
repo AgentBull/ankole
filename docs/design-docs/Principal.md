@@ -4,8 +4,8 @@ A Principal identifies the human or Agent responsible for an action. Work,
 permissions, and audit records all use that same identity.
 
 Current Principal types are `human`, `agent`, and `system`.
-One UID identifies a Principal across the complete deployment instance. Ankole
-does not add a second organization boundary inside the instance.
+One opaque UID identifies a Principal across the site. Every Principal belongs
+to exactly one tenant. The same person in two tenants has two Principal rows.
 
 ## What the Principal Subsystem Stores
 
@@ -37,13 +37,17 @@ ID.
 APIs remove surrounding spaces and lowercase every UID. PostgreSQL requires the
 stored value to be lowercase.
 
-An Agent UID must also match this pattern:
+New UIDs are server-generated UUIDv7 text. Existing UIDs do not change during
+upgrade. An Agent has a separate, editable `handle`, unique within its tenant,
+with this pattern:
 
 ```text
 ^[a-z0-9][a-z0-9._-]{0,95}$
 ```
 
-This pattern makes the UID safe to use when Ankole selects an Agent Home path.
+API paths, tokens, Worker IDs and Brain page slugs continue to use the stable
+UID. The console displays the handle. New Agent requests supply `handle`, not
+`uid`. Names never establish identity.
 
 ## Stored Rows
 
@@ -52,6 +56,7 @@ This pattern makes the UID safe to use when Ankole selects an Agent Home path.
 The table stores these fields:
 
 - `uid` as the text primary key.
+- `tenant_id` as the required tenant foreign key.
 - `type` as `human`, `agent`, or `system`.
 - `status` as `active` or `disabled`.
 - `access_version`, a positive generation for Human credential and work revocation.
@@ -128,16 +133,15 @@ It stores these fields:
 Its uniqueness key is:
 
 ```text
-provider + external_id
+tenant_id + provider + external_id
 ```
 
 The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
-Provider names scope binding rows, not Principal identity. When no binding
-already exists for a provider subject, Ankole matches known contact data. An
-equal Principal UID is not a match: a UID such as a local account's sign-in
-email is a name, not evidence that the subject is that person.
+Provider IDs, external subjects and contact matches are tenant-local. When no
+binding exists, Ankole matches attested contact data only within that tenant.
+A UID is opaque and is never evidence that two subjects are the same person.
 
 There is one identity shape. Login, directory sync, SignalsGateway admission,
 and manual console mappings all write this same row.
@@ -146,7 +150,7 @@ and manual console mappings all write this same row.
 
 The table holds signal senders that resolved to no Principal while their
 binding uses the `manual_review` policy. One row exists per
-`provider + external_id`. It stores the sender display name, email, and
+`tenant_id + provider + external_id`. It stores the sender display name, email, and
 mobile when the platform reveals them, plus observation metadata such as
 alternate ids and the binding that saw the sender. The operator console lists
 these rows; binding one to a Principal writes the identity row and deletes the
@@ -163,10 +167,10 @@ tries these identities in order:
    candidate.
 2. Use the Principal that owns the normalized email.
 3. Use the Principal that owns the normalized mobile number.
-4. Use the caller-supplied UID, and create that Principal when it does not
-   exist. The caller is a reviewer, identity admission after a match, or
-   directory sync, so the UID is an explicit decision.
-5. Create a new Principal with the normalized primary external ID as its UID.
+4. Use the caller-supplied UID only when it identifies an existing human in
+   this tenant; a missing Principal is rejected. This is an explicit mapping
+   by a reviewer or identity admission after a match, not a new UID assignment.
+5. Create a new Principal with a server-generated UUIDv7 UID.
 
 The contact lookups include disabled Principals. This can link accounts from
 different providers when they share one email or mobile number. The contact
@@ -174,14 +178,8 @@ match is safe only for a provider whose users are members of the
 organization; the Email adapter therefore reports no contact fields, and its
 senders match only through an `email` binding.
 
-Step 5 creates; it never joins. When a Principal with that UID already exists,
-the write fails with `principal_uid_taken`. Only an operator can decide that
-the subject and the existing account are one person, through a manual
-mapping. Ankole does not prepend the provider name to a generated UID; a
-collision is refused instead of renamed.
-
-The transaction locks every supplied provider subject candidate, the email
-and mobile keys, and the Principal UID it selected or derived. It then writes
+The transaction locks every supplied provider subject candidate, the tenant-local email
+and mobile keys, and the Principal UID it selected or generated. It then writes
 every candidate as an alias for the selected Principal. Concurrent observations serialize the same identity
 decisions. If one candidate already belongs to a different Principal, the
 complete alias write fails and rolls back.
@@ -232,17 +230,25 @@ A UID that belongs to an agent cannot become a human.
 
 `create_agent` does the following in one transaction:
 
-1. Validate that the Agent UID is safe in an Agent Home path.
-2. Insert the `principals` row.
-3. Insert the `agents` row.
-4. Seed Agent Library state.
-5. Notify the Agent Home projection runtime.
+1. Require the Agent handle and generate its opaque UUIDv7 UID.
+2. Select the Worker provider: the `worker_provider_id` of the request, or the
+   default provider. Without either, creation fails with
+   `worker_provider_required`.
+3. Insert the `principals` row.
+4. Insert the `agents` row.
+5. Seed Agent Library state.
+6. Insert the Agent's `agent_workers` row in state `absent`, with the selected
+   provider. New Agents do not reuse deleted UIDs.
+
+After the commit, it requests the Agent's Worker, so the control plane creates
+the Worker at once (see [Agent Workers](AgentWorkers.md)). The provider of an
+Agent cannot change.
 
 `update_agent` changes mutable display and subtype fields.
 It cannot change the UID or Principal type.
 
-`disable_principal` first asks AuthZ to protect the last active human administrator.
-It then changes the status to `disabled`.
+`HumanAccess.disable/4` records a Human restriction and revokes its credentials.
+AuthZ protects the last active human administrator.
 
 ## Divide Setup from Principal Data
 
@@ -279,3 +285,13 @@ See [AuthZ](AuthZ.md) for the decision contract.
 - Prefer `platform_subject` when provider records refer to the same human.
 - Verify a channel identity before Ankole trusts it to act for a Principal.
 - Keep groups and grants inside AuthZ.
+
+## Audit Actors
+
+The Console API projects an audit actor as an object with `tenant_id` and `uid`.
+
+Ownership remains a real Principal foreign key when it controls permission or
+work authorization. Audit-only actor fields use `Ankole.ActorRef`, stored as
+`ankole:<tenant_id>:principal/<uid>`. For example, Agent `created_by` and Brain
+`author` keep the original actor's tenant when a site administrator works in
+another tenant. Removing the actor does not remove the historical reference.

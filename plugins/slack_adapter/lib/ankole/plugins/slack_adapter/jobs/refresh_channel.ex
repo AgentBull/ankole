@@ -1,7 +1,8 @@
 defmodule Ankole.Plugins.SlackAdapter.Jobs.RefreshChannel do
   @moduledoc false
 
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 3,
     unique: [
@@ -10,8 +11,8 @@ defmodule Ankole.Plugins.SlackAdapter.Jobs.RefreshChannel do
       period: 300
     ]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{
+  @impl Ankole.Job
+  def run(%Oban.Job{
         args: %{
           "agent_uid" => agent_uid,
           "binding_name" => binding_name,
@@ -21,5 +22,5 @@ defmodule Ankole.Plugins.SlackAdapter.Jobs.RefreshChannel do
       do:
         Ankole.Plugins.SlackAdapter.Channels.refresh_channel(agent_uid, binding_name, channel_id)
 
-  def perform(%Oban.Job{}), do: {:error, :missing_slack_channel_refresh_binding}
+  def run(%Oban.Job{}), do: {:error, :missing_slack_channel_refresh_binding}
 end

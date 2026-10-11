@@ -38,10 +38,7 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -142,10 +139,7 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -213,10 +207,7 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -274,16 +265,16 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
     assert {:error,
-            {:upstream_response_failed, 400,
-             %{"error" => %{"message" => "invalid embedding request"}}}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :status_rejected,
+              provider_status: 400,
+              provider_body: %{"error" => %{"message" => "invalid embedding request"}}
+            }} =
              AIGateway.create_embeddings(agent.uid, %{
                "model" => "openrouter-vector-upstream-error/openai/text-embedding-3-small",
                "input" => "hello"
@@ -293,8 +284,11 @@ defmodule Ankole.AIGateway.VectorTest do
     assert request.path == "embeddings"
 
     assert {:error,
-            {:upstream_response_failed, 500,
-             %{"error" => %{"message" => "rerank provider unavailable"}}}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :status_rejected,
+              provider_status: 500,
+              provider_body: %{"error" => %{"message" => "rerank provider unavailable"}}
+            }} =
              AIGateway.create_rerank(agent.uid, %{
                "model" => "openrouter-vector-upstream-error/cohere/rerank-v3.5",
                "query" => "capital",
@@ -333,22 +327,22 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
     assert {:error,
-            {:upstream_response_failed, 400,
-             %{
-               "data" => [],
-               "error" => %{
-                 "code" => 400,
-                 "message" => "Perplexity embeddings do not support image_url inputs"
-               }
-             }}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :status_rejected,
+              provider_status: 400,
+              provider_body: %{
+                "data" => [],
+                "error" => %{
+                  "code" => 400,
+                  "message" => "Perplexity embeddings do not support image_url inputs"
+                }
+              }
+            }} =
              AIGateway.create_embeddings(agent.uid, %{
                "model" => "openrouter-vector-body-error/perplexity/pplx-embed-v1-0.6b",
                "input" => [
@@ -367,8 +361,13 @@ defmodule Ankole.AIGateway.VectorTest do
     assert request.path == "embeddings"
 
     assert {:error,
-            {:upstream_response_failed, 502,
-             %{"error" => %{"code" => "provider_error", "message" => "rerank failed"}}}} =
+            %Ankole.AIGateway.ProviderFailure{
+              kind: :status_rejected,
+              provider_status: 502,
+              provider_body: %{
+                "error" => %{"code" => "provider_error", "message" => "rerank failed"}
+              }
+            }} =
              AIGateway.create_rerank(agent.uid, %{
                "model" => "openrouter-vector-body-error/cohere/rerank-4-fast",
                "query" => "capital",
@@ -396,10 +395,7 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 
@@ -455,10 +451,7 @@ defmodule Ankole.AIGateway.VectorTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "transport" => %{
-                   "http_versions" => ["h1"],
-                   "compression" => ["zstd", "br", "gzip"]
-                 }
+                 "transport" => %{}
                }
              })
 

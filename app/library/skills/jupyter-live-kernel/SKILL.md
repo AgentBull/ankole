@@ -36,9 +36,9 @@ Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and t
 ```bash
 SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
 BOOTSTRAP=/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh
-NOTEBOOK_DIR="$HOME/user-files/notebooks"
+NOTEBOOK_DIR="$HOME/notebooks"
 JUPYTER_SOCKET="$PWD/temp/jupyter.sock"
-AGENT_PYTHON="$HOME/user-files/.ankole/python/bin/python"
+AGENT_PYTHON="$HOME/.ankole/python/bin/python"
 ```
 
 All helper traffic to Jupyter Server uses the session-local Unix socket. Do not
@@ -58,9 +58,8 @@ The bootstrap uses `uv venv --system-site-packages`, so the env sees the image b
 
 When the user asks for analysis of an uploaded file and expects a chart or file
 back, do not stop after saying that the server/session has started. Finish the
-artifact path first, verify it exists under the durable artifacts root, and
-report the exact path. The calling main agent owns user-visible attachment
-delivery.
+artifact first, verify that the file exists in the Agent Home, and report its
+exact path. The calling main agent owns user-visible attachment delivery.
 
 For a batch workflow, prefer one foreground shell call. It may start Jupyter in
 the background inside its own shell, but keep server startup, session creation,
@@ -89,12 +88,12 @@ Minimal shape:
 ```bash
 set -euo pipefail
 SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
-NOTEBOOK_DIR="$HOME/user-files/notebooks"
+NOTEBOOK_DIR="$HOME/notebooks"
 NOTEBOOK_PATH=analysis.ipynb
 SESSION_TEMP="$PWD/temp"
 ANALYSIS_CODE_FILE="$SESSION_TEMP/analysis_code.py"
 JUPYTER_SOCKET="$SESSION_TEMP/jupyter.sock"
-ARTIFACT_PATH="$HOME/user-files/analysis/result.png"
+ARTIFACT_PATH="$HOME/analysis/result.png"
 export NOTEBOOK_DIR NOTEBOOK_PATH JUPYTER_SOCKET ARTIFACT_PATH
 mkdir -p "$NOTEBOOK_DIR" "$SESSION_TEMP" "$(dirname "$ARTIFACT_PATH")"
 rm -f "$JUPYTER_SOCKET"
@@ -129,7 +128,7 @@ test "$ready" = true
 
 python - <<'PY'
 import json, pathlib, os
-path = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks"))) / os.environ.get("NOTEBOOK_PATH", "analysis.ipynb")
+path = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "notebooks"))) / os.environ.get("NOTEBOOK_PATH", "analysis.ipynb")
 path.write_text(json.dumps({
     "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
     "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
@@ -144,8 +143,8 @@ curl -sf --unix-socket "$JUPYTER_SOCKET" -X POST http://localhost/api/sessions \
   >"$SESSION_TEMP/jupyter-analysis-session.json"
 
 # ANALYSIS_CODE_FILE should contain task-specific Python code that reads the
-# uploaded input, computes the requested result, and writes ARTIFACT_PATH under
-# the Agent Home user-files directory.
+# uploaded input, computes the requested result, and writes ARTIFACT_PATH in the
+# Agent Home.
 python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" \
   --code-file "$ANALYSIS_CODE_FILE" --compact
 
@@ -183,7 +182,7 @@ If no notebook exists, create a scratch notebook:
 mkdir -p "$NOTEBOOK_DIR"
 python - <<'PY'
 import json, pathlib
-path = pathlib.Path.home() / "user-files/notebooks/scratch.ipynb"
+path = pathlib.Path.home() / "notebooks/scratch.ipynb"
 if not path.exists():
     path.write_text(json.dumps({
         "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
@@ -256,5 +255,5 @@ python "$SCRIPT" restart-run-all --socket "$JUPYTER_SOCKET" --path scratch.ipynb
 - First execution after server start can timeout while the kernel initializes; retry once.
 - If startup reports that the socket is already in use, stop the owning server or remove the stale socket before restarting.
 - If the server returns 403, restart it with disabled token/password and `--ServerApp.disable_check_xsrf=True`.
-- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `~/user-files/.ankole/python`.
+- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `~/.ankole/python`.
 - `contents` reads the saved notebook file. Unsaved frontend edits are not visible to hamelnb until saved.

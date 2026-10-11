@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  configFieldRequired,
-  configFieldsValid,
-  configFieldValidationMessage,
-  type ConfigFieldDefinition
-} from './config-fields'
+import { configFieldRequired, configFieldValidationMessage, type ConfigFieldDefinition } from './config-fields'
 
 const field = (overrides: Partial<ConfigFieldDefinition>): ConfigFieldDefinition => ({
   path: 'credential',
@@ -85,22 +80,5 @@ describe('configFieldValidationMessage', () => {
     })
 
     expect(configFieldValidationMessage(tokenField, '', 'en-US')).toBeUndefined()
-  })
-})
-
-describe('configFieldsValid', () => {
-  test('rejects missing required values and invalid optional values', () => {
-    const fields = [
-      field({ required: true }),
-      field({
-        path: 'workspace',
-        validation: { kind: 'pattern', pattern: '^team-', message: { default: 'Use a team workspace.' } }
-      })
-    ]
-
-    expect(configFieldsValid(fields, {}, 'en-US')).toBe(false)
-    expect(configFieldsValid(fields, { credential: 'token' }, 'en-US')).toBe(true)
-    expect(configFieldsValid(fields, { credential: 'token', workspace: 'personal' }, 'en-US')).toBe(false)
-    expect(configFieldsValid(fields, { credential: 'token', workspace: 'team-main' }, 'en-US')).toBe(true)
   })
 })

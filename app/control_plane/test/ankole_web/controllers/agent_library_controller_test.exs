@@ -20,7 +20,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
 
   test "admin reads and independently replaces MISSION, SOUL, and DESIGN documents", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/agents/#{agent.uid}/library-documents")
 
@@ -119,7 +119,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
 
   test "Agent library document endpoints reject invalid and missing resources", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/agents/missing-agent/library-documents")
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)

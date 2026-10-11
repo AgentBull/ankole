@@ -1,35 +1,47 @@
 import { create } from '@bufbuild/protobuf'
-import { isRecord } from '@agentbull/active-support'
+import type { AgentConversationContextResponse } from './rpc_lane'
 import {
   ActorKeySchema,
-  ActorTurnRefSchema,
+  RunRefSchema,
+  JobTurnRefSchema,
   jsonObjectFromBytes,
   safeNumberFromBigInt,
   type ActorEventEnvelopeMessage,
-  type ActorTurnRefMessage,
   type Envelope,
   type TurnModelRefMessage
 } from '../fabric/envelope_proto'
+import type {
+  RunRef as RunRefMessage,
+  JobTurnRef as JobTurnRefMessage
+} from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { fromProto, type RenderedFetchRuntimeConfig } from '../core/rendered-fetch-runtime-config'
+import { HostedTool } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 
-/**
- * Durable turn fence echoed by every worker reply.
- *
- * The control plane compares these fields with database rows before accepting
- * durable output, which makes late replies from old workers harmless. This
- * snake_case DTO is also the fence shape carried inside RPC `payload_json`
- * contracts, so it stays a plain JSON object; the generated envelope message
- * exists only at the fabric codec boundary.
- */
-export type ActorTurnRef = {
-  actor: {
-    agent_uid: string
-    session_id: string
+export type RunRef = { actor: { session_id: string }; actor_event_id: string }
+export type JobTurnRef = RunRef & { job_id: number; attempt: number }
+
+export function runRefToProto(run: RunRef): RunRefMessage {
+  return create(RunRefSchema, {
+    actor: create(ActorKeySchema, { sessionId: run.actor.session_id }),
+    actorEventId: run.actor_event_id
+  })
+}
+export function runRefFromProto(run: RunRefMessage | undefined): RunRef {
+  if (!run?.actor) throw new Error('run.actor is required')
+  return {
+    actor: {
+      session_id: requiredString(run.actor.sessionId, 'run.actor.session_id')
+    },
+    actor_event_id: requiredString(run.actorEventId, 'run.actor_event_id')
   }
-  activation_uid: string
-  actor_epoch: number
-  actor_event_id: string
-  revision: number
+}
+export function jobTurnRefToProto(run: JobTurnRef): JobTurnRefMessage {
+  return create(JobTurnRefSchema, {
+    actorEventId: run.actor_event_id,
+    jobId: BigInt(run.job_id),
+    attempt: run.attempt
+  })
 }
 
 /**
@@ -39,50 +51,37 @@ export type ActorTurnRef = {
  */
 export type ActorEventEnvelope = {
   actor_event_id: string
-  queue_sequence: number
   type: string
-  source_event_id: string
   binding_name?: string
-  signal_channel_id?: string
-  provider_thread_id?: string
-  source_entry_id?: string
   payload_json?: JSONObject
 }
 
 export type TurnStart = {
-  turn: ActorTurnRef
+  fetch_runtime_config: RenderedFetchRuntimeConfig
+  mode: 'start' | 'adopt'
+  agent_context?: AgentConversationContextResponse
+  turn: JobTurnRef
   actor_event: ActorEventEnvelope
-  workspace_id: number
   model_ref?: TurnModelRef | null
-  hosted_tools?: TurnHostedTool[]
+  hosted_tools?: HostedTool[]
   request_context?: JSONObject
   runtime_env?: Record<string, string>
 }
 
-export type TurnHostedTool = { type: 'image_generation' } | { type: 'web_search' } | { type: 'brain' }
-
-const TURN_HOSTED_TOOL_TYPES = new Set(['image_generation', 'web_search', 'brain'])
-
-export type TurnSteerUpdate = {
-  turn: ActorTurnRef
-  actorEvent?: ActorEventEnvelope
-  correlationID?: string
-}
+export type TurnSteerUpdate = { actorEvent?: ActorEventEnvelope }
 
 export type MailboxUpdated = {
-  turn?: ActorTurnRef
+  turn?: JobTurnRef
   actor_event: ActorEventEnvelope
-  reason?: string
 }
 
 export type TurnControl = {
-  turn?: ActorTurnRef
+  turn?: JobTurnRef
   command?: string
   payload_json?: JSONObject
 }
 
 export type TurnModelRef = {
-  profile: string
   provider_id: string
   model: string
   provider_kind?: string
@@ -90,7 +89,6 @@ export type TurnModelRef = {
   supports_parallel_tool_calls?: boolean
   context_length?: number
   input_modalities?: string[]
-  max_completion_tokens?: number
   vision_fallback_model_ref?: TurnModelRef | null
 }
 
@@ -107,20 +105,17 @@ export function turnStartFromEnvelope(envelope: Envelope): TurnStart {
     throw new Error('turn_start.actor_event is required')
   }
 
-  const hostedTools = turnHostedToolsFromBytes(turnStart.hostedToolsJson)
-  const workspaceID = safeNumberFromBigInt(turnStart.workspaceId, 'turn_start.workspace_id')
-  if (workspaceID < 10_000) {
-    throw new Error('turn_start.workspace_id must be a model-safe integer starting at 10000')
-  }
-
+  if (turnStart.mode !== 'start' && turnStart.mode !== 'adopt') throw new Error('invalid turn_start.mode')
   return {
-    turn: actorTurnRefFromProto(turnStart.turn, 'turn_start.turn'),
+    mode: turnStart.mode,
+    agent_context: turnStart.agentContext,
+    turn: jobTurnRefFromProto(turnStart.turn, 'turn_start.turn'),
     actor_event: actorEventFromProto(turnStart.actorEvent),
-    workspace_id: workspaceID,
+    fetch_runtime_config: fromProto(turnStart.fetchRuntimeConfig, 'turn_start.fetch_runtime_config'),
     model_ref: turnStart.modelRef ? turnModelRefFromProto(turnStart.modelRef) : undefined,
     request_context: jsonObjectFromBytes(turnStart.requestContextJson, 'turn_start.request_context_json'),
     runtime_env: { ...turnStart.runtimeEnv },
-    ...(hostedTools ? { hosted_tools: hostedTools } : {})
+    hosted_tools: [...turnStart.hostedTools]
   }
 }
 
@@ -142,9 +137,8 @@ export function mailboxUpdatedFromEnvelope(envelope: Envelope): MailboxUpdated {
   }
 
   return {
-    ...(mailboxUpdated.turn ? { turn: actorTurnRefFromProto(mailboxUpdated.turn, 'mailbox_updated.turn') } : {}),
-    actor_event: actorEventFromProto(mailboxUpdated.actorEvent),
-    ...(mailboxUpdated.reason ? { reason: mailboxUpdated.reason } : {})
+    ...(mailboxUpdated.turn ? { turn: jobTurnRefFromProto(mailboxUpdated.turn, 'mailbox_updated.turn') } : {}),
+    actor_event: actorEventFromProto(mailboxUpdated.actorEvent)
   }
 }
 
@@ -159,66 +153,35 @@ export function turnControlFromEnvelope(envelope: Envelope): TurnControl {
   const turnControl = envelope.body.value
 
   return {
-    ...(turnControl.turn ? { turn: actorTurnRefFromProto(turnControl.turn, 'turn_control.turn') } : {}),
+    ...(turnControl.turn ? { turn: jobTurnRefFromProto(turnControl.turn, 'turn_control.turn') } : {}),
     ...(turnControl.command ? { command: turnControl.command } : {}),
     payload_json: jsonObjectFromBytes(turnControl.payloadJson, 'turn_control.payload_json')
   }
 }
 
-/**
- * Converts the domain turn fence into the generated envelope message.
- */
-export function actorTurnRefToProto(turn: ActorTurnRef): ActorTurnRefMessage {
-  return create(ActorTurnRefSchema, {
-    actor: create(ActorKeySchema, {
-      agentUid: turn.actor.agent_uid,
-      sessionId: turn.actor.session_id
-    }),
-    activationUid: turn.activation_uid,
-    actorEpoch: BigInt(turn.actor_epoch),
-    actorEventId: turn.actor_event_id,
-    revision: turn.revision
-  })
-}
-
-/**
- * Converts the generated turn fence into the domain DTO the runtime and RPC
- * payload contracts use, checking the 64-bit epoch stays a safe JSON number.
- */
-export function actorTurnRefFromProto(turn: ActorTurnRefMessage | undefined, path: string): ActorTurnRef {
-  if (!turn?.actor) {
-    throw new Error(`${path} is required`)
-  }
-
+export function jobTurnRefFromProto(turn: JobTurnRefMessage | undefined, path: string): JobTurnRef {
+  if (!turn) throw new Error(`${path} is required`)
+  const jobID = safeNumberFromBigInt(turn.jobId, `${path}.job_id`)
+  if (jobID <= 0 || turn.attempt <= 0) throw new Error(`${path} is not a current Job attempt reference`)
   return {
-    actor: {
-      agent_uid: requiredString(turn.actor.agentUid, `${path}.actor.agent_uid`),
-      session_id: requiredString(turn.actor.sessionId, `${path}.actor.session_id`)
-    },
-    activation_uid: requiredString(turn.activationUid, `${path}.activation_uid`),
-    actor_epoch: safeNumberFromBigInt(turn.actorEpoch, `${path}.actor_epoch`),
+    actor: { session_id: `job:${jobID}` },
     actor_event_id: requiredString(turn.actorEventId, `${path}.actor_event_id`),
-    revision: turn.revision
+    job_id: jobID,
+    attempt: turn.attempt
   }
 }
 
 function actorEventFromProto(event: ActorEventEnvelopeMessage): ActorEventEnvelope {
   return {
     actor_event_id: event.actorEventId,
-    queue_sequence: safeNumberFromBigInt(event.queueSequence, 'actor_event.queue_sequence'),
     type: event.type,
-    source_event_id: event.sourceEventId,
     ...(event.bindingName ? { binding_name: event.bindingName } : {}),
-    ...(event.signalChannelId ? { signal_channel_id: event.signalChannelId } : {}),
-    ...(event.providerThreadId ? { provider_thread_id: event.providerThreadId } : {}),
-    ...(event.sourceEntryId ? { source_entry_id: event.sourceEntryId } : {}),
     payload_json: jsonObjectFromBytes(event.payloadJson, 'actor_event.payload_json')
   }
 }
 
 function turnModelRefFromProto(modelRef: TurnModelRefMessage): TurnModelRef {
   return {
-    profile: modelRef.profile,
     provider_id: modelRef.providerId,
     model: modelRef.model,
     ...(modelRef.providerKind ? { provider_kind: modelRef.providerKind } : {}),
@@ -227,7 +190,6 @@ function turnModelRefFromProto(modelRef: TurnModelRefMessage): TurnModelRef {
     supports_parallel_tool_calls: modelRef.supportsParallelToolCalls,
     ...(modelRef.contextLength !== undefined ? { context_length: modelRef.contextLength } : {}),
     ...(modelRef.inputModalities.length > 0 ? { input_modalities: modelRef.inputModalities } : {}),
-    ...(modelRef.maxCompletionTokens !== undefined ? { max_completion_tokens: modelRef.maxCompletionTokens } : {}),
     ...(modelRef.visionFallbackModelRef
       ? { vision_fallback_model_ref: turnModelRefFromProto(modelRef.visionFallbackModelRef) }
       : {})
@@ -242,22 +204,4 @@ function requiredString(value: string, path: string): string {
     throw new Error(`${path} is required`)
   }
   return value
-}
-
-function turnHostedToolsFromBytes(bytes: Uint8Array): TurnHostedTool[] | undefined {
-  if (bytes.length === 0) return undefined
-  const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown
-  if (!Array.isArray(value)) throw new Error('turn_start.hosted_tools must be an array')
-
-  return value.map((tool, index) => {
-    if (
-      !isRecord(tool) ||
-      typeof tool.type !== 'string' ||
-      !TURN_HOSTED_TOOL_TYPES.has(tool.type) ||
-      Object.keys(tool).length !== 1
-    ) {
-      throw new Error(`turn_start.hosted_tools[${index}] must declare a supported hosted tool type`)
-    }
-    return { type: tool.type } as TurnHostedTool
-  })
 }

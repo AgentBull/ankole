@@ -38,7 +38,7 @@ defmodule Ankole.Brain.Promotion do
   @doc """
   Approves one pending suggestion and materializes it.
   """
-  @spec approve(Ecto.UUID.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @spec approve(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) :: {:ok, map()} | {:error, term()}
   def approve(suggestion_id, decided_by, attrs \\ %{}) do
     Repo.transact(fn repo ->
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
@@ -61,7 +61,8 @@ defmodule Ankole.Brain.Promotion do
   Rejects one pending suggestion; the record stays so the term is not
   suggested again.
   """
-  @spec reject(Ecto.UUID.t(), String.t()) :: {:ok, SchemaSuggestion.t()} | {:error, term()}
+  @spec reject(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
+          {:ok, SchemaSuggestion.t()} | {:error, term()}
   def reject(suggestion_id, decided_by) do
     Repo.transact(fn repo ->
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
@@ -131,7 +132,9 @@ defmodule Ankole.Brain.Promotion do
   defp retype_tagged_objects(repo, term, prefix) do
     objects =
       Object
-      |> join(:inner, [object], tag in Tag, on: tag.object_slug == object.slug)
+      |> join(:inner, [object], tag in Tag,
+        on: tag.tenant_id == object.tenant_id and tag.object_slug == object.slug
+      )
       |> where([_object, tag], tag.tag == ^term)
       |> where([object, _tag], is_nil(object.deleted_at))
       |> where([object, _tag], is_nil(object.managed_by_source_id))

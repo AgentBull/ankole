@@ -17,7 +17,7 @@ The Harness identifies each actor, applies access rules, restores long work, kee
 
 <DocsArchitectureDiagram lang="en-US" />
 
-One private deployment instance has one logical control plane and one or more Agent Computer Workers. The control plane manages identity, state, and scheduling. Workers provide the compute environment where Agents work.
+One private deployment instance has one logical control plane and one Agent Computer Worker for each Agent. The control plane manages identity, state, and scheduling, and it creates the Workers. Each Worker provides the compute environment where its Agent works.
 
 External chats, webhooks, and schedules enter through SignalsGateway. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
 
@@ -35,15 +35,23 @@ OTP supervision trees give Agents, connections, and Jobs separate failure domain
 
 ### A Worker is the Agent's work computer
 
-An Agent Computer Worker runs model loops, tools, Skills, browsers, terminals, and file operations, and it also executes automation job script runs. It does not create durable domain state on its own. It accepts work from the control plane and commits execution results back to it.
+The control plane runs the main Agent loop. It starts the Agent Computer Worker when environment tools or Codex need the Agent's computer. The Worker executes tools, Skills, browsers, terminals, file operations, automation scripts, and Codex Jobs. The control plane commits durable results.
 
-One Worker can serve several Agents, and each Agent still runs in a separate lightweight sandbox. Give an Agent a dedicated Worker when it needs stronger isolation.
+Each Agent has one Worker identity and at most one admitted Worker instance at a time, and Agents never share a Worker, a cache disk, or a credential. The Worker container or Pod is the only isolation boundary: the Agent's commands run without an inner sandbox and may change the Agent's own computer. On Kubernetes, the Pod template's runtime class can add gVisor.
 
-Add Workers for more concurrency or to separate work with different security requirements.
+The control plane manages each Worker through its selected provider: Docker, Kubernetes, Cloudflare, Vercel, AWS Lambda MicroVMs, or Alibaba Function Compute. Agent Home is persistent storage at `/workspace`; `/var/cache/ankole` holds disposable caches. Commands run as uid 1000 without sudo.
 
-RuntimeFabric connects the control plane and Workers over ZeroMQ. It carries wakeups, steering, cancellation, progress, and execution results.
+RuntimeFabric connects the control plane and Workers over one Phoenix Channel per Worker. It carries wakeups, steering, cancellation, progress, and execution results.
 
 It is a low-latency live channel, not a database. Recovery still uses PostgreSQL state after a connection fails.
+
+### Worker pools select the platform and configuration
+
+Operators configure Worker pools through **Settings → Worker providers**. Each provider is one site-level pool with a platform type, YAML configuration, and encrypted platform credentials. Several Agents can use the same pool, but each keeps its own computer and persistent Home. Different types or instance sizes use separate pools.
+
+Agent creation selects a pool explicitly or uses the site's default. The binding stays with that Agent. The control plane starts its Worker on demand, releases or pauses it when idle, and replaces an outdated instance while preserving Home. The cache can be rebuilt separately. See [Worker pools](../worker-management/).
+
+Each Worker has its own capacity for environment workspaces and Codex turns. Main conversation and Workflow model calls run in the control plane and do not consume that capacity. More pools provide more placement choices; they do not move an existing Agent's work between shared computers.
 
 ## How one message becomes resumable work
 
@@ -67,7 +75,7 @@ The script completes mechanical checks silently, and every run leaves an inspect
 
 Each active session is an addressable Virtual Actor. It has a mailbox, lifecycle, and recovery position. New messages and schedules can wake it, and it can receive added input, cancellation, or human intervention while it runs.
 
-Actor Runtime owns this long-running work identity. It creates a new activation and fence for each turn. A Worker can commit only the turn it currently owns. An old Worker cannot overwrite a newer result after recovery or retry.
+A conversation Driver owns this long-running work. Its PostgreSQL epoch fences Driver writes, and the stored Response chain preserves completed steps. Worker results use RunRef or JobTurnRef operation identity, so a new Driver can adopt work already in progress.
 
 Streamed content is progress. Only messages, tool results, and state transitions that the control plane confirms and stores are facts. This keeps “the interface shows work in progress” separate from “the work is complete.”
 
@@ -77,7 +85,7 @@ Brain is not a vector database filled with chat excerpts. It maintains an evolvi
 
 Knowledge can come from conversations with the Agent, eligible group messages that nobody addressed to it, and registered file or URL Sources.
 
-All Agents in one instance share one knowledge space. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or channel records provenance; it does not grant access to the learned knowledge.
+All Agents in one tenant share one knowledge space. Tenants have separate knowledge spaces. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or channel records provenance; it does not grant access to the learned knowledge.
 
 During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, finds patterns, grades earlier predictions, and flags conflicts for review.
 
@@ -91,13 +99,13 @@ Long-term memory is the user view of this system. Brain owns storage, Dreaming, 
 
 A main Agent can delegate research, data analysis, file work, code changes, and Deep Research to a Background Agent Job. The main session remains available and can continue talking to the user.
 
-The control plane stores the Job lifecycle, and a Worker runs the Job. If that Worker stops, the system can dispatch the Job again and continue from durable state. A process exit does not delete the complete job.
+The control plane stores the Job lifecycle. After instance replacement, the Worker resumes from workspace and Codex thread files in persistent Home. PostgreSQL owns the accepted work and its recovery state.
 
 The main Agent and Job can continue to communicate. A Job can ask for input, return failures and final results, or stay silent when requested. When it waits for a person, it releases its execution slot and resumes after the answer arrives.
 
 Deep Research is an advanced use of this architecture. An Agent Plugin supplies the workspace template, Skills supply the research method, and a Background Agent Job supplies durable execution.
 
-Agent Home retains the research material and deliverables.
+The Job workspace remains in persistent Home. The Agent publishes research material and deliverables to its control-plane drive when they must be available outside the Worker.
 
 See [Background Agent Jobs](../background-jobs/) and [Deep Research](../deep-research-job/).
 
@@ -105,7 +113,7 @@ See [Background Agent Jobs](../background-jobs/) and [Deep Research](../deep-res
 
 AIGateway separates model capabilities from Agent execution. Main Agents, Jobs, Brain, and external API clients use the same boundary for LLM, embedding, rerank, image, Web Search, and Web Fetch Providers.
 
-Agent model profiles select models for Agent execution. Brain uses five instance-wide model settings in AppConfigure. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
+Agent model profiles select models for Agent execution. Each tenant selects a Brain maintainer Agent whose `light`, `heavy`, and `web_fetch` profiles serve Brain work. Site AppConfigure selects the embedding model; tenant AppConfigure selects the rerank model. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
 
 Agents and Workers receive only the model choices and call results that they can use.
 
@@ -137,19 +145,19 @@ See [Principals and permission groups](../principal-and-groups/), [Signal routin
 
 PostgreSQL stores durable domain facts such as identity, access, configuration, messages, sessions, Jobs, memory, delivery state, and audit records. Use these records to decide whether the system committed a result.
 
-Agent Home stores workspace files, tool output, and final deliverables. A single-host deployment can use a local or virtual disk. A Kubernetes deployment with several Workers needs NFS or another shared volume that supports `ReadWriteMany`.
+The control-plane drive stores attachments, published files, Skills, and Automation scripts in its file store. Persistent Home separately stores workspaces, local packages, and Codex threads. Back up PostgreSQL, the file store, all Homes, and the original deployment encryption key together.
 
-RuntimeFabric, Worker process state, and stream previews are rebuildable. They support live execution, but they do not replace PostgreSQL or Agent Home.
+RuntimeFabric, live Worker processes, stream previews, and `/var/cache/ankole` are rebuildable. Persistent Home must survive instance deletion and needs a storage backup. See [Backup and restore](../backup-and-restore/).
 
 ## Three deployment forms
 
 | Form | Control plane and Workers | Persistence |
 | --- | --- | --- |
-| **Docker Compose · recommended for one host** | One Linux, macOS, or Windows host runs the control plane and one Worker | PostgreSQL and Agent Home use persistent volumes on the host |
-| **Kubernetes · recommended for enterprise deployment** | One control plane connects to one or more Worker Pods and schedules them by node or security need | PostgreSQL plus shared `ReadWriteMany` Agent Home storage |
-| **Source installation** | The development environment runs the control plane and Worker separately | PostgreSQL and a local workspace configured for development |
+| **Docker Compose · recommended for one host** | One Linux, macOS, or Windows host runs the control plane, which creates one Worker container through the Docker socket for each Agent | PostgreSQL, the file store, and a private persistent Home volume for each Agent |
+| **Kubernetes · recommended for enterprise deployment** | One control plane creates one Worker Pod through the Kubernetes API for each Agent | PostgreSQL, the file store, and persistent Home PVCs or shared storage; cache volumes are separate |
+| **Source installation** | `bun dev` runs the control plane, which creates a Docker Worker container for each Agent; the container runs the local Agent Computer source in watch mode | PostgreSQL, `var/ankole-dev/files`, and private persistent Docker Home volumes |
 
-The logical boundary is the same for every form. The instance has one control plane and can add Workers horizontally. See [Quick start](../quickstart/#1-deploy-ankole) for the complete procedures.
+The logical boundary is the same for every form. The instance has one control plane, and the control plane gives each Agent its own Worker. See [Quick start](../quickstart/#1-deploy-ankole) for the complete procedures.
 
 ## Five technical decisions
 
@@ -157,8 +165,8 @@ The logical boundary is the same for every form. The instance has one control pl
 | --- | --- |
 | **Virtual Actors carry AI work** | Give each session an address, mailbox, lifecycle, and recovery position |
 | **OTP supervision trees define failure domains** | Recover one Agent or connection branch without failing the complete instance |
-| **ZeroMQ carries live control** | Move wakeups, steering, progress, and backpressure while an Agent runs |
-| **Agent Computer Workers provide execution** | Keep model loops, tools, files, terminals, and sandboxes near the workspace |
+| **Phoenix Channels carry live control** | Move wakeups, steering, progress, and backpressure while an Agent runs |
+| **Agent Computer Workers provide execution** | Give each Agent its own computer for tools, files, terminals, browsers, and Codex |
 | **The PostgreSQL ledger stores facts** | Make messages, Jobs, memory, decisions, and committed operations resumable and auditable |
 
 These decisions support one result. An Agent can work for hours, accept new information while it runs, fail and recover independently, and leave a trace for each committed action.

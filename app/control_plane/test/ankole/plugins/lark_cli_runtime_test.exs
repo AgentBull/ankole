@@ -3,7 +3,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
-      rpc_request: 4,
+      handle_rpc: 3,
+      rpc_request: 3,
       rpc_response_payload!: 2
     ]
 
@@ -20,13 +21,13 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
   alias Ankole.Plugins.Config, as: PluginsConfig
   alias Ankole.Plugins.Registry, as: PluginsRegistry
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv
-  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Bindings
@@ -59,11 +60,40 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     end
   end
 
+  defmodule ReservedWorkerEnv do
+    @moduledoc false
+    def resolve_worker_env(_binding), do: {:ok, %{"PATH" => "/binding-owned/path"}}
+  end
+
+  defmodule ReservedWorkerEnvPlugin do
+    @moduledoc false
+    @behaviour Ankole.Plugins.Plugin
+    @impl true
+    def plugin_id, do: "reserved-worker-env"
+    @impl true
+    def adapter_declarations do
+      [
+        %{
+          contract_id: "signals_gateway.adapter",
+          id: "reserved-env",
+          adapter_category: "enterprise_im",
+          plugin_id: plugin_id(),
+          worker_env_module: Ankole.Plugins.LarkCLIRuntimeTest.ReservedWorkerEnv
+        }
+      ]
+    end
+  end
+
   setup do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
 
     on_exit(fn ->
+      # A saved Lark binding starts an asynchronous pass of the shared Lark
+      # connection reconciler. Wait for the pass before the caches are cleared
+      # and the sandbox owner stops, so that the pass cannot read the data of
+      # a later test.
+      :sys.get_state(ConnectionReconciler)
       AppConfigureRegistry.clear_for_test()
       AppConfigureCache.clear_for_test()
     end)
@@ -101,13 +131,14 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert second_binding.config_ref == "app-config://#{second_config_key}"
 
     assert {:ok, %{"appID" => "cli_first"}} =
-             Config.load_chat_config_ref(first_binding.config_ref)
+             Bindings.binding_config(first_binding, Config)
 
     assert {:ok, %{"appID" => "cli_second"}} =
-             Config.load_chat_config_ref(second_binding.config_ref)
+             Bindings.binding_config(second_binding, Config)
 
     assert {:error,
-            {:lark_app_already_bound, "feishu", "cli_first", first_agent_uid, "lark-main"}} =
+            {:platform_application_already_bound, "lark:[\"feishu\",\"cli_first\"]",
+             first_agent_uid, "lark-main"}} =
              Bindings.put_binding(
                first_agent.uid,
                "lark",
@@ -118,7 +149,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert first_agent_uid == first_agent.uid
 
     assert {:error,
-            {:lark_app_already_bound, "feishu", "cli_first", first_agent_uid, "lark-main"}} =
+            {:platform_application_already_bound, "lark:[\"feishu\",\"cli_first\"]",
+             first_agent_uid, "lark-main"}} =
              Bindings.put_binding(
                second_agent.uid,
                "lark",
@@ -191,7 +223,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert binding.config_ref == "app-config://#{binding_config_key}"
 
-    assert {:ok, stored_config} = Config.load_chat_config_ref(binding.config_ref)
+    assert {:ok, stored_config} = Bindings.binding_config(binding, Config)
     assert stored_config["appID"] == legacy_config["appID"]
     assert stored_config["appSecret"] == legacy_config["appSecret"]
     assert stored_config["userName"] == "Renamed Lark Bot"
@@ -241,10 +273,13 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert target_binding.config_ref == "app-config://#{binding_config_key}"
 
     assert {:ok, %{"appID" => "cli_legacy_collision"}} =
-             Config.load_chat_config_ref("app-config://#{legacy_config_key}")
+             Bindings.binding_config(
+               %Binding{config_ref: "app-config://#{legacy_config_key}"},
+               Config
+             )
 
     assert {:ok, %{"appID" => "cli_target_collision"}} =
-             Config.load_chat_config_ref(target_binding.config_ref)
+             Bindings.binding_config(target_binding, Config)
   end
 
   test "Lark binding assignment holds the adapter lock across validation and persistence" do
@@ -253,14 +288,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     parent = self()
 
     task =
-      Task.async(fn ->
-        Repo.transact(fn repo ->
-          SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key])
-          send(parent, :assignment_lock_acquired)
-          Process.sleep(200)
-          {:ok, :released}
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Repo.transact(fn repo ->
+            SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key])
+            send(parent, :assignment_lock_acquired)
+            Process.sleep(200)
+            {:ok, :released}
+          end)
         end)
-      end)
+      )
 
     assert_receive :assignment_lock_acquired, 1_000
     started_at = System.monotonic_time(:millisecond)
@@ -304,17 +341,19 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     end)
 
     first_save =
-      Task.async(fn ->
-        send(parent, {:ready, self()})
-        receive do: (:save -> :ok)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          send(parent, {:ready, self()})
+          receive do: (:save -> :ok)
 
-        Bindings.put_binding(
-          first_agent.uid,
-          "lark",
-          "lark-main",
-          binding_attrs(shared_config)
-        )
-      end)
+          Bindings.put_binding(
+            first_agent.uid,
+            "lark",
+            "lark-main",
+            binding_attrs(shared_config)
+          )
+        end)
+      )
 
     assert_receive {:ready, first_save_pid}, 1_000
     assert first_save_pid == first_save.pid
@@ -326,14 +365,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                    1_000
 
     second_save =
-      Task.async(fn ->
-        Bindings.put_binding(
-          second_agent.uid,
-          "lark",
-          "lark-main",
-          binding_attrs(shared_config)
-        )
-      end)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Bindings.put_binding(
+            second_agent.uid,
+            "lark",
+            "lark-main",
+            binding_attrs(shared_config)
+          )
+        end)
+      )
 
     second_result = Task.yield(second_save, 500)
     :ok = :sys.resume(cache_pid)
@@ -345,8 +386,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok,
             {:error,
-             {:lark_app_already_bound, "feishu", "cli_concurrent_shared", rejected_owner_uid,
-              "lark-main"}}} =
+             {:platform_application_already_bound, "lark:[\"feishu\",\"cli_concurrent_shared\"]",
+              rejected_owner_uid, "lark-main"}}} =
              second_result
 
     assert rejected_owner_uid == first_agent.uid
@@ -441,10 +482,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %{principal: agent} = agent_fixture()
     config_key = Config.binding_config_key(agent.uid, "lark-main")
 
-    # Binding validation reads the identity-provider references before the
-    # write; warm those entries so the injected fault hits the post-commit refresh.
-    assert {:ok, []} = Ankole.IdentityProviders.list_provider_refs("lark")
-    assert :ok = AppConfigureCache.fail_next_load_for_test(:injected_binding_refresh_failure)
+    # A read before the save puts the pre-save state in the cache.
+    assert :error = AppConfigure.get_by_key(config_key)
+    assert {:ok, :absent} = AppConfigureCache.lookup("global", config_key)
+
+    assert :ok =
+             AppConfigureCache.fail_next_refresh_for_test(
+               "global",
+               config_key,
+               :injected_binding_refresh_failure
+             )
 
     assert {:ok, %{binding: %Binding{} = binding}} =
              Bindings.put_binding(
@@ -455,7 +502,17 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              )
 
     assert binding.agent_uid == agent.uid
-    assert :miss = AppConfigureCache.lookup("global", config_key)
+
+    # The save also starts a Lark connection reconciliation. That reconciliation
+    # can load the committed row into the cache at any time, so the cache can
+    # hold the committed row or nothing. It must not keep the pre-save state.
+    %AppConfig{value: committed_envelope} =
+      Repo.get_by!(AppConfig, scope: "global", key: config_key)
+
+    assert AppConfigureCache.lookup("global", config_key) in [
+             :miss,
+             {:ok, {:row, committed_envelope}}
+           ]
 
     assert {:ok, %{"appID" => "cli_after_commit"}} =
              AppConfigure.get_by_key(config_key)
@@ -515,16 +572,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     end
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "lark-worker-env-secondary",
                  "worker_env.resolve",
                  %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{
                    binding_name: "lark-secondary"
-                 },
-                 agent_uid: agent.uid
+                 }
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     rpc_vars =
@@ -542,16 +599,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     refute Map.has_key?(disabled_route_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
 
     assert {:ok, disabled_route_envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "lark-worker-env-disabled-route",
                  "worker_env.resolve",
                  %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{
                    binding_name: "lark-primary"
-                 },
-                 agent_uid: agent.uid
+                 }
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     disabled_route_vars =
@@ -631,14 +688,14 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert effective_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "tenant-token"
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "lark-worker-env",
                  "worker_env.resolve",
-                 %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{},
-                 agent_uid: agent.uid
+                 %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{}
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     rpc_vars =
@@ -730,6 +787,35 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              BindingWorkerEnv.resolve(agent.uid, adapter_server: registry_name)
   end
 
+  test "a binding provider cannot replace the Worker PATH" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, ["reserved-worker-env"]} =
+             PluginsConfig.put_enabled_ids([ReservedWorkerEnvPlugin.plugin_id()])
+
+    registry_name = :reserved_worker_env_registry
+
+    start_supervised!(
+      {PluginsRegistry, name: registry_name, modules: [ReservedWorkerEnvPlugin]},
+      id: registry_name
+    )
+
+    assert {:ok, _binding} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: "reserved-main",
+               adapter: "reserved-env",
+               config_ref: "app-config://reserved-env",
+               filters: %{},
+               unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
+               enabled: true
+             })
+
+    assert {:error, {:reserved_worker_env_name, "PATH"}} =
+             BindingWorkerEnv.resolve(agent.uid, adapter_server: registry_name)
+  end
+
   defp binding_attrs(config) do
     %{
       "config" => config,
@@ -760,10 +846,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     SQL.query!(
       Repo,
       """
-      INSERT INTO principals (uid, type, status, display_name, inserted_at, updated_at)
-      VALUES ($1, 'agent', 'active', $1, NOW(), NOW())
+      INSERT INTO principals (uid, tenant_id, type, status, display_name, inserted_at, updated_at)
+      VALUES ($1, $2::text::uuid, 'agent', 'active', $1, NOW(), NOW())
       """,
-      [uid]
+      [uid, Repo.tenant_id!()]
     )
 
     %{principal: owner} = Ankole.PrincipalsFixtures.human_fixture()
@@ -773,10 +859,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     SQL.query!(
       Repo,
       """
-      INSERT INTO agents (uid, type, role, options, owner_principal_uid, inserted_at, updated_at)
-      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
+      INSERT INTO agents (uid, tenant_id, handle, type, role, options, owner_principal_uid, inserted_at, updated_at)
+      VALUES ($1, $3::text::uuid, $4, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
       """,
-      [uid, owner.uid]
+      [uid, owner.uid, Repo.tenant_id!(), "legacy-" <> Ecto.UUID.generate()]
     )
 
     SQL.query!(Repo, """

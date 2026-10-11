@@ -6,7 +6,7 @@ defmodule Ankole.SignalsGateway.WebhookEndpoint do
   only in the create response and in the external system that receives it.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
   import Ecto.Changeset

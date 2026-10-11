@@ -15,6 +15,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
       socket_state =
         %{
           subject_uid: conn.assigns.current_ai_gateway_subject_uid,
+          tenant_id: Ankole.Repo.tenant_id!(),
           subject_type: conn.assigns.current_ai_gateway_subject_type,
           oidc_grant: conn.assigns[:oidc_grant],
           request_context: RequestContext.from_headers(conn.req_headers, "websocket")

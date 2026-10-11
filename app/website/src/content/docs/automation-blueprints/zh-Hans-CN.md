@@ -7,7 +7,7 @@ order: 309
 
 Ankole 的自动化由三种触发器之一与两种消费者之一组合。Agent session 处理需要判断、记忆或对话的工作；automation job 用确定性脚本处理机械工作。本页给出常见形态、可以直接套用的蓝图。
 
-Automation Job 不是工作流语言或步骤图。它是 Agent Home 内普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发出事件或失败策略要求唤醒时，Agent 才返回。
+Automation Job 不是工作流语言或步骤图。它是 Agent 云盘某个文件夹里普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发出事件或失败策略要求唤醒时，Agent 才返回。
 
 [Workflow](../workflows/) 是另一种执行方式。主 Agent 在一个回合中启动一次固定、有界的子 Agent 编排。Workflow 不是调度或 Webhook 消费者，也不会轮询外部状态。一次投递或会话请求包含有限数量、可并行执行的独立判断时，才应使用它。
 
@@ -36,9 +36,12 @@ Automation Job 不是工作流语言或步骤图。它是 Agent Home 内普通�
 
 计划任务每天触发一次，Agent 根据任务说明收集和整理信息，再把结果发到绑定的聊天渠道。先按 [计划任务](../schedules/) 创建并手动验证，再设置每天运行的 Cron 表达式。
 
+执行此 Console 请求前，从已登录的浏览器取得会话 cookie 与 `x-csrf-token` 值。
+
 ```bash
 curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
+  -H "Cookie: $CONSOLE_COOKIE" \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "owner_session_id": "<session_id>",

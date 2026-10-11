@@ -1,3 +1,4 @@
+import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
 import {
   Badge,
   Button,
@@ -94,7 +95,7 @@ export function ModelProfileEditorCard({
   deleteLabel: string
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
+  modelCatalog: AIGatewayModelCatalogEntry[]
   onUpdate: (patch: Partial<ProfileDraft>) => void
   /** Omit inside a parent form that owns persistence for this card. */
   onSave?: () => void
@@ -151,8 +152,8 @@ export function ModelProfileEditorCard({
   const card = (
     <Collapsible className="border border-border bg-card" open={open} onOpenChange={setManualOpen}>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-          <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
+        <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left focus-visible:-outline-offset-2">
+          <Badge className="shrink-0" variant={required ? 'secondary' : 'outline'}>
             {label}
           </Badge>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

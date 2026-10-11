@@ -1,19 +1,21 @@
 defmodule Ankole.SignalsGateway.ReplyAttachment do
   @moduledoc """
   Shared contract for `reply_attachment` tool outputs and outbound outbox payloads.
+
+  A reply attachment names one file in the Agent's drive: its drive `path` and
+  the SHA-256 digest of its content as `blob_ref`. The control plane keeps the
+  original drive path. `verify_in_drive/2` checks that the Agent's drive
+  still names that content at that path before the outbox commits.
   """
 
+  import Ecto.Query
+
   alias Ankole.Ecto.JSONPayload
+  alias Ankole.Files
+  alias Ankole.Files.Schemas.AgentFile
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "reply_attachment"
-  @user_files_path ~r/\A\/agents\/[a-z0-9][a-z0-9._-]{0,95}\/user-files\/(.+)\z/
-  @path_keys [
-    "agent_computer_path",
-    :agent_computer_path,
-    "user_files_relative_path",
-    :user_files_relative_path
-  ]
 
   @type attachment :: %{
           required(String.t()) => String.t() | non_neg_integer()
@@ -38,23 +40,40 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   @doc "Normalizes one reply attachment into the durable provider-outbox shape."
   @spec normalize_attachment(term()) :: {:ok, attachment()} | {:error, term()}
   def normalize_attachment(attachment) do
-    with :ok <- validate_raw_path_bytes(attachment),
-         {:ok, attachment} <- JSONPayload.normalize_map(attachment),
-         {:ok, agent_computer_path} <- required_text(attachment, "agent_computer_path"),
-         {:ok, user_files_relative_path} <- required_text(attachment, "user_files_relative_path"),
-         :ok <- validate_user_files_path(agent_computer_path, user_files_relative_path),
+    with {:ok, attachment} <- JSONPayload.normalize_map(attachment),
+         {:ok, path} <- drive_path(attachment),
+         {:ok, blob_ref} <- blob_ref(attachment),
          {:ok, name} <- required_text(attachment, "name"),
          {:ok, size} <- required_non_negative_integer(attachment, "size"),
          {:ok, mime_type} <- optional_text(attachment, "mime_type") do
       {:ok,
-       %{
-         "agent_computer_path" => agent_computer_path,
-         "user_files_relative_path" => user_files_relative_path,
-         "name" => name,
-         "size" => size
-       }
+       %{"path" => path, "blob_ref" => blob_ref, "name" => name, "size" => size}
        |> Ankole.Attrs.maybe_put("mime_type", mime_type)}
     end
+  end
+
+  @doc """
+  Checks that the Agent's drive names each attachment's content at its path.
+
+  Runs inside the caller's transaction, so the check and the outbox commit see
+  the same drive.
+  """
+  @spec verify_in_drive(String.t(), [attachment()]) :: :ok | {:error, term()}
+  def verify_in_drive(agent_uid, attachments) when is_binary(agent_uid) do
+    Enum.reduce_while(attachments, :ok, fn %{"path" => path, "blob_ref" => blob_ref}, :ok ->
+      digest = Base.decode16!(blob_ref, case: :lower)
+
+      exists? =
+        Ankole.Repo.exists?(
+          from(file in AgentFile,
+            where: file.agent_uid == ^agent_uid and file.path == ^path and file.sha256 == ^digest
+          )
+        )
+
+      if exists?,
+        do: {:cont, :ok},
+        else: {:halt, {:error, {:reply_attachment_not_in_drive, path}}}
+    end)
   end
 
   @doc "Normalizes a list of reply attachments."
@@ -152,39 +171,24 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
     end
   end
 
-  defp validate_raw_path_bytes(attachment) when is_map(attachment) do
-    if Enum.any?(@path_keys, fn key ->
-         case Map.get(attachment, key) do
-           value when is_binary(value) -> :binary.match(value, <<0>>) != :nomatch
-           _value -> false
-         end
-       end) do
-      {:error, :reply_attachment_path_contains_null_byte}
-    else
-      :ok
+  defp drive_path(attachment) do
+    with {:ok, path} <- required_text(attachment, "path") do
+      case Files.normalize_path(path) do
+        {:ok, path} -> {:ok, path}
+        {:error, _reason} -> {:error, :reply_attachment_path_invalid}
+      end
     end
   end
 
-  defp validate_raw_path_bytes(_attachment), do: :ok
+  defp blob_ref(attachment) do
+    case Map.get(attachment, "blob_ref") do
+      <<_::binary-size(64)>> = value ->
+        if value =~ ~r/\A[0-9a-f]{64}\z/,
+          do: {:ok, value},
+          else: {:error, :reply_attachment_blob_ref_invalid}
 
-  defp validate_user_files_path(agent_computer_path, user_files_relative_path) do
-    cond do
-      String.contains?(agent_computer_path, <<0>>) or
-          String.contains?(user_files_relative_path, <<0>>) ->
-        {:error, :reply_attachment_path_contains_null_byte}
-
-      user_files_relative_path != String.trim_leading(user_files_relative_path, "/") ->
-        {:error, :reply_attachment_relative_path_absolute}
-
-      Path.split(user_files_relative_path) |> Enum.any?(&(&1 in ["", ".", ".."])) ->
-        {:error, :reply_attachment_relative_path_invalid}
-
-      true ->
-        case Regex.run(@user_files_path, agent_computer_path, capture: :all_but_first) do
-          [^user_files_relative_path] -> :ok
-          [_other_path] -> {:error, :reply_attachment_path_mismatch}
-          nil -> {:error, :reply_attachment_path_not_under_user_files}
-        end
+      _value ->
+        {:error, :reply_attachment_blob_ref_invalid}
     end
   end
 end

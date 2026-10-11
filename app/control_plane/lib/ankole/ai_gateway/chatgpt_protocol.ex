@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.ChatGPTProtocol do
   @moduledoc false
 
+  @lite_header "x-openai-internal-codex-responses-lite"
   @lite_metadata_key "ws_request_header_x_openai_internal_codex_responses_lite"
   @forbidden_fields ~w(
     generate
@@ -46,9 +47,12 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
     end
   end
 
+  @spec lite_header() :: String.t()
+  def lite_header, do: @lite_header
+
   @spec lite_request?(map(), map()) :: boolean()
   def lite_request?(request, request_context) do
-    get_in(request_context, ["headers", "x-openai-internal-codex-responses-lite"]) == "true" or
+    get_in(request_context, ["headers", @lite_header]) == "true" or
       get_in(request, ["client_metadata", @lite_metadata_key]) == "true"
   end
 
@@ -57,7 +61,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
   def codex_client?(%{"headers" => headers}) when is_map(headers) do
     Map.get(headers, "originator") == "codex_cli_rs" or
       codex_user_agent?(Map.get(headers, "user-agent")) or
-      Map.get(headers, "x-openai-internal-codex-responses-lite") == "true"
+      Map.get(headers, @lite_header) == "true"
   end
 
   def codex_client?(_request_context), do: false

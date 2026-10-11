@@ -179,7 +179,7 @@ export function ConfigField({
         <FieldLabel>{labelContent}</FieldLabel>
         <FieldLabel
           htmlFor={controlID}
-          className="h-10 w-full cursor-pointer items-center justify-between border border-transparent border-b-input bg-field px-4 text-sm font-normal transition-[background-color,border-color] has-data-checked:border-transparent has-data-checked:border-b-input has-data-checked:bg-field has-focus-visible:border-b-ring dark:has-data-checked:border-transparent dark:has-data-checked:border-b-input dark:has-data-checked:bg-field">
+          className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-edge border-b-input bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-edge has-data-checked:border-b-input has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}
@@ -325,14 +325,6 @@ export function configFieldRequired(field: ConfigFieldDefinition, config: JSONOb
   if (!field.requiredWhen?.length) return false
 
   return field.requiredWhen.every(requirement => getPath(config, requirement.path) === requirement.value)
-}
-
-export function configFieldsValid(fields: ConfigFieldDefinition[], config: JSONObject, locale: string): boolean {
-  return fields.every(field => {
-    const value = getPath(config, field.path)
-    if (configFieldRequired(field, config) && configFieldValueEmpty(value)) return false
-    return !configFieldValidationMessage(field, value, locale)
-  })
 }
 
 /**

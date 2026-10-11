@@ -164,8 +164,8 @@ has three sources:
 - directory sync and provider sign-in bind the address that the provider
   reports for the user, so employees of an organization with a synced
   directory are admitted without a manual step;
-- `create_standalone` creates a standalone human Principal whose UID is the
-  address.
+- `create_standalone` creates a standalone human Principal with a new opaque
+  UUIDv7 UID and binds the address as its external identity.
 
 The display name from `From` is a display hint.
 
@@ -178,17 +178,18 @@ message; a `Reply-To` header on the held message is not honored. With
 `create_standalone`, the gateway creates a standalone human Principal. Because
 the DMARC rule refuses unauthenticated senders first, the standalone policy
 carries the same risk as on Telegram: anyone who can send authenticated mail
-can get an account. A sender whose address is already a Principal UID, such
-as the installation's local administrator, is never joined automatically
-under either policy: the message waits for review, and the administrator
-binds the address once.
+can get an account. An address equal to an existing Principal UID does not
+prove mailbox ownership and never selects that Principal. With no `email`
+identity binding, `manual_review` holds the message; `create_standalone`
+creates a separate account. An administrator can explicitly bind the address
+to an existing Human instead.
 
 ## Materialize Attachments
 
 SignalsGateway first commits the admitted message with a pending attachment
-projection. The adapter then writes each MIME part that carries a filename, or
-that is not text, to the Agent's `user-files` lane under
-`inbox/<attachment id>/<name>` and updates the same entry. An unmatched
+projection. The adapter then stores each MIME part that carries a filename, or
+that is not text, in the file service under `inbox/<digest>/<name>`
+([Files](../Files.md)) and updates the same entry. An unmatched
 sender cannot make Ankole write a file.
 
 A message larger than 25 MB is fetched as headers only. Its entry keeps the
@@ -208,8 +209,8 @@ root.
 The adapter derives the outbound `Message-ID` from the outbox key, so a resend
 after an uncertain result carries the same ID and mail clients thread or
 deduplicate it. The body is `text/plain` in UTF-8. Attachments come from the
-Agent's `user-files` lane as `multipart/mixed` parts; a message whose
-attachments exceed 20 MB fails permanently.
+file service as `multipart/mixed` parts; a message whose attachments exceed
+20 MB fails permanently.
 
 The SMTP session verifies the server certificate against the system CA store
 in both modes: implicit TLS passes the options to the connection, and

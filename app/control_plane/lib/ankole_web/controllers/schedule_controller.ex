@@ -26,7 +26,7 @@ defmodule AnkoleWeb.ScheduleController do
   @agent_filter_parameters [agent: [in: :query, type: :string, required: false]]
 
   tags(["Schedule"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -36,8 +36,7 @@ defmodule AnkoleWeb.ScheduleController do
     parameters: @agent_filter_parameters,
     responses: [
       ok: {"Cron schedules", "application/json", ScheduleCronScheduleListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -47,9 +46,7 @@ defmodule AnkoleWeb.ScheduleController do
     request_body: {"Cron schedule", "application/json", ScheduleCronWriteRequest, required: true},
     responses: [
       ok: {"Cron schedule", "application/json", ScheduleCronScheduleResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid schedule", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -59,9 +56,7 @@ defmodule AnkoleWeb.ScheduleController do
       @agent_parameters ++ [cron_schedule_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Cron schedule", "application/json", ScheduleCronScheduleResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -73,10 +68,7 @@ defmodule AnkoleWeb.ScheduleController do
       {"Cron schedule update", "application/json", ScheduleCronUpdateRequest, required: true},
     responses: [
       ok: {"Cron schedule", "application/json", ScheduleCronScheduleResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid schedule", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -141,8 +133,7 @@ defmodule AnkoleWeb.ScheduleController do
         ],
     responses: [
       ok: {"Scheduled events", "application/json", ScheduleEventListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -298,7 +289,8 @@ defmodule AnkoleWeb.ScheduleController do
   defp cron_created_by(conn) do
     %{
       "kind" => "operator_api",
-      "principal_uid" => conn.assigns[:current_principal_uid]
+      "principal_uid" =>
+        conn.assigns.current_principal |> Ankole.ActorRef.from_principal() |> to_string()
     }
   end
 

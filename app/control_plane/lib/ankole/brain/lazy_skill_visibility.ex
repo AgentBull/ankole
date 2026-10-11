@@ -27,8 +27,11 @@ defmodule Ankole.Brain.LazySkillVisibility do
       nil ->
         {:ok, %__MODULE__{}}
 
+      # The Turn's context resolution already synced the Skill rows, so every
+      # Brain read of the same Turn reads them without another sync.
       %Agent{} ->
-        with {:ok, skills} <- Library.enabled_skills_for_agent(querier_uid, opts) do
+        with {:ok, skills} <-
+               Library.enabled_skills_for_agent(querier_uid, Keyword.put(opts, :sync, false)) do
           slugs =
             skills
             |> Enum.filter(&((&1["metadata"] || %{})["brain_recall_only"] == true))

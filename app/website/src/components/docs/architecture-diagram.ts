@@ -33,10 +33,10 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
   'en-US': {
     title: 'Ankole system architecture',
     description:
-      'Enterprise channels, external events, identity providers, the Console, and AI providers connect to the control plane. The control plane schedules one or more Agent Computer Workers through RuntimeFabric and stores durable state in PostgreSQL and Agent Home.',
+      'Enterprise channels, external events, identity providers, the Console, and AI providers connect to the control plane. The control plane uses configured Worker pools to create a separate computer for each Agent on demand. Phoenix Channels carry live control; PostgreSQL and the file service keep durable state.',
     external: 'Enterprise and external systems',
     control: 'Control plane · one logical management boundary',
-    execution: 'Execution · one or more Workers',
+    execution: 'Execution · one Worker per Agent',
     data: 'Durability boundary',
     channels: ['Channels and external events', 'Messages · webhooks · schedules'],
     operators: ['Console and APIs', 'Operators · enterprise apps'],
@@ -45,23 +45,26 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     signals: ['SignalsGateway', 'Signal routing · message delivery'],
     identity: ['Principal and AuthZ', 'Identity · access · config · plugins'],
     ai: ['AIGateway', 'Model selection · sessions · credentials'],
-    actor: ['Actor Runtime', 'Long sessions · wake · recovery'],
+    actor: ['Conversations', 'Main Agent loop · tools · recovery'],
     brain: ['Brain', 'World model · recall · Dreaming'],
     jobs: ['Background Agent Jobs', 'Non-blocking · resumable · interactive'],
-    fabric: 'RuntimeFabric · live control, no durable facts',
-    workers: ['Agent Computer Worker pool · 1…N', 'Main Agents · Jobs · Automation Jobs · tools · Skills · sandboxes'],
+    fabric: 'RuntimeFabric · Phoenix Channels',
+    workers: [
+      'Agent Computer Workers · one per Agent',
+      'Environment tools · Codex Jobs · Automation Jobs · Skills · cache disk'
+    ],
     postgres: ['PostgreSQL', 'Identity · sessions · memory · Jobs · audit'],
-    home: ['Agent Home', 'Files · workspaces · deliverables'],
+    home: ['Persistent files', 'Agent Home · control-plane drives'],
     caption:
-      'The control plane stores state and decides how work must run. Workers provide the compute environment. This split keeps Agent work independent of one process or machine.'
+      'The control plane stores state and manages Worker pools. Agents in one pool keep separate computers and Home. An idle instance can be released or paused; Home survives replacement and the cache can be rebuilt.'
   },
   'zh-Hans-CN': {
     title: 'Ankole 系统架构',
     description:
-      '企业聊天、外部事件、身份源、Console 和 AI Provider 连接到控制面。控制面通过 RuntimeFabric 调度一个或多个 Agent Computer Worker，并把持久状态写入 PostgreSQL 和 Agent Home。',
+      '企业聊天、外部事件、身份源、Console 和 AI Provider 连接到控制面。控制面通过配置的 WorkerPool 为 Agent 按需创建独立电脑。Phoenix Channel 传递实时控制，PostgreSQL 和文件服务保存持久状态。',
     external: '企业与外部系统',
     control: '控制面 · 一个逻辑管理边界',
-    execution: '执行层 · 一台或多台 Worker',
+    execution: '执行层 · 每个 Agent 一个 Worker',
     data: '持久化边界',
     channels: ['聊天渠道与外部事件', '消息 · Webhook · 计划任务'],
     operators: ['Console 与 API', '管理员 · 企业应用'],
@@ -70,23 +73,23 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     signals: ['SignalsGateway', '信号路由 · 消息收发'],
     identity: ['主体与 AuthZ', '身份 · 权限 · 配置 · 插件'],
     ai: ['AIGateway', '模型选择 · 会话 · 凭证'],
-    actor: ['Actor Runtime', '长时会话 · 唤醒 · 恢复'],
+    actor: ['Conversations', '主 Agent 循环 · 工具 · 恢复'],
     brain: ['Brain', '世界模型 · 召回 · Dreaming'],
     jobs: ['后台 Agent 任务', '非阻塞 · 可恢复 · 可通信'],
-    fabric: 'RuntimeFabric · 实时控制，不保存事实',
-    workers: ['Agent Computer Worker 池 · 1…N', '主 Agent · 后台任务 · Automation Job · 工具 · Skills · 沙盒'],
+    fabric: 'RuntimeFabric · Phoenix Channels',
+    workers: ['Agent Computer Worker · 每个 Agent 一个', '环境工具 · Codex Job · Automation Job · Skills · 缓存盘'],
     postgres: ['PostgreSQL', '身份 · 会话 · 记忆 · 任务 · 审计'],
-    home: ['Agent Home', '文件 · 工作区 · 交付物'],
+    home: ['持久文件', 'Agent Home · 控制面云盘'],
     caption:
-      '控制面保存状态并决定工作应当怎样运行；Worker 提供实际计算环境。两者分开后，Agent 的工作不会和某个进程或某台机器绑定。'
+      '控制面保存状态并管理 WorkerPool。同池 Agent 使用独立电脑与 Home。空闲实例可以回收或暂停，替换后 Home 保留，缓存可以重建。'
   },
   'ja-JP': {
     title: 'Ankole システムアーキテクチャ',
     description:
-      '企業チャット、外部イベント、アイデンティティプロバイダー、Console、AI Provider がコントロールプレーンに接続します。コントロールプレーンは RuntimeFabric を通じて 1 台以上の Agent Computer Worker をスケジュールし、永続状態を PostgreSQL と Agent Home に保存します。',
+      '企業チャット、外部イベント、アイデンティティプロバイダー、Console、AI Provider がコントロールプレーンに接続します。設定した Worker pool から Agent ごとの専用コンピュータを必要時に作成します。Phoenix Channel はライブ制御を運び、PostgreSQL とファイルサービスは永続状態を保持します。',
     external: '企業と外部システム',
     control: 'コントロールプレーン · 1 つの論理管理境界',
-    execution: '実行層 · 1 台以上の Worker',
+    execution: '実行層 · Agent ごとに 1 つの Worker',
     data: '永続化境界',
     channels: ['チャットチャネルと外部イベント', 'メッセージ · Webhook · 計画タスク'],
     operators: ['Console と API', 'オペレーター · 企業アプリ'],
@@ -95,26 +98,26 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     signals: ['SignalsGateway', 'シグナルルーティング · メッセージ送受信'],
     identity: ['主体と AuthZ', 'アイデンティティ · 権限 · 設定 · プラグイン'],
     ai: ['AIGateway', 'モデル選択 · セッション · 認証情報'],
-    actor: ['Actor Runtime', '長時間セッション · 起床 · 復旧'],
+    actor: ['Conversations', 'メイン会話ループ · ツール · 復旧'],
     brain: ['Brain', 'ワールドモデル · 想起 · Dreaming'],
     jobs: ['バックグラウンド Agent タスク', 'ノンブロッキング · 再開可能 · 通信可能'],
-    fabric: 'RuntimeFabric · リアルタイム制御、事実は保存しない',
+    fabric: 'RuntimeFabric · Phoenix Channels',
     workers: [
-      'Agent Computer Worker プール · 1…N',
-      'メイン Agent · バックグラウンドタスク · Automation Job · ツール · Skills · サンドボックス'
+      'Agent Computer Worker · Agent ごとに 1 つ',
+      '環境ツール · Codex Job · Automation Job · Skills · キャッシュディスク'
     ],
     postgres: ['PostgreSQL', 'アイデンティティ · セッション · メモリ · タスク · 監査'],
-    home: ['Agent Home', 'ファイル · ワークスペース · 納品物'],
+    home: ['永続ファイル', 'Agent Home · コントロールプレーンのドライブ'],
     caption:
-      'コントロールプレーンは状態を保存し、作業の進め方を決定します。Worker は実際の計算環境を提供します。両者を分離することで、Agent の作業は特定のプロセスやマシンに依存しなくなります。'
+      'コントロールプレーンは状態を保存し、Worker pool を管理します。同じ pool の Agent もコンピュータと Home は専用です。アイドル時は解放または休止できます。置換後も Home は残り、キャッシュは再構築できます。'
   },
   'ko-KR': {
     title: 'Ankole 시스템 아키텍처',
     description:
-      '엔터프라이즈 채널, 외부 이벤트, identity provider, Console, AI Provider가 control plane에 연결됩니다. control plane은 RuntimeFabric을 통해 하나 이상의 Agent Computer Worker를 스케줄링하고, durable 상태를 PostgreSQL과 Agent Home에 저장합니다.',
+      '엔터프라이즈 채널, 외부 이벤트, identity provider, Console, AI Provider가 control plane에 연결됩니다. 설정한 Worker pool에서 Agent마다 전용 컴퓨터를 필요할 때 만듭니다. Phoenix Channel은 실시간 제어를 전달하고 PostgreSQL과 파일 서비스는 영구 상태를 보관합니다.',
     external: '엔터프라이즈 및 외부 시스템',
     control: 'Control plane · 하나의 논리적 관리 경계',
-    execution: '실행 계층 · 하나 이상의 Worker',
+    execution: '실행 계층 · Agent마다 하나의 Worker',
     data: '영속화 경계',
     channels: ['채팅 채널 및 외부 이벤트', '메시지 · Webhook · 일정 작업'],
     operators: ['Console 및 API', '운영자 · 엔터프라이즈 앱'],
@@ -123,18 +126,18 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     signals: ['SignalsGateway', '시그널 라우팅 · 메시지 송수신'],
     identity: ['Principal 및 AuthZ', '아이덴티티 · 권한 · 설정 · 플러그인'],
     ai: ['AIGateway', '모델 선택 · 세션 · 자격 증명'],
-    actor: ['Actor Runtime', '장기 세션 · 기상 · 복구'],
+    actor: ['Conversations', '메인 대화 루프 · 도구 · 복구'],
     brain: ['Brain', '월드 모델 · 회상 · Dreaming'],
     jobs: ['백그라운드 Agent 작업', '비차단 · 재개 가능 · 상호작용 가능'],
-    fabric: 'RuntimeFabric · 실시간 제어, 사실은 저장하지 않음',
+    fabric: 'RuntimeFabric · Phoenix Channels',
     workers: [
-      'Agent Computer Worker 풀 · 1…N',
-      '메인 Agent · 백그라운드 작업 · Automation Job · 툴 · Skills · 샌드박스'
+      'Agent Computer Worker · Agent마다 하나',
+      '환경 도구 · Codex Job · Automation Job · Skills · 캐시 디스크'
     ],
     postgres: ['PostgreSQL', '아이덴티티 · 세션 · 메모리 · 작업 · 감사'],
-    home: ['Agent Home', '파일 · 워크스페이스 · 산출물'],
+    home: ['영속 파일', 'Agent Home · control plane 드라이브'],
     caption:
-      'control plane은 상태를 저장하고 작업이 실행되는 방식을 결정합니다. Worker는 실제 컴퓨팅 환경을 제공합니다. 이 둘을 분리함으로써 Agent의 작업은 특정 프로세스나 머신에 의존하지 않게 됩니다.'
+      'control plane은 상태를 저장하고 Worker pool을 관리합니다. 같은 pool의 Agent도 전용 컴퓨터와 Home을 가집니다. 유휴 시 해제하거나 일시 중지할 수 있습니다. 교체 후에도 Home은 유지되며 캐시는 재구축할 수 있습니다.'
   }
 }
 

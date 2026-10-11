@@ -21,9 +21,6 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   @fallback_chars 3_000
 
   @impl Ankole.SignalsGateway.ReplyPreviewAdapter
-  def open(%Request{} = request), do: deliver(request)
-
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
   def update(%Request{} = request), do: deliver(request)
 
   @impl Ankole.SignalsGateway.ReplyPreviewAdapter

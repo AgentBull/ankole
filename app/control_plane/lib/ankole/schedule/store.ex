@@ -8,22 +8,6 @@ defmodule Ankole.Schedule.Store do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
-  @spec insert_event_and_wake_in_tx(module(), map(), keyword()) ::
-          {:ok, %{status: :scheduled, scheduled_event: ScheduledEvent.t()}}
-          | {:error, term()}
-  def insert_event_and_wake_in_tx(repo, attrs, opts) do
-    changeset = ScheduledEvent.changeset(%ScheduledEvent{}, attrs)
-
-    with {:ok, event} <- repo.insert(changeset),
-         {:ok, job} <- insert_wake_job(event, opts),
-         {:ok, event} <-
-           event
-           |> ScheduledEvent.changeset(%{oban_job_id: job.id})
-           |> repo.update() do
-      {:ok, %{status: :scheduled, scheduled_event: event}}
-    end
-  end
-
   @spec insert_idempotent_event_and_wake_in_tx(module(), map(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
@@ -37,35 +21,16 @@ defmodule Ankole.Schedule.Store do
              returning: true
            ),
          {:ok, persisted} <- fetch_event_by_idempotency(repo, attrs) do
-      case attempted.id == persisted.id and is_nil(persisted.oban_job_id) do
+      case attempted.id == persisted.id do
         true ->
-          with {:ok, job} <- insert_wake_job(persisted, opts),
-               {:ok, event} <-
-                 persisted
-                 |> ScheduledEvent.changeset(%{oban_job_id: job.id})
-                 |> repo.update() do
-            {:ok, %{status: :scheduled, scheduled_event: event}}
+          with {:ok, _job} <- insert_wake_job(persisted, opts) do
+            {:ok, %{status: :scheduled, scheduled_event: persisted}}
           end
 
         false ->
           {:ok, %{status: :already_scheduled, scheduled_event: persisted}}
       end
     end
-  end
-
-  @spec lock_live_recurring_cron_events(module(), Ecto.UUID.t()) :: [ScheduledEvent.t()]
-  def lock_live_recurring_cron_events(repo, cron_schedule_id) do
-    ScheduledEvent
-    |> where([event], event.kind == "cron_fire")
-    |> where([event], event.cron_schedule_id == ^cron_schedule_id)
-    |> where([event], event.status in ["scheduled", "firing"])
-    |> where(
-      [event],
-      fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", event.wake_payload)
-    )
-    |> order_by([event], asc: event.id)
-    |> lock("FOR UPDATE")
-    |> repo.all()
   end
 
   @spec cancel_pending_cron_events(module(), CronSchedule.t(), DateTime.t()) ::
@@ -155,9 +120,8 @@ defmodule Ankole.Schedule.Store do
   @doc """
   Counts the recurrence's consumed due slots.
 
-  A slot is consumed when its scheduled fire was claimed, whatever happened
-  next: `firing`, `fired`, and `failed` rows all count once, while retries of
-  one slot reuse its row and never count again. Manually requested fires are
+  A slot is consumed by a `fired` or `failed` history row. Oban retries
+  do not write intermediate rows, so one slot counts once. Manually requested fires are
   outside the recurrence and do not count. This is what an occurrence `count`
   bound measures.
   """
@@ -166,7 +130,7 @@ defmodule Ankole.Schedule.Store do
     ScheduledEvent
     |> where([event], event.kind == "cron_fire")
     |> where([event], event.cron_schedule_id == ^cron_schedule_id)
-    |> where([event], event.status in ["firing", "fired", "failed"])
+    |> where([event], event.status in ["fired", "failed"])
     |> where(
       [event],
       fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", event.wake_payload)
@@ -179,8 +143,8 @@ defmodule Ankole.Schedule.Store do
     "cron:#{cron_schedule_id}:#{DateTime.to_iso8601(slot_at)}"
   end
 
-  @spec cron_arm_idempotency_key(Ecto.UUID.t(), DateTime.t()) :: String.t()
-  def cron_arm_idempotency_key(cron_schedule_id, %DateTime{} = slot_at) do
+  @spec cron_fire_idempotency_key(Ecto.UUID.t(), DateTime.t()) :: String.t()
+  def cron_fire_idempotency_key(cron_schedule_id, %DateTime{} = slot_at) do
     "cron-arm:#{cron_schedule_id}:#{DateTime.to_iso8601(slot_at)}:#{Ecto.UUID.generate()}"
   end
 
@@ -198,13 +162,6 @@ defmodule Ankole.Schedule.Store do
   end
 
   defp scheduled_event_job_changeset(event_id, due_at) do
-    FireScheduledEvent.new(%{"scheduled_event_id" => event_id},
-      scheduled_at: due_at,
-      unique: [
-        fields: [:worker, :args],
-        keys: [:scheduled_event_id],
-        states: :incomplete
-      ]
-    )
+    FireScheduledEvent.new(%{"scheduled_event_id" => event_id}, scheduled_at: due_at)
   end
 end

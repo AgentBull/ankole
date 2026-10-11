@@ -4,12 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import {
-  protocolVersionLabel,
-  releaseRevisionLabel,
-  renderRuntimePairHelmValues,
-  runtimeImagePairStatus
-} from './runtime-image-pair'
+import { protocolVersionLabel, releaseRevisionLabel, runtimeImagePairStatus } from './runtime-image-pair'
 
 const revision = 'a'.repeat(40)
 const protocolVersion = '17'
@@ -87,30 +82,11 @@ describe('runtime image pair rollout gate', () => {
     ).toThrow(/linux\/arm64 image is missing/)
   })
 
-  test('renders digest-pinned values for the two ordered Helm phases', () => {
-    const status = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
-    if (!status.ready) throw new Error('fixture pair must be ready')
-
-    const controlPlaneValues = renderRuntimePairHelmValues(status.pair, 'control-plane')
-    const workerValues = renderRuntimePairHelmValues(status.pair, 'worker')
-
-    expect(controlPlaneValues).toContain(`releaseRevision: "${revision}"`)
-    expect(controlPlaneValues).toContain(`protocolVersion: "${protocolVersion}"`)
-    expect(controlPlaneValues).toContain('rolloutPhase: "control-plane"')
-    expect(controlPlaneValues).toContain(`control-plane@sha256:${'1'.repeat(64)}`)
-    expect(workerValues).toContain('rolloutPhase: "worker"')
-    expect(workerValues).toContain(`worker@sha256:${'2'.repeat(64)}`)
-    expect(controlPlaneValues).not.toContain('main-latest')
-  })
-
-  test('runs the workflow CLI and writes the complete deployment artifact', async () => {
+  test('runs the workflow CLI against the matching image labels', async () => {
     const outputRoot = mkdtempSync(join(tmpdir(), 'ankole-runtime-pair-'))
     const entrypoint = fileURLToPath(new URL('./runtime-image-pair.ts', import.meta.url))
     const controlPlaneMetadata = join(outputRoot, 'control-plane.json')
     const workerMetadata = join(outputRoot, 'worker.json')
-    const pairOutput = join(outputRoot, 'pair', 'runtime-image-pair.json')
-    const controlPlaneValuesOutput = join(outputRoot, 'pair', 'control-plane.values.yaml')
-    const workerValuesOutput = join(outputRoot, 'pair', 'worker.values.yaml')
 
     try {
       writeFileSync(controlPlaneMetadata, JSON.stringify(controlPlane.metadata))
@@ -132,24 +108,12 @@ describe('runtime image pair rollout gate', () => {
           '--worker-ref',
           worker.ref,
           '--worker-metadata',
-          workerMetadata,
-          '--pair-output',
-          pairOutput,
-          '--control-plane-values-output',
-          controlPlaneValuesOutput,
-          '--worker-values-output',
-          workerValuesOutput
+          workerMetadata
         ],
         { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' }
       )
 
       expect(result.exitCode).toBe(0)
-      expect(await Bun.file(pairOutput).json()).toMatchObject({
-        revision,
-        runtime_fabric_protocol_version: protocolVersion
-      })
-      expect(await Bun.file(controlPlaneValuesOutput).text()).toContain('rolloutPhase: "control-plane"')
-      expect(await Bun.file(workerValuesOutput).text()).toContain('rolloutPhase: "worker"')
     } finally {
       rmSync(outputRoot, { recursive: true, force: true })
     }

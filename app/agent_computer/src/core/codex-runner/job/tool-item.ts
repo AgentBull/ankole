@@ -1,6 +1,5 @@
 import { jsonObject, type JsonObject } from '@agentbull/active-support'
 import { compareCodePointStrings } from '../../../common/ordering'
-import { stringValue } from '../../llm/parse'
 import { normalizedCollaborationToolName } from '../protocol'
 
 export type ToolIdentity = {
@@ -137,4 +136,8 @@ export function compareToolIdentity(left: ToolIdentity, right: ToolIdentity): nu
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }

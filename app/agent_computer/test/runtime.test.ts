@@ -1,4 +1,5 @@
-import { create, toBinary, toJson as toJSON } from '@bufbuild/protobuf'
+import { HostedTool } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
+import { create, fromBinary, toBinary, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import {
   existsSync,
@@ -7,64 +8,56 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync
 } from 'node:fs'
-import { runtimeFabricSealEnvelope } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  createFileLaneState,
-  FileTransferError,
-  handleWorkerFileDelete,
-  handleWorkerFileList,
-  handleWorkerFileMove,
-  handleWorkerFilePull,
-  handleWorkerFilePush
-} from '../src/lanes/file'
+import { FileTransferError } from '../src/lanes/file/errors'
+import { pullFile, pushBundle, pushFile } from '../src/lanes/file/relay'
 import {
   ActorEventEnvelopeSchema,
+  EnvelopeSchema,
+  MailboxUpdatedSchema,
+  TurnStartSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
+import {
   createEnvelope,
   decodeEnvelope,
-  DurabilityClass,
   encodeEnvelope,
+  ProtocolVersion,
   envelopeHeader,
-  EnvelopeSchema,
-  jsonBytes,
   jsonObjectFromBytes,
-  Lane,
-  MailboxUpdatedSchema,
   RPCRequestSchema,
   RPCResponseSchema,
-  TurnStartSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
+import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 import { parseRuntimeFabricEndpoint } from '../src/worker/config'
-import { workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/worker/lifecycle_messages'
+import { Slots } from '../src/worker/lifecycle_messages'
 import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { controlShutdownEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
-import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
-import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
+import { prepareTurnWorkspace } from '../src/worker/workspace'
+import { jobTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active_turns'
 import { WorkerDrainState } from '../src/worker/drain'
 import type { BrowserRuntime } from '../src/browser-runtime'
 import {
   ActorTurnAbortResponseSchema,
+  ActorTurnAbortRequestSchema,
   WorkerFileTransferRequestSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { turnFailureDetails } from '../src/worker/turn_failure'
 import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
-import { RPCRejectedError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
+import { RPCRejectedError, RPCTimeoutError, RuntimeRPCClient } from '../src/lanes/rpc_lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
-// Runs the same seal the dealer send path applies, so assertions read the
-// header the control plane receives, not the partial header the host built.
+// Writes the version that the sending host supplies on the wire.
 function sealed(envelope: Envelope): Envelope {
-  return decodeEnvelope(runtimeFabricSealEnvelope(encodeEnvelope(envelope)))
+  return decodeEnvelope(encodeEnvelope({ ...envelope, protocolVersion: ProtocolVersion.CURRENT }))
 }
 
 describe('@ankole/agent-computer runtime', () => {
@@ -78,24 +71,24 @@ describe('@ankole/agent-computer runtime', () => {
       const drain = new WorkerDrainState()
       if (reason === 'draining') drain.begin('sigterm')
       const active = new ActiveTurns(
-        { ...workerConfig(), maxConcurrentTurns: 0 },
+        { ...workerConfig(), maxConcurrentSlots: 0 },
         {} as BrowserRuntime,
         send,
         rpc,
-        drain
+        drain,
+        new Slots({ ...workerConfig(), maxConcurrentSlots: 0 }, drain, send)
       )
       const envelope = createEnvelope({
         ...envelopeHeader('turn-start-rejected'),
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
-            workspaceId: 10_000n,
-            turn: actorTurnRefToProto(actorTurnRef()),
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto(jobTurnRef()),
             actorEvent: create(ActorEventEnvelopeSchema, {
-              actorEventId: actorTurnRef().actor_event_id,
-              queueSequence: 1n,
-              type: 'im.message.addressed',
-              sourceEventId: 'source-1'
+              actorEventId: jobTurnRef().actor_event_id,
+              type: 'im.message.addressed'
             })
           })
         }
@@ -116,92 +109,137 @@ describe('@ankole/agent-computer runtime', () => {
     })
   }
 
-  it('parses a credential-free RuntimeFabric endpoint and selects the transport', () => {
-    expect(parseRuntimeFabricEndpoint('ws://127.0.0.1:4000/runtime-fabric/worker/')).toEqual({
-      transport: 'channel',
-      endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker'
-    })
-    expect(parseRuntimeFabricEndpoint('wss://ankole.example.com/runtime-fabric/worker')).toEqual({
-      transport: 'channel',
-      endpoint: 'wss://ankole.example.com/runtime-fabric/worker'
-    })
-    expect(parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toEqual({
-      transport: 'zmq',
-      endpoint: 'tcp://127.0.0.1:6010'
-    })
+  it('parses a credential-free Worker Channel endpoint', () => {
+    expect(parseRuntimeFabricEndpoint('ws://127.0.0.1:4000/runtime-fabric/worker/')).toBe(
+      'ws://127.0.0.1:4000/runtime-fabric/worker'
+    )
+    expect(parseRuntimeFabricEndpoint('wss://ankole.example.com/runtime-fabric/worker')).toBe(
+      'wss://ankole.example.com/runtime-fabric/worker'
+    )
     expect(() => parseRuntimeFabricEndpoint('ws://:secret@127.0.0.1:4000/runtime-fabric/worker')).toThrow(/credentials/)
     expect(() => parseRuntimeFabricEndpoint('ws://127.0.0.1:4000')).toThrow(/path/)
     expect(() => parseRuntimeFabricEndpoint('ws://127.0.0.1:4000/runtime-fabric/worker?token=x')).toThrow(/path/)
-    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010/path')).toThrow(/tcp:\/\/host:port/)
-    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1')).toThrow(/tcp:\/\/host:port/)
-    expect(() => parseRuntimeFabricEndpoint('http://127.0.0.1:4000/x')).toThrow(/tcp:\/\/host:port, ws/)
+    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toThrow(/ws:\/\/host:port\/path/)
+    expect(() => parseRuntimeFabricEndpoint('http://127.0.0.1:4000/x')).toThrow(/ws:\/\/host:port\/path/)
   })
 
-  it('emits worker.ready without actor authority fields', () => {
-    const config = workerConfig()
-    const ready = workerReadyEnvelope(config)
-    const heartbeat = workerHeartbeatEnvelope(config, 123)
-    const capacity = workerCapacityEnvelope(config)
-
-    expect(ready.body.case).toBe('workerReady')
-    expect(heartbeat.body.case).toBe('workerHeartbeat')
-    expect(capacity.body.case).toBe('workerCapacity')
-    expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
-    expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
-    expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
-    const readyJSON = JSON.stringify(toJSON(EnvelopeSchema, ready))
-    expect(readyJSON).not.toContain('agentUid')
-    expect(readyJSON).not.toContain('actorEpoch')
-    if (ready.body.case !== 'workerReady') throw new Error('expected workerReady body')
-    expect(ready.body.value.maxTurns).toBe(9)
-    expect(ready.body.value.availableTurnSlots).toBe(9)
-    if (heartbeat.body.case !== 'workerHeartbeat') throw new Error('expected workerHeartbeat body')
-    expect(heartbeat.body.value).toMatchObject({
-      activeTurns: 0,
-      availableTurnSlots: 9,
-      maxTurns: 9,
-      runtime: 'bun',
-      version: '0.1.0'
+  it('includes an occupied workspace slot in a Job capacity rejection', async () => {
+    const sent: Envelope[] = []
+    const send = async (envelope: Envelope) => {
+      sent.push(envelope)
+    }
+    const rpc = new RuntimeRPCClient(send)
+    const config = { ...workerConfig(), maxConcurrentSlots: 1 }
+    const drain = new WorkerDrainState()
+    const slots = new Slots(config, drain, send)
+    expect(slots.reserve()).toBe(true)
+    const active = new ActiveTurns(config, {} as BrowserRuntime, send, rpc, drain, slots)
+    await active.start(
+      createEnvelope({
+        ...envelopeHeader('occupied-workspace'),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto(jobTurnRef()),
+            actorEvent: create(ActorEventEnvelopeSchema, {
+              actorEventId: jobTurnRef().actor_event_id,
+              type: 'im.message.addressed'
+            })
+          })
+        }
+      })
+    )
+    expect(active.size).toBe(0)
+    expect(slots.used()).toBe(1)
+    const request = sent[0]!.body
+    if (request.case !== 'rpcRequest') throw new Error('expected abort RPC')
+    const abort = fromBinary(ActorTurnAbortRequestSchema, request.value.payload)
+    expect(abort.code).toBe('worker_busy')
+    expect(jsonObjectFromBytes(abort.detailsJson, 'busy details')).toMatchObject({
+      retryable: true,
+      active_slots: 1,
+      max_slots: 1
     })
-    if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
-    expect(capacity.body.value.maxTurns).toBe(9)
-    expect(capacity.body.value.activeTurns).toBe(0)
-    expect(capacity.body.value.availableTurnSlots).toBe(9)
-    expect(sealed(ready).lane).toBe(Lane.CONTROL)
-    expect(sealed(heartbeat).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
-    expect(sealed(capacity).lane).toBe(Lane.CONTROL)
+    rpc.resolve(
+      create(RPCResponseSchema, {
+        requestId: request.value.requestId,
+        payload: toBinary(ActorTurnAbortResponseSchema, create(ActorTurnAbortResponseSchema))
+      })
+    )
+    await Bun.sleep(0)
+    expect(drain.activeTaskCount).toBe(0)
   })
 
-  it('reports available capacity from configured concurrent turn slots', () => {
-    const config = { ...workerConfig(), maxConcurrentTurns: 3 }
-    const capacity = workerCapacityEnvelope(config, 1, 2)
+  it('reserves one shared slot and releases it for the next owner', () => {
+    const slots = new Slots({ ...workerConfig(), maxConcurrentSlots: 1 }, new WorkerDrainState(), async () => {})
+    expect(slots.available()).toBe(1)
+    expect(slots.reserve()).toBe(true)
+    expect(slots.used()).toBe(1)
+    expect(slots.available()).toBe(0)
+    expect(slots.reserve()).toBe(false)
+    slots.release()
+    expect(slots.available()).toBe(1)
+    expect(slots.reserve()).toBe(true)
+  })
 
-    if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
-    expect(capacity.body.value.maxTurns).toBe(3)
-    expect(capacity.body.value.activeTurns).toBe(2)
-    expect(capacity.body.value.availableTurnSlots).toBe(1)
+  it('reports liveness, load, and capacity in one heartbeat', () => {
+    const drain = new WorkerDrainState()
+    for (let i = 0; i < 4; i++) drain.track(new Promise<void>(() => {}))
+    const slots = new Slots({ ...workerConfig(), maxConcurrentSlots: 3 }, drain, async () => {})
+    slots.reserve()
+    slots.reserve()
+    const heartbeat = sealed(slots.heartbeat())
+    expect(heartbeat.protocolVersion).toBe(ProtocolVersion.CURRENT)
+    if (heartbeat.body.case !== 'workerHeartbeat') throw new Error('expected heartbeat')
+    expect(heartbeat.body.value).toMatchObject({
+      incarnationId: 'incarnation-a',
+      maxSlots: 3,
+      activeSlots: 2,
+      availableSlots: 1,
+      activeTasks: 4,
+      idleForMs: 0n
+    })
+    const wire = toJSON(EnvelopeSchema, heartbeat)
+    expect(wire).not.toHaveProperty('workerId')
   })
 
   it('classifies exhausted BackgroundAgentJob Turn persistence as retryable worker infrastructure failure', () => {
     const failure = new BackgroundAgentJobTurnPersistenceError(
       new RPCRejectedError('checkpoint rejected', {
         code: 'rpc_handler_failed',
-        details: { failure_id: 'failure-1', retryable: true }
+        retryable: true,
+        details: { failure_id: 'failure-1' }
       })
     )
     const details = turnFailureDetails(failure)
 
-    expect(details).toMatchObject({
+    expect(details).toEqual({
+      runtime: 'bun',
       error_code: 'background_agent_job_turn_persistence_failed',
-      retryable: true,
-      aigateway: {
-        code: 'background_agent_job_turn_persistence_failed',
-        details_json: {
-          retryable: true,
-          rpc_code: 'rpc_handler_failed',
-          rpc_details: { failure_id: 'failure-1', retryable: true }
-        }
-      }
+      retryable: true
+    })
+  })
+
+  it('retries a lost control-plane connection and fails an unexpected error loudly', () => {
+    expect(turnFailureDetails(new RuntimeFabricTransportError('socket_closed', 'closed'))).toMatchObject({
+      retryable: true
+    })
+    expect(turnFailureDetails(new RuntimeFabricTransportError('rejected', 'rejected'))).toMatchObject({
+      retryable: false
+    })
+    expect(turnFailureDetails(new RuntimeFabricTransportError('timeout', 'push timeout'))).toMatchObject({
+      error_code: 'runtime_fabric_timeout',
+      retryable: true
+    })
+    expect(turnFailureDetails(new RPCTimeoutError('worker_env.resolve'))).toMatchObject({
+      error_code: 'runtime_rpc_timeout',
+      retryable: true
+    })
+    expect(turnFailureDetails(new Error('ECONNRESET while reading'))).toEqual({
+      runtime: 'bun',
+      retryable: false
     })
   })
 
@@ -214,15 +252,11 @@ describe('@ankole/agent-computer runtime', () => {
       details: { retry_at: '2026-07-29T08:15:00.000Z' }
     })
 
-    expect(details).toMatchObject({
+    expect(details).toEqual({
+      runtime: 'bun',
       error_code: 'credential_pool_exhausted',
       retryable: true,
-      retry_at: '2026-07-29T08:15:00.000Z',
-      aigateway: {
-        code: 'credential_pool_exhausted',
-        status: 429,
-        details_json: { retry_at: '2026-07-29T08:15:00.000Z' }
-      }
+      retry_at: '2026-07-29T08:15:00.000Z'
     })
   })
 
@@ -233,57 +267,33 @@ describe('@ankole/agent-computer runtime', () => {
       status: 429
     })
 
-    expect(details).toMatchObject({
-      llm_error_kind: 'quota',
+    expect(details).toEqual({
+      runtime: 'bun',
       error_code: 'agent_token_quota_exceeded',
-      retryable: false,
-      aigateway: { code: 'agent_token_quota_exceeded', status: 429 }
+      retryable: false
     })
   })
 
-  it('emits worker progress as an ephemeral progress-lane keepalive', () => {
-    const turn = actorTurnRef()
-    const envelope = workerProgressEnvelope(turn, 'checkpoint', 'turn in progress', 'turn-start-1', {
-      stage: 'llm'
+  it('keeps an accepted Job attempt alive with only its fence', () => {
+    const envelope = sealed(workerProgressEnvelope(jobTurnRef()))
+    if (envelope.body.case !== 'workerProgress') throw new Error('expected workerProgress')
+    expect(envelope.body.value.turn).toMatchObject({
+      jobId: 1000n,
+      attempt: 1,
+      actorEventId: jobTurnRef().actor_event_id
     })
-
-    expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
-    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
-    expect(envelope.correlationId).toBe('turn-start-1')
-    if (envelope.body.case !== 'workerProgress') throw new Error('expected workerProgress body')
-    expect(envelope.body.value).toMatchObject({
-      kind: 'checkpoint',
-      summary: 'turn in progress'
-    })
-    expect(envelope.body.value.turn).toMatchObject({ actorEventId: turn.actor_event_id })
-    expect(jsonObjectFromBytes(envelope.body.value.refsJson, 'refs_json')).toEqual({ stage: 'llm' })
-  })
-
-  it('encodes renderer-safe reply presentation progress for the control plane', () => {
-    const turn = actorTurnRef()
-    const envelope = workerProgressEnvelope(turn, 'reply_presentation', 'reply presentation updated', 'turn-start-1', {
-      presentation_event: {
-        kind: 'plan.snapshot',
-        payload: { operation_id: 'todo', revision: 1 }
-      }
-    })
-
-    expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
-    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
   })
 
   it('reports process drain as ephemeral control traffic', () => {
     const envelope = controlShutdownEnvelope('sigterm')
 
-    expect(sealed(envelope).lane).toBe(Lane.CONTROL)
-    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
     if (envelope.body.case !== 'controlShutdown') throw new Error('expected controlShutdown body')
     expect(envelope.body.value.reason).toBe('sigterm')
   })
 
   it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
     const sent: unknown[] = []
-    const active = new ActiveTurn({ turn: actorTurnRef() } as TurnStart, 'turn-start-1')
+    const active = new ActiveTurn({ turn: jobTurnRef() } as unknown as TurnStart)
     const reporter = startTurnProgress(
       async envelope => {
         sent.push(envelope)
@@ -300,99 +310,28 @@ describe('@ankole/agent-computer runtime', () => {
     expect(sent).toHaveLength(stoppedAt)
   })
 
-  it('wakes foreground observation without consuming the queued steer update', async () => {
-    const turn = actorTurnRef()
-    const active = new ActiveTurn({ turn } as TurnStart, 'turn-start-steering')
+  it('queues a steer update until Codex polls it', () => {
+    const turn = jobTurnRef()
+    const active = new ActiveTurn({ turn } as unknown as TurnStart)
 
-    const waiting = active.waitForSteering()
     active.pushSteering({
-      turn: { ...turn, revision: turn.revision + 1 },
       actorEvent: {
         actor_event_id: '00000000-0000-0000-0000-000000000102',
-        queue_sequence: 2,
-        type: 'command.steer',
-        source_event_id: 'steer-source'
+        type: 'command.steer'
       }
     })
 
-    await waiting
-    await expect(active.waitForSteering()).resolves.toBeUndefined()
     expect(active.pollSteering()).toHaveLength(1)
   })
 
-  it('prepares session workspace without projecting enabled skills', () => {
+  it('prepares the Job directory without allocating a Session workspace', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-'))
-    const actorEventID = '00000000-0000-0000-0000-000000000101'
-
     try {
       const config = workerConfigForRoot(root)
-      mkdirSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles, { recursive: true })
+      const workspaceRoot = prepareTurnWorkspace(config)
 
-      const workspaceRoot = prepareTurnWorkspace(config, {
-        workspace_id: 10_000,
-        turn: {
-          actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-          activation_uid: 'activation-1',
-          actor_epoch: 1,
-          actor_event_id: actorEventID,
-          revision: 0
-        },
-        actor_event: {
-          actor_event_id: actorEventID,
-          queue_sequence: 1,
-          type: 'im.message.addressed',
-          source_event_id: 'signal-entry-1',
-          payload_json: {}
-        },
-        model_ref: {
-          profile: 'primary',
-          provider_id: 'openrouter-main',
-          model: 'z-ai/glm-5.2'
-        }
-      })
-
-      expect(workspaceRoot).toBe(join(config.agentsRoot, 'agent-1', 'sessions', '10000'))
-      expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
-      expect(existsSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles)).toBe(true)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('moves the legacy Base64URL workspace into its numeric Session directory', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-migration-'))
-
-    try {
-      const config = workerConfigForRoot(root)
-      const actor = { agent_uid: 'agent-1', session_id: 'provider:chat/a' }
-      const legacyRoot = join(
-        agentHomePaths(config.agentsRoot, actor.agent_uid).sessions,
-        Buffer.from(actor.session_id, 'utf8').toString('base64url')
-      )
-      mkdirSync(legacyRoot, { recursive: true })
-      writeFileSync(join(legacyRoot, 'retained.txt'), 'keep me')
-
-      const workspaceRoot = prepareActorWorkspace(config, actor, 10_000)
-
-      expect(workspaceRoot).toBe(join(config.agentsRoot, 'agent-1', 'sessions', '10000'))
-      expect(readFileSync(join(workspaceRoot, 'retained.txt'), 'utf8')).toBe('keep me')
-      expect(existsSync(legacyRoot)).toBe(false)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('fails closed when both legacy and numeric Session directories exist', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-conflict-'))
-
-    try {
-      const config = workerConfigForRoot(root)
-      const actor = { agent_uid: 'agent-1', session_id: 'provider:chat/a' }
-      const sessions = agentHomePaths(config.agentsRoot, actor.agent_uid).sessions
-      mkdirSync(join(sessions, Buffer.from(actor.session_id, 'utf8').toString('base64url')), { recursive: true })
-      mkdirSync(join(sessions, '10000'), { recursive: true })
-
-      expect(() => prepareActorWorkspace(config, actor, 10_000)).toThrow('Session workspace migration conflict')
+      expect(workspaceRoot).toBe(join(config.agentHomeRoot, 'jobs'))
+      expect(existsSync(join(config.agentHomeRoot, 'sessions', '10000'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -406,8 +345,7 @@ describe('@ankole/agent-computer runtime', () => {
           body: {
             case: 'mailboxUpdated',
             value: create(MailboxUpdatedSchema, {
-              turn: actorTurnRefToProto(actorTurnRef()),
-              reason: 'command.steer'
+              turn: jobTurnRefToProto(jobTurnRef())
             })
           }
         })
@@ -423,12 +361,11 @@ describe('@ankole/agent-computer runtime', () => {
           body: {
             case: 'turnStart',
             value: create(TurnStartSchema, {
-              workspaceId: 10_000n,
+              mode: 'start',
+              fetchRuntimeConfig: { ssrfFilter: true },
               actorEvent: create(ActorEventEnvelopeSchema, {
                 actorEventId: '00000000-0000-0000-0000-000000000001',
-                queueSequence: 1n,
-                type: 'im.message.addressed',
-                sourceEventId: 'source-1'
+                type: 'im.message.addressed'
               })
             })
           }
@@ -444,13 +381,12 @@ describe('@ankole/agent-computer runtime', () => {
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
-            workspaceId: 10_000n,
-            turn: actorTurnRefToProto(actorTurnRef()),
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto(jobTurnRef()),
             actorEvent: create(ActorEventEnvelopeSchema, {
               actorEventId: '00000000-0000-0000-0000-000000000001',
-              queueSequence: 1n,
-              type: 'im.message.addressed',
-              sourceEventId: 'source-1'
+              type: 'im.message.addressed'
             }),
             runtimeEnv: { ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL: 'human-alice' }
           })
@@ -463,35 +399,28 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
-  it('accepts only supported hosted-tool declarations on turn_start', () => {
-    const hostedToolsEnvelope = (hostedTools: unknown): Envelope =>
+  it('projects the generated hosted-tool enum on turn_start', () => {
+    const hostedToolsEnvelope = (hostedTools: HostedTool[]): Envelope =>
       createEnvelope({
         ...envelopeHeader('turn-start-hosted-tools'),
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
-            workspaceId: 10_000n,
-            turn: actorTurnRefToProto(actorTurnRef()),
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto(jobTurnRef()),
             actorEvent: create(ActorEventEnvelopeSchema, {
               actorEventId: '00000000-0000-0000-0000-000000000001',
-              queueSequence: 1n,
-              type: 'im.message.addressed',
-              sourceEventId: 'source-1'
+              type: 'im.message.addressed'
             }),
-            hostedToolsJson: jsonBytes(hostedTools as never)
+            hostedTools
           })
         }
       })
 
     expect(
-      turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'image_generation' }, { type: 'web_search' }])).hosted_tools
-    ).toEqual([{ type: 'image_generation' }, { type: 'web_search' }])
-    expect(() => turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'computer_use' }]))).toThrow(
-      /must declare a supported hosted tool type/
-    )
-    expect(() => turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'function', name: 'untrusted' }]))).toThrow(
-      /must declare a supported hosted tool type/
-    )
+      turnStartFromEnvelope(hostedToolsEnvelope([HostedTool.IMAGE_GENERATION, HostedTool.WEB_SEARCH])).hosted_tools
+    ).toEqual([HostedTool.IMAGE_GENERATION, HostedTool.WEB_SEARCH])
   })
 
   it('rejects unknown control-plane-initiated worker RPC requests', async () => {
@@ -506,8 +435,6 @@ describe('@ankole/agent-computer runtime', () => {
     }, request)
 
     expect(sent).toHaveLength(1)
-    expect(sealed(sent[0]!).lane).toBe(Lane.RPC)
-    expect(sent[0]!.correlationId).toBe('worker-rpc-1')
     const body = sent[0]!.body
     if (body.case !== 'rpcError') throw new Error('expected rpcError body')
     expect(body.value).toMatchObject({
@@ -540,39 +467,33 @@ describe('@ankole/agent-computer runtime', () => {
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
   })
 
-  it('pulls a relay upload into a worker root through an atomic rename', async () => {
+  it('pulls a relay upload into the Agent Home through an atomic rename', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-pull-'))
     const config = workerConfigForRoot(root)
-    const state = createFileLaneState()
     const plainText = 'hello relay world'
     const relay = relayStub({ body: plainText })
 
     try {
-      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
-      mkdirSync(paths.userFiles, { recursive: true })
+      const paths = agentHomePaths(config.agentHomeRoot)
+      mkdirSync(join(paths.home, 'files'), { recursive: true })
 
-      const result = await handleWorkerFilePull(config, state, {
-        ...transferRequest(relay, 'transfer-1', 'user_files', 'agent-1/user-files/inbox/lark/message-1/hello.txt'),
+      const result = await pullFile(config, {
+        ...transferRequest(relay, 'transfer-1', 'files/inbox/lark/message-1/hello.txt'),
         maxBytes: 1024n
       })
 
-      expect(readFileSync(join(paths.userFiles, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
-      expect(result).toMatchObject({
-        root: 'user_files',
-        relativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
-        size: BigInt(Buffer.byteLength(plainText))
-      })
-      expect(result.xxh3128).toMatch(/^[a-f0-9]{32}$/)
+      expect(readFileSync(join(join(paths.home, 'files'), 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
+      expect(result).toEqual({ size: Buffer.byteLength(plainText) })
       expect(relay.requests).toEqual([{ method: 'GET', path: '/relay/transfer-1' }])
       expect(existsSync('/tmp/ankole-file-transfer/transfer-1')).toBe(false)
 
-      const document = await handleWorkerFilePull(config, state, {
-        ...transferRequest(relay, 'transfer-document', 'agent_home_documents', 'agent-1/SOUL.md'),
+      // A Worker serves one Agent: a path that leaves its Agent Home is refused.
+      const otherAgent = await pullFile(config, {
+        ...transferRequest(relay, 'transfer-other-agent', '../agent-2/files/hello.txt'),
         maxBytes: 1024n
-      })
-      expect(document.size).toBe(BigInt(Buffer.byteLength(plainText)))
-      expect(readFileSync(paths.soul, 'utf8')).toBe(plainText)
-      expect(statSync(paths.soul).mode & 0o222).toBe(0)
+      }).catch(caught => caught)
+      expect(otherAgent).toBeInstanceOf(Error)
+      expect(otherAgent.message).toContain('invalid home_relative_path')
     } finally {
       relay.stop()
       rmSync(root, { recursive: true, force: true })
@@ -582,27 +503,26 @@ describe('@ankole/agent-computer runtime', () => {
   it('rejects an oversize or failed relay pull without leaving a partial file', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-pull-bounds-'))
     const config = workerConfigForRoot(root)
-    const state = createFileLaneState()
     const relay = relayStub({ body: 'x'.repeat(64), status: 200 })
 
     try {
-      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
-      mkdirSync(paths.userFiles, { recursive: true })
-      const request = transferRequest(relay, 'transfer-big', 'user_files', 'agent-1/user-files/big.txt')
+      const paths = agentHomePaths(config.agentHomeRoot)
+      mkdirSync(join(paths.home, 'files'), { recursive: true })
+      const request = transferRequest(relay, 'transfer-big', 'files/big.txt')
 
-      const oversize = await handleWorkerFilePull(config, state, { ...request, maxBytes: 16n }).catch(caught => caught)
+      const oversize = await pullFile(config, { ...request, maxBytes: 16n }).catch(caught => caught)
       expect(oversize).toBeInstanceOf(FileTransferError)
       expect(oversize.code).toBe('file_too_large')
-      expect(existsSync(join(paths.userFiles, 'big.txt'))).toBe(false)
+      expect(existsSync(join(join(paths.home, 'files'), 'big.txt'))).toBe(false)
       expect(existsSync('/tmp/ankole-file-transfer/transfer-big')).toBe(false)
 
       relay.status = 410
-      const failed = await handleWorkerFilePull(config, state, { ...request, maxBytes: 1024n }).catch(caught => caught)
+      const failed = await pullFile(config, { ...request, maxBytes: 1024n }).catch(caught => caught)
       expect(failed.code).toBe('relay_failed')
       expect(failed.message).not.toContain('token')
-      expect(existsSync(join(paths.userFiles, 'big.txt'))).toBe(false)
+      expect(existsSync(join(join(paths.home, 'files'), 'big.txt'))).toBe(false)
 
-      const badTransfer = await handleWorkerFilePull(config, state, {
+      const badTransfer = await pullFile(config, {
         ...request,
         transferId: '../bad-transfer',
         maxBytes: 1024n
@@ -617,50 +537,44 @@ describe('@ankole/agent-computer runtime', () => {
   it('pushes a worker file to the relay and reports file identity errors', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-push-'))
     const config = workerConfigForRoot(root)
-    const state = createFileLaneState()
     const relay = relayStub({})
 
     try {
-      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
-      mkdirSync(join(paths.userFiles, 'inbox'), { recursive: true })
-      writeFileSync(join(paths.userFiles, 'inbox/hello.txt'), 'hello world')
+      const paths = agentHomePaths(config.agentHomeRoot)
+      mkdirSync(join(join(paths.home, 'files'), 'inbox'), { recursive: true })
+      writeFileSync(join(join(paths.home, 'files'), 'inbox/hello.txt'), 'hello world')
 
-      const result = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-1', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+      const result = await pushFile(config, {
+        ...transferRequest(relay, 'push-1', 'files/inbox/hello.txt'),
         maxBytes: 1024n
       })
-      expect(result).toMatchObject({
-        root: 'user_files',
-        relativePath: 'agent-1/user-files/inbox/hello.txt',
-        size: 11n
-      })
-      expect(result.xxh3128).toMatch(/^[a-f0-9]{32}$/)
+      expect(result).toEqual({ size: 11 })
       expect(relay.requests).toEqual([{ method: 'PUT', path: '/relay/push-1' }])
       expect(relay.received.get('/relay/push-1')?.toString('utf8')).toBe('hello world')
       expect(relay.receivedHeaders.get('/relay/push-1')?.get('content-length')).toBe('11')
 
-      const tooLarge = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-large', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+      const tooLarge = await pushFile(config, {
+        ...transferRequest(relay, 'push-large', 'files/inbox/hello.txt'),
         maxBytes: 4n
       }).catch(caught => caught)
       expect(tooLarge.code).toBe('file_too_large')
       expect(relay.requests).toHaveLength(1)
 
-      const missing = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-missing', 'user_files', 'agent-1/user-files/inbox/missing.txt'),
+      const missing = await pushFile(config, {
+        ...transferRequest(relay, 'push-missing', 'files/inbox/missing.txt'),
         maxBytes: 1024n
       }).catch(caught => caught)
       expect(missing.code).toBe('file_not_found')
 
-      const directory = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-directory', 'user_files', 'agent-1/user-files/inbox'),
+      const directory = await pushFile(config, {
+        ...transferRequest(relay, 'push-directory', 'files/inbox'),
         maxBytes: 1024n
       }).catch(caught => caught)
       expect(directory.code).toBe('not_regular_file')
 
       relay.status = 500
-      const rejected = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-rejected', 'user_files', 'agent-1/user-files/inbox/hello.txt'),
+      const rejected = await pushFile(config, {
+        ...transferRequest(relay, 'push-rejected', 'files/inbox/hello.txt'),
         maxBytes: 1024n
       }).catch(caught => caught)
       expect(rejected.code).toBe('relay_failed')
@@ -669,8 +583,8 @@ describe('@ankole/agent-computer runtime', () => {
       // The relay stub swaps the file while the PUT is in flight. The
       // replacement keeps the size and mtime, so only the inode check can
       // tell the control plane that the bytes it holds belong to another file.
-      const swappedPath = join(paths.userFiles, 'inbox/swapped.txt')
-      const replacementPath = join(paths.userFiles, 'inbox/replacement.txt')
+      const swappedPath = join(join(paths.home, 'files'), 'inbox/swapped.txt')
+      const replacementPath = join(join(paths.home, 'files'), 'inbox/replacement.txt')
       const sharedMtime = new Date(1_700_000_000_000)
       writeFileSync(swappedPath, 'original bytes')
       utimesSync(swappedPath, sharedMtime, sharedMtime)
@@ -679,8 +593,8 @@ describe('@ankole/agent-computer runtime', () => {
         utimesSync(replacementPath, sharedMtime, sharedMtime)
         renameSync(replacementPath, swappedPath)
       }
-      const swapped = await handleWorkerFilePush(config, state, {
-        ...transferRequest(relay, 'push-swapped', 'user_files', 'agent-1/user-files/inbox/swapped.txt'),
+      const swapped = await pushFile(config, {
+        ...transferRequest(relay, 'push-swapped', 'files/inbox/swapped.txt'),
         maxBytes: 1024n
       }).catch(caught => caught)
       expect(swapped.code).toBe('file_changed')
@@ -690,120 +604,74 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 
-  it('lists, moves, and deletes worker files through typed requests', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-ops-'))
+  it('pushes several worker files as one bundle in request order', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-bundle-'))
     const config = workerConfigForRoot(root)
-    const state = createFileLaneState()
+    const relay = relayStub({})
+    const entry = (path: string, content: string) => {
+      const name = Buffer.from(path)
+      const header = Buffer.alloc(12 + name.byteLength)
+      header.writeUInt32BE(name.byteLength, 0)
+      name.copy(header, 4)
+      header.writeBigUInt64BE(BigInt(Buffer.byteLength(content)), 4 + name.byteLength)
+      return Buffer.concat([header, Buffer.from(content)])
+    }
 
     try {
-      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
-      mkdirSync(join(userFilesRoot, 'inbox/lark/message-1'), { recursive: true })
-      writeFileSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'hello world')
+      const home = agentHomePaths(config.agentHomeRoot).home
+      mkdirSync(join(home, 'jobs', '7', 'sub'), { recursive: true })
+      writeFileSync(join(home, 'jobs', '7', 'a.txt'), 'alpha')
+      writeFileSync(join(home, 'jobs', '7', 'sub', 'empty.txt'), '')
+      const expected = Buffer.concat([entry('7/a.txt', 'alpha'), entry('7/sub/empty.txt', '')])
 
-      const listing = handleWorkerFileList(config, {
-        root: 'user_files',
-        relativePath: 'agent-1/user-files/inbox',
-        recursive: true,
-        maxEntries: 1000n
-      } as never)
-      expect(listing.relativePath).toBe('agent-1/user-files/inbox')
-      expect(listing.entries).toContainEqual(
-        expect.objectContaining({
-          relativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
-          kind: 'file',
-          size: 11n
-        })
-      )
+      const result = await pushBundle(config, {
+        ...transferRequest(relay, 'bundle-1', 'jobs'),
+        bundlePaths: ['7/a.txt', '7/sub/empty.txt']
+      })
+      expect(result).toEqual({ size: expected.length })
+      expect(relay.received.get('/relay/bundle-1')).toEqual(expected)
+      expect(relay.receivedHeaders.get('/relay/bundle-1')?.get('content-length')).toBe(String(expected.length))
 
-      const rootListing = handleWorkerFileList(config, {
-        root: 'user_files',
-        relativePath: 'agent-1/user-files',
-        recursive: false,
-        maxEntries: 1n
-      } as never)
-      expect(rootListing.truncated).toBe(false)
-      expect(rootListing.entries).toHaveLength(1)
+      const tooLarge = await pushBundle(config, {
+        ...transferRequest(relay, 'bundle-large', 'jobs'),
+        bundlePaths: ['7/a.txt', '7/sub/empty.txt'],
+        maxBytes: BigInt(expected.length - 1)
+      }).catch(caught => caught)
+      expect(tooLarge.code).toBe('file_too_large')
 
-      const moved = await handleWorkerFileMove(config, state, {
-        root: 'user_files',
-        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
-        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
-        overwrite: false
-      } as never)
-      expect(moved.toRelativePath).toBe('agent-1/user-files/inbox/lark/message-1/renamed.txt')
-      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'))).toBe(false)
-      expect(readFileSync(join(userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
-
-      writeFileSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'), 'old content')
-      const blocked = await handleWorkerFileMove(config, state, {
-        root: 'user_files',
-        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
-        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
-        overwrite: false
-      } as never).catch(caught => caught)
-      expect(blocked.message).toMatch(/already exists/)
-      await handleWorkerFileMove(config, state, {
-        root: 'user_files',
-        fromRelativePath: 'agent-1/user-files/inbox/lark/message-1/renamed.txt',
-        toRelativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
-        overwrite: true
-      } as never)
-      expect(readFileSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'), 'utf8')).toBe('hello world')
-
-      const directoryDelete = await handleWorkerFileDelete(config, state, {
-        root: 'user_files',
-        relativePath: 'agent-1/user-files/inbox',
-        recursive: false
-      } as never).catch(caught => caught)
-      expect(directoryDelete.message).toMatch(/recursive=true/)
-
-      const deleted = await handleWorkerFileDelete(config, state, {
-        root: 'user_files',
-        relativePath: 'agent-1/user-files/inbox/lark/message-1/target.txt',
-        recursive: false
-      } as never)
-      expect(deleted.relativePath).toBe('agent-1/user-files/inbox/lark/message-1/target.txt')
-      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/target.txt'))).toBe(false)
-
-      const sessionsRoot = agentHomePaths(config.agentsRoot, 'agent-1').sessions
-      mkdirSync(join(sessionsRoot, 'session-1'), { recursive: true })
-      writeFileSync(join(sessionsRoot, 'session-1/log.txt'), 'logs')
-      const sessions = handleWorkerFileList(config, {
-        root: 'agent_sessions',
-        relativePath: 'agent-1/sessions',
-        recursive: true,
-        maxEntries: 1000n
-      } as never)
-      expect(sessions.entries).toContainEqual(
-        expect.objectContaining({ relativePath: 'agent-1/sessions/session-1/log.txt', kind: 'file', size: 4n })
-      )
+      const escaping = await pushBundle(config, {
+        ...transferRequest(relay, 'bundle-escape', 'jobs'),
+        bundlePaths: ['7/../../../outside.txt']
+      }).catch(caught => caught)
+      expect(escaping).toBeInstanceOf(Error)
+      expect(relay.requests).toEqual([{ method: 'PUT', path: '/relay/bundle-1' }])
     } finally {
+      relay.stop()
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('rejects unsafe file lane roots, paths, and escaping symlinks', async () => {
+  it('rejects unsafe file lane paths and escaping symlinks', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-paths-'))
     const config = workerConfigForRoot(root)
-    const state = createFileLaneState()
 
     try {
-      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
-      mkdirSync(userFilesRoot, { recursive: true })
+      const notesRoot = join(agentHomePaths(config.agentHomeRoot).home, 'notes')
+      mkdirSync(notesRoot, { recursive: true })
       const outsidePath = join(root, 'outside.txt')
       writeFileSync(outsidePath, 'secret')
-      symlinkSync(outsidePath, join(userFilesRoot, 'escaped.txt'))
+      symlinkSync(outsidePath, join(notesRoot, 'escaped.txt'))
 
-      const deleteFor = (relativePath: string, fileRoot = 'user_files') =>
-        handleWorkerFileDelete(config, state, { root: fileRoot, relativePath, recursive: false } as never).catch(
-          caught => caught.message
+      const relay = relayStub({ body: '' })
+      const pushFor = (homeRelativePath: string) =>
+        pushFile(config, transferRequest(relay, 'push-unsafe', homeRelativePath)).catch(
+          (caught: Error) => caught.message
         )
 
-      expect(await deleteFor('/tmp/escape.txt')).toMatch(/relative_path must not be absolute/)
-      expect(await deleteFor('../escape.txt')).toMatch(/invalid relative_path/)
-      expect(await deleteFor('agent-1/user-files/a.txt', 'unsupported')).toMatch(/unsupported file root/)
-      expect(await deleteFor('agent-1/user-files/escaped.txt')).toMatch(/path resolves outside root/)
-      expect(await deleteFor('agent-1/other/a.txt')).toMatch(/does not match user_files layout/)
+      expect(await pushFor('/tmp/escape.txt')).toMatch(/home_relative_path must not be absolute/)
+      expect(await pushFor('../escape.txt')).toMatch(/invalid home_relative_path/)
+      expect(await pushFor('notes/escaped.txt')).toMatch(/path resolves outside the Agent Home/)
+      expect(await pushFor('notes')).toMatch(/not a regular file: notes/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -813,39 +681,38 @@ describe('@ankole/agent-computer runtime', () => {
 function workerConfig(): WorkerConfig {
   return {
     endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
-    transport: 'channel',
     workerAuthKey: 'secret',
-    workerID: 'worker-a',
+    workerID: 'agent-1',
     incarnationID: 'incarnation-a',
-    agentsRoot: '/agents',
+    agentHomeRoot: '/workspace',
     builtinSkillsRoot: '/repo/app/library',
-    maxConcurrentTurns: 9
+    browser: { daemonEntry: '/bin/true', runnerPath: '/bin/true', localChromiumExecutable: '/bin/true' },
+    maxConcurrentSlots: 9
   }
 }
 
-function actorTurnRef() {
+function jobTurnRef() {
   return {
     actor: {
       agent_uid: 'agent-1',
-      session_id: 'session-1'
+      session_id: 'job:1000'
     },
-    activation_uid: 'activation-1',
-    actor_epoch: 1,
-    actor_event_id: '00000000-0000-0000-0000-000000000101',
-    revision: 0
+    job_id: 1000,
+    attempt: 1,
+    actor_event_id: '00000000-0000-0000-0000-000000000101'
   }
 }
 
 function workerConfigForRoot(root: string): WorkerConfig {
   return {
     endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
-    transport: 'channel',
     workerAuthKey: 'secret',
-    workerID: 'worker-a',
+    workerID: 'agent-1',
     incarnationID: 'incarnation-a',
-    agentsRoot: join(root, 'agents'),
+    agentHomeRoot: join(root, 'workspace'),
     builtinSkillsRoot: join(root, 'builtin-skills'),
-    maxConcurrentTurns: 9
+    browser: { daemonEntry: '/bin/true', runnerPath: '/bin/true', localChromiumExecutable: '/bin/true' },
+    maxConcurrentSlots: 9
   }
 }
 
@@ -895,12 +762,11 @@ function relayStub(options: { body?: string; status?: number }): RelayStub {
   return stub
 }
 
-function transferRequest(relay: RelayStub, transferID: string, root: string, relativePath: string) {
+function transferRequest(relay: RelayStub, transferID: string, homeRelativePath: string) {
   return create(WorkerFileTransferRequestSchema, {
     transferId: transferID,
     url: `${relay.url}/relay/${transferID}?token=secret-token`,
-    root,
-    relativePath,
+    homeRelativePath,
     maxBytes: 1024n,
     expiresAt: '2099-01-01T00:00:00Z'
   })

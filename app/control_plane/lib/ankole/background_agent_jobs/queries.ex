@@ -20,6 +20,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   }
   @result_read_columns [
     :id,
+    :task,
     :agent_uid,
     :owner_session_id,
     :status,

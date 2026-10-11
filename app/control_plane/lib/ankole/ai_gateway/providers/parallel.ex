@@ -26,14 +26,12 @@ defmodule Ankole.AIGateway.Providers.Parallel do
     setting(:advanced_settings, type: :map, scope: :request)
 
     web_search do
-      upstream(:json)
       api_resolver(:parallel_web_search)
       prepare(:prepare_web_search)
       timeout_ms(@timeout_ms)
     end
 
     web_fetch do
-      upstream(:json)
       api_resolver(:parallel_web_fetch)
       prepare(:prepare_web_fetch)
       timeout_ms(@timeout_ms)

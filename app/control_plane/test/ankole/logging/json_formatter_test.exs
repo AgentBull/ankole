@@ -1,5 +1,7 @@
 defmodule Ankole.Logging.JSONFormatterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureLog
 
   alias Ankole.Logging.JSONFormatter
 
@@ -11,6 +13,39 @@ defmodule Ankole.Logging.JSONFormatterTest do
       "runtime" => "beam"
     }
   }
+
+  test "application startup attaches the Phoenix request log handler" do
+    assert Enum.any?(
+             :telemetry.list_handlers([:phoenix, :endpoint, :stop]),
+             &(&1.id == AnkoleWeb.RequestLogger)
+           )
+  end
+
+  test "attachment replaces a handler from an earlier application start" do
+    assert :ok = AnkoleWeb.RequestLogger.attach()
+    assert :ok = AnkoleWeb.RequestLogger.attach()
+
+    assert 1 ==
+             Enum.count(
+               :telemetry.list_handlers([:phoenix, :endpoint, :stop]),
+               &(&1.id == AnkoleWeb.RequestLogger)
+             )
+  end
+
+  test "a Phoenix endpoint request emits one completion log" do
+    log =
+      capture_log([format: "$metadata$message\n", metadata: [:event]], fn ->
+        conn = Phoenix.ConnTest.build_conn()
+
+        response =
+          Phoenix.ConnTest.dispatch(conn, AnkoleWeb.Endpoint, :get, "/api/v1/agents", nil)
+
+        assert response.status == 401
+      end)
+
+    assert length(Regex.scan(~r/event=http\.request\.completed/, log)) == 1
+    assert log =~ "http request completed"
+  end
 
   test "formats a structured JSON entry without level aliases" do
     entry =

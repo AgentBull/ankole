@@ -11,12 +11,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
   alias Ankole.AIAgent.Library
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Conversations.JobTurnRef
 
-  @spec handle_resolve(TurnRef.t(), FabricProto.SkillOverlayResolveRequest.t(), map()) ::
+  @spec handle_resolve(JobTurnRef.t(), FabricProto.SkillOverlayResolveRequest.t(), map()) ::
           {:ok, FabricProto.SkillOverlayResolveResponse.t()} | {:error, map()}
   def handle_resolve(
-        %TurnRef{} = turn_ref,
+        %JobTurnRef{} = turn_ref,
         %FabricProto.SkillOverlayResolveRequest{} = request,
         ctx
       ) do

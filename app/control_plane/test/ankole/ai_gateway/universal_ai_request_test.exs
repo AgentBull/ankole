@@ -116,7 +116,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     receiver = spawn_link(fn -> forward_stream_messages(test_pid) end)
 
     assert {:ok, stream} =
-             UniversalAIRequest.start_stream(stream_spec(url), :sse, receiver: receiver)
+             UniversalAIRequest.start_stream(stream_spec(url), receiver: receiver)
 
     assert stream.owner == receiver
     assert_receive :upstream_request_received, 1_000
@@ -126,7 +126,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
 
     assert_receive {:stream_message, {:universal_ai_client, ref, :ready, meta}}, 1_000
     assert ref == stream.ref
-    assert meta["downstream_kind"] == "sse"
+    refute Map.has_key?(meta, "downstream_kind")
 
     assert :ok = Ankole.Kernel.UniversalAIClient.cancel(stream)
     send(receiver, :stop)
@@ -161,8 +161,13 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
              "provider_body_excerpt" => ~s({"error":{"message":"slow down"}}),
              "provider_headers" => [["retry-after", "2"]]
            }) ==
-             {:upstream_response_failed, 429, %{"error" => %{"message" => "slow down"}},
-              [{"retry-after", "2"}]}
+             %Ankole.AIGateway.ProviderFailure{
+               kind: :status_rejected,
+               code: "provider_status_rejected",
+               provider_status: 429,
+               provider_body: %{"error" => %{"message" => "slow down"}},
+               provider_headers: [{"retry-after", "2"}]
+             }
   end
 
   defp request(opts) do
@@ -196,7 +201,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
         url: url,
         headers: [{"content-type", "application/json"}],
         timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
-        transport: %{http_versions: [:h1], compression: []}
+        transport: %{}
       },
       response_context: %{model: "test-model", request: %{"input" => "hello"}}
     }

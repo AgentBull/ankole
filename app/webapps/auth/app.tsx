@@ -157,8 +157,9 @@ function LoginApp() {
 
 function oidcAuthorizationPath(providerID: string): string {
   const pageQuery = new URLSearchParams(window.location.search)
-  const returnTo = pageQuery.get('return_to') ?? '/console'
-  const query = new URLSearchParams({ return_to: returnTo })
+  const returnTo = pageQuery.get('return_to')
+  const query = new URLSearchParams()
+  if (returnTo) query.set('return_to', returnTo)
   query.set('flow', pageQuery.get('flow') ?? '')
 
   if (pageQuery.get('oauth') === '1') query.set('oauth', '1')

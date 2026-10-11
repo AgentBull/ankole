@@ -2,7 +2,6 @@
 /** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
 import { sanitizeBinaryOutput, truncateUtf16Safe, truncateUtf16SafeTail } from '@/common/text-sanitize'
-import { basename, dirname, isAbsolute } from 'node:path'
 
 // Output the model reads (command stdout/stderr) is capped at 50K chars; a single
 // read_file call may return more (100K) since the model asked for that file explicitly.
@@ -38,19 +37,7 @@ export function stripAnsi(text: string): string {
     .replace(ANSI_ESC_PATTERN, '')
 }
 
-/**
- * Truncates large output, keeping the head (40%) and tail (60%) and dropping the
- * middle. Tail gets the larger share because a command's outcome — errors, the final
- * summary, the prompt that returned — is usually at the end, while the head still
- * preserves how it started. Cleans ANSI/binary first so the budget is spent on real
- * text, not control bytes. The 40/60 split preserves the old tool behavior for
- * parity.
- */
-export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
-  return truncateOutputDetailed(text, max).text
-}
-
-/** `truncateOutput` plus the counts a caller needs to decide on persisting the full output. */
+/** Truncates output and returns the counts needed to decide whether to store the full output. */
 export function truncateOutputDetailed(
   text: string,
   max = MAX_OUTPUT_CHARS
@@ -112,7 +99,7 @@ export interface NumberedLines {
  * a line the same way a person would.
  *
  * @param lines - The window `[startLine, startLine + lines.length)`, already sliced by
- *          the sandbox reader. Each line arrives clipped to its first 8 KB of bytes,
+ *          the reader process. Each line arrives clipped to its first 8 KB of bytes,
  *          which always covers the 2000-char clip below unless sanitization strips
  *          most of a line's first 8 KB (accepted: such a line renders from its
  *          retained prefix only).
@@ -147,15 +134,4 @@ export function renderNumberedWindow(lines: string[], startLine: number, totalLi
  */
 export function looksBinary(buffer: Buffer): boolean {
   return buffer.subarray(0, 8192).includes(0)
-}
-
-/**
- * Split an agent-supplied path into the relative path + cwd that `writeFiles`
- * needs. An absolute path keeps its real parent as cwd; a relative path uses
- * the current Session or Job workspace supplied by the caller.
- */
-export function splitWritePath(path: string, cwd?: string): { relative: string; cwd: string } {
-  if (isAbsolute(path)) return { relative: basename(path), cwd: dirname(path) }
-  if (!cwd) throw new Error('cwd is required for a relative write path')
-  return { relative: path, cwd }
 }

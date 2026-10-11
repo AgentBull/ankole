@@ -1,16 +1,14 @@
 import { create } from '@bufbuild/protobuf'
-import type { ActorTurnRef } from '../lanes/actor_lane'
-import { actorTurnRefToProto } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/actor_lane'
+import { jobTurnRefToProto } from '../lanes/actor_lane'
 import {
   createEnvelope,
   ControlShutdownSchema,
   envelopeHeader,
-  jsonBytes,
   TurnAcceptedSchema,
   WorkerProgressSchema,
   type Envelope
 } from './envelope_proto'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 /**
  * Reports that this worker has stopped accepting new turns and is draining its
@@ -32,39 +30,20 @@ export function controlShutdownEnvelope(reason: string): Envelope {
  * Builds the acceptance fence for a received turn revision.
  * Active mailbox updates are identified by the same turn fence plus a newer revision.
  */
-export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string): Envelope {
+export function turnAcceptedEnvelope(turn: JobTurnRef): Envelope {
   return createEnvelope({
-    ...envelopeHeader(`turn-accepted-${crypto.randomUUID()}`, correlationID),
+    ...envelopeHeader(`turn-accepted-${crypto.randomUUID()}`),
     body: {
       case: 'turnAccepted',
-      value: create(TurnAcceptedSchema, { turn: actorTurnRefToProto(turn) })
+      value: create(TurnAcceptedSchema, { turn: jobTurnRefToProto(turn) })
     }
   })
 }
 
-/**
- * Builds an ephemeral progress envelope for an already accepted turn.
- *
- * Progress messages are useful for observability but are not replayed as turn
- * truth, so they use the progress lane and ephemeral durability.
- */
-export function workerProgressEnvelope(
-  turn: ActorTurnRef,
-  kind = 'checkpoint',
-  summary = 'turn in progress',
-  correlationID?: string,
-  refs?: JSONObject
-): Envelope {
+/** Keeps the accepted Job attempt alive. */
+export function workerProgressEnvelope(turn: JobTurnRef): Envelope {
   return createEnvelope({
-    ...envelopeHeader(`worker-progress-${crypto.randomUUID()}`, correlationID),
-    body: {
-      case: 'workerProgress',
-      value: create(WorkerProgressSchema, {
-        turn: actorTurnRefToProto(turn),
-        kind,
-        summary,
-        refsJson: jsonBytes(refs)
-      })
-    }
+    ...envelopeHeader(`worker-progress-${crypto.randomUUID()}`),
+    body: { case: 'workerProgress', value: create(WorkerProgressSchema, { turn: jobTurnRefToProto(turn) }) }
   })
 }

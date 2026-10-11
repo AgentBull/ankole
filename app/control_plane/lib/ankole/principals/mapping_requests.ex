@@ -160,7 +160,7 @@ defmodule Ankole.Principals.MappingRequests do
           %MappingRequest{}
           |> MappingRequest.changeset(merged)
           |> repo.insert(
-            conflict_target: [:provider, :external_id],
+            conflict_target: [:tenant_id, :provider, :external_id],
             on_conflict: {:replace, [:display_name, :email, :mobile, :metadata, :updated_at]},
             returning: true
           )

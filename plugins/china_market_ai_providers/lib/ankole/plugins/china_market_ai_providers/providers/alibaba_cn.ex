@@ -29,7 +29,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
     setting(:top_k, type: :integer, scope: :request)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
     end

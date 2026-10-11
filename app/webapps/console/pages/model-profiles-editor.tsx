@@ -1,8 +1,9 @@
+import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -46,12 +47,11 @@ type ModelProfilesEditorProps = {
   agent: AgentItem
   error: unknown
   loading: boolean
-  onChanged: () => void
   profiles: JSONObject
   providerHosted: ProviderHostedCapabilities
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
+  modelCatalog: AIGatewayModelCatalogEntry[]
 }
 
 type ProfilePersistence = { submission: ModelProfileSubmission } & (
@@ -67,7 +67,6 @@ function AgentModelProfilesEditor({
   agent,
   error,
   loading,
-  onChanged,
   profiles,
   providerHosted,
   providers,
@@ -76,6 +75,7 @@ function AgentModelProfilesEditor({
 }: ModelProfilesEditorProps) {
   useSignals()
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const model = useModel(ModelProfilesModel)
   const modelProfileDrafts = useMemo(
     () =>
@@ -93,8 +93,7 @@ function AgentModelProfilesEditor({
 
   const saveProviderHosted = useMutation({
     ...ankoleWebAgentControllerPutProviderHostedMutation(),
-    onSuccess: () => onChanged(),
-    onError: () => onChanged()
+    onError: () => void queryClient.invalidateQueries()
   })
 
   const providerHostedCapability = (profile: ProfileName) => {
@@ -128,7 +127,7 @@ function AgentModelProfilesEditor({
         {!loading && providers.length === 0 ? (
           <p className="text-sm leading-6 text-muted-foreground">
             {t('console.models.provider_none_hint')}{' '}
-            <Link className="text-link underline-offset-4 hover:underline" to="/providers/new">
+            <Link className="link" to="/providers/new">
               {t('console.models.provider_none_action')}
             </Link>
           </p>
@@ -153,7 +152,6 @@ function AgentModelProfilesEditor({
               providerKinds={providerKinds}
               modelCatalog={modelCatalog}
               providerHosted={providerHostedFor(profile)}
-              onChanged={onChanged}
             />
           ))}
         </div>
@@ -169,17 +167,15 @@ function ProfileEditor({
   providers,
   providerKinds,
   modelCatalog,
-  providerHosted,
-  onChanged
+  providerHosted
 }: {
   agentUID: string
   profile: ProfileName
   model: InstanceType<typeof ModelProfilesModel>
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
+  modelCatalog: AIGatewayModelCatalogEntry[]
   providerHosted: ComponentProps<typeof ModelProfileEditorCard>['providerHosted']
-  onChanged: () => void
 }) {
   useSignals()
   const { t } = useTranslation()
@@ -202,8 +198,7 @@ function ProfileEditor({
           ? await ankoleWebAgentControllerPutModelProfile({ path, body: input.body, throwOnError: true })
           : await ankoleWebAgentControllerDeleteModelProfile({ path, throwOnError: true })
       return response.data
-    },
-    onSuccess: () => onChanged()
+    }
   })
   const finishPersistence = (response: { model_profile?: unknown }, input: ProfilePersistence) => {
     const result = model.markSaved(

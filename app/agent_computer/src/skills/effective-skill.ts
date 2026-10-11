@@ -1,8 +1,8 @@
 import { join, normalize } from 'node:path'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
-import type { ActorTurnRef } from '../lanes/actor_lane'
-import { rpcMethods, type RPCRequester, type RuntimeSkillSummary, type SkillOverlayResponse } from '../lanes/rpc_lane'
+import type { JobTurnRef } from '../lanes/actor_lane'
+import { type RPCRequester, type RuntimeSkillSummary, type SkillOverlayResponse } from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -71,14 +71,14 @@ export function resolveSkillFilesystemRoot(skill: RuntimeSkillSummary, input: { 
 
 export async function resolveSkillOverlayText(
   name: string,
-  input: { turn: ActorTurnRef; rpc: RPCRequester }
+  input: { turn: JobTurnRef; rpc: RPCRequester }
 ): Promise<string> {
   return (await resolveSkillOverlayTexts([name], input)).get(name)!
 }
 
 export async function resolveSkillOverlayTexts(
   names: string[],
-  input: { turn: ActorTurnRef; rpc: RPCRequester }
+  input: { turn: JobTurnRef; rpc: RPCRequester }
 ): Promise<Map<string, string>> {
   const responses = await resolveSkillOverlayResponses(names, input)
   return new Map([...responses].map(([name, response]) => [name, overlayText(response)]))
@@ -86,13 +86,18 @@ export async function resolveSkillOverlayTexts(
 
 async function resolveSkillOverlayResponses(
   names: string[],
-  input: { turn: ActorTurnRef; rpc: RPCRequester }
+  input: { turn: JobTurnRef; rpc: RPCRequester }
 ): Promise<Map<string, SkillOverlayResponse>> {
   names.forEach(assertValidSkillName)
   if (new Set(names).size !== names.length) throw new Error('skill overlay names must be unique')
   if (names.length === 0) return new Map()
 
-  const response = await input.rpc(rpcMethods.skillsOverlayResolve, { skillNames: names }, { turn: input.turn })
+  const response = await input.rpc(
+    'skills.overlay.resolve',
+    { skillNames: names },
+    { jobTurn: input.turn },
+    { retryOnDisconnect: true }
+  )
   const requested = new Set(names)
   const overlays = new Map<string, SkillOverlayResponse>()
 

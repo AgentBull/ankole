@@ -3,11 +3,11 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Principals, Repo, WorkerFiles}
+  alias Ankole.{Logging, Principals, Repo}
   alias Ankole.Plugins.LineAdapter.{Client, Config, Presentation}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.UTF16Text
-  alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress, OutboxEntry, Projection}
+  alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress, OutboxEntry}
   alias Ankole.SignalsGateway.ReplyActionToken
 
   @download_limit_bytes 25 * 1024 * 1024
@@ -16,7 +16,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   @source_types ["user", "group", "room"]
   @media_types ["image", "video", "audio", "file"]
   @message_types ["text", "sticker", "location" | @media_types]
-  @terminal_attachment_states ["complete", "provider_download_limit", "provider_external_content"]
   @provider_fact_states ["provider_download_limit", "provider_external_content"]
 
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
@@ -137,10 +136,14 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   # download runs after, so LINE does not time out and redeliver the batch
   # while Ankole fetches a large file.
   defp emit_with_materialization(input, consumer) do
-    {input, observed_at} = reuse_materialized_attachments(input, consumer)
+    {input, observed_at} = Ingress.reuse_stored_attachments(input, @provider_fact_states)
 
-    if materialization_required?(input.attachments) do
-      pending = put_materialization_state(input, "pending", observed_at)
+    if Ingress.attachments_need_bytes?(input.attachments) do
+      pending =
+        update_in(
+          input.metadata,
+          &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+        )
 
       case emit_entry(pending, consumer) do
         {:ok, %{signal_entry: %Entry{attachments: attachments}}} = result
@@ -159,77 +162,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     end
   end
 
-  # LINE redelivers a batch after a non-2xx answer, and the redelivered event
-  # names the same media. A result this Agent already holds stays, together
-  # with the observation anchor of the first sighting. Everything else is
-  # fetched again, including a download whose earlier task never finished: the
-  # adapter has no proof that such a task is alive, and the gateway keeps a
-  # stored readable path under its entry lock, so a second download that
-  # overlaps the first cannot lose the file. A copy that another Agent
-  # downloaded does not count; each Agent holds its own copy.
-  defp reuse_materialized_attachments(%{attachments: []} = input, _consumer),
-    do: {input, DateTime.utc_now(:microsecond)}
-
-  defp reuse_materialized_attachments(input, consumer) do
-    case Repo.get_by(Entry,
-           signal_channel_id: input.signal_channel_id,
-           source_entry_id: input.source_entry_id
-         ) do
-      %Entry{attachments: stored, metadata: stored_metadata}
-      when is_list(stored) and stored != [] ->
-        by_ref = Map.new(stored, &{&1["provider_ref"], &1})
-        agent_uid = consumer.context.agent_uid
-
-        attachments =
-          Enum.map(input.attachments, fn attachment ->
-            case Map.get(by_ref, attachment["provider_ref"]) do
-              %{"materialization_state" => "complete"} = kept ->
-                if Projection.materialized_attachment?(agent_uid, kept),
-                  do: kept,
-                  else: attachment
-
-              %{"materialization_state" => state} = kept when state in @provider_fact_states ->
-                kept
-
-              _missing_failed_or_unfinished ->
-                attachment
-            end
-          end)
-
-        observation = stored_metadata["attachment_materialization"]
-
-        metadata =
-          if is_map(observation),
-            do: Map.put(input.metadata, "attachment_materialization", observation),
-            else: input.metadata
-
-        {%{input | attachments: attachments, metadata: metadata}, observed_at(observation)}
-
-      _no_mirror ->
-        {input, DateTime.utc_now(:microsecond)}
-    end
-  rescue
-    exception ->
-      Logging.warning(
-        "line_adapter.attachment.reuse_lookup_failed",
-        "LINE attachment reuse lookup failed",
-        %{source_entry_id: input.source_entry_id, reason: Exception.message(exception)}
-      )
-
-      {input, DateTime.utc_now(:microsecond)}
-  end
-
-  # The anchor stays the first sighting, so a fetched-again attachment does not
-  # move the batch window of an event the gateway already accepted.
-  defp observed_at(%{"observed_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, observed_at, _offset} -> observed_at
-      _invalid -> DateTime.utc_now(:microsecond)
-    end
-  end
-
-  defp observed_at(_observation), do: DateTime.utc_now(:microsecond)
-
   # The download never runs in the webhook process: LINE waits for the answer
   # and redelivers a slow one. If the task cannot start, the webhook fails
   # instead, LINE delivers the event again, and the pending observation that
@@ -238,7 +170,9 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     {:ok, _pid} =
       Task.Supervisor.start_child(
         Ankole.Plugins.LineAdapter.MaterializationTaskSupervisor,
-        fn -> materialize_and_emit(input, attachments, consumer, observed_at) end
+        Ankole.Repo.bind_tenant(fn ->
+          materialize_and_emit(input, attachments, consumer, observed_at)
+        end)
       )
 
     :ok
@@ -249,7 +183,14 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
     input
     |> Map.put(:attachments, attachments)
-    |> put_materialization_state(materialization_state(attachments), observed_at)
+    |> update_in(
+      [:metadata],
+      &Ingress.put_attachment_materialization(
+        &1,
+        Ingress.materialization_state(attachments),
+        observed_at
+      )
+    )
     |> emit_entry(consumer)
     |> case do
       {:ok, _result} ->
@@ -501,55 +442,24 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     |> Map.put("restriction", "Ankole downloads LINE content up to 25 MB.")
   end
 
-  defp materialization_required?(attachments) do
-    Enum.any?(attachments, fn attachment ->
-      is_binary(attachment["provider_file_id"]) and is_nil(attachment["materialization_state"])
-    end)
-  end
-
   defp materialize_attachments(attachments, consumer) do
     client = Config.client(consumer.config)
-    Enum.map(attachments, &materialize_attachment(&1, client, consumer.context.agent_uid))
+
+    Ingress.materialize_attachments(attachments, "line", &download_attachment(&1, client),
+      restriction: "Ankole downloads LINE content up to 25 MB."
+    )
   end
 
-  defp materialize_attachment(
-         %{"materialization_state" => _state} = attachment,
-         _client,
-         _agent_uid
-       ),
-       do: attachment
-
-  defp materialize_attachment(
-         %{"provider_file_id" => message_id} = attachment,
-         client,
-         agent_uid
-       ) do
+  defp download_attachment(%{"provider_file_id" => message_id} = attachment, client) do
     with :ok <- wait_for_transcoding(client, attachment),
-         {:ok, download} <- Client.download(client, message_id, @download_limit_bytes),
-         name <- materialized_name(attachment, download.content_type),
-         relative <- materialized_relative_path(attachment, name),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put("materialization_state", "complete")
-      |> Map.put("name", name)
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("mimetype", download.content_type)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      {:error, :provider_download_limit} -> restricted_attachment(attachment)
-      reason -> materialization_failed(attachment, reason)
+         {:ok, download} <- Client.download(client, message_id, @download_limit_bytes) do
+      name = materialized_name(attachment, download.content_type)
+      put = MapHelpers.put_present(%{"name" => name}, "mimetype", download.content_type)
+      {:ok, %{body: download.body, filename: nil, content_type: nil, put: put}}
     end
-  rescue
-    exception -> materialization_failed(attachment, exception)
   end
 
-  defp materialize_attachment(attachment, _client, _agent_uid), do: attachment
+  defp download_attachment(_attachment, _client), do: {:error, :attachment_reference_missing}
 
   # A video or audio message from the LINE app is transcoded before its bytes
   # can be read. The wait is bounded; the attachment fails after it.
@@ -578,16 +488,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   defp wait_for_transcoding(_client, _attachment), do: :ok
 
-  defp materialization_failed(attachment, reason) do
-    Logging.warning(
-      "line_adapter.attachment.materialization_skipped",
-      "LINE attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: safe_reason(reason)}
-    )
-
-    Map.put(attachment, "materialization_state", "failed")
-  end
-
   defp materialized_name(%{"kind" => "file"} = attachment, _content_type),
     do: attachment["name"]
 
@@ -607,27 +507,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   defp extension("audio/m4a"), do: "m4a"
   defp extension("audio/mpeg"), do: "mp3"
   defp extension(_content_type), do: nil
-
-  defp materialized_relative_path(attachment, name) do
-    Path.join([
-      "inbox",
-      Integer.to_string(attachment["attachment_id"]),
-      WorkerFiles.sanitize_path_segment(name || "attachment")
-    ])
-  end
-
-  defp put_materialization_state(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialization_state(attachments) do
-    if Enum.all?(attachments, &(&1["materialization_state"] in @terminal_attachment_states)),
-      do: "complete",
-      else: "failed"
-  end
 
   # A LINE event carries only the sender's user id, so the author has no
   # display name here. A matched Principal supplies its own name, and the
@@ -732,11 +611,4 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   defp blank_to_nil(value) when is_binary(value), do: MapHelpers.presence(value)
   defp blank_to_nil(value), do: value
-
-  defp safe_reason(%Client.Error{} = error),
-    do: inspect(%{kind: error.kind, status: error.status})
-
-  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp safe_reason({:error, reason}), do: safe_reason(reason)
-  defp safe_reason(_reason), do: "line_content_unavailable"
 end

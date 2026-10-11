@@ -5,18 +5,17 @@ defmodule Ankole.OIDC do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.SecretKeyBase
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Group
   alias Ankole.OIDC.AuthorizationCode
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.ClientGroup
-  alias Ankole.OIDC.Crypto
   alias Ankole.OIDC.LogoutDelivery
   alias Ankole.OIDC.LogoutRequest
   alias Ankole.OIDC.Session
   alias Ankole.OIDC.RefreshToken
-  alias Ankole.Principals
   alias Ankole.Repo
 
   @ai_gateway_scope "ai_gateway.write"
@@ -131,7 +130,7 @@ defmodule Ankole.OIDC do
   def rotate_secret(id) do
     with {:ok, %Client{client_type: :confidential} = client} <- get_client(id),
          secret <- opaque_token(),
-         {:ok, ciphertext} <- Crypto.seal(secret, "client_secret", client.id),
+         {:ok, ciphertext} <- seal(secret, "client_secret", client.id),
          {:ok, updated} <-
            client
            |> Client.changeset(%{secret_ciphertext: ciphertext})
@@ -148,7 +147,7 @@ defmodule Ankole.OIDC do
   def client_secret(%Client{client_type: :public}), do: {:ok, nil}
 
   def client_secret(%Client{id: id, secret_ciphertext: ciphertext}) when is_binary(ciphertext) do
-    Crypto.unseal(ciphertext, "client_secret", id)
+    SecretKeyBase.unseal(ciphertext, "oidc", ["client_secret", id])
   end
 
   def client_secret(%Client{}), do: {:error, :missing_client_secret}
@@ -200,20 +199,16 @@ defmodule Ankole.OIDC do
     |> Repo.all()
   end
 
-  @doc "Checks the live Human, Client, Scope, group, and optional model policy."
+  @doc "Checks tenant admission, the active Client, group membership, and the optional model policy. Callers verify the token or session, the Human, and the scope."
   @spec authorize_ai_gateway(String.t(), String.t(), String.t() | nil) ::
           {:ok, %{client: Client.t(), model_binding: map() | nil}} | {:error, term()}
   def authorize_ai_gateway(client_id, principal_uid, model_selector \\ nil) do
-    with {:ok, %Client{} = client} <- get_active_client(client_id),
-         true <- @ai_gateway_scope in client.scopes || {:error, :scope_revoked},
-         {:ok, principal} <- Principals.get_principal(principal_uid),
-         true <-
-           (principal.type == :human and principal.status == :active) || {:error, :inactive_human},
-         :ok <- authorize_group(client.id, principal.uid),
+    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+         {:ok, %Client{} = client} <- get_active_client(client_id),
+         :ok <- authorize_group(client.id, principal_uid),
          {:ok, model_binding} <- authorize_model(client, model_selector) do
       {:ok, %{client: client, model_binding: model_binding}}
     else
-      false -> {:error, :inactive_human}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -486,7 +481,10 @@ defmodule Ankole.OIDC do
   end
 
   defp maybe_seal_secret(nil, _id), do: {:ok, nil}
-  defp maybe_seal_secret(secret, id), do: Crypto.seal(secret, "client_secret", id)
+  defp maybe_seal_secret(secret, id), do: seal(secret, "client_secret", id)
+
+  @doc false
+  def seal(plaintext, kind, id), do: SecretKeyBase.seal(plaintext, "oidc", [kind, id])
 
   defp fetch(attrs, key), do: Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
 

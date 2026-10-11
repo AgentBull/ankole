@@ -18,6 +18,7 @@ defmodule Ankole.SystemConfig do
   @spec timezone_definition() :: Definition.t()
   def timezone_definition do
     AppConfigure.define(
+      scope: :tenant,
       key: @timezone_key,
       encrypted: false,
       schema: timezone_schema(),
@@ -50,7 +51,7 @@ defmodule Ankole.SystemConfig do
   """
   @spec put_timezone(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_timezone(timezone) when is_binary(timezone) do
-    AppConfigure.put_global_by_key(@timezone_key, timezone)
+    AppConfigure.put_tenant_by_key(@timezone_key, timezone)
   end
 
   defp timezone_schema do

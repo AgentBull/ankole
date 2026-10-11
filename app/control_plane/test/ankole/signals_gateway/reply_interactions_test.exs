@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   import Ecto.Query
   import Ankole.PrincipalsFixtures
@@ -81,6 +81,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
 
   test "accepts one authorized current choice, locks the controls, and suppresses repeat clicks" do
     %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
+    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(source_event)
 
     assert {:ok, %{status: :accepted, actor_event: action_event}} =
              Ingress.emit_action(
@@ -92,11 +93,15 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
 
     assert action_event.type == "signal.action.invoked"
     assert action_event.sender_key == human.uid
+    action_event_id = action_event.id
+    assert_receive {:inbox, ^action_event_id}
 
-    assert TurnRuntimeEnv.resolve(action_event) == %{
-             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human.uid,
-             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_ACCESS_VERSION" => "1"
-           }
+    assert %{
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => principal_uid,
+             "ANKOLE_RUNTIME_LARK_PROFILE" => "ankole-u-" <> _digest
+           } = TurnRuntimeEnv.resolve(action_event)
+
+    assert principal_uid == human.uid
 
     assert get_in(action_event.payload, ["data", "action", "value"]) == %{
              "interaction_id" => "clarify:call-1",
@@ -139,6 +144,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
              )
 
     assert action_event_count(agent.uid) == 1
+    refute_receive {:inbox, _}, 20
   end
 
   test "accepts one free-text form answer through the same durable resolver" do

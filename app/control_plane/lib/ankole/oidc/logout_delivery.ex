@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.LogoutDelivery do
   @moduledoc false
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
 

@@ -16,8 +16,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
     "appPassword" => {"应用密码", "Microsoft App 的 client secret。"},
     "botTenancy" => {"应用租户模式", "Azure Bot 应用类型：单租户或多租户。"},
     "tenantID" => {"目录（租户）ID", "在 Entra 应用注册的“概述”页面复制。"},
-    "identityProvider" =>
-      {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Entra ID 身份源时默认采用；有多个时必须选择。"},
+    "identityProvider" => {"身份源提供商", "此绑定的发信人解析到哪个身份源的用户。只有一个 Entra ID 身份源时默认采用；有多个时必须选择。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
     "clientID" => {"应用程序（客户端）ID", "在 Entra 应用注册的“概述”页面复制。"},
     "clientSecret" => {"客户端密码值", "创建客户端密码后复制“值”，不要填写“密码 ID”。"},
@@ -59,7 +58,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Microsoft Teams"},
-        config_key_pattern: "signals_gateway.teams.bindings.<id>",
         config_module: Config,
         fields: chat_fields(),
         # observe_all / may_intervene require the Teams app manifest to grant
@@ -123,7 +121,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
 
   @impl true
   def children do
-    [TeamsChannels.StartupSync, SubscriptionReconciler]
+    [
+      {Ankole.Plugins.ChannelSync,
+       adapter: "teams", worker: Ankole.Plugins.Microsoft365Adapter.Jobs.SyncChannels},
+      SubscriptionReconciler
+    ]
   end
 
   defp chat_fields do

@@ -1,8 +1,8 @@
+import { HostedTool } from '../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { positiveInteger } from '../../common/numbers'
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
-import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
+import type { AIGatewayAPIKeyRequester } from './options'
 import type { TurnStart } from '../../lanes/actor_lane'
-import { BRAIN_JOB_OPERATIONS, type BrainOperation } from '../llm'
 import { type JsonObject as JSONObject } from '@agentbull/active-support'
 
 /** Reasoning effort values accepted from the frozen model projection. */
@@ -40,22 +40,21 @@ export type CodexRuntimeConfig = {
   aiGatewayKey: AIGatewayAPIKeyResponse
   modelProfile: CodexAIGatewayModelProfile
   /** The hosted Brain declaration AIGateway adds to the Job's requests, when memory is on. */
-  brain?: { operations: BrainOperation[]; actorEventID: string }
+  brain?: { operations: Array<'recall' | 'get_page'>; actorEventID: string }
 }
 
 export async function resolveCodexRuntimeConfig(input: {
   turnStart: TurnStart
-  agentUID: string
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
 }): Promise<CodexRuntimeConfig> {
-  const brainDeclared = (input.turnStart.hosted_tools ?? []).some(tool => tool.type === 'brain')
+  const brainDeclared = (input.turnStart.hosted_tools ?? []).includes(HostedTool.BRAIN)
   return {
-    aiGatewayKey: await input.requestAIGatewayAPIKey(input.agentUID),
+    aiGatewayKey: await input.requestAIGatewayAPIKey(),
     modelProfile: codexJobModelProfile(input.turnStart),
     // codex composes its own Responses requests, so the frozen binding carries
     // the read-only subset and the actor event that scopes its memory.
     ...(brainDeclared
-      ? { brain: { operations: BRAIN_JOB_OPERATIONS, actorEventID: input.turnStart.turn.actor_event_id } }
+      ? { brain: { operations: ['recall', 'get_page'], actorEventID: input.turnStart.turn.actor_event_id } }
       : {})
   }
 }

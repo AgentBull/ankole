@@ -1,87 +1,77 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
-  @moduledoc false
-
-  import Ecto.Query, warn: false
-
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  @moduledoc "Accepts Worker RPC only for its bound Agent and current durable input or Job attempt."
+  import Ecto.Query
+  alias Ankole.{Repo, Principals.WorkAccess}
+  alias Ankole.Conversations.{JobTurnRef, RunRef}
+  alias Ankole.BackgroundAgentJobs.{Lifecycle, Schemas.Job}
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
-  @type effect :: :read | :write
-
-  @spec authorize_turn_route(TurnRef.t(), String.t(), effect()) :: :ok | {:error, atom()}
-  def authorize_turn_route(%TurnRef{} = turn_ref, route, effect)
-      when is_binary(route) and effect in [:read, :write] do
-    case Repo.transact(fn repo ->
-           authorize_turn_route_in_tx(repo, turn_ref, route, effect)
-         end) do
+  def authorize_turn(ref, worker_id, effect) do
+    case Repo.transact(fn repo -> authorize_turn_in_tx(repo, ref, worker_id, effect) end) do
       {:ok, :authorized} -> :ok
-      {:error, _reason} = error -> error
+      error -> error
     end
   end
 
-  def authorize_turn_route(_turn, _route, _effect), do: {:error, :invalid_turn_ref}
+  def authorize_turn_in_tx(repo, ref, worker_id, effect, opts \\ [])
 
-  @spec authorize_turn_completion_route(TurnRef.t(), String.t()) :: :ok | {:error, atom()}
-  def authorize_turn_completion_route(%TurnRef{} = turn_ref, route) when is_binary(route) do
-    case Repo.transact(fn repo ->
-           case authorize_turn_route_in_tx(repo, turn_ref, route, :write) do
-             {:ok, :authorized} = authorized -> authorized
-             {:error, _reason} -> authorize_terminal_retry_in_tx(repo, turn_ref, route)
-           end
-         end) do
-      {:ok, :authorized} -> :ok
-      {:error, _reason} = error -> error
+  def authorize_turn_in_tx(repo, ref, uid, effect, opts)
+      when effect in [:read, :write, :terminal] do
+    case ref do
+      %JobTurnRef{} ->
+        with :ok <- lock_job_write(repo, uid, effect),
+             %Job{attempts: attempt, status: status} <-
+               job(repo, ref, effect),
+             true <- attempt == ref.attempt and (status == "running" or effect == :terminal),
+             :ok <- input(repo, ref, status != "running", opts) do
+          {:ok, :authorized}
+        else
+          {:error, _} = error -> error
+          _ -> {:error, :background_agent_job_attempt_changed}
+        end
+
+      %RunRef{} ->
+        with :ok <- input(repo, ref, false, opts), do: {:ok, :authorized}
     end
   end
 
-  def authorize_turn_completion_route(_turn, _route), do: {:error, :invalid_turn_ref}
+  def authorize_turn_in_tx(_repo, _ref, _worker_id, _effect, _opts),
+    do: {:error, :worker_not_assigned_to_turn}
 
-  @doc false
-  @spec authorize_turn_route_in_tx(module(), TurnRef.t(), String.t(), effect(), keyword()) ::
-          {:ok, :authorized} | {:error, atom()}
-  def authorize_turn_route_in_tx(repo, turn_ref, route, effect, opts \\ [])
+  defp lock_job_write(_repo, _uid, :read), do: :ok
 
-  def authorize_turn_route_in_tx(repo, %TurnRef{} = turn_ref, route, effect, opts)
-      when is_binary(route) and effect in [:read, :write] and is_list(opts) do
-    rows = TurnRef.lookup(repo, turn_ref, route: route, lock: Keyword.get(opts, :lock, false))
-
-    with :ok <- TurnRef.match(rows, turn_ref, route_mode(effect)) do
-      {:ok, :authorized}
-    end
+  defp lock_job_write(repo, uid, _effect) do
+    AgentWorkers.lock_in_tx(repo, uid)
+    Lifecycle.lock_agent_slots(repo, uid)
   end
 
-  def authorize_turn_route_in_tx(_repo, _turn_ref, _route, _effect, _opts),
-    do: {:error, :invalid_turn_ref}
-
-  defp route_mode(:read), do: :route_read
-  defp route_mode(:write), do: :route_write
-
-  # A terminal RPC can repeat after its commit already happened. The activation
-  # keeps the static fence and may hold a newer revision than the worker's; the
-  # terminal record proves which end the turn reached.
-  defp authorize_terminal_retry_in_tx(repo, turn_ref, route) do
-    rows = TurnRef.lookup(repo, turn_ref, route: route, lock: false)
-
-    with :ok <- TurnRef.match(rows, turn_ref, :terminal_retry),
-         true <- terminal_record?(repo, rows.activation, turn_ref) do
-      {:ok, :authorized}
-    else
-      _missing -> {:error, :worker_not_assigned_to_turn}
-    end
+  defp job(repo, ref, effect) do
+    query = from j in Job, where: j.id == ^ref.job_id and j.agent_uid == ^ref.agent_uid
+    query = if effect == :read, do: query, else: lock(query, "FOR UPDATE")
+    repo.one(query)
   end
 
-  defp terminal_record?(repo, %ActorSessionActivation{status: "failed"}, turn_ref),
-    do: TurnLifecycle.aborted_delivery_exists_in_tx(repo, turn_ref)
+  defp admitted_access(_repo, %{last_attempt_at: %DateTime{}}), do: :ok
+  defp admitted_access(repo, event), do: WorkAccess.check_in_tx(repo, event)
 
-  defp terminal_record?(repo, %ActorSessionActivation{}, turn_ref) do
-    ActorEvent
-    |> where([event], event.id == ^turn_ref.actor_event_id)
-    |> where([event], event.agent_uid == ^turn_ref.agent_uid)
-    |> where([event], event.session_id == ^turn_ref.session_id)
-    |> where([event], not is_nil(event.completed_at))
-    |> repo.exists?()
+  defp input(repo, ref, terminal?, opts) do
+    query =
+      from e in ActorEvent,
+        where:
+          e.id == ^ref.actor_event_id and e.agent_uid == ^ref.agent_uid and
+            e.session_id == ^ref.session_id
+
+    query = if Keyword.get(opts, :lock, false), do: lock(query, "FOR UPDATE"), else: query
+
+    case repo.one(query) do
+      %ActorEvent{} = event ->
+        if terminal? or (event.input_state == "open" and is_nil(event.completed_at)),
+          do: admitted_access(repo, event),
+          else: {:error, :run_closed}
+
+      nil ->
+        {:error, :run_closed}
+    end
   end
 end

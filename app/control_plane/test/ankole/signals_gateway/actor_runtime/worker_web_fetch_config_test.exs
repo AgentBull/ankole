@@ -1,17 +1,7 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
   use Ankole.AIGatewayCase
 
-  import Ankole.SignalsGateway.ActorRuntimeCase,
-    only: [
-      rpc_request: 4,
-      rpc_response_payload!: 2,
-      envelope_body_type: 1
-    ]
-
-  alias Ankole.RuntimeFabric.V1, as: FabricProto
-
   alias Ankole.AppConfigure
-  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
 
   setup do
@@ -19,6 +9,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
     definition = WorkerWebFetchConfig.definition()
     :ok = AppConfigure.delete_global(definition)
     {:ok, definition: definition}
+  end
+
+  test "builds the same typed fetch policy from default and tenant settings" do
+    %{principal: agent} = agent_fixture()
+
+    for ssrf? <- [true, false] do
+      assert {:ok, ^ssrf?} =
+               AppConfigure.put_global(Ankole.Security.SSRFFilter.definition(), ssrf?)
+
+      assert {:ok, %{ssrf_filter: ^ssrf?, rendered_fetch_idle_ttl_ms: 1_800_000}} =
+               WorkerWebFetchConfig.runtime_config(agent.uid)
+
+      assert {:ok, 600_000} =
+               AppConfigure.put_tenant_by_key("worker.rendered_fetch_idle_ttl_ms", 600_000)
+
+      assert {:ok, %{ssrf_filter: ^ssrf?, rendered_fetch_idle_ttl_ms: 600_000}} =
+               WorkerWebFetchConfig.runtime_config(agent.uid)
+
+      assert :ok = AppConfigure.delete_tenant_by_key("worker.rendered_fetch_idle_ttl_ms")
+    end
   end
 
   test "rendered fetch idle TTL is scoped, conservative by default, and range checked", %{
@@ -39,44 +49,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
     assert {:ok, %{value: ^global_ttl, source: :global}} = WorkerWebFetchConfig.resolve(agent.uid)
 
     agent_ttl = 2 * 60 * 60 * 1_000
-    assert {:ok, ^agent_ttl} = AppConfigure.put_for_agent(agent.uid, definition, agent_ttl)
-    assert {:ok, %{value: ^agent_ttl, source: :agent}} = WorkerWebFetchConfig.resolve(agent.uid)
-  end
-
-  test "RuntimeFabric exposes only the rendered fetch TTL definition", %{
-    definition: definition
-  } do
-    %{principal: agent} = agent_fixture()
-    ttl = 45 * 60 * 1_000
-    assert {:ok, ^ttl} = AppConfigure.put_for_agent(agent.uid, definition, ttl)
-
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "web-fetch-config",
-                 "app_configure.resolve",
-                 %FabricProto.AppConfigureResolveRequest{keys: [definition.key]},
-                 agent_uid: agent.uid
-               ),
-               "trusted-worker-route"
-             )
-
-    response = rpc_response_payload!(envelope, FabricProto.AppConfigureResolveResponse)
-    assert Torque.decode!(response.values[definition.key].value_json) == ttl
-
-    assert {:ok, rejected} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "remote-browser-dormant",
-                 "app_configure.resolve",
-                 %FabricProto.AppConfigureResolveRequest{
-                   keys: ["worker.remote_browser_cdp_config"]
-                 },
-                 agent_uid: agent.uid
-               ),
-               "trusted-worker-route"
-             )
-
-    assert envelope_body_type(rejected) == :rpc_error
+    assert {:ok, ^agent_ttl} = AppConfigure.put_tenant_by_key(definition.key, agent_ttl)
+    assert {:ok, %{value: ^agent_ttl, source: :tenant}} = WorkerWebFetchConfig.resolve(agent.uid)
   end
 end

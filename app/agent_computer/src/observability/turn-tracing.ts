@@ -40,7 +40,7 @@ export type WorkerTurnTrace = TurnTracePropagation & {
   attributes: Attributes
 }
 
-type ExportOTLP = (payload: Uint8Array, agentUID: string) => Promise<void>
+type ExportOTLP = (payload: Uint8Array) => Promise<void>
 
 let exportOTLP: ExportOTLP | undefined
 let provider: BasicTracerProvider | undefined
@@ -49,7 +49,7 @@ export function configureWorkerTracing(exporter: ExportOTLP): void {
   exportOTLP = exporter
 }
 
-export function workerTurnTrace(turnStart: TurnStart): WorkerTurnTrace | undefined {
+export function workerTurnTrace(turnStart: TurnStart, agentUID: string): WorkerTurnTrace | undefined {
   const propagation = turnTracePropagationFromTurnStart(turnStart)
   if (!propagation || !exportOTLP) return undefined
 
@@ -68,7 +68,7 @@ export function workerTurnTrace(turnStart: TurnStart): WorkerTurnTrace | undefin
       traceFlags: Number.parseInt(flags!, 16) & TraceFlags.SAMPLED
     }),
     attributes: {
-      'ankole.principal.uid': turnStart.turn.actor.agent_uid,
+      'ankole.principal.uid': agentUID,
       'ankole.principal.type': 'agent',
       ...(propagation.observabilityUserID ? { 'user.id': propagation.observabilityUserID } : {}),
       'session.id': turnStart.turn.actor.session_id
@@ -239,23 +239,15 @@ class RuntimeFabricSpanExporter implements SpanExporter {
       return
     }
 
-    const groups = new Map<string, ReadableSpan[]>()
-    for (const span of spans) {
-      const agentUID = span.attributes['ankole.principal.uid']
-      if (typeof agentUID !== 'string' || agentUID.length === 0) {
-        callback({ code: 1, error: new Error('worker span has no ankole.principal.uid') })
-        return
-      }
-      groups.set(agentUID, [...(groups.get(agentUID) ?? []), span])
+    // Every span belongs to the Agent of this Worker, which the control plane
+    // takes from the connection.
+    const payload = ProtobufTraceSerializer.serializeRequest(spans)
+    if (!payload) {
+      callback({ code: 1, error: new Error('worker spans did not serialize') })
+      return
     }
 
-    Promise.all(
-      [...groups].map(async ([agentUID, agentSpans]) => {
-        const payload = ProtobufTraceSerializer.serializeRequest(agentSpans)
-        if (!payload) throw new Error('worker spans did not serialize')
-        await exporter(payload, agentUID)
-      })
-    ).then(
+    exporter(payload).then(
       () => callback({ code: 0 }),
       error => callback({ code: 1, error: toError(error) })
     )

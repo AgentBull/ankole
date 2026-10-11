@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
   classifyCodexRecoveryFailure,
-  codexAgentTokenQuotaExceeded,
   codexCredentialPoolExhaustion,
   initialCodexRecoveryState,
   transitionCodexRecovery,
@@ -199,19 +198,15 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
     ).toBeUndefined()
   })
 
-  it('reads an Agent token quota rejection ahead of the credential-pool 429 rule', () => {
-    // Codex maps AIGateway's `usage_limit_reached` 429 to its terminal
-    // usage-limit error and repeats the promo header in the message; the body
-    // and its code never reach the Worker any other way.
+  it('reports a usage-limit rejection through credential-pool exhaustion', () => {
+    // The control plane decides whether this usage-limit error is an Agent quota rejection.
     const quotaError = {
       codexErrorInfo: 'usageLimitExceeded',
-      message:
-        "You've hit your usage limit. Ankole Agent token quota reached (agent_token_quota_exceeded), or try again at Sep 16th, 2026 8:00 AM.",
+      message: "You've hit your usage limit. retry_at=2030-09-16T08:00:00Z",
       additionalDetails: null
     }
 
-    expect(codexAgentTokenQuotaExceeded(quotaError)).toBe(true)
-    expect(codexCredentialPoolExhaustion(quotaError)).toBeUndefined()
+    expect(codexCredentialPoolExhaustion(quotaError)).toEqual({ retryAt: '2030-09-16T08:00:00.000Z' })
     expect(classifyCodexRecoveryFailure(quotaError)).toBe('terminal')
     expect(transitionCodexRecovery({ stage: 'turn', failure: 'terminal', state: initialCodexRecoveryState })).toEqual({
       action: 'fail',
@@ -225,7 +220,6 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
       message: 'exceeded retry limit, last status: 429 Too Many Requests',
       additionalDetails: null
     }
-    expect(codexAgentTokenQuotaExceeded(poolError)).toBe(false)
     expect(codexCredentialPoolExhaustion(poolError)).toEqual({})
     expect(classifyCodexRecoveryFailure(poolError)).toBe('transient')
   })

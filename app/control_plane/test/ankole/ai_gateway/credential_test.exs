@@ -3,10 +3,10 @@ defmodule Ankole.AIGateway.CredentialTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
+      handle_rpc: 3,
       rpc_request: 3,
       rpc_request: 4,
       rpc_response_payload!: 2,
-      rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
@@ -38,23 +38,22 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert is_binary(kid)
   end
 
-  test "RuntimeFabric RPC returns an agent AIGateway API key from explicit agent uid" do
+  test "RuntimeFabric RPC returns an Agent AIGateway API key for the authenticated connection" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "ai-gateway-key-1",
                  "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %FabricProto.AIGatewayAPIKeyRequest{},
-                 agent_uid: agent.uid
+                 %FabricProto.AIGatewayAPIKeyRequest{}
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     response = rpc_response_payload!(envelope, FabricProto.AIGatewayAPIKeyResponse)
     assert envelope_body!(envelope, :rpc_response).request_id == "ai-gateway-key-1"
-    assert response.agent_uid == agent.uid
     assert response.token_type == "Bearer"
     assert response.scope == "ai_gateway"
     assert response.expires_in == 30 * 24 * 60 * 60
@@ -75,14 +74,14 @@ defmodule Ankole.AIGateway.CredentialTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "ai-gateway-worker-url",
                  "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %FabricProto.AIGatewayAPIKeyRequest{},
-                 agent_uid: agent.uid
+                 %FabricProto.AIGatewayAPIKeyRequest{}
                ),
-               "trusted-worker-route"
+               "trusted-worker-route",
+               agent.uid
              )
 
     response = rpc_response_payload!(envelope, FabricProto.AIGatewayAPIKeyResponse)
@@ -91,40 +90,20 @@ defmodule Ankole.AIGateway.CredentialTest do
              "https://gateway.example.test/api/v1/ai-gateway"
   end
 
-  test "RuntimeFabric RPC requires the agent uid for an agent-scoped AIGateway API key" do
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "missing-agent-uid",
-                 "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %FabricProto.AIGatewayAPIKeyRequest{}
-               ),
-               "trusted-worker-route"
-             )
-
-    assert envelope_body_type(envelope) == :rpc_error
-    assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
-
-    assert rpc_error_payload!(envelope)["details_json"] == %{
-             "agent_uid" => "",
-             "retryable" => false
-           }
-  end
-
   test "RuntimeFabric rejects RPC methods outside the declared contract" do
     %{principal: agent} = agent_fixture()
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:no-provider-secret-rpc")
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(
+             handle_rpc(
                rpc_request(
                  "unknown-method-rpc",
                  "definitely.not_a_declared_method",
                  %FabricProto.AIGatewayAPIKeyRequest{},
-                 turn: turn,
-                 agent_uid: agent.uid
+                 turn: turn
                ),
-               route
+               route,
+               agent.uid
              )
 
     assert envelope_body_type(envelope) == :rpc_error

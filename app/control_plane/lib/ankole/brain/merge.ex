@@ -8,7 +8,7 @@ defmodule Ankole.Brain.Merge do
   once in `brain_merge_suggestions`. Nothing merges automatically.
 
   Approval runs one transaction that keeps every attached memory: claims,
-  holder attributions, timelines, tags, aliases, and links repoint to the
+  holder attributions, timelines, aliases, and links repoint to the
   surviving page, the duplicate's name stays matchable as a natural alias,
   the duplicate row is deleted, and its slug becomes a `brain_slug_aliases`
   redirect so stored references keep resolving.
@@ -18,6 +18,7 @@ defmodule Ankole.Brain.Merge do
 
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
+  alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.MergeSuggestion
   alias Ankole.Brain.Schemas.Object
@@ -69,7 +70,7 @@ defmodule Ankole.Brain.Merge do
           created_at: now
         },
         on_conflict: :nothing,
-        conflict_target: [:a_slug, :b_slug]
+        conflict_target: [:tenant_id, :a_slug, :b_slug]
       )
     end)
 
@@ -136,17 +137,21 @@ defmodule Ankole.Brain.Merge do
   defp alias_candidates do
     ObjectAlias
     |> join(:inner, [x], y in ObjectAlias,
-      on: x.alias_norm == y.alias_norm and x.object_slug < y.object_slug
+      on:
+        x.tenant_id == y.tenant_id and x.alias_norm == y.alias_norm and
+          x.object_slug < y.object_slug
     )
     |> join(:inner, [x, y], a in Object,
       as: :merge_candidate_a,
-      on: a.slug == x.object_slug
+      on: a.tenant_id == x.tenant_id and a.slug == x.object_slug
     )
     |> join(:inner, [x, y, a], b in Object,
       as: :merge_candidate_b,
-      on: b.slug == y.object_slug
+      on: b.tenant_id == y.tenant_id and b.slug == y.object_slug
     )
-    |> join(:inner, [x, y, a, b], type in SchemaType, on: type.name == a.type)
+    |> join(:inner, [x, y, a, b], type in SchemaType,
+      on: type.tenant_id == a.tenant_id and type.name == a.type
+    )
     |> where(
       [x, y, a, b, type],
       is_nil(a.deleted_at) and is_nil(b.deleted_at) and is_nil(a.managed_by_source_id) and
@@ -305,8 +310,8 @@ defmodule Ankole.Brain.Merge do
        holders: holders,
        redirects: redirects,
        timelines: repoint_timelines(repo, canon, dup),
-       tags: repoint_unique_rows(repo, "brain_tags", "tag", canon, dup),
        aliases: repoint_unique_rows(repo, "brain_object_aliases", "alias_norm", canon, dup),
+       tags: repoint_unique_rows(repo, "brain_tags", "tag", canon, dup),
        links: repoint_links(repo, canon, dup)
      }}
   end
@@ -317,16 +322,16 @@ defmodule Ankole.Brain.Merge do
     repo.query!(
       """
       DELETE FROM brain_timelines AS moved
-      WHERE moved.object_slug = $1
+      WHERE moved.tenant_id = $3 AND moved.object_slug = $1
         AND EXISTS (
           SELECT 1 FROM brain_timelines AS kept
-          WHERE kept.object_slug = $2
+          WHERE kept.tenant_id = $3 AND kept.object_slug = $2
             AND kept.date = moved.date
             AND kept.summary = moved.summary
             AND kept.provenance = moved.provenance
         )
       """,
-      [dup, canon]
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     # Event back-references follow their foreign key's nilify semantics when
@@ -334,24 +339,24 @@ defmodule Ankole.Brain.Merge do
     repo.query!(
       """
       UPDATE brain_timelines AS moved SET event_object_slug = NULL
-      WHERE moved.event_object_slug = $1
+      WHERE moved.tenant_id = $3 AND moved.event_object_slug = $1
         AND EXISTS (
           SELECT 1 FROM brain_timelines AS kept
-          WHERE kept.event_object_slug = $2 AND kept.date = moved.date
+          WHERE kept.tenant_id = $3 AND kept.event_object_slug = $2 AND kept.date = moved.date
         )
       """,
-      [dup, canon]
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     repo.query!(
-      "UPDATE brain_timelines SET event_object_slug = $2 WHERE event_object_slug = $1",
-      [dup, canon]
+      "UPDATE brain_timelines SET event_object_slug = $2 WHERE tenant_id = $3 AND event_object_slug = $1",
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
       repo.query!(
-        "UPDATE brain_timelines SET object_slug = $2 WHERE object_slug = $1",
-        [dup, canon]
+        "UPDATE brain_timelines SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
+        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
       )
 
     moved
@@ -361,18 +366,21 @@ defmodule Ankole.Brain.Merge do
     repo.query!(
       """
       DELETE FROM #{table} AS moved
-      WHERE moved.object_slug = $1
+      WHERE moved.tenant_id = $3 AND moved.object_slug = $1
         AND EXISTS (
           SELECT 1 FROM #{table} AS kept
-          WHERE kept.object_slug = $2
+          WHERE kept.tenant_id = $3 AND kept.object_slug = $2
             AND kept.#{value_column} = moved.#{value_column}
         )
       """,
-      [dup, canon]
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
-      repo.query!("UPDATE #{table} SET object_slug = $2 WHERE object_slug = $1", [dup, canon])
+      repo.query!(
+        "UPDATE #{table} SET object_slug = $2 WHERE tenant_id = $3 AND object_slug = $1",
+        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      )
 
     moved
   end
@@ -385,10 +393,10 @@ defmodule Ankole.Brain.Merge do
     repo.query!(
       """
       DELETE FROM brain_links
-      WHERE (from_object_slug = $1 AND to_object_slug IN ($1, $2))
-         OR (from_object_slug = $2 AND to_object_slug = $1)
+      WHERE tenant_id = $3 AND ((from_object_slug = $1 AND to_object_slug IN ($1, $2))
+         OR (from_object_slug = $2 AND to_object_slug = $1))
       """,
-      [dup, canon]
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     Enum.reduce(@link_key_columns -- ~w(link_type link_source), 0, fn column, count ->
@@ -407,17 +415,20 @@ defmodule Ankole.Brain.Merge do
     repo.query!(
       """
       DELETE FROM brain_links AS moved
-      WHERE moved.#{column} = $1
+      WHERE moved.tenant_id = $3 AND moved.#{column} = $1
         AND EXISTS (
           SELECT 1 FROM brain_links AS kept
-          WHERE kept.#{column} = $2 AND #{twin_match}
+          WHERE kept.tenant_id = $3 AND kept.#{column} = $2 AND #{twin_match}
         )
       """,
-      [dup, canon]
+      [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
     )
 
     %{num_rows: moved} =
-      repo.query!("UPDATE brain_links SET #{column} = $2 WHERE #{column} = $1", [dup, canon])
+      repo.query!(
+        "UPDATE brain_links SET #{column} = $2 WHERE tenant_id = $3 AND #{column} = $1",
+        [dup, canon, Ecto.UUID.dump!(Repo.tenant_id!())]
+      )
 
     moved
   end
@@ -442,10 +453,9 @@ defmodule Ankole.Brain.Merge do
   # Bookkeeping
 
   defp canonical_principal_page?(slug) do
-    case String.split(slug, "/", parts: 2) do
-      ["people", uid] -> principal_type(uid) == :human
-      ["agents", uid] -> principal_type(uid) == :agent
-      _other -> false
+    case Scope.parse_principal_page_slug(slug) do
+      {:ok, {type, uid}} -> principal_type(uid) == type
+      :error -> false
     end
   end
 

@@ -1,0 +1,14 @@
+{
+  "packages/markdown/tests/fixtures/markdown/bullet-list-numeric-punctuation.ts": {
+    "reason": "CommonMark reads the final 123. as an empty ordered sublist. Escape the dot to keep the literal text asserted by Tiptap. The original input is not an equivalent grammar test.",
+    "markdown": "- 123\n  - 123\n  - 123\n- 123\n- 123\\."
+  },
+  "packages/markdown/tests/fixtures/markdown/nested-nodes.ts": {
+    "reason": "The registered container is the callout element. A tag on its own line holds blocks.",
+    "markdown": "<callout>\n  This is a node with **bold text**.\n\n  <callout>\n    And this is a nested block.\n  </callout>\n</callout>"
+  },
+  "packages/markdown/tests/fixtures/markdown/soft-break-marks.ts": {
+    "reason": "A source line break shows as a space, as in CommonMark renderers. Tiptap shows it as a line break, so the adapted input writes hard breaks.",
+    "markdown": "**Speaker:**\\\nJohn Doe.\n\n**Speaker:**\\\n**John Doe**"
+  }
+}

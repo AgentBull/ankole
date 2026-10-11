@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGatewayLifecycleTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias Ankole.BackgroundAgentJobs
@@ -116,7 +116,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
 
-      assert %InboundBatch{batch_state: "canceled", outcome: "canceled", entries: entries} =
+      assert %InboundBatch{batch_state: "canceled", entries: entries} =
                Repo.get!(InboundBatch, batch.id)
 
       assert entries == []
@@ -128,6 +128,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
 
       %{actor_event: original_input} =
         emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
+
+      Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(original_input)
 
       assert {:ok, _consumed} =
                complete_actor_event(
@@ -146,6 +148,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert lifecycle_event.type == "signal.entry.removed"
+      lifecycle_event_id = lifecycle_event.id
+      assert_receive {:inbox, ^lifecycle_event_id}
       assert lifecycle_event.available_at == DateTime.add(@base_time, 2, :second)
       assert Repo.aggregate(Entry, :count) == 0
     end
@@ -154,8 +158,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "alice"})
-      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      %{principal: human} = human_fixture()
+      alice = %{principal_uid: human.uid, id: "provider-alice", display_name: "Alice"}
 
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(
@@ -269,6 +273,111 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert Repo.aggregate(ActorEvent, :count) == 1
+    end
+
+    @tag :b01
+    test "source guard distinguishes context and batched input withdrawal with one query" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      %{actor_event: event} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
+
+      data = event.payload["data"]
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          payload:
+            Map.put(
+              event.payload,
+              "data",
+              Map.merge(data, %{
+                "entries" => [
+                  %{"source_entry_id" => event.source_entry_id},
+                  %{"source_entry_id" => "batch-input"}
+                ],
+                "channel_context" => %{
+                  "messages" => [
+                    %{"source_entry_id" => "context-only"},
+                    %{"source_entry_id" => "batch-input"}
+                  ]
+                }
+              })
+            )
+        })
+        |> Repo.update!()
+
+      assert MapSet.new(ActorEvent.source_entry_ids(event)) ==
+               MapSet.new([event.source_entry_id, "batch-input", "context-only"])
+
+      assert MapSet.new(ActorEvent.input_source_entry_ids(event)) ==
+               MapSet.new([event.source_entry_id, "batch-input"])
+
+      assert :ok =
+               Ankole.SignalsGateway.Actors.ensure_event_source_live_in_tx(
+                 Repo,
+                 event,
+                 @base_time
+               )
+
+      for {source, expires} <- [
+            {"context-only", DateTime.add(@base_time, 1, :day)},
+            {event.source_entry_id, DateTime.add(@base_time, -1, :second)}
+          ] do
+        %InputTombstone{}
+        |> InputTombstone.changeset(%{
+          agent_uid: agent.uid,
+          binding_name: event.binding_name,
+          signal_channel_id: event.signal_channel_id,
+          source_entry_id: source,
+          tombstoned_until: expires
+        })
+        |> Repo.insert!()
+      end
+
+      handler = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          [:ankole, :repo, :query],
+          fn _, _, metadata, parent ->
+            if String.contains?(metadata.query, "signal_gateway_input_tombstones"),
+              do: send(parent, {:tombstone_query, metadata.query})
+          end,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert {:error, :actor_event_context_canceled} =
+               Ankole.SignalsGateway.Actors.ensure_event_source_live_in_tx(
+                 Repo,
+                 event,
+                 @base_time
+               )
+
+      assert_receive {:tombstone_query, _}
+      refute_receive {:tombstone_query, _}, 50
+      :telemetry.detach(handler)
+
+      %InputTombstone{}
+      |> InputTombstone.changeset(%{
+        agent_uid: agent.uid,
+        binding_name: event.binding_name,
+        signal_channel_id: event.signal_channel_id,
+        source_entry_id: "batch-input",
+        tombstoned_until: DateTime.add(@base_time, 1, :day)
+      })
+      |> Repo.insert!()
+
+      assert {:error, :actor_event_canceled} =
+               Ankole.SignalsGateway.Actors.ensure_event_source_live_in_tx(
+                 Repo,
+                 event,
+                 @base_time
+               )
     end
 
     test "removal of record_only entry only updates mirror and tombstone" do
@@ -450,7 +559,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      channel = Repo.get!(Channel, "lark:chat:group-a")
+      channel = Repo.get_by!(Channel, id: "lark:chat:group-a")
 
       assert channel.kind == :im_group
       assert channel.reply_mode == :entry
@@ -485,6 +594,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
+      {:ok, stored} = Ingress.store_attachment(%{"name" => "report.pdf"}, "report")
+
       assert {:ok, %{signal_entry: entry}} =
                Ingress.emit_entry(
                  agent.uid,
@@ -492,7 +603,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  group_entry(%{
                    attachments: [
                      %{provider_ref: "lark:file:file-1", name: "report.pdf"},
-                     %{agent_computer_path: "/agents/#{agent.uid}/user-files/report.pdf"}
+                     %{blob_ref: stored["blob_ref"], path: stored["path"]}
                    ]
                  }),
                  now: @base_time
@@ -506,11 +617,11 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                "provider_ref" => "lark:file:file-1"
              } = provider_attachment
 
-      expected_path = "/agents/#{agent.uid}/user-files/report.pdf"
+      expected_path = Ankole.Files.chat_path(entry.signal_channel_id, stored["path"])
 
       assert %{
                "attachment_id" => local_attachment_id,
-               "agent_computer_path" => ^expected_path
+               "path" => ^expected_path
              } = local_attachment
 
       assert provider_attachment_id >= 10_000

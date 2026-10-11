@@ -16,9 +16,9 @@ export class BrowserRuntime {
   constructor(options: {
     runtimeRoot: string
     socketPath?: string
-    daemonEntry?: string
-    runnerPath?: string
-    localChromiumExecutable?: string
+    daemonEntry: string
+    runnerPath: string
+    localChromiumExecutable: string
     onDaemonEvent?: (event: BrowserDaemonEvent) => void
     onWebFetchFailure?: (event: BrowserWebFetchFailureEvent) => void
   }) {
@@ -81,12 +81,12 @@ export class BrowserRuntime {
   }
 }
 
-export { browserSandboxRuntime, type BrowserSandboxRuntime } from './sandbox-runtime'
+export { browserRuntimeEnv } from './runtime-env'
 export type { BrowserWebFetchFailureEvent } from './web-fetch-adapter'
 export {
-  BrowserMaterialSourceEnvNames,
   withoutBrowserMaterialSourceEnv,
   type BrowserMaterializeSettings,
   type MaterializedBrowserRuntime,
+  type BrowserRoute,
   type RenderedFetchBrowserMaterializeSettings
 } from './materializer'

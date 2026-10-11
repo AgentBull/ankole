@@ -7,13 +7,13 @@ order: 122
 
 Agent は、通常の会話の中でコマンドを実行し、ファイルを編集できます。また、永続的な作業を Background Agent Job に委ねることもできます。これらは別々の runtime パスです。会話は Agent Computer Worker のフォアグラウンド tool を使い、各 Background Agent Job は CodexRunner を使います。メッセージ内のコード量が、どちらを選ぶかを決めるわけではありません。
 
-決定的な性質を先に述べます。すべてのコマンドは隔離されて実行されます。shell コマンドは bubblewrap の下で、`SYS_ADMIN`、非制限の seccomp、マスクされていない `/proc` 付きで実行されます——これは worker のハード要件であり、オペレーターの選択ではありません。Agent は `/agents` 配下の Agent 単位のファイルシステムの中で作業し、shell を経由して sandbox から逃げることは決してありません。
+決定的な性質を先に述べます。すべてのコマンドは Agent 自身のコンピュータで実行されます。各 Agent は自分専用の Worker コンテナを持ち、コンテナが唯一の隔離境界です。コマンドは内側の sandbox なしで Worker のユーザーとして実行され、Agent は `/workspace` 配下の自分の Agent Home で作業します。Agent は自分のコンピュータを変更できますが、Worker、キャッシュディスク、credential を別の Agent と共有することはありません。
 
-## bubblewrap の下の shell コマンド
+## shell コマンド
 
-Agent は command tool を通じて shell コマンドを実行します。それは `app/agent_computer/src/tools/computer/command-tool.ts` と、`bubblewrap.ts` の bubblewrap 隔離によって支えられています。model が要求するすべてのコマンドは、`SYS_ADMIN`、非制限の seccomp ポリシー、マスクされていない `/proc` 付きで bubblewrap の下で実行されます。マスクされていない `/proc` と `SYS_ADMIN` ケーパビリティにより、[browser](../browser-automation/) daemon と Jupyter kernel が同じ隔離の中で実行できます。このプロファイルは [Quick start](../quickstart/#deployment) に文書化された Worker イメージ要件であり、Agent ごとに調整するものではありません。
+Agent は command tool を通じて shell コマンドを実行します。それは `app/agent_computer/src/tools/computer/command-tool.ts` によって支えられています。各コマンドは Worker のユーザーとして独自のプロセスグループで実行され、Worker の credential を含まない新しい環境を使います。キャンセルまたはタイムアウトはグループ全体を終了させます。フォアグラウンドの既定の予算は 180 秒です。作業ディレクトリは Agent Home の中になければなりません。[browser](../browser-automation/) daemon、Codex app-server、Automation スクリプトも Worker のユーザーとして実行され、Worker に追加のカーネル権限は必要ありません。
 
-実際にはこういう意味です。shell コマンドは Agent の workspace の下のファイルを読み書きでき、インストール済み tool を実行でき、worker イメージが提供するサブプロセスを起動できます。別の Agent の workspace には到達できず、control-plane の状態にも到達できません。sandbox が境界です。
+コマンドは sudo なしの uid 1000 で実行します。Home への書き込み、ユーザー用パッケージの導入、子プロセスの起動は可能ですが、システムパッケージは導入できません。同じ Agent の Session と Job はファイルを共有します。Agent 間はインスタンスで隔離し、Worker はデータベース接続やオブジェクトストア認証情報を持ちません。
 
 ## ファイル読み取りと apply_patch
 
@@ -26,16 +26,16 @@ Main Agent は生の patch を `custom_tool_call` として AIGateway を通じ�
 
 この共有パスにより、通常の会話と Background Agent Job は 1 つの編集プロトコルに留まります。一致しない patch はネイティブ tool で失敗し、その失敗が model に返されます。素早い検索には shell で十分です。ファイル編集には `apply_patch` を使ってください。
 
-## /agents ファイルシステム
+## /workspace ファイルシステム
 
-Agent が読み書きするすべては `/agents` の下に置かれ、Agent キーごとにレイアウトされます。Agent はコンテナパスを直接見ます——worker は model のためにパスを変換しません:
+Agent Home は `/workspace` の永続ストレージです。旧パス `/agents/<agent_uid>` は Home へのリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -45,6 +45,10 @@ Agent が読み書きするすべては `/agents` の下に置かれ、Agent キ
 ```
 
 `SOUL.md`、`MISSION.md`、`DESIGN.md` は [Agent Library](../agent-library/) の永続ドキュメントです。最初の 2 つは責任と振る舞いを定義します。`DESIGN.md` はビジュアル作業のためのデザインシステムです。`installed-skills/` は Agent Skill を保持します。`sessions/` は、10000 から始まる PostgreSQL 所有の安定した数値 ID を持つ会話 workspace を保持し、`jobs/` は別の Background Agent Job workspace を保持します。
+
+Home はインスタンス削除やイメージ変更後も残ります。再構築は `/var/cache/ankole` だけを削除します。Docker のローカル volume はホストに依存し、Cloudflare の強制停止は最終 R2 バックアップ後の書き込みを失う場合があります。制限は [Worker](../worker-management/) を参照してください。
+
+control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。`ankole-files` で読み書きします。Job workspace と Codex スレッドは永続 Home に残ります。Turn の前に `installed-skills/` をドライブと同期します。
 
 Background Agent Job は Ankole `skill_view` を通して Skill を読み込み、Skill root を Job ワークスペースへコピーしません。
 
@@ -70,7 +74,7 @@ Console は対応する model profile を **Background Agent Jobs** と表示し
 
 ## 次のステップ
 
-- これらの tool を実行し、`/agents` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
+- これらの tool を実行し、`/workspace` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
 - Jupyter Skill の背後にある Skill と有効化モデルについては、[Agent Library](../agent-library/) を読んでください。
 - 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
-- Worker イメージが要求する隔離については、[Quick start](../quickstart/#deployment) を読んでください。
+- Worker の信頼境界とその強化方法については、[Security hardening](../security-hardening/) を読んでください。

@@ -6,11 +6,17 @@ defmodule Ankole.E2E.LarkMainFlowE2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
   import Ankole.E2E.Scenarios.Ingress
 
   alias Ankole.E2E.FakeOpenAIState
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000
@@ -43,7 +49,7 @@ defmodule Ankole.E2E.LarkMainFlowE2ETest do
 
     run_multi_agent_mention_isolation(ctx)
 
-    run_followup_queue(ctx)
+    run_followup_during_generation(ctx)
     run_recalled_followup_queue(ctx)
 
     retry = run_retry_command(ctx, direct.input.id)

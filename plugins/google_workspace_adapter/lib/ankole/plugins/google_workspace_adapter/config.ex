@@ -1,4 +1,5 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
+  def platform_application(_config), do: {:ok, nil}
   @moduledoc "Validation and runtime helpers for the first-party Google Workspace adapter."
 
   alias Ankole.AppConfigure
@@ -23,6 +24,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
     [
       AppConfigure.define_pattern(
         id: "principals.identity_providers.google-workspace.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),

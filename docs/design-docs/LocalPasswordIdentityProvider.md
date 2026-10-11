@@ -19,8 +19,8 @@ Read [Principal](Principal.md) for the shared identity rules.
 | Default provider ID | `local-main` |
 
 The adapter declares one capability: `password_login`. It has no OIDC and no
-directory sync. One installation holds at most one local provider instance:
-all instances would read and write the same credential table, so
+directory sync. Each tenant holds at most one local provider instance:
+multiple instances in that tenant would read and write the same credentials, so
 `save_provider` rejects a second instance instead of leaving the
 retry-protection configuration ambiguous.
 
@@ -35,6 +35,11 @@ setup. It has no dependency on Telegram or any other Signal adapter, and it
 does not control external identity mapping. An administrator can map a
 Telegram account to any existing human Principal, whether that Principal has a
 local password or not.
+
+Local credentials and normalized login email belong to their Human's tenant.
+Console recovery commands target the privileged tenant because their purpose is
+to recover site administrator access. OAuth password verification uses the
+Client's tenant, carried by its login transaction.
 
 ## Accounts and Credentials
 
@@ -61,8 +66,10 @@ the sign-in key. A provider account that reports the same email as a
 verified contact, such as a Slack or Google sign-in, resolves to the same
 Principal through the usual contact ladder. Mail from that address does not:
 the Email adapter matches only `email` identity bindings, so the local account
-holder's first mail waits for an administrator to bind the address, unless a
-directory sync or provider sign-in that attests the address has bound it.
+holder's first mail follows the Email adapter's unmatched-sender policy unless
+an explicit binding already exists. `manual_review` holds it for an
+administrator; `create_standalone` creates a separate Principal and binds the
+address. The local account's email alone does not link that mail to the account.
 
 ## Sign-in Flow
 
@@ -99,18 +106,40 @@ A password reset ends that email key's wait at once: attempts recorded before
 the credential row's `updated_at` do not count, because guesses against a
 replaced password prove nothing about the new one. The `updated_at` fact is
 durable, so a rescue reset from another OS process also unlocks the account.
-A guard-wide saturation lock still applies to every email until one admitted
-key expires, so saturation cannot reveal whether the reset account exists.
 
-The counter lives in process memory (`LocalPassword.RetryGuard`) and stores
-only fixed-size hashes for at most 10,000 email keys. The next new key locks
-all email keys until one admitted key expires. A sweep once per window drops
-aged-out entries. This fail-closed bound prevents an unknown-email spray from
-growing memory or Argon2 work without limit, while the common lock response
-does not expose whether an email exists. A control-plane restart clears the
-counters and can let one extra burst of attempts through, but it cannot lose
-an account or a credential. This trade keeps the sign-in path free of write
-amplification.
+A capacity lock applies only to that tenant. The tenant can hold at most
+10,000 fixed-size email hashes; its next new key waits until an admitted key
+expires. Unexpired histories are not evicted. Other tenants retain their own
+10,000 keys and are not subject to that tenant's capacity lock. A sweep once
+per window removes old entries. Memory grows with the number of configured
+tenants.
+
+The node also limits actual Argon2 verification work, including the throwaway
+hash for an unknown email. The global AppConfigure key
+`principals.local_password.max_verifications` defaults to 2 and accepts a
+positive integer. Restart the control plane after changing it. Each current
+Argon2id hash uses `m=19456,t=2,p=1` (19 MiB of algorithm memory per verify).
+The concurrency limit also applies when retry protection is disabled.
+
+Each tenant can queue two sign-ins for up to one second. Tenants receive free
+permits in round-robin order. A full or expired queue returns HTTP 429 with
+`retry_busy`, `retryAfterSeconds: 1`, and `Retry-After: 1`. A busy request does
+not reserve an account attempt. The five-attempt lock returns `retry_locked`
+and the remaining wait in seconds. Shared CPU can still increase waits for
+all tenants; this queue does not provide separate compute resources.
+
+A supervised verifier keeps its permit if the HTTP caller exits. During a
+guard restart, its supervisor sends a trapped shutdown and waits for all
+verifications to return before creating a new guard. A dirty NIF can continue
+after an untrapped process exit, so a process monitor alone cannot establish
+that native work stopped. There is no API to force-kill verification tasks.
+
+The counter lives in process memory (`LocalPassword.RetryGuard`). A restart
+clears the counters and can allow another burst of attempts, but it cannot
+lose an account or a credential. Successful sign-in also clears the history,
+so the key limit does not bound total verification work per time window. The
+node's separate concurrency limit bounds the number of running verifications.
+This keeps the sign-in path free of counter writes to PostgreSQL.
 
 ## Rescue
 

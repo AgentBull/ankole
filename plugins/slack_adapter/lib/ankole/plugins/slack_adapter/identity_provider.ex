@@ -1,4 +1,5 @@
 defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
+  defdelegate platform_application(config), to: Ankole.Plugins.SlackAdapter.Config
   @moduledoc false
 
   alias Ankole.{AuthZ, Logging}

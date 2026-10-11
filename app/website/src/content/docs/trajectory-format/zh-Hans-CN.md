@@ -48,13 +48,13 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 ## 模型可见投影
 
-模型看不到存储行。worker 里的 `modelVisibleTrajectory` 把轨迹投影到模型应当看到的：
+控制面通过 `Ankole.Conversations.Tools.Jobs.visible_trajectory/1` 投影已存 Job 条目。模型可见投影包含：
 
 - **剥离存储的协议身份**——内部消息 id、线上协议字段、任何模型不应据以行动的东西。
 - **用回合局部别名替换工具调用 id**——`call_1`、`call_2` 等。模型看到哪个工具结果属于哪个工具调用（唯一有用的关系），无需用来关联的内部 UUID。
 - **保留内容和角色**——实际消息、工具调用及其结果，按发生顺序。
+- **保留有界内容的事实**——`metadata.redacted` 与 `metadata.content_truncated` 仍然可见；控制面为满足页面上限而缩减内容时，会设置 `content_truncated`。
 
-模块文档明确："回合局部调用别名保留唯一有用的关系：哪个工具结果属于哪个工具调用。" 存储行携带的其余一切都是给系统的，不是给模型的。
 
 ## 两种形态如何关联
 
@@ -63,7 +63,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 | 存储什么 | live 会话转写 | 按回合任务执行记录 |
 | 谁拥有 | AIGateway | 后台 Agent 任务 |
 | 规范格式 | AIGateway 的消息 schema | 语义条目投影为 ChatML |
-| 模型如何看到 | 有状态 Responses API | `modelVisibleTrajectory` 投影 |
+| 模型如何看到 | 有状态 Responses API | `visible_trajectory/1` 投影 |
 | Compaction | AIGateway compaction 替换旧消息 | 不压缩（任务受重试预算约束） |
 
 两者不混合。一个会话的消息归 AIGateway；一个任务的轨迹归任务。任务通过唤醒事件（见 [Background Agent Jobs](../background-agent-jobs/)）把结果回报给拥有它的会话，而非写进会话的消息存储。

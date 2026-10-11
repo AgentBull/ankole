@@ -138,9 +138,9 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   @doc """
   Rejects a request of an Agent at its token quota.
 
-  Only a request that carries an Agent token spends that Agent's quota. An
-  in-process caller such as Brain or automatic compaction passes no
-  `subject_type` and runs on behalf of the control plane. The check runs before
+  Only a request whose `subject_type` is `agent` spends that Agent's quota: an
+  Agent token or the conversation loop. Brain and automatic compaction pass no
+  `subject_type` and run on behalf of the control plane. The check runs before
   the model and its credential are selected, so a rejection touches no
   credential, and a terminal quota answer is never hidden behind a retryable
   credential-pool answer.

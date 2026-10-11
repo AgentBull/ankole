@@ -6,7 +6,7 @@ defmodule Ankole.Brain.Schemas.Source do
   also withdraws that Source's product-managed page projections.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 
@@ -22,6 +22,8 @@ defmodule Ankole.Brain.Schemas.Source do
     field :upstream_revision, :string
     field :last_sync_at, :utc_datetime_usec
     field :archived_at, :utc_datetime_usec
+    field :extracted_through_at, :utc_datetime_usec
+    field :extracted_through_entry_id, :string
 
     timestamps(inserted_at: :created_at, updated_at: :updated_at)
   end

@@ -1,84 +1,31 @@
 ---
 title: The agent loop
-description: The boundary between the control-plane turn lifecycle and the worker-side agent loop — what each side owns, how they communicate, and where the iteration budget and retry live.
+description: The control-plane Driver, durable model and tool steps, and the Worker execution boundary.
 section: Developer guide
 order: 117
 ---
 
-A turn is a unit of work that spans two runtimes: the Elixir control plane schedules and fences it, and the Bun worker runs the agent loop inside it. This page documents the boundary between the two — what the control-plane `TurnLifecycle` owns, what the worker's `runAgentLoop` owns, and how they communicate across RuntimeFabric. It builds on the [Actor Runtime](../actor-runtime/) and [Agent Computer Worker](../agent-computer-worker/) pages; this is the turn-level detail between them.
+The main Agent loop runs in `Ankole.Conversations` in the Elixir control plane. Each conversation has one `:gen_statem` Driver. Pure questions and control-plane tools work without a Worker; environment tools and Codex start the Agent's Worker when needed.
 
-The decisive property, stated up front: the control plane owns the turn's *identity and commit*; the worker owns the turn's *execution*. The worker decides when the loop ends; the control plane decides whether the turn's result is durable. A turn that the worker reports as finished is not durable until the control plane commits it.
+## One durable round
 
-## The control-plane side: TurnLifecycle
+1. Admit an open ActorEvent and advance the conversation epoch in PostgreSQL.
+2. Restore the stored Response chain and prepare the next model request.
+3. Open a stored Response through AIGateway's in-process Responses API.
+4. Dispatch calls to their declared owner: a control-plane tool, the Worker, or a durable wait.
+5. Commit the whole round's results, satisfied input events, and receipt deletion in one transaction.
+6. Inject queued input at the boundary, or commit the final reply and completed inputs.
 
-`Ankole.SignalsGateway.ActorRuntime.TurnLifecycle` owns what happens around the loop, not inside it. Its responsibilities:
+AIGateway owns the transcript, compaction, memory injection, and hosted tools. The Driver owns iteration limits, empty-answer repair, repeated-error hints, and final-response rules. All conversation types use this owner; Codex keeps its own loop inside the Worker.
 
-| Responsibility | What it does |
-|---|---|
-| **Lease management** | an activation holds a lease (`activation_progress_lease_seconds` = 2100s, with a 120s grace); the watchdog fails an expired activation so its event can be retried |
-| **Turn start** | creates the `ActorSessionActivation` with a fresh epoch, assigns the worker, delivers the turn envelope over RuntimeFabric |
-| **Turn error handling** | `handle_turn_error/2` receives the worker's error report, classifies it, and decides retry vs dead-letter |
-| **Turn commit** | records the turn's outcome as durable truth when the worker reports success |
-| **Activation expiry** | `fail_activation_if_expired/2` catches a stuck or crashed turn whose lease ran out |
+## Recovery and side effects
 
-The turn error retry budget lives here, not in the worker: at most 5 deliveries (`@worker_turn_error_dead_letter_attempts`). A transient Worker failure waits with exponential backoff between 5 and 120 seconds. A provider capacity failure (an upstream `429`, a `5xx`, or an exhausted credential pool) waits on its own ladder of 30 seconds, then 2, 5, and 12.5 minutes, so the automatic retry never schedules more than 20 minutes of backoff in total. Each failed attempt bumps the epoch, so a late reply from the failed attempt cannot match a later retry.
+A new Driver reconstructs progress from ActorEvents and the Response chain. Control-plane tool effects and their receipts commit together. Results already on the chain are not executed again. The Worker identifies an environment call by its Response and call IDs, so a replacement Driver can adopt it. After Worker process loss, a safe call can retry; other unknown calls return `interrupted`.
 
-The control plane does **not** decide what the model says, what tools the agent calls, or how many iterations the loop runs. Those are the worker's.
+Ordinary inputs wait for the next boundary. Stop and a valid retry interrupt current work. An invalid targeted retry leaves the run active. Withdrawal or bare retry after tool calls preserves their records and injects the correction on the same chain.
 
-## The worker side: runAgentLoop
+## Bounded failure
 
-`runAgentLoop` in `app/agent_computer/src/core/agent-loop.ts` is the four-step loop the worker runs inside a turn:
+AIGateway owns retries inside one model round. The Driver owns retries between attempts. Ordinary inputs enter dead letter on the sixth admission. Planned shutdown refunds an admitted attempt when its transaction succeeds; a crash does not. Workflow and Job owners keep their own budgets.
 
-1. **Call the model** through a turn-scoped OpenAI Responses adapter (AIGateway's stateful transport).
-2. **Execute function calls locally** — if the response carries function-call items, the worker runs the tools.
-3. **Record the outputs** through AIGateway, which stores them as function-call-output messages.
-4. **Continue from the journal anchor** until the response returns no more function-call items.
-
-The worker owns **loop termination and its local iteration budget**. Two outcomes:
-
-- **`loop_finished`** — the model returned with no further tool calls. The turn ends naturally.
-- **`iteration_exhausted`** — the worker hit its iteration limit. The model is nudged to synthesize a final response rather than call more tools (`MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT`), and the turn ends with that synthesis.
-
-The worker also owns three recovery nudges: an empty-after-tools nudge (the model executed tools but returned an empty response), a tool-error recovery hint, and the iteration-limit synthesis. These are worker-side because they are about what the model does next, not about whether the turn is durable.
-
-## What the worker does NOT own
-
-The agent-loop moduledoc is explicit: the worker does **not** own history expansion, compaction, continuation anchors, or durable response state. Those remain in AIGateway. The worker:
-
-- does not decide how much history the model sees (AIGateway's stateful Responses owns that, including compaction);
-- does not store the conversation (AIGateway does);
-- does not decide whether the turn's side effects are committed (the control plane does).
-
-This is the split that makes a worker replaceable: the worker runs the loop, AIGateway owns the transcript, the control plane owns the commit.
-
-## How they communicate
-
-| Direction | What crosses the boundary |
-|---|---|
-| Control plane → worker | a `TurnStart` envelope (actor identity, turn ref, the event to process) |
-| Worker → control plane | progress envelopes (checkpoints and activity summaries), an `actor_turn.abort` RPC for a failure, or an `actor_turn.complete` or `actor_turn.noop` RPC for completion |
-| Worker → AIGateway | model calls, function-call outputs (these do not go through the control plane) |
-
-Every worker message carries the `ActorTurnRef` (`activation_uid`, `actor_epoch`, `actor_event_id`). The control plane checks it against the current activation; a message whose ref no longer matches is rejected as stale. This is the [Actor Runtime](../actor-runtime/) triple fence, seen from the turn level.
-
-## The retry boundary
-
-When a turn fails, the control plane decides retry, not the worker. The worker reports the error; `handle_turn_error` classifies it:
-
-- **Infrastructure** (a Codex runtime that is busy, a runtime exception, a steer that could not be delivered) — the interruption is not the task failing, so it does not consume the failure budget.
-- **Provider capacity** (a retryable upstream `429` or `5xx`, or an exhausted credential pool) — the event stays `open`, the epoch bumps, and the runtime re-delivers on the capacity ladder above. The Worker does not repeat the model call locally for this class. A credential pool whose recovery time lies past every remaining wait dead-letters at once.
-- **Execution** (every other retryable failure, such as a Worker transport failure or a timeout) — the event stays `open`, the epoch bumps, the runtime re-delivers after the exponential backoff, and the attempt is charged against the budget.
-- **Dead-letter** — after 5 deliveries, or when the failure is not retryable, the event moves to `dead_letter` and the turn stops retrying. The user receives a notice that the automatic retry stopped, and an operator inspects and resolves it.
-
-The worker does not retry on its own. It reports the error and the control plane owns the retry decision, because the control plane is what can re-establish the activation fence.
-
-## What this guide is not
-
-It is not a model-prompting guide — the loop's shape is mechanical (call, execute, record, continue), and the model's behavior within it is the persona's concern. It is not a transport guide — RuntimeFabric carries the envelopes, and that is the [Kernel](../kernel/) page's scope. And it is not a substitute for the [Actor Runtime](../actor-runtime/) page; the activation fence is the context the turn lifecycle operates inside.
-
-## Next steps
-
-- For the activation fence and the actor model, read [Actor Runtime](../actor-runtime/).
-- For the worker that runs the loop, read [Agent Computer Worker](../agent-computer-worker/).
-- For the stateful Responses transport the loop calls, read [AIGateway](../ai-gateway/).
-- For compaction (which the worker does not own), read [Context compression](../context-compression-and-caching/).
+See [Actor Runtime](../actor-runtime/) for writer ownership, [Agent Computer Worker](../agent-computer-worker/) for execution and storage, and [AIGateway](../ai-gateway/) for Responses.

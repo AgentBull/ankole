@@ -1,6 +1,7 @@
 defmodule Ankole.OIDC.LogoutWorker do
   @moduledoc false
-  use Oban.Worker,
+  use Ankole.Job,
+    tenancy: :tenant,
     queue: :default,
     max_attempts: 30,
     unique: [
@@ -9,6 +10,6 @@ defmodule Ankole.OIDC.LogoutWorker do
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"delivery_id" => id}}), do: Ankole.OIDC.Logout.deliver(id)
+  @impl Ankole.Job
+  def run(%Oban.Job{args: %{"delivery_id" => id}}), do: Ankole.OIDC.Logout.deliver(id)
 end

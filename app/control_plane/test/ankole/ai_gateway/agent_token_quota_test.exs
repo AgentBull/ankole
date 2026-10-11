@@ -286,8 +286,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                "type" => "error",
                "status" => 429,
                "headers" => %{
-                 "retry-after" => _retry_after,
-                 "x-codex-promo-message" => promo_message
+                 "retry-after" => _retry_after
                },
                "error" => %{
                  "code" => "agent_token_quota_exceeded",
@@ -297,7 +296,6 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                }
              } = Ankole.JSON.decode!(pushed)
 
-      assert promo_message =~ "agent_token_quota_exceeded"
       refute Map.has_key?(state, :active_stream)
       refute_receive {:gateway_request, _blocked}
       assert length(usage_records()) == 1
@@ -405,7 +403,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
-               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+               connection_options: %{"transport" => %{}}
              })
 
     assert {:ok, _profile} =

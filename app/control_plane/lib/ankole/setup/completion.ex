@@ -25,8 +25,13 @@ defmodule Ankole.Setup.Completion do
   stays outside: a leftover code is inert once setup is complete, and
   bootstrap deletes it on the next start.
   """
-  @spec complete_with_root_admin(String.t(), [String.t()]) :: {:ok, map()} | {:error, term()}
-  def complete_with_root_admin(principal_uid, brain_packs \\ []) do
+  @spec complete_with_first_site_admin(String.t(), [String.t()]) ::
+          {:ok, map()} | {:error, term()}
+  def complete_with_first_site_admin(principal_uid, brain_packs \\ []) do
+    complete_in_tenant(principal_uid, brain_packs)
+  end
+
+  defp complete_in_tenant(principal_uid, brain_packs) do
     transact_result =
       Repo.transact(fn repo ->
         with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),

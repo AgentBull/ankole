@@ -4,11 +4,8 @@ defmodule AnkoleWeb.WorkerEnvController do
   @moduledoc """
   Console REST API for Agent Computer shell environment variables.
 
-  This is the one editing surface for both tracks: declared AppConfigure
-  exports and custom operator rows. The WorkerEnv context routes each name to
-  its owning track, so the console never needs to know where a variable is
-  stored. Global endpoints edit the installation tier; the agent endpoints
-  edit the `agent:<uid>` tier that wins per variable name.
+  Site, tenant, and Agent endpoints edit their own operator-variable tier.
+  The WorkerEnv context owns value validation, encryption, and inheritance.
 
   Every action follows the AppConfigure controller shape: authorize the
   principal for this exact resource/action via `ConsolePolicy`, call the
@@ -28,66 +25,49 @@ defmodule AnkoleWeb.WorkerEnvController do
   alias AnkoleWeb.Schemas.ConsoleAPI.WorkerEnvUpdateRequest
 
   tags(["WorkerEnv"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
+    operation_id: "AnkoleWeb.WorkerEnvController.index",
     summary: "List installation-wide worker shell variables",
     responses: [
       ok: {"Worker env entries", "application/json", WorkerEnvListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:show,
-    summary: "Read one installation-wide worker shell variable",
-    parameters: [name: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Worker env entry", "application/json", WorkerEnvResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid name", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:update,
+    operation_id: "AnkoleWeb.WorkerEnvController.update",
     summary: "Store one installation-wide worker shell variable",
     parameters: [name: [in: :path, type: :string, required: true]],
     request_body:
       {"Worker env update", "application/json", WorkerEnvUpdateRequest, required: true},
     responses: [
       ok: {"Worker env entry", "application/json", WorkerEnvResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:delete,
+    operation_id: "AnkoleWeb.WorkerEnvController.delete",
     summary: "Delete one installation-wide worker shell variable",
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Worker env entry", "application/json", WorkerEnvResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid name", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   operation(:decrypt,
+    operation_id: "AnkoleWeb.WorkerEnvController.decrypt",
     summary: "Reveal one encrypted installation-wide worker shell variable",
     parameters: [name: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Decrypted value", "application/json", WorkerEnvDecryptionResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Not encrypted", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -96,9 +76,7 @@ defmodule AnkoleWeb.WorkerEnvController do
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Worker env entries", "application/json", WorkerEnvListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Agent not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -112,10 +90,7 @@ defmodule AnkoleWeb.WorkerEnvController do
       {"Worker env update", "application/json", WorkerEnvUpdateRequest, required: true},
     responses: [
       ok: {"Worker env entry", "application/json", WorkerEnvResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Agent not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -127,10 +102,7 @@ defmodule AnkoleWeb.WorkerEnvController do
     ],
     responses: [
       ok: {"Worker env entry", "application/json", WorkerEnvResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid name", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -142,33 +114,17 @@ defmodule AnkoleWeb.WorkerEnvController do
     ],
     responses: [
       ok: {"Decrypted value", "application/json", WorkerEnvDecryptionResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Not encrypted", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   @doc """
-  Lists installation-wide variables: custom global rows plus declared exports.
+  Lists installation-wide operator variables.
   """
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "worker_envs", "read"),
          {:ok, items} <- WorkerEnv.console_list_global() do
       json(conn, %{worker_envs: items})
-    else
-      {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  @doc """
-  Reads one installation-wide variable by name.
-  """
-  def show(conn, params) do
-    with {:ok, name} <- name_param(params),
-         :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "read"),
-         {:ok, item} <- WorkerEnv.console_detail_global(name) do
-      json(conn, %{worker_env: item})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -190,7 +146,7 @@ defmodule AnkoleWeb.WorkerEnvController do
   @doc """
   Deletes one installation-wide variable.
 
-  A declared name falls back to its code default; a custom row disappears.
+  The site row is removed. Tenant and Agent rows remain effective.
   """
   def delete(conn, params) do
     with {:ok, name} <- name_param(params),
@@ -350,5 +306,85 @@ defmodule AnkoleWeb.WorkerEnvController do
 
   defp error(conn, status, code, message, details \\ []) do
     ConsoleErrors.render(conn, status, code, message, details)
+  end
+
+  operation(:index_tenant,
+    operation_id: "AnkoleWeb.WorkerEnvController.index_tenant",
+    summary: "List tenant worker shell variables",
+    responses: [
+      ok: {"Worker env entries", "application/json", WorkerEnvListResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def index_tenant(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "worker_envs", "read"),
+         {:ok, items} <- WorkerEnv.console_list_tenant() do
+      json(conn, %{worker_envs: items})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:update_tenant,
+    operation_id: "AnkoleWeb.WorkerEnvController.update_tenant",
+    summary: "Store one tenant worker shell variable",
+    parameters: [name: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Worker env update", "application/json", WorkerEnvUpdateRequest, required: true},
+    responses: [
+      ok: {"Worker env entry", "application/json", WorkerEnvResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def update_tenant(conn, params) do
+    with {:ok, name} <- name_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "update"),
+         {:ok, item} <- WorkerEnv.console_put_tenant(name, request_attrs(conn.body_params)) do
+      json(conn, %{worker_env: item})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:delete_tenant,
+    operation_id: "AnkoleWeb.WorkerEnvController.delete_tenant",
+    summary: "Delete one tenant worker shell variable",
+    parameters: [name: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Worker env entry", "application/json", WorkerEnvResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def delete_tenant(conn, params) do
+    with {:ok, name} <- name_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "reset"),
+         {:ok, item} <- WorkerEnv.console_delete_tenant(name) do
+      json(conn, %{worker_env: item})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  operation(:decrypt_tenant,
+    operation_id: "AnkoleWeb.WorkerEnvController.decrypt_tenant",
+    summary: "Reveal one encrypted tenant worker shell variable",
+    parameters: [name: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Decrypted value", "application/json", WorkerEnvDecryptionResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def decrypt_tenant(conn, params) do
+    with {:ok, name} <- name_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "decrypt"),
+         {:ok, value} <- WorkerEnv.console_decrypt_tenant(name) do
+      json(conn, %{decrypted_value: %{name: name, value: value}})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
   end
 end

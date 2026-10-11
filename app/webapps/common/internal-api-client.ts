@@ -2,7 +2,7 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 type InternalAPIRequestOptions = {
   body?: JSONObject
-  method?: 'GET' | 'POST' | 'PUT'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
 }
 
 /**
@@ -38,14 +38,24 @@ export async function internalAPIPut<T>(path: string, body?: JSONObject): Promis
   return internalAPIRequest<T>(path, { method: 'PUT', body })
 }
 
+/** Sends a same-origin DELETE request to the internal SPA API. */
+export async function internalAPIDelete<T>(path: string): Promise<T> {
+  return internalAPIRequest<T>(path, { method: 'DELETE' })
+}
+
+export function csrfToken(): string {
+  const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
+  if (!token) throw new Error('CSRF token is missing from the browser shell')
+  return token
+}
+
 async function internalAPIRequest<T>(path: string, options: InternalAPIRequestOptions): Promise<T> {
   const headers = new Headers()
-  const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
 
   headers.set('accept', 'application/json')
   // Phoenix serves these endpoints from a browser session, so JSON requests
   // still need the CSRF token rendered into the HTML shell.
-  if (csrfToken) headers.set('x-csrf-token', csrfToken)
+  headers.set('x-csrf-token', csrfToken())
 
   const body = options.body === undefined ? undefined : JSON.stringify(options.body)
   if (body) headers.set('content-type', 'application/json')

@@ -49,8 +49,12 @@ impl AnthropicState {
         }
     }
 
-    fn ingest(&mut self, context: &ResponseContext, value: Value) -> Vec<Value> {
-        match value.get("type").and_then(Value::as_str) {
+    fn ingest(
+        &mut self,
+        context: &ResponseContext,
+        value: Value,
+    ) -> Result<Vec<Value>, StreamError> {
+        let events = match value.get("type").and_then(Value::as_str) {
             Some("message_start") => self.message_start(context, &value),
             Some("content_block_start") => self.content_block_start(context, &value),
             Some("content_block_delta") => self.content_block_delta(&value),
@@ -67,9 +71,11 @@ impl AnthropicState {
                     .unwrap_or(("completed", None));
                 self.finish(context, status, reason)
             }
+            Some("error") => return Err(anthropic_stream_error(&value)),
             Some("ping") | None => Vec::new(),
             Some(_event) => Vec::new(),
-        }
+        };
+        Ok(events)
     }
 
     fn message_start(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
@@ -555,7 +561,7 @@ impl APIProtocol for AnthropicState {
         context: &ResponseContext,
         event: Value,
     ) -> Result<Vec<Value>, StreamError> {
-        Ok(self.ingest(context, event))
+        self.ingest(context, event)
     }
 
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
@@ -594,6 +600,46 @@ fn anthropic_terminal(stop_reason: &str) -> (&'static str, Option<&'static str>)
     match stop_reason {
         "max_tokens" | "model_context_window_exceeded" => ("incomplete", Some("max_output_tokens")),
         _reason => ("completed", None),
+    }
+}
+
+// Anthropic can send an `error` event after the HTTP 200 response starts. The
+// event has the same error object as a non-streaming error response, so the
+// failure reports the event as the Provider error body and the HTTP status that
+// Anthropic documents for its error type. An undocumented type has no status.
+fn anthropic_stream_error(event: &Value) -> StreamError {
+    let error = event.get("error");
+    let error_type = error
+        .and_then(|error| error.get("type"))
+        .and_then(Value::as_str);
+    let message = error
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .or(error_type)
+        .unwrap_or("Anthropic Messages stream failed");
+    let failure = StreamError::new("provider_status_rejected", "api_resolver", message)
+        .provider_body_excerpt(sonic_rs::to_vec(event).unwrap_or_default());
+
+    match error_type.and_then(anthropic_error_status) {
+        Some(status) => failure.provider_status(status),
+        None => failure,
+    }
+}
+
+fn anthropic_error_status(error_type: &str) -> Option<u16> {
+    match error_type {
+        "invalid_request_error" => Some(400),
+        "authentication_error" => Some(401),
+        "billing_error" => Some(402),
+        "permission_error" => Some(403),
+        "not_found_error" => Some(404),
+        "conflict_error" => Some(409),
+        "request_too_large" => Some(413),
+        "rate_limit_error" => Some(429),
+        "api_error" => Some(500),
+        "timeout_error" => Some(504),
+        "overloaded_error" => Some(529),
+        _error_type => None,
     }
 }
 

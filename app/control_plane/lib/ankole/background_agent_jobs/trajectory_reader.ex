@@ -158,8 +158,9 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     |> where(
       [_row, turn, _job],
       fragment(
-        "? = (SELECT lead.runtime_thread_id FROM background_agent_job_turns AS lead WHERE lead.job_id = ? AND lead.attempt = ? ORDER BY lead.started_at ASC, lead.id ASC LIMIT 1)",
+        "? = (SELECT lead.runtime_thread_id FROM background_agent_job_turns AS lead WHERE lead.tenant_id = ? AND lead.job_id = ? AND lead.attempt = ? ORDER BY lead.started_at ASC, lead.id ASC LIMIT 1)",
         turn.runtime_thread_id,
+        turn.tenant_id,
         turn.job_id,
         turn.attempt
       )

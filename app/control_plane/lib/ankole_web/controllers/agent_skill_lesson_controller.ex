@@ -23,14 +23,11 @@ defmodule AnkoleWeb.AgentSkillLessonController do
 
   @standard_responses [
     ok: {"Agent skill lessons", "application/json", AgentSkillLessonsResponse},
-    unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-    forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-    not_found: {"Not found", "application/json", ErrorEnvelope},
-    unprocessable_entity: {"Invalid skill lesson", "application/json", ErrorEnvelope}
+    default: {"Error", "application/json", ErrorEnvelope}
   ]
 
   tags(["Agents"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -77,7 +74,7 @@ defmodule AnkoleWeb.AgentSkillLessonController do
              agent_uid,
              skill_name,
              content,
-             conn.assigns.current_principal_uid
+             Ankole.ActorRef.from_principal(conn.assigns.current_principal)
            ) do
       render_lessons(conn, agent_uid)
     else

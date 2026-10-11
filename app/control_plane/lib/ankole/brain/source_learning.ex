@@ -21,11 +21,11 @@ defmodule Ankole.Brain.SourceLearning do
   path: every window of extractable content enters extraction, not a
   truncated prefix.
 
-  `url` Sources use the maintainer Agent's `web_fetch` profile first and
-  fall back to the Worker's supervised `ankole-browser` runtime when that
-  profile is absent or its provider request fails. Both paths return readable
-  text; a raw HTTP body would put HTML markup into chunks and claims. `file`
-  Sources accept UTF-8 text only and reject binary content loudly.
+  `url` Sources require the maintainer Agent's `web_fetch` profile. Its
+  Provider returns readable text; a missing profile or failed request stops
+  the fetch with an error. A raw HTTP body would put HTML markup into chunks
+  and claims. `file` Sources accept UTF-8 text only and reject binary content
+  loudly.
   """
 
   import Ecto.Query, warn: false
@@ -42,19 +42,11 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.JSON
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.Security.SSRFFilter
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
 
   @max_content_bytes 10 * 1024 * 1024
   @extraction_window_chars 12_000
-  @rendered_fetch_timeout_ms 330_000
 
   @doc """
   Registers one file or url Source.
@@ -376,32 +368,20 @@ defmodule Ankole.Brain.SourceLearning do
     end
   end
 
+  # A URL source is fetched only by the web fetch provider: Brain sends no
+  # request to a Worker.
   defp fetch_content(%Source{kind: "url", upstream_id: url}) do
-    case Config.web_fetch_model() do
-      nil ->
-        fetch_with_local_browser(url)
-
-      model ->
-        case fetch_with_provider(url, model) do
-          {:provider_failed, provider_reason} ->
-            case fetch_with_local_browser(url) do
-              {:ok, _text} = success ->
-                success
-
-              {:error, local_reason} ->
-                {:error,
-                 {:source_fetch_failed, %{provider: provider_reason, local_browser: local_reason}}}
-            end
-
-          result ->
-            result
-        end
+    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
+      case Config.web_fetch_model() do
+        nil -> {:error, :web_fetch_model_not_configured}
+        model -> fetch_with_provider(subject_uid, url, model)
+      end
     end
   end
 
   defp fetch_content(%Source{kind: kind}), do: {:error, {:unsupported_source_kind, kind}}
 
-  defp fetch_with_provider(url, model) do
+  defp fetch_with_provider(subject_uid, url, model) do
     request =
       %{
         "model" => model["provider_id"] <> "/" <> model["model"],
@@ -409,41 +389,9 @@ defmodule Ankole.Brain.SourceLearning do
       }
       |> maybe_put_provider_options(model)
 
-    with {:ok, subject_uid} <- Config.maintainer_subject_uid() do
-      case AIGateway.create_web_fetch(subject_uid, request) do
-        {:ok, %{body: body}} -> web_fetch_body(body)
-        {:error, reason} -> {:provider_failed, reason}
-      end
-    else
-      {:error, reason} -> {:provider_failed, reason}
-    end
-  end
-
-  defp fetch_with_local_browser(url) do
-    with {:ok, agent_uid} <- Config.maintainer_subject_uid(),
-         {:ok, worker_env} <- WorkerEnv.effective_env(agent_uid),
-         {:ok, ssrf_filter?} <- SSRFFilter.enabled?(agent_uid),
-         {:ok, %{value: idle_ttl_ms}} <- WorkerWebFetchConfig.resolve(agent_uid),
-         [route | _rest] <- WorkerPool.ready_worker_routes(),
-         request = %FabricProto.RenderedWebFetchRequest{
-           urls: [url],
-           worker_env: worker_env,
-           ssrf_filter: ssrf_filter?,
-           idle_ttl_ms: idle_ttl_ms
-         },
-         {:ok, payload} <-
-           WorkerRoute.request_rpc(route, "web_fetch.rendered", encode_proto(request),
-             timeout_ms: @rendered_fetch_timeout_ms,
-             request_id: "brain-rendered-web-fetch-#{Ecto.UUID.generate()}"
-           ),
-         {:ok, response} <- FabricProto.RenderedWebFetchResponse.decode(payload),
-         {:ok, body} <- JSON.decode(response.body_json) do
-      web_fetch_body(body)
-    else
-      [] -> {:error, :no_worker_available}
-      :error -> {:error, :rendered_fetch_config_unresolved}
-      {:error, _reason} = error -> error
-      _invalid -> {:error, :invalid_rendered_fetch_response}
+    case AIGateway.create_web_fetch(subject_uid, request) do
+      {:ok, %{body: body}} -> web_fetch_body(body)
+      {:error, reason} -> {:error, {:source_fetch_failed, reason}}
     end
   end
 
@@ -460,11 +408,8 @@ defmodule Ankole.Brain.SourceLearning do
     end
   end
 
-  defp encode_proto(struct) do
-    {iodata, _size} = struct.__struct__.encode!(struct)
-    IO.iodata_to_binary(iodata)
-  end
-
+  # A script shell or an empty page has nothing to learn. Committing it as an
+  # empty revision would make every later attempt report the Source unchanged.
   defp web_fetch_text(result) do
     error = result["error"]
     text = result["text"]
@@ -473,13 +418,14 @@ defmodule Ankole.Brain.SourceLearning do
       is_binary(error) and error != "" ->
         {:error, {:source_fetch_failed, error}}
 
-      is_binary(text) and String.trim(text) != "" ->
-        if byte_size(text) <= @max_content_bytes,
-          do: {:ok, text},
-          else: {:error, :source_content_too_large}
+      warning = AIGateway.web_fetch_render_warning(result) ->
+        {:error, {:source_fetch_unusable, warning}}
+
+      byte_size(text) <= @max_content_bytes ->
+        {:ok, text}
 
       true ->
-        {:error, :source_fetch_empty}
+        {:error, :source_content_too_large}
     end
   end
 

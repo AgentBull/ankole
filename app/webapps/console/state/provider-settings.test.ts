@@ -13,22 +13,9 @@ import {
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
   return {
     capabilities: ['llm'],
-    capability_specs: [],
-    connection_options: ['app_referer', 'app_title', 'headers'],
-    credential_options: ['api_key'],
     default_base_url: 'https://api.example.test/v1',
     label: { default: providerKind },
     provider_kind: providerKind,
-    runtime_provider_options: [
-      'reasoningEffort',
-      'enable_search',
-      'thinking_budget',
-      'repetition_penalty',
-      'search_options',
-      'mode',
-      'serviceTier',
-      'strictJSONSchema'
-    ],
     settings: [
       providerSetting('base_url', { advanced: providerKind === 'openrouter' }),
       providerSetting('api_key', { encrypted: true, required: true, scope: 'credential' }),

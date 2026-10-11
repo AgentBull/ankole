@@ -26,7 +26,6 @@ defmodule Ankole.AIGateway.Providers.BrightDataSERP do
     setting(:google_domain, scope: :request)
 
     web_search do
-      upstream(:json)
       api_resolver(:bright_data_serp_web_search)
       prepare(:prepare_web_search)
       timeout_ms(@timeout_ms)

@@ -30,6 +30,33 @@ defmodule Ankole.Brain.Scope do
   @spec principal(String.t()) :: t()
   def principal(uid) when is_binary(uid), do: "principal:" <> uid
 
+  @doc "Builds the canonical page slug of a Human or Agent Principal."
+  @spec principal_page_slug(:human | :agent, String.t()) :: String.t()
+  def principal_page_slug(:human, uid), do: "people/" <> uid
+  def principal_page_slug(:agent, uid), do: "agents/" <> uid
+
+  @doc "Parses a canonical Principal page slug without querying its type."
+  @spec parse_principal_page_slug(String.t()) :: {:ok, {:human | :agent, String.t()}} | :error
+  def parse_principal_page_slug(slug) do
+    case String.split(slug, "/", parts: 2) do
+      ["people", uid] -> {:ok, {:human, uid}}
+      ["agents", uid] -> {:ok, {:agent, uid}}
+      _other -> :error
+    end
+  end
+
+  @doc "Resolves the audience scope of an IM member group."
+  @spec member_group_scope(String.t() | nil) ::
+          {:ok, t()} | {:error, :im_group_without_member_group}
+  def member_group_scope(nil), do: {:error, :im_group_without_member_group}
+
+  def member_group_scope(group_id) do
+    case AuthZ.get_principal_group(group_id) do
+      {:ok, member_group} -> {:ok, group(member_group.name)}
+      {:error, :not_found} -> {:error, :im_group_without_member_group}
+    end
+  end
+
   @doc """
   Parses a scope value into its structured form.
   """
@@ -182,8 +209,8 @@ defmodule Ankole.Brain.Scope do
   def canonical_slug(principal_uid) do
     with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
       case Repo.one(from p in Principal, where: p.uid == ^uid, select: p.type) do
-        :human -> {:ok, "people/" <> uid}
-        :agent -> {:ok, "agents/" <> uid}
+        :human -> {:ok, principal_page_slug(:human, uid)}
+        :agent -> {:ok, principal_page_slug(:agent, uid)}
         :system -> {:error, {:no_canonical_object, uid}}
         nil -> {:error, {:unknown_principal, uid}}
       end

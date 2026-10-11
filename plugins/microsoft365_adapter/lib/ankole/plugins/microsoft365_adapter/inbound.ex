@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   @moduledoc false
 
-  alias Ankole.{Logging, Principals, WorkerFiles}
+  alias Ankole.{Logging, Principals}
 
   alias Ankole.Plugins.MapHelpers
 
@@ -454,48 +454,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     end
   end
 
-  defp maybe_materialize_attachments(attachments, activity, consumer),
-    do: materialize_attachments(attachments, activity, consumer)
+  defp maybe_materialize_attachments(attachments, _activity, %{config: config}) do
+    materialized =
+      Ingress.materialize_attachments(attachments, "microsoft365", fn attachment ->
+        with {:ok, download} <- download_attachment(attachment, config) do
+          {:ok, %{body: download.body, filename: download.filename, content_type: nil, put: %{}}}
+        end
+      end)
 
-  defp materialize_attachments(attachments, _activity, %{
-         config: config,
-         context: %{agent_uid: agent_uid}
-       }) do
-    {:ok, Enum.map(attachments, &materialize_attachment(&1, config, agent_uid))}
-  end
-
-  defp materialize_attachment(attachment, config, agent_uid) do
-    with {:ok, download} <- download_attachment(attachment, config),
-         relative <- materialized_path(attachment, download.filename),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      reason ->
-        Logging.warning(
-          "microsoft365_adapter.attachment.materialization_skipped",
-          "Teams attachment materialization skipped",
-          %{provider_ref: attachment["provider_ref"], reason: inspect(reason)}
-        )
-
-        attachment
-    end
-  rescue
-    exception ->
-      Logging.warning(
-        "microsoft365_adapter.attachment.materialization_failed",
-        "Teams attachment materialization failed",
-        %{provider_ref: attachment["provider_ref"], error: Exception.message(exception)}
-      )
-
-      attachment
+    {:ok, materialized}
   end
 
   defp download_attachment(%{"download_auth" => "connector"} = attachment, config) do
@@ -513,16 +480,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     MicrosoftOpenAPI.download(attachment["download_url"],
       req_options: Config.chat_client(config).req_options
     )
-  end
-
-  defp materialized_path(attachment, downloaded_name) do
-    Path.join([
-      "inbox",
-      "teams",
-      WorkerFiles.sanitize_path_segment(attachment["source_message_id"]),
-      WorkerFiles.sanitize_path_segment(attachment["file_id"] || "attachment"),
-      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
-    ])
   end
 
   defp reaction_target(activity) do

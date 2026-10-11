@@ -139,7 +139,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
 
   it('does not resolve a namespaced call to a local Job tool', async () => {
     const projection = buildCodexJobProjection({
-      tools: [namespacedTool('analysis_tools', 'web_search'), tool('web_search', z.object({}), () => 'local')]
+      tools: [tool('web_search', z.object({}), () => 'local')]
     })
     expect(projection.dynamicTools).toHaveLength(1)
     const result = await projection.handleToolCall(
@@ -316,7 +316,7 @@ describe('@ankole/agent-computer Codex notification projection', () => {
     ).toEqual({ type: 'ignored' })
   })
 
-  it('projects an Agent token quota rejection apart from the credential-pool terminal', () => {
+  it('projects a usage-limit rejection as credential-pool exhaustion', () => {
     expect(
       projectCodexNotification({
         method: 'error',
@@ -324,34 +324,18 @@ describe('@ankole/agent-computer Codex notification projection', () => {
           threadId: 'thread-1',
           error: {
             codexErrorInfo: 'usageLimitExceeded',
-            message:
-              "You've hit your usage limit. Ankole Agent token quota reached (agent_token_quota_exceeded), or try again at Sep 16th, 2026 8:00 AM.",
+            message: "You've hit your usage limit. retry_at=2030-09-16T08:00:00Z",
             additionalDetails: null
           }
         }
       })
-    ).toEqual({ type: 'agent_token_quota_exceeded', threadID: 'thread-1' })
+    ).toEqual({
+      type: 'credential_pool_exhausted',
+      threadID: 'thread-1',
+      exhaustion: { retryAt: '2030-09-16T08:00:00.000Z' }
+    })
   })
 })
-
-function namespacedTool(namespace: string, name: string): WorkerAgentTool {
-  return defineWorkerTool({
-    executionMode: 'sequential',
-    name,
-    description: 'Inspect data.',
-    schema: z.object({}),
-    jsonSchema: { type: 'object', properties: {} },
-    namespace,
-    namespaceDescription: `${namespace} tools`,
-    deferLoading: true,
-    isReadOnly: true,
-    isDestructive: false,
-    describeActivity: () => 'Inspect data',
-    async execute() {
-      return { content: [{ type: 'text', text: 'inspected' }], details: {} }
-    }
-  })
-}
 
 function tool(name: string, schema: z.ZodType, execute: (params: unknown) => string): WorkerAgentTool {
   return defineWorkerTool({

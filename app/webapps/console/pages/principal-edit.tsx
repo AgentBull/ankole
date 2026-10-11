@@ -1,7 +1,7 @@
 import { Input, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
@@ -20,7 +20,6 @@ export function PrincipalEditPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(PrincipalEditorModel)
   const params = useParams()
   const uid = params.uid ?? ''
@@ -45,7 +44,6 @@ export function PrincipalEditPage() {
     ...ankoleWebPrincipalControllerUpdateMutation(),
     onSuccess: () => {
       toast.success(t('console.principals.profile_saved'))
-      void queryClient.invalidateQueries()
       navigate(detailPath)
     }
   })

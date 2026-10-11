@@ -15,7 +15,7 @@ The resolver, the provider module, and the kernel each own one stage. The resolv
 
 An Agent has eight built-in model profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. `coding` is the API and storage name for the user-facing Background Agent Jobs profile. The first five profiles select language models; the last three select separate web-search, web-fetch, and image-generation capabilities.
 
-Embedding and rerank are not Agent profiles. Direct AIGateway calls for these capabilities require an explicit `provider_id/model` selector. Brain instead reads one instance-wide embedding model and rerank model from `brain.embedding_model` and `brain.rerank_model` in [AppConfigure](../app-configuration/). See [Brain](../brain/) for their effect on retrieval.
+Embedding and rerank are not Agent profiles. Direct AIGateway calls for these capabilities require an explicit `provider_id/model` selector. Brain reads the site embedding model from `brain.embedding_model` and the tenant rerank model from `brain.rerank_model` in [AppConfigure](../app-configuration/). See [Brain](../brain/) for their effect on retrieval.
 
 After it resolves the provider row, the resolver selects one usable credential. Thread affinity wins before the row's `fill_first`, `round_robin`, `least_used`, or `random` strategy. The runtime map carries the exact credential ID to every later failure path. For a ChatGPT subscription OAuth member, the resolver refreshes a near-expiry or stale token under the provider-row lock. A permanent refresh failure marks that member `dead`; a temporary failure marks it `exhausted`; both select the next usable member.
 

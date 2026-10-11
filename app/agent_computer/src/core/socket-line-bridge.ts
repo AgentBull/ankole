@@ -6,15 +6,20 @@
  * endpoint.
  *
  * `src/automation-jobs/sdk.ts` keeps its own copy of the client half on
- * purpose — that file runs inside the job sandbox as a self-contained module
- * and cannot import worker code.
+ * purpose — that file runs in the Automation script process as a
+ * self-contained module and does not import Worker code.
  */
 
 import { chmodSync, existsSync, unlinkSync } from 'node:fs'
+import type { z } from 'zod'
 import { errorMessage } from '../common/errors'
+import { chownAgentPathSync } from '../common/agent-user'
 
 /** Response envelope the CLI bridges write for every request. */
 export type SocketLineBridgeResponse = { ok: true; result: Record<string, unknown> } | { ok: false; error: string }
+
+/** Request limit of the CLI bridges. A CLI command is a small JSON object. */
+export const CLI_REQUEST_MAX_BYTES = 16 * 1024
 
 export type SocketLineBridge = {
   socketPath: string
@@ -22,8 +27,9 @@ export type SocketLineBridge = {
 }
 
 type SocketState = {
-  buffer: string
+  buffer: Buffer
   handled: boolean
+  response?: Buffer
 }
 
 /**
@@ -41,29 +47,30 @@ export function startSocketLineBridge(opts: {
     unix: opts.socketPath,
     socket: {
       open(socket) {
-        socket.data = { buffer: '', handled: false }
+        socket.data = { buffer: Buffer.alloc(0), handled: false }
       },
       data(socket, data) {
         if (socket.data.handled) return
-        socket.data.buffer += Buffer.from(data).toString('utf8')
+        socket.data.buffer = Buffer.concat([socket.data.buffer, data])
 
-        if (Buffer.byteLength(socket.data.buffer, 'utf8') > opts.maxRequestBytes) {
+        if (socket.data.buffer.byteLength > opts.maxRequestBytes) {
           socket.data.handled = true
           writeResponse(socket, { ok: false, error: opts.oversizeError })
           return
         }
 
-        const newline = socket.data.buffer.indexOf('\n')
+        const newline = socket.data.buffer.indexOf(0x0a)
         if (newline < 0) return
 
         socket.data.handled = true
-        const line = socket.data.buffer.slice(0, newline)
+        const line = socket.data.buffer.subarray(0, newline).toString('utf8')
 
         void opts
           .handleLine(line)
           .then(response => writeResponse(socket, response))
           .catch(error => writeResponse(socket, { ok: false, error: errorMessage(error) }))
       },
+      drain: flushResponse,
       error(_socket, _error) {
         // The caller receives a closed socket. RuntimeFabric and domain errors
         // are returned through the normal response path above.
@@ -72,6 +79,7 @@ export function startSocketLineBridge(opts: {
   })
 
   chmodSync(opts.socketPath, 0o600)
+  chownAgentPathSync(opts.socketPath)
   let closed = false
 
   return {
@@ -86,21 +94,60 @@ export function startSocketLineBridge(opts: {
 }
 
 function writeResponse(socket: Bun.Socket<SocketState>, response: unknown): void {
-  socket.write(`${JSON.stringify(response)}\n`)
+  socket.data.response = Buffer.from(`${JSON.stringify(response)}\n`)
+  flushResponse(socket)
+}
+
+// Bun socket writes can be partial. Keep the unsent bytes until drain before
+// closing, so a large CLI response remains one complete JSON line.
+function flushResponse(socket: Bun.Socket<SocketState>): void {
+  const response = socket.data.response
+  if (!response) return
+  const written = socket.write(response)
+  if (written < 0) {
+    socket.data.response = undefined
+    return
+  }
+  if (written < response.byteLength) {
+    socket.data.response = response.subarray(written)
+    return
+  }
+  socket.data.response = undefined
   socket.end()
 }
 
 /**
- * Sends one JSON line to a bridge and returns the parsed JSON response.
- * The bridge answers once and closes, so the response is parsed on close.
+ * Decodes one CLI request line with the command schema of that CLI. The error
+ * that this function throws goes back to the CLI as `{ ok: false, error }`.
  */
-export async function requestSocketLineBridge<T>(
+export function parseCLIRequest<Schema extends z.ZodType>(
+  line: string,
+  schema: Schema,
+  invalidJSONError: string
+): z.output<Schema> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(line)
+  } catch {
+    throw new Error(invalidJSONError)
+  }
+  const parsed = schema.safeParse(raw)
+  if (!parsed.success) throw new Error(parsed.error.issues.map(issue => issue.message).join('; '))
+  return parsed.data
+}
+
+/**
+ * Sends one JSON line to a CLI bridge and returns the result of the response.
+ * An error response throws its error. The bridge answers once and closes, so
+ * the response is parsed on close.
+ */
+export async function requestSocketLineBridge(
   socketPath: string,
   line: string,
   invalidResponseError: string
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    let response = ''
+): Promise<Record<string, unknown>> {
+  const decoded = await new Promise<SocketLineBridgeResponse>((resolve, reject) => {
+    const response: Buffer[] = []
     let settled = false
 
     void Bun.connect({
@@ -110,14 +157,14 @@ export async function requestSocketLineBridge<T>(
           socket.write(`${line}\n`)
         },
         data(_socket, data) {
-          response += Buffer.from(data).toString('utf8')
+          response.push(Buffer.from(data))
         },
         close() {
           if (settled) return
           settled = true
 
           try {
-            resolve(JSON.parse(response.trim()) as T)
+            resolve(JSON.parse(Buffer.concat(response).toString('utf8').trim()) as SocketLineBridgeResponse)
           } catch {
             reject(new Error(invalidResponseError))
           }
@@ -139,4 +186,6 @@ export async function requestSocketLineBridge<T>(
       reject(error)
     })
   })
+  if (decoded.ok) return decoded.result
+  throw new Error(decoded.error)
 }

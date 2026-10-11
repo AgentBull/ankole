@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AIGatewayHTTPClient } from '../src/core/ai_gateway_transport'
 import { createWebTools as createProductionWebTools, type CreateWebToolsOptions } from '../src/tools/web/web-tools'
-import { WEB_FETCH_BUDGET_CHARS } from '../src/tools/web/fetched-page-text'
+import { WEB_FETCH_BUDGET_CHARS, fetchedPageHost } from '../src/tools/web/fetched-page-text'
 
 let repeatFetchSessionSequence = 0
 
@@ -265,7 +265,25 @@ describe('web tools', () => {
     })
   })
 
-  it('rejects private-network URLs in local web_fetch by default', async () => {
+  it('accepts HTTPS schemes and preserves the canonical fetched host', async () => {
+    const tools = await createWebTools({
+      aiGateway: { baseURL: 'https://control.test', fetch: async () => jsonResponse({}) },
+      workspaceRoot
+    })
+    const tool = tools.find(value => value.name === 'web_fetch')!
+    for (const url of ['https://Example.COM/page', 'HTTPS://a.example']) {
+      expect(() => tool.schema.parse({ urls: [url] })).not.toThrow()
+    }
+    for (const url of ['http://a.example', 'not a url', 'data:text/plain,hi']) {
+      expect(() => tool.schema.parse({ urls: [url] })).toThrow()
+    }
+    expect(fetchedPageHost('https://Example.COM/x')).toBe('example.com')
+    expect(fetchedPageHost('https://0x7f000001/')).toBe('127.0.0.1')
+    expect(fetchedPageHost('https://[::1]/')).toBe('::1')
+    expect(fetchedPageHost('not a url')).toBeUndefined()
+  })
+
+  it('keeps each renderer SSRF error beside successful pages', async () => {
     const fetched: string[] = []
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
@@ -278,7 +296,13 @@ describe('web tools', () => {
       renderedFallback: {
         fetchBatch: async urls => {
           fetched.push(...urls)
-          return { results: urls.map(url => ({ url, text: 'Fetched public page' })) }
+          return {
+            results: urls.map(url =>
+              url.includes('192.168.1.20')
+                ? { url, error: 'blocked non-public URL by the security.ssrf_filter policy' }
+                : { url, text: 'Fetched public page' }
+            )
+          }
         }
       }
     })
@@ -288,7 +312,7 @@ describe('web tools', () => {
       urls: ['https://192.168.1.20/console', 'https://example.com']
     })
 
-    expect(fetched).toEqual(['https://example.com'])
+    expect(fetched).toEqual(['https://192.168.1.20/console', 'https://example.com'])
     expect(result.details).toMatchObject({
       success: false,
       source: 'rendered_fallback',
@@ -316,7 +340,13 @@ describe('web tools', () => {
         ssrfFilter: false,
         fetchBatch: async urls => {
           fetched.push(...urls)
-          return { results: urls.map(url => ({ url, text: 'Intranet page text' })) }
+          return {
+            results: urls.map(url =>
+              url.includes('169.254.169.254')
+                ? { url, error: 'blocked browser navigation to metadata address: 169.254.169.254' }
+                : { url, text: 'Intranet page text' }
+            )
+          }
         }
       }
     })
@@ -326,7 +356,7 @@ describe('web tools', () => {
       urls: ['https://192.168.1.20/console', 'https://169.254.169.254/latest/meta-data/']
     })
 
-    expect(fetched).toEqual(['https://192.168.1.20/console'])
+    expect(fetched).toEqual(['https://192.168.1.20/console', 'https://169.254.169.254/latest/meta-data/'])
     expect(result.details).toMatchObject({
       success: false,
       source: 'rendered_fallback',
@@ -334,7 +364,7 @@ describe('web tools', () => {
         { url: 'https://192.168.1.20/console', text_chars: 'Intranet page text'.length, truncated: false },
         {
           url: 'https://169.254.169.254/latest/meta-data/',
-          error: 'blocked rendered fetch to cloud metadata endpoint'
+          error: 'blocked browser navigation to metadata address: 169.254.169.254'
         }
       ]
     })
@@ -393,7 +423,8 @@ describe('web tools', () => {
           return {
             results: [
               { url: urls[0], title: 'Page A', text: 'Text of page A' },
-              { url: urls[1], error: 'navigation timeout', error_code: 'timeout' }
+              { url: urls[1], error: 'blocked non-public URL by the security.ssrf_filter policy' },
+              { url: urls[2], error: 'navigation timeout', error_code: 'timeout' }
             ]
           }
         }
@@ -405,7 +436,7 @@ describe('web tools', () => {
       urls: ['https://a.example/', 'https://192.168.1.20/console', 'https://b.example/']
     })
 
-    expect(batches).toEqual([['https://a.example/', 'https://b.example/']])
+    expect(batches).toEqual([['https://a.example/', 'https://192.168.1.20/console', 'https://b.example/']])
     expect(textOf(result)).toContain('Text of page A')
     expect(textOf(result)).toContain('Error: navigation timeout')
     expect(result.details).toMatchObject({

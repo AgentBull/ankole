@@ -160,9 +160,11 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     outbox = fixture.outbox
 
     task =
-      Task.async(fn ->
-        receive(do: (:go -> ReplyPreviewAdapter.finalize_outbox(adapter, outbox)))
-      end)
+      Task.async(
+        Repo.bind_tenant(fn ->
+          receive(do: (:go -> ReplyPreviewAdapter.finalize_outbox(adapter, outbox)))
+        end)
+      )
 
     pid = task.pid
 

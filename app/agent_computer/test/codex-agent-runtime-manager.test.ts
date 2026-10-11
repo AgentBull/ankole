@@ -3,9 +3,11 @@ import { create } from '@bufbuild/protobuf'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdirAgentSync } from '../src/common/agent-user'
+import { agentProcessArgv } from '../src/core/execution/process-group'
 import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { CodexAppServerClient, JSONRPCMessage } from '../src/core/codex-runner/runtime/app-server-client'
-import type { CodexAppServerSandboxSpec } from '../src/core/codex-runner/runtime/sandbox'
+import type { CodexAppServerSpec } from '../src/core/codex-runner/runtime/app-server-spec'
 import { prepareAgentPlugins } from '../src/core/codex-runner/runtime/agent-plugin-materializer'
 import { codexAIGatewayTokenPath } from '../src/core/codex-runner/runtime/agent-home-config'
 import { codexHomeLockedCommandArgv } from '../src/core/codex-runner/runtime/codex-home-lock'
@@ -26,40 +28,43 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'initial-agent-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         }),
         manager.acquire({
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'initial-agent-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         })
       ])
       expect(first.runtime.client.processID).toBeDefined()
       expect(second.runtime.client.processID).toBe(first.runtime.client.processID)
-      expect(manager.activeRuntimeCount('agent-1')).toBe(1)
-      expect(fixture.sandbox.env.ANKOLE_AIGATEWAY_API_KEY).toBeUndefined()
+      expect(manager.activeRuntimeCount()).toBe(1)
+      expect(fixture.appServer.env.ANKOLE_AIGATEWAY_API_KEY).toBeUndefined()
 
       const refreshed = await manager.acquire({
         agentUID: 'agent-1',
         agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
+        sqliteHome: fixture.sqliteHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'refreshed-agent-token',
-        sandbox: fixture.sandbox
+        appServer: fixture.appServer
       })
       expect(refreshed.runtime.client.processID).toBe(first.runtime.client.processID)
       expect(readFileSync(codexAIGatewayTokenPath(fixture.codexHome), 'utf8')).toBe('refreshed-agent-token\n')
       await refreshed.release()
 
       await first.release()
-      expect(manager.activeRuntimeCount('agent-1')).toBe(1)
+      expect(manager.activeRuntimeCount()).toBe(1)
       await second.release()
-      expect(manager.activeRuntimeCount('agent-1')).toBe(0)
+      expect(manager.activeRuntimeCount()).toBe(0)
     } finally {
       fixture.cleanup()
     }
@@ -74,27 +79,29 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
         agentUID: 'agent-1',
         agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
+        sqliteHome: fixture.sqliteHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'agent-token',
-        sandbox: fixture.sandbox,
+        appServer: fixture.appServer,
         abortSignal: controller.signal
       })
       const retained = manager.acquire({
         agentUID: 'agent-1',
         agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
+        sqliteHome: fixture.sqliteHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'agent-token',
-        sandbox: fixture.sandbox
+        appServer: fixture.appServer
       })
       await waitForFile(fixture.initializeMarker)
       controller.abort(new Error('first waiter cancelled'))
 
       await expect(cancelled).rejects.toThrow('first waiter cancelled')
       const lease = await retained
-      expect(manager.activeRuntimeCount('agent-1')).toBe(1)
+      expect(manager.activeRuntimeCount()).toBe(1)
       await lease.release()
-      expect(manager.activeRuntimeCount('agent-1')).toBe(0)
+      expect(manager.activeRuntimeCount()).toBe(0)
     } finally {
       fixture.cleanup()
     }
@@ -110,17 +117,19 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
     writeFileSync(configPath, 'active-config\n')
     writeFileSync(tokenPath, 'active-token\n')
     const holder = Bun.spawn(
-      codexHomeLockedCommandArgv({
-        codexHome: fixture.codexHome,
-        commandArgv: [
-          '/bin/sh',
-          '-c',
-          'touch "$1"; while [ ! -e "$2" ]; do sleep 0.02; done',
-          'ankole-runtime-holder',
-          ready,
-          release
-        ]
-      })
+      agentProcessArgv(
+        codexHomeLockedCommandArgv({
+          sqliteHome: fixture.sqliteHome,
+          commandArgv: [
+            '/bin/sh',
+            '-c',
+            'touch "$1"; while [ ! -e "$2" ]; do sleep 0.02; done',
+            'ankole-runtime-holder',
+            ready,
+            release
+          ]
+        })
+      )
     )
 
     try {
@@ -130,9 +139,10 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://replacement.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'replacement-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         })
       ).rejects.toMatchObject({ code: 'agent_codex_runtime_busy', retryable: true })
 
@@ -154,25 +164,28 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         }),
         manager.acquire({
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         }),
         manager.acquire({
           agentUID: 'agent-1',
           agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
+          sqliteHome: fixture.sqliteHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
-          sandbox: fixture.sandbox
+          appServer: fixture.appServer
         })
       ])
       const firstPID = first.runtime.client.processID
@@ -198,23 +211,24 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       expect(firstSession.notifications).toEqual([])
       expect(secondSession.notifications.at(-1)?.method).toBe('turn/completed')
       expect(thirdSession.notifications.at(-1)?.method).toBe('turn/completed')
-      expect(manager.activeRuntimeCount('agent-1')).toBe(1)
+      expect(manager.activeRuntimeCount()).toBe(1)
 
       await expect(second.runtime.client.request('test/exit', {})).rejects.toThrow('exited with code 43')
       await waitUntil(() => secondSession.lost.length === 1 && thirdSession.lost.length === 1)
       expect(firstSession.lost).toEqual([])
       expect(secondSession.lost[0]).toMatchObject({ code: 'runtime_lost', retryable: true })
       expect(thirdSession.lost[0]).toBe(secondSession.lost[0])
-      expect(manager.activeRuntimeCount('agent-1')).toBe(0)
+      expect(manager.activeRuntimeCount()).toBe(0)
 
       await Promise.all([second.release(), third.release()])
       const replacement = await manager.acquire({
         agentUID: 'agent-1',
         agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
+        sqliteHome: fixture.sqliteHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'replacement-agent-token',
-        sandbox: fixture.sandbox
+        appServer: fixture.appServer
       })
       expect(replacement.runtime.client.processID).not.toBe(firstPID)
       await replacement.release()
@@ -290,7 +304,6 @@ function createPluginRuntimeFixture(options: { shadowingMarketplace?: boolean } 
     agentPlugins: [
       create(AgentPluginCatalogEntrySchema, {
         id: 'alpha',
-        description: 'alpha Plugin',
         skills: [{ catalogName: 'alpha-skill' }]
       })
     ],
@@ -774,17 +787,21 @@ function messageMethodThread(message: JSONRPCMessage): string {
 function runtimeFixture(options: { initializeDelayMs?: number } = {}): {
   agentHome: string
   codexHome: string
+  sqliteHome: string
   initializeMarker: string
-  sandbox: CodexAppServerSandboxSpec
+  appServer: CodexAppServerSpec
   cleanup(): void
 } {
   const root = mkdtempSync(join(tmpdir(), 'ankole-agent-runtime-manager-'))
+  mkdirAgentSync(root, 0o700)
   const codexHome = join(root, 'codex-home')
+  const sqliteHome = join(root, 'sqlite')
   const script = join(root, 'fake-app-server.ts')
   const lockHelper = join(root, 'flock')
   const initializeMarker = join(root, 'initialize-started')
   const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
-  mkdirSync(codexHome)
+  mkdirAgentSync(codexHome)
+  mkdirAgentSync(sqliteHome)
   writePortableFlock(lockHelper)
   process.env.ANKOLE_FLOCK_BINARY = lockHelper
   writeFileSync(
@@ -818,15 +835,16 @@ process.stdin.resume()
   return {
     agentHome: root,
     codexHome,
+    sqliteHome,
     initializeMarker,
-    sandbox: {
+    appServer: {
       cwd: root,
-      codexCwd: root,
       commandArgv: [process.execPath, script],
       env: {
         PATH: process.env.PATH ?? '/usr/bin:/bin',
         HOME: root,
         CODEX_HOME: codexHome,
+        CODEX_SQLITE_HOME: sqliteHome,
         FAKE_INITIALIZE_MARKER: initializeMarker,
         FAKE_INITIALIZE_DELAY_MS: String(options.initializeDelayMs ?? 0)
       }

@@ -1,4 +1,5 @@
-import { existsSync, lstatSync, mkdirSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
+import { mkdirAgentSync } from '../../../common/agent-user'
 import { join } from 'node:path'
 import { agentHomePaths, jobWorkspacePath } from '../../agent-home-paths'
 
@@ -8,13 +9,12 @@ export type PreparedCodexJobProject = {
 }
 
 export function codexJobProjectLocation(
-  agentsRoot: string,
-  agentUID: string,
+  agentHomeRoot: string,
   workspaceOwnerJobID: string
 ): { hostPath: string; agentHome: string } {
   return {
-    hostPath: jobWorkspacePath(agentsRoot, agentUID, workspaceOwnerJobID),
-    agentHome: agentHomePaths(agentsRoot, agentUID).home
+    hostPath: jobWorkspacePath(agentHomeRoot, workspaceOwnerJobID),
+    agentHome: agentHomePaths(agentHomeRoot).home
   }
 }
 
@@ -39,7 +39,7 @@ export function prepareCodexJobProject(input: { jobProjectRoot: string }): Prepa
 
 function ensureRealDirectory(path: string, label: string): void {
   if (!existsSync(path)) {
-    mkdirSync(path, { recursive: true })
+    mkdirAgentSync(path)
     return
   }
   const stat = lstatSync(path)

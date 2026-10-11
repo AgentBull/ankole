@@ -10,7 +10,7 @@ defmodule AnkoleWeb.HumanAccessController do
   alias AnkoleWeb.Schemas.HumanAccessAPI
 
   tags(["Principals"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
   plug OpenApiSpex.Plug.CastAndValidate, render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:show,
@@ -18,7 +18,7 @@ defmodule AnkoleWeb.HumanAccessController do
     parameters: [uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Human access", "application/json", HumanAccessAPI.HumanAccessResponse},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -29,7 +29,7 @@ defmodule AnkoleWeb.HumanAccessController do
       {"Reason", "application/json", HumanAccessAPI.AccessReasonRequest, required: true},
     responses: [
       ok: {"Human access", "application/json", HumanAccessAPI.HumanAccessResponse},
-      conflict: {"Cannot disable", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -47,7 +47,7 @@ defmodule AnkoleWeb.HumanAccessController do
       {"Review", "application/json", HumanAccessAPI.AccessReasonRequest, required: true},
     responses: [
       ok: {"Human access", "application/json", HumanAccessAPI.HumanAccessResponse},
-      conflict: {"Review required", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -58,7 +58,7 @@ defmodule AnkoleWeb.HumanAccessController do
       {"Approved review", "application/json", HumanAccessAPI.AccessRestoreRequest, required: true},
     responses: [
       ok: {"Human access", "application/json", HumanAccessAPI.HumanAccessResponse},
-      conflict: {"Review changed", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -79,7 +79,7 @@ defmodule AnkoleWeb.HumanAccessController do
       {"Work review", "application/json", HumanAccessAPI.WorkClassifyRequest, required: true},
     responses: [
       ok: {"Work review", "application/json", HumanAccessAPI.WorkReviewResponse},
-      conflict: {"Review changed", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -205,16 +205,20 @@ defmodule AnkoleWeb.HumanAccessController do
           history:
             Enum.map(
               HumanAccess.history(uid),
-              &Map.take(&1, [
-                :id,
-                :source,
-                :action,
-                :reason,
-                :actor_uid,
-                :access_version,
-                :details,
-                :inserted_at
-              ])
+              fn event ->
+                event
+                |> Map.take([
+                  :id,
+                  :source,
+                  :action,
+                  :reason,
+                  :actor,
+                  :access_version,
+                  :details,
+                  :inserted_at
+                ])
+                |> Map.update!(:actor, fn actor -> actor && Map.from_struct(actor) end)
+              end
             ),
           work: WorkAccess.list_for_human(uid),
           cleanup_jobs:
@@ -238,11 +242,20 @@ defmodule AnkoleWeb.HumanAccessController do
     end
   end
 
-  defp actor(conn), do: conn.assigns.current_principal_uid
+  defp actor(conn), do: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "Access denied")
 
   defp error(conn, :not_found),
     do: ConsoleErrors.render(conn, 404, "not_found", "Human or restriction was not found")
+
+  defp error(conn, :tenant_deleting),
+    do:
+      ConsoleErrors.render(
+        conn,
+        409,
+        "tenant_deleting",
+        "Human access cannot be restored while its tenant is being deleted"
+      )
 
   defp error(conn, reason) when is_atom(reason),
     do:

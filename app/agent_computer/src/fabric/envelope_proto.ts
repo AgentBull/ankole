@@ -4,7 +4,6 @@ export { create } from '@bufbuild/protobuf'
 import {
   EnvelopeSchema,
   type ActorEventEnvelope as ActorEventEnvelopeMessage,
-  type ActorTurnRef as ActorTurnRefMessage,
   type Envelope,
   type TurnModelRef as TurnModelRefMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
@@ -12,7 +11,6 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 
 type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
-
 /**
  * Canonical local names for the envelope codec generated from `envelope.proto`.
  *
@@ -24,39 +22,27 @@ type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
  */
 export {
   ControlShutdownSchema,
-  DurabilityClass,
-  EnvelopeSchema,
-  Lane,
-  MailboxUpdatedSchema,
   Stream,
+  ProtocolVersion,
   RPCErrorSchema,
   RPCRequestSchema,
   RPCResponseSchema,
   TurnAcceptedSchema,
-  TurnControlSchema,
-  TurnStartSchema,
   WorkerProgressSchema,
-  AgentComputerWorkerCapacitySchema,
   AgentComputerWorkerHeartbeatSchema,
-  AgentComputerWorkerReadySchema,
-  ActorEventEnvelopeSchema,
   ActorKeySchema,
-  ActorTurnRefSchema,
-  TurnModelRefSchema
+  RunRefSchema,
+  JobTurnRefSchema,
+  WorkspaceReadySchema,
+  ToolStatusSchema,
+  ToolProgressSchema,
+  ToolResultSchema
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
-export type { ActorEventEnvelopeMessage, ActorTurnRefMessage, Envelope, TurnModelRefMessage }
+export type { ActorEventEnvelopeMessage, Envelope, TurnModelRefMessage }
 export type {
-  AgentComputerWorkerCapacity as AgentComputerWorkerCapacityMessage,
-  AgentComputerWorkerHeartbeat as AgentComputerWorkerHeartbeatMessage,
-  AgentComputerWorkerReady as AgentComputerWorkerReadyMessage,
-  ControlShutdown as ControlShutdownMessage,
-  MailboxUpdated as MailboxUpdatedMessage,
   RPCError as RPCErrorMessage,
   RPCRequest as RPCRequestMessage,
-  RPCResponse as RPCResponseMessage,
-  TurnControl as TurnControlMessage,
-  TurnStart as TurnStartMessage,
-  WorkerProgress as WorkerProgressMessage
+  RPCResponse as RPCResponseMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
 
 export function encodeEnvelope(envelope: Envelope): Buffer {
@@ -69,18 +55,10 @@ export function decodeEnvelope(bytes: Uint8Array): Envelope {
 
 /**
  * Builds the shared envelope header; body construction stays with the caller.
- * The kernel seals lane, durability, and protocol version from the body at
- * send time, so the header carries only the ids and the send instant.
+ * The sending host supplies the protocol version.
  */
-export function envelopeHeader(
-  messageID: string,
-  correlationID?: string
-): Pick<Envelope, 'messageId' | 'correlationId' | 'sentAtUnixMs'> {
-  return {
-    messageId: messageID,
-    correlationId: correlationID ?? messageID,
-    sentAtUnixMs: BigInt(Date.now())
-  }
+export function envelopeHeader(messageID: string): Pick<Envelope, 'messageId'> {
+  return { messageId: messageID }
 }
 
 export function createEnvelope(fields: Parameters<typeof create<typeof EnvelopeSchema>>[1]): Envelope {

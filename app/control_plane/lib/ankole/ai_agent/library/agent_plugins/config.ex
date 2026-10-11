@@ -44,7 +44,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   def put_skill_default(_skill_id, _enabled), do: {:error, :invalid_skill_default}
 
   defp update_default(definition, id, enabled) do
-    AppConfigure.update_global(definition, fn values ->
+    AppConfigure.update_tenant(definition, fn values ->
       {:ok, Map.put(values, id, enabled)}
     end)
   end
@@ -60,7 +60,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     AppConfigure.define(
       key: @agent_plugin_defaults_key,
       encrypted: false,
-      scope: :global,
+      scope: :tenant,
       schema: boolean_map_schema(&valid_agent_plugin_id?/1),
       default_value: %{"lark" => false},
       description: "Default enablement inherited by Agents for each Agent Plugin."
@@ -71,7 +71,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     AppConfigure.define(
       key: @skill_defaults_key,
       encrypted: false,
-      scope: :global,
+      scope: :tenant,
       schema: boolean_map_schema(&valid_skill_id?/1),
       default_value: %{},
       description:

@@ -25,7 +25,6 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
 
   @retry_ms 1_000
   @max_backoff_ms 60_000
-  @configuration_timeout_ms 15_000
   @default_max_pending_events 1_000
 
   # Discord counts IDENTIFY against a daily budget, so a connection that needs
@@ -38,8 +37,6 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
 
   defstruct [
     :key,
-    :secret_fingerprint,
-    :consumer_fingerprint,
     :config,
     :client,
     :consumer,
@@ -68,7 +65,16 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     key = Keyword.fetch!(opts, :key)
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {@registry, key}})
+
+    GenServer.start_link(__MODULE__, opts,
+      name:
+        {:via, Registry,
+         {@registry, key,
+          Ankole.Plugins.ConnectionLifecycle.registry_value(
+            Keyword.fetch!(opts, :config),
+            [Keyword.fetch!(opts, :consumer)]
+          )}}
+    )
   end
 
   def child_spec(opts) do
@@ -78,12 +84,6 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
       type: :worker,
       restart: :permanent
     }
-  end
-
-  @spec ensure_configuration(GenServer.server(), map(), map()) ::
-          {:ok, pid()} | {:error, :configuration_changed}
-  def ensure_configuration(server, config, consumer) do
-    GenServer.call(server, {:ensure_configuration, config, consumer}, @configuration_timeout_ms)
   end
 
   @spec status(GenServer.server()) :: map()
@@ -99,12 +99,11 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   def init(opts) do
     config = Keyword.fetch!(opts, :config)
     consumer = Keyword.fetch!(opts, :consumer)
+    Ankole.Repo.put_tenant_id(Map.fetch!(consumer, :tenant_id))
 
     {:ok,
      %__MODULE__{
        key: Keyword.fetch!(opts, :key),
-       secret_fingerprint: Config.secret_fingerprint(config),
-       consumer_fingerprint: fingerprint(consumer),
        config: config,
        client: Config.client(config),
        consumer: consumer
@@ -115,15 +114,6 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   def handle_continue(:preflight, state), do: {:noreply, start_preflight(state)}
 
   @impl true
-  def handle_call({:ensure_configuration, config, consumer}, _from, state) do
-    unchanged? =
-      Config.secret_fingerprint(config) == state.secret_fingerprint and
-        fingerprint(consumer) == state.consumer_fingerprint
-
-    reply = if unchanged?, do: {:ok, self()}, else: {:error, :configuration_changed}
-    {:reply, reply, state}
-  end
-
   def handle_call(:status, _from, state), do: {:reply, public_status(state), state}
 
   @impl true
@@ -245,22 +235,25 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     client = state.client
 
     task =
-      Task.Supervisor.async_nolink(@task_supervisor, fn ->
-        with {:ok, user} <- Client.current_user(client),
-             {:ok, application} <- Client.current_application(client),
-             {:ok, gateway} <- Client.gateway_bot(client) do
-          {:preflight,
-           %{
-             bot: %{id: user["id"], username: user["username"]},
-             message_content?: Gateway.message_content_flag?(application["flags"]),
-             gateway_url: gateway["url"]
-           }}
-        else
-          # Tagged so a failed preflight and a failed event handler cannot take
-          # each other's branch of the state machine.
-          {:error, error} -> {:preflight_error, error}
-        end
-      end)
+      Task.Supervisor.async_nolink(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          with {:ok, user} <- Client.current_user(client),
+               {:ok, application} <- Client.current_application(client),
+               {:ok, gateway} <- Client.gateway_bot(client) do
+            {:preflight,
+             %{
+               bot: %{id: user["id"], username: user["username"]},
+               message_content?: Gateway.message_content_flag?(application["flags"]),
+               gateway_url: gateway["url"]
+             }}
+          else
+            # Tagged so a failed preflight and a failed event handler cannot take
+            # each other's branch of the state machine.
+            {:error, error} -> {:preflight_error, error}
+          end
+        end)
+      )
 
     %{state | task: task, task_kind: :preflight, task_generation: nil}
   end
@@ -351,12 +344,15 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     url = connect_url(state)
 
     task =
-      Task.Supervisor.async_nolink(@task_supervisor, fn ->
-        case Socket.connect(url, owner) do
-          {:ok, socket} -> {:connected, socket}
-          {:error, reason} -> {:connect_error, reason}
-        end
-      end)
+      Task.Supervisor.async_nolink(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          case Socket.connect(url, owner) do
+            {:ok, socket} -> {:connected, socket}
+            {:error, reason} -> {:connect_error, reason}
+          end
+        end)
+      )
 
     %{
       state
@@ -462,16 +458,19 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
       client = state.client
 
       task =
-        Task.Supervisor.async_nolink(@task_supervisor, fn ->
-          case Dispatcher.dispatch(event.type, event.data, consumer, bot,
-                 client: client,
-                 gateway_session_id: event.session_id,
-                 gateway_sequence: event.sequence
-               ) do
-            {:ok, _result} -> {:handled, event.generation, event.sequence}
-            {:error, reason} -> {:event_error, event.generation, reason}
-          end
-        end)
+        Task.Supervisor.async_nolink(
+          @task_supervisor,
+          Ankole.Repo.bind_tenant(fn ->
+            case Dispatcher.dispatch(event.type, event.data, consumer, bot,
+                   client: client,
+                   gateway_session_id: event.session_id,
+                   gateway_sequence: event.sequence
+                 ) do
+              {:ok, _result} -> {:handled, event.generation, event.sequence}
+              {:error, reason} -> {:event_error, event.generation, reason}
+            end
+          end)
+        )
 
       %{state | task: task, task_kind: :event, task_generation: event.generation}
     else
@@ -525,9 +524,12 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     client = state.client
 
     _result =
-      Task.Supervisor.start_child(@task_supervisor, fn ->
-        Dispatcher.acknowledge("INTERACTION_CREATE", data, client)
-      end)
+      Task.Supervisor.start_child(
+        @task_supervisor,
+        Ankole.Repo.bind_tenant(fn ->
+          Dispatcher.acknowledge("INTERACTION_CREATE", data, client)
+        end)
+      )
 
     state
   end
@@ -653,10 +655,6 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   defp connection_state(%{blocked_reason: reason}) when not is_nil(reason), do: :blocked
   defp connection_state(%{session_id: session_id}) when is_binary(session_id), do: :running
   defp connection_state(_state), do: :starting
-
-  defp fingerprint(value) do
-    :sha256 |> :crypto.hash(:erlang.term_to_binary(value)) |> Base.encode16(case: :lower)
-  end
 
   defp safe_error(%Client.Error{} = error),
     do: %{kind: error.kind, status: error.status, retry_after: error.retry_after}

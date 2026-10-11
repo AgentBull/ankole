@@ -8,7 +8,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   has one nullable direct reply target so unrelated references never merge.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -23,7 +23,6 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   @states ~w(open finalized canceled)
   @modes ~w(neutral addressed)
   @policies ~w(ignore record_only may_intervene)
-  @outcomes ~w(addressed ambient no_actor_event canceled)
 
   schema "signal_gateway_inbound_batches" do
     belongs_to :agent, Principal,
@@ -47,11 +46,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     field :requester_sender_key, :string
     field :entries, JSONValue, default: []
     field :available_at, :utc_datetime_usec
-    field :hard_cap_at, :utc_datetime_usec
     field :batch_revision, :integer, default: 0
-    field :outcome, :string
-    field :finalized_at, :utc_datetime_usec
-    field :actor_event_id, Ecto.UUID
 
     timestamps()
   end
@@ -75,11 +70,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :requester_sender_key,
       :entries,
       :available_at,
-      :hard_cap_at,
-      :batch_revision,
-      :outcome,
-      :finalized_at,
-      :actor_event_id
+      :batch_revision
     ])
     |> normalize_blank([
       :agent_uid,
@@ -90,8 +81,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
       :batch_state,
       :mode,
       :policy,
-      :requester_sender_key,
-      :outcome
+      :requester_sender_key
     ])
     |> normalize_thread_key()
     |> validate_required([
@@ -109,7 +99,6 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     |> validate_inclusion(:batch_state, @states)
     |> validate_inclusion(:mode, @modes)
     |> validate_inclusion(:policy, @policies)
-    |> validate_inclusion(:outcome, @outcomes)
     |> validate_number(:batch_revision, greater_than_or_equal_to: 0)
     |> validate_entries()
     |> foreign_key_constraint(:agent_uid)
@@ -121,7 +110,6 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     |> check_constraint(:batch_state, name: :inbound_batches_state_check)
     |> check_constraint(:mode, name: :inbound_batches_mode_check)
     |> check_constraint(:policy, name: :inbound_batches_policy_check)
-    |> check_constraint(:outcome, name: :inbound_batches_outcome_check)
   end
 
   defp validate_entries(changeset) do

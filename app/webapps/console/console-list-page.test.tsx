@@ -76,9 +76,9 @@ describe('RowViewAction', () => {
 
     expect(linkHTML).toContain('aria-label="View resource details"')
     expect(linkHTML).toContain('href="/resources/one"')
-    expect(linkHTML).toContain('size-9')
+    expect(linkHTML).toContain('size-7')
     expect(buttonHTML).toContain('aria-label="View resource details"')
-    expect(buttonHTML).toContain('size-9')
+    expect(buttonHTML).toContain('size-7')
   })
 })
 

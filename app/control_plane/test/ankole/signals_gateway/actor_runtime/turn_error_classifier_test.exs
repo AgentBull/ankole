@@ -11,7 +11,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifierTest do
             "background_agent_job_runtime_exception",
             "agent_codex_runtime_busy",
             "background_agent_job_steer_delivery_failed",
-            "codex_app_server_request_timeout"
+            "codex_app_server_request_timeout",
+            "socket_closed",
+            "runtime_fabric_timeout",
+            "runtime_rpc_timeout"
           ] do
         assert TurnErrorClassifier.classify(reason(code)) == :infrastructure
 
@@ -20,42 +23,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifierTest do
       end
     end
 
-    test "marks a retryable provider or credential pool shortage as provider capacity" do
-      for kind <- ["server", "rate_limit"] do
-        assert TurnErrorClassifier.classify(
-                 reason("worker_turn_failed", %{"llm_error_kind" => kind, "retryable" => true})
-               ) == :provider_capacity
-      end
-
-      assert TurnErrorClassifier.classify(
-               reason("worker_turn_failed", %{
-                 "error_code" => "credential_pool_exhausted",
-                 "retryable" => true
-               })
-             ) == :provider_capacity
-
-      assert TurnErrorClassifier.classify(
-               reason("worker_turn_failed", %{
-                 "retryable" => true,
-                 "aigateway" => %{"code" => "credential_pool_exhausted"}
-               })
-             ) == :provider_capacity
-    end
-
-    test "keeps a permanent failure and every other failure on the execution account" do
-      permanent = %{"llm_error_kind" => "server", "retryable" => false}
-      assert TurnErrorClassifier.classify(reason("worker_turn_failed", permanent)) == :execution
-
-      # A capacity kind without the Worker's retryable conclusion is not enough:
-      # the control plane must not schedule what the Worker called permanent.
-      assert TurnErrorClassifier.classify(
-               reason("worker_turn_failed", %{"llm_error_kind" => "server"})
-             ) == :execution
-
+    test "charges every other failure to the execution account" do
       for details <- [
-            %{"llm_error_kind" => "overflow"},
-            %{"llm_error_kind" => "auth"},
+            %{"error_code" => "credential_pool_exhausted", "retryable" => true},
             %{"error_code" => "server_error"},
+            %{"error_code" => "timeout", "retryable" => true},
+            %{"retryable" => true},
             %{}
           ] do
         assert TurnErrorClassifier.classify(reason("worker_turn_failed", details)) == :execution
@@ -63,46 +36,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifierTest do
 
       assert TurnErrorClassifier.classify(%{"code" => "worker_turn_failed"}) == :execution
     end
-
-    test "puts an infrastructure interruption ahead of a provider capacity signal" do
-      assert TurnErrorClassifier.classify(
-               reason("worker_turn_failed", %{
-                 "error_code" => "codex_app_server_request_timeout",
-                 "llm_error_kind" => "server",
-                 "retryable" => true
-               })
-             ) == :infrastructure
-    end
   end
 
   describe "retryable?/1" do
-    test "treats the top-level Worker conclusion as authoritative" do
-      assert TurnErrorClassifier.retryable?(
-               reason("worker_turn_failed", %{
-                 "retryable" => true,
-                 "aigateway" => %{"details_json" => %{"retryable" => false}}
-               })
-             )
-
-      refute TurnErrorClassifier.retryable?(
-               reason("worker_turn_failed", %{
-                 "retryable" => false,
-                 "aigateway" => %{"details_json" => %{"retryable" => true}}
-               })
-             )
-    end
-
-    test "reads the nested AIGateway conclusion only when the top level is missing" do
-      assert TurnErrorClassifier.retryable?(
-               reason("worker_turn_failed", %{
-                 "aigateway" => %{"details_json" => %{"retryable" => true}}
-               })
-             )
-
-      refute TurnErrorClassifier.retryable?(
-               reason("worker_turn_failed", %{"aigateway" => %{"code" => "server_error"}})
-             )
-
+    test "reads the Worker conclusion and treats a missing one as permanent" do
+      assert TurnErrorClassifier.retryable?(reason("worker_turn_failed", %{"retryable" => true}))
+      refute TurnErrorClassifier.retryable?(reason("worker_turn_failed", %{"retryable" => false}))
       refute TurnErrorClassifier.retryable?(reason("worker_turn_failed"))
       refute TurnErrorClassifier.retryable?(%{"code" => "worker_turn_failed"})
     end

@@ -5,7 +5,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
   the same index sequence. Each row carries exactly one audience scope.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   alias Ankole.Brain.Schemas.Object
 

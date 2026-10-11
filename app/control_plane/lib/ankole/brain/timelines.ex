@@ -33,7 +33,7 @@ defmodule Ankole.Brain.Timelines do
           row = %Timeline{
             id: UUIDv7.autogenerate(),
             object_slug: object.slug,
-            author_uid: author_uid(writer, opts),
+            author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
             date: attrs[:date],
             provenance: attrs[:provenance],
             summary: attrs[:summary],
@@ -43,29 +43,39 @@ defmodule Ankole.Brain.Timelines do
             created_at: DateTime.utc_now(:microsecond)
           }
 
-          case repo.insert_all(Timeline, [Map.take(row, Timeline.__schema__(:fields))],
-                 on_conflict: :nothing,
-                 conflict_target: [:object_slug, :date, :summary, :provenance],
-                 returning: true
-               ) do
-            {0, []} ->
-              existing =
-                repo.get_by!(Timeline,
-                  object_slug: object.slug,
-                  date: attrs[:date],
-                  summary: attrs[:summary],
-                  provenance: attrs[:provenance]
-                )
-
-              {:ok, existing}
-
-            {1, [timeline]} ->
-              with {:ok, _object} <- Objects.reconcile_chunks(object, repo: repo) do
-                {:ok, timeline}
-              end
-          end
+          insert_timeline(repo, object, attrs, row)
         end
       end)
+    end
+  end
+
+  defp insert_timeline(repo, object, attrs, row) do
+    case repo.insert_all(
+           Timeline,
+           [
+             row
+             |> Map.take(Timeline.__schema__(:fields))
+             |> Map.put(:tenant_id, Repo.tenant_id!())
+           ],
+           on_conflict: :nothing,
+           conflict_target: [:tenant_id, :object_slug, :date, :summary, :provenance],
+           returning: true
+         ) do
+      {0, []} ->
+        existing =
+          repo.get_by!(Timeline,
+            object_slug: object.slug,
+            date: attrs[:date],
+            summary: attrs[:summary],
+            provenance: attrs[:provenance]
+          )
+
+        {:ok, existing}
+
+      {1, [timeline]} ->
+        with {:ok, _object} <- Objects.reconcile_chunks(object, repo: repo) do
+          {:ok, timeline}
+        end
     end
   end
 
@@ -82,7 +92,4 @@ defmodule Ankole.Brain.Timelines do
 
   defp validate_date(%Date{}), do: :ok
   defp validate_date(_value), do: {:error, :missing_date}
-
-  defp author_uid(:system, opts), do: Keyword.get(opts, :author_uid)
-  defp author_uid(writer, _opts) when is_binary(writer), do: writer
 end

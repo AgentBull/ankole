@@ -22,7 +22,7 @@
     "test:integration": "ANKOLE_BROWSER_INTEGRATION=1 bun test test/integration"
   },
   "dependencies": {
-    "playwright-core": "1.63.0",
+    "playwright-core": "1.64.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

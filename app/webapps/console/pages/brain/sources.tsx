@@ -19,7 +19,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiInboxArchiveLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -27,7 +27,6 @@ import {
   ankoleWebBrainControllerCreateSourceMutation,
   ankoleWebBrainControllerLearnSourceMutation,
   ankoleWebBrainControllerListSourcesOptions,
-  ankoleWebBrainControllerListSourcesQueryKey,
   ankoleWebBrainControllerUpdateSourceMutation
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainSource } from '../../api/generated/types.gen'
@@ -41,7 +40,6 @@ const SOURCE_KINDS = ['file', 'url'] as const
 
 export function BrainSourcesPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [registerOpen, setRegisterOpen] = useState(false)
   const [kind, setKind] = useState<(typeof SOURCE_KINDS)[number]>('file')
   const [upstreamID, setUpstreamID] = useState('')
@@ -53,8 +51,7 @@ export function BrainSourcesPage() {
 
   const sources = useQuery(ankoleWebBrainControllerListSourcesOptions())
   const rows = sources.data?.sources ?? []
-  const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListSourcesQueryKey() })
+
   const registerDirty = kind !== 'file' || Boolean(upstreamID.trim() || name.trim() || scope.trim())
 
   // Every open starts a fresh form; a cancelled draft never resurfaces later.
@@ -70,7 +67,6 @@ export function BrainSourcesPage() {
     onSuccess: response => {
       toast.success(t('console.brain.source_registered', { name: response.source.name }))
       setRegisterOpen(false)
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -83,7 +79,6 @@ export function BrainSourcesPage() {
     ...ankoleWebBrainControllerLearnSourceMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.learn_done'))
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -92,7 +87,6 @@ export function BrainSourcesPage() {
     onSuccess: () => {
       toast.success(t('console.brain.archive_done'))
       setArchiveTarget(undefined)
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -101,7 +95,6 @@ export function BrainSourcesPage() {
     onSuccess: () => {
       toast.success(t('console.brain.source_scope_saved'))
       setScopeTarget(undefined)
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -250,7 +243,7 @@ export function BrainSourcesPage() {
             <LabeledField label={t('console.brain.upstream_id')} required>
               <Input
                 className="font-mono"
-                placeholder={kind === 'url' ? 'https://…' : '/path/or/drive-id'}
+                placeholder={kind === 'url' ? 'https://…' : '/path/to/file.txt'}
                 required
                 spellCheck={false}
                 value={upstreamID}

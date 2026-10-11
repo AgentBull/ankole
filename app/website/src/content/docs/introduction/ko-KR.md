@@ -33,7 +33,7 @@ order: 1
 | **Background job** | Session과 분리되어 수 시간 동안 실행할 수 있는 작업입니다. 완료 결과는 작업을 시작한 채널로 전달됩니다. | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | 특정 작업을 수행하는 승인된 절차입니다. Agent가 개선을 제안하고 사람이 이후 Session에 적용할 내용을 승인합니다. | [Skills](../skills/) |
 | **Principal** | 사람과 Agent를 나타내는 권한 주체입니다. 런타임은 두 유형에 같은 권한 및 감사 규칙을 적용합니다. | [Principal and AuthZ](../principal-authz/) |
-| **Agent Computer Worker** | LLM 루프, 도구, 파일, 터미널, 스트리밍 출력을 실행하는 작업 환경입니다. | [Agent Computer Worker](../agent-computer-worker/) |
+| **Agent Computer Worker** | 도구, 파일 작업, 터미널, 브라우저, Codex Job을 실행하는 환경입니다. 주 모델 루프는 컨트롤 플레인이 실행합니다. | [Agent Computer Worker](../agent-computer-worker/) |
 
 Agent는 여러 출처를 장시간 조사할 때 [Deep Research](../deep-research-job/)를 사용합니다. 실제 웹 페이지 작업에는 [브라우저 자동화](../browser-automation/)를 사용합니다.
 

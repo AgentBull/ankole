@@ -35,8 +35,11 @@ defmodule Ankole.Plugins.WeComAdapter.Dispatcher do
   end
 
   defp handler(event_type, consumers, fun) do
+    tenant_id = Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers)
     # Consumer data is closed over at dispatcher build time so bot callbacks
     # stay small and never query plugin state per frame.
-    fn %Event{} = event -> fun.(event_type, event, consumers) end
+    fn %Event{} = event ->
+      Ankole.Tenants.dispatch_inbound(tenant_id, fn -> fun.(event_type, event, consumers) end)
+    end
   end
 end

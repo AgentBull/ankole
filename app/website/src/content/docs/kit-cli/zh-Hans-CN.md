@@ -26,9 +26,9 @@ order: 200
 | `kit external-services start` | 启动 devkit Docker Compose 服务（PostgreSQL 等）。包裹为 `bun run services:start`。 |
 | `kit external-services stop` | 停止 devkit Compose 服务。包裹为 `bun run services:stop`。 |
 | `kit external-services status` | 报告 devkit 服务健康。包裹为 `bun run services:status`。 |
-| `kit dev` | 启动完整开发环境——Phoenix、前端资源、一个受管 Docker worker。包裹为 `bun run dev`。保持该终端开着。 |
+| `kit dev` | 启动完整开发环境——Phoenix 和前端资源，并使用 Docker Worker 后端，为每个 Agent 创建一个 Worker 容器。包裹为 `bun run dev`。保持该终端开着。 |
 
-`kit dev` 是跑起整套栈的那一条命令。它启动或检查 PostgreSQL、创建并迁移本地数据库、构建缺失或过期的 worker 镜像，并启动受管 worker。不要再开第二个 `kit dev`；在它的终端按 `Ctrl+C` 停止。
+`kit dev` 是跑起整套栈的那一条命令。它启动或检查 PostgreSQL、创建并迁移本地数据库、构建缺失或过期的 worker 镜像，并以 Docker Worker 后端启动控制面。创建 Agent 时，控制面为它创建 Worker 容器；容器用 `bun --watch` 运行本地 Agent Computer 源码。用 `docker ps -a --filter label=ankole.installation=dev` 列出这些容器。不要再开第二个 `kit dev`；在它的终端按 `Ctrl+C` 停止，这也会删除 `dev` 安装的 Worker 容器，因此重启后，控制面会在已有 Agent 下次需要 Worker 时重新创建它。
 
 ## 数据库生命周期
 
@@ -63,7 +63,7 @@ order: 200
 
 ## worker 测试运行器
 
-`kit agent-computer-test` 在规范 worker 容器运行时里跑 Agent Computer Worker 包测试，于是测试在与真实回合相同的环境里执行。它取 `--suite` 为 `unit` 或 `integration`，以及一个 `--prebuilt-image` 指向特定 Agent Computer Worker Docker 镜像，而不构建。
+`kit agent-computer-test` 在规范 worker 容器运行时里跑 Agent Computer Worker 包测试，于是测试在与真实回合相同的环境里执行。它取 `--suite` 为 `unit` 或 `integration`，以及一个 `--image` 指向特定 Agent Computer Worker Docker 镜像，而不构建。
 
 ## 发现更多
 

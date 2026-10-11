@@ -1,0 +1,70 @@
+{
+  "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2563": {
+    "reason": "The demo imports HTML block boundaries. It does not import flex layout or flatten block children of a flex container as BlockSuite does.",
+    "expected": [
+      {
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa"
+          },
+          {
+            "insert": "bbb",
+            "attributes": {
+              "link": "https://www.google.com/"
+            }
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "delta": [
+          {
+            "insert": "ccc"
+          }
+        ]
+      }
+    ]
+  },
+  "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2701": {
+    "reason": "The editor keeps the inherited bold mark on a paragraph inside b. BlockSuite removes the mark at this block boundary.",
+    "expected": [
+      {
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa",
+            "attributes": {
+              "bold": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "blocksuite:packages/affine/all/src/__tests__/adapters/html.unit.spec.ts:2784": {
+    "reason": "The editor maps only `bold` and weight 700 to the bold format. BlockSuite also maps weights 500 and 600 to bold. The editor does not store font weights as text styles.",
+    "expected": [
+      {
+        "type": "text",
+        "delta": [
+          {
+            "insert": "aaa",
+            "attributes": {
+              "bold": true
+            }
+          },
+          {
+            "insert": "aaabbbbbbcccccc"
+          },
+          {
+            "insert": "ddd",
+            "attributes": {
+              "bold": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

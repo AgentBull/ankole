@@ -7,7 +7,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
   presentation; it does not change how a Skill is loaded.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]

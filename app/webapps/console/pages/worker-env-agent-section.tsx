@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Checkbox,
   Input,
@@ -13,7 +12,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -42,14 +41,13 @@ const emptyDraft: OverrideDraft = { name: '', value: '', secret: true }
 /**
  * Effective shell environment for one agent, embedded in the agent editor.
  *
- * The rows mirror exactly what the agent's shells receive: declared exports,
+ * The rows mirror exactly what the agent's shells receive: operator variables,
  * custom global variables, and this agent's overrides, with the winning tier
  * badged per row. Editing here always writes the agent tier; installation-wide
  * values live on the Worker env page.
  */
 export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const list = useQuery(ankoleWebWorkerEnvControllerIndexForAgentOptions({ path: { agent_uid: agentUID } }))
   const items = list.data?.worker_envs ?? []
   const [draft, setDraft] = useState<OverrideDraft>(emptyDraft)
@@ -61,7 +59,6 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const nameInput = useRef<HTMLInputElement>(null)
   const valueInput = useRef<HTMLInputElement>(null)
 
-  const refresh = () => void queryClient.invalidateQueries()
   const save = useMutation({
     ...ankoleWebWorkerEnvControllerUpdateForAgentMutation(),
     onSuccess: (_data, variables) => {
@@ -70,7 +67,6 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       setEditing(undefined)
       setDraftError(undefined)
       setPlaintextConfirmOpen(false)
-      refresh()
     },
     onError: error => setDraftError(requestErrorMessage(error))
   })
@@ -78,32 +74,29 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     ...ankoleWebWorkerEnvControllerDeleteForAgentMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.worker_envs.cleared', { name: variables.path.name }))
-      refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const decrypt = useMutation({
+    meta: { invalidates: false },
     ...ankoleWebWorkerEnvControllerDecryptForAgentMutation(),
     gcTime: 0,
     onSuccess: response => {
-      const value = response.decrypted_value.value
-      const displayedValue = typeof value === 'string' ? value : (JSON.stringify(value) ?? '')
+      const { name, value } = response.decrypted_value
       setRevealed(current => ({
         ...current,
-        [response.decrypted_value.name]: displayedValue
+        [name]: value
       }))
-      window.clearTimeout(revealTimers.current[response.decrypted_value.name])
-      revealTimers.current[response.decrypted_value.name] = window.setTimeout(() => {
+      window.clearTimeout(revealTimers.current[name])
+      revealTimers.current[name] = window.setTimeout(() => {
         setRevealed(current => {
           const next = { ...current }
-          delete next[response.decrypted_value.name]
+          delete next[name]
           return next
         })
-        delete revealTimers.current[response.decrypted_value.name]
+        delete revealTimers.current[name]
       }, 30_000)
-      setDraft(current =>
-        current.name === response.decrypted_value.name ? { ...current, value: displayedValue } : current
-      )
+      setDraft(current => (current.name === name ? { ...current, value } : current))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -137,9 +130,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       name: item.name,
       value: item.secret
         ? (revealed[item.name] ?? (item.source === 'agent' ? ENCRYPTED_VALUE_MASK : ''))
-        : typeof item.value === 'string'
-          ? item.value
-          : '',
+        : (item.value ?? ''),
       secret: item.secret
     })
     setDraftError(undefined)
@@ -181,11 +172,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
 
   const draftRow = (mode: 'add' | 'edit') => {
     const source = mode === 'edit' ? items.find(item => item.name === editing) : undefined
-    const sourceValue = source?.secret
-      ? (revealed[source.name] ?? ENCRYPTED_VALUE_MASK)
-      : typeof source?.value === 'string'
-        ? source.value
-        : ''
+    const sourceValue = source?.secret ? (revealed[source.name] ?? ENCRYPTED_VALUE_MASK) : (source?.value ?? '')
     const unchanged = Boolean(
       source && draft.name === source.name && draft.value === sourceValue && draft.secret === source.secret
     )
@@ -213,7 +200,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
             <span className="font-mono text-xs">{draft.name}</span>
           )}
         </TableCell>
-        <TableCell colSpan={2}>
+        <TableCell>
           <div className="grid min-w-64 gap-2">
             {draft.secret || isEncryptedValueMask(draft.value) ? (
               <EncryptedValueInput
@@ -294,7 +281,6 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
             <TableRow>
               <TableHead>{t('console.worker_envs.name')}</TableHead>
               <TableHead>{t('console.worker_envs.value')}</TableHead>
-              <TableHead>{t('console.worker_envs.kind')}</TableHead>
               <TableHead>{t('console.worker_envs.source')}</TableHead>
               <TableHead className="w-0 text-right">
                 <span className="sr-only">{t('console.actions')}</span>
@@ -304,7 +290,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
           <TableBody>
             {list.isLoading ? (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={4}>
                   <div className="grid gap-2">
                     <Skeleton className="h-6 w-full" />
                     <Skeleton className="h-6 w-4/5" />
@@ -331,7 +317,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
                                   ? t('console.worker_envs.reveal')
                                   : t('console.aria.hide_secret')
                               }
-                              className="grid size-9 shrink-0 place-items-center text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                              className="grid size-9 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground"
                               title={
                                 revealed[item.name] === undefined
                                   ? t('console.worker_envs.reveal')
@@ -351,11 +337,6 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
                             </button>
                           ) : null}
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.kind === 'declared' ? 'outline' : 'secondary'}>
-                          {t(`console.worker_envs.kind_${item.kind}`)}
-                        </Badge>
                       </TableCell>
                       <TableCell>
                         <WorkerEnvSourceBadge source={item.source} />

@@ -1,11 +1,10 @@
 import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebAgentLibraryControllerIndexQueryKey,
   ankoleWebAgentLibraryControllerIndexOptions,
   ankoleWebAgentLibraryControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
@@ -33,7 +32,6 @@ export function AgentLibraryEditor({
 }) {
   useSignals()
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
   const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
@@ -59,10 +57,6 @@ export function AgentLibraryEditor({
         if (result.hasUnsavedChanges) toast.info(message)
         else toast.success(message)
       }
-
-      void queryClient.invalidateQueries({
-        queryKey: ankoleWebAgentLibraryControllerIndexQueryKey({ path: { agent_uid: savedAgentUID } })
-      })
     },
     onError: (error, variables) => {
       const savedAgentUID = variables.path.agent_uid

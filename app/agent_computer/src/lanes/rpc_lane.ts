@@ -9,9 +9,9 @@ import {
   type MessageShape
 } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { EnvelopeSender } from '../fabric/fabric'
-import type { ActorTurnRef } from './actor_lane'
-import { actorTurnRefToProto } from './actor_lane'
+import { RuntimeFabricTransportError, isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
+import type { JobTurnRef } from './actor_lane'
+import { runRefToProto, jobTurnRefToProto } from './actor_lane'
 import {
   createEnvelope,
   envelopeHeader,
@@ -25,16 +25,16 @@ import {
   type RPCResponseMessage
 } from '../fabric/envelope_proto'
 import {
-  AgentConversationContextRequestSchema,
-  AgentConversationContextResponseSchema,
+  FilesCommitRequestSchema,
+  FilesCommitResponseSchema,
+  FilesGetRequestSchema,
+  FilesGetResponseSchema,
+  FilesListRequestSchema,
+  FilesListResponseSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
   ActorTurnAbortResponseSchema,
-  ActorTurnCompleteRequestSchema,
-  ActorTurnCompleteResponseSchema,
-  ActorTurnNoopRequestSchema,
-  ActorTurnNoopResponseSchema,
   AutomationJobCreateRequestSchema,
   AutomationJobEmitRequestSchema,
   AutomationJobEmitResponseSchema,
@@ -43,472 +43,185 @@ import {
   AutomationJobRunResponseSchema,
   AutomationJobShowRequestSchema,
   AutomationJobTargetRequestSchema,
-  AppConfigureResolveRequestSchema,
-  AppConfigureResolveResponseSchema,
-  BackgroundAgentJobCreateRequestSchema,
   BackgroundAgentJobGetRequestSchema,
-  BackgroundAgentJobListRequestSchema,
-  BackgroundAgentJobListResponseSchema,
-  BackgroundAgentJobMessageResultRequestSchema,
-  BackgroundAgentJobMessageResultResponseSchema,
-  BackgroundAgentJobMessageSendRequestSchema,
-  BackgroundAgentJobMessageSendResponseSchema,
-  BackgroundAgentJobRespawnRequestSchema,
-  BackgroundAgentJobRespawnResponseSchema,
   BackgroundAgentJobResponseSchema,
-  BackgroundAgentJobStopRequestSchema,
-  BackgroundAgentJobStopResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
   BackgroundAgentJobTurnItemsListRequestSchema,
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
-  CodexLogs2DailyMaintenanceRequestSchema,
-  CodexLogs2DailyMaintenanceResponseSchema,
-  InstalledSkillReplaceRequestSchema,
-  InstalledSkillReplaceResponseSchema,
   JSONPassthroughResponseSchema,
   ObservabilitySpansExportRequestSchema,
   ObservabilitySpansExportResponseSchema,
-  RenderedWebFetchRequestSchema,
-  RenderedWebFetchResponseSchema,
-  ScheduleCheckBackLaterCreateRequestSchema,
-  ScheduleCheckBackLaterListRequestSchema,
-  ScheduleCheckBackLaterTargetRequestSchema,
-  ScheduleCheckBackLaterUpdateRequestSchema,
-  ScheduleCronAddRequestSchema,
-  ScheduleCronListRequestSchema,
-  AmbientJudgmentRecordRequestSchema,
-  ScheduleCronRunRequestSchema,
-  ScheduleCronRunsRequestSchema,
-  ScheduleCronTargetRequestSchema,
-  ScheduleCronUpdateRequestSchema,
-  SignalChannelStandingOrdersSetRequestSchema,
   SkillOverlayResolveRequestSchema,
   SkillOverlayResolveResponseSchema,
   WebhookEndpointCreateRequestSchema,
   WebhookEndpointListRequestSchema,
   WebhookEndpointTargetRequestSchema,
-  WorkflowCancelRequestSchema,
-  WorkflowCancelResponseSchema,
-  WorkflowCreateRequestSchema,
-  WorkflowCreateResponseSchema,
-  WorkflowGetRequestSchema,
-  WorkflowGetResponseSchema,
-  WorkflowListRequestSchema,
-  WorkflowListResponseSchema,
-  WorkflowTaskMessageSendRequestSchema,
-  WorkflowTaskMessageSendResponseSchema,
-  WorkflowTaskResultSubmitRequestSchema,
-  WorkflowTaskResultSubmitResponseSchema,
-  WorkflowTaskSleepRequestSchema,
-  WorkflowTaskSleepResponseSchema,
   WorkerEnvResolveRequestSchema,
   WorkerEnvResolveResponseSchema,
-  WorkerFileDeleteRequestSchema,
-  WorkerFileDeleteResponseSchema,
-  WorkerFileListRequestSchema,
-  WorkerFileListResponseSchema,
-  WorkerFileMoveRequestSchema,
-  WorkerFileMoveResponseSchema,
   WorkerFileTransferRequestSchema,
   WorkerFileTransferResponseSchema
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { FileTransferError } from './file/errors'
 
 /**
- * Worker-originated RuntimeFabric RPC operation registry.
- *
- * `rpcMethods`, `rpcOperationMeta`, and `rpcSchemas` are the Bun side of the
- * cross-language RPC contract. Payload shapes are the generated messages from
- * `app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto`; the Elixir side
- * lives in `Ankole.SignalsGateway.ActorRuntime.RPCLane`; both sides are
- * pinned to the committed `rpc_methods.json` by package-local parity tests.
- * Adding an operation means: messages in `rpc.proto` plus `bun run
- * gen:proto`, one entry in each table here plus `bun run gen:rpc-contract`,
- * and one dispatch row plus one broker function clause on the Elixir side.
+ * The operation table owns method names, authorization and payload schemas.
+ * Add messages and generate proto, add a row and generate rpc_methods.json,
+ * then add the control-plane broker mapping and its function clause.
  */
-export const rpcMethods = {
-  aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
-  agentConversationContextResolve: 'agent_conversation.context.resolve',
-  actorTurnAbort: 'actor_turn.abort',
-  actorTurnComplete: 'actor_turn.complete',
-  actorTurnNoop: 'actor_turn.noop',
-  appConfigureResolve: 'app_configure.resolve',
-  automationJobCreate: 'automation_job.create',
-  automationJobList: 'automation_job.list',
-  automationJobShow: 'automation_job.show',
-  automationJobCancel: 'automation_job.cancel',
-  automationJobEmit: 'automation_job.emit',
-  automationJobRun: 'automation_job.run',
-  codexLogs2DailyMaintenance: 'codex_logs2.daily_maintenance',
-  renderedWebFetch: 'web_fetch.rendered',
-  backgroundAgentJobCreate: 'background_agent_job.create',
-  backgroundAgentJobGet: 'background_agent_job.get',
-  backgroundAgentJobList: 'background_agent_job.list',
-  backgroundAgentJobMessageSend: 'background_agent_job.message.send',
-  backgroundAgentJobMessageResult: 'background_agent_job.message.result',
-  backgroundAgentJobRespawn: 'background_agent_job.respawn',
-  backgroundAgentJobStop: 'background_agent_job.stop',
-  backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
-  backgroundAgentJobTurnItemsList: 'background_agent_job.turn_items.list',
-  backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
-  workflowCreate: 'workflow.create',
-  workflowGet: 'workflow.get',
-  workflowList: 'workflow.list',
-  workflowCancel: 'workflow.cancel',
-  workflowTaskResultSubmit: 'workflow.task.result.submit',
-  workflowTaskSleep: 'workflow.task.sleep',
-  workflowTaskMessageSend: 'workflow.task.message.send',
-  observabilitySpansExport: 'observability.spans.export',
-  scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
-  scheduleCheckBackLaterList: 'schedule.check_back_later.list',
-  scheduleCheckBackLaterGet: 'schedule.check_back_later.get',
-  scheduleCheckBackLaterUpdate: 'schedule.check_back_later.update',
-  scheduleCheckBackLaterCancel: 'schedule.check_back_later.cancel',
-  scheduleCronList: 'schedule.cron.list',
-  scheduleCronGet: 'schedule.cron.get',
-  scheduleCronRuns: 'schedule.cron.runs',
-  scheduleCronAdd: 'schedule.cron.add',
-  scheduleCronUpdate: 'schedule.cron.update',
-  scheduleCronPause: 'schedule.cron.pause',
-  scheduleCronResume: 'schedule.cron.resume',
-  scheduleCronRemove: 'schedule.cron.remove',
-  scheduleCronRun: 'schedule.cron.run',
-  signalChannelAmbientJudgmentRecord: 'signal_channel.ambient_judgment.record',
-  signalChannelStandingOrdersSet: 'signal_channel.standing_orders.set',
-  webhookEndpointCreate: 'webhook.endpoint.create',
-  webhookEndpointList: 'webhook.endpoint.list',
-  webhookEndpointCancel: 'webhook.endpoint.cancel',
-  skillsInstalledReplace: 'skills.installed.replace',
-  skillsOverlayResolve: 'skills.overlay.resolve',
-  workerEnvResolve: 'worker_env.resolve',
-  workerFilesPull: 'worker_files.pull',
-  workerFilesPush: 'worker_files.push',
-  workerFilesList: 'worker_files.list',
-  workerFilesMove: 'worker_files.move',
-  workerFilesDelete: 'worker_files.delete'
-} as const
+type RPCOperation =
+  | { scope: 'worker_agent'; request: DescMessage; response: DescMessage }
+  | { scope: 'turn'; effect: 'read' | 'write' | 'complete'; request: DescMessage; response: DescMessage }
+  | { owner: 'worker'; handler: keyof WorkerRPCHandlers; request: DescMessage; response: DescMessage }
 
-export type RPCMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
-
-/**
- * Authorization semantics of one operation.
- *
- * `turn` operations carry the turn fence on the RPCRequest frame and are
- * authorized per effect by control-plane `WorkerRouteAuth` before the payload
- * is decoded (write additionally checks the activation revision).
- * `worker_agent` operations carry the trusted subject as the frame
- * `agent_uid` by design.
- */
-export type RPCOperationMeta =
-  | { scope: 'worker_agent' }
-  | { scope: 'turn'; effect: 'read' | 'write' | 'complete' }
-  | { owner: 'worker' }
-
-export const rpcOperationMeta = {
-  [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
-  [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.actorTurnAbort]: { scope: 'turn', effect: 'complete' },
-  [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
-  [rpcMethods.actorTurnNoop]: { scope: 'turn', effect: 'complete' },
-  [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
-  [rpcMethods.automationJobCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.automationJobList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.automationJobShow]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.automationJobCancel]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.automationJobEmit]: { scope: 'worker_agent' },
-  [rpcMethods.automationJobRun]: { owner: 'worker' },
-  [rpcMethods.codexLogs2DailyMaintenance]: { owner: 'worker' },
-  [rpcMethods.renderedWebFetch]: { owner: 'worker' },
-  [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.backgroundAgentJobList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.backgroundAgentJobMessageSend]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.backgroundAgentJobMessageResult]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.backgroundAgentJobRespawn]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.backgroundAgentJobStop]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.backgroundAgentJobTurnItemsList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.workflowCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.workflowGet]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.workflowList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.workflowCancel]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.workflowTaskResultSubmit]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.workflowTaskSleep]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.workflowTaskMessageSend]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.observabilitySpansExport]: { scope: 'worker_agent' },
-  [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.scheduleCheckBackLaterGet]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.scheduleCheckBackLaterUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCheckBackLaterCancel]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.scheduleCronGet]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.scheduleCronRuns]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.scheduleCronAdd]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronPause]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronResume]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronRemove]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.scheduleCronRun]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.signalChannelAmbientJudgmentRecord]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.signalChannelStandingOrdersSet]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.webhookEndpointCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.webhookEndpointList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.webhookEndpointCancel]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.skillsInstalledReplace]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.skillsOverlayResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.workerEnvResolve]: { scope: 'worker_agent' },
-  [rpcMethods.workerFilesPull]: { owner: 'worker' },
-  [rpcMethods.workerFilesPush]: { owner: 'worker' },
-  [rpcMethods.workerFilesList]: { owner: 'worker' },
-  [rpcMethods.workerFilesMove]: { owner: 'worker' },
-  [rpcMethods.workerFilesDelete]: { owner: 'worker' }
-} as const satisfies Record<RPCMethod, RPCOperationMeta>
-
-/**
- * Request and response message schema bound to each operation. Model-facing
- * passthrough families (schedule) share `JSONPassthroughResponse`.
- */
-export const rpcSchemas = {
-  [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: {
-    request: AIGatewayAPIKeyRequestSchema,
-    response: AIGatewayAPIKeyResponseSchema
-  },
-  [rpcMethods.agentConversationContextResolve]: {
-    request: AgentConversationContextRequestSchema,
-    response: AgentConversationContextResponseSchema
-  },
-  [rpcMethods.actorTurnAbort]: {
+export const rpcOperations = {
+  'actor_turn.abort': {
+    scope: 'turn',
+    effect: 'complete',
     request: ActorTurnAbortRequestSchema,
     response: ActorTurnAbortResponseSchema
   },
-  [rpcMethods.actorTurnComplete]: {
-    request: ActorTurnCompleteRequestSchema,
-    response: ActorTurnCompleteResponseSchema
+  'ai_gateway.api_key_for.create_or_find_by_agent': {
+    scope: 'worker_agent',
+    request: AIGatewayAPIKeyRequestSchema,
+    response: AIGatewayAPIKeyResponseSchema
   },
-  [rpcMethods.actorTurnNoop]: {
-    request: ActorTurnNoopRequestSchema,
-    response: ActorTurnNoopResponseSchema
-  },
-  [rpcMethods.appConfigureResolve]: {
-    request: AppConfigureResolveRequestSchema,
-    response: AppConfigureResolveResponseSchema
-  },
-  [rpcMethods.automationJobCreate]: {
-    request: AutomationJobCreateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.automationJobList]: {
-    request: AutomationJobListRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.automationJobShow]: {
-    request: AutomationJobShowRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.automationJobCancel]: {
+  'automation_job.cancel': {
+    scope: 'turn',
+    effect: 'write',
     request: AutomationJobTargetRequestSchema,
     response: JSONPassthroughResponseSchema
   },
-  [rpcMethods.automationJobEmit]: {
+  'automation_job.create': {
+    scope: 'turn',
+    effect: 'write',
+    request: AutomationJobCreateRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'automation_job.emit': {
+    scope: 'worker_agent',
     request: AutomationJobEmitRequestSchema,
     response: AutomationJobEmitResponseSchema
   },
-  [rpcMethods.automationJobRun]: {
+  'automation_job.list': {
+    scope: 'turn',
+    effect: 'read',
+    request: AutomationJobListRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'automation_job.run': {
+    owner: 'worker',
+    handler: 'runAutomationJob',
     request: AutomationJobRunRequestSchema,
     response: AutomationJobRunResponseSchema
   },
-  [rpcMethods.codexLogs2DailyMaintenance]: {
-    request: CodexLogs2DailyMaintenanceRequestSchema,
-    response: CodexLogs2DailyMaintenanceResponseSchema
+  'automation_job.show': {
+    scope: 'turn',
+    effect: 'read',
+    request: AutomationJobShowRequestSchema,
+    response: JSONPassthroughResponseSchema
   },
-  [rpcMethods.renderedWebFetch]: {
-    request: RenderedWebFetchRequestSchema,
-    response: RenderedWebFetchResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobCreate]: {
-    request: BackgroundAgentJobCreateRequestSchema,
-    response: BackgroundAgentJobResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobGet]: {
+  'background_agent_job.get': {
+    scope: 'turn',
+    effect: 'read',
     request: BackgroundAgentJobGetRequestSchema,
     response: BackgroundAgentJobResponseSchema
   },
-  [rpcMethods.backgroundAgentJobList]: {
-    request: BackgroundAgentJobListRequestSchema,
-    response: BackgroundAgentJobListResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobMessageSend]: {
-    request: BackgroundAgentJobMessageSendRequestSchema,
-    response: BackgroundAgentJobMessageSendResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobMessageResult]: {
-    request: BackgroundAgentJobMessageResultRequestSchema,
-    response: BackgroundAgentJobMessageResultResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobRespawn]: {
-    request: BackgroundAgentJobRespawnRequestSchema,
-    response: BackgroundAgentJobRespawnResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobStop]: {
-    request: BackgroundAgentJobStopRequestSchema,
-    response: BackgroundAgentJobStopResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobTurnUpsert]: {
-    request: BackgroundAgentJobTurnUpsertRequestSchema,
-    response: BackgroundAgentJobTurnUpsertResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobTurnItemsList]: {
-    request: BackgroundAgentJobTurnItemsListRequestSchema,
-    response: BackgroundAgentJobTurnItemsListResponseSchema
-  },
-  [rpcMethods.backgroundAgentJobStatusUpdate]: {
+  'background_agent_job.status.update': {
+    scope: 'turn',
+    effect: 'complete',
     request: BackgroundAgentJobStatusUpdateRequestSchema,
     response: BackgroundAgentJobResponseSchema
   },
-  [rpcMethods.workflowCreate]: {
-    request: WorkflowCreateRequestSchema,
-    response: WorkflowCreateResponseSchema
+  'background_agent_job.turn.upsert': {
+    scope: 'turn',
+    effect: 'write',
+    request: BackgroundAgentJobTurnUpsertRequestSchema,
+    response: BackgroundAgentJobTurnUpsertResponseSchema
   },
-  [rpcMethods.workflowGet]: {
-    request: WorkflowGetRequestSchema,
-    response: WorkflowGetResponseSchema
+  'background_agent_job.turn_items.list': {
+    scope: 'turn',
+    effect: 'read',
+    request: BackgroundAgentJobTurnItemsListRequestSchema,
+    response: BackgroundAgentJobTurnItemsListResponseSchema
   },
-  [rpcMethods.workflowList]: {
-    request: WorkflowListRequestSchema,
-    response: WorkflowListResponseSchema
-  },
-  [rpcMethods.workflowCancel]: {
-    request: WorkflowCancelRequestSchema,
-    response: WorkflowCancelResponseSchema
-  },
-  [rpcMethods.workflowTaskResultSubmit]: {
-    request: WorkflowTaskResultSubmitRequestSchema,
-    response: WorkflowTaskResultSubmitResponseSchema
-  },
-  [rpcMethods.workflowTaskSleep]: {
-    request: WorkflowTaskSleepRequestSchema,
-    response: WorkflowTaskSleepResponseSchema
-  },
-  [rpcMethods.workflowTaskMessageSend]: {
-    request: WorkflowTaskMessageSendRequestSchema,
-    response: WorkflowTaskMessageSendResponseSchema
-  },
-  [rpcMethods.observabilitySpansExport]: {
+  'files.commit': { scope: 'worker_agent', request: FilesCommitRequestSchema, response: FilesCommitResponseSchema },
+  'files.get': { scope: 'worker_agent', request: FilesGetRequestSchema, response: FilesGetResponseSchema },
+  'files.list': { scope: 'worker_agent', request: FilesListRequestSchema, response: FilesListResponseSchema },
+  'observability.spans.export': {
+    scope: 'worker_agent',
     request: ObservabilitySpansExportRequestSchema,
     response: ObservabilitySpansExportResponseSchema
   },
-  [rpcMethods.scheduleCheckBackLaterCreate]: {
-    request: ScheduleCheckBackLaterCreateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCheckBackLaterList]: {
-    request: ScheduleCheckBackLaterListRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCheckBackLaterGet]: {
-    request: ScheduleCheckBackLaterTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCheckBackLaterUpdate]: {
-    request: ScheduleCheckBackLaterUpdateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCheckBackLaterCancel]: {
-    request: ScheduleCheckBackLaterTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCronList]: { request: ScheduleCronListRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.scheduleCronGet]: { request: ScheduleCronTargetRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.scheduleCronRuns]: { request: ScheduleCronRunsRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.scheduleCronAdd]: { request: ScheduleCronAddRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.scheduleCronUpdate]: {
-    request: ScheduleCronUpdateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCronPause]: {
-    request: ScheduleCronTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCronResume]: {
-    request: ScheduleCronTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCronRemove]: {
-    request: ScheduleCronTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.scheduleCronRun]: { request: ScheduleCronRunRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.signalChannelAmbientJudgmentRecord]: {
-    request: AmbientJudgmentRecordRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.signalChannelStandingOrdersSet]: {
-    request: SignalChannelStandingOrdersSetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.webhookEndpointCreate]: {
-    request: WebhookEndpointCreateRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.webhookEndpointList]: {
-    request: WebhookEndpointListRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.webhookEndpointCancel]: {
-    request: WebhookEndpointTargetRequestSchema,
-    response: JSONPassthroughResponseSchema
-  },
-  [rpcMethods.skillsInstalledReplace]: {
-    request: InstalledSkillReplaceRequestSchema,
-    response: InstalledSkillReplaceResponseSchema
-  },
-  [rpcMethods.skillsOverlayResolve]: {
+  'skills.overlay.resolve': {
+    scope: 'turn',
+    effect: 'read',
     request: SkillOverlayResolveRequestSchema,
     response: SkillOverlayResolveResponseSchema
   },
-  [rpcMethods.workerEnvResolve]: {
+  'webhook.endpoint.cancel': {
+    scope: 'turn',
+    effect: 'write',
+    request: WebhookEndpointTargetRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'webhook.endpoint.create': {
+    scope: 'turn',
+    effect: 'write',
+    request: WebhookEndpointCreateRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'webhook.endpoint.list': {
+    scope: 'turn',
+    effect: 'read',
+    request: WebhookEndpointListRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  'worker_env.resolve': {
+    scope: 'worker_agent',
     request: WorkerEnvResolveRequestSchema,
     response: WorkerEnvResolveResponseSchema
   },
-  [rpcMethods.workerFilesPull]: {
+  'worker_files.pull': {
+    owner: 'worker',
+    handler: 'pullWorkerFile',
     request: WorkerFileTransferRequestSchema,
     response: WorkerFileTransferResponseSchema
   },
-  [rpcMethods.workerFilesPush]: {
+  'worker_files.push': {
+    owner: 'worker',
+    handler: 'pushWorkerFile',
     request: WorkerFileTransferRequestSchema,
     response: WorkerFileTransferResponseSchema
-  },
-  [rpcMethods.workerFilesList]: {
-    request: WorkerFileListRequestSchema,
-    response: WorkerFileListResponseSchema
-  },
-  [rpcMethods.workerFilesMove]: {
-    request: WorkerFileMoveRequestSchema,
-    response: WorkerFileMoveResponseSchema
-  },
-  [rpcMethods.workerFilesDelete]: {
-    request: WorkerFileDeleteRequestSchema,
-    response: WorkerFileDeleteResponseSchema
   }
-} as const satisfies Record<RPCMethod, { request: DescMessage; response: DescMessage }>
+} as const satisfies Record<string, RPCOperation>
+export type RPCMethod = keyof typeof rpcOperations
 
-export type RPCRequestInit<M extends RPCMethod> = MessageInitShape<(typeof rpcSchemas)[M]['request']>
-export type RPCResponseOf<M extends RPCMethod> = MessageShape<(typeof rpcSchemas)[M]['response']>
+export type RPCRequestInit<M extends RPCMethod> = MessageInitShape<(typeof rpcOperations)[M]['request']>
+export type RPCResponseOf<M extends RPCMethod> = MessageShape<(typeof rpcOperations)[M]['response']>
 export type WorkerOwnedRPCMethod = {
-  [M in RPCMethod]: (typeof rpcOperationMeta)[M] extends { owner: 'worker' } ? M : never
+  [M in RPCMethod]: (typeof rpcOperations)[M] extends { owner: 'worker' } ? M : never
 }[RPCMethod]
 export type ControlPlaneOwnedRPCMethod = Exclude<RPCMethod, WorkerOwnedRPCMethod>
 
-/** Frame routing facts for one call, enforced per operation scope. */
-export type TurnRPCFrame = { turn: ActorTurnRef }
-export type WorkerAgentRPCFrame = { agentUid: string }
-export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperationMeta)[M] extends { scope: 'turn' }
+/** Turn fence of a turn-scoped call. */
+export type TurnRPCFrame = { run: import('./actor_lane').RunRef } | { jobTurn: JobTurnRef }
+export type RPCCallOptions = {
+  timeoutMs?: number
+  signal?: AbortSignal
+  /** Only a safe-read or proven idempotent owner may repeat a sent request. */
+  retryOnDisconnect?: boolean
+}
+
+/**
+ * Frame of one call, enforced per operation scope. A turn method names its
+ * turn fence. A worker-agent method has no frame: the control plane takes the
+ * Agent from the connection, so the argument is omitted.
+ */
+export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperations)[M] extends { scope: 'turn' }
   ? TurnRPCFrame
-  : WorkerAgentRPCFrame
+  : void
 
 /**
  * Shape of the injected RPC caller every turn capability goes through. It
@@ -519,34 +232,23 @@ export type RPCRequester = <M extends ControlPlaneOwnedRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>,
   frame: RPCFrame<M>,
-  options?: { timeoutMs?: number }
+  options?: RPCCallOptions
 ) => Promise<RPCResponseOf<M>>
 
-export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
-export type SignalChannelRPCMethod = Extract<RPCMethod, `signal_channel.${string}`>
 export type AutomationJobManagementRPCMethod =
-  | typeof rpcMethods.automationJobCreate
-  | typeof rpcMethods.automationJobList
-  | typeof rpcMethods.automationJobShow
-  | typeof rpcMethods.automationJobCancel
+  | 'automation_job.create'
+  | 'automation_job.list'
+  | 'automation_job.show'
+  | 'automation_job.cancel'
 
 /**
  * Family-scoped requesters injected into schedule tools. The turn fence is
  * bound at construction; responses in these families are model-facing
  * passthrough JSON.
  */
-export type ScheduleRPCRequester = <M extends ScheduleRPCMethod>(
-  method: M,
-  payload: RPCRequestInit<M>
-) => Promise<JSONObject>
 
 export type WebhookRPCRequester = <M extends WebhookRPCMethod>(
-  method: M,
-  payload: RPCRequestInit<M>
-) => Promise<JSONObject>
-
-export type SignalChannelRPCRequester = <M extends SignalChannelRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
@@ -556,28 +258,31 @@ export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMet
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
 
-export function scheduleRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): ScheduleRPCRequester {
-  // Every schedule method is turn-scoped; the conditional frame type cannot
-  // be discharged over a generic method union.
-  return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
-}
-
-export function webhookRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): WebhookRPCRequester {
+export function webhookRPCRequester(
+  rpc: RPCRequester,
+  turn: JobTurnRef | import('./actor_lane').RunRef
+): WebhookRPCRequester {
   // Every webhook method is turn-scoped; same discharge limit as above.
   return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
+    passthroughJSON(
+      await rpc(method, payload, rpcScope(turn) as RPCFrame<typeof method>, {
+        retryOnDisconnect: method === 'webhook.endpoint.list'
+      }),
+      method
+    )
 }
 
-export function signalChannelRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): SignalChannelRPCRequester {
-  // Every signal_channel method is turn-scoped; same discharge limit as above.
+export function automationJobRPCRequester(
+  rpc: RPCRequester,
+  turn: JobTurnRef | import('./actor_lane').RunRef
+): AutomationJobRPCRequester {
   return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
-}
-
-export function automationJobRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): AutomationJobRPCRequester {
-  return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
+    passthroughJSON(
+      await rpc(method, payload, rpcScope(turn) as RPCFrame<typeof method>, {
+        retryOnDisconnect: method === 'automation_job.list' || method === 'automation_job.show'
+      }),
+      method
+    )
 }
 
 function passthroughJSON(response: { bodyJson: Uint8Array }, method: string): JSONObject {
@@ -586,6 +291,7 @@ function passthroughJSON(response: { bodyJson: Uint8Array }, method: string): JS
 
 /** Control-plane rejection frame of one RPC call. */
 export type RPCRejection = {
+  retryable?: boolean
   code: string
   message?: string
   details?: JSONObject
@@ -594,6 +300,7 @@ export type RPCRejection = {
 export function rpcRejectionFromError(error: RPCErrorMessage): RPCRejection {
   return {
     code: error.code,
+    retryable: error.retryable,
     ...(error.message ? { message: error.message } : {}),
     ...(() => {
       const details = jsonObjectFromBytes(error.detailsJson, 'rpc_error.details_json')
@@ -621,13 +328,21 @@ export class RPCRejectedError extends Error {
   ) {
     super(rpcRejectedMessage(label, rejection))
     this.name = 'RPCRejectedError'
-    this.retryable = rejection.details?.retryable === true
+    this.retryable = rejection.retryable === true
   }
 }
 
 export class RPCTimeoutError extends Error {
-  constructor(readonly method: RPCMethod) {
-    super(`RPC request timed out: ${method}`)
+  readonly retryable = true
+  readonly code = 'runtime_rpc_timeout'
+
+  constructor(
+    readonly method: RPCMethod,
+    sent = false
+  ) {
+    super(
+      `RPC request timed out: ${method}${sent ? '; it may already have completed. Verify its durable result before repeating it' : ''}`
+    )
     this.name = 'RPCTimeoutError'
   }
 }
@@ -637,7 +352,8 @@ const defaultRPCTimeoutMs = ms('5m')
 type RPCWaiter = {
   resolve: (reply: RPCResponseMessage | RPCErrorMessage) => void
   reject: (error: Error) => void
-  timeout: ReturnType<typeof setTimeout>
+  method: RPCMethod
+  connectionID?: string
 }
 
 /**
@@ -653,121 +369,179 @@ function rpcRequestID(method: RPCMethod): string {
  * response or error envelope arrives.
  *
  * This is the single codec boundary for RPC payloads on the worker: requests
- * are encoded and responses decoded through the `rpcSchemas` registry, so a
+ * are encoded and responses decoded through the `rpcOperations` registry, so a
  * successful decode is the payload validation. RPC is control-lane traffic,
  * not durable actor truth; the timeout prevents a missing control-plane
  * reply from parking the turn loop forever.
  */
 export class RuntimeRPCClient {
-  private waiters = new Map<string, RPCWaiter>()
+  private readonly waiters = new Map<string, RPCWaiter>()
   private readonly timeoutMs: number
+  private readonly shutdown = new AbortController()
 
   constructor(
     private readonly sendEnvelope: EnvelopeSender,
-    options: { timeoutMs?: number } = {}
+    private readonly options: { timeoutMs?: number; awaitReady?: (signal?: AbortSignal) => Promise<void> } = {}
   ) {
     this.timeoutMs = options.timeoutMs ?? defaultRPCTimeoutMs
   }
 
-  /**
-   * Sends one typed RPC request and waits for its reply.
-   *
-   * Returns the decoded response message for the operation, or the rejection
-   * frame when the control plane answered with `rpc_error`.
-   */
+  awaitReady(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
+    this.shutdown.signal.throwIfAborted()
+    const waiting = signal ? AbortSignal.any([signal, this.shutdown.signal]) : this.shutdown.signal
+    return this.options.awaitReady?.(waiting) ?? Promise.resolve()
+  }
+
+  /** Sends one request. Only its owner can opt into a safe repeat after disconnect. */
   async request<M extends ControlPlaneOwnedRPCMethod>(
     method: M,
     payload: RPCRequestInit<M>,
     frame: RPCFrame<M>,
-    options: { timeoutMs?: number } = {}
+    options: RPCCallOptions = {}
   ): Promise<RPCResponseOf<M> | RPCRejection> {
-    const requestID = rpcRequestID(method)
-    const schema = rpcSchemas[method]
-    // The compiler cannot correlate rpcSchemas[M] request/response pairs
-    // through a generic M, so payload narrowing happens here once.
-    const requestBytes = toBinary(schema.request, create(schema.request, payload as MessageInitShape<DescMessage>))
-
-    const promise = new Promise<RPCResponseMessage | RPCErrorMessage>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.waiters.delete(requestID)
-        reject(new RPCTimeoutError(method))
-      }, options.timeoutMs ?? this.timeoutMs)
-      this.waiters.set(requestID, { resolve, reject, timeout })
-    })
-
+    const deadline = new AbortController()
+    const signal = AbortSignal.any([deadline.signal, this.shutdown.signal, ...(options.signal ? [options.signal] : [])])
+    let sent = false
+    const timer = setTimeout(
+      () => deadline.abort(new RPCTimeoutError(method, sent)),
+      options.timeoutMs ?? this.timeoutMs
+    )
     try {
-      await this.sendEnvelope(
+      for (;;) {
+        signal.throwIfAborted()
+        try {
+          return await this.requestOnce(method, payload, frame, signal, () => {
+            sent = true
+          })
+        } catch (error) {
+          if (!options.retryOnDisconnect || !isRuntimeFabricTransportError(error, 'socket_closed')) throw error
+          // Keep the original deadline and caller cancellation while waiting for
+          // the existing connection owner. There is no fixed retry delay.
+          for (;;) {
+            signal.throwIfAborted()
+            try {
+              await this.awaitReady(signal)
+              break
+            } catch (readyError) {
+              if (!isRuntimeFabricTransportError(readyError, 'socket_closed')) throw readyError
+            }
+          }
+        }
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async requestOnce<M extends ControlPlaneOwnedRPCMethod>(
+    method: M,
+    payload: RPCRequestInit<M>,
+    frame: RPCFrame<M>,
+    signal: AbortSignal,
+    sent: () => void
+  ): Promise<RPCResponseOf<M> | RPCRejection> {
+    signal.throwIfAborted()
+    const turnFrame = frame as TurnRPCFrame | void
+    const requestID = rpcRequestID(method)
+    const schema = rpcOperations[method]
+    const requestBytes = toBinary(schema.request, create(schema.request, payload as MessageInitShape<DescMessage>))
+    const sending = new AbortController()
+    const reply = await new Promise<RPCResponseMessage | RPCErrorMessage>((resolve, reject) => {
+      const finish = () => {
+        this.waiters.delete(requestID)
+        signal.removeEventListener('abort', abort)
+        // A business reply is authoritative even when its push ACK is missing.
+        // Cancel any remaining send wait and consume its detached settlement.
+        sending.abort(new DOMException('RPC settled', 'AbortError'))
+      }
+      const waiter: RPCWaiter = {
+        method,
+        resolve: response => {
+          finish()
+          resolve(response)
+        },
+        reject: error => {
+          finish()
+          reject(error)
+        }
+      }
+      const abort = () => waiter.reject(signal.reason)
+      this.waiters.set(requestID, waiter)
+      signal.addEventListener('abort', abort, { once: true })
+      void this.sendEnvelope(
         createEnvelope({
-          ...envelopeHeader(`rpc-request-${crypto.randomUUID()}`, requestID),
+          ...envelopeHeader(`rpc-request-${crypto.randomUUID()}`),
           body: {
             case: 'rpcRequest',
             value: create(RPCRequestSchema, {
               requestId: requestID,
               method,
               payload: requestBytes,
-              ...('turn' in frame ? { turn: actorTurnRefToProto(frame.turn) } : { agentUid: frame.agentUid })
+              ...(turnFrame && 'run' in turnFrame ? { run: runRefToProto(turnFrame.run) } : {}),
+              ...(turnFrame && 'jobTurn' in turnFrame ? { jobTurn: jobTurnRefToProto(turnFrame.jobTurn) } : {})
             })
           }
-        })
-      )
-    } catch (error) {
-      const waiter = this.waiters.get(requestID)
-      if (waiter) {
-        clearTimeout(waiter.timeout)
-        this.waiters.delete(requestID)
-      }
-      throw error
-    }
-
-    const reply = await promise
-    if (reply.$typeName === 'ankole.runtime_fabric.v1.RPCError') {
-      return rpcRejectionFromError(reply)
-    }
+        }),
+        {
+          signal: sending.signal,
+          onSent: connectionID => {
+            waiter.connectionID = connectionID
+            sent()
+          }
+        }
+      ).catch(error => {
+        if (this.waiters.get(requestID) !== waiter) return
+        // Sent requests can receive their business reply before or without a
+        // push ACK. Ordered disconnect delivery settles only the lost connection.
+        if (waiter.connectionID && isRuntimeFabricTransportError(error) && error.retryable) return
+        waiter.reject(error)
+      })
+    })
+    if (reply.$typeName === 'ankole.runtime_fabric.v1.RPCError') return rpcRejectionFromError(reply)
     return fromBinary(schema.response, reply.payload) as RPCResponseOf<M>
   }
 
-  /**
-   * Resolves a pending waiter from an incoming RPC response or error envelope.
-   */
   resolve(reply: RPCResponseMessage | RPCErrorMessage): void {
-    const waiter = this.waiters.get(reply.requestId)
-    if (!waiter) return
+    this.waiters.get(reply.requestId)?.resolve(reply)
+  }
 
-    clearTimeout(waiter.timeout)
-    this.waiters.delete(reply.requestId)
-    waiter.resolve(reply)
+  /** Called after all replies already received on this connection were delivered. */
+  disconnected(connectionID: string): void {
+    for (const waiter of this.waiters.values()) {
+      if (waiter.connectionID !== connectionID) continue
+      waiter.reject(
+        new RuntimeFabricTransportError(
+          'socket_closed',
+          `Control plane connection closed after ${waiter.method} was sent; it may already have completed. ` +
+            'Verify its durable result before repeating this operation'
+        )
+      )
+    }
+  }
+
+  close(): void {
+    if (this.shutdown.signal.aborted) return
+    this.shutdown.abort(new DOMException('Worker RPC client stopped', 'AbortError'))
+    for (const waiter of this.waiters.values()) {
+      waiter.reject(this.shutdown.signal.reason)
+    }
   }
 }
 
 /** One worker-owned operation: the handler that runs it and how its result is reported. */
 type WorkerRPCHandler<M extends WorkerOwnedRPCMethod> = (
-  request: MessageShape<(typeof rpcSchemas)[M]['request']>
-) => Promise<MessageInitShape<(typeof rpcSchemas)[M]['response']>>
+  request: MessageShape<(typeof rpcOperations)[M]['request']>
+) => Promise<MessageInitShape<(typeof rpcOperations)[M]['response']>>
 
 export type WorkerRPCHandlers = {
-  runAutomationJob?: WorkerRPCHandler<typeof rpcMethods.automationJobRun>
-  maintainCodexLogs2?: WorkerRPCHandler<typeof rpcMethods.codexLogs2DailyMaintenance>
-  renderWebFetch?: WorkerRPCHandler<typeof rpcMethods.renderedWebFetch>
-  pullWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesPull>
-  pushWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesPush>
-  listWorkerFiles?: WorkerRPCHandler<typeof rpcMethods.workerFilesList>
-  moveWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesMove>
-  deleteWorkerFile?: WorkerRPCHandler<typeof rpcMethods.workerFilesDelete>
+  runAutomationJob?: WorkerRPCHandler<'automation_job.run'>
+  pullWorkerFile?: WorkerRPCHandler<'worker_files.pull'>
+  pushWorkerFile?: WorkerRPCHandler<'worker_files.push'>
 }
 
-const workerRPCHandlerKeys = {
-  [rpcMethods.automationJobRun]: 'runAutomationJob',
-  [rpcMethods.codexLogs2DailyMaintenance]: 'maintainCodexLogs2',
-  [rpcMethods.renderedWebFetch]: 'renderWebFetch',
-  [rpcMethods.workerFilesPull]: 'pullWorkerFile',
-  [rpcMethods.workerFilesPush]: 'pushWorkerFile',
-  [rpcMethods.workerFilesList]: 'listWorkerFiles',
-  [rpcMethods.workerFilesMove]: 'moveWorkerFile',
-  [rpcMethods.workerFilesDelete]: 'deleteWorkerFile'
-} as const satisfies Record<WorkerOwnedRPCMethod, keyof WorkerRPCHandlers>
-
 function isWorkerOwnedRPCMethod(method: string): method is WorkerOwnedRPCMethod {
-  return method in workerRPCHandlerKeys
+  return method in rpcOperations && 'owner' in rpcOperations[method as RPCMethod]
 }
 
 /**
@@ -780,7 +554,7 @@ export async function handleWorkerRPCRequest(
   handlers?: WorkerRPCHandlers
 ): Promise<void> {
   const method = request.method
-  const handler = isWorkerOwnedRPCMethod(method) ? handlers?.[workerRPCHandlerKeys[method]] : undefined
+  const handler = isWorkerOwnedRPCMethod(method) ? handlers?.[rpcOperations[method].handler] : undefined
   if (!isWorkerOwnedRPCMethod(method) || !handler) {
     await sendWorkerRPCError(sendEnvelope, request, 'unknown_rpc_method', `unknown worker RPC method: ${method}`, {
       method
@@ -788,9 +562,9 @@ export async function handleWorkerRPCRequest(
     return
   }
 
-  const schema = rpcSchemas[method]
+  const schema = rpcOperations[method]
   try {
-    // The compiler cannot correlate rpcSchemas[M] request/response pairs
+    // The compiler cannot correlate rpcOperations[M] request/response pairs
     // through the method union, so the payload narrowing happens here once.
     const payload = fromBinary(schema.request, request.payload)
     const result = await (handler as WorkerRPCHandler<WorkerOwnedRPCMethod>)(payload as never)
@@ -801,11 +575,10 @@ export async function handleWorkerRPCRequest(
     )
   } catch (error) {
     if (error instanceof FileTransferError) {
-      await sendWorkerRPCError(sendEnvelope, request, error.code, error.message, { method, retryable: false })
+      await sendWorkerRPCError(sendEnvelope, request, error.code, error.message, { method })
     } else if (method.startsWith('worker_files.')) {
       await sendWorkerRPCError(sendEnvelope, request, 'operation_failed', errorMessage(error), {
-        method,
-        retryable: false
+        method
       })
     } else {
       await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), { method })
@@ -820,7 +593,7 @@ async function sendWorkerRPCResponse(
 ): Promise<void> {
   await sendEnvelope(
     createEnvelope({
-      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, request.requestId),
+      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`),
       body: {
         case: 'rpcResponse',
         value: create(RPCResponseSchema, {
@@ -841,53 +614,32 @@ async function sendWorkerRPCError(
 ): Promise<void> {
   await sendEnvelope(
     createEnvelope({
-      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, request.requestId),
+      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`),
       body: {
         case: 'rpcError',
         value: create(RPCErrorSchema, {
           requestId: request.requestId,
           code,
           message,
+          retryable: false,
           detailsJson: jsonBytes(details)
         })
       }
     })
   )
 }
-
-/**
- * Generated payload message types re-exported under the lane contract so
- * consumers do not import the generated module path directly.
- */
-export { RuntimeSkillSummarySchema } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 export type {
   AgentConversationContextResponse,
   AgentPluginCatalogEntry,
-  AgentPluginCatalogSkill,
   AIGatewayAPIKeyResponse,
-  AppConfigureResolution,
-  AppConfigureResolveResponse,
   AutomationJobRunRequest,
   AutomationJobRunResponse,
-  BackgroundAgentJobAttemptHistoryEntry,
-  BackgroundAgentJobListResponse,
-  BackgroundAgentJobMessageResultResponse,
-  BackgroundAgentJobMessageSendResponse,
-  ConversationChannel,
-  BackgroundAgentJobRespawnResponse,
   BackgroundAgentJobResponse,
-  BackgroundAgentJobResultRef,
-  BackgroundAgentJobSummary,
-  BackgroundAgentJobStopResponse,
-  BackgroundAgentJobTurn,
-  BackgroundAgentJobTurnItem,
-  BackgroundAgentJobTurnItemsListResponse,
-  BackgroundAgentJobTurnUpsertRequest,
   BackgroundAgentJobTurnUpsertResponse,
-  InstalledSkillObservation,
-  InstalledSkillReplaceResponse,
   RuntimeSkillSummary,
-  SkillOverlayResolveResponse,
-  SkillOverlayResponse,
-  WorkerEnvResolveResponse
+  SkillOverlayResponse
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+
+function rpcScope(ref: JobTurnRef | import('./actor_lane').RunRef): TurnRPCFrame {
+  return 'job_id' in ref ? { jobTurn: ref } : { run: ref }
+}

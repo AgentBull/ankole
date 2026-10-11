@@ -18,7 +18,7 @@ defmodule Ankole.Security.SSRFFilter do
   def definition do
     AppConfigure.define(
       key: @key,
-      scope: :scoped,
+      scope: :tenant,
       encrypted: false,
       schema: Schema.boolean(),
       default_value: false,
@@ -27,9 +27,11 @@ defmodule Ankole.Security.SSRFFilter do
     )
   end
 
-  @spec enabled?(String.t()) :: {:ok, boolean()} | {:error, term()}
-  def enabled?(agent_uid) when is_binary(agent_uid) do
-    case AppConfigure.resolve(definition(), agent_id: agent_uid) do
+  @spec enabled?(String.t() | nil) :: {:ok, boolean()} | {:error, term()}
+  def enabled?(agent_uid \\ nil) do
+    opts = if agent_uid, do: [agent_id: agent_uid], else: []
+
+    case AppConfigure.resolve(definition(), opts) do
       {:ok, resolution} -> {:ok, resolution.value == true}
       :error -> {:error, :ssrf_filter_unresolved}
       {:error, reason} -> {:error, reason}

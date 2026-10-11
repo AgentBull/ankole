@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGateway.ReplyPresentationTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: false
 
   alias Ankole.I18n
   alias Ankole.SignalsGateway.ReplyPresentation
@@ -100,29 +100,30 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
   end
 
   test "semantic tool activity and confirmed receipts retain safe projections only" do
+    allow_cache_database_access()
+    {:ok, _} = I18n.put_default_locale("zh-Hans-CN")
+
     presentation =
-      I18n.with_locale("zh-Hans-CN", fn ->
-        ReplyPresentation.new()
-        |> ReplyPresentation.apply_event("tool.activity", %{
-          "operation_id" => "call-1",
-          "revision" => 1,
-          "phase" => "running",
-          "label_key" => "signals_gateway.reply.activity.file_read_target",
-          "label_bindings" => %{"path" => "core/agent-loop.ts"},
-          "arguments" => %{
-            "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
-            "token" => "must-not-survive"
-          },
-          "raw_tool_name" => "internal_secret_tool"
-        })
-        |> ReplyPresentation.apply_event("effect.receipt", %{
-          "operation_id" => "call-2",
-          "revision" => 2,
-          "phase" => "confirmed",
-          "summary" => "已确认变更",
-          "scope" => "当前任务"
-        })
-      end)
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "call-1",
+        "revision" => 1,
+        "phase" => "running",
+        "label_key" => "signals_gateway.reply.activity.file_read_target",
+        "label_bindings" => %{"path" => "core/agent-loop.ts"},
+        "arguments" => %{
+          "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
+          "token" => "must-not-survive"
+        },
+        "raw_tool_name" => "internal_secret_tool"
+      })
+      |> ReplyPresentation.apply_event("effect.receipt", %{
+        "operation_id" => "call-2",
+        "revision" => 2,
+        "phase" => "confirmed",
+        "summary" => "已确认变更",
+        "scope" => "当前任务"
+      })
 
     assert get_in(presentation, ["activities", "call-1", "label"]) ==
              "读取文件：core/agent-loop.ts"
@@ -288,6 +289,76 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
     assert superseded["interaction_status"] == "superseded"
     refute Map.has_key?(superseded, "interaction_answer")
+  end
+
+  test "text fallback preserves a pending question and its numbered choices in the tenant locale" do
+    allow_cache_database_access()
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("Which shipping method?")
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "Which shipping method?",
+        "interaction_id" => "clarify-shipping",
+        "control_id" => "shipping",
+        "version" => 1,
+        "choices" => [
+          %{"id" => "ground", "label" => "Ground", "description" => "5 days, $20"},
+          %{"id" => "air", "label" => "Air", "description" => "1 day, $80"}
+        ],
+        "free_input" => true
+      })
+
+    for {locale, hint} <- [
+          {"en-US", "Choose an option or enter a custom answer"},
+          {"zh-Hans-CN", "请选择一个选项，或填写自定义答案"}
+        ] do
+      assert {:ok, _} = I18n.put_default_locale(locale)
+
+      assert ReplyPresentation.fallback_text(presentation) ==
+               "Which shipping method?\n\n1. Ground — 5 days, $20\n2. Air — 1 day, $80\n\n" <>
+                 hint
+    end
+
+    for status <- ["answered", "superseded"] do
+      resolved = ReplyPresentation.resolve_interaction(presentation, status)
+      assert ReplyPresentation.fallback_text(resolved) == "Which shipping method?"
+    end
+
+    completed = ReplyPresentation.terminal(presentation, "completed", "Ground is selected.")
+    assert ReplyPresentation.fallback_text(completed) == "Ground is selected."
+  end
+
+  test "text fallback distinguishes free input from a numbered choice without offering disabled actions" do
+    allow_cache_database_access()
+    assert {:ok, _} = I18n.put_default_locale("en-US")
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "Where should it go?",
+        "interaction_id" => "clarify-destination",
+        "version" => 1,
+        "choices" => [],
+        "free_input" => true
+      })
+
+    assert ReplyPresentation.fallback_text(presentation) ==
+             "Where should it go?\n\nEnter your answer"
+
+    choice_only =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "prompt" => "Choose a destination",
+        "controls" => [
+          %{"id" => "old", "type" => "button", "label" => "Closed depot", "disabled" => true},
+          %{"id" => "west", "type" => "button", "label" => "West depot"},
+          %{"id" => "east", "type" => "button", "label" => "East depot"}
+        ]
+      })
+
+    assert ReplyPresentation.fallback_text(choice_only) ==
+             "Choose a destination\n\n1. West depot\n2. East depot\n\nChoose"
   end
 
   test "normalization preserves explicit false values from string and atom keys" do

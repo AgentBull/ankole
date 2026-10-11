@@ -15,7 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap
   alias Ankole.SignalsGateway.OutboxEntry
 
   @wakeup_event_types ~w(
@@ -28,7 +28,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   @spec metrics(DateTime.t()) :: map()
   def metrics(now \\ DateTime.utc_now(:microsecond)) do
     window_start = DateTime.add(now, -@window_seconds, :second)
-    cap = BackgroundAgentJobWorkerConfig.max_running_per_agent()
+    cap = BackgroundAgentJobCap.max_running_per_agent()
     %{agents: agents_at_cap, queued: queued_behind_cap} = agent_cap_pressure(cap)
 
     %{

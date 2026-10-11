@@ -3,7 +3,7 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
   One vocabulary promotion suggestion awaiting Console review.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 
@@ -14,7 +14,7 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
     field :evidence_count, :integer
     field :rationale, :string
     field :status, :string, default: "pending"
-    field :decided_by, :string
+    field :decided_by, Ankole.Ecto.ActorRef
     field :decided_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec
   end

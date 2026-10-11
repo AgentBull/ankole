@@ -1,13 +1,13 @@
 ---
 title: AIGateway API usage
-description: How external callers use the AIGateway REST API — the OpenResponses-compatible endpoints, the agent vs admin token, stateless and stateful calls, and worked examples.
+description: How external callers use the AIGateway REST API — the OpenResponses-compatible endpoints, the Agent and OIDC Human tokens, stateless and stateful calls, and worked examples.
 section: Developer guide
 order: 126
 ---
 
 AIGateway is both the worker boundary and a REST API for external applications, enterprise systems, and SDKs. This page covers its endpoints, authentication, call modes, and worked examples. It complements the [AIGateway](../ai-gateway/) concept page with hands-on usage.
 
-The decisive property, stated up front: the AIGateway API is **OpenResponses-compatible and Principal-scoped**. A caller presents a bearer token (agent or admin), sends an OpenResponses-shaped request, and receives a JSON response or a stream. The caller never sees a provider credential — the control plane owns those.
+The decisive property, stated up front: the AIGateway API is **OpenResponses-compatible and Principal-scoped**. A caller presents a bearer token (Agent or OIDC Human), sends an OpenResponses-shaped request, and receives a JSON response or a stream. The caller never sees a provider credential — the control plane owns those.
 
 ## Authentication
 
@@ -23,7 +23,9 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 Two token kinds are accepted:
 
 - **Agent token** — scoped to one agent's model bindings. Use this when an integration acts on behalf of a specific agent.
-- **Admin token** — scoped to all providers. Use this for operator-side scripts and the Console.
+- **OIDC Human token** — issued to an active Human by an OIDC Client with `ai_gateway.write`; the request uses that Client's model aliases, with `subject_type = "oidc_human"`.
+
+To get an OIDC Human token, create an OIDC Client in the Console with the `ai_gateway.write` scope. Configure its allowed groups and model aliases, then sign in with Authorization Code and PKCE. For long sessions, request `offline_access` and use the rotating Refresh Token. The Human must belong to an allowed group and can use only the Client's model aliases; raw `provider_id/model` selectors are not accepted.
 
 See [Principal and AuthZ](../principal-authz/) for how tokens resolve to Principals.
 

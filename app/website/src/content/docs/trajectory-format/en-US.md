@@ -48,14 +48,13 @@ This is a separate storage shape from the AIGateway conversation messages, becau
 
 ## The model-visible projection
 
-The model does not see the stored rows. `modelVisibleTrajectory` in the worker projects a trajectory to what the model should see:
+The control plane projects stored Job items with `Ankole.Conversations.Tools.Jobs.visible_trajectory/1`. The model-visible projection contains:
 
 - **Strips stored protocol identities** — internal message ids, wire-protocol fields, anything the model should not act on.
 - **Replaces tool-call ids with turn-local aliases** — `call_1`, `call_2`, and so on. The model sees which tool result belongs to which tool call (the only useful relationship), without the internal UUIDs that wire them.
 - **Preserves content and role** — the actual messages, the tool calls and their results, in the order they happened.
 - **Preserves bounded-content facts** — trajectory-level `metadata.redacted` and `metadata.content_truncated` stay visible. The control-plane projection sets `content_truncated` when it must reduce selected message content to meet its page limit.
 
-The moduledoc is explicit: "Turn-local call aliases preserve the only useful relationship: which tool result belongs to which tool call." Everything else the storage row carries is for the system, not the model.
 
 ## How the two shapes relate
 
@@ -64,7 +63,7 @@ The moduledoc is explicit: "Turn-local call aliases preserve the only useful rel
 | What it stores | live conversation transcript | per-turn job execution record |
 | Who owns it | AIGateway | Background Agent Jobs |
 | Canonical format | AIGateway's message schema | semantic items projected to ChatML |
-| Model sees it through | the stateful Responses API | `modelVisibleTrajectory` projection |
+| Model sees it through | the stateful Responses API | `visible_trajectory/1` projection |
 | Compaction | AIGateway compaction replaces old messages | not compacted (jobs are bounded by retry budget) |
 
 The two do not mix. A conversation's messages are AIGateway's; a job's trajectory is the job's. The job reports its result back to the owning conversation through a wakeup event (see [Background Agent Jobs](../background-agent-jobs/)), not by writing into the conversation's message store.

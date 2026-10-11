@@ -1,7 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises'
 import { normalize, resolve } from 'node:path'
 import type { AgentToolResult } from '../core'
-import type { ActorTurnRef } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/actor_lane'
 import type { RPCRequester, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import {
   ankoleSkillRuntime,
@@ -10,12 +10,9 @@ import {
   resolveSkillOverlayText,
   skillAvailableInRuntime,
   stripSkillFrontmatter,
-  type AnkoleSkillExecutionRuntime,
   type AnkoleSkillRuntime,
   type SkillFileRoots
 } from './effective-skill'
-
-export const lazySkillSlugPrefix = 'lazyload-agent-skills/'
 
 export type SkillLoadParams = {
   name: string
@@ -33,15 +30,14 @@ export type SkillLoader = {
 }
 
 export type CreateSkillLoaderOptions = {
-  turn: ActorTurnRef
+  turn: JobTurnRef
   enabledSkills?: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   rpc: RPCRequester
-  runtime: AnkoleSkillExecutionRuntime
   onSkillLoaded?: (name: string) => void
 }
 
-/** Loads one effective Ankole Skill for either the main or Background Job runtime. */
+/** Loads one effective Ankole Skill for a Background Job. */
 export function createSkillLoader(opts: CreateSkillLoaderOptions): SkillLoader {
   const disabled = new Set<string>()
 
@@ -58,22 +54,8 @@ export function createSkillLoader(opts: CreateSkillLoaderOptions): SkillLoader {
       }
       const skillRoot = skillFilesystemRoot(skill, opts.skillRoots)
       const declaredRuntime = ankoleSkillRuntime(skill)
-      if (opts.runtime === 'main' && declaredRuntime === 'background_job') {
-        if (filePath !== 'SKILL.md') {
-          throw new Error(
-            `background-job-only Skill resources are available only inside a background agent job; create one with create_background_job and name ${params.name} in its task`
-          )
-        }
-        await resolveSkillOverlayText(params.name, opts)
-        await safeSkillPath(skillRoot, 'SKILL.md')
-        opts.onSkillLoaded?.(params.name)
-        return {
-          content: [{ type: 'text', text: backgroundJobSkillDispatchContent(params.name) }],
-          details: { name: params.name, path: filePath }
-        }
-      }
-      if (!skillAvailableInRuntime(skill, opts.runtime)) {
-        throw new Error(`skill is not available in the ${opts.runtime} runtime: ${params.name}`)
+      if (!skillAvailableInRuntime(skill, 'background_job')) {
+        throw new Error(`skill is not available in the background_job runtime: ${params.name}`)
       }
 
       // This RPC also rechecks current effective enablement, so it must run
@@ -94,12 +76,6 @@ export function createSkillLoader(opts: CreateSkillLoaderOptions): SkillLoader {
   }
 }
 
-export function lazySkillNameFromSlug(value: string): string | undefined {
-  if (!value.startsWith(lazySkillSlugPrefix)) return undefined
-  const name = value.slice(lazySkillSlugPrefix.length)
-  return name && !name.includes('/') ? name : undefined
-}
-
 function renderEffectiveSkill(
   name: string,
   directory: string,
@@ -112,15 +88,6 @@ function renderEffectiveSkill(
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
   return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, runtime, withOverlay)
-}
-
-function backgroundJobSkillDispatchContent(name: string): string {
-  return [
-    `The enabled ${name} Skill is a background-task capability.`,
-    'Do not execute it inline and do not try to read its operational body or referenced resources from the main agent.',
-    `Create a background agent job with create_background_job. Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
-    'The background agent job can load the complete enabled Skill and its resources with skill_view.'
-  ].join('\n')
 }
 
 async function safeSkillPath(skillRoot: string, filePath: string): Promise<string> {

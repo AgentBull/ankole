@@ -12,13 +12,14 @@ Agent 可以使用公司大脑中获准访问的知识。信号路由规则将�
 ## 创建 Agent
 
 1. 打开 **Console → 智能体**，选择「新增智能体」。
-2. 输入必填的显示名称。Console 会自动生成 UID。例如，`Research Analyst` 会生成 `research-analyst`，「研究分析师」会生成 `yan-jiu-fen-xi-shi`。Console 也支持中英文混合名称。
-3. 检查 UID，必要时进行修改。UID 是实例内唯一的稳定标识，保存 Agent 后不能修改。以后可以修改显示名称，不会影响已有配置。
-4. 输入角色和可选的头像 URL。
-5. 选择一名人员 Principal 作为 Agent 负责人，再选择群聊记忆披露模式。
-6. 保存 Agent。页面随后显示长期设定、模型档案和 Agent 专用环境变量。
+2. 输入显示名称，检查自动生成的 handle。handle 以后可以修改；保存时 Ankole 自动生成全局唯一的不透明 UID。
+3. 输入角色、可选头像 URL，并选择 Worker provider。
+4. 选择一名人员 Principal 作为 Agent 负责人，再选择群聊记忆披露模式。
+5. 保存 Agent。页面随后显示长期设定、模型档案和 Agent 专用环境变量。
 
 角色用于概括 Agent 承担的工作，例如「研究分析师」或「客户支持」。以下四份长期文档分别管理职责、行为、视觉设计和保密要求。
+
+Worker provider 选择 Agent 所属的 [WorkerPool](../worker-management/)。请求未指定时使用站点默认池，没有默认池则创建失败。保存后不能更改绑定。同池 Agent 仍有各自独立的 Worker 与持久 Home。保存 Agent 不启动实例，需要执行电脑工作时由控制面按需启动。
 
 ## 设置负责人和群聊披露模式
 
@@ -77,9 +78,9 @@ Agent 达到上限后，聊天消息不会得到回答，而是收到一条说�
 
 ## 配置能力和环境变量
 
-Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，打开 **Console → Agent 能力库**，修改默认设置或为该 Agent 单独覆盖。具体方法见 [Agent 能力库](../skills/)。
+Agent 会继承租户默认启用的 Agent Plugin 和 Skill。需要调整时，打开 **Console → Agent 能力库**，修改默认设置或为该 Agent 单独覆盖。具体方法见 [Agent 能力库](../skills/)。
 
-如果 Skill、命令行工具或 MCP 服务需要 API 密钥，在 Agent 编辑页的「环境变量」中添加。Agent 专用值仅对当前 Agent 可用，并覆盖同名全局值。具体方法见 [环境变量](../worker-env/)。
+如果 Skill、命令行工具或 MCP 服务需要 API 密钥，在 Agent 编辑页的「环境变量」中添加。Agent 专用值仅对当前 Agent 可用，并覆盖同名租户值；租户未设置时覆盖站点值。具体方法见 [环境变量](../worker-env/)。
 
 ## 接入聊天渠道
 
@@ -98,9 +99,9 @@ Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，
 依次检查：
 
 1. Agent 是否处于启用状态。
-2. `primary`、`light` 和 `heavy` 是否都已配置，模型提供商是否可用。
-3. 是否存在指向该 Agent 的信号路由规则。
-4. 是否至少有一个 Agent Computer Worker 处于「就绪」状态。
+2. `primary`、`light`、`heavy` 模型档案已配置，LLM Provider 可用。
+3. 信号路由规则指向当前 Agent。
+4. **Console → 工作节点**中该 Agent 的 Worker 是否处于「就绪」，或正在启动且没有失败原因。
 5. **Console → 会话** 中是否出现此次消息。
 6. 页面是否显示错误信息。
 

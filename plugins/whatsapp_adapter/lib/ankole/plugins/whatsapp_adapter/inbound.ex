@@ -3,17 +3,17 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Principals, Repo, SignalsGateway, WorkerFiles}
+  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.{Client, Config, Presentation}
-  alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, Entry, Ingress, Projection}
+  alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, Entry, Ingress}
   alias Ankole.SignalsGateway.ReplyActionToken
 
+  @provider_fact_states ["provider_download_limit"]
   @download_limit_bytes 25 * 1024 * 1024
   @media_types ["image", "video", "audio", "document", "sticker"]
   @message_types ["text", "location", "contacts", "button" | @media_types]
-  @terminal_attachment_states ["complete", "provider_download_limit"]
 
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
@@ -139,10 +139,14 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   # download runs after, so Meta does not time out and redeliver the change
   # while Ankole fetches a large file.
   defp emit_with_materialization(input, consumer) do
-    {input, observed_at} = reuse_materialized_attachments(input, consumer)
+    {input, observed_at} = Ingress.reuse_stored_attachments(input, @provider_fact_states)
 
-    if materialization_required?(input.attachments) do
-      pending = put_materialization_state(input, "pending", observed_at)
+    if Ingress.attachments_need_bytes?(input.attachments) do
+      pending =
+        update_in(
+          input.metadata,
+          &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+        )
 
       case emit_entry(pending, consumer) do
         {:ok, %{signal_entry: %Entry{attachments: attachments}}} = result
@@ -162,75 +166,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   end
 
   # Meta redelivers a change that did not get a 200, and the redelivered message
-  # names the same media. A result this Agent already holds stays, together with
-  # the observation anchor of the first sighting. Everything else is fetched
-  # again, including a download whose earlier task never finished: the adapter
-  # has no proof that such a task is alive, and the gateway keeps a stored
-  # readable path under its entry lock, so a second download that overlaps the
-  # first cannot lose the file. A copy that another Agent downloaded does not
-  # count; each Agent holds its own copy.
-  defp reuse_materialized_attachments(%{attachments: []} = input, _consumer),
-    do: {input, DateTime.utc_now(:microsecond)}
-
-  defp reuse_materialized_attachments(input, consumer) do
-    case Repo.get_by(Entry,
-           signal_channel_id: input.signal_channel_id,
-           source_entry_id: input.source_entry_id
-         ) do
-      %Entry{attachments: stored, metadata: stored_metadata}
-      when is_list(stored) and stored != [] ->
-        by_ref = Map.new(stored, &{&1["provider_ref"], &1})
-        agent_uid = consumer.context.agent_uid
-
-        attachments =
-          Enum.map(input.attachments, fn attachment ->
-            case Map.get(by_ref, attachment["provider_ref"]) do
-              %{"materialization_state" => "complete"} = kept ->
-                if Projection.materialized_attachment?(agent_uid, kept),
-                  do: kept,
-                  else: attachment
-
-              %{"materialization_state" => "provider_download_limit"} = kept ->
-                kept
-
-              _missing_failed_or_unfinished ->
-                attachment
-            end
-          end)
-
-        observation = stored_metadata["attachment_materialization"]
-
-        metadata =
-          if is_map(observation),
-            do: Map.put(input.metadata, "attachment_materialization", observation),
-            else: input.metadata
-
-        {%{input | attachments: attachments, metadata: metadata}, observed_at(observation)}
-
-      _no_mirror ->
-        {input, DateTime.utc_now(:microsecond)}
-    end
-  rescue
-    exception ->
-      Logging.warning(
-        "whatsapp_adapter.attachment.reuse_lookup_failed",
-        "WhatsApp attachment reuse lookup failed",
-        %{source_entry_id: input.source_entry_id, reason: Exception.message(exception)}
-      )
-
-      {input, DateTime.utc_now(:microsecond)}
-  end
-
-  # The anchor stays the first sighting, so a fetched-again attachment does not
-  # move the batch window of an event the gateway already accepted.
-  defp observed_at(%{"observed_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, observed_at, _offset} -> observed_at
-      _invalid -> DateTime.utc_now(:microsecond)
-    end
-  end
-
-  defp observed_at(_observation), do: DateTime.utc_now(:microsecond)
+  # names the same media. A stored result stays, together with the observation
+  # anchor of the first sighting; the file service holds one copy of the bytes
+  # for every Agent, so it does not matter which Agent stored it. Everything
+  # else is fetched again, including a download whose earlier task never
+  # finished: the adapter has no proof that such a task is alive, and the
+  # gateway keeps a stored result under its entry lock, so a second download
+  # that overlaps the first cannot lose the bytes.
 
   # The download never runs in the webhook process: Meta waits for the answer
   # and redelivers a slow one. If the task cannot start, the webhook fails
@@ -240,7 +182,9 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     {:ok, _pid} =
       Task.Supervisor.start_child(
         Ankole.Plugins.WhatsAppAdapter.MaterializationTaskSupervisor,
-        fn -> materialize_and_emit(input, attachments, consumer, observed_at) end
+        Ankole.Repo.bind_tenant(fn ->
+          materialize_and_emit(input, attachments, consumer, observed_at)
+        end)
       )
 
     :ok
@@ -251,7 +195,14 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
     input
     |> Map.put(:attachments, attachments)
-    |> put_materialization_state(materialization_state(attachments), observed_at)
+    |> update_in(
+      [:metadata],
+      &Ingress.put_attachment_materialization(
+        &1,
+        Ingress.materialization_state(attachments),
+        observed_at
+      )
+    )
     |> emit_entry(consumer)
     |> case do
       {:ok, _result} ->
@@ -498,59 +449,26 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     end
   end
 
-  defp restricted_attachment(attachment) do
-    attachment
-    |> Map.put("materialization_state", "provider_download_limit")
-    |> Map.put("restriction", "Ankole downloads WhatsApp content up to 25 MB.")
-  end
-
-  defp materialization_required?(attachments) do
-    Enum.any?(attachments, fn attachment ->
-      is_binary(attachment["provider_file_id"]) and is_nil(attachment["materialization_state"])
-    end)
-  end
-
   defp materialize_attachments(attachments, consumer) do
     client = Config.client(consumer.config)
-    Enum.map(attachments, &materialize_attachment(&1, client, consumer.context.agent_uid))
+
+    Ingress.materialize_attachments(attachments, "whatsapp", &download_attachment(&1, client),
+      restriction: "Ankole downloads WhatsApp content up to 25 MB."
+    )
   end
 
-  defp materialize_attachment(
-         %{"materialization_state" => _state} = attachment,
-         _client,
-         _agent_uid
-       ),
-       do: attachment
-
-  defp materialize_attachment(%{"provider_file_id" => media_id} = attachment, client, agent_uid) do
+  defp download_attachment(%{"provider_file_id" => media_id} = attachment, client) do
     with {:ok, media} <- Client.media(client, media_id),
          :ok <- within_download_limit(media["file_size"]),
-         {:ok, download} <- Client.download(client, media["url"], @download_limit_bytes),
-         content_type <- download.content_type || attachment["mimetype"],
-         name <- materialized_name(attachment, content_type),
-         relative <- materialized_relative_path(attachment, name),
-         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
-         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
-      attachment
-      |> Map.put("materialization_state", "complete")
-      |> Map.put("name", name)
-      |> Map.put(
-        "agent_computer_path",
-        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
-      )
-      |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.put_present("mimetype", content_type)
-      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.put_present("size", result["size"])
-    else
-      {:error, :provider_download_limit} -> restricted_attachment(attachment)
-      reason -> materialization_failed(attachment, reason)
+         {:ok, download} <- Client.download(client, media["url"], @download_limit_bytes) do
+      content_type = download.content_type || attachment["mimetype"]
+      name = materialized_name(attachment, content_type)
+      put = MapHelpers.put_present(%{"name" => name}, "mimetype", content_type)
+      {:ok, %{body: download.body, filename: nil, content_type: nil, put: put}}
     end
-  rescue
-    exception -> materialization_failed(attachment, exception)
   end
 
-  defp materialize_attachment(attachment, _client, _agent_uid), do: attachment
+  defp download_attachment(_attachment, _client), do: {:error, :attachment_reference_missing}
 
   defp within_download_limit(size) when is_integer(size) and size > @download_limit_bytes,
     do: {:error, :provider_download_limit}
@@ -563,16 +481,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   end
 
   defp within_download_limit(_size), do: :ok
-
-  defp materialization_failed(attachment, reason) do
-    Logging.warning(
-      "whatsapp_adapter.attachment.materialization_skipped",
-      "WhatsApp attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: safe_reason(reason)}
-    )
-
-    Map.put(attachment, "materialization_state", "failed")
-  end
 
   # A document arrives with the sender's own file name; every other media kind
   # has only a generated name, so the content type supplies the extension.
@@ -597,27 +505,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   defp extension("audio/amr"), do: "amr"
   defp extension("audio/ogg"), do: "ogg"
   defp extension(_content_type), do: nil
-
-  defp materialized_relative_path(attachment, name) do
-    Path.join([
-      "inbox",
-      Integer.to_string(attachment["attachment_id"]),
-      WorkerFiles.sanitize_path_segment(name || "attachment")
-    ])
-  end
-
-  defp put_materialization_state(input, state, observed_at) do
-    %{
-      input
-      | metadata: Ingress.put_attachment_materialization(input.metadata, state, observed_at)
-    }
-  end
-
-  defp materialization_state(attachments) do
-    if Enum.all?(attachments, &(&1["materialization_state"] in @terminal_attachment_states)),
-      do: "complete",
-      else: "failed"
-  end
 
   # The `wa_id` is the sender's phone number, which Meta verified before it
   # issued the account. It therefore feeds the Principal contact match like the
@@ -687,11 +574,4 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
       _missing -> %{}
     end
   end
-
-  defp safe_reason(%Client.Error{} = error),
-    do: inspect(%{kind: error.kind, status: error.status, code: error.code})
-
-  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp safe_reason({:error, reason}), do: safe_reason(reason)
-  defp safe_reason(_reason), do: "whatsapp_content_unavailable"
 end

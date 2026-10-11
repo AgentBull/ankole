@@ -13,9 +13,7 @@ import { pathIsWithin } from '../../core/path-boundary'
  * rebuildable Worker-local state; losing it only costs one rescan.
  *
  * Boundary rule: every search root must realpath-resolve inside the Agent
- * Home. That keeps search results consistent with the bubblewrap view the
- * other computer tools expose — the two filesystem views agree exactly on the
- * Agent Home subtree.
+ * Home, so the warm indexes cover only the Agent's own files.
  */
 
 const SCAN_WAIT_MS = ms('15s')
@@ -131,8 +129,8 @@ export class FffSearchRuntime {
     return id
   }
 
-  getGrepCursor(id: string, agentHome: string): GrepCursorState | undefined {
-    return cursorForAgentHome(this.grepCursors.get(id), agentHome)
+  getGrepCursor(id: string): GrepCursorState | undefined {
+    return this.grepCursors.get(id)
   }
 
   storeFindCursor(state: FindCursorState): string {
@@ -142,8 +140,8 @@ export class FffSearchRuntime {
     return id
   }
 
-  getFindCursor(id: string, agentHome: string): FindCursorState | undefined {
-    return cursorForAgentHome(this.findCursors.get(id), agentHome)
+  getFindCursor(id: string): FindCursorState | undefined {
+    return this.findCursors.get(id)
   }
 
   destroyAll(): void {
@@ -165,9 +163,8 @@ export class FffSearchRuntime {
     }
 
     const mod = await loadFff()
-    // No frecency/history databases: the Agent Home lives on a shared network
-    // filesystem where LMDB is unsafe. Ranking still uses fuzzy score,
-    // modification recency, and git status.
+    // No frecency or history databases: ranking uses fuzzy score, modification
+    // recency, and git status.
     const created = mod.FileFinder.create({ basePath: root, aiMode: true })
     if (!created.ok) {
       throw new Error(`file search engine failed to start for ${root}: ${created.error}`)
@@ -198,21 +195,6 @@ export class FffSearchRuntime {
 
 /** The process-wide runtime shared across turns so warm indexes survive. */
 export const fffSearchRuntime = new FffSearchRuntime()
-
-/**
- * One Worker serves many Agents, and cursor IDs are sequential. Thus a model
- * can send a cursor ID from the search of a different Agent. The stored root
- * is a realpath in the Agent Home that made the cursor, and Agent Homes do not
- * overlap. A cursor with a root outside the Agent Home of the caller is
- * therefore the same as an unknown cursor.
- */
-function cursorForAgentHome<State extends { root: string }>(
-  state: State | undefined,
-  agentHome: string
-): State | undefined {
-  if (!state) return undefined
-  return pathIsWithin(realpathSync(resolve(agentHome)), state.root) ? state : undefined
-}
 
 function trimOldest(map: Map<string, unknown>): void {
   while (map.size > MAX_CURSORS) {

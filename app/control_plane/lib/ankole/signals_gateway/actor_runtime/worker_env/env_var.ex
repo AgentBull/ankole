@@ -3,12 +3,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar do
   Database row for one operator-defined Agent Computer shell variable.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :site
 
   import Ecto.Changeset
 
   @primary_key false
   schema "agent_computer_worker_envs" do
+    field :tenant_id, Ankole.Ecto.UUIDv7
     field :scope, :string
     field :name, :string
     field :secret, :boolean
@@ -40,7 +41,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar do
     row
     |> cast(attrs, [:scope, :name, :secret, :value, :description])
     |> validate_required([:scope, :name, :secret, :value])
-    |> validate_format(:scope, ~r/\A(?:global|agent:.+)\z/)
+    |> validate_format(:scope, ~r/\A(?:global|tenant:.+|agent:.+)\z/)
     |> validate_format(:name, ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/)
     |> unique_constraint([:scope, :name], name: :agent_computer_worker_envs_scope_name_unique)
     |> check_constraint(:scope, name: :agent_computer_worker_envs_scope_check)

@@ -6,13 +6,13 @@ defmodule Ankole.Brain.Schemas.Claim do
   field families disjoint.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "brain_claims" do
-    field :author_uid, :string
+    field :author, Ankole.Ecto.ActorRef
     field :claim_type, :string
     field :object_slug, :string
     field :signal_gateway_channel_id, :string
@@ -40,6 +40,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     field :graded_quality, :string
     field :graded_confidence, :float
     field :graded_at, :utc_datetime_usec
+    field :graded_input_hash, :string
     field :resolved_at, :utc_datetime_usec
     field :resolved_outcome, :boolean
     field :resolved_quality, :string

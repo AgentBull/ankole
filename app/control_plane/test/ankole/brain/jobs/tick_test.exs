@@ -21,7 +21,19 @@ defmodule Ankole.Brain.Jobs.TickTest do
     :ok
   end
 
-  test "a delayed tick evaluates the immutable insertion minute" do
+  test "mechanical maintenance is enqueued without a maintainer", %{tenant: tenant} do
+    assert {:ok, "Etc/UTC"} = SystemConfig.put_timezone("UTC")
+    assert :ok = Tick.perform(%Oban.Job{inserted_at: ~U[2026-08-27 05:00:00Z]})
+    assert_enqueued(worker: SelfHealing, args: %{tenant_id: tenant.id})
+    assert_enqueued(worker: Dreaming, args: %{tenant_id: tenant.id})
+  end
+
+  test "a delayed tick evaluates the immutable insertion minute", %{tenant: tenant} do
+    %{principal: maintainer} = Ankole.PrincipalsFixtures.agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.AppConfigure.put_tenant_by_key("brain.maintainer_agent_uid", maintainer.uid)
+
     assert {:ok, "Etc/UTC"} = SystemConfig.put_timezone("UTC")
 
     assert :ok =
@@ -31,7 +43,7 @@ defmodule Ankole.Brain.Jobs.TickTest do
                scheduled_at: ~U[2026-08-27 05:01:00Z]
              })
 
-    assert_enqueued(worker: SelfHealing)
-    assert_enqueued(worker: Dreaming)
+    assert_enqueued(worker: SelfHealing, args: %{tenant_id: tenant.id})
+    assert_enqueued(worker: Dreaming, args: %{tenant_id: tenant.id})
   end
 end

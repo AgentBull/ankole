@@ -296,15 +296,16 @@ defmodule Ankole.Brain.LibraryKnowledge do
   # flap between two bodies; the first file wins and the duplicate reports.
   defp dedupe_slugs(pages, rejected) do
     {pages, rejected, _seen} =
-      Enum.reduce(pages, {[], rejected, MapSet.new()}, fn page, {kept, rejected, seen} ->
+      Enum.reduce(pages, {[], Enum.reverse(rejected), MapSet.new()}, fn page,
+                                                                        {kept, rejected, seen} ->
         if MapSet.member?(seen, page.slug) do
-          {kept, rejected ++ [%{file: page.slug, reason: :duplicate_slug}], seen}
+          {kept, [%{file: page.slug, reason: :duplicate_slug} | rejected], seen}
         else
           {[page | kept], rejected, MapSet.put(seen, page.slug)}
         end
       end)
 
-    {Enum.reverse(pages), rejected}
+    {Enum.reverse(pages), Enum.reverse(rejected)}
   end
 
   defp parse_page(:oversized), do: {:error, :file_too_large}

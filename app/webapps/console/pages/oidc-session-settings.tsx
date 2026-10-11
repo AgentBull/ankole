@@ -1,5 +1,5 @@
 import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebIdentityProviderControllerIndexOptions,
@@ -102,7 +102,6 @@ export function OIDCSessionSettings({
 
 export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const deliveries = useQuery({
     ...ankoleWebOidcClientControllerLogoutDeliveriesOptions({ path: { id: clientID } }),
     refetchInterval: 15000
@@ -110,7 +109,6 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
   const retry = useMutation({
     ...ankoleWebOidcClientControllerRetryLogoutMutation(),
     onSuccess: () => {
-      void queryClient.invalidateQueries()
       toast.success(t('console.access_sessions.retry_started'))
     },
     onError: error => toast.error(requestErrorMessage(error))

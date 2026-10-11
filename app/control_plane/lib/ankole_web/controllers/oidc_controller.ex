@@ -2,9 +2,8 @@ defmodule AnkoleWeb.OIDCController do
   @moduledoc """
   Serves Ankole's OAuth 2.0 and OpenID Connect protocol endpoints.
 
-  The token endpoint has two explicit authentication shapes. Console grants use
-  the current administrator session and CSRF token. OIDC grants use only Client
-  credentials from the request and never consult the browser session.
+  The token endpoint uses the declared OIDC Client credentials. It does not
+  use the browser session.
   """
 
   use AnkoleWeb, :controller
@@ -13,7 +12,6 @@ defmodule AnkoleWeb.OIDCController do
   @behaviour Boruta.Oauth.TokenApplication
   @behaviour Boruta.Openid.UserinfoApplication
 
-  alias Ankole.AdminAuth
   alias Ankole.BrowserSessions
   alias Ankole.OIDC
   alias Ankole.OIDC.Boruta.ResourceOwners
@@ -22,13 +20,11 @@ defmodule AnkoleWeb.OIDCController do
   alias Ankole.OIDC.SigningKey
   alias Ankole.OIDC.Tokens
   alias Ankole.TokenSigning
-  alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
   alias Boruta.Oauth.AuthorizeResponse
   alias Boruta.Oauth.Error, as: OAuthError
   alias Boruta.Openid.UserinfoResponse
 
-  @browser_session_grant "urn:ankole:params:oauth:grant-type:browser-session"
   @supported_scopes Client.supported_scopes()
   @pkce_challenge ~r/\A[A-Za-z0-9_-]{43}\z/
   @pkce_verifier ~r/\A[A-Za-z0-9._~-]{43,128}\z/
@@ -120,8 +116,6 @@ defmodule AnkoleWeb.OIDCController do
 
   def token(conn, params) do
     case token_request_kind(conn, params) do
-      :console_browser_session -> console_browser_session_token(conn)
-      :console_refresh -> console_refresh_token(conn, params)
       {:oidc, client} -> oidc_token(conn, client)
       {:error, code, description} -> oauth_json_error(conn, 400, code, description)
     end
@@ -129,7 +123,7 @@ defmodule AnkoleWeb.OIDCController do
 
   def introspect(conn, params) do
     with {:ok, :basic, client_id} <- request_client_credentials(conn, params),
-         {:ok, %Client{client_type: :confidential} = client} <- OIDC.get_active_client(client_id),
+         {:ok, %Client{client_type: :confidential} = client} <- put_client_tenant(client_id),
          :ok <- client_authentication_shape(client, :basic, params),
          {:ok, request} <- Boruta.Oauth.Request.Introspect.request(conn),
          {:ok, response} <- Ankole.OIDC.Boruta.Introspection.check(request) do
@@ -156,6 +150,7 @@ defmodule AnkoleWeb.OIDCController do
   def userinfo(conn, _params) do
     with {:ok, raw_token} <- bearer_token(conn),
          {:ok, claims} <- Tokens.verify_access(raw_token, Tokens.userinfo_audience()),
+         {:ok, _client} <- put_client_tenant(claims["client_id"]),
          :ok <- authorize_request_origin(conn, claims["client_id"]) do
       Boruta.Openid.userinfo(conn, __MODULE__)
     else
@@ -278,10 +273,9 @@ defmodule AnkoleWeb.OIDCController do
   end
 
   defp current_admin_resource_owner(conn, client, params) do
-    case WebSession.admin_session(conn) do
-      %{"principal_uid" => principal_uid} = session ->
-        with true <- AdminAuth.active_human_admin?(principal_uid),
-             true <- LoginPolicy.can_reuse?(session, params),
+    case WebSession.site_admin_session(conn) do
+      %{"principal_uid" => _uid} = session ->
+        with true <- LoginPolicy.can_reuse?(session, params),
              :ok <- LoginPolicy.authorize_source(client, session["provider_id"]),
              {:ok, resource_owner} <- ResourceOwners.from_authentication(session),
              {:ok, _} <- BrowserSessions.reuse_console(WebSession.browser_reference(conn)) do
@@ -301,7 +295,7 @@ defmodule AnkoleWeb.OIDCController do
          false <- Map.has_key?(params, "request"),
          false <- Map.has_key?(params, "request_uri"),
          client_id when is_binary(client_id) <- params["client_id"],
-         {:ok, client} <- OIDC.get_active_client(client_id),
+         {:ok, client} <- put_client_tenant(client_id),
          redirect_uri when is_binary(redirect_uri) <- params["redirect_uri"],
          true <- redirect_uri in client.redirect_uris,
          scope when is_binary(scope) <- params["scope"],
@@ -361,7 +355,7 @@ defmodule AnkoleWeb.OIDCController do
   end
 
   defp validated_redirect_uri(%{"client_id" => client_id, "redirect_uri" => redirect_uri}) do
-    with {:ok, client} <- OIDC.get_active_client(client_id),
+    with {:ok, client} <- put_client_tenant(client_id),
          true <- redirect_uri in client.redirect_uris do
       {:ok, client}
     else
@@ -399,17 +393,11 @@ defmodule AnkoleWeb.OIDCController do
     )
   end
 
-  defp token_request_kind(conn, %{"grant_type" => @browser_session_grant} = params) do
-    if oidc_credential_shape?(conn, params),
-      do: {:error, "invalid_request", "Console grant rejects OIDC Client credentials"},
-      else: :console_browser_session
-  end
-
   defp token_request_kind(conn, %{"grant_type" => "refresh_token"} = params) do
     if oidc_credential_shape?(conn, params) do
       oidc_client_shape(conn, params)
     else
-      :console_refresh
+      {:error, "invalid_client", "OIDC Client credentials are required"}
     end
   end
 
@@ -429,7 +417,7 @@ defmodule AnkoleWeb.OIDCController do
 
   defp oidc_client_shape(conn, params) do
     with {:ok, source, client_id} <- request_client_credentials(conn, params),
-         {:ok, client} <- OIDC.get_active_client(client_id),
+         {:ok, client} <- put_client_tenant(client_id),
          :ok <- client_authentication_shape(client, source, params),
          :ok <- validate_grant_request(params),
          :ok <- authorize_request_origin(conn, client.id) do
@@ -512,88 +500,7 @@ defmodule AnkoleWeb.OIDCController do
       )
   end
 
-  defp console_browser_session_token(conn) do
-    with :ok <- require_console_browser_request(conn),
-         {:ok, session} <- active_admin_session(conn),
-         {:ok, token_set} <- ConsoleTokens.mint_for_session(session) do
-      conn |> no_store() |> json(token_set)
-    else
-      {:error, :csrf} ->
-        oauth_json_error(conn, 403, "invalid_request", "CSRF token is invalid")
-
-      {:error, :origin} ->
-        oauth_json_error(conn, 403, "invalid_request", "same Origin is required")
-
-      :error ->
-        oauth_json_error(conn, 401, "invalid_grant", "active administrator session required")
-
-      {:error, reason} ->
-        oauth_json_error(conn, 400, "server_error", message(reason))
-    end
-  end
-
-  defp console_refresh_token(conn, params) do
-    with refresh_token when is_binary(refresh_token) and refresh_token != "" <-
-           params["refresh_token"],
-         :ok <- require_console_browser_request(conn),
-         {:ok, session} <- active_admin_session(conn),
-         {:ok, token_set} <- ConsoleTokens.refresh_for_session(refresh_token, session) do
-      conn |> no_store() |> json(token_set)
-    else
-      nil ->
-        oauth_json_error(conn, 400, "invalid_request", "refresh_token is required")
-
-      "" ->
-        oauth_json_error(conn, 400, "invalid_request", "refresh_token is required")
-
-      {:error, :csrf} ->
-        oauth_json_error(conn, 403, "invalid_request", "CSRF token is invalid")
-
-      {:error, :origin} ->
-        oauth_json_error(conn, 403, "invalid_request", "same Origin is required")
-
-      :error ->
-        oauth_json_error(conn, 401, "invalid_grant", "active administrator session required")
-
-      {:error, reason} ->
-        oauth_json_error(conn, 400, "invalid_grant", message(reason))
-    end
-  end
-
   defp oidc_token(conn, _client), do: Boruta.Oauth.token(conn, __MODULE__)
-
-  defp require_console_browser_request(conn) do
-    with :ok <- require_same_origin(conn),
-         :ok <- require_csrf(conn) do
-      :ok
-    end
-  end
-
-  defp require_same_origin(conn) do
-    case get_req_header(conn, "origin") do
-      [origin] -> if origin == request_origin(conn), do: :ok, else: {:error, :origin}
-      _missing_or_multiple -> {:error, :origin}
-    end
-  end
-
-  defp require_csrf(conn) do
-    state = get_session(conn, "_csrf_token")
-    token = List.first(get_req_header(conn, "x-csrf-token")) || conn.body_params["_csrf_token"]
-
-    if Plug.CSRFProtection.valid_state_and_csrf_token?(state, token),
-      do: :ok,
-      else: {:error, :csrf}
-  end
-
-  defp active_admin_session(conn) do
-    case WebSession.admin_session(conn) do
-      %{"principal_uid" => principal_uid} = session ->
-        if AdminAuth.active_human_admin?(principal_uid), do: {:ok, session}, else: :error
-
-      _missing ->
-        :error
-    end
-  end
 
   defp authorize_request_origin(conn, client_id) do
     case get_req_header(conn, "origin") do
@@ -608,6 +515,14 @@ defmodule AnkoleWeb.OIDCController do
     end
   end
 
+  # Client IDs are globally unique and select the protocol request's tenant.
+  defp put_client_tenant(client_id) do
+    with {:ok, client} <- Ankole.Repo.across_tenants(fn -> OIDC.get_active_client(client_id) end) do
+      Ankole.Repo.put_tenant_id(client.tenant_id)
+      {:ok, client}
+    end
+  end
+
   defp bearer_token(conn) do
     case Boruta.Oauth.BearerToken.extract_token(conn) do
       {:ok, token} -> {:ok, token}
@@ -619,10 +534,6 @@ defmodule AnkoleWeb.OIDCController do
     parsed = URI.parse(uri)
     existing = if parsed.query in [nil, ""], do: query, else: parsed.query <> "&" <> query
     URI.to_string(%{parsed | query: existing})
-  end
-
-  defp request_origin(conn) do
-    URI.to_string(%URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port})
   end
 
   defp no_store(conn) do

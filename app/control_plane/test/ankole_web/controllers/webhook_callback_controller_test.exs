@@ -17,34 +17,33 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
 
-    assert {:ok, %{webhook_endpoint: _endpoint}} =
-             Webhooks.create_endpoint(
-               %{
-                 agent_uid: agent.uid,
-                 binding_name: source.binding_name,
-                 session_id: source.session_id,
-                 signal_channel_id: source.signal_channel_id,
-                 provider_thread_id: source.provider_thread_id,
-                 source_actor_event_id: source.id,
-                 source_entry_id: source.source_entry_id,
-                 source_provenance: %{},
-                 label: "GitHub pull requests",
-                 mode: "standing",
-                 expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :hour)
-               },
-               @token
-             )
+    assert {:ok, %{webhook_endpoint: _endpoint, token: token}} =
+             Webhooks.create_endpoint(%{
+               agent_uid: agent.uid,
+               binding_name: source.binding_name,
+               session_id: source.session_id,
+               signal_channel_id: source.signal_channel_id,
+               provider_thread_id: source.provider_thread_id,
+               source_actor_event_id: source.id,
+               source_entry_id: source.source_entry_id,
+               source_provenance: %{},
+               label: "GitHub pull requests",
+               mode: "standing",
+               expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :hour)
+             })
 
     conn =
       conn
       |> put_req_header("content-type", "application/vnd.github+json")
       |> put_req_header("x-github-event", "pull_request")
-      |> post("/webhooks/v1/event-callbacks/#{@token}", ~s({"action":"opened"}))
+      |> post("/webhooks/v1/event-callbacks/#{token}", ~s({"action":"opened"}))
 
     assert response(conn, 204) == ""
 
     assert %ActorEvent{} =
-             Repo.one(from(event in ActorEvent, where: event.type == "webhook.received"))
+             Repo.with_tenant(agent.tenant_id, fn ->
+               Repo.one(from(event in ActorEvent, where: event.type == "webhook.received"))
+             end)
   end
 
   test "callback route returns 404 for an unknown credential", %{conn: conn} do

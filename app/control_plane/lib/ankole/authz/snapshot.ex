@@ -45,21 +45,24 @@ defmodule Ankole.AuthZ.Snapshot do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, resource} <- Input.normalize_resource(resource),
          {:ok, context} <- Input.normalize_context(context),
-         {:ok, principal} <- Store.fetch_principal(repo, principal_uid) do
-      static_group_ids = static_group_ids(repo, principal.uid)
-      computed_groups = computed_group_snapshots(repo)
-      candidate_group_ids = static_group_ids ++ Enum.map(computed_groups, & &1["id"])
-      grants = grant_snapshots(repo, principal.uid, candidate_group_ids, actions)
+         {:ok, principal} <-
+           Repo.across_tenants(fn -> Store.fetch_principal(repo, principal_uid) end) do
+      Repo.with_tenant(principal.tenant_id, fn ->
+        static_group_ids = static_group_ids(repo, principal.uid)
+        computed_groups = computed_group_snapshots(repo)
+        candidate_group_ids = static_group_ids ++ Enum.map(computed_groups, & &1["id"])
+        grants = grant_snapshots(repo, principal.uid, candidate_group_ids, actions)
 
-      {:ok,
-       %{
-         "principal" => principal_snapshot(principal),
-         "staticGroupIDs" => static_group_ids,
-         "computedGroups" => computed_groups,
-         "grants" => grants,
-         "resource" => resource,
-         "context" => context
-       }}
+        {:ok,
+         %{
+           "principal" => principal_snapshot(principal),
+           "staticGroupIDs" => static_group_ids,
+           "computedGroups" => computed_groups,
+           "grants" => grants,
+           "resource" => resource,
+           "context" => context
+         }}
+      end)
     end
   end
 

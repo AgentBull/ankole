@@ -5,8 +5,7 @@ import { join } from 'node:path'
 import {
   CODEX_HOME_LOCK_BUSY_EXIT_CODE,
   CODEX_LOGS2_DATABASE_NAMES,
-  codexHomeLockedCommandArgv,
-  codexHomeLockedLogsDeleteArgv
+  codexHomeLockedCommandArgv
 } from '../src/core/codex-runner/runtime/codex-home-lock'
 
 const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
@@ -17,7 +16,7 @@ afterEach(() => {
 })
 
 describe('@ankole/agent-computer Codex Home physical lock', () => {
-  it('excludes a second process and serializes cold and daily logs_2 deletion', async () => {
+  it('excludes a second process and deletes logs_2 at every start', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-home-lock-'))
     const codexHome = join(root, 'codex-home')
     const ready = join(root, 'ready')
@@ -36,7 +35,7 @@ describe('@ankole/agent-computer Codex Home physical lock', () => {
 
       runtime = Bun.spawn(
         codexHomeLockedCommandArgv({
-          codexHome,
+          sqliteHome: codexHome,
           deleteLogsBeforeCommand: true,
           commandArgv: [
             '/bin/sh',
@@ -54,24 +53,30 @@ describe('@ankole/agent-computer Codex Home physical lock', () => {
       expect(existsSync(unrelated)).toBe(true)
 
       for (const path of databasePaths) writeFileSync(path, 'active')
-      const contender = Bun.spawn(codexHomeLockedCommandArgv({ codexHome, commandArgv: ['/bin/true'] }))
+      const contender = Bun.spawn(
+        codexHomeLockedCommandArgv({ sqliteHome: codexHome, commandArgv: [process.execPath, '-e', 'process.exit(0)'] })
+      )
       expect(await contender.exited).toBe(CODEX_HOME_LOCK_BUSY_EXIT_CODE)
 
-      const activeReset = Bun.spawn(codexHomeLockedLogsDeleteArgv(codexHome))
-      expect(await activeReset.exited).toBe(CODEX_HOME_LOCK_BUSY_EXIT_CODE)
       expect(databasePaths.every(existsSync)).toBe(true)
 
       writeFileSync(release, 'release')
       expect(await runtime.exited).toBe(0)
       runtime = undefined
 
-      const stoppedReset = Bun.spawn(codexHomeLockedLogsDeleteArgv(codexHome), {
-        stdout: 'pipe',
-        stderr: 'pipe'
-      })
-      const [exitCode, stdout] = await Promise.all([stoppedReset.exited, new Response(stoppedReset.stdout).text()])
-      expect(exitCode).toBe(0)
-      expect(stdout.trim().split('\n').sort()).toEqual([...CODEX_LOGS2_DATABASE_NAMES].sort())
+      for (const path of databasePaths) writeFileSync(path, 'cold again')
+      const stoppedReset = Bun.spawn(
+        codexHomeLockedCommandArgv({
+          sqliteHome: codexHome,
+          deleteLogsBeforeCommand: true,
+          commandArgv: [process.execPath, '-e', 'process.exit(0)']
+        }),
+        {
+          stdout: 'pipe',
+          stderr: 'pipe'
+        }
+      )
+      expect(await stoppedReset.exited, await new Response(stoppedReset.stderr).text()).toBe(0)
       expect(databasePaths.every(path => !existsSync(path))).toBe(true)
       expect(existsSync(unrelated)).toBe(true)
     } finally {

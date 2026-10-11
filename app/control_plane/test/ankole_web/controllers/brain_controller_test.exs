@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.BrainControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import OpenApiSpex.TestAssertions
   import Ankole.PrincipalsFixtures
   import Ecto.Query
   import ExUnit.CaptureLog
@@ -19,7 +20,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -34,19 +34,176 @@ defmodule AnkoleWeb.BrainControllerTest do
     :ok
   end
 
+  test "Console promotion decisions preserve the review record and its actor", %{conn: conn} do
+    {conn, admin_uid} = console_conn_with_principal(conn)
+
+    suggestion =
+      Repo.insert!(%Ankole.Brain.Schemas.SchemaSuggestion{
+        id: UUIDv7.autogenerate(),
+        kind: "new_type",
+        term: "review-test",
+        evidence_count: 100,
+        rationale: "Persisted evidence",
+        status: "pending",
+        created_at: DateTime.utc_now(:microsecond)
+      })
+
+    result =
+      conn
+      |> post(~p"/api/v1/brain/suggestions/#{suggestion.id}/decide", %{"decision" => "reject"})
+      |> json_response(200)
+
+    assert result["result"]["status"] == "rejected"
+    reviewed = Repo.get!(Ankole.Brain.Schemas.SchemaSuggestion, suggestion.id)
+    assert reviewed.decided_by.uid == admin_uid
+    assert reviewed.decided_at
+    assert reviewed.rationale == "Persisted evidence"
+
+    response =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/brain/suggestions?status=rejected")
+      |> json_response(200)
+
+    assert hd(response["suggestions"])["id"] == suggestion.id
+  end
+
+  test "a console writer cannot file into a group it does not belong to", %{conn: conn} do
+    {conn, _admin_uid} = console_conn_with_principal(conn)
+    assert {:ok, _} = SchemaPacks.install_packs([])
+
+    assert {:ok, _} =
+             Ankole.AuthZ.create_principal_group(%{
+               name: "restricted",
+               display_name: "Restricted"
+             })
+
+    response =
+      post(conn, ~p"/api/v1/brain/objects", %{
+        "slug" => "notes/restricted",
+        "type" => "note",
+        "title" => "Restricted",
+        "body" => "{% audience scope=\"group:restricted\" %}\nSecret\n{% /audience %}",
+        "meta" => %{}
+      })
+
+    assert %{"error" => %{"details" => [%{"reason" => reason}]}} = json_response(response, 422)
+    assert reason =~ "writer_not_in_scope_group"
+    refute Repo.get_by(Object, slug: "notes/restricted")
+  end
+
+  test "a console writer cannot supersede another person's private fact", %{conn: conn} do
+    {conn, _admin_uid} = console_conn_with_principal(conn)
+    %{principal: other} = human_fixture()
+    assert {:ok, _} = SchemaPacks.install_packs([])
+
+    assert {:ok, object} =
+             Objects.create_object(
+               %{slug: "notes/private", type: "note", title: "Private"},
+               other.uid
+             )
+
+    assert {:ok, %{claim: claim}} =
+             Ankole.Brain.Claims.write_fact(
+               %{
+                 object_slug: object.slug,
+                 claim: "Private original",
+                 kind: "fact",
+                 holder: "world",
+                 audience_scope: "principal:#{other.uid}",
+                 notability: "medium",
+                 valid_from: DateTime.utc_now(),
+                 confidence: 0.75,
+                 provenance: "review"
+               },
+               other.uid
+             )
+
+    response = post(conn, ~p"/api/v1/brain/claims/#{claim.id}/supersede", %{"claim" => "Changed"})
+    assert %{"error" => %{"details" => [%{"reason" => reason}]}} = json_response(response, 422)
+    assert reason =~ "writer_not_in_claim_scope"
+    refute Repo.reload!(claim).superseded_by
+  end
+
+  test "a site admin writing in another tenant retains its own attribution", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    {conn, admin_uid} = console_conn_with_principal(conn)
+    other = Ankole.DataCase.create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      assert {:ok, _} = SchemaPacks.install_packs([])
+
+      assert {:ok, _} =
+               Ankole.AuthZ.create_principal_group(%{
+                 name: "restricted",
+                 display_name: "Restricted"
+               })
+    end)
+
+    response =
+      conn
+      |> put_req_header("x-ankole-tenant", other.id)
+      |> post(
+        ~p"/api/v1/brain/objects",
+        %{
+          "slug" => "notes/admin-edit",
+          "type" => "note",
+          "title" => "Admin edit",
+          "body" => "{% audience scope=\"group:restricted\" %}\nSecret\n{% /audience %}",
+          "meta" => %{}
+        }
+      )
+
+    assert %{"object" => created} = json_response(response, 200)
+
+    assert %{"object" => _} =
+             conn
+             |> recycle_api()
+             |> put_req_header("x-ankole-tenant", other.id)
+             |> put(~p"/api/v1/brain/objects", %{
+               "slug" => "notes/admin-edit",
+               "title" => "Revised admin edit",
+               "body" => created["body"],
+               "meta" => created["meta"],
+               "expected_content_hash" => created["content_hash"]
+             })
+             |> json_response(200)
+
+    versions_response =
+      conn
+      |> recycle_api()
+      |> put_req_header("x-ankole-tenant", other.id)
+      |> get(~p"/api/v1/brain/objects/versions?slug=notes/admin-edit")
+      |> json_response(200)
+
+    assert %{"versions" => [%{"author" => author} | _]} = versions_response
+    assert_schema(versions_response, "BrainObjectVersionsResponse", AnkoleWeb.APISpec.spec())
+    assert author == %{"tenant_id" => tenant.id, "uid" => admin_uid}
+
+    Repo.with_tenant(other.id, fn ->
+      object = Repo.get_by!(Object, slug: "notes/admin-edit")
+      version = Repo.one!(from version in ObjectVersion, where: version.object_id == ^object.id)
+
+      assert version.author ==
+               Ankole.ActorRef.from_principal(%{tenant_id: tenant.id, uid: admin_uid})
+    end)
+  end
+
   test "claim search filters before the list limit and treats wildcards literally", %{conn: conn} do
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
     object =
       Repo.insert!(%Object{
         id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         slug: "notes/claim-search",
         type: "note",
         title: "Claim search",
         body: "",
         meta: %{},
-        emotional_weight: 0.0,
         created_at: now,
         updated_at: now
       })
@@ -54,7 +211,9 @@ defmodule AnkoleWeb.BrainControllerTest do
     row = fn claim, created_at ->
       %{
         id: UUIDv7.autogenerate(),
-        author_uid: principal_uid,
+        tenant_id: Repo.tenant_id!(),
+        author:
+          Ankole.ActorRef.from_principal(Repo.get!(Ankole.Principals.Principal, principal_uid)),
         claim_type: "fact",
         object_slug: object.slug,
         claim: claim,
@@ -138,18 +297,18 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   test "object search filters before the list limit and treats wildcards literally", %{conn: conn} do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
     row = fn slug, title ->
       %{
         id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         slug: slug,
         type: "note",
         title: title,
         body: "",
         meta: %{},
-        emotional_weight: 0.0,
         created_at: now,
         updated_at: now
       }
@@ -223,7 +382,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "the Object API creates, loads, and CAS-updates raw Markdoc bodies", %{conn: conn} do
     {:ok, _result} = SchemaPacks.install_packs([])
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
     %{principal: outsider} = human_fixture()
 
     body = """
@@ -326,7 +485,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "object writes name slug and type problems and the type list is readable", %{conn: conn} do
     {:ok, _result} = SchemaPacks.install_packs([])
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
 
     base = %{
       "slug" => "notes/valid",
@@ -376,7 +535,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "the Object API returns the native Markdoc code and line", %{conn: conn} do
     {:ok, _result} = SchemaPacks.install_packs([])
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
 
     body = """
     {% audience scope="principal:#{principal_uid}" %}
@@ -410,7 +569,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "the Object API exposes and repairs one stored invalid body", %{conn: conn} do
     {:ok, _result} = SchemaPacks.install_packs([])
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
     invalid_body = """
@@ -425,12 +584,12 @@ defmodule AnkoleWeb.BrainControllerTest do
     object =
       Repo.insert!(%Object{
         id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         slug: "notes/repair-invalid-markdoc",
         type: "note",
         title: "Repair invalid Markdoc",
         body: invalid_body,
         meta: %{},
-        emotional_weight: 0.0,
         content_hash: Objects.content_hash("Repair invalid Markdoc", invalid_body, %{}),
         created_at: now,
         updated_at: now
@@ -481,12 +640,13 @@ defmodule AnkoleWeb.BrainControllerTest do
   test "OIDC Source default audience can be configured and reset through the Console", %{
     conn: conn
   } do
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
 
     {:ok, source} =
       Ankole.Brain.Sources.create(%{
         kind: "oidc_client",
         upstream_id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         name: "OIDC Client"
       })
 
@@ -520,7 +680,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   test "archiving a Library Source immediately withdraws its managed pages", %{conn: conn} do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
     source =
@@ -537,12 +697,12 @@ defmodule AnkoleWeb.BrainControllerTest do
     object =
       Repo.insert!(%Object{
         id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         slug: "concepts/controller-archive-library",
         type: "concept",
         title: "Controller archive library",
         body: "Managed body",
         meta: %{},
-        emotional_weight: 0.0,
         managed_by_source_id: source.id,
         created_at: now,
         updated_at: now
@@ -559,7 +719,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   test "manual Dreaming uses the scheduled worker and reuses pending rounds", %{conn: conn} do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     assert {:ok, true} = AppConfigure.put_global_by_key("brain.enabled", true)
     cron = Ankole.Brain.Config.dreaming_task_cron()
     worker = Ankole.Brain.Jobs.Dreaming
@@ -570,7 +730,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     job = Repo.one!(from job in Oban.Job, where: job.worker == ^worker_name)
     assert job.state == "available"
-    assert job.args == %{}
+    assert job.args == %{"tenant_id" => Repo.tenant_id!()}
 
     assert %{"result" => %{"status" => "already_pending"}} =
              conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(200)
@@ -587,7 +747,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   test "manual Dreaming requires Brain update permission", %{conn: conn} do
-    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    {conn, principal_uid} = console_conn_with_principal(conn)
     Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
 
     assert {:ok, _grant} =
@@ -610,7 +770,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "manual Dreaming rejects a disabled Brain and unauthenticated callers", %{conn: conn} do
     assert conn |> post(~p"/api/v1/brain/dream") |> response(401)
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     assert {:ok, false} = AppConfigure.put_global_by_key("brain.enabled", false)
 
     assert %{"error" => %{"code" => "brain_disabled"}} =
@@ -620,8 +780,8 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
   end
 
-  test "health reports maintainer Agent profiles and the local web-fetch fallback", %{conn: conn} do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+  test "health reports maintainer Agent profiles and an unconfigured web fetch", %{conn: conn} do
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     %{principal: maintainer} = agent_fixture(%{display_name: "Brain Maintainer"})
     maintainer_uid = maintainer.uid
 
@@ -667,24 +827,24 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     assert health["models"]["dreaming"]["model"] == "heavy-model"
 
-    assert health["models"]["web_fetch"] == %{
-             "configured" => false,
-             "fallback" => "ankole_browser",
-             "profile" => "web_fetch"
-           }
+    # A URL source learns only through the `web_fetch` profile; nothing falls
+    # back to a Worker browser.
+    assert health["models"]["web_fetch"] == %{"configured" => false, "profile" => "web_fetch"}
   end
 
-  test "health reports a disabled maintainer Agent and withholds the local web-fetch fallback", %{
+  test "health reports a disabled maintainer Agent for every Brain profile", %{
     conn: conn
   } do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     %{principal: maintainer} = agent_fixture(%{display_name: "Disabled Brain Maintainer"})
 
     assert {:ok, maintainer_uid} =
              AppConfigure.put_global_by_key("brain.maintainer_agent_uid", maintainer.uid)
 
     assert maintainer_uid == maintainer.uid
-    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer.uid)
+
+    assert {:ok, %{status: :disabled}} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
 
     assert %{"health" => health} =
              conn
@@ -707,7 +867,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   test "health keeps internal embedding failures in server logs", %{conn: conn} do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    {conn, _principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
     internal_reason =
@@ -716,12 +876,12 @@ defmodule AnkoleWeb.BrainControllerTest do
     object =
       Repo.insert!(%Object{
         id: UUIDv7.autogenerate(),
+        tenant_id: Repo.tenant_id!(),
         slug: "notes/health-internal-error",
         type: "note",
         title: "Health internal error",
         body: "Projection source",
         meta: %{},
-        emotional_weight: 0.0,
         created_at: now,
         updated_at: now
       })

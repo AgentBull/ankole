@@ -3,6 +3,9 @@ fullnameOverride: ""
 
 imagePullSecrets: []
 
+# ServiceAccount of the control plane. The chart binds it to a Role that creates and deletes the Worker Pods, Secrets,
+# and PVCs of this namespace. Workers use their own ServiceAccount without any
+# permission.
 serviceAccount:
   create: true
   annotations: {}
@@ -13,18 +16,21 @@ secrets:
   existingSecret: ""
   # Empty values are generated on install and preserved during upgrades.
   ankoleSecretBase: ""
-  workerAuthKey: ""
   # Shared by every control-plane Pod for Distributed Erlang.
   releaseCookie: ""
   # Required when postgresql.enabled is false and existingSecret is empty.
   databaseURL: ""
   # Used only by the bundled PostgreSQL service.
   postgresqlPassword: ""
+  # Optional static credentials for files.store=s3. Without them the store
+  # uses the default AWS credential chain, for example EKS Pod Identity.
+  filesS3AccessKeyID: ""
+  filesS3SecretAccessKey: ""
 
 controlPlane:
   # More than one replica needs Distributed Erlang between the Pods: the chart
   # renders the headless Service, cookie, and distribution port for every
-  # replica count and switches to RollingUpdate above one replica.
+  # replica count. Recreate stops every old replica before schema migration.
   replicaCount: 1
   distributionPort: 9100
   clusterDomain: cluster.local
@@ -35,6 +41,7 @@ controlPlane:
     digest: ""
     pullPolicy: Always
   publicHost: ankole.example.com
+  siteAdminConsolePath: /site-admin-console
   port: 4000
   migration:
     enabled: true
@@ -42,14 +49,17 @@ controlPlane:
     PHX_SERVER: "true"
     POOL_SIZE: "10"
     ANKOLE_LOG_LEVEL: info
-    ANKOLE_LOG_FORMAT: json
     ANKOLE_LIBRARY_ROOT: /app/app/library
   service:
     type: ClusterIP
     port: 80
     annotations: {}
   podAnnotations: {}
-  podSecurityContext: {}
+  # The image runs as uid and gid 10001; fsGroup makes the files volume
+  # writable for it.
+  podSecurityContext:
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
   securityContext:
     allowPrivilegeEscalation: false
     capabilities:
@@ -62,49 +72,93 @@ controlPlane:
   tolerations: []
   affinity: {}
 
-# ZeroMQ stays bound while Workers that have not switched to the Worker
-# Channel still connect with `tcp://`. Remove it after every Worker switched.
-runtimeFabric:
-  port: 6010
-  bindEndpoint: tcp://0.0.0.0:6010
+# Bytes of Agent drives and attachments. `fs` keeps them on a ReadWriteOnce
+# volume of the control plane and allows one control-plane replica. `s3`
+# uses Amazon S3 or an S3-compatible store such as Cloudflare R2 and allows
+# any replica count.
+files:
+  store: fs
+  # Name of the shared Agent Home claim of a release before per-Agent
+  # Workers, usually <release>-ankole-agent-agents; the chart keeps that claim
+  # on upgrade. Set it only for the one-time import of Agent Home files into
+  # the drives: it mounts the claim read-only at /agents in the control plane.
+  # With files.store=fs the Pod sets fsGroup, and a storage driver that applies
+  # fsGroup to the claim changes the group of its files.
+  importAgentHomeClaim: ""
+  persistence:
+    existingClaim: ""
+    storageClass: ""
+    size: 100Gi
+    annotations: {}
+  s3:
+    bucket: ""
+    region: ""
+    # For an S3-compatible store, for example
+    # https://<account ID>.r2.cloudflarestorage.com with region `auto`.
+    endpoint: ""
+    # Key prefix inside the bucket.
+    root: ""
 
 worker:
-  replicaCount: 1
-  # Transport of the Worker. The default is the Worker Channel. A Worker that
-  # has not switched uses `tcp://<control-plane service>:6010` (ZeroMQ).
+  # Worker Channel URL; empty selects the control-plane Service.
   runtimeFabricEndpoint: ""
+  # Part of the names and labels of the Worker Pods, Secrets, and PVCs of this
+  # release. Empty uses the release name. Do not change the label after the
+  # first install: the control plane then does not find the Agent PVCs and
+  # running Workers of the old label, and it can start a second Worker for an
+  # Agent.
+  installation: ""
+  # Empty uses the matching Worker image built into the control-plane image.
+  # Set a repository and digest or tag only for an explicit override.
   image:
-    repository: ghcr.io/agentbull/ankole-agent-computer-worker
-    tag: main-latest
+    repository: ""
+    tag: ""
     digest: ""
     pullPolicy: Always
-  extraEnv:
-    ANKOLE_LOG_LEVEL: info
-    ANKOLE_LOG_FORMAT: json
-    ANKOLE_MAX_CONCURRENT_TURNS: "9"
-  podAnnotations: {}
-  podSecurityContext: {}
-  # Agent Computer needs these settings for strong bubblewrap isolation.
-  securityContext:
-    allowPrivilegeEscalation: true
-    capabilities:
-      add:
-        - SYS_ADMIN
-    procMount: Unmasked
-    seccompProfile:
-      type: Unconfined
+  # True when a provider runs Worker Pods in the release namespace. The chart
+  # then creates the owner ConfigMap of the Worker objects, the Worker
+  # ServiceAccount, the control-plane Role and RoleBinding, the Worker
+  # NetworkPolicy, and the shared Agent Home claim. Set false only when no
+  # provider runs Workers in this namespace. Helm then deletes these objects,
+  # and Kubernetes deletes every Worker Pod, contract Secret, and cache PVC that
+  # the owner ConfigMap owns. The shared claim and its data stay.
+  localPods: true
+
+  # The control plane imports the provider seed only on its first start, while
+  # worker_providers is empty. After that, add and edit providers in the
+  # Console; the values below do not change stored providers.
+  #
+  # A list replaces the generated Kubernetes provider. Each config is a YAML
+  # string; no templates or value merging are applied. With localPods false,
+  # list the providers here.
+  providers: []
+  # Replaces the generated provider config, as one YAML string.
+  providerConfig: ""
+  # Empty selects the shared Agent Home claim below, which the chart creates
+  # and keeps. Set claimTemplate with a StorageClass, accessModes, and requests
+  # for one PVC per Agent; the chart then creates no shared claim.
+  storage: {}
   agents:
     persistence:
       existingClaim: ""
       storageClass: ""
-      accessModes:
-        - ReadWriteMany
+      accessModes: [ReadWriteMany]
       size: 100Gi
       annotations: {}
+  extraEnv: {}
+  runtimeClassName: ""
+  terminationGracePeriodSeconds: 60
+  idleReleaseAfter: 15m
+  cache:
+    type: pvc
+    size: 20Gi
+    storageClass: ""
   resources: {}
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  readinessProbe: {}
+  livenessProbe: {}
 
 postgresql:
   enabled: true
@@ -118,6 +172,11 @@ postgresql:
     database: ankole
   port: 5432
   maxConnections: 300
+  # Database directory on the volume. A block volume such as EBS has
+  # lost+found at its root, and initdb needs an empty directory. An
+  # installation that an earlier chart created keeps its database at the
+  # volume root: set /var/lib/pgsql/18/data.
+  pgdata: /var/lib/pgsql/18/data/pgdata
   persistence:
     enabled: true
     existingClaim: ""
@@ -143,9 +202,18 @@ postgresql:
 
 # Restricts the Erlang distribution ports to control-plane Pods. HTTP stays
 # open to the ingress controller and to Workers, which need every Pod IP for
-# the file relay.
+# the file relay. Workers accept no connection, and they can reach only the
+# control plane, DNS, and public addresses: not private ranges and not the
+# node metadata address.
 networkPolicy:
   enabled: false
+  # Private address ranges that Workers may not reach.
+  workerDeniedCIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
 
 ingress:
   enabled: false

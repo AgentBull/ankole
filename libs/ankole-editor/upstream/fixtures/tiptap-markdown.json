@@ -1,0 +1,1590 @@
+[
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:18"
+    ],
+    "name": "should convert a single-level blockquote to markdown",
+    "markdown": "> This is a blockquote",
+    "exactExport": "> This is a blockquote"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:26"
+    ],
+    "name": "should convert a single-level blockquote with multiple paragraphs to markdown",
+    "markdown": "> First paragraph\n>\n> Second paragraph",
+    "exactExport": "> First paragraph\n>\n> Second paragraph"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:34"
+    ],
+    "name": "should convert nested blockquotes to markdown",
+    "markdown": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3",
+    "exactExport": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:42"
+    ],
+    "name": "should handle blockquotes with varying nesting depths",
+    "markdown": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3\n> >\n> > Back to level 2\n>\n> Back to level 1",
+    "exactExport": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3\n> >\n> > Back to level 2\n>\n> Back to level 1"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:51"
+    ],
+    "name": "should convert nested blockquotes with multiple paragraphs",
+    "markdown": "> First paragraph\n>\n> Second paragraph\n>\n> > Nested paragraph\n> >\n> > > Deeply nested",
+    "exactExport": "> First paragraph\n>\n> Second paragraph\n>\n> > Nested paragraph\n> >\n> > > Deeply nested"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:60"
+    ],
+    "name": "should handle a blockquote that jumps multiple levels deep",
+    "markdown": "> Level 1\n>\n> > > Level 3 (jumped from 1 to 3)",
+    "exactExport": "> Level 1\n>\n> > > Level 3 (jumped from 1 to 3)"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:68"
+    ],
+    "name": "should handle blockquotes going back to shallower nesting",
+    "markdown": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3\n> >\n> > Back to level 2\n>\n> Back to level 1",
+    "exactExport": "> Level 1\n>\n> > Level 2\n> >\n> > > Level 3\n> >\n> > Back to level 2\n>\n> Back to level 1"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:77"
+    ],
+    "name": "should handle blockquotes with text content at different levels",
+    "markdown": "> Outer quote with some text\n>\n> > Inner quote with more text\n> >\n> > > Innermost quote",
+    "exactExport": "> Outer quote with some text\n>\n> > Inner quote with more text\n> >\n> > > Innermost quote"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/blockquote.test.ts:86"
+    ],
+    "name": "should handle blockquotes with mixed content including headings",
+    "markdown": "> This is a block quote\n>\n> With more paragraphs\n>\n> # And a heading\n>\n> > And nested\n> >\n> > ## And another heading",
+    "exactExport": "> This is a block quote\n>\n> With more paragraphs\n>\n> # And a heading\n>\n> > And nested\n> >\n> > ## And another heading"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:15"
+    ],
+    "name": "should parse standalone bold punctuation marks",
+    "markdown": "**)**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:36"
+    ],
+    "name": "should parse bold punctuation when preceded by whitespace",
+    "markdown": "text **)**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text "
+            },
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:61"
+    ],
+    "name": "should parse bold punctuation when followed by whitespace",
+    "markdown": "**)** text",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " text"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:86"
+    ],
+    "name": "should parse bold punctuation when surrounded by whitespace",
+    "markdown": "text **)** more",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text "
+            },
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " more"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:115"
+    ],
+    "name": "should parse bold punctuation when preceded by other punctuation",
+    "markdown": "[**)**]",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "["
+            },
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "]"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:144"
+    ],
+    "name": "should parse multiple bold punctuation marks",
+    "markdown": "**,** **.**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": ",",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " "
+            },
+            {
+              "type": "text",
+              "text": ".",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:176"
+    ],
+    "name": "should NOT parse bold punctuation when directly preceded by alphanumeric characters",
+    "markdown": "text**)**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text**)**"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:197"
+    ],
+    "name": "should NOT parse bold punctuation when directly followed by alphanumeric characters",
+    "markdown": "**)**text",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "**)**text"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:218"
+    ],
+    "name": "should NOT parse bold punctuation when surrounded by alphanumeric characters",
+    "markdown": "text**)**text",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text**)**text"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:241"
+    ],
+    "name": "should parse standalone italic punctuation",
+    "markdown": "*)*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": ")",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:262"
+    ],
+    "name": "should parse italic punctuation with whitespace",
+    "markdown": "text *,* more",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text "
+            },
+            {
+              "type": "text",
+              "text": ",",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " more"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:291"
+    ],
+    "name": "should NOT parse italic punctuation without whitespace",
+    "markdown": "text*,*text",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "text*,*text"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:313"
+    ],
+    "name": "should maintain bold punctuation through parse-serialize cycle",
+    "markdown": "text **)** more",
+    "exactExport": "text **)** more"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/inline-marks-punctuation.test.ts:321"
+    ],
+    "name": "should maintain italic punctuation through parse-serialize cycle",
+    "markdown": "text *,* more",
+    "exactExport": "text *,* more"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Bullet List with Numeric Punctuation",
+    "markdown": "- 123\n  - 123\n  - 123\n- 123\n- 123.",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "123"
+                    }
+                  ]
+                },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "123"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "123"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "123"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "123."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/bullet-list-numeric-punctuation.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Bullet List",
+    "markdown": "- Item 1\n- Item 2\n  - Subitem 1\n  - Subitem 2\n- Item 3",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 2"
+                    }
+                  ]
+                },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 2"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 3"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/bullet-list.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Hard Break with Marks",
+    "markdown": "**Speaker:**  \nJohn Doe.\n\n**Speaker:**  \n**John Doe**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Speaker:"
+            },
+            {
+              "type": "hardBreak"
+            },
+            {
+              "type": "text",
+              "text": "John Doe."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Speaker:"
+            },
+            {
+              "type": "hardBreak"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "John Doe"
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/hard-break-marks.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Link with Title",
+    "markdown": "[click here](https://example.com \"Example Site\")",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "click here",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": "Example Site"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/link-with-title.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Link without Title",
+    "markdown": "[click here](https://example.com)",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "click here",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com",
+                    "title": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/link-without-title.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Mixed List Types",
+    "markdown": "- Test\n\n- [ ] Test\n- [ ] Test 2",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Test"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Test"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Test 2"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/mixed-list-types.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Nested Nodes",
+    "markdown": ":::custom-block\n\nThis is a node with **bold text**.\n\n:::custom-block\n\nAnd this is a nested block.\n\n:::\n\n:::",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "customBlock",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "This is a node with "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "bold text"
+                },
+                {
+                  "type": "text",
+                  "text": "."
+                }
+              ]
+            },
+            {
+              "type": "customBlock",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "And this is a nested block."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/nested-nodes.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Ordered List Separated by Bullet List",
+    "markdown": "1. one\n\n- inner\n\n2. two",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "one"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "inner"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 2
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "two"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/ordered-list-separated-by-bullet.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Ordered List with a Wide Marker",
+    "markdown": "10. ten\n    1. inner\n11. eleven",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 10
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "ten"
+                    }
+                  ]
+                },
+                {
+                  "type": "orderedList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "inner"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "eleven"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/ordered-list-wide-marker.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Ordered List with Nested Bullet List",
+    "markdown": "1. one\n   - inner\n2. two",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "one"
+                    }
+                  ]
+                },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "inner"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "two"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/ordered-list-with-bullet-list.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Ordered List",
+    "markdown": "1. Item 1\n2. Item 2\n   1. Subitem 1\n   2. Subitem 2\n      1. Subsubitem 1\n      2. Subsubitem 2\n3. Item 3\n   1. Subitem 1\n   2. Subitem 2\n      1. Subsubitem 1\n      2. Subsubitem 2",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 2"
+                    }
+                  ]
+                },
+                {
+                  "type": "orderedList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 2"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "orderedList",
+                          "content": [
+                            {
+                              "type": "listItem",
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subsubitem 1"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "listItem",
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subsubitem 2"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Item 3"
+                    }
+                  ]
+                },
+                {
+                  "type": "orderedList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subitem 2"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "orderedList",
+                          "content": [
+                            {
+                              "type": "listItem",
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subsubitem 1"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "listItem",
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subsubitem 2"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/ordered-list.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Soft Break with Marks",
+    "markdown": "**Speaker:**\nJohn Doe.\n\n**Speaker:**\n**John Doe**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Speaker:"
+            },
+            {
+              "type": "text",
+              "text": "\nJohn Doe."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Speaker:"
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "John Doe"
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/soft-break-marks.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Task List",
+    "markdown": "- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3\n  - [ ] Subtask 1\n  - [x] Subtask 2\n    - [ ] Subtask 2a\n    - [x] Subtask 2b\n- [x] Task 4",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Task 1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Task 2"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": false
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Task 3"
+                    }
+                  ]
+                },
+                {
+                  "type": "taskList",
+                  "content": [
+                    {
+                      "type": "taskItem",
+                      "attrs": {
+                        "checked": false
+                      },
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subtask 1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "taskItem",
+                      "attrs": {
+                        "checked": true
+                      },
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "Subtask 2"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "taskList",
+                          "content": [
+                            {
+                              "type": "taskItem",
+                              "attrs": {
+                                "checked": false
+                              },
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subtask 2a"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "taskItem",
+                              "attrs": {
+                                "checked": true
+                              },
+                              "content": [
+                                {
+                                  "type": "paragraph",
+                                  "content": [
+                                    {
+                                      "type": "text",
+                                      "text": "Subtask 2b"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "taskItem",
+              "attrs": {
+                "checked": true
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Task 4"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/task-list.ts"
+  },
+  {
+    "ids": [
+      "tiptap:packages/markdown/tests/integration/conversion.test.ts:168"
+    ],
+    "name": "Trailing Whitespace in Marks",
+    "markdown": "**text** continues here\n\nand **more text** here\n\nalso *italic text* works\n\nand **bold** *italic* mixed",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "text"
+            },
+            {
+              "type": "text",
+              "text": " continues here"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "and "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "more text"
+            },
+            {
+              "type": "text",
+              "text": " here"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "also "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ],
+              "text": "italic text"
+            },
+            {
+              "type": "text",
+              "text": " works"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "and "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "bold"
+            },
+            {
+              "type": "text",
+              "text": " "
+            },
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ],
+              "text": "italic"
+            },
+            {
+              "type": "text",
+              "text": " mixed"
+            }
+          ]
+        }
+      ]
+    },
+    "sourceFixture": "packages/markdown/tests/fixtures/markdown/trailing-whitespace-marks.ts"
+  }
+]

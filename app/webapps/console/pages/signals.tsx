@@ -25,7 +25,7 @@ import {
 import { RiBroadcastLine, RiPauseCircleLine, RiPlayCircleLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -73,7 +73,6 @@ import { useEditorDraft } from '../use-editor-draft'
 
 export function SignalsListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [showDisabled, setShowDisabled] = useState(false)
   const deferredQuery = useDeferredValue(query)
@@ -101,7 +100,6 @@ export function SignalsListPage() {
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.disabled', { name: variables.path.binding_name }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -109,7 +107,6 @@ export function SignalsListPage() {
     ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.enabled', { name: variables.path.binding_name }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -117,7 +114,6 @@ export function SignalsListPage() {
     ...ankoleWebSignalBindingControllerRequeueDeliveryMutation(),
     onSuccess: () => {
       toast.success(t('console.signals.delivery_retry_success'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -198,7 +194,8 @@ export function SignalsListPage() {
         <TableRow key={`${binding.agent_uid}:${binding.adapter}:${binding.name}`}>
           <TableCell className="font-mono text-xs">
             <Link
-              className="text-foreground hover:text-link hover:underline"
+              data-row-link
+              className="text-foreground"
               to={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}>
               {binding.name}
             </Link>
@@ -338,7 +335,6 @@ export function SignalBindingEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(SignalBindingEditorModel)
   const [searchParams] = useSearchParams()
   const locale = i18n.language
@@ -398,23 +394,13 @@ export function SignalBindingEditorPage() {
   const createBinding = useMutation({
     ...ankoleWebSignalBindingControllerPutBindingMutation(),
     onSuccess: (_data, variables) => {
-      finishSignalBindingSave(
-        t('console.signals.saved', { name: variables.path.binding_name }),
-        returnPath,
-        queryClient,
-        navigate
-      )
+      finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
     }
   })
   const updateBinding = useMutation({
     ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
     onSuccess: (_data, variables) => {
-      finishSignalBindingSave(
-        t('console.signals.saved', { name: variables.path.binding_name }),
-        returnPath,
-        queryClient,
-        navigate
-      )
+      finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
     }
   })
 
@@ -501,7 +487,7 @@ export function SignalBindingEditorPage() {
               <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
                 {agentList.map(agent => (
                   <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
+                    {agent.display_name ? `${agent.display_name} · ${agent.handle}` : agent.handle}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -612,11 +598,9 @@ function signalBindingReturnPath(agentUID: string): string {
 export function finishSignalBindingSave(
   message: string,
   returnPath: string,
-  queryClient: Pick<QueryClient, 'invalidateQueries'>,
   navigate: (path: string) => unknown
 ): void {
   toast.success(message)
-  void queryClient.invalidateQueries()
   navigate(returnPath)
 }
 

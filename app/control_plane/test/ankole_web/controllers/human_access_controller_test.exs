@@ -12,8 +12,9 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
   end
 
   test "the Console requires identity and current permission review and never revives old credentials",
-       %{conn: conn} do
-    {conn, admin_uid} = bearer_conn_with_principal(conn)
+       %{conn: conn, tenant: tenant} do
+    {conn, admin_uid} = console_conn_with_principal(conn)
+    Repo.put_tenant_id(tenant.id)
     %{principal: person} = human_fixture()
     uid = person.uid
     body = %{reason: "Confirmed departure", operation_id: "console-disable"}
@@ -67,6 +68,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> json_response(409)
            |> get_in(["error", "code"]) == "identity_review_required"
 
+    Repo.put_tenant_id(tenant.id)
+
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: uid,
@@ -93,11 +96,13 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
       |> json_response(200)
 
     assert restored["status"] == "active"
+    Repo.put_tenant_id(tenant.id)
     assert {:error, :human_access_revoked} = HumanAccess.check(uid, person.access_version)
 
     assert Enum.any?(
              restored["history"],
-             &(&1["action"] == "restore" and &1["actor_uid"] == admin_uid and
+             &(&1["action"] == "restore" and
+                 &1["actor"] == %{"tenant_id" => tenant.id, "uid" => admin_uid} and
                  &1["details"]["identity_verified"] == true)
            )
 
@@ -107,10 +112,10 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> json_response(200) == restored
   end
 
-  test "read and mutations require a live Console administrator", %{conn: conn} do
+  test "read and mutations require a live Console administrator", %{conn: conn, tenant: tenant} do
     %{principal: person} = human_fixture()
     assert conn |> get(~p"/api/v1/principals/#{person.uid}/access") |> json_response(401)
-    {admin, admin_uid} = bearer_conn_with_principal(conn)
+    {admin, admin_uid} = console_conn_with_principal(conn)
 
     assert admin
            |> recycle_api()
@@ -121,6 +126,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> json_response(409)
            |> get_in(["error", "code"]) == "cannot_disable_self"
 
+    Repo.put_tenant_id(tenant.id)
+
     assert {:ok, _} =
              HumanAccess.restrict_from_provider(admin_uid, "lark-main", "departure", "event")
 
@@ -130,8 +137,12 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> json_response(401)
   end
 
-  test "unknown work needs explicit service approval and cannot be reclassified", %{conn: conn} do
-    conn = bearer_conn(conn)
+  test "unknown work needs explicit service approval and cannot be reclassified", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn = console_conn(conn)
+    Repo.put_tenant_id(tenant.id)
     %{principal: agent} = agent_fixture()
 
     {:ok, event} =
@@ -167,6 +178,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> post(~p"/api/v1/work-access-reviews", %{body | authorization_kind: "service"})
            |> json_response(200) == %{"work" => []}
 
+    Repo.put_tenant_id(tenant.id)
+
     assert WorkAccess.fields(Repo.get!(Ankole.SignalsGateway.ActorEvent, event.id)) ==
              WorkAccess.service()
 
@@ -175,6 +188,7 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
            |> post(~p"/api/v1/work-access-reviews", %{body | authorization_kind: "service"})
            |> json_response(409)
 
+    Repo.put_tenant_id(tenant.id)
     assert {:ok, %{status: :active}} = Principals.get_principal(agent.uid)
   end
 end

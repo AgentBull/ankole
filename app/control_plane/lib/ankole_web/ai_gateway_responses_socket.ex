@@ -18,14 +18,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
   alias Ankole.OIDC.Grant
-  alias Ankole.SignalsGateway.AIGatewayLink
 
   @socket_response_history_limit 32
 
   # Connection lifecycle
 
   @impl WebSock
-  def init(%{subject_uid: _subject_uid, subject_type: _subject_type} = state), do: {:ok, state}
+  def init(
+        %{subject_uid: _subject_uid, subject_type: _subject_type, tenant_id: tenant_id} = state
+      ) do
+    Ankole.Repo.put_tenant_id(tenant_id)
+    {:ok, state}
+  end
 
   # Incoming: response.create
 
@@ -82,7 +86,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     request =
       event
       |> prepare_request()
-      |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
+      |> CodexModelBinding.apply(
+        Map.get(state, :codex_model_binding),
+        Map.get(state, :request_context, %{})
+      )
 
     with {:ok, authorization} <- authorize_grant(state, request),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
@@ -91,19 +98,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       else
         open_response_create_stream(state, request, socket_context, authorization)
       end
-    end
-  end
-
-  defp handle_socket_event(%{"type" => "response.tool_results.record"} = event, state) do
-    request = prepare_request(event)
-
-    case AIGatewayLink.record_tool_results(state.subject_uid, request) do
-      {:ok, %{body: body}} ->
-        event = tool_results_recorded_event(body)
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
-      {:error, _reason} = error ->
-        error
     end
   end
 
@@ -293,12 +287,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     do: {:error, "invalid_request_error", "WebSocket message must be a JSON object.", nil}
 
   defp ensure_socket_event_type(%{"type" => "response.create"}), do: :ok
-  defp ensure_socket_event_type(%{"type" => "response.tool_results.record"}), do: :ok
 
   defp ensure_socket_event_type(_event),
     do:
-      {:error, "invalid_request_error",
-       "WebSocket message type must be response.create or response.tool_results.record.", "type"}
+      {:error, "invalid_request_error", "WebSocket message type must be response.create.", "type"}
 
   # Only strip the socket event type here. store/previous_response_id/
   # conversation/metadata are preserved for the stateful path and stripped later
@@ -559,15 +551,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       "code" => error.code,
       "message" => error.message,
       "param" => error.param
-    }
-  end
-
-  defp tool_results_recorded_event(response_body) do
-    %{
-      "type" => "response.tool_results.recorded",
-      "sequence_number" => 0,
-      "response_id" => response_body["id"],
-      "response" => response_body
     }
   end
 end

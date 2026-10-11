@@ -12,15 +12,8 @@ defmodule Ankole.E2E.WaitHelpers do
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
-  alias Ankole.RuntimeEvents.Event
-  alias Ankole.RuntimeEvents.Handlers
-  alias Ankole.Schedule.Schemas.ScheduledEvent
-  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -91,19 +84,6 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Fetches the first concrete scheduled event armed for a cron schedule.
-  """
-  @spec cron_event_for_schedule!(Ecto.UUID.t()) :: ScheduledEvent.t()
-  def cron_event_for_schedule!(cron_schedule_id) do
-    Repo.one!(
-      from(event in ScheduledEvent,
-        where: event.kind == "cron_fire",
-        where: event.cron_schedule_id == ^cron_schedule_id
-      )
-    )
-  end
-
-  @doc """
   Builds a monotonic deadline for polling a real Docker worker e2e condition.
   """
   @spec deadline(pos_integer()) :: integer()
@@ -135,27 +115,22 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits until the worker projection is ready and reports available capacity.
+  Waits until the Agent's Worker is ready and has a free Turn slot.
   """
-  @spec wait_for_worker_projection(String.t(), map() | port(), integer()) ::
-          {:ok, AgentComputerWorker.t()}
-  def wait_for_worker_projection(worker_id, process, deadline) do
-    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
-      %AgentComputerWorker{status: "ready"} = worker ->
-        case worker_has_capacity?(worker) do
+  @spec wait_for_worker(map(), integer()) :: {:ok, AgentWorker.t()}
+  def wait_for_worker(%{agent_uid: agent_uid} = process, deadline) do
+    case Repo.get(AgentWorker, agent_uid) do
+      %AgentWorker{state: "ready"} = worker ->
+        case AgentWorker.available_slots(worker) > 0 do
           true ->
             {:ok, worker}
 
           false ->
-            receive_port_or_wait(process, deadline, fn ->
-              wait_for_worker_projection(worker_id, process, deadline)
-            end)
+            receive_or_wait(process, deadline, fn -> wait_for_worker(process, deadline) end)
         end
 
-      _worker_or_nil ->
-        receive_port_or_wait(process, deadline, fn ->
-          wait_for_worker_projection(worker_id, process, deadline)
-        end)
+      _worker ->
+        receive_or_wait(process, deadline, fn -> wait_for_worker(process, deadline) end)
     end
   end
 
@@ -165,7 +140,7 @@ defmodule Ankole.E2E.WaitHelpers do
   Accepts the runtime-facing status names (`"succeeded"`, `"failed"`,
   `"cancelled"`) and maps them onto the `ai_gateway_messages` status column.
   """
-  @spec wait_for_turn_status(map() | port(), Ecto.UUID.t(), String.t(), integer()) ::
+  @spec wait_for_turn_status(map(), Ecto.UUID.t(), String.t(), integer()) ::
           {:ok, Message.t()}
   def wait_for_turn_status(process, actor_event_id, status, deadline) do
     expected_status = ai_message_status(status)
@@ -175,7 +150,7 @@ defmodule Ankole.E2E.WaitHelpers do
         {:ok, message}
 
       _other ->
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           wait_for_turn_status(process, actor_event_id, status, deadline)
         end)
     end
@@ -188,7 +163,7 @@ defmodule Ankole.E2E.WaitHelpers do
   while the actor event remains live. The adopted final answer is the latest
   complete message after `actor_events.completed_at` is written.
   """
-  @spec wait_for_completed_actor_event_message(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_completed_actor_event_message(map(), Ecto.UUID.t(), integer()) ::
           {:ok, Message.t()}
   def wait_for_completed_actor_event_message(process, actor_event_id, deadline) do
     with_transient_db_retry(process, deadline, fn ->
@@ -201,22 +176,22 @@ defmodule Ankole.E2E.WaitHelpers do
           case ai_message_for_actor_event(actor_event_id) do
             %Message{status: "error"} = message ->
               flunk(
-                "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+                "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
               )
 
             _message ->
-              receive_port_or_wait(process, deadline, fn ->
+              receive_or_wait(process, deadline, fn ->
                 wait_for_completed_actor_event_message(process, actor_event_id, deadline)
               end)
           end
 
         {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
           flunk(
-            "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+            "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
           )
 
         _other ->
-          receive_port_or_wait(process, deadline, fn ->
+          receive_or_wait(process, deadline, fn ->
             wait_for_completed_actor_event_message(process, actor_event_id, deadline)
           end)
       end
@@ -227,7 +202,7 @@ defmodule Ankole.E2E.WaitHelpers do
   Waits until `actor_events.completed_at` is written, without requiring any AI
   message (e.g. ambient silence commits a noop completion).
   """
-  @spec wait_for_actor_event_completed(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_actor_event_completed(map(), Ecto.UUID.t(), integer()) ::
           {:ok, ActorEvent.t()}
   def wait_for_actor_event_completed(process, actor_event_id, deadline) do
     case Repo.get(ActorEvent, actor_event_id) do
@@ -235,7 +210,7 @@ defmodule Ankole.E2E.WaitHelpers do
         {:ok, event}
 
       _other ->
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           wait_for_actor_event_completed(process, actor_event_id, deadline)
         end)
     end
@@ -244,7 +219,7 @@ defmodule Ankole.E2E.WaitHelpers do
   @doc """
   Waits until an actor event reaches its durable dead-letter state.
   """
-  @spec wait_for_actor_event_dead_letter(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_actor_event_dead_letter(map(), Ecto.UUID.t(), integer()) ::
           {:ok, ActorEvent.t()}
   def wait_for_actor_event_dead_letter(process, actor_event_id, deadline) do
     case Repo.get(ActorEvent, actor_event_id) do
@@ -252,7 +227,7 @@ defmodule Ankole.E2E.WaitHelpers do
         {:ok, event}
 
       _other ->
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           wait_for_actor_event_dead_letter(process, actor_event_id, deadline)
         end)
     end
@@ -261,7 +236,7 @@ defmodule Ankole.E2E.WaitHelpers do
   @doc """
   Waits for the final Signal channel mirror row associated with an AI message.
   """
-  @spec wait_for_final_mirror(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_final_mirror(map(), Ecto.UUID.t(), integer()) ::
           {:ok, Entry.t()}
   def wait_for_final_mirror(process, ai_message_id, deadline) do
     case Repo.get_by(Entry, ai_message_id: ai_message_id) do
@@ -269,7 +244,7 @@ defmodule Ankole.E2E.WaitHelpers do
         {:ok, entry}
 
       nil ->
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           wait_for_final_mirror(process, ai_message_id, deadline)
         end)
     end
@@ -283,10 +258,10 @@ defmodule Ankole.E2E.WaitHelpers do
   the primary row. A steer keeps that message on the original Turn stream but
   makes the accepted steer event own the outbox. The outbox maps those two
   ActorEvent identities.
-  The e2e wait loop advances due RuntimeEvents from the durable snapshot because
-  SQL sandbox tests do not commit the transaction that would release pg_notify.
+  The wait loop runs due conversation and Outbox jobs because Oban is manual
+  in these tests.
   """
-  @spec wait_for_completed_final_reply(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_completed_final_reply(map(), Ecto.UUID.t(), integer()) ::
           {:ok, Entry.t(), Message.t()}
   def wait_for_completed_final_reply(process, actor_event_id, deadline) do
     Process.put(
@@ -298,7 +273,7 @@ defmodule Ankole.E2E.WaitHelpers do
 
     if System.monotonic_time(:millisecond) > deadline do
       flunk(
-        "timed out waiting for final reply: durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+        "timed out waiting for final reply: durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))} #{inspect_process(process)}"
       )
     end
 
@@ -309,14 +284,12 @@ defmodule Ankole.E2E.WaitHelpers do
           {:ok, reply, message}
 
         {%ActorEvent{completed_at: %DateTime{}}, nil} ->
-          run_due_outbox_runtime_events()
-
-          receive_port_or_wait(process, deadline, fn ->
+          receive_or_wait(process, deadline, fn ->
             wait_for_completed_final_reply(process, actor_event_id, deadline)
           end)
 
         _other ->
-          receive_port_or_wait(process, deadline, fn ->
+          receive_or_wait(process, deadline, fn ->
             wait_for_completed_final_reply(process, actor_event_id, deadline)
           end)
       end
@@ -328,7 +301,7 @@ defmodule Ankole.E2E.WaitHelpers do
   and AI message. Plain final-reply rows use the `ai-reply:<message_id>` key and
   are handled by `wait_for_completed_final_reply/3`.
   """
-  @spec wait_for_outbox_for_input(map() | port(), Ecto.UUID.t(), integer(), Ecto.UUID.t()) ::
+  @spec wait_for_outbox_for_input(map(), Ecto.UUID.t(), integer(), Ecto.UUID.t()) ::
           {:ok, OutboxEntry.t()}
   def wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id) do
     case side_effect_outboxes_for_input(source_actor_event_id, ai_message_id) do
@@ -345,7 +318,7 @@ defmodule Ankole.E2E.WaitHelpers do
           end
         )
 
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id)
         end)
 
@@ -373,7 +346,7 @@ defmodule Ankole.E2E.WaitHelpers do
   Convenience wrapper: first waits for the actor event to complete with an AI
   message, then waits for the outbox row committed for that message.
   """
-  @spec wait_for_completed_outbox(map() | port(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_completed_outbox(map(), Ecto.UUID.t(), integer()) ::
           {:ok, OutboxEntry.t(), Message.t()}
   def wait_for_completed_outbox(process, actor_event_id, deadline) do
     with {:ok, message} <-
@@ -413,14 +386,6 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Repo.insert!()
   end
 
-  defp worker_has_capacity?(%AgentComputerWorker{
-         capacity: %{"available_turn_slots" => slots}
-       })
-       when is_integer(slots),
-       do: slots > 0
-
-  defp worker_has_capacity?(%AgentComputerWorker{}), do: false
-
   defp flunk_if_terminal_without_outbox(process, actor_event_id, expected, outbox_check) do
     case ai_message_for_actor_event_latest(actor_event_id) do
       %Message{status: "complete"} = message ->
@@ -429,13 +394,13 @@ defmodule Ankole.E2E.WaitHelpers do
 
         if completed? and not outbox_check_present?(outbox_check) do
           flunk(
-            "AI message completed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+            "AI message completed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
           )
         end
 
       %Message{status: "error"} = message ->
         flunk(
-          "AI message failed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)} #{received_process_output(process_port(process))}"
+          "AI message failed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
         )
 
       _message ->
@@ -467,7 +432,7 @@ defmodule Ankole.E2E.WaitHelpers do
   rescue
     error in DBConnection.ConnectionError ->
       if transient_sandbox_checkout_error?(error) do
-        receive_port_or_wait(process, deadline, fn ->
+        receive_or_wait(process, deadline, fn ->
           with_transient_db_retry(process, deadline, fun)
         end)
       else
@@ -592,42 +557,57 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   defp durable_commit_state(actor_event_id) do
+    event = Repo.get(ActorEvent, actor_event_id)
+
+    driver =
+      if event do
+        case Ankole.Conversations.Driver.whereis(event) do
+          :undefined ->
+            :absent
+
+          pid ->
+            try do
+              {state, data} = :sys.get_state(pid, 1_000)
+
+              %{
+                state: state,
+                tasks:
+                  Enum.map(data.tasks, fn {_ref, {kind, task}} ->
+                    {kind, Process.info(task, :current_stacktrace)}
+                  end)
+              }
+            catch
+              :exit, reason -> {:unavailable, reason}
+            end
+        end
+      end
+
     %{
+      driver: driver,
       actor_events:
         ActorEvent
         |> where([event], event.id == ^actor_event_id)
         |> Repo.all()
-        |> Enum.map(&Map.take(&1, [:id, :source_entry_id, :completed_at])),
-      deliveries:
-        ActorEventDelivery
-        |> where([delivery], delivery.actor_event_id == ^actor_event_id)
-        |> Repo.all()
         |> Enum.map(
           &Map.take(&1, [
             :id,
-            :state,
-            :worker_id,
-            :transport_route,
-            :activation_uid,
-            :actor_epoch,
-            :revision,
-            :error
+            :source_entry_id,
+            :completed_at,
+            :input_state,
+            :attempt_count,
+            :last_attempt_at
           ])
         ),
-      activations:
-        ActorSessionActivation
-        |> where([activation], activation.current_actor_event_id == ^actor_event_id)
+      receipts:
+        Ankole.Conversations.Receipts
+        |> where(
+          [receipt],
+          receipt.agent_uid in subquery(
+            from event in ActorEvent, where: event.id == ^actor_event_id, select: event.agent_uid
+          )
+        )
         |> Repo.all()
-        |> Enum.map(
-          &Map.take(&1, [
-            :activation_uid,
-            :status,
-            :assigned_worker_id,
-            :actor_epoch,
-            :revision,
-            :stop_reason
-          ])
-        ),
+        |> Enum.map(&Map.take(&1, [:response_id, :call_id, :session_id, :inserted_at])),
       outboxes:
         OutboxEntry
         |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
@@ -647,23 +627,15 @@ defmodule Ankole.E2E.WaitHelpers do
     }
   end
 
-  defp run_due_outbox_runtime_events do
+  defp run_due_jobs do
     now = DateTime.utc_now(:microsecond)
-
-    SignalsGateway.runtime_event_snapshot()
-    |> Enum.flat_map(fn {channel, payload} -> RuntimeEvents.expand(channel, payload) end)
-    |> Enum.filter(&due_outbox_event?(&1, now))
-    |> Enum.each(&Handlers.handle/1)
+    Oban.drain_queue(queue: :conversations, with_scheduled: now, with_limit: 20)
+    Oban.drain_queue(queue: :outbox, with_scheduled: now, with_limit: 20)
   end
 
-  defp due_outbox_event?(%Event{kind: :outbox_due, due_at: nil}, _now), do: true
+  defp receive_or_wait(process, deadline, next) do
+    run_due_jobs()
 
-  defp due_outbox_event?(%Event{kind: :outbox_due, due_at: %DateTime{} = due_at}, now),
-    do: DateTime.compare(due_at, now) != :gt
-
-  defp due_outbox_event?(%Event{}, _now), do: false
-
-  defp receive_port_or_wait(process, deadline, next) do
     if System.monotonic_time(:millisecond) > deadline do
       debug =
         case Process.get(:ankole_e2e_timeout_debug) do
@@ -671,23 +643,10 @@ defmodule Ankole.E2E.WaitHelpers do
           _other -> ""
         end
 
-      flunk(
-        "worker e2e timed out:#{debug} #{inspect_process(process)} #{received_process_output(process_port(process))}"
-      )
+      flunk("worker e2e timed out:#{debug} #{inspect_process(process)}")
     end
 
-    port = process_port(process)
-
     receive do
-      {^port, {:exit_status, status}} ->
-        flunk(
-          "worker exited before e2e completed: #{status} #{inspect_process(process)} #{received_process_output(port)}"
-        )
-
-      {^port, {:data, data}} ->
-        remember_process_output(port, data)
-        next.()
-
       {:fake_llm_request, _kind, _count, _request} ->
         next.()
 
@@ -699,26 +658,23 @@ defmodule Ankole.E2E.WaitHelpers do
     end
   end
 
-  defp process_port(%{port: port}), do: port
-  defp process_port(port) when is_port(port), do: port
-
-  defp inspect_process(%{kind: :docker, name: name}), do: "container=#{name}"
-  defp inspect_process(port) when is_port(port), do: "port=#{inspect(port)}"
-
-  defp remember_process_output(port, data) when is_port(port) and is_binary(data) do
-    key = {:worker_e2e_output, port}
-
-    output =
-      [Process.get(key, ""), data] |> IO.iodata_to_binary() |> String.slice(-48_000, 48_000)
-
-    Process.put(key, output)
-    :ok
+  # Docker failures also include the container log.
+  defp inspect_process(%{kind: :docker, agent_uid: agent_uid} = container) do
+    "#{inspect_worker(agent_uid)} logs=#{inspect(Ankole.E2E.DockerWorker.logs(container), printable_limit: :infinity)}"
   end
 
-  defp received_process_output(port) when is_port(port) do
-    case Process.get({:worker_e2e_output, port}, "") do
-      "" -> "output=<empty>"
-      output -> "output=#{inspect(output, limit: :infinity, printable_limit: :infinity)}"
-    end
+  defp inspect_process(%{agent_uid: agent_uid}), do: inspect_worker(agent_uid)
+
+  defp inspect_worker(agent_uid) do
+    row =
+      case Repo.get(AgentWorker, agent_uid) do
+        %AgentWorker{} = worker ->
+          Map.take(worker, [:state, :generation, :transport_route, :drain_reason, :last_error])
+
+        nil ->
+          nil
+      end
+
+    "agent_uid=#{agent_uid} worker=#{inspect(row)}"
   end
 end

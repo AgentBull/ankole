@@ -5,4 +5,4 @@
 // own modules by the worker entrypoint only.
 
 export * from './types'
-export { defineWorkerTool, type DefineWorkerToolSpec } from './worker-tool'
+export { defineWorkerTool } from './worker-tool'

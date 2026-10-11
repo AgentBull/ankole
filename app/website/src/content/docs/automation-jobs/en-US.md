@@ -5,7 +5,7 @@ section: User guide
 order: 22
 ---
 
-The three triggers — Cron, Checkback, and webhook endpoints — wake an Agent conversation by default. An automation job is the second consumer: a deterministic script that the Agent writes and keeps inside its own Agent Home. Bind a trigger to it, and the system runs the script at fire time instead of starting an Agent turn.
+The three triggers — Cron, Checkback, and webhook endpoints — wake an Agent conversation by default. An automation job is the second consumer: a deterministic script that the Agent writes and keeps in its drive. Bind a trigger to it, and the system runs the script at fire time instead of starting an Agent turn.
 
 The script decides what deserves your attention. It can finish silently, or call `emitEvent` to send an event back to the owner conversation, so the Agent wakes with exactly the context the script prepared. Code keeps the mechanical watch, and the model stays only at the points that need judgment.
 
@@ -25,7 +25,7 @@ only when it drops below 3.5. Stay silent otherwise. After market
 close, report once whether the day's checks ran normally.
 ```
 
-The Agent writes the script inside its Agent Home, verifies it by hand, registers it as an automation job, creates the Cron bound to it, and sets a market-close reconciliation Checkback. Script edits apply immediately without re-registration: each run executes the current files on disk.
+The Agent writes the script in its workspace, verifies it by hand, registers it as an automation job, creates the Cron bound to it, and sets a market-close reconciliation Checkback. Registration copies the script folder into the Agent's drive. Each run copies what that drive folder holds at fire time into a fresh run directory, so a file that the script writes next to itself does not survive the run. To change the script, the Agent puts the edited folder into the same drive folder again; no new registration is needed.
 
 ## Run history and failures
 

@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
   other AIGateway records.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 

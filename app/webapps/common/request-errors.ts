@@ -23,21 +23,24 @@ export function requestErrorCode(error: unknown): string | undefined {
  * show the real upstream response behind a coded failure.
  */
 export function requestErrorDetails(error: unknown): Record<string, unknown> {
+  return Object.assign({}, ...requestErrorDetailList(error))
+}
+
+/** Keeps separate validation paths and line numbers in the API response. */
+export function requestErrorDetailList(error: unknown): Record<string, unknown>[] {
   if (error && typeof error === 'object' && 'error' in error) {
     const value = (error as { error?: unknown }).error
     if (value && typeof value === 'object' && 'details' in value) {
       const details = (value as { details?: unknown }).details
       if (Array.isArray(details)) {
-        const merged: Record<string, unknown> = {}
-        for (const entry of details) {
-          if (entry && typeof entry === 'object') Object.assign(merged, entry)
-        }
-        return merged
+        return details.filter((entry): entry is Record<string, unknown> =>
+          Boolean(entry && typeof entry === 'object' && !Array.isArray(entry))
+        )
       }
     }
   }
 
-  return {}
+  return []
 }
 
 /** Converts caught request failures into UI-safe text. */

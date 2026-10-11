@@ -12,6 +12,30 @@ defmodule Ankole.Brain.ConfigTest do
     :ok
   end
 
+  test "tenant rerank settings prevent provider disablement and identify their owner", %{
+    tenant: tenant
+  } do
+    provider_id = "tenant-rerank-provider"
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openrouter",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, _} =
+             AppConfigure.put_tenant_by_key("brain.rerank_model", %{
+               "provider_id" => provider_id,
+               "model" => "rerank"
+             })
+
+    assert {:error, {:provider_in_use, references}} = ProviderConfigs.delete_provider(provider_id)
+    assert "tenant:#{tenant.id}:brain.rerank_model" in references
+    assert :ok = AppConfigure.delete_tenant_by_key("brain.rerank_model")
+    assert {:ok, _} = ProviderConfigs.delete_provider(provider_id)
+  end
+
   test "the maintainer Agent owns Brain task profiles while Brain owns embedding and rerank" do
     {:ok, _provider} =
       ProviderConfigs.create_provider(%{
@@ -80,7 +104,8 @@ defmodule Ankole.Brain.ConfigTest do
     assert maintainer_uid == maintainer.uid
     assert {:ok, maintainer_uid} == Config.maintainer_subject_uid()
 
-    assert {:ok, %{status: :disabled}} = Principals.disable_principal(maintainer.uid)
+    assert {:ok, %{status: :disabled}} =
+             Ankole.PrincipalsFixtures.disable_principal_fixture(maintainer.uid)
 
     assert {:error, :brain_maintainer_agent_disabled} = Config.maintainer_subject_uid()
     assert {:error, :brain_maintainer_agent_disabled} = Config.maintainer_model_profile("light")

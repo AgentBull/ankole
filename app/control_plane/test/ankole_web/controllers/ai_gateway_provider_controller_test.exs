@@ -27,13 +27,45 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     :ok
   end
 
+  test "the Console catalog lists typed provider models without Agent aliases", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    for id <- ["catalog-a", "catalog-b"] do
+      assert {:ok, _} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: id,
+                 provider_kind: "openai",
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+                 }
+               })
+    end
+
+    assert {:ok, _} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "catalog-a",
+               model: "gpt-4o-mini"
+             })
+
+    result = conn |> console_conn() |> get(~p"/api/v1/site/ai-gateway/models")
+    assert %{"models" => models} = json_response(result, 200)
+
+    for id <- ["catalog-a", "catalog-b"] do
+      assert %{"capability" => "llm", "image_input" => true} =
+               Enum.find(models, &(&1["provider_id"] == id and &1["model"] == "gpt-4o-mini"))
+    end
+
+    refute Enum.any?(models, &(&1["model"] == "primary"))
+    assert Enum.all?(models, &is_binary(&1["description"]))
+  end
+
   test "admin configures provider rows and agent model profiles through the console API", %{
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
-    conn = get(conn, ~p"/api/v1/ai-gateway/provider-kinds")
+    conn = get(conn, ~p"/api/v1/site/ai-gateway/provider-kinds")
     assert %{"provider_kinds" => sources} = json_response(conn, 200)
 
     # ProviderConfigs owns the catalog content. The API only has to project a
@@ -50,7 +82,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/ai-gateway/providers/openrouter-main", %{
+      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-main", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [%{"label" => "Primary key", "api_key" => "sk-test"}]
@@ -79,7 +111,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/ai-gateway/providers")
+      |> get(~p"/api/v1/site/ai-gateway/providers")
 
     assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
     assert Enum.any?(providers, &(&1["provider_id"] == "openrouter-main"))
@@ -127,7 +159,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/ai-gateway/providers/openrouter-main")
+      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-main")
 
     assert %{"error" => %{"code" => "provider_in_use"}} = json_response(conn, 422)
   end
@@ -135,8 +167,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   test "provider writes reject body provider_id drift from the path", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/openrouter-main", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-main", %{
         "provider_id" => "other-provider",
         "provider_kind" => "openrouter"
       })
@@ -145,7 +177,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   end
 
   test "admin enables only a valid disabled provider", %{conn: conn} do
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -157,7 +189,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert {:ok, %{disabled_at: %DateTime{}}} =
              ProviderConfigs.delete_provider("enable-route")
 
-    conn = post(conn, ~p"/api/v1/ai-gateway/providers/enable-route/enable")
+    conn = post(conn, ~p"/api/v1/site/ai-gateway/providers/enable-route/enable")
 
     assert %{
              "ai_gateway_provider" => %{
@@ -169,7 +201,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     missing =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/missing-provider/enable")
+      |> post(~p"/api/v1/site/ai-gateway/providers/missing-provider/enable")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(missing, 404)
 
@@ -183,7 +215,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     invalid =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/enable-route/enable")
+      |> post(~p"/api/v1/site/ai-gateway/providers/enable-route/enable")
 
     assert %{"error" => %{"code" => "invalid_value"}} = json_response(invalid, 422)
   end
@@ -202,7 +234,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/kimi", %{
         "description" => "Long-context coding",
         "provider_id" => "openrouter-custom-console",
@@ -274,8 +306,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   test "admin disables an active provider and deletes it on the next request", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/openrouter-unused", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-unused", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
@@ -287,7 +319,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/ai-gateway/providers/openrouter-unused")
+      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-unused")
 
     assert %{"ai_gateway_provider" => %{"disabled_at" => disabled_at}} = json_response(conn, 200)
     assert is_binary(disabled_at)
@@ -295,7 +327,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/ai-gateway/providers/openrouter-unused")
+      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-unused")
 
     assert %{"ai_gateway_provider" => %{"provider_id" => "openrouter-unused"}} =
              json_response(conn, 200)
@@ -303,7 +335,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/ai-gateway/providers")
+      |> get(~p"/api/v1/site/ai-gateway/providers")
 
     assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
     refute Enum.any?(providers, &(&1["provider_id"] == "openrouter-unused"))
@@ -315,8 +347,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/#{provider_id}", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/#{provider_id}", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
@@ -382,10 +414,14 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/ai-gateway/models")
+      |> get(~p"/api/v1/site/ai-gateway/models")
 
-    assert %{"data" => candidates} = json_response(conn, 200)
-    assert Enum.any?(candidates, &(&1["id"] == "#{provider_id}/openrouter/auto"))
+    assert %{"models" => candidates} = json_response(conn, 200)
+
+    assert Enum.any?(
+             candidates,
+             &(&1["provider_id"] == provider_id and &1["model"] == "openrouter/auto")
+           )
 
     conn =
       conn
@@ -424,10 +460,10 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
   test "admin manages a ChatGPT credential pool and assigns its provider to coding", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     conn =
-      put(conn, ~p"/api/v1/ai-gateway/providers/chatgpt-main", %{
+      put(conn, ~p"/api/v1/site/ai-gateway/providers/chatgpt-main", %{
         "provider_kind" => "chatgpt_subscription"
       })
 
@@ -442,13 +478,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials", %{
-        "id" => "enterprise-1",
-        "label" => "Primary ChatGPT",
-        "access_token" => "enterprise-secret",
-        "account_id" => "chatgpt-account-1",
-        "plan_type" => "enterprise"
-      })
+      |> post(
+        ~p"/api/v1/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
+        %{
+          "id" => "enterprise-1",
+          "label" => "Primary ChatGPT",
+          "access_token" => "enterprise-secret",
+          "account_id" => "chatgpt-account-1",
+          "plan_type" => "enterprise"
+        }
+      )
 
     assert %{
              "ai_gateway_provider" => %{
@@ -474,12 +513,15 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials", %{
-        "id" => "enterprise-2",
-        "label" => "Backup ChatGPT",
-        "access_token" => "backup-secret",
-        "account_id" => "chatgpt-account-2"
-      })
+      |> post(
+        ~p"/api/v1/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
+        %{
+          "id" => "enterprise-2",
+          "label" => "Backup ChatGPT",
+          "access_token" => "backup-secret",
+          "account_id" => "chatgpt-account-2"
+        }
+      )
 
     assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => entries}}} =
              json_response(conn, 200)
@@ -489,7 +531,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/ai-gateway/providers/chatgpt-main/credential-pool/strategy", %{
+      |> put(~p"/api/v1/site/ai-gateway/providers/chatgpt-main/credential-pool/strategy", %{
         "strategy" => "round_robin"
       })
 
@@ -527,7 +569,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/ai-gateway/providers/chatgpt-main")
+      |> get(~p"/api/v1/site/ai-gateway/providers/chatgpt-main")
 
     assert %{
              "ai_gateway_provider" => %{
@@ -541,7 +583,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/ai-gateway/providers/chatgpt-main/credentials/enterprise-2")
+      |> delete(~p"/api/v1/site/ai-gateway/providers/chatgpt-main/credentials/enterprise-2")
 
     assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => [remaining]}}} =
              json_response(conn, 200)
@@ -552,8 +594,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   test "admin adds, updates, disables, and enables a generic pool credential", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/openrouter-pool-admin", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{"entries" => []}
       })
@@ -567,7 +609,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials", %{
+      |> post(~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials", %{
         "id" => "key-1",
         "label" => "Primary",
         "priority" => 2,
@@ -602,7 +644,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       conn
       |> recycle_api()
       |> put(
-        ~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+        ~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
         %{"label" => "Primary renamed", "disabled_at" => disabled_at}
       )
 
@@ -627,7 +669,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       conn
       |> recycle_api()
       |> put(
-        ~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+        ~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
         %{"disabled_at" => nil}
       )
 
@@ -652,8 +694,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   test "credential metadata updates do not clear dead health", %{conn: conn} do
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/openrouter-dead-update", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [
@@ -673,7 +715,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       conn
       |> recycle_api()
       |> put(
-        ~p"/api/v1/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+        ~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
         %{"label" => "Renamed"}
       )
 
@@ -685,11 +727,46 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              }
            } = json_response(conn, 200)
 
+    assert {:ok, _} =
+             ProviderConfigs.update_credential("openrouter-dead-update", "dead-key", %{
+               "reauth_required" => true
+             })
+
+    :ok = CredentialPool.record_usage(provider.id, "dead-key", %{"total_tokens" => 11})
+
+    :ok =
+      CredentialPool.observe_success(provider.id, dead_entry, [
+        {"x-codex-primary-used-percent", "37"}
+      ])
+
+    persisted_dead =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update")
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "label" => "Renamed",
+                     "status" => "dead",
+                     "reauth_required" => true,
+                     "request_count" => 0,
+                     "last_selected_at" => nil,
+                     "usage" => %{"model" => %{"total_tokens" => 11}},
+                     "rate_limits" => %{"x-codex-primary-used-percent" => "37"}
+                   }
+                 ]
+               }
+             }
+           } = json_response(persisted_dead, 200)
+
     conn =
       conn
       |> recycle_api()
       |> put(
-        ~p"/api/v1/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+        ~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
         %{"api_key" => "sk-reauthenticated"}
       )
 
@@ -754,8 +831,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
-      |> put(~p"/api/v1/ai-gateway/providers/chatgpt-device", %{
+      |> console_conn()
+      |> put(~p"/api/v1/site/ai-gateway/providers/chatgpt-device", %{
         "provider_kind" => "chatgpt_subscription",
         "connection_options" => %{"auth_issuer" => issuer}
       })
@@ -766,7 +843,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-device/chatgpt-login", %{
+      |> post(~p"/api/v1/site/ai-gateway/providers/chatgpt-device/chatgpt-login", %{
         "id" => "device-credential",
         "label" => "Device account",
         "priority" => 3
@@ -782,7 +859,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-device/chatgpt-login/poll", %{
+      |> post(~p"/api/v1/site/ai-gateway/providers/chatgpt-device/chatgpt-login/poll", %{
         "login_context" => login_context
       })
 

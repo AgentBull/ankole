@@ -1,0 +1,120 @@
+{
+  "create_request": {
+    "projectId": "prj_example",
+    "name": "ankole-prod-316681c2bd2c46ce-gen0000001",
+    "persistent": false,
+    "image": "ankole-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "resources": {
+      "vcpus": 2,
+      "memory": 4096
+    },
+    "timeout": 86400000,
+    "region": "iad1",
+    "env": {},
+    "tags": {
+      "ankole-installation": "prod",
+      "ankole-provider": "vercel-test",
+      "ankole-agent": "316681c2bd2c46ce",
+      "ankole-generation": "gen0000001"
+    },
+    "networkPolicy": {
+      "mode": "allow-all"
+    },
+    "mounts": {
+      "/workspace": {
+        "drive": "ankole-prod-316681c2bd2c46ce",
+        "mode": "read-write"
+      }
+    }
+  },
+  "create_response": {
+    "sandbox": {
+      "createdAt": 1791417600000,
+      "currentSessionId": "sbx_selected",
+      "name": "ankole-prod-316681c2bd2c46ce-gen0000001",
+      "persistent": false,
+      "status": "running",
+      "statusUpdatedAt": 1791417600000,
+      "updatedAt": 1791417600000,
+      "tags": {
+        "ankole-installation": "prod",
+        "ankole-provider": "vercel-test",
+        "ankole-agent": "316681c2bd2c46ce",
+        "ankole-generation": "gen0000001"
+      },
+      "mounts": {
+        "/workspace": {
+          "drive": "ankole-prod-316681c2bd2c46ce",
+          "mode": "read-write"
+        }
+      }
+    },
+    "session": {
+      "createdAt": 1791417600000,
+      "cwd": "/repo/app/agent_computer",
+      "id": "sbx_selected",
+      "memory": 4096,
+      "projectId": "prj_example",
+      "region": "iad1",
+      "requestedAt": 1791417600000,
+      "runtime": "custom",
+      "sourceSandboxName": "ankole-prod-316681c2bd2c46ce-gen0000001",
+      "status": "running",
+      "timeout": 86400000,
+      "updatedAt": 1791417600000,
+      "vcpus": 2,
+      "startedAt": 1791417600000
+    },
+    "routes": []
+  },
+  "session_response": {
+    "session": {
+      "createdAt": 1791417600000,
+      "cwd": "/repo/app/agent_computer",
+      "id": "sbx_selected",
+      "memory": 4096,
+      "projectId": "prj_example",
+      "region": "iad1",
+      "requestedAt": 1791417600000,
+      "runtime": "custom",
+      "sourceSandboxName": "ankole-prod-316681c2bd2c46ce-gen0000001",
+      "status": "running",
+      "timeout": 86400000,
+      "updatedAt": 1791417600000,
+      "vcpus": 2,
+      "startedAt": 1791417600000
+    },
+    "routes": []
+  },
+  "command_response": {
+    "command": {
+      "args": [
+        "bun",
+        "/repo/app/agent_computer/src/main.ts"
+      ],
+      "cwd": "/repo/app/agent_computer",
+      "exitCode": null,
+      "id": "cmd_entry",
+      "name": "/usr/local/bin/ankole-worker-command-entry",
+      "sessionId": "sbx_selected",
+      "startedAt": 1791417600000
+    }
+  },
+  "drive_response": {
+    "drive": {
+      "createdAt": 1791417600000,
+      "id": "drv_home",
+      "maxSizeBytes": 107374182400,
+      "name": "ankole-prod-316681c2bd2c46ce",
+      "projectId": "prj_example",
+      "region": "iad1",
+      "updatedAt": 1791417600000
+    }
+  },
+  "error_response": {
+    "error": {
+      "code": "drive_attached",
+      "message": "The drive is attached to a session."
+    }
+  }
+}

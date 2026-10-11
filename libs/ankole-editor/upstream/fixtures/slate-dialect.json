@@ -1,0 +1,14 @@
+{
+  "slate:packages/slate/test/transforms/delete/selection/block-hanging-single.tsx:1": {
+    "reason": "The editor deletes the selected paragraph boundary and joins the paragraphs. Slate Transforms.delete unhangs the range and retains an empty paragraph. Keep the editor's behavior and assert both remaining text and caret.",
+    "output": { "paragraphs": ["two"], "anchor": [0, 0], "focus": [0, 0] }
+  },
+  "slate:packages/slate/test/transforms/delete/selection/block-hanging-multiple.tsx:1": {
+    "reason": "The editor joins the selected paragraph boundaries; Slate retains an empty first paragraph.",
+    "output": { "paragraphs": ["three"], "anchor": [0, 0], "focus": [0, 0] }
+  },
+  "slate:packages/slate/test/transforms/insertText/selection/block-hanging.tsx:1": {
+    "reason": "The editor replaces the complete range, including its paragraph boundary; Slate unhangs the end of the range.",
+    "output": { "paragraphs": ["atwo"], "anchor": [0, 1], "focus": [0, 1] }
+  }
+}

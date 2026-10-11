@@ -19,7 +19,7 @@ defmodule AnkoleWeb.AutomationJobController do
   @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
 
   tags(["Automation Jobs"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
@@ -36,9 +36,7 @@ defmodule AnkoleWeb.AutomationJobController do
     ],
     responses: [
       ok: {"Automation jobs", "application/json", AutomationJobListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -64,10 +62,7 @@ defmodule AnkoleWeb.AutomationJobController do
         ],
     responses: [
       ok: {"Automation job", "application/json", AutomationJobResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid job identifier", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 

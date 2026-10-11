@@ -18,11 +18,10 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       seed_compression_history!: 2,
       wait_for_completed_final_reply: 3,
       wait_for_completed_outbox: 3,
-      wait_for_worker_projection: 3,
       ai_messages_for_actor_event: 1
     ]
 
-  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.E2E.DockerWorker
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
@@ -135,8 +134,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              |> where([input], input.source_entry_id == "om_direct_1")
              |> Repo.aggregate(:count)
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(45_000))
@@ -170,8 +169,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     seed_input = actor_event_by_source_entry_id!(agent.uid, "om_dm_isolation_seed_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                seed_input,
                DateTime.add(seed_input.available_at, 1, :second)
              )
@@ -206,8 +205,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     group_input = actor_event_by_source_entry_id!(agent.uid, "om_group_isolation_check_1")
     assert group_input.session_id != seed_input.session_id
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                group_input,
                DateTime.add(group_input.available_at, 1, :second)
              )
@@ -261,7 +260,12 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       mention: lark_bot_mention("ou_lark_bot_b", "@_user_1", "Agent B")
     }
 
-    secondary_result = run_single_agent_mention(fake_feishu, container, secondary)
+    secondary_result =
+      run_single_agent_mention(
+        fake_feishu,
+        DockerWorker.container(secondary_agent.uid),
+        secondary
+      )
 
     assert_lark_final_reply(
       fake_feishu,
@@ -299,8 +303,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              source_entry_id: args.message_id
            )
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(45_000))
@@ -322,11 +326,10 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     refute entry_text =~ "_agent_"
   end
 
-  def run_followup_queue(%{
+  def run_followup_during_generation(%{
         fake_feishu: fake_feishu,
         agent: agent,
-        container: container,
-        worker_id: worker_id
+        container: container
       }) do
     mention = lark_bot_mention()
 
@@ -345,8 +348,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     first_input = actor_event_by_source_entry_id!(agent.uid, "om_followup_slow_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving, pid: driver}} =
+             ensure_input_driver!(
                first_input,
                DateTime.add(first_input.available_at, 1, :second)
              )
@@ -367,40 +370,16 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     second_input = actor_event_by_source_entry_id!(agent.uid, "om_followup_second_1")
 
-    # While the first turn is live, the queued follow-up must not start.
-    assert {:ok, %{status: :idle}} =
-             process_ready_event_for_actor!(
-               second_input,
-               DateTime.add(second_input.available_at, 1, :second)
-             )
-
-    assert {:ok, first_reply, _first_message} =
-             wait_for_completed_final_reply(container, first_input.id, deadline(60_000))
-
-    assert first_reply.text =~ "CHAOS_FOLLOWUP_FIRST_OK"
-    assert_actor_event_completed!(first_input.id)
-    assert %ActorEvent{completed_at: nil} = Repo.get(ActorEvent, second_input.id)
-    assert {:ok, _worker} = wait_for_worker_projection(worker_id, container, deadline(15_000))
-
-    assert_lark_final_reply(
-      fake_feishu,
-      first_reply,
-      "CHAOS_FOLLOWUP_FIRST_OK",
-      :reply,
-      "om_followup_slow_1"
-    )
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
-               second_input,
-               DateTime.add(second_input.available_at, 2, :second)
-             )
+    assert {:ok, %{status: :driving, pid: ^driver}} =
+             ensure_input_driver!(second_input, second_input.available_at)
 
     assert {:ok, second_reply, second_message} =
              wait_for_completed_final_reply(container, second_input.id, deadline(60_000))
 
     assert second_reply.text =~ "CHAOS_FOLLOWUP_SECOND_OK"
     assert_actor_event_completed!(second_input.id)
+    assert_actor_event_completed!(first_input.id)
+    refute Repo.get_by(OutboxEntry, source_actor_event_id: first_input.id, operation: :reply)
 
     assert_lark_final_reply(
       fake_feishu,
@@ -435,8 +414,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     first_input = actor_event_by_source_entry_id!(agent.uid, "om_followup_recall_slow_1")
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                first_input,
                DateTime.add(first_input.available_at, 1, :second)
              )
@@ -457,8 +436,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     recalled_input = actor_event_by_source_entry_id!(agent.uid, "om_followup_recalled_1")
 
-    assert {:ok, %{status: :idle}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                recalled_input,
                DateTime.add(recalled_input.available_at, 1, :second)
              )
@@ -480,14 +459,6 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     assert first_reply.text =~ "CHAOS_FOLLOWUP_RECALL_FIRST_OK"
     assert_actor_event_completed!(first_input.id)
-
-    # The recalled queued follow-up must never start a turn once the busy turn
-    # finished: whatever remains of it must not be processable.
-    assert {:ok, %{status: :idle}} =
-             process_ready_event_for_actor!(
-               recalled_input,
-               DateTime.add(recalled_input.available_at, 3, :second)
-             )
 
     assert_actor_event_finished!(recalled_input.id)
     refute Repo.get_by(OutboxEntry, reply_to_source_entry_id: "om_followup_recalled_1")
@@ -523,13 +494,14 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     command_event = actor_event_by_source_entry_id!(agent.uid, "om_retry_1")
     assert command_event.type == "command.retry"
 
-    assert {:ok, %{status: :command_consumed, retry_actor_event: retry_event}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                command_event,
                DateTime.add(command_event.available_at, 1, :second)
              )
 
     assert_actor_event_finished!(command_event.id)
+    retry_event = Repo.get_by!(ActorEvent, source_event_id: "retry:#{command_event.id}")
 
     delete_outbox =
       Repo.get_by!(OutboxEntry,
@@ -545,8 +517,8 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     assert retry_event.source_entry_id == "om_direct_1"
     assert get_in(retry_event.payload, ["data", "entry", "text"]) =~ "CHAOS_DIRECT_OK"
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(
                retry_event,
                DateTime.add(retry_event.available_at, 1, :second)
              )
@@ -577,8 +549,11 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   """
   def run_compress_command(
         %{fake_feishu: fake_feishu, agent: agent, container: container},
-        _conversation_id
+        conversation_id
       ) do
+    # The driver can process the command as soon as ingress commits it.
+    _compressed_seed_message_ids = seed_compression_history!(agent.uid, conversation_id)
+
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
                event_id: "evt_compress_1",
@@ -592,11 +567,9 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              )
 
     input = actor_event_by_source_entry_id!(agent.uid, "om_compress_1")
-    conversation_id = active_conversation_id_for_input!(agent.uid, input.session_id)
-    _compressed_seed_message_ids = seed_compression_history!(agent.uid, conversation_id)
 
-    assert {:ok, %{status: :command_consumed, feedback: "Conversation compressed."}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
+    assert {:ok, %{status: :driving}} =
+             ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, outbox, _message} =
              wait_for_completed_outbox(container, input.id, deadline(60_000))
@@ -624,17 +597,6 @@ defmodule Ankole.E2E.Scenarios.Ingress do
     )
 
     %{input: input, outbox: outbox, messages: ai_messages_for_actor_event(input.id)}
-  end
-
-  defp active_conversation_id_for_input!(agent_uid, session_id) do
-    Repo.one!(
-      from(conversation in Conversation,
-        where: conversation.subject_uid == ^String.downcase(agent_uid),
-        where: conversation.conversation_key == ^session_id,
-        where: is_nil(conversation.ended_at),
-        select: conversation.id
-      )
-    )
   end
 
   defp request_contains_text?(value, needle) when is_map(value) do

@@ -68,7 +68,6 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     setting(:allowedTools, scope: :request, advanced: true)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()

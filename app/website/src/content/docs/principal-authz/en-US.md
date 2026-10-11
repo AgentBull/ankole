@@ -11,7 +11,7 @@ The decisive property, stated up front: authorization is a runtime fact, enforce
 
 ## The Principal: one accountable subject
 
-A Principal is the durable accountable subject shared by humans, agents, and system services. The `principals` table is keyed by a `uid` (a typed `PrincipalKey`, forced lowercase and present by check constraints), and each row carries a `type` — `:human`, `:agent`, or `:system` — and a `status` of `:active` or `:disabled`.
+A Principal is the durable accountable subject for humans, Agents, and system services. Each Principal belongs to exactly one tenant and has a globally unique opaque `uid`. The `principals` row has a `type` of `:human`, `:agent`, or `:system`, and a `status` of `:active` or `:disabled`.
 
 A human Principal has one `HumanUser` and any number of `ExternalIdentity` rows (the identities an operator federated in). An agent Principal has one `Agent` row. The point of routing both through one table is that accountability has one shape: whoever did the thing, there is a Principal row that did it, and it has a stable uid that every audit row, grant, and group membership points at.
 
@@ -32,7 +32,7 @@ Grants are append-only in spirit and natural-key unique per owner (one grant per
 
 A Principal group is a named collection Principals can be granted through, so authority scales without per-Principal rows. A group has a `domain` — `:operator`, `:directory`, or `:im_group` — a `kind` of `:static` or `:computed`, and an optional `computed_condition` for computed groups.
 
-Two built-in groups seed the deployment instance. The `admin` group is the operator authority surface. The `all_humans` group has the computed condition `principal.type == "human" && principal.status == "active"`, so every active human is a member without anyone maintaining the list by hand. Static membership lives in `principal_group_memberships`; computed membership is evaluated against the snapshot. External directories (an IdP, an IM platform) can be synced into groups through external bindings, so an operator can point AuthZ at a directory it already trusts.
+Each tenant has an `all_humans` group with the computed condition `principal.type == "human" && principal.status == "active"`. Exactly one tenant has the built-in `siteadmin` group that administers the site. Selecting another tenant in the Console does not change the operator's identity or grants. Static membership lives in `principal_group_memberships`; computed membership is evaluated against the authorization snapshot. External directories can synchronize groups through their bindings.
 
 ## How a decision is made
 
@@ -59,8 +59,8 @@ Diagnostics are emitted on each decision, so a denial is observable. `AuthZ.resu
 AuthZ is not a layer the agent can talk around, because the runtime consults it at the boundaries that matter:
 
 - AIGateway resolves every call's subject from a verified token, and the subject's grants decide which model selectors and providers it can reach.
-- The Actor Runtime fences every turn with an activation owned by the agent Principal; a reply from any other subject fails the fence.
-- Console operations run through a verified admin token, and the admin Principal's group membership decides what it may change.
+- The conversation Driver checks its persisted fence before it commits. Worker Job operations check the durable Job attempt fence and the authenticated connection identity.
+- Console operations use an active administrator browser session and CSRF proof. The Principal's current group membership decides what it may change.
 
 The model never gets to assert "I am allowed." The boundary checks the Principal and the grant, and acts on the decision.
 
@@ -89,4 +89,4 @@ AuthZ is not a prompt instruction and not a hope. It does not ask the model to b
 ## Next steps
 
 - For how a verified token resolves to a Principal at the AIGateway edge, read the [AIGateway API](../ai-gateway/).
-- For how the agent Principal's activation fences a turn, read the [Actor Runtime](../actor-runtime/).
+- For how the agent Principal's Driver fence fences a turn, read the [Actor Runtime](../actor-runtime/).

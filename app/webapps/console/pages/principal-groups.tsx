@@ -22,7 +22,7 @@ import {
 import { RiKey2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -59,7 +59,6 @@ import { AccessSubNav } from './principals'
 
 export function PrincipalGroupsListPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -77,7 +76,6 @@ export function PrincipalGroupsListPage() {
     ...ankoleWebAuthZGroupControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.deleted', { id: variables.path.name }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -121,7 +119,7 @@ export function PrincipalGroupsListPage() {
         return (
           <TableRow key={group.id}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(group.name)}>
+              <Link data-row-link className="text-foreground" to={encodeURIComponent(group.name)}>
                 {group.name}
               </Link>
             </TableCell>
@@ -173,7 +171,6 @@ export function PrincipalGroupEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const model = useModel(PrincipalGroupEditorModel)
   const params = useParams()
   const name = params.name
@@ -194,12 +191,11 @@ export function PrincipalGroupEditorPage() {
     absent: () => mode === 'edit' && requestErrorCode(group.error) === 'not_found'
   })
 
-  const refresh = () => void queryClient.invalidateQueries()
   const createGroup = useMutation({
     ...ankoleWebAuthZGroupControllerCreateMutation(),
     onSuccess: response => {
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
-      refresh()
+
       // Land on the new group's editor so members and grants can be managed next.
       navigate(`/access/groups/${encodeURIComponent(response.principal_group.name)}`)
     }
@@ -209,7 +205,6 @@ export function PrincipalGroupEditorPage() {
     onSuccess: response => {
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
       model.markSaved(formFromGroup(response.principal_group))
-      refresh()
     }
   })
 
@@ -310,7 +305,7 @@ export function PrincipalGroupEditorPage() {
           ) : (
             <Textarea
               required
-              className="min-h-10 font-mono text-xs"
+              className="min-h-8 font-mono text-xs"
               spellCheck={false}
               value={model.computedCondition.value}
               onChange={event => (model.computedCondition.value = event.target.value)}
@@ -328,7 +323,10 @@ export function PrincipalGroupEditorPage() {
 /** Debounced live preview of the principals a CEL membership condition matches. */
 function ComputedMembershipPreview({ condition }: { condition: string }) {
   const { t } = useTranslation()
-  const preview = useMutation(ankoleWebAuthZGroupControllerPreviewComputedMembersMutation())
+  const preview = useMutation({
+    ...ankoleWebAuthZGroupControllerPreviewComputedMembersMutation(),
+    meta: { invalidates: false }
+  })
   const [result, setResult] = useState<{ condition: string; members?: PrincipalGroupMemberItem[]; error?: string }>()
   const trimmed = condition.trim()
 
@@ -368,7 +366,7 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
       ) : !fresh ? (
         <Skeleton className="h-6 w-2/3" />
       ) : result.error ? (
-        <p className="text-sm break-all text-destructive">{result.error}</p>
+        <p className="text-sm break-all text-destructive-foreground">{result.error}</p>
       ) : (
         <div className="grid gap-2">
           <p className="text-sm text-muted-foreground">
@@ -406,7 +404,6 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
  */
 function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const synced = group.domain !== 'operator'
   const manageable = !synced && group.kind === 'static'
   const members = useQuery({
@@ -424,7 +421,6 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
     ...ankoleWebAuthZGroupControllerAddMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.member_added', { id: variables.path.principal_uid }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -432,7 +428,6 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
     ...ankoleWebAuthZGroupControllerRemoveMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.member_removed', { id: variables.path.principal_uid }))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

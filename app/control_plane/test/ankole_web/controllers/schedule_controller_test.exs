@@ -30,7 +30,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     foreign = cron_schedule!(other_agent.uid, "session-c", "other-report")
 
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     everything =
       conn
@@ -44,7 +44,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     list =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/cron-schedules?agent=#{agent.uid}")
       |> json_response(200)
 
@@ -57,20 +57,20 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     paused =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> post(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{evening.id}/pause")
       |> json_response(200)
 
     assert get_in(paused, ["cron_schedule", "status"]) == "paused"
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> delete(~p"/api/v1/agents/#{other_agent.uid}/cron-schedules/#{morning.id}")
            |> json_response(404)
 
     removed =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> delete(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{morning.id}")
       |> json_response(200)
 
@@ -78,7 +78,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     remaining =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/cron-schedules?agent=#{agent.uid}")
       |> json_response(200)
 
@@ -88,11 +88,11 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
   test "a malformed cron schedule id answers not found in the console envelope", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     assert %{"error" => %{"code" => "not_found", "message" => message}} =
              conn
-             |> recycle_bearer()
+             |> recycle_api()
              |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
              |> json_response(404)
 
@@ -100,7 +100,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     assert %{"error" => %{"code" => "not_found"}} =
              conn
-             |> recycle_bearer()
+             |> recycle_api()
              |> delete(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
              |> json_response(404)
   end
@@ -109,7 +109,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     created =
       conn
@@ -140,7 +140,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     updated =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> patch(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{schedule_id}", %{
         "delivery" => %{"targets" => targets}
       })
@@ -149,7 +149,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert get_in(updated, ["cron_schedule", "delivery", "targets"]) == targets
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> post(
              ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
              Map.delete(cron_body("session-a", "second-digest"), "owner_session_id")
@@ -157,7 +157,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> json_response(422)
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> post(
              ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
              Map.put(cron_body("session-a", "third-digest"), "payload", %{})
@@ -169,7 +169,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     %{principal: agent} = agent_fixture()
     schedule = cron_schedule!(agent.uid, "session-a", "manual-digest")
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     first =
       conn
@@ -181,7 +181,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     repeated =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> put_req_header("idempotency-key", "console-manual-digest")
       |> post(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{schedule.id}/runs")
       |> json_response(200)
@@ -198,7 +198,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     foreign = checkback!(other_agent.uid, "session-c", "check the backup")
 
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     everything =
       conn
@@ -210,7 +210,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
     list =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/checkbacks?agent=#{agent.uid}")
       |> json_response(200)
 
@@ -220,20 +220,20 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert MapSet.new(events, & &1["session_id"]) == MapSet.new(["session-a", "session-b"])
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> delete(~p"/api/v1/agents/#{other_agent.uid}/checkbacks/#{first.id}")
            |> json_response(404)
 
     cancelled =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> delete(~p"/api/v1/agents/#{agent.uid}/checkbacks/#{first.id}")
       |> json_response(200)
 
     assert get_in(cancelled, ["schedule_event", "status"]) == "cancelled"
   end
 
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     assert conn
            |> get(~p"/api/v1/cron-schedules")
            |> json_response(401)
@@ -263,7 +263,15 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       |> Map.put("agent_uid", agent_uid)
 
     assert {:ok, %{cron_schedule: schedule}} =
-             Schedule.create_cron_schedule(attrs, created_by: %{"principal_uid" => agent_uid})
+             Schedule.create_cron_schedule(attrs,
+               created_by: %{
+                 "principal_uid" =>
+                   to_string(%Ankole.ActorRef{
+                     tenant_id: Ankole.Repo.tenant_id!(),
+                     uid: agent_uid
+                   })
+               }
+             )
 
     schedule
   end
@@ -287,14 +295,5 @@ defmodule AnkoleWeb.ScheduleControllerTest do
              })
 
     event
-  end
-
-  defp recycle_bearer(conn) do
-    authorization = get_req_header(conn, "authorization") |> List.first()
-
-    conn
-    |> recycle()
-    |> put_req_header("authorization", authorization)
-    |> put_req_header("content-type", "application/json")
   end
 end

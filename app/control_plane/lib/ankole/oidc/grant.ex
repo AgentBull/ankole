@@ -29,6 +29,9 @@ defmodule Ankole.OIDC.Grant do
       {:ok, claims} ->
         authorize_validated_claims(access_token, claims, model)
 
+      {:error, :tenant_suspended} = error ->
+        error
+
       {:error, _reason} ->
         {:error, :invalid_oidc_access}
     end
@@ -47,6 +50,7 @@ defmodule Ankole.OIDC.Grant do
       when is_binary(access_token) and is_map(claims) do
     case Tokens.validate_access_claims(claims) do
       {:ok, claims} -> authorize_validated_claims(access_token, claims, model)
+      {:error, :tenant_suspended} = error -> error
       {:error, _reason} -> {:error, :invalid_oidc_access}
     end
   end

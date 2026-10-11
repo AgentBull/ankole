@@ -1,15 +1,37 @@
 defmodule Ankole.SignalsGatewayFixtures do
   @moduledoc false
 
+  # The default entries share Principal and provider identities. Their tests
+  # must run serially: Sandbox retains row and advisory locks until test end.
+
   import ExUnit.Assertions
 
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.RuntimeEvents
+  import Ecto.Query
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxAdapter
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
+
+  # Protocol tests construct a supervised owner directly. Reconciliation tests
+  # persist bindings and enter through reconcile_once instead.
+  def start_connection_owner(module, config, consumers) do
+    consumers = Enum.map(consumers, &Map.put_new(&1, :tenant_id, Ankole.Repo.tenant_id!()))
+    key = module.connection_key(config, consumers)
+
+    DynamicSupervisor.start_child(
+      module.__connection_lifecycle__().supervisor,
+      module.owner_child_spec(key, config, consumers)
+    )
+  end
+
+  @doc "Whether the running owner of `key` serves exactly this config and consumer list."
+  def owner_serves?(module, key, config, consumers) do
+    consumers = Enum.map(consumers, &Map.put_new(&1, :tenant_id, Ankole.Repo.tenant_id!()))
+    [{_pid, value}] = Registry.lookup(module.__connection_lifecycle__().registry, key)
+    value == Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)
+  end
 
   def base_time, do: @base_time
 
@@ -17,16 +39,22 @@ defmodule Ankole.SignalsGatewayFixtures do
     Keyword.merge(
       [
         actor_event_id: Ecto.UUID.generate(),
-        activation_uid:
-          "test-activation-" <> Integer.to_string(System.unique_integer([:positive])),
-        actor_epoch: 1,
-        revision: 0
+        driver_epoch: 1
       ],
       opts
     )
   end
 
   def emit_addressed_actor_event(agent_uid, binding_name, entry, now \\ @base_time) do
+    {:ok, result} =
+      Ankole.Repo.transact(fn _repo ->
+        {:ok, emit_addressed_actor_event_in_tx(agent_uid, binding_name, entry, now)}
+      end)
+
+    result
+  end
+
+  defp emit_addressed_actor_event_in_tx(agent_uid, binding_name, entry, now) do
     assert {:ok, %{status: :accepted, inbound_batch: batch}} =
              Ingress.emit_entry(agent_uid, binding_name, entry, now: now)
 
@@ -47,23 +75,17 @@ defmodule Ankole.SignalsGatewayFixtures do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = Keyword.get(opts, :limit, 500)
 
-    SignalsGateway.runtime_event_snapshot()
-    |> Enum.filter(fn {channel, payload} ->
-      channel == RuntimeEvents.inbound_batch_due_channel() and runtime_event_due?(payload, now)
-    end)
-    |> Enum.sort_by(fn {_channel, payload} ->
-      {Map.fetch!(payload, "due_at"), Map.fetch!(payload, "batch_id")}
-    end)
-    |> Enum.take(limit)
-    |> Enum.map(fn {_channel, payload} ->
-      SignalsGateway.finalize_inbound_batch_by_id(
-        Map.fetch!(payload, "batch_id"),
-        Map.fetch!(payload, "batch_revision"),
-        now: now
-      )
+    Ankole.Repo.all(
+      from batch in Ankole.SignalsGateway.InboundBatch,
+        where: batch.batch_state == "open" and batch.available_at <= ^now,
+        order_by: [asc: batch.available_at, asc: batch.id],
+        limit: ^limit
+    )
+    |> Enum.map(fn batch ->
+      SignalsGateway.finalize_inbound_batch_by_id(batch.id, now: now)
       |> case do
         {:ok, result} -> result
-        {:error, reason} -> %{status: :finalize_failed, error: reason, payload: payload}
+        {:error, reason} -> %{status: :finalize_failed, error: reason, batch: batch}
       end
     end)
     |> then(&{:ok, &1})
@@ -88,10 +110,24 @@ defmodule Ankole.SignalsGatewayFixtures do
   end
 
   def group_entry(overrides \\ %{}) do
-    if not Map.has_key?(overrides, :author) and
-         is_nil(Ankole.Repo.get(Ankole.Principals.Principal, "alice")) do
-      Ankole.PrincipalsFixtures.human_fixture(%{uid: "alice", display_name: "Alice"})
-    end
+    author =
+      if not Map.has_key?(overrides, :author) do
+        email = "signals-alice@example.com"
+
+        uid =
+          case Ankole.Repo.get_by(Ankole.Principals.HumanUser, email: email) do
+            %{principal_uid: uid} ->
+              uid
+
+            nil ->
+              %{principal: principal} =
+                Ankole.PrincipalsFixtures.human_fixture(%{email: email, display_name: "Alice"})
+
+              principal.uid
+          end
+
+        %{principal_uid: uid, id: "ou_alice", display_name: "Alice"}
+      end
 
     Map.merge(
       %{
@@ -101,23 +137,12 @@ defmodule Ankole.SignalsGatewayFixtures do
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"},
         text: "hello",
-        author: %{principal_uid: "alice", id: "ou_alice", display_name: "Alice"},
+        author: author,
         provider_time: @base_time
       },
       overrides
     )
   end
-
-  defp runtime_event_due?(%{"due_at" => nil}, _now), do: true
-
-  defp runtime_event_due?(%{"due_at" => due_at}, now) when is_binary(due_at) do
-    case DateTime.from_iso8601(due_at) do
-      {:ok, due_at, _offset} -> DateTime.compare(due_at, now) != :gt
-      _invalid -> false
-    end
-  end
-
-  defp runtime_event_due?(_payload, _now), do: true
 
   def lifecycle_entry(overrides) do
     Map.merge(

@@ -31,7 +31,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     setting(:response_format, scope: :request)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
       timeout_ms(@timeout_ms)

@@ -4,7 +4,8 @@ defmodule AnkoleWeb.SpaControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.Setup.Config, as: SetupConfig
 
-  setup do
+  setup %{tenant: tenant} do
+    :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     allow_cache_database_access()
     Cache.clear_for_test()
     :ok = SetupConfig.delete_bootstrap_activation_code()
@@ -51,11 +52,11 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
   end
 
-  test "GET /console redirects anonymous users to auth after completion", %{conn: conn} do
+  test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
-    conn = get(conn, ~p"/console/settings")
+    conn = get(conn, ~p"/site-admin-console/settings")
 
-    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fconsole%2Fsettings"
+    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fsite-admin-console%2Fsettings"
   end
 end

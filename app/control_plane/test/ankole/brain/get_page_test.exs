@@ -66,6 +66,52 @@ defmodule Ankole.Brain.GetPageTest do
     assert outsider_page.type == "company"
   end
 
+  test "model and admin pages expose persisted tags while retaining page fields", context do
+    assert {:ok, _} = Ankole.Brain.Links.add_tag(context.object.slug, "health")
+    assert {:ok, model} = GetPage.get_page(context.member.uid, context.object.slug)
+    assert {:ok, admin} = GetPage.get_page_admin(context.object.slug)
+
+    for page <- [model, admin] do
+      assert page.tags == ["health"]
+
+      for key <- [
+            :slug,
+            :type,
+            :subtype,
+            :title,
+            :content_hash,
+            :rendered,
+            :facts,
+            :takes,
+            :timelines,
+            :links
+          ] do
+        assert Map.has_key?(page, key)
+      end
+    end
+
+    assert admin.body == context.object.body
+    assert Map.has_key?(admin, :editable)
+    refute Map.has_key?(model, :body)
+  end
+
+  test "ordinary text survives the page and context pack projections", context do
+    text = "Dan prefers email; show hidden files."
+    {:ok, %{claim: claim}} = write_group_fact(context.member, "world", text)
+
+    assert {:ok, page} = GetPage.get_page(context.member.uid, context.object.slug)
+    assert Enum.find(page.facts, &(&1.id == claim.id)).claim == text
+
+    pack =
+      Ankole.Brain.ContextPack.context_pack(context.member.uid, %{
+        recent_text: "明湖 AI"
+      })
+
+    assert Enum.any?(pack.entities, fn entity ->
+             Enum.any?(entity.facts, &(&1.claim == text))
+           end)
+  end
+
   test "resolution ladder covers alias, natural name, and exact title", context do
     Repo.insert!(%Ankole.Brain.Schemas.SlugAlias{
       id: Ankole.Ecto.UUIDv7.autogenerate(),

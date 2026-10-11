@@ -33,7 +33,7 @@ Ankole 的一部分能力是 Agent Computer 里的 shell 命令，而不是模�
 
 Automation job 是确定性脚本消费者。Checkback、cron schedule 或 webhook endpoint 可以设置 `automation_job_id`，让脚本消费触发，而不是每次都直接唤醒 Agent 会话。未设置该字段的触发器保持原有直接唤醒行为。
 
-Agent 在自己的 Agent Home 内创建独立目录，写入 `main.ts`，手工验证运行环境与不调用 SDK 的分支，再用 `create-automation-job-cli` 注册。Worker 在注册时和每次运行时都解析 realpath，确认目录和入口仍位于 Agent Home 内。运行时直接执行磁盘上的当前文件，所以修改脚本无需重新注册。
+Agent 在工作区内创建独立目录，写入 `main.ts`，手工验证运行环境与不调用 SDK 的分支，再用 `create-automation-job-cli` 注册。注册时目录被复制到新的云盘文件夹 `automation/<目录名>-<随机后缀>`，并以 `drive_prefix` 返回这个文件夹。每次运行都把该文件夹在触发时的内容复制到新的运行目录，在那里用 Bun 运行 `main.ts`，所以脚本写进工作目录的文件不会保留到下一次运行。修改脚本时，Agent 执行 `ankole-files put <dir> <drive_prefix>`，无需重新注册。
 
 每个 attempt 都会获得最新 Agent WorkerEnv，以及从当前 enabled Skills 按次生成的 `MCPORTER_CONFIG`。Worker 不预测脚本会使用哪个 server。脚本可以通过 mcporter 和 stdin JSON 调用一个已选 MCP 工具。Automation 不读 Skill instructions，也不使用 Agent Home 持久 mcporter 配置。
 

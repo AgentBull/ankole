@@ -1,60 +1,43 @@
 ---
 title: Agent Computer Worker
-description: Bun과 TypeScript Worker가 control plane이 각 turn을 fence하는 동안 model loop, tool, 파일, 터미널 상태, 스트리밍 출력을 실행하는 방식.
+description: 환경 도구, Codex, 영구 Home 및 control plane 교체 후 복구.
 section: Developer guide
 order: 108
 ---
 
-Agent Computer Worker는 Agent의 실행 노드입니다. 대화가 깨어나면 Actor Runtime이 fence된 turn을 Worker에 부여합니다. Worker는 model loop, tool, 파일, 터미널 작업을 실행한 후 결과를 control plane에 반환합니다. 이 페이지는 `app/agent_computer`가 구현하는 경계를 설명합니다.
+Agent Computer Worker는 한 Agent 자신의 컴퓨터입니다. Agent 생성 시 provider 선택과 absent Worker 행만 저장합니다. 환경 도구나 Codex가 처음 필요할 때 control plane이 시작합니다. 질문과 control plane 도구는 Worker 없이 작동합니다.
 
-핵심 속성을 먼저 말하면, worker는 라이브 실행과 다시 만들 수 있는(rebuildable) worker 로컬 상태만 소유하며 그 이상은 없습니다. 영구 상태(transcript, fence, 최종 commit)는 control plane에 남습니다. worker는 교체 가능하며, 늦게 도착했거나 잘못된 worker 쓰기는 fence 검사에 실패하여 버려집니다.
+## 실행과 소유권
 
-## 소유권 경계
+Bun Worker는 명령, 파일과 브라우저 도구, Skills, MCP 호출, automation script, Codex Job을 실행합니다. control plane의 `Ankole.Conversations`는 주 Agent loop, 입력 완료와 도구 결과 커밋, 최종 응답을 소유합니다. AIGateway는 영구 Response 체인과 hosted 도구를 소유합니다.
 
-구분은 worker 자체 계약에 명시되어 있습니다. Agent Computer Worker는 라이브 실행과 rebuildable worker 로컬 상태를 소유합니다. Elixir control plane은 PostgreSQL 상태, actor 및 delivery fence, 최종 commit 권한, provider outbox, 런타임 자격 증명, 복구 사실을 소유합니다. worker는 영구 control-plane 상태를 만들어서는 안 됩니다.
+control plane은 `WORKER_ID`, RuntimeFabric URL, generation 자격 증명과 저장 설정을 제공합니다. Worker는 자신의 Agent만 처리하고 자식 프로세스 환경에서 자격 증명을 제거하며 데이터베이스에 연결하지 않습니다. 컨테이너가 Agent의 격리 경계입니다. 명령은 sudo 없이 uid 1000으로 실행됩니다.
 
-이것이 실제로 배제하는 것: `DATABASE_URL`, `ANKOLE_AGENT_UID`, `ANKOLE_SESSION_ID`, `ANKOLE_ACTOR_EPOCH`는 worker 입력이 아닙니다. actor 신원은 environment가 아닌 `turn_start`로 전달됩니다. worker는 `WORKER_ID`, `ANKOLE_RUNTIME_FABRIC_ENDPOINT`, 그리고 별도의 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` secret으로 RuntimeFabric에 인증합니다. `ANKOLE_AGENTS_ROOT`는 공유 workspace의 위치를 지정합니다. worker는 database 연결을 보유하지 않으며 자신이 누구를 대신해 행동하는지 결정하지 않습니다.
+## Worker pool과 실시간 연결
 
-## 턴 펜스
+Agent에 저장한 Worker provider가 pool, 플랫폼, 인스턴스 설정과 스토리지를 선택합니다. 여러 Agent가 같은 pool을 사용할 수 있지만 플랫폼은 Agent마다 전용 컴퓨터를 만듭니다. 유휴 시 인스턴스를 삭제하거나 일시 중지해도 Home은 유지합니다. 설정과 수명 주기 규칙은 [Worker pool](../worker-management/)을 참조하세요.
 
-worker가 실행하는 모든 turn은 `activation_uid`, `actor_epoch`, `actor_event_id`의 세 필드를 가진 `ActorTurnRef`로 고정됩니다. 하나의 worker 실행은 정확히 하나의 `actor_event_id`를 처리합니다. worker는 `${activation_uid}:${actor_event_id}`를 키로 하여 메모리 내 활성 turn 상태를 관리하며, control plane으로 보내는 모든 envelope에는 해당 ref가 포함됩니다.
+Worker는 `/runtime-fabric/worker/websocket`에 인증된 WebSocket 하나를 열고 전용 Phoenix Channel에 참여합니다. RuntimeFabric protobuf envelope는 환경 호출, 결과, Codex 제어와 진행 상황을 전달합니다. generation과 incarnation 검사로 교체된 Worker를 거부합니다. 파일 바이트는 일회성 HTTP relay URL로 전달하며 영구 복구 사실은 PostgreSQL이 보관합니다.
 
-이것은 [Actor Runtime](../actor-runtime/) 삼중 fence의 worker 측입니다. control plane은 들어오는 각 worker 쓰기를 activation, epoch, delivery 행과 대조하여 검사합니다. activation이 대체되었거나, lease가 만료되었거나, 이벤트가 더 높은 epoch로 재시도되어 worker의 ref가 더 이상 일치하지 않으면 쓰기는 stale로 거부됩니다. worker는 더 이상 소유하지 않는 turn에 commit할 수 없습니다.
+## 작업 식별과 복구
 
-## 모델 루프
+환경 작업의 `RunRef`는 Agent, Session, 시작 입력을 지정합니다. 각 호출은 Response ID와 call ID로 식별합니다. 새 Driver는 기존 workspace를 조회하고 진행 중인 호출을 인계받거나 결과를 가져옵니다. control plane 연결이 끊겨도 명령은 계속됩니다. Worker 프로세스를 잃으면 안전한 호출만 재시도하고, 확인할 수 없는 다른 호출은 `interrupted`를 반환합니다.
 
-agent loop은 AIGateway의 stateful transport를 통한 worker 주도 Responses loop이며 의도적으로 작게 유지됩니다. 네 단계로 이루어집니다.
+Codex는 Job ID와 attempt를 포함하는 `JobTurnRef`를 사용합니다. `adopt` 요청은 동일한 실행 중 turn, thread, workspace를 유지합니다. Job owner는 attempt 펜스로 종결 쓰기를 수락하고 적용된 입력 ID를 한 트랜잭션에서 완료합니다. Codex는 자체 모델 loop를 유지합니다.
 
-1. turn 범위의 OpenAI Responses adapter를 통해 model을 호출합니다.
-2. 응답에 function-call 항목이 있으면 로컬에서 실행합니다.
-3. function-call 출력을 AIGateway를 통해 기록합니다.
-4. 더 이상 function-call 항목이 오지 않을 때까지 기록된 journal anchor에서 계속합니다.
-
-worker는 loop 종료와 로컬 반복 예산을 소유합니다. history 확장, compaction, continuation anchor, 영구 응답 상태는 소유하지 **않으며** 이들은 AIGateway에 남습니다. loop가 끝나면 결과는 둘 중 하나입니다. `loop_finished`(model이 더 이상 tool 호출 없이 응답) 또는 `iteration_exhausted`(worker가 반복 한도에 도달했고 model이 더 많은 tool을 호출하는 대신 최종 답변을 종합하도록 유도됨). worker는 turn 전체의 결과를 control plane에 보고하고 control plane이 이를 기록합니다.
-
-## Tool: worker 내부에서 실행되는 것
-
-tool은 loop 중에 model이 구동할 수 있는 로컬 작업입니다. worker는 이를 각각 실제 worker 코드로 구현된 범주로 제공합니다.
-
-- **Computer** — bubblewrap 제한 아래의 shell 명령, 파일 읽기와 patch, apply-patch, 그리고 실제 브라우저 데스크톱을 구동하는 v4a computer-use tool. 터미널 상태와 파일 편집이 여기에서 관리됩니다.
-- **Web** — worker를 통해 라우팅되는 web search와 web fetch.
-- **schedule, todo, clarify** — agent가 계획하고, 연기하고, 질문하는 데 사용하는 더 작은 구조화된 tool.
-- **Codex** — Background Agent Job에 위임된 작업을 위한 CodexRunner job tool.
-- **Library 및 mcporter** — 활성화된 Skill과 호출 범위의 MCP dependency config에 대한 액세스.
-- **Background Agent Job** — 영구 job을 만들거나 이어가는 handoff tool.
-
-worker가 생성하는 모든 tool 결과는 직접 commit되지 않고 AIGateway를 통해 function-call 출력으로 기록됩니다. model은 결과를 보고, control plane이 무엇이 영구적인지 결정합니다.
+열린 환경 workspace와 실행 중인 Codex turn은 각각 Worker slot 하나를 사용합니다. 주 대화와 Workflow 모델 호출은 Worker slot을 사용하지 않습니다.
 
 ## 파일시스템 계약
 
-영구 공유 쓰기 가능 런타임 마운트는 `/agents`이며 actor key별로 다음과 같이 배치됩니다.
+Agent Home은 `/workspace`의 영구 스토리지입니다. 이전 경로 `/agents/<agent_uid>`는 Home으로 연결됩니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
 
 ```text
-/agents/<agent-key>/
+/workspace/
+├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
-├── user-files/
+├── ConfidentialityPolicy.md
 ├── installed-skills/
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
@@ -63,22 +46,18 @@ worker가 생성하는 모든 tool 결과는 직접 commit되지 않고 AIGatewa
     └── temp/
 ```
 
-model은 절대 컨테이너 경로를 봅니다. Worker는 경로를 변환하지 않습니다. `SOUL.md`와 `MISSION.md`는 Agent의 행동과 책임을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. [Agent Library](../agent-library/)가 세 파일을 모두 관리합니다. `installed-skills/`, `sessions/`, `jobs/`에는 Skill, 대화 workspace, Background Agent Job workspace가 들어 있습니다. PostgreSQL은 각 Session에 10000부터 시작하는 안정적인 숫자 workspace ID를 부여합니다.
+model은 절대 컨테이너 경로를 봅니다. Worker는 경로를 변환하지 않으며, 명령의 작업 디렉터리는 Agent Home 안에 있어야 합니다. `SOUL.md`와 `MISSION.md`는 Agent의 행동과 책임을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. `ConfidentialityPolicy.md`는 Brain 쓰기의 공개 범위 선택을 안내합니다. [Agent Library](../agent-library/)가 네 문서를 모두 관리합니다. `installed-skills/`, `sessions/`, `jobs/`에는 Skill, 대화 workspace, Background Agent Job workspace가 들어 있습니다. PostgreSQL은 각 Session에 10000부터 시작하는 안정적인 숫자 workspace ID를 부여합니다.
 
-현재 Codex Home은 `/var/lib/ankole/codex/<agent-key>/.codex`에 있는 재구축 가능한 Worker 로컬 샤드이며 Agent Home의 일부가 아닙니다. Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skill root를 Job workspace에 복사하지 않습니다.
+Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. 재구축은 `/var/cache/ankole`만 삭제합니다. Docker 로컬 volume은 호스트에 의존하며 Cloudflare 강제 중지는 마지막 R2 백업 이후 쓰기를 잃을 수 있습니다. 제한은 [Worker](../worker-management/)를 참조하세요.
 
-## 스트리밍과 진행 상황
+control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. `ankole-files`로 읽고 씁니다. Job 작업 공간과 Codex 스레드는 영구 Home에 남습니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
 
-turn이 실행되는 동안 worker는 best-effort, 비중첩(non-overlapping) envelope로 진행 상황을 게시합니다. 일정 간격마다 checkpoint를 보내고, 유용한 내용이 있으면 활동 요약을 보냅니다. 진행 상황은 의도적으로 내구성 메커니즘이 아닙니다. 막힌 진행 상황 전송이 타이머를 쌓거나 그것이 설명하는 loop를 막으면 안 됩니다. model과 tool이 생성하는 스트리밍 출력은 동일한 RuntimeFabric lane을 통해 돌아오며, 무엇이 영구가 될지는 worker가 스트리밍하는 시점이 아니라 commit 시점에 control plane이 결정합니다.
+Codex Home은 `/workspace/.codex`입니다. 스레드 파일은 교체 후에도 유지되며 `/var/cache/ankole/codex`의 SQLite가 없어도 재개할 수 있습니다. Background Job은 `skill_view`로 Skill을 읽으며 Skill 루트를 작업 공간에 복사하지 않습니다.
 
-worker는 또한 작은 admission hint(메모리 내 상태에서 남은 turn 용량)를 게시하여 control plane이 가득 찬 프로세스에 작업을 보내지 않게 합니다. 스케줄링은 control plane에 남아 있으며, hint는 그저 힌트일 뿐입니다.
+## 진행 상황과 용량
 
-## Agent Computer Worker가 아닌 것
+Driver는 주 loop 스트리밍과 도구 표시를 소유합니다. Worker는 RuntimeFabric로 환경 결과와 Codex 진행 상황을 보냅니다. 진행 상황은 best effort이며, 복구는 PostgreSQL 완료 사실과 저장 결과에 의존합니다.
 
-이것은 독립 실행형 로컬 CLI가 아닙니다. Linux worker image 안에서 실행되며, image가 native kernel 바인딩, bubblewrap, Chromium, Python/Jupyter와 문서 툴링, ZeroMQ, 공유 agent 파일시스템을 제공합니다. 영구 상태를 만들어내는 장소도 아닙니다. worker의 일은 fence된 turn을 실행하고 보고하는 것이며 모든 영구 결정은 control plane의 몫입니다. 두 번째 스케줄러도 아닙니다. Actor Runtime이 waking, leasing, retrying을 소유합니다. 경계는 명확합니다. control plane이 turn의 정체성과 진실을 소유하고, worker가 turn의 실행을 소유합니다.
+heartbeat는 active workspace, Codex turn과 빈 slot을 보고합니다. control plane은 provider YAML `idleReleaseAfter`로 idle instance를 회수합니다. `never`는 실행을 유지합니다. 재연결은 프로세스 incarnation과 진행 중인 작업을 보존합니다.
 
-## 다음 단계
-
-- worker를 하나의 activation에 고정하는 fence는 [Actor Runtime](../actor-runtime/) 페이지를 참조하세요.
-- loop가 호출하는 stateful Responses transport는 [AIGateway API](../ai-gateway/)를 참조하세요.
-- worker가 `/agents`에서 읽는 skill과 문서는 [Agent Library](../agent-library/) 페이지를 참조하세요.
+writer와 작업 펜스는 [Actor Runtime](../actor-runtime/), Responses는 [AIGateway](../ai-gateway/), Skills는 [Agent Library](../agent-library/), provider 상태는 [Workers](../worker-management/)를 참조하세요.

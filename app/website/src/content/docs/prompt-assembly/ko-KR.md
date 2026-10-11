@@ -1,73 +1,28 @@
 ---
 title: 프롬프트 조립
-description: 에이전트가 매 턴마다 보는 시스템 프롬프트가 어떻게 만들어지는지 설명합니다 — 제어 플레인의 데이터 제공자, 프롬프트를 Worker로 전달하는 두 채널, 그리고 최종 프롬프트를 생성하는 Worker 측 조립 과정.
 section: Developer guide
 order: 118
+description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구성 경로.
 ---
 
-매 턴마다 Worker는 모델이 보는 시스템 프롬프트를 구성합니다. 이 프롬프트는 PostgreSQL에 저장된 에이전트 컨텍스트에서 턴 시점에 해석되어 Worker에서 렌더링됩니다. 이 페이지는 각 구성 요소가 제어 플레인에서 Worker로 전달되는 경로, 각 구성 요소가 무엇인지, 그리고 조립이 어디에서 일어나는지를 설명합니다. [Agent Computer Worker](../agent-computer-worker/) 및 [AIGateway](../ai-gateway/) 문서를 기반으로 합니다.
+제어 플레인이 주 Agent의 모델 지침을 구성합니다. `Ankole.Conversations.Context.resolve/2`가 현재 도메인 정보를 읽고, `Ankole.Conversations.Prompt.system/1`이 렌더링하며, `Ankole.Conversations.Driver`가 AIGateway로 보냅니다. Worker는 환경 작업과 Codex Job을 받고 주 Agent 프롬프트를 렌더링하지 않습니다. [Agent loop](../agent-loop/)를 참조하세요.
 
-시스템 프롬프트는 제어 플레인이 아니라 **Worker에서 조립**됩니다. 제어 플레인은 영구 Agent 문서, Skills, Agent 설정, 채팅 컨텍스트를 두 경로로 공급합니다. Worker는 이 사실들을 최종 프롬프트로 렌더링합니다.
+## 현재 컨텍스트
 
-## 두 데이터 채널
+Agent의 신원과 문서, 유효한 Skill과 플러그인, 대화 시작 채널과 시간대가 포함됩니다. `SOUL.md`는 행동과 판단을, `MISSION.md`는 책임을 제공합니다. 도메인 소유자가 PostgreSQL에 저장합니다. 환경 도구는 workspace 계약으로 실체화된 런타임 파일을 받습니다.
 
-Worker는 제어 플레인으로부터 두 경로로 컨텍스트를 받으며, 각 경로는 서로 다른 부류의 데이터를 전달합니다:
+주 프롬프트의 순서는 신원, SOUL, MISSION, 완료와 권한 지침, 사용 가능한 Job과 Workflow 정책, 기억 안내, 환경과 도구 안내, Skill 목록, 런타임 컨텍스트입니다. 템플릿은 `app/control_plane/priv/conversations/prompts/`, 렌더러는 `app/control_plane/lib/ankole/conversations/prompt.ex`에 있습니다.
 
-| 채널 | 전달 내용 | 시점 |
-|---|---|---|
-| `turn_start.request_context` | agent-loop 설정(`ai_agent.max_iterations`, `max_output_tokens`, `inactivity_timeout_ms`)과 턴 로컬 사실(시그널과 턴 종류) | 루프가 시작되기 전에 TurnStart 봉투에 포함 |
-| `AgentConversationContextBroker` RPC | 영구 Agent 문서(`SOUL`/`MISSION`/`DESIGN`), 활성화된 skills, 대화 원본 채널, 인스턴스 타임존, agent 프로필 | 루프 시작 시 RuntimeFabric을 통한 RPC로 Worker가 가져옴 |
+목록은 `brain-recall-only: true` Skill을 생략합니다. 유효한 집합에는 남으며 Brain으로 발견하고 `skill_view`로 읽을 수 있습니다. 런타임 접미사에는 Agent, `/workspace`, 현재 Session workspace, 시간대, 대화 시작 시간과 채널이 포함됩니다. Lark adapter는 Lark와 Feishu를 나타내고 domain이 상위 API를 선택합니다.
 
-이 분리는 의도적입니다. 턴 로컬 사실은 매 턴마다 바뀌므로 `turn_start`를 통해 전달되고, 대화 범위 컨텍스트는 한 대화 안에서 턴 사이에 안정적이고 broker가 캐시하므로 Worker가 broker를 통해 가져옵니다. broker의 moduledoc은 명확히 밝힙니다: “이 RPC는 의도적으로 전사 메시지나 턴 로컬 요청 컨텍스트를 반환하지 않습니다. 전사 히스토리는 AIGateway가 소유하며, 턴 로컬 사실은 `turn_start`로 전달됩니다.”
+## 설정과 기록
 
-## 제어 플레인이 제공하는 것
+`AgentConfig`는 테넌트 설정을 해석합니다. `ai_agent.max_iterations`의 기본값은 90, `ai_agent.max_output_tokens`는 명시적 제한 없음, `ai_agent.inactivity_timeout_ms`는 30분입니다. 제어 플레인 턴을 제한하며 Worker의 주 루프 설정이 아닙니다.
 
-### 영구 Agent 문서
+AIGateway가 대화 기록과 감사용 모델 요청을 보관합니다. 현재 입력과 provider 관측은 `Prompt.Input`을 통해 사용자 메시지가 되며 시스템 지침에 중복하지 않습니다. 제어 플레인은 실행마다 현재 컨텍스트로 지침을 렌더링합니다.
 
-`AgentConversationContextBroker`는 `Library.list_agent_documents/1`을 통해 Agent의 영구 문서를 읽습니다. 문서는 `soul`, `mission`, `design`으로 반환됩니다. `SOUL.md`는 커뮤니케이션과 판단을 정의하고, `MISSION.md`는 책임을 정의하며, `DESIGN.md`는 시각 작업을 위한 디자인 시스템을 제공합니다.
+## Codex Job과 Workflow 작업
 
-### 활성화된 Skills
+Codex Job은 별도의 Worker 경로를 사용합니다. Runner는 고정된 실행 선택을 해석하고 RPC로 현재 도메인 정보를 얻어 Job 프로젝트와 `AGENTS.md`를 준비합니다. Native Codex가 해당 Job의 모델 루프를 소유합니다. [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
 
-`Library.runtime_skills_for_agent/1`은 설명과 메타데이터를 포함한 Agent의 전체 유효 Skill 집합을 Worker에 전달합니다. Worker는 전체 집합을 `skill_view`에서 사용할 수 있도록 유지합니다. 모델에 표시되는 Skill 카탈로그를 구성할 때는 `brain-recall-only: true`를 선언한 Skill을 제외하므로, 모든 프롬프트에 나열하지 않고 Brain을 통해 해당 Skill을 발견할 수 있습니다.
-
-### 대화 원본 채널
-
-`SignalsGateway.ConversationChannel`은 AIGateway 대화가 선언한 제공자 채널을 투영합니다. 현재 채널 미러에서 그룹 라벨을 읽고 피어 Principal에서 DM 라벨을 읽습니다. `lark` 어댑터를 하나의 Lark/Feishu 표면으로 보고하며, 어댑터 도메인은 API 서버만 선택합니다. broker는 이 투영을 `ConversationInfo.origin_channel`로 보내므로, 내부 웨이크업의 ActorEvent 페이로드에 채널 객체가 없어도 대화 원본이 유실되지 않습니다.
-
-### Agent 설정(AppConfigure에서)
-
-`AgentConfig`는 AppConfigure에서 루프 수준 설정을 해석하고 이를 `turn_start.request_context.ai_agent`에 스냅샷합니다:
-
-- `ai_agent.max_iterations`(기본값 90) — agent 루프의 반복 예산
-- `ai_agent.max_output_tokens`(기본값 nil = 명시적 상한 없음) — 응답당 토큰 상한
-- `ai_agent.inactivity_timeout_ms`(기본값 30분) — 턴이 비활성 상태로 허용되는 시간
-
-이 설정은 개별 모델 응답이 아니라 actor 턴에 속하므로 `turn_start`에 실려 이동합니다.
-
-## Worker 측 조립
-
-Worker의 `system_prompt.ts`가 최종 프롬프트를 구성합니다. 여기의 moduledoc은 설계를 명시합니다: “느리게 변하는 지침이 앞에 오고, 대화 범위 런타임과 skill 컨텍스트가 접미사를 이룹니다.” 블록은 순서대로 다음과 같습니다:
-
-1. **핵심 지침** — 턴의 컨텍스트에서 조립된 에이전트의 기본 동작 계약.
-2. **영구 Agent 문서** — broker 응답에서 렌더링된 `SOUL`, `MISSION`, `DESIGN`.
-3. **Skills** — 활성화된 스킬 설명으로, 모델이 무엇을 사용할 수 있는지 알려줍니다.
-4. **채널 및 런타임 컨텍스트** — 대화 원본 채널, 워크스페이스 경로, 사용 가능한 도구 이름.
-
-Worker는 매 턴마다 현재의 PostgreSQL 기반 컨텍스트에서 전체 프롬프트를 다시 렌더링하며, 캐시된 버전을 신뢰하지 않습니다. AIGateway는 감사용으로 이전 요청 지침을 보관하지만, 턴은 현재 상태를 렌더링합니다.
-
-## 시스템 프롬프트에 포함되지 않는 것
-
-- **전사 히스토리** — AIGateway의 상태 저장 Responses가 소유하며, 시스템 프롬프트는 이를 반복하지 않습니다.
-- **턴 로컬 관찰** — 시그널, 수신 메시지, 사용자의 현재 입력. 이들은 시스템 프롬프트가 아니라 현재 사용자 메시지에 남습니다.
-
-이 분리는 시스템 프롬프트를 안정적으로 유지하고(대화가 커질 때가 아니라 페르소나나 스킬이 바뀔 때 변경), 턴당 페이로드를 작게 유지합니다.
-
-## 이 가이드가 아닌 것
-
-이 가이드는 프롬프트 엔지니어링 튜토리얼이 아닙니다 — `system_prompt.ts`의 리터럴 문자열은 모델과의 계약이며, 이를 바꾸는 것은 문서 변경이 아니라 동작 변경입니다. 제어 플레인 측의 프롬프트 조립 설명도 아닙니다 — 조립은 Worker에서 일어나며 제어 플레인의 역할은 데이터를 제공하는 것입니다. 그리고 `system_prompt.ts`를 읽는 것을 대신하는 것도 아닙니다. 이 가이드는 그 파일로 가는 지도입니다.
-
-## 다음 단계
-
-- 이 프롬프트를 사용하는 agent 루프에 대해서는 [에이전트 루프](../agent-loop/)를 읽으세요.
-- 조립을 실행하는 Agent Computer Worker에 대해서는 [Agent Computer Worker](../agent-computer-worker/)를 읽으세요.
-- 스킬 블록에 대해서는 [Agent Library](../agent-library/)를 읽으세요.
+Workflow 작업은 `Prompt.workflow_system/1`으로 신원, 작업 ID, 저장된 결과 schema, 제출 규칙과 위임 및 sleep 규칙을 받습니다. Ambient routing도 별도 프롬프트를 사용합니다. 각 경로는 자체 실행 계약을 따릅니다.

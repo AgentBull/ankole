@@ -15,17 +15,14 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebBrainControllerCreateObjectMutation,
-  ankoleWebBrainControllerListObjectsQueryKey,
   ankoleWebBrainControllerObjectTypesOptions,
-  ankoleWebBrainControllerObjectVersionsQueryKey,
   ankoleWebBrainControllerShowObjectOptions,
-  ankoleWebBrainControllerShowObjectQueryKey,
   ankoleWebBrainControllerUpdateObjectMutation
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainObjectPage } from '../../api/generated/types.gen'
@@ -57,7 +54,6 @@ export function BrainObjectEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const params = useParams()
-  const queryClient = useQueryClient()
   const model = useModel(BrainObjectEditorModel)
   const [latest, setLatest] = useState<BrainObjectPage>()
   const slug = params.slug ?? ''
@@ -88,22 +84,12 @@ export function BrainObjectEditorPage() {
     [model]
   )
 
-  const invalidate = (savedSlug: string) => {
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListObjectsQueryKey() })
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebBrainControllerShowObjectQueryKey({ query: { slug: savedSlug } })
-    })
-    void queryClient.invalidateQueries({
-      queryKey: ankoleWebBrainControllerObjectVersionsQueryKey({ query: { slug: savedSlug } })
-    })
-  }
-
   const create = useMutation({
     ...ankoleWebBrainControllerCreateObjectMutation(),
     onSuccess: response => {
       if (!response.object) return
       model.markSaved(response.object)
-      invalidate(response.object.slug)
+
       toast.success(t('console.brain.object_created', { slug: response.object.slug }))
       navigate(brainObjectPath(response.object.slug))
     }
@@ -114,7 +100,7 @@ export function BrainObjectEditorPage() {
       if (!response.object) return
       model.markSaved(response.object)
       setLatest(undefined)
-      invalidate(response.object.slug)
+
       toast.success(t('console.brain.object_saved', { slug: response.object.slug }))
     }
   })
@@ -294,7 +280,7 @@ export function BrainObjectEditorPage() {
       <Problems diagnostic={diagnostic} />
       {conflict ? (
         <section
-          className="grid gap-3 border border-warning/40 bg-warning/5 p-4"
+          className="grid gap-3 border border-warning/40 bg-warning-subtle p-4"
           aria-label={t('console.brain.conflict')}>
           <div className="grid gap-1">
             <h3 className="text-sm font-medium">{t('console.brain.conflict')}</h3>
@@ -356,7 +342,7 @@ function Problems({ diagnostic }: { diagnostic?: { code: string; line?: number }
     <section className="grid gap-2 border border-border bg-background p-4" aria-label={t('console.brain.problems')}>
       <h3 className="text-sm font-medium">{t('console.brain.problems')}</h3>
       {diagnostic ? (
-        <p className="font-mono text-xs text-destructive">
+        <p className="font-mono text-xs text-destructive-foreground">
           {diagnostic.line
             ? t('console.brain.problem_at_line', { code: diagnostic.code, line: diagnostic.line })
             : diagnostic.code}

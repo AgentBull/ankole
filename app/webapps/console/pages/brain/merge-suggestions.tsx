@@ -18,13 +18,12 @@ import {
   toast
 } from '@ankole/uikit'
 import { RiGitMergeLine, RiLoaderLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebBrainControllerDecideMergeSuggestionMutation,
-  ankoleWebBrainControllerListMergeSuggestionsOptions,
-  ankoleWebBrainControllerListMergeSuggestionsQueryKey
+  ankoleWebBrainControllerListMergeSuggestionsOptions
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainMergePageSummary, BrainMergeSuggestion } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
@@ -45,7 +44,6 @@ function PageCell({ page }: { page: BrainMergePageSummary }) {
 
 export function BrainMergeSuggestionsPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [status, setStatus] = useState<(typeof SUGGESTION_STATUSES)[number]>('pending')
   const [approveTarget, setApproveTarget] = useState<BrainMergeSuggestion>()
   const [rejectTarget, setRejectTarget] = useState<BrainMergeSuggestion>()
@@ -53,8 +51,6 @@ export function BrainMergeSuggestionsPage() {
 
   const suggestions = useQuery(ankoleWebBrainControllerListMergeSuggestionsOptions({ query: { status } }))
   const rows = suggestions.data?.suggestions ?? []
-  const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListMergeSuggestionsQueryKey() })
 
   const approve = useMutation({
     ...ankoleWebBrainControllerDecideMergeSuggestionMutation(),
@@ -62,7 +58,6 @@ export function BrainMergeSuggestionsPage() {
       toast.success(t('console.brain.merge_approved'))
       setApproveTarget(undefined)
       setCanonicalSlug('')
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -71,7 +66,6 @@ export function BrainMergeSuggestionsPage() {
     onSuccess: () => {
       toast.success(t('console.brain.merge_rejected'))
       setRejectTarget(undefined)
-      invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

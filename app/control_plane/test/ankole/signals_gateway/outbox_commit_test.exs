@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGatewayOutboxCommitTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo

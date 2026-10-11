@@ -1,5 +1,6 @@
 defmodule Ankole.E2E.SlackTransportTest do
   use ExUnit.Case, async: false
+  @moduletag plugin_transport: true
 
   alias Ankole.E2E.FakeSlack.{Server, State}
   alias SlackOpenAPI.SocketMode.{Client, Dispatcher}

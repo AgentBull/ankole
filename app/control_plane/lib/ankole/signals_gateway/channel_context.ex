@@ -73,6 +73,90 @@ defmodule Ankole.SignalsGateway.ChannelContext do
     end
   end
 
+  @history_page_rows 200
+  @history_page_tokens 8_000
+
+  @doc """
+  Returns one page of a channel's mirrored messages, oldest first.
+
+  Options: `:since` and `:until` bound the send time, `:query` keeps messages
+  whose text contains it (case-insensitive), and `:cursor` continues after an
+  earlier page. The page ends at #{@history_page_rows} messages or about
+  #{@history_page_tokens} tokens; `next_cursor` is nil on the last page.
+  """
+  @spec history_page(String.t(), keyword()) :: %{messages: [map()], next_cursor: String.t() | nil}
+  def history_page(signal_channel_id, opts) when is_binary(signal_channel_id) do
+    sent_at =
+      dynamic(
+        [entry],
+        fragment("COALESCE(?, ?, ?)", entry.provider_time, entry.last_seen_at, entry.inserted_at)
+      )
+
+    query =
+      Entry
+      |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+      |> where([entry], not is_nil(entry.text) and entry.text != "")
+      |> order_by(^[asc: sent_at, asc: :document_id])
+      |> limit(@history_page_rows + 1)
+
+    query =
+      Enum.reduce(opts, query, fn
+        {:since, %DateTime{} = at}, query ->
+          where(query, ^dynamic([entry], ^sent_at >= ^at))
+
+        {:until, %DateTime{} = at}, query ->
+          where(query, ^dynamic([entry], ^sent_at <= ^at))
+
+        {:query, text}, query when is_binary(text) ->
+          where(query, [entry], fragment("strpos(lower(?), lower(?)) > 0", entry.text, ^text))
+
+        {:cursor, cursor}, query when is_binary(cursor) ->
+          [at, document_id] = String.split(cursor, "|", parts: 2)
+          {:ok, at, _offset} = DateTime.from_iso8601(at)
+
+          where(
+            query,
+            ^dynamic(
+              [entry],
+              ^sent_at > ^at or (^sent_at == ^at and entry.document_id > ^document_id)
+            )
+          )
+
+        _option, query ->
+          query
+      end)
+
+    {entries, rest} = Enum.split(Repo.all(query), @history_page_rows)
+
+    {page, _tokens} =
+      Enum.reduce_while(entries, {[], 0}, fn entry, {page, tokens} ->
+        message = observed_message_from_signal_entry(entry, nil)
+
+        cost =
+          message |> model_visible_message_text() |> Ankole.Kernel.estimate_o200k_base_tokens()
+
+        if page != [] and tokens + cost > @history_page_tokens,
+          do: {:halt, {page, tokens}},
+          else: {:cont, {[{entry, message} | page], tokens + cost}}
+      end)
+
+    page = Enum.reverse(page)
+
+    next_cursor =
+      if rest != [] or length(page) < length(entries) do
+        {entry, _message} = List.last(page)
+        DateTime.to_iso8601(signal_entry_sent_at(entry)) <> "|" <> entry.document_id
+      end
+
+    %{
+      messages:
+        Enum.map(page, fn {_entry, message} ->
+          Map.take(message, ~w(sent_at role speaker text provider_thread_id))
+        end),
+      next_cursor: next_cursor
+    }
+  end
+
   @doc """
   Drops channel-context messages the conversation already carries.
 

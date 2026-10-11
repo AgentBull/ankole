@@ -17,7 +17,6 @@ defmodule Ankole.Brain.GetPage do
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
-  alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.Link
@@ -118,7 +117,7 @@ defmodule Ankole.Brain.GetPage do
         superseded_by: claim.superseded_by,
         provenance: claim.provenance,
         audience_scope: claim.audience_scope,
-        author_uid: claim.author_uid
+        author: claim.author && Map.from_struct(claim.author)
       }
     end)
   end
@@ -148,7 +147,7 @@ defmodule Ankole.Brain.GetPage do
         superseded_by: claim.superseded_by,
         provenance: claim.provenance,
         audience_scope: claim.audience_scope,
-        author_uid: claim.author_uid
+        author: claim.author && Map.from_struct(claim.author)
       }
     end)
   end
@@ -167,7 +166,7 @@ defmodule Ankole.Brain.GetPage do
         provenance: timeline.provenance,
         event_object_slug: timeline.event_object_slug,
         audience_scope: timeline.audience_scope,
-        author_uid: timeline.author_uid
+        author: timeline.author && Map.from_struct(timeline.author)
       }
     end)
   end
@@ -187,20 +186,18 @@ defmodule Ankole.Brain.GetPage do
         {:error, _reason} -> ""
       end
 
-    {sanitized_body, _matched} = Sanitize.sanitize(body)
-
     facts = page_facts(object, access, disclosure)
     takes = page_takes(object, access, disclosure)
 
     keep_counterpart = fn %Claim{} = counterpart ->
       Access.reachable?(access, %{
         audience_scope: counterpart.audience_scope,
-        author_uid: counterpart.author_uid
+        author: counterpart.author
       }) and Access.disclosable?(counterpart.audience_scope, disclosure)
     end
 
     Map.merge(page_shell(object, visibility), %{
-      rendered: render_markdoc(object, sanitized_body),
+      rendered: render_markdoc(object, body),
       facts: facts,
       takes: takes,
       contradictions: page_contradictions(claim_ids(facts, takes), keep_counterpart, visibility),
@@ -267,8 +264,6 @@ defmodule Ankole.Brain.GetPage do
 
         with %Claim{} = counterpart <- Repo.get(Claim, counterpart_id),
              true <- keep_counterpart?.(counterpart) do
-          {text, _matched} = Sanitize.sanitize(counterpart.claim)
-
           [
             %{
               id: contradiction.id,
@@ -276,7 +271,11 @@ defmodule Ankole.Brain.GetPage do
               axis: contradiction.axis,
               severity: contradiction.severity,
               claim_id: own_id,
-              counterpart: %{id: counterpart.id, claim: text, holder: counterpart.holder}
+              counterpart: %{
+                id: counterpart.id,
+                claim: counterpart.claim,
+                holder: counterpart.holder
+              }
             }
           ]
         else
@@ -311,11 +310,9 @@ defmodule Ankole.Brain.GetPage do
     |> Repo.all()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn claim ->
-      {text, _matched} = Sanitize.sanitize(claim.claim)
-
       %{
         id: claim.id,
-        claim: text,
+        claim: claim.claim,
         kind: claim.kind,
         holder: claim.holder,
         notability: claim.notability,
@@ -338,11 +335,9 @@ defmodule Ankole.Brain.GetPage do
     |> Repo.all()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn claim ->
-      {text, _matched} = Sanitize.sanitize(claim.claim)
-
       %{
         id: claim.id,
-        claim: text,
+        claim: claim.claim,
         kind: claim.kind,
         holder: claim.holder,
         weight: claim.weight,
@@ -362,14 +357,11 @@ defmodule Ankole.Brain.GetPage do
     |> Repo.all()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn timeline ->
-      {summary, _matched} = Sanitize.sanitize(timeline.summary)
-      {detail, _matched} = Sanitize.sanitize(timeline.detail || "")
-
       %{
         id: timeline.id,
         date: timeline.date,
-        summary: summary,
-        detail: detail,
+        summary: timeline.summary,
+        detail: timeline.detail || "",
         provenance: timeline.provenance,
         event_object_slug: timeline.event_object_slug,
         audience_scope: timeline.audience_scope

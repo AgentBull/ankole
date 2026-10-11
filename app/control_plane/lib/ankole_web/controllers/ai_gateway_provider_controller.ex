@@ -8,6 +8,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
+  alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsoleErrors
@@ -20,6 +21,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTLoginStartRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayCredentialStrategyWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayCredentialWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayModelCatalogResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderKindListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse
@@ -27,18 +29,25 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["AIGateway"])
-  security([%{"consoleBearer" => []}])
+  security([%{"consoleSession" => []}])
 
   plug(OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
+
+  operation(:models,
+    summary: "List the Console model catalog",
+    responses: [
+      ok: {"Model catalog", "application/json", AIGatewayModelCatalogResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
   )
 
   operation(:provider_kinds,
     summary: "List AIGateway provider kinds",
     responses: [
       ok: {"Provider kinds", "application/json", AIGatewayProviderKindListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -46,8 +55,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     summary: "List configured AIGateway providers",
     responses: [
       ok: {"AIGateway providers", "application/json", AIGatewayProviderListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -58,9 +66,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
       {"AIGateway provider", "application/json", AIGatewayProviderWriteRequest, required: true},
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid provider", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -69,9 +75,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     parameters: [provider_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -82,9 +86,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
       {"Credential", "application/json", AIGatewayCredentialWriteRequest, required: true},
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -98,10 +100,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
       {"Credential", "application/json", AIGatewayCredentialWriteRequest, required: true},
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -113,9 +112,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ],
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -127,9 +124,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
        required: true},
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid strategy", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -141,9 +136,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
        required: true},
     responses: [
       ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -154,9 +147,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
       {"Login context", "application/json", AIGatewayChatGPTLoginPollRequest, required: true},
     responses: [
       ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -168,9 +159,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
        required: true},
     responses: [
       ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -182,9 +171,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
        required: true},
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -193,10 +180,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     parameters: [provider_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid provider configuration", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -205,12 +189,17 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     parameters: [provider_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Provider in use", "application/json", ErrorEnvelope}
+      default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
+
+  def models(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
+      json(conn, %{models: Models.console_catalog()})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
 
   def provider_kinds(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider_kinds", "read") do

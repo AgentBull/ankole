@@ -1,7 +1,6 @@
-import { stringValue } from '../../llm/parse'
 import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { sanitizeTurnContent } from './turn-content'
-import type { ActorTurnRef } from '../../../lanes/actor_lane'
+import type { JobTurnRef } from '../../../lanes/actor_lane'
 import { jsonBytes } from '../../../fabric/envelope_proto'
 import {
   RPCRejectedError,
@@ -101,7 +100,7 @@ export class BackgroundAgentJobTurnRecorder {
     private readonly input: {
       jobID: string
       attempt: number
-      actorTurn: ActorTurnRef
+      actorTurn: JobTurnRef
       upsert: (
         request: RPCRequestInit<'background_agent_job.turn.upsert'>
       ) => Promise<BackgroundAgentJobTurnUpsertResponse>
@@ -692,7 +691,7 @@ export class BackgroundAgentJobTurnRecorder {
     const turnItems = pendingTurnItems(turn)
     // Items leave memory before PostgreSQL acknowledges this request. Retries
     // use this serialized request. A permanent failure makes flush() fail, so
-    // the Job attempt fails and the next attempt replays durable history.
+    // the Job attempt fails and the next attempt resumes the saved thread.
     for (const entry of turnItems) {
       turn.enqueuedItemKeys.add(entry.item_key)
       if (entry.item_key !== turn.initialItemKey) {
@@ -966,4 +965,8 @@ function persistenceRejectionDetails(
     rpc_code: response.code,
     ...(response.details ? { rpc_details: response.details } : {})
   }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }

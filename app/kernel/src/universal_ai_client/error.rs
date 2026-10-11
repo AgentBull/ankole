@@ -31,34 +31,36 @@ impl From<StreamErrorCode> for String {
     }
 }
 
+// Many functions return this error by value. The static `stage` and the boxed
+// Provider fields keep it within the size that `clippy::result_large_err`
+// accepts.
 #[derive(Debug, Clone, Serialize)]
 pub struct StreamError {
     pub code: String,
-    pub stage: String,
+    pub stage: &'static str,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_error_type: Option<Box<str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_body_excerpt: Option<Box<str>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub provider_headers: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub provider_headers: Box<[(String, String)]>,
     #[serde(skip)]
     retry_disposition: RetryDisposition,
 }
 
 impl StreamError {
-    pub fn new(
-        code: impl Into<String>,
-        stage: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn new(code: impl Into<String>, stage: &'static str, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
-            stage: stage.into(),
+            stage,
             message: message.into(),
             provider_status: None,
+            provider_error_type: None,
             provider_body_excerpt: None,
-            provider_headers: Vec::new(),
+            provider_headers: Box::default(),
             retry_disposition: RetryDisposition::Terminal,
         }
     }
@@ -78,6 +80,13 @@ impl StreamError {
         self
     }
 
+    /// Records the error type that the Provider names outside the error body,
+    /// for example in an AWS eventstream frame header.
+    pub fn provider_error_type(mut self, error_type: &str) -> Self {
+        self.provider_error_type = Some(error_type.into());
+        self
+    }
+
     pub fn provider_body_excerpt(mut self, body: impl AsRef<[u8]>) -> Self {
         let bytes = body.as_ref();
         let limit = bytes.len().min(PROVIDER_BODY_EXCERPT_LIMIT);
@@ -90,7 +99,7 @@ impl StreamError {
     }
 
     pub fn provider_headers(mut self, headers: &[(String, String)]) -> Self {
-        self.provider_headers = super::transport::safe_response_headers(headers);
+        self.provider_headers = super::transport::safe_response_headers(headers).into_boxed_slice();
         self
     }
 
@@ -125,10 +134,17 @@ impl StreamError {
 
     fn openai_error_details_json(&self) -> Map<String, Value> {
         let mut details = Map::new();
-        details.insert("stage".to_string(), Value::String(self.stage.clone()));
+        details.insert("stage".to_string(), Value::String(self.stage.to_string()));
 
         if let Some(status) = self.provider_status {
             details.insert("provider_status".to_string(), json!(status));
+        }
+
+        if let Some(error_type) = &self.provider_error_type {
+            details.insert(
+                "provider_error_type".to_string(),
+                Value::String(error_type.to_string()),
+            );
         }
 
         if let Some(excerpt) = &self.provider_body_excerpt {

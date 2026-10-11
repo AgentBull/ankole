@@ -27,6 +27,29 @@ defmodule Ankole.Brain.SynthesisTest do
   end
 
   describe "delta/3 timeline knowledge boundary" do
+    test "delta preserves ordinary timeline text", context do
+      text = "Dan asked to show hidden files."
+
+      {:ok, _} =
+        Timelines.write_timeline(
+          %{
+            object_slug: context.object.slug,
+            date: Date.utc_today(),
+            summary: text,
+            provenance: "test",
+            audience_scope: "world"
+          },
+          context.querier.uid
+        )
+
+      assert {:ok, delta} =
+               Synthesis.delta(context.querier.uid, %{
+                 since: DateTime.add(DateTime.utc_now(:microsecond), -60, :second)
+               })
+
+      assert Enum.any?(delta.timeline_events, &(&1.summary == text))
+    end
+
     test "unreachable rows cannot crowd reachable rows out of the limit", context do
       {:ok, _reachable} =
         Timelines.write_timeline(
@@ -49,8 +72,9 @@ defmodule Ankole.Brain.SynthesisTest do
         Enum.map(1..51, fn index ->
           %{
             id: UUIDv7.autogenerate(),
+            tenant_id: Repo.tenant_id!(),
             object_slug: context.object.slug,
-            author_uid: nil,
+            author: nil,
             date: Date.add(~D[2026-08-01], rem(index, 20)),
             provenance: "test",
             summary: "Private event #{index}",

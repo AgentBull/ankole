@@ -52,20 +52,21 @@ control-plane shape Ankole has already chosen.
 
 ## Router and Pipelines
 
-The router currently has four important surfaces:
+The router uses these request surfaces:
 
 - `:browser`: HTML shell routes with session, flash, CSRF, and secure headers.
-- `:session_api`: JSON-shaped setup/auth endpoints that still use browser
-  session and CSRF protection.
-- `:openapi`: OpenAPI rendering under `/api/openapi.json`.
-- `:console_api`: stateless console REST API authenticated by bearer token.
+- `:session_api`: setup, auth, and Console JSON endpoints with browser sessions
+  and CSRF protection.
+- `:openapi`: OpenAPI rendering under `/api/v1/openapi.json`.
+- `:site_admin`: the active administrator session gate for Console REST APIs.
+- `:data_context`: the selected tenant for Console data routes.
 
 Rules:
 
 - Keep setup/auth mutation endpoints on `:session_api` unless there is a clear
   reason to make them stateless.
-- Keep console REST endpoints on `:console_api` and document them through
-  OpenApiSpex.
+- Console REST endpoints share `:session_api` and `:site_admin`; tenant data
+  routes also use `:data_context`. Document them through OpenApiSpex.
 - Do not move SPA route guards into React. `SpaController` decides whether the
   operator sees setup, auth, or console.
 - Keep catch-all SPA routes narrow (`/console/*path`, `/setup/*path`,
@@ -122,12 +123,15 @@ resolves the Vite entry tags.
 
 ## Sessions, Auth, and Security
 
-- Browser session state lives in the custom cookie store. Preserve
-  `same_site`, `http_only`, `secure`, and `max_age` semantics.
+- Browser authentication state lives in PostgreSQL. The custom cookie store
+  carries its opaque reference. Preserve `same_site`, `http_only`, `secure`, and
+  `max_age` semantics.
 - Setup/auth JSON endpoints are not public stateless APIs just because they
   return JSON. They still rely on browser session and CSRF.
-- Console REST API requests use bearer access tokens through
-  `AnkoleWeb.Plugs.RequireConsoleAccessToken`.
+- Console REST APIs use the browser session and CSRF proof through
+  `AnkoleWeb.Plugs.RequireSiteAdminSession`.
+- `AnkoleWeb.Session.site_admin_session/1` owns the active administrator check
+  for the shell, Console API gate, and OIDC session reuse.
 - Validate return URLs with `AnkoleWeb.Session.safe_return_to/1`; do not trust
   arbitrary `return_to` values.
 - Never use `String.to_atom/1` on request data.

@@ -3,7 +3,7 @@ defmodule Ankole.Brain.Schemas.SchemaCalibrationDomain do
   One Take calibration domain of the instance ontology.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 

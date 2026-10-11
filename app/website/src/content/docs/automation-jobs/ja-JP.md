@@ -5,7 +5,7 @@ section: User guide
 order: 22
 ---
 
-Cron、Checkback、webhook endpoint の 3 つのトリガーは、既定では Agent の会話を起こします。automation job は 2 つ目の受け手です。Agent が自らの Agent Home に書いて保持する決定論的なスクリプトで、トリガーをバインドすると、Agent の Turn を開始する代わりに、発火時にシステムがスクリプトを実行します。
+Cron、Checkback、webhook endpoint の 3 つのトリガーは、既定では Agent の会話を起こします。automation job は 2 つ目の受け手です。Agent が書いて自分のドライブに保持する決定論的なスクリプトで、トリガーをバインドすると、Agent の Turn を開始する代わりに、発火時にシステムがスクリプトを実行します。
 
 スクリプトが、何があなたの注意に値するかを決めます。静かに終えることも、`emitEvent` を呼んでオーナーの会話に event を返すこともできます。そうすれば Agent は、スクリプトが準備した context と正確に合わせて起きます。機械的な監視はコードが担い、model は判断が必要な場面にだけ残ります。
 
@@ -25,7 +25,7 @@ only when it drops below 3.5. Stay silent otherwise. After market
 close, report once whether the day's checks ran normally.
 ```
 
-Agent は Agent Home 内にスクリプトを書き、手動で検証し、automation job として登録し、バインドした Cron を作成し、市場終了時の reconciliation Checkback を設定します。スクリプトの編集は再登録なしで即座に反映されます。各実行はディスク上の現在のファイルを実行します。
+Agent はワークスペースでスクリプトを書き、手動で検証し、automation job として登録し、バインドした Cron を作成し、市場終了時の reconciliation Checkback を設定します。登録時に、スクリプトのディレクトリが Agent のドライブにコピーされます。各実行は、発火時点でそのドライブフォルダーにある内容を新しい実行ディレクトリにコピーするため、スクリプトが自分の隣に書いたファイルは次の実行まで残りません。スクリプトを変更するときは、Agent が編集したディレクトリを同じドライブフォルダーに置き直します。再登録は不要です。
 
 ## 実行履歴と失敗
 

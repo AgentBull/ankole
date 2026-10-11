@@ -212,10 +212,6 @@ impl ChatState {
         self.usage = usage;
     }
 
-    pub(super) fn next_tool_call_index(&self) -> usize {
-        self.tool_calls.len()
-    }
-
     pub(super) fn is_terminal(&self) -> bool {
         self.terminal
     }

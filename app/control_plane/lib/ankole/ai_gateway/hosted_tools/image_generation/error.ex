@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration.Error do
   @moduledoc false
 
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ProviderFailure
 
   @image_user_error_codes ~w(
     content_policy_violation image_generation_user_error image_too_large image_too_small
@@ -62,12 +63,14 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration.Error do
   @spec normalize_execution(term()) :: OpenAIError.t()
   def normalize_execution(%OpenAIError{} = error), do: error
 
-  def normalize_execution({:upstream_response_failed, status, body, _headers}),
-    do: normalize_execution({:upstream_response_failed, status, body})
+  def normalize_execution(%ProviderFailure{kind: :status_rejected, provider_status: 429}),
+    do: rate_limit()
 
-  def normalize_execution({:upstream_response_failed, 429, _body}), do: rate_limit()
-
-  def normalize_execution({:upstream_response_failed, status, body})
+  def normalize_execution(%ProviderFailure{
+        kind: :status_rejected,
+        provider_status: status,
+        provider_body: body
+      })
       when status in [400, 422] do
     case image_user_error_code(body) do
       nil ->
@@ -82,26 +85,26 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration.Error do
     end
   end
 
-  def normalize_execution({:upstream_response_failed, status, _body})
+  def normalize_execution(%ProviderFailure{kind: :status_rejected, provider_status: status})
       when status in [408, 504],
       do: timeout()
 
-  def normalize_execution({:upstream_response_failed, _status, _body}) do
+  def normalize_execution(%ProviderFailure{kind: :status_rejected}) do
     OpenAIError.server(502, "upstream_error", "The image generation provider request failed.")
   end
 
-  def normalize_execution({:universal_ai_request_failed, %{"code" => code}})
+  def normalize_execution(%ProviderFailure{kind: :other, code: code})
       when code in ["first_byte_timeout", "idle_timeout", "total_timeout"],
       do: timeout()
 
-  def normalize_execution({:universal_ai_request_failed, %{"provider_status" => 429}}),
+  def normalize_execution(%ProviderFailure{kind: :other, provider_status: 429}),
     do: rate_limit()
 
-  def normalize_execution({:universal_ai_request_failed, %{"code" => code}})
+  def normalize_execution(%ProviderFailure{kind: :other, code: code})
       when code in @image_user_error_codes,
       do: OpenAIError.image_generation_user(code)
 
-  def normalize_execution({:universal_ai_request_failed, %{"code" => code}})
+  def normalize_execution(%ProviderFailure{kind: :other, code: code})
       when code in [
              "response_body_too_large",
              "sse_event_too_large",

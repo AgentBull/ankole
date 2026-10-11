@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.OpaqueContent do
   verbatim, because a reader must not fail on one corrupt value.
   """
 
-  @prefixes ["ankole-aigateway-opaque-v1:", "ankole-chat-encoded-v1:"]
+  @prefix "ankole-aigateway-opaque-v1:"
 
   @doc "Decodes every AIGateway opaque value inside the given term."
   @spec reveal(term()) :: term()
@@ -51,8 +51,7 @@ defmodule Ankole.AIGateway.OpaqueContent do
   defp reveal_direct(field), do: field
 
   defp decode_or_keep(value) do
-    prefix = Enum.find(@prefixes, &String.starts_with?(value, &1))
-    payload = String.replace_prefix(value, prefix, "")
+    payload = String.replace_prefix(value, @prefix, "")
 
     case Base.url_decode64(payload, padding: false) do
       {:ok, decoded} -> if String.valid?(decoded), do: decoded, else: value
@@ -60,6 +59,6 @@ defmodule Ankole.AIGateway.OpaqueContent do
     end
   end
 
-  defp starts_with_prefix?(value), do: Enum.any?(@prefixes, &String.starts_with?(value, &1))
-  defp contains_prefix?(value), do: Enum.any?(@prefixes, &String.contains?(value, &1))
+  defp starts_with_prefix?(value), do: String.starts_with?(value, @prefix)
+  defp contains_prefix?(value), do: String.contains?(value, @prefix)
 end

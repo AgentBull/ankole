@@ -1,4 +1,6 @@
-import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { readdir, stat, unlink } from 'node:fs/promises'
+import { mkdirAgent } from '../../common/agent-user'
+import { writeFileAtomic } from '../../common/atomic-write'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
@@ -51,16 +53,16 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    retrySafe: false,
     describeActivity: params => commandActivityDescription(params.command),
     async execute(toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
-      const computer = await context.getComputer(signal)
+      const computer = context.computer
 
-      // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
-      // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
-      // ANKOLE_AGENT_HOME, plus validated caller env) is injected, so this is the sandbox
-      // environment, not the host user's. `timeout`, when provided, is the
-      // command execution budget in seconds, passed as ms; the worker kills
-      // the process when it elapses.
+      // `-lc` runs a login shell so the image profile is applied. The command does not inherit
+      // the Worker environment: only a fixed set of vars (PATH/HOME/LANG/TERM/ANKOLE_AGENT_HOME,
+      // plus validated caller env) is injected. `timeout`, when provided, is the command
+      // execution budget in seconds, passed as ms; the worker ends the command's process group
+      // when it elapses.
       const timeoutSeconds = params.timeout ?? ForegroundCommandDefaultTimeoutSeconds
       const runInput = {
         cmd: 'bash',
@@ -105,10 +107,10 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
 async function persistCommandLog(agentHome: string, toolCallId: string, raw: string): Promise<string | undefined> {
   try {
     const dir = join(agentHome, AGENT_RUNTIME_DIRNAME, 'command-logs')
-    await mkdir(dir, { recursive: true })
+    await mkdirAgent(dir)
     const name = `${toolCallId.replace(/[^A-Za-z0-9._-]/g, '-') || Date.now()}.log`
     const path = join(dir, name)
-    await writeFile(path, raw)
+    await writeFileAtomic(path, raw, 0o600)
     await sweepCommandLogs(dir, name)
     return path
   } catch {

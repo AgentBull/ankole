@@ -1,4 +1,13 @@
 defmodule Ankole.Plugins.WeComAdapter.Config do
+  def platform_application(%{"botId" => _} = config),
+    do: {:ok, "wecom-bot:" <> elem(connection_key(config), 1)}
+
+  def platform_application(config),
+    do:
+      {:ok,
+       "wecom-app:" <>
+         Torque.encode!([Map.fetch!(config, "corpId"), Map.fetch!(config, "agentId")])}
+
   @moduledoc """
   Validation and runtime helpers for the first-party WeCom adapter.
 
@@ -11,6 +20,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
@@ -46,6 +56,8 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.wecom.*",
+        scope: :tenant,
+        console_writable: false,
         key_pattern: @identity_key_pattern,
         encrypted: true,
         schema: Schema.new(&validate_identity_config/1),
@@ -155,17 +167,6 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   defp ensure_sync_has_contacts_secret(true, secret) when is_binary(secret), do: :ok
   defp ensure_sync_has_contacts_secret(true, _missing), do: {:error, :contacts_secret_required}
 
-  @doc "Loads a chat config referenced by a SignalsGateway binding `config_ref`."
-  @spec load_chat_config_ref(String.t()) :: {:ok, chat_config()} | {:error, term()} | :error
-  def load_chat_config_ref(config_ref) when is_binary(config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_by_key(key) do
-      validate_chat_config(value)
-    end
-  end
-
-  def load_chat_config_ref(_config_ref), do: {:error, :invalid_config_ref}
-
   @doc "Loads an identity-provider config by its AppConfigure key."
   @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
   def load_identity_config_key(key) when is_binary(key) do
@@ -213,17 +214,6 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  defp app_config_key("app-config://" <> key), do: {:ok, key}
-  defp app_config_key("app-config:" <> key), do: {:ok, key}
-  defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp load_chat_config_ref_in_tx(repo, config_ref) do
-    with {:ok, key} <- app_config_key(config_ref),
-         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
-      validate_chat_config(value)
-    end
-  end
-
   defp ensure_single_enabled_binding(repo, agent_uid, binding_name) do
     existing? =
       Binding
@@ -246,7 +236,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
     )
     |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_chat_config_ref_in_tx(repo, binding.config_ref) do
+      case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
         {:ok, %{"botId" => ^bot_id}} ->
           {:halt, {:error, {:wecom_bot_already_bound, bot_id, binding.agent_uid}}}
 
@@ -270,5 +260,4 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
       end
     end
   end
-
 end

@@ -17,6 +17,7 @@ defmodule FakeFeishu.Standalone do
   Options:
 
     * `:port` — listen port (default 7788)
+    * `:ip` — listen address (default `{127, 0, 0, 1}`)
     * `:apps` — list of `{app_id, app_secret, bot_open_id | nil}`
     * `:users` — default persona names (default `["Alice", "Bob"]`)
     * `:cardkit` — emulate CardKit cards (default true; false answers card
@@ -42,7 +43,7 @@ defmodule FakeFeishu.Standalone do
       {Bandit,
        plug: {FakeFeishu.Gateway, state: State},
        scheme: :http,
-       ip: {127, 0, 0, 1},
+       ip: Keyword.get(opts, :ip, {127, 0, 0, 1}),
        port: port,
        startup_log: false},
       {FakeFeishu.Standalone.Seeder,

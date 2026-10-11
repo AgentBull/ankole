@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use base64_simd::STANDARD;
 use bytes::Bytes;
@@ -23,9 +23,7 @@ use tokio_tungstenite::{
 };
 
 use super::error::StreamError;
-use super::spec::{
-    CompressionPreference, HTTPVersionPreference, StreamSpec, TransportSpec, UpstreamSpec,
-};
+use super::spec::{StreamSpec, UpstreamSpec};
 
 pub(crate) trait AsyncIO: AsyncRead + AsyncWrite + Send + Unpin {}
 
@@ -36,25 +34,18 @@ pub(crate) type BoxedIO = Box<dyn AsyncIO>;
 pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<BoxedIO>>;
 
 static HTTP_CLIENTS: OnceLock<Mutex<HashMap<ClientKey, reqwest::Client>>> = OnceLock::new();
-static ALT_SVC_CACHE: OnceLock<Mutex<HashMap<String, AltSvcEntry>>> = OnceLock::new();
 
 const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
-const MAX_ALT_SVC_CACHE_ENTRIES: usize = 256;
 const MAX_PROXY_RESPONSE_HEADER_BYTES: usize = 16 * 1_024;
-const HTTP3_AVAILABLE: bool = cfg!(feature = "universal_ai_client_http3");
 
 pub struct HTTPStream {
     pub status: u16,
-    pub version: String,
-    pub negotiation: String,
     pub headers: Vec<(String, String)>,
     pub body: BoxStream<'static, Result<Bytes, reqwest::Error>>,
 }
 
 pub struct HTTPResponse {
     pub status: u16,
-    pub version: String,
-    pub negotiation: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
@@ -104,8 +95,6 @@ pub async fn send_http_request(
 
     Ok(HTTPResponse {
         status: stream.status,
-        version: stream.version,
-        negotiation: stream.negotiation,
         headers: stream.headers,
         body,
     })
@@ -114,88 +103,37 @@ pub async fn send_http_request(
 pub(super) async fn open_http_stream_for_upstream(
     upstream: &UpstreamSpec,
 ) -> Result<HTTPStream, StreamError> {
-    let preferences = if upstream.transport.http_versions.is_empty() {
-        vec![
-            HTTPVersionPreference::H3,
-            HTTPVersionPreference::H2,
-            HTTPVersionPreference::H1,
-        ]
-    } else {
-        upstream.transport.http_versions.clone()
-    };
-    let origin = origin_key(&upstream.url);
-    let alt_svc_h3 = HTTP3_AVAILABLE && origin.as_deref().and_then(cached_alt_svc_h3).is_some();
-    let modes = http_attempt_modes(&preferences, alt_svc_h3, HTTP3_AVAILABLE);
-
-    let mut last_error = None;
-    for mode in modes {
-        match open_http_stream_with_mode(upstream, mode).await {
-            Ok(stream) => return Ok(stream),
-            Err(error) if error.retryable => last_error = Some(error.error),
-            Err(error) => return Err(error.error),
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| {
-        StreamError::new(
-            "transport_failed",
-            "connect",
-            "no HTTP transport preference could be attempted",
-        )
-    }))
-}
-
-async fn open_http_stream_with_mode(
-    upstream: &UpstreamSpec,
-    attempt: HTTPAttempt,
-) -> Result<HTTPStream, TransportAttemptError> {
-    let client = client_for(upstream, attempt.mode).map_err(TransportAttemptError::retryable)?;
-    let mut request = client.request(
-        method_from_spec(&upstream.method).map_err(TransportAttemptError::terminal)?,
-        upstream.url.as_str(),
-    );
-
+    let client = client_for(upstream)?;
+    let mut request = client.request(method_from_spec(&upstream.method)?, upstream.url.as_str());
     for (name, value) in &upstream.headers {
         request = request.header(name.as_str(), value.as_str());
     }
-
     if let Some(body) = &upstream.body {
         request = request.body(body.clone());
     }
-
     let response = timeout(upstream.timeout.first_byte_duration(), request.send())
         .await
         .map_err(|_| {
-            TransportAttemptError::terminal(
-                StreamError::new(
-                    "first_byte_timeout",
-                    "connect",
-                    "upstream first byte timeout",
-                )
-                .retry_through_credential_pool(),
+            StreamError::new(
+                "first_byte_timeout",
+                "connect",
+                "upstream first byte timeout",
             )
+            .retry_through_credential_pool()
         })?
         .map_err(|reason| {
             let error = StreamError::new(
                 "transport_failed",
                 "connect",
-                format!(
-                    "upstream {} request failed: {reason}",
-                    attempt.mode.as_str()
-                ),
+                format!("upstream request failed: {reason}"),
             );
             if reason.is_connect() {
-                TransportAttemptError::retryable(error.retry_through_credential_pool())
+                error.retry_through_credential_pool()
             } else {
-                TransportAttemptError::terminal(error)
+                error
             }
         })?;
-
     let status = response.status().as_u16();
-    let version = format!("{:?}", response.version()).to_ascii_lowercase();
-    if HTTP3_AVAILABLE {
-        record_alt_svc(&upstream.url, response.headers());
-    }
     let headers = response
         .headers()
         .iter()
@@ -207,11 +145,8 @@ async fn open_http_stream_with_mode(
         })
         .collect();
     let body = response.bytes_stream().boxed();
-
     Ok(HTTPStream {
         status,
-        version,
-        negotiation: attempt.negotiation.to_string(),
         headers,
         body,
     })
@@ -277,28 +212,6 @@ async fn collect_http_body_until_idle(
         }
 
         collected.extend_from_slice(&bytes);
-    }
-}
-
-#[derive(Debug)]
-struct TransportAttemptError {
-    error: StreamError,
-    retryable: bool,
-}
-
-impl TransportAttemptError {
-    fn retryable(error: StreamError) -> Self {
-        Self {
-            error,
-            retryable: true,
-        }
-    }
-
-    fn terminal(error: StreamError) -> Self {
-        Self {
-            error,
-            retryable: false,
-        }
     }
 }
 
@@ -389,26 +302,22 @@ fn invalid_proxy(message: &str) -> StreamError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ClientKey {
-    mode: ClientMode,
-    compression: Vec<CompressionPreference>,
     proxy: Option<String>,
     connect_ms: u64,
 }
 
 impl ClientKey {
-    fn from_upstream(upstream: &UpstreamSpec, mode: ClientMode, proxy: Option<&URL>) -> Self {
+    fn from_upstream(upstream: &UpstreamSpec, proxy: Option<&URL>) -> Self {
         Self {
-            mode,
-            compression: upstream.transport.compression.clone(),
             proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
         }
     }
 }
 
-fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Client, StreamError> {
+fn client_for(upstream: &UpstreamSpec) -> Result<reqwest::Client, StreamError> {
     let proxy = resolved_proxy(upstream)?;
-    let key = ClientKey::from_upstream(upstream, mode, proxy.as_ref());
+    let key = ClientKey::from_upstream(upstream, proxy.as_ref());
     let clients = HTTP_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut clients = match clients.lock() {
         Ok(clients) => clients,
@@ -419,7 +328,7 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
         return Ok(client);
     }
 
-    let client = build_client(upstream, mode, proxy.as_ref())?;
+    let client = build_client(upstream, proxy.as_ref())?;
     if clients.len() >= MAX_HTTP_CLIENT_CACHE_ENTRIES
         && let Some(old_key) = clients.keys().next().cloned()
     {
@@ -433,7 +342,6 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
 pub async fn open_websocket(
     spec: &StreamSpec,
 ) -> Result<(UpstreamWebSocket, u16, Vec<(String, String)>), StreamError> {
-    ensure_rustls_crypto_provider()?;
     let proxy = resolved_proxy(&spec.upstream)?;
     let target = parse_upstream_url(&spec.upstream.url)?;
 
@@ -764,42 +672,19 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
 
 fn build_client(
     upstream: &UpstreamSpec,
-    mode: ClientMode,
     proxy: Option<&URL>,
 ) -> Result<reqwest::Client, StreamError> {
-    ensure_rustls_crypto_provider()?;
-
     let mut builder = reqwest::Client::builder()
         .no_proxy()
         .use_rustls_tls()
         .connect_timeout(upstream.timeout.connect_duration())
-        .gzip(has_compression(
-            &upstream.transport,
-            CompressionPreference::Gzip,
-        ))
-        .brotli(has_compression(
-            &upstream.transport,
-            CompressionPreference::Br,
-        ))
-        .zstd(has_compression(
-            &upstream.transport,
-            CompressionPreference::Zstd,
-        ));
+        .http1_only();
 
     if let Some(proxy) = proxy {
         builder = builder.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|_reason| {
             StreamError::new("invalid_proxy", "connect", "proxy URL is invalid")
         })?);
     }
-
-    builder = match mode {
-        #[cfg(feature = "universal_ai_client_http3")]
-        ClientMode::H3PriorKnowledge => builder.http3_prior_knowledge(),
-        #[cfg(not(feature = "universal_ai_client_http3"))]
-        ClientMode::H3PriorKnowledge => builder,
-        ClientMode::AutoALPN => builder,
-        ClientMode::H1Only => builder.http1_only(),
-    };
 
     builder.build().map_err(|reason| {
         StreamError::new(
@@ -808,24 +693,6 @@ fn build_client(
             format!("failed to build reqwest client: {reason}"),
         )
     })
-}
-
-fn ensure_rustls_crypto_provider() -> Result<(), StreamError> {
-    #[cfg(feature = "universal_ai_client_ring")]
-    if rustls::crypto::CryptoProvider::get_default().is_none()
-        && rustls::crypto::ring::default_provider()
-            .install_default()
-            .is_err()
-        && rustls::crypto::CryptoProvider::get_default().is_none()
-    {
-        return Err(StreamError::new(
-            "tls_provider_initialization_failed",
-            "connect",
-            "failed to install the rustls ring crypto provider",
-        ));
-    }
-
-    Ok(())
 }
 
 fn method_from_spec(method: &str) -> Result<Method, StreamError> {
@@ -838,218 +705,38 @@ fn method_from_spec(method: &str) -> Result<Method, StreamError> {
     })
 }
 
-fn has_compression(transport: &TransportSpec, preference: CompressionPreference) -> bool {
-    transport.compression.contains(&preference)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum ClientMode {
-    H3PriorKnowledge,
-    AutoALPN,
-    H1Only,
-}
-
-impl ClientMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::H3PriorKnowledge => "h3_prior_knowledge",
-            Self::AutoALPN => "h2_h1_alpn",
-            Self::H1Only => "h1_only",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HTTPAttempt {
-    mode: ClientMode,
-    negotiation: &'static str,
-}
-
-fn http_attempt_modes(
-    preferences: &[HTTPVersionPreference],
-    alt_svc_h3: bool,
-    http3_available: bool,
-) -> Vec<HTTPAttempt> {
-    let has_h1 = preferences.contains(&HTTPVersionPreference::H1);
-    let has_h2 = preferences.contains(&HTTPVersionPreference::H2);
-    let has_h3 = http3_available && preferences.contains(&HTTPVersionPreference::H3);
-    let h3_only = has_h3 && !has_h2 && !has_h1;
-    let mut modes = Vec::new();
-    let mut added_auto = false;
-    let mut added_h1 = false;
-    let mut added_h3 = false;
-
-    if alt_svc_h3 && has_h3 {
-        modes.push(HTTPAttempt {
-            mode: ClientMode::H3PriorKnowledge,
-            negotiation: "alt_svc_h3",
-        });
-        added_h3 = true;
-    }
-
-    for preference in preferences {
-        match preference {
-            HTTPVersionPreference::H3 => {
-                if h3_only && !added_h3 {
-                    modes.push(HTTPAttempt {
-                        mode: ClientMode::H3PriorKnowledge,
-                        negotiation: "h3_prior_knowledge",
-                    });
-                    added_h3 = true;
-                }
-            }
-            HTTPVersionPreference::H2 => {
-                if !added_auto {
-                    modes.push(HTTPAttempt {
-                        mode: ClientMode::AutoALPN,
-                        negotiation: "alpn_h2_h1",
-                    });
-                    added_auto = true;
-                }
-            }
-            HTTPVersionPreference::H1 => {
-                if has_h2 {
-                    if !added_auto {
-                        modes.push(HTTPAttempt {
-                            mode: ClientMode::AutoALPN,
-                            negotiation: "alpn_h2_h1",
-                        });
-                        added_auto = true;
-                    }
-                } else if !added_h1 {
-                    modes.push(HTTPAttempt {
-                        mode: ClientMode::H1Only,
-                        negotiation: "h1_only",
-                    });
-                    added_h1 = true;
-                }
-            }
-        }
-    }
-
-    if has_h3 && !h3_only && !added_h3 {
-        modes.push(HTTPAttempt {
-            mode: ClientMode::H3PriorKnowledge,
-            negotiation: "h3_prior_knowledge",
-        });
-    }
-
-    if modes.is_empty() {
-        if has_h1 && !has_h2 {
-            modes.push(HTTPAttempt {
-                mode: ClientMode::H1Only,
-                negotiation: "h1_only",
-            });
-        } else {
-            modes.push(HTTPAttempt {
-                mode: ClientMode::AutoALPN,
-                negotiation: "alpn_h2_h1",
-            });
-        }
-    }
-
-    modes
-}
-
-#[derive(Debug, Clone)]
-struct AltSvcEntry {
-    expires_at: Instant,
-}
-
-fn cached_alt_svc_h3(origin: &str) -> Option<AltSvcEntry> {
-    let cache = ALT_SVC_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache.try_lock().ok()?;
-    let entry = cache.get(origin).cloned()?;
-    if Instant::now() < entry.expires_at {
-        Some(entry)
-    } else {
-        cache.remove(origin);
-        None
-    }
-}
-
-fn record_alt_svc(url: &str, headers: &HeaderMap) {
-    let Some(origin) = origin_key(url) else {
-        return;
-    };
-    let Some(header) = headers.get(reqwest::header::ALT_SVC) else {
-        return;
-    };
-    let Ok(header) = header.to_str() else {
-        return;
-    };
-    let cache = ALT_SVC_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let Ok(mut cache) = cache.try_lock() else {
-        return;
-    };
-
-    if header.trim().eq_ignore_ascii_case("clear") {
-        cache.remove(&origin);
-        return;
-    }
-
-    if let Some(max_age) = parse_same_authority_h3_alt_svc(header) {
-        // `ma` is remote-controlled; an overflowing expiry must not panic.
-        let Some(expires_at) = Instant::now().checked_add(Duration::from_secs(max_age)) else {
-            return;
-        };
-        if !cache.contains_key(&origin)
-            && cache.len() >= MAX_ALT_SVC_CACHE_ENTRIES
-            && let Some(old_origin) = cache.keys().next().cloned()
-        {
-            cache.remove(&old_origin);
-        }
-        cache.insert(origin, AltSvcEntry { expires_at });
-    }
-}
-
-fn origin_key(url: &str) -> Option<String> {
-    let url = URL::parse(url).ok()?;
-    let scheme = url.scheme();
-    if scheme != "http" && scheme != "https" {
-        return None;
-    }
-    let host = url.host_str()?;
-    let port = url
-        .port_or_known_default()
-        .unwrap_or(if scheme == "https" { 443 } else { 80 });
-    Some(format!("{scheme}://{host}:{port}"))
-}
-
-fn parse_same_authority_h3_alt_svc(value: &str) -> Option<u64> {
-    value.split(',').find_map(|alternative| {
-        let mut parts = alternative.split(';').map(str::trim);
-        let protocol = parts.next()?;
-        let (name, authority) = protocol.split_once('=')?;
-        if !name.trim().trim_matches('"').starts_with("h3") {
-            return None;
-        }
-
-        let authority = authority.trim().trim_matches('"');
-        if !authority.starts_with(':') {
-            return None;
-        }
-
-        let mut max_age = 86_400;
-        for param in parts {
-            let Some((key, value)) = param.split_once('=') else {
-                continue;
-            };
-            if key.trim().eq_ignore_ascii_case("ma") {
-                max_age = value.trim().trim_matches('"').parse().ok()?;
-            }
-        }
-
-        (max_age > 0).then_some(max_age)
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::spec::TransportSpec;
     use super::*;
-    use crate::universal_ai_client::spec::{
-        APIResolverKind, DownstreamKind, TimeoutSpec, UpstreamKind,
-    };
+    use crate::universal_ai_client::spec::{APIResolverKind, TimeoutSpec, UpstreamKind};
+    use std::time::Instant;
+
+    #[tokio::test]
+    async fn client_cache_stays_bounded_when_connection_settings_change() {
+        let mut upstream = UpstreamSpec {
+            kind: UpstreamKind::HTTPSSE,
+            method: "GET".to_string(),
+            url: "http://127.0.0.1/cache-test".to_string(),
+            headers: Vec::new(),
+            body: None,
+            websocket_initial_messages: Vec::new(),
+            timeout: TimeoutSpec {
+                connect_ms: 1,
+                first_byte_ms: 100,
+                idle_ms: 100,
+                total_ms: None,
+            },
+            transport: TransportSpec { proxy: None },
+        };
+
+        for connect_ms in 1..=MAX_HTTP_CLIENT_CACHE_ENTRIES as u64 + 16 {
+            upstream.timeout.connect_ms = connect_ms;
+            client_for(&upstream).unwrap();
+        }
+
+        assert!(HTTP_CLIENTS.get().unwrap().lock().unwrap().len() <= MAX_HTTP_CLIENT_CACHE_ENTRIES);
+    }
 
     #[test]
     fn proxy_resolution_prefers_explicit_then_scheme_specific_then_all() {
@@ -1196,11 +883,7 @@ mod tests {
                 idle_ms: 100,
                 total_ms: None,
             },
-            transport: TransportSpec {
-                http_versions: vec![HTTPVersionPreference::H1],
-                compression: Vec::new(),
-                proxy: None,
-            },
+            transport: TransportSpec { proxy: None },
         };
 
         let Err(error) = open_http_stream_for_upstream(&upstream).await else {
@@ -1238,13 +921,8 @@ mod tests {
                     idle_ms: 600_000,
                     total_ms: None,
                 },
-                transport: TransportSpec {
-                    http_versions: vec![HTTPVersionPreference::H1],
-                    compression: Vec::new(),
-                    proxy: None,
-                },
+                transport: TransportSpec { proxy: None },
             },
-            downstream: DownstreamKind::WebSocketText,
             response_context: Default::default(),
             limits: Default::default(),
             hosted_tools: None,
@@ -1260,18 +938,6 @@ mod tests {
         assert!(error.can_retry_through_credential_pool());
         assert!(started.elapsed() < Duration::from_secs(5));
         server.abort();
-    }
-
-    #[test]
-    fn terminal_transport_failure_does_not_enter_the_credential_pool() {
-        let error = TransportAttemptError::terminal(StreamError::new(
-            "transport_failed",
-            "connect",
-            "request construction failed",
-        ))
-        .error;
-
-        assert!(!error.can_retry_through_credential_pool());
     }
 
     #[test]
@@ -1291,7 +957,7 @@ mod tests {
         assert_eq!(error.provider_status, Some(429));
         assert_eq!(error.provider_body_excerpt, None);
         assert_eq!(
-            error.provider_headers,
+            error.provider_headers.to_vec(),
             vec![
                 ("retry-after".to_string(), "2".to_string()),
                 (
@@ -1322,126 +988,5 @@ mod tests {
                 ("Retry-After".to_string(), "2".to_string())
             ]
         );
-    }
-
-    #[test]
-    fn alt_svc_parser_accepts_same_authority_h3() {
-        assert_eq!(
-            parse_same_authority_h3_alt_svc(r#"h3=":443"; ma=3600, h2=":443""#),
-            Some(3600)
-        );
-        assert_eq!(
-            parse_same_authority_h3_alt_svc(r#"h3-29=":443""#),
-            Some(86_400)
-        );
-    }
-
-    #[test]
-    fn alt_svc_parser_ignores_cross_authority_h3() {
-        assert_eq!(
-            parse_same_authority_h3_alt_svc(r#"h3="alt.example.com:443"; ma=3600"#),
-            None
-        );
-    }
-
-    #[test]
-    fn alt_svc_overflowing_ma_is_dropped_without_panic() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            reqwest::header::ALT_SVC,
-            r#"h3=":443"; ma=18446744073709551615"#.parse().unwrap(),
-        );
-
-        record_alt_svc("https://alt-svc-overflow.test/v1/responses", &headers);
-
-        assert!(cached_alt_svc_h3("https://alt-svc-overflow.test:443").is_none());
-    }
-
-    #[test]
-    fn http_attempts_prefer_cached_alt_svc_h3_when_available() {
-        let attempts = http_attempt_modes(
-            &[
-                HTTPVersionPreference::H3,
-                HTTPVersionPreference::H2,
-                HTTPVersionPreference::H1,
-            ],
-            true,
-            true,
-        );
-
-        assert_eq!(attempts[0].mode, ClientMode::H3PriorKnowledge);
-        assert_eq!(attempts[0].negotiation, "alt_svc_h3");
-        assert!(
-            attempts
-                .iter()
-                .any(|attempt| attempt.negotiation == "alpn_h2_h1")
-        );
-    }
-
-    #[test]
-    fn http_attempts_use_alpn_before_h3_prior_knowledge_without_alt_svc() {
-        let attempts = http_attempt_modes(
-            &[
-                HTTPVersionPreference::H3,
-                HTTPVersionPreference::H2,
-                HTTPVersionPreference::H1,
-            ],
-            false,
-            true,
-        );
-
-        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
-        assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
-        assert_eq!(attempts[1].mode, ClientMode::H3PriorKnowledge);
-        assert_eq!(attempts[1].negotiation, "h3_prior_knowledge");
-    }
-
-    #[test]
-    fn http_attempts_allow_explicit_h3_only_prior_knowledge() {
-        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false, true);
-
-        assert_eq!(attempts.len(), 1);
-        assert_eq!(attempts[0].mode, ClientMode::H3PriorKnowledge);
-        assert_eq!(attempts[0].negotiation, "h3_prior_knowledge");
-    }
-
-    #[test]
-    fn http_attempts_skip_h3_when_the_build_does_not_support_it() {
-        let attempts = http_attempt_modes(
-            &[
-                HTTPVersionPreference::H3,
-                HTTPVersionPreference::H2,
-                HTTPVersionPreference::H1,
-            ],
-            true,
-            false,
-        );
-
-        assert_eq!(attempts.len(), 1);
-        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
-        assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
-    }
-
-    #[test]
-    fn http_attempts_fall_back_to_alpn_when_only_h3_was_requested() {
-        let attempts = http_attempt_modes(&[HTTPVersionPreference::H3], false, false);
-
-        assert_eq!(attempts.len(), 1);
-        assert_eq!(attempts[0].mode, ClientMode::AutoALPN);
-        assert_eq!(attempts[0].negotiation, "alpn_h2_h1");
-    }
-
-    #[cfg(feature = "universal_ai_client_ring")]
-    #[test]
-    fn ring_crypto_provider_initialization_is_concurrent_and_idempotent() {
-        let workers = (0..8)
-            .map(|_| std::thread::spawn(ensure_rustls_crypto_provider))
-            .collect::<Vec<_>>();
-
-        for worker in workers {
-            assert!(worker.join().expect("provider worker panicked").is_ok());
-        }
-
-        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 }

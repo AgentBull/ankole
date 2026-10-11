@@ -10,16 +10,18 @@ Users can create two kinds of schedules:
 - `cron` runs a task on a recurring schedule, in the rule's own execution
   session.
 
-Both create one `actor_scheduled_events` row for each actual wake-up.
+Checkbacks and manual cron runs store their event before wake-up. Automatic
+cron fires create an `actor_scheduled_events` history row when they fire.
 
 ## The Control Plane Owns Time
 
 The Elixir control plane calculates times, stores schedules, and changes their
-state. Workers can request these operations through RPC, but they do not keep
-the timers.
+state. The control-plane conversation tools call this owner directly.
 
-`actor_scheduled_events` stores each wake-up. `actor_cron_schedules` stores each
-recurring rule. `oban_jobs` only tells Oban when to call Schedule.
+`actor_scheduled_events` stores one-shot wake-ups and cron history.
+`actor_cron_schedules.next_fire_at` is the only domain fact for the next
+automatic fire. Each active rule has one pending `FireCron` job. `oban_jobs`
+only tells Oban when to call Schedule.
 
 Database keys and ActorEvent source IDs prevent an Oban retry from creating the
 same work twice.
@@ -33,7 +35,8 @@ Checkbacks inherit the source ActorEvent. Cron creation uses the trusted
 body fields cannot replace it. New fires inherit the rule's retained version.
 
 Fire admission checks and locks each associated Human before the event, cron,
-and bound Automation Job. When the event and job depend on different Humans,
+and bound Automation Job. Automatic fires use the rule authorization; their
+history and ActorEvent inherit it at fire time. When the work and job depend on different Humans,
 it locks both in UID order. Revocation pauses old cron rules and cancels pending
 fires and checkbacks. An admitted fire may finish, but completion cannot create
 another valid fire. Resume or manual run does not renew an old authorization.
@@ -42,11 +45,12 @@ another valid fire. Resume or manual run does not renew an old authorization.
 
 ### One Wake-Up
 
-`actor_scheduled_events` stores one planned wake-up.
+`actor_scheduled_events` stores a planned checkback or manual run, or an
+automatic cron fire history row.
 
 Its ID is a PostgreSQL identity bigint that starts at `1000` and cannot exceed
 JavaScript's maximum safe integer. Model tools call it `checkback_id` and use a
-number. RuntimeFabric carries it as a canonical decimal string.
+number.
 
 The `kind` value is one of:
 
@@ -56,7 +60,6 @@ The `kind` value is one of:
 The `status` value is one of:
 
 - `scheduled`
-- `firing`
 - `fired`
 - `cancelled`
 - `failed`
@@ -70,7 +73,8 @@ the source ActorEvent, AI message, and provider reply route.
 `wake_payload` contains the input for the future turn. `source_provenance`
 records the authenticated request and the turn-fence values that created it.
 
-The row records its Oban job ID and, after wake-up, the new ActorEvent ID.
+After wake-up, the row records the new ActorEvent or automation run ID.
+The Oban job arguments identify its owning event or rule.
 
 Checkbacks and manual cron runs use this request idempotency key:
 
@@ -91,8 +95,8 @@ WHERE trigger = scheduled AND status != cancelled
 Thus, a canceled row releases its slot. A fired or failed row continues to
 consume its logical slot. Manual runs do not use this slot key.
 
-Another partial unique index permits at most one automatic cron event with
-`status = scheduled` or `status = firing` for each recurring rule.
+Schedule inserts automatic history before it creates work, in the same
+transaction. The slot key rejects a second fire of that slot.
 
 ### One Recurring Rule
 
@@ -231,8 +235,8 @@ A visible result is `{"outcome":"reply","reply":"message text"}`. When
 `{"outcome":"silent_success","reply":null}`. Failures, changed state, or a
 need for human action still require a visible reply.
 
-Agent Computer permits one format correction with tools disabled. The control
-plane validates the result and silent-success permission before it commits
+The control-plane conversation loop permits one format correction with tools
+disabled. It validates the result and silent-success permission before it commits
 delivery. An invalid result, including an empty result, ends the turn as a
 dead letter. The same transaction stores its failure reason and Response
 anchor, ends the applied input prefix, releases the turn, and queues the
@@ -246,43 +250,38 @@ preview owner changes. Only the validated `reply` field enters the final
 outbox. Clarify and attachment tools keep their existing delivery contracts.
 
 Text markers have no control meaning. The structured response instructions
-override old task text that requests a marker. Upgrade the control plane and
-Worker together; an old Worker result fails validation instead of reaching a
-channel.
+override old task text that requests a marker.
 
-Updating a pending checkback creates a new row, cancels the old row, and links
-the two.
+Updating a pending checkback changes the same row in place, so `checkback_id`
+does not change. When the due time changes, Schedule moves the Oban job. A row
+that an earlier version replaced returns `checkback_replaced` to get, update,
+and cancel.
 
 Canceling a checkback changes its state to `cancelled`.
 Removing its source provider entry also cancels matching pending checkbacks.
 
 ## Create, Pause, or Change a Recurring Rule
 
-Creating an active rule also plans its first wake-up. Each successful wake-up
-plans the next one in the same transaction.
+Creating an active rule stores its first `next_fire_at` and schedules its
+`FireCron` job. A successful automatic fire stores history and the next time
+in the same transaction.
 
-Schedule locks the recurring rule before it changes or fires an automatic
-event. An active rule has exactly one automatic event. The event due time and
-slot equal `next_fire_at`. A paused or deleted rule has no automatic event and
-has no `next_fire_at`.
+Schedule locks the recurring rule before it changes or fires it. Automatic
+fires read the current payload and delivery at fire time. A payload-only
+update keeps `next_fire_at`. A time-rule update calculates a new time. Both
+move or restore the one pending FireCron job to the retained time. An executing
+job keeps its claim; a new pending job receives the next wake-up.
 
-When an update keeps the next slot, Schedule updates the pending event snapshot
-in place. This applies to changes such as the name, input, or delivery route.
-The existing Oban job continues to refer to the same event.
+Pausing clears `next_fire_at`. Its old job returns noop. Resuming calculates
+the next time from the moment of resumption. Resuming an active rule schedules
+its existing `next_fire_at` again.
 
-When an update changes the next slot, Schedule cancels the old event and
-inserts a new event. A canceled history row does not block a new event for the
-same slot.
-
-Pausing clears `next_fire_at` and cancels pending wake-ups. Resuming calculates
-the next time from the moment of resumption. Resuming an active rule verifies
-the current event and does not create another event.
-
-Removing a rule marks it `deleted` and cancels all pending wake-ups.
+Removing a rule marks it `deleted`, clears `next_fire_at`, ends the execution
+conversation, and cancels pending manual runs.
 
 A manual run creates an immediate wake-up without changing the recurring rule.
 It works for an active or paused rule. The caller must provide a request key.
-RuntimeFabric uses the provider tool call ID, and REST uses `Idempotency-Key`.
+Agent tools use the provider tool call ID, and REST uses `Idempotency-Key`.
 Repeating the same request returns the same event.
 
 Cron delivery uses this form:
@@ -313,14 +312,14 @@ rule's binding. Schedule copies that route into the scalar fields on the
 ScheduledEvent and ActorEvent, so the one Agent turn and its live preview keep
 one route. The full target list is frozen in the event `wake_payload`.
 
-An operator can add targets through the Console or REST API. A worker-originated
-request can create or replace only the current turn route. A worker can change
+An operator can add targets through the Console or REST API. An Agent tool
+request can create or replace only the current turn route. An Agent can change
 `quiet_success` on an operator-managed multi-target rule without replacing its
 targets. An operator route update that omits `quiet_success` keeps the existing
 value.
 
 The control plane accepts only the target-list delivery form. The v0.68.3 data
-migration normalized stored recurring rules and live `scheduled` or `firing`
+migration normalized stored recurring rules and live `scheduled`
 event snapshots. Terminal event history and existing outbox rows stayed
 unchanged and were never replayed.
 
@@ -331,54 +330,48 @@ Cron turns can use quiet success only when the delivery object enables it.
 
 ## What Happens When the Time Arrives
 
-The wake path is:
+The automatic wake path is:
 
 ```text
-scheduled event row
-  -> Oban wake job
-  -> claim due row
+cron rule.next_fire_at
+  -> FireCron job
+  -> lock and authorize rule
+  -> insert fired history for the slot
   -> ActorEvent append or automation job run insert
-  -> mark row fired
-  -> ActorRuntime turn or automation job execution
+  -> record consumer id and advance next_fire_at
+  -> Conversations driver or automation job execution
 ```
 
-Oban can run `FireScheduledEvent` ten times. Each call tells Schedule which
-attempt it is.
+Checkbacks and manual runs use `FireScheduledEvent`. Their transaction locks
+only a due row with `status = scheduled`, creates its consumer, and changes the
+row to `fired`. A repeated call returns noop for a terminal or future event.
+Manual runs do not advance the recurring cursor.
 
-The transaction claims only a due row with `status = scheduled`. It changes the
-state to `firing` and increases `fire_attempts`.
+Both workers allow ten attempts. Checkback and manual errors retain their
+scheduled row and diagnostic until the last attempt marks it `failed`.
+Automatic errors are recorded by Oban during retry. The last failure creates a
+`failed` history row and advances an active rule whose slot is still current.
+Fired and failed automatic slots count toward the occurrence bound; manual
+runs do not. An exhausted rule becomes completed and ends its conversation.
 
 A checkback fire produces `check_back_later.wakeup`.
 A cron fire produces `cron.fire`.
 
-The event uses a CloudEvents 1.0 envelope. It contains the scheduled event
-identifier, due time, fire time, time zone, primary reply route, and frozen
-delivery targets. A direct consumer stores this envelope in an ActorEvent. An
-automation job consumer stores the same envelope in its run. The model wake-up
-prompt omits the event identifier and delivery routes.
+The event uses a CloudEvents 1.0 envelope. It contains the history or scheduled
+event identifier, due time, fire time, time zone, primary reply route, and
+frozen delivery targets. A direct consumer stores this envelope in an
+ActorEvent. An automation job consumer stores the same envelope in its run.
+The model wake-up prompt omits the event identifier and delivery routes.
 
-After it writes the consumer record, Schedule changes the row to `fired`. It
-records `actor_event_id` for a direct consumer or `automation_job_run_id` for
-an automation job consumer. It also records `fired_at`.
+Schedule records `actor_event_id` for a direct consumer or
+`automation_job_run_id` for an automation job consumer, and `fired_at`.
+An invalid recurring rule records a cancelled history row without advancing.
 
-A repeated wake does nothing when the row has ended or is not due. If the
-recurring rule is no longer valid, Schedule cancels that wake-up.
-
-A retryable error restores `scheduled` for another Oban attempt. After the final
-failure, Schedule changes the row to `failed`. If this was an automatic cron
-event and the rule is still active, Schedule plans the next slot in the same
-transaction. A manual run never moves the recurring cursor.
-
-Every cron write uses this lock order:
-
-```text
-CronSchedule
-  -> ScheduledEvent
-  -> ActorEvent
-```
-
-An old Oban job refers to a ScheduledEvent ID. If an update canceled that
-event, the job cannot claim it because only a `scheduled` event can fire.
+Fire admission locks Human sources in UID order before the rule. The remaining
+lock order is CronSchedule, ScheduledEvent, then ActorEvent. A FireCron job
+checks the current rule state and time, so an old job cannot fire a paused,
+deleted, completed, or future rule. After downtime, it fires the retained slot
+once and calculates the next time from the current time.
 
 Model projections return a stable domain reason for a known cancellation or
 failure. They map all other stored diagnostics to `schedule_fire_failed` and do
@@ -387,14 +380,14 @@ the complete stored diagnostic for operators.
 
 ## Tell the Agent Why It Woke Up
 
-ActorRuntime maps scheduled ActorEvents to dedicated turn kinds:
+Conversations maps scheduled ActorEvents to dedicated turn kinds:
 
 | ActorEvent type | Turn kind | Agent schedule mode |
 | --- | --- | --- |
 | `check_back_later.wakeup` | `checkback_generation` | `check_back_later` |
 | `cron.fire` | `scheduled_task` | `cron` |
 
-Agent Computer derives the schedule mode from the ActorEvent type. The request
+The control plane derives the schedule mode from the ActorEvent type. The request
 context carries the schedule origin and whether the Agent can report success
 without a reply; it does not repeat the mode. A cron turn also says that Ankole
 will deliver the configured output. The Agent runs once even when the rule has
@@ -405,58 +398,42 @@ stays on the primary target.
 
 The model must not send the same cron result through another messaging tool.
 
-## Schedule through RPC
+## Schedule Tools
 
-The RPC API provides these checkback operations:
+The `check_back_later` and `cron` tools execute in the control-plane Driver.
+Checkback operations are `create`, `list`, `get`, `update`, and `cancel`. Cron
+operations are `list`, `get`, `runs`, `add`, `update`, `pause`, `resume`, `remove`,
+and `run`.
 
-- `create`
-- `list`
-- `get`
-- `update`
-- `cancel`
+The tool receives the Driver's fenced Run. Reads and writes stay within the
+current Agent and Session or the rule's owner conversation. Reply routes come
+from the current input. Cron provenance uses `driver_epoch` and the frozen route.
+A turn in a rule's execution session resolves only that rule.
 
-The RPC API provides these cron operations:
-
-- `list`
-- `get`
-- `runs`
-- `add`
-- `update`
-- `pause`
-- `resume`
-- `remove`
-- `run`
-
-RPCLane authenticates the worker before it calls `Schedule.RPCBroker`. The
-broker limits every checkback read or change to the current Agent and Session,
-and every cron read or change to the current Agent and the rule's owner
-conversation. A cron-origin turn resolves only its own rule through fire
-provenance.
-
-Checkback creation and update require an exact reply-route match. A
-worker-originated cron route must contain exactly one target and match the
-current binding and channel.
 An optional `automation_job_id` must name an active job for the same Agent.
 Checkback and cron updates can clear or replace this binding.
 
-A cron-originated turn cannot add, update, pause, resume, remove, or manually
-run cron definitions. This prevents one cron turn from creating an uncontrolled
-set of more cron rules.
+A turn in a rule's execution session can use only `list`, `get`, `runs`, and
+`pause`, and only on that rule. Pause lets a fire stop work whose task says to
+stop once a condition is met. Pause does not end the execution conversation, so
+the turn still delivers its reply. The turn cannot add rules, change its own
+instruction, resume itself, run itself again, or remove its rule; removal ends
+the execution conversation that the turn runs in.
 
 ## Rules
 
 - PostgreSQL stores every schedule that can affect a user.
 - Oban wakes Schedule but does not define the time rule.
-- An active recurring rule has exactly one pending automatic event.
-- A canceled automatic event can be replaced in the same slot.
+- An active recurring rule has one pending FireCron job at `next_fire_at`.
+- Automatic cron run lists contain history only.
 - A fired or failed automatic slot cannot run again.
 - One scheduled event creates at most one ActorEvent or automation job run.
 - A cron fire runs in the rule's derived execution session, never in the
   owner conversation.
 - A direct-Agent rule stores its complete standing instruction in
   `payload.task`.
-- A worker cannot add an unrelated provider route to a schedule.
+- An Agent tool cannot add an unrelated provider route to a schedule.
 - One cron event runs at most one Agent turn, independent of its target count.
-- A cron-originated turn cannot change or manually run cron definitions.
+- A cron-originated turn can only inspect or pause its own rule.
 - A canceled source entry cannot retain a pending checkback.
 - The schedule row must explicitly allow success without a reply.

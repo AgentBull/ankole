@@ -1,3 +1,4 @@
+import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -34,7 +35,6 @@ export function CustomModelProfilesEditor({
   agentUID,
   error,
   loading,
-  onChanged,
   profiles,
   providers,
   providerKinds,
@@ -43,11 +43,10 @@ export function CustomModelProfilesEditor({
   agentUID: string
   error: unknown
   loading: boolean
-  onChanged: () => void
   profiles: JSONObject
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
+  modelCatalog: AIGatewayModelCatalogEntry[]
 }) {
   const { t } = useTranslation()
   const [adding, setAdding] = useState(false)
@@ -75,7 +74,7 @@ export function CustomModelProfilesEditor({
           providers={providers}
           providerKinds={providerKinds}
           modelCatalog={modelCatalog}
-          onChanged={onChanged}
+
           onClose={() => setAdding(false)}
         />
       ) : null}
@@ -88,7 +87,6 @@ export function CustomModelProfilesEditor({
           providers={providers}
           providerKinds={providerKinds}
           modelCatalog={modelCatalog}
-          onChanged={onChanged}
         />
       ))}
       {!loading && !adding && customProfiles.length === 0 ? (
@@ -104,15 +102,13 @@ function NewCustomModelProfileEditor({
   providers,
   providerKinds,
   modelCatalog,
-  onChanged,
   onClose
 }: {
   agentUID: string
   existingNames: Set<string>
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
-  onChanged: () => void
+  modelCatalog: AIGatewayModelCatalogEntry[]
   onClose: () => void
 }) {
   const { t } = useTranslation()
@@ -125,7 +121,6 @@ function NewCustomModelProfileEditor({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
     onSuccess: (_response, variables) => {
       toast.success(t('console.models.saved', { profile: variables.path.profile }))
-      onChanged()
       onClose()
     },
     onError: mutationError => setDraft(current => ({ ...current, error: requestErrorMessage(mutationError) })),
@@ -204,16 +199,14 @@ function StoredCustomModelProfileEditor({
   profile,
   providers,
   providerKinds,
-  modelCatalog,
-  onChanged
+  modelCatalog
 }: {
   agentUID: string
   name: string
   profile: JSONObject
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
-  modelCatalog: unknown
-  onChanged: () => void
+  modelCatalog: AIGatewayModelCatalogEntry[]
 }) {
   useSignals()
   const { t } = useTranslation()
@@ -235,7 +228,6 @@ function StoredCustomModelProfileEditor({
         if (result.hasUnsavedChanges) toast.info(t('console.models.saved_with_unsaved_changes', { profile: name }))
         else toast.success(t('console.models.saved', { profile: name }))
       }
-      onChanged()
     },
     onError: mutationError => {
       pendingSubmission.current = undefined
@@ -246,7 +238,6 @@ function StoredCustomModelProfileEditor({
     ...ankoleWebAgentControllerDeleteModelProfileMutation(),
     onSuccess: () => {
       toast.success(t('console.models.custom_deleted', { profile: name }))
-      onChanged()
     },
     onError: mutationError => model.update({ error: requestErrorMessage(mutationError) })
   })

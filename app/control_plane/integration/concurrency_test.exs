@@ -1,16 +1,14 @@
 defmodule Ankole.ConcurrencyIntegrationTest do
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Links
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Schemas.SchemaCalibrationDomain
@@ -22,14 +20,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime
-  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.Conversations.{Admission, CodexJob, JobTurnRef, Receipts, ToolResult}
   alias Ankole.SignalsGateway.ActorRuntime.RPCLane
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
   alias Ankole.SignalsGateway.ActorRuntimeCase, as: RuntimeCase
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -52,7 +47,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         })
       end)
 
-    on_exit(fn ->
+    on_exit_in_tenant(fn ->
       Sandbox.unboxed_run(Repo, fn -> Repo.delete_all(from(c in Client, where: c.id == ^id)) end)
     end)
 
@@ -69,38 +64,30 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   test "a generic Agent update preserves a token quota written while the update waits" do
     alias Ankole.AIAgent.TokenQuota
     alias Ankole.Principals
-    alias Ankole.Principals.Principal
 
     suffix = System.unique_integer([:positive])
-    owner_uid = "human-quota-owner-#{suffix}"
-    agent_uid = "agent-quota-race-#{suffix}"
+    label = "agent-quota-race-#{suffix}"
 
-    Sandbox.unboxed_run(Repo, fn ->
-      {:ok, _owner} =
-        Principals.create_human(%{
-          uid: owner_uid,
-          display_name: "Quota Race Owner",
-          email: "#{owner_uid}@example.com"
-        })
-
-      {:ok, _agent} =
-        Principals.create_agent(%{
-          uid: agent_uid,
-          display_name: agent_uid,
+    %{principal: agent} =
+      Sandbox.unboxed_run(Repo, fn ->
+        Ankole.PrincipalsFixtures.agent_fixture(%{
+          handle: label,
+          display_name: label,
           role: "Quota Race Agent",
-          options: %{},
-          owner_principal_uid: owner_uid
+          options: %{}
         })
+      end)
 
-      {:ok, _quota} = TokenQuota.put(agent_uid, quota_attrs(100))
+    agent_uid = agent.uid
+
+    on_exit_in_tenant(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent_uid)
+      end)
     end)
 
-    on_exit(fn ->
-      Sandbox.unboxed_run(Repo, fn ->
-        # The Agent row references its owner with RESTRICT, so the Agent goes first.
-        Repo.delete_all(from(p in Principal, where: p.uid == ^agent_uid))
-        Repo.delete_all(from(p in Principal, where: p.uid == ^owner_uid))
-      end)
+    Sandbox.unboxed_run(Repo, fn ->
+      {:ok, _quota} = TokenQuota.put(agent_uid, quota_attrs(100))
     end)
 
     quota_write = hold_transaction(fn -> TokenQuota.put(agent_uid, quota_attrs(200)) end)
@@ -129,7 +116,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     second = %{first | channel_name: nil, channel_metadata: %{"second" => true}}
 
-    on_exit(fn ->
+    on_exit_in_tenant(fn ->
       Sandbox.unboxed_run(Repo, fn -> Repo.delete_all(from(c in Channel, where: c.id == ^id)) end)
     end)
 
@@ -146,20 +133,16 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert {:ok, channel} = finish(loser)
     assert channel.name == "Original name"
     assert channel.metadata == %{"first" => true, "second" => true}
-    assert Repo.get!(Channel, id).metadata == channel.metadata
+    assert Repo.get_by!(Channel, id: id).metadata == channel.metadata
   end
 
   describe "runtime placement and automation lock order" do
     setup do
       %{principal: agent} = Sandbox.unboxed_run(Repo, &RuntimeCase.agent_fixture/0)
 
-      on_exit(fn ->
+      on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "heavy")
-
-          Repo.delete_all(
-            from(a in ActorSessionWorkerAssignment, where: a.agent_uid == ^agent.uid)
-          )
 
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
@@ -174,49 +157,31 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       %{agent: agent}
     end
 
-    test "one placement does not lock the other ready worker", %{agent: agent} do
-      alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
-      routes = [RuntimeCase.unique_route(), RuntimeCase.unique_route()]
-
-      workers =
-        Sandbox.unboxed_run(Repo, fn ->
-          for route <- routes do
-            assert {:ok, worker} =
-                     RuntimeCase.admit_worker(route, %{
-                       capacity: %{"available_turn_slots" => 1_000_000}
-                     })
-
-            worker
-          end
-        end)
-
-      on_exit(fn ->
-        Sandbox.unboxed_run(Repo, fn ->
-          Repo.delete_all(
-            from(a in ActorSessionWorkerAssignment, where: a.agent_uid == ^agent.uid)
-          )
-
-          Repo.delete_all(from(w in AgentComputerWorker, where: w.transport_route in ^routes))
-        end)
+    test "a placement waits for a concurrent placement on the Agent's Worker row", %{
+      agent: agent
+    } do
+      Sandbox.unboxed_run(Repo, fn ->
+        assert {:ok, _worker} =
+                 RuntimeCase.admit_worker(RuntimeCase.unique_route(), %{
+                   worker_id: agent.uid,
+                   capacity: %{"available_slots" => 2}
+                 })
       end)
 
-      first =
-        hold_transaction(fn ->
-          WorkerPool.assign_worker(%{agent_uid: agent.uid, session_id: "first"})
-        end)
+      first = hold_transaction(fn -> AgentWorkers.reserve_slot_in_tx(Repo, agent.uid) end)
 
       second =
         start_unboxed(fn ->
-          WorkerPool.assign_worker(%{agent_uid: agent.uid, session_id: "second"})
+          Repo.transact(fn repo -> AgentWorkers.reserve_slot_in_tx(repo, agent.uid) end)
         end)
 
-      assert {:ok, second_assignment} = finish(second)
+      # The row is the Agent's only candidate, so a locked row must make the
+      # second placement wait, not report that the Agent has no Worker.
+      assert_blocked_by(second, first)
       release(first)
-      assert {:ok, first_assignment} = finish(first)
-      refute first_assignment.worker_id == second_assignment.worker_id
-
-      assert Enum.sort([first_assignment.worker_id, second_assignment.worker_id]) ==
-               Enum.sort(Enum.map(workers, & &1.worker_id))
+      assert {:ok, _worker} = finish(first)
+      assert {:ok, worker} = finish(second)
+      assert AgentWorker.available_slots(worker) == 0
     end
 
     test "starting a run waits for cancellation without holding its Run lock", %{agent: agent} do
@@ -224,12 +189,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       {job, run} =
         Sandbox.unboxed_run(Repo, fn ->
+          Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/test/main.ts")
+
           assert {:ok, job} =
                    AutomationJobs.create_job(%{
                      agent_uid: agent.uid,
                      owner_session_id: "cancel-race",
                      source_actor_event_id: Ankole.WorkFixtures.service_source(agent.uid).id,
-                     directory_path: "/agents/#{agent.uid}/automation/test",
+                     drive_prefix: "automation/test",
                      label: "Cancellation race"
                    })
 
@@ -273,10 +240,9 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   describe "Library ownership during concurrent operator actions" do
     setup do
       suffix = System.unique_integer([:positive])
-      slug = "concepts/concurrent-library-#{suffix}"
-      dir = Path.join(System.tmp_dir!(), "ankole-library-concurrency-#{suffix}")
-      File.mkdir_p!(dir)
-      set = %{kind: :knowledge, set_id: "concurrent-library-#{suffix}", name: "Library", dir: dir}
+      name = "concurrent-library-#{suffix}"
+      slug = "lazyload-agent-skills/#{name}"
+      set = library_skill_set(name, "Original shipped body.")
 
       schema_rows =
         Sandbox.unboxed_run(Repo, fn ->
@@ -285,9 +251,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           end
         end)
 
-      on_exit(fn ->
-        File.rm_rf!(dir)
-
+      on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           Repo.delete_all(from(object in Object, where: object.slug == ^slug))
           Repo.delete_all(from(source in Source, where: source.upstream_id == ^set.set_id))
@@ -306,8 +270,6 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         end)
       end)
 
-      write_library_page(dir, slug, "Original shipped body.")
-
       source =
         Sandbox.unboxed_run(Repo, fn ->
           assert {:ok, _packs} = SchemaPacks.install_packs([])
@@ -315,69 +277,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           Repo.get_by!(Source, kind: "library", upstream_id: set.set_id)
         end)
 
-      %{dir: dir, set: set, source: source, slug: slug}
-    end
-
-    test "rebuilding chunks waits for a content edit and uses its committed body", ctx do
-      old = Repo.get_by!(Object, slug: ctx.slug)
-
-      edit =
-        hold_transaction(fn ->
-          assert {:ok, object} = Objects.fork_library_page(ctx.slug)
-
-          Objects.update_object(
-            ctx.slug,
-            %{body: "Committed replacement.", expected_content_hash: object.content_hash},
-            :system
-          )
-        end)
-
-      rebuild = start_unboxed(fn -> Objects.reconcile_chunks(old) end)
-      assert_blocked_by(rebuild, edit)
-      release(edit)
-      assert {:ok, _} = finish(edit)
-      assert {:ok, current} = finish(rebuild)
-      assert current.body == "Committed replacement."
-      assert chunk_texts(current) == ["Committed replacement."]
-    end
-
-    test "sync waits for Fork and preserves the instance body and its retrieval chunks", ctx do
-      write_library_page(ctx.dir, ctx.slug, "New shipped body.")
-
-      fork =
-        hold_transaction(fn ->
-          assert {:ok, object} = Objects.fork_library_page(ctx.slug)
-          assert {:ok, _alias} = Links.add_alias(ctx.slug, "Instance alias")
-
-          Objects.update_object(
-            ctx.slug,
-            %{body: "My instance content.", expected_content_hash: object.content_hash},
-            :system
-          )
-        end)
-
-      sync = start_unboxed(fn -> LibraryKnowledge.sync(sets: [ctx.set]) end)
-      assert_blocked_by(sync, fork)
-      release(fork)
-
-      assert {:ok, _object} = finish(fork)
-      assert {:ok, %{reports: [%{shadowed: 1, projected: 0}]}} = finish(sync)
-
-      object = Repo.get_by!(Object, slug: ctx.slug)
-      assert object.managed_by_source_id == nil
-      assert object.body == "My instance content."
-      assert object.content_hash == Objects.content_hash(object.title, object.body, object.meta)
-      assert ["My instance content."] == chunk_texts(object)
-      assert Repo.get_by(ObjectAlias, object_slug: ctx.slug, alias_norm: "instance alias")
-
-      assert Repo.aggregate(
-               from(version in ObjectVersion, where: version.object_id == ^object.id),
-               :count
-             ) == 1
+      %{name: name, set: set, source: source, slug: slug}
     end
 
     test "a sync that read the Source before archive cannot restore its pages", ctx do
-      write_library_page(ctx.dir, ctx.slug, "New shipped body.")
+      set = library_skill_set(ctx.name, "New shipped body.")
 
       sync =
         start_unboxed(fn ->
@@ -387,7 +291,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
               not String.contains?(metadata.query, "FOR UPDATE")
           end)
 
-          LibraryKnowledge.sync(sets: [ctx.set])
+          LibraryKnowledge.sync(sets: [set])
         end)
 
       assert_receive {:query_paused, sync_pid}, 5_000
@@ -406,8 +310,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
 
     test "archive waits for an in-flight projection and withdraws the committed page", ctx do
-      write_library_page(ctx.dir, ctx.slug, "New shipped body.")
-      sync = hold_transaction(fn -> LibraryKnowledge.sync(sets: [ctx.set]) end)
+      set = library_skill_set(ctx.name, "New shipped body.")
+      sync = hold_transaction(fn -> LibraryKnowledge.sync(sets: [set]) end)
       archive = start_unboxed(fn -> Sources.archive(ctx.source.id) end)
       assert_blocked_by(archive, sync)
       release(sync)
@@ -427,31 +331,131 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
   end
 
+  describe "conversation tool commit and takeover" do
+    setup do
+      %{principal: agent} = Sandbox.unboxed_run(Repo, &RuntimeCase.agent_fixture/0)
+      key = %{agent_uid: agent.uid, session_id: "receipt-race:#{Ecto.UUID.generate()}"}
+
+      {:ok, run} =
+        Sandbox.unboxed_run(Repo, fn ->
+          {:ok, event} =
+            Repo.transact(fn repo ->
+              Ankole.SignalsGateway.append_actor_event_in_tx(
+                repo,
+                Map.merge(key, %{
+                  sender_key: agent.uid,
+                  binding_name: "control-plane:test",
+                  source_event_id: Ecto.UUID.generate(),
+                  type: "im.message.addressed",
+                  payload: %{},
+                  available_at: DateTime.utc_now(:microsecond)
+                })
+              )
+            end)
+
+          Admission.admit(key, event)
+        end)
+
+      on_exit_in_tenant(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+          Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+          Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
+        end)
+      end)
+
+      %{key: key, run: run}
+    end
+
+    test "takeover waits for all tool transactions and rejects a late old write (G6)", %{
+      key: key,
+      run: run
+    } do
+      first =
+        hold_transaction(fn ->
+          Receipts.execute(run, "resp_fence", "one", fn _ ->
+            {:ok, %ToolResult{output: "one", details: %{"one" => true}}, []}
+          end)
+        end)
+
+      second =
+        hold_transaction(fn ->
+          Receipts.execute(run, "resp_fence", "two", fn _ ->
+            {:ok, %ToolResult{output: "two", details: %{"two" => true}}, []}
+          end)
+        end)
+
+      takeover = start_unboxed(fn -> Admission.admit(key, run.event) end)
+      assert_blocked_by(takeover, first)
+      release(first)
+      assert {:ok, _} = finish(first)
+      assert_blocked_by(takeover, second)
+      release(second)
+      assert {:ok, _} = finish(second)
+      assert {:ok, current} = finish(takeover)
+      assert current.epoch == run.epoch + 1
+
+      assert {:error, :stale_driver} =
+               Sandbox.unboxed_run(Repo, fn ->
+                 Receipts.execute(run, "resp_fence", "late", fn _ ->
+                   flunk("the old writer executed")
+                 end)
+               end)
+    end
+
+    test "a concurrent duplicate rolls back its domain change and returns the winner's receipt (G3)",
+         %{run: run} do
+      operation = fn repo ->
+        {1, _} =
+          repo.update_all(
+            from(p in Ankole.Principals.Principal,
+              where: p.uid == ^run.agent_uid,
+              update: [set: [display_name: fragment("? || '+tool'", p.display_name)]]
+            ),
+            []
+          )
+
+        {:ok, %ToolResult{output: "saved", details: %{"saved" => true}}, []}
+      end
+
+      first =
+        hold_transaction(fn -> Receipts.execute(run, "resp_duplicate", "one", operation) end)
+
+      second = start_unboxed(fn -> Receipts.execute(run, "resp_duplicate", "one", operation) end)
+      assert_blocked_by(second, first)
+      release(first)
+      assert {:ok, receipt} = finish(first)
+      assert {:ok, ^receipt} = finish(second)
+      name = Repo.get!(Ankole.Principals.Principal, run.agent_uid).display_name
+      assert length(String.split(name, "+tool")) == 2
+    end
+  end
+
   describe "a user steer races with the Worker's terminal Job RPC" do
+    @describetag sandbox: false
+
     setup context do
       RuntimeCase.use_mock_signal_provider_plugin(context)
       route = RuntimeCase.unique_route()
-      :ok = Broker.register_local_worker(route, self())
+      :ok = WorkerRoute.register_local_worker(route, self())
       previews = RuntimeCase.preview_handler_pids()
+      drivers = RuntimeCase.driver_pids()
 
       %{principal: agent} = Sandbox.unboxed_run(Repo, &RuntimeCase.agent_fixture/0)
 
-      on_exit(fn ->
+      on_exit_in_tenant(fn ->
+        RuntimeCase.stop_new_drivers(drivers)
         RuntimeCase.stop_new_preview_handlers(previews)
-        Broker.unregister_local_worker(route)
+        WorkerRoute.unregister_local_worker(route)
 
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "heavy")
 
-          for schema <- [ActorEventDelivery, ActorSessionActivation, ActorSessionWorkerAssignment] do
-            Repo.delete_all(from(row in schema, where: row.agent_uid == ^agent.uid))
-          end
+          Repo.delete_all(
+            from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
+          )
 
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
-
-          Repo.delete_all(
-            from(worker in AgentComputerWorker, where: worker.transport_route == ^route)
-          )
 
           Repo.delete_all(
             from(provider in Ankole.AIGateway.ProviderConfigs.Provider,
@@ -461,105 +465,116 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         end)
       end)
 
-      Sandbox.unboxed_run(Repo, fn ->
-        RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
-        assert {:ok, _worker} = RuntimeCase.admit_worker(route)
+      {:ok, context} =
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transact(fn _repo ->
+            RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+            assert {:ok, _worker} = RuntimeCase.admit_worker(route, %{worker_id: agent.uid})
 
-        assert {:ok, %{job: job}} =
-                 BackgroundAgentJobs.create_with_dispatch(%{
-                   "agent_uid" => agent.uid,
-                   "owner_session_id" => "owner-#{agent.uid}",
-                   "source_tool_call_id" => "tool-#{agent.uid}",
-                   "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
-                   "title" => "Concurrent Job",
-                   "task" => "Finish the report.",
-                   "reply_route" => %{"binding_name" => "bot", "signal_channel_id" => route}
-                 })
+            assert {:ok, %{job: job, dispatch_event: dispatch}} =
+                     BackgroundAgentJobs.create_with_dispatch(%{
+                       "agent_uid" => agent.uid,
+                       "owner_session_id" => "owner-#{agent.uid}",
+                       "source_tool_call_id" => "tool-#{agent.uid}",
+                       "source_actor_event_id" =>
+                         Ankole.WorkFixtures.service_source(agent.uid).id,
+                       "title" => "Concurrent Job",
+                       "task" => "Finish the report.",
+                       "reply_route" => %{"binding_name" => "bot", "signal_channel_id" => route}
+                     })
 
-        actor_key = %{
-          agent_uid: agent.uid,
-          session_id: BackgroundAgentJobs.job_session_id(job.id)
-        }
+            actor_key = %{
+              agent_uid: agent.uid,
+              session_id: BackgroundAgentJobs.job_session_id(job.id)
+            }
 
-        assert {:ok, %{send_outcome: "sent_or_queued"}} =
-                 ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-                   now: DateTime.add(job.queued_at, 1, :second),
-                   lease_seconds: 31_536_000
-                 )
+            assert {:ok, run} = CodexJob.admit(actor_key, dispatch, [])
+            turn_ref = run.job_ref
+            turn = JobTurnRef.to_proto(turn_ref)
 
-        assert_receive {:actor_lane, envelope}, 1_000
-        turn = RuntimeCase.turn_start_payload!(envelope).turn
-        turn_ref = RuntimeCase.domain_turn_ref(turn)
+            assert {:ok, _result} =
+                     BackgroundAgentJobs.commit_status_with_wakeup(
+                       job.id,
+                       agent.uid,
+                       %{"status" => "running", "runtime_thread_id" => "thread-#{job.id}"},
+                       turn_ref: turn_ref,
+                       worker_id: agent.uid
+                     )
 
-        assert {:ok, [_delivery]} =
-                 ActorRuntime.handle_turn_accepted(RuntimeCase.turn_accepted_payload(turn))
+            completed_at = DateTime.utc_now(:microsecond)
 
-        assert {:ok, _result} =
-                 BackgroundAgentJobs.commit_status_with_wakeup(
-                   job.id,
-                   agent.uid,
-                   %{"status" => "running", "runtime_thread_id" => "thread-#{job.id}"},
-                   turn_ref: turn_ref,
-                   worker_route: route
-                 )
-
-        completed_at = DateTime.utc_now(:microsecond)
-
-        assert {:ok, _turn} =
-                 BackgroundAgentJobs.upsert_turn_from_worker(
-                   job.id,
-                   agent.uid,
-                   %{
-                     "attempt" => 1,
-                     "runtime_thread_id" => "thread-#{job.id}",
-                     "runtime_turn_id" => "turn-#{job.id}",
-                     "kind" => "agent",
-                     "status" => "completed",
-                     "revision" => 0,
-                     "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
-                     "turn_items" => [
+            assert {:ok, _turn} =
+                     BackgroundAgentJobs.upsert_turn_from_worker(
+                       job.id,
+                       agent.uid,
                        %{
-                         "position" => 0,
-                         "item_key" => "answer",
-                         "item" => %{
-                           "type" => "agentMessage",
-                           "id" => "answer",
-                           "text" => "Report finished."
-                         }
-                       }
-                     ],
-                     "progress" => %{
-                       "completed_items" => 0,
-                       "tool_calls" => 0,
-                       "tools_used" => [],
-                       "files_changed" => []
-                     },
-                     "usage" => nil,
-                     "error" => %{},
-                     "started_at" => completed_at,
-                     "completed_at" => completed_at
-                   },
-                   turn_ref,
-                   route
-                 )
+                         "attempt" => 1,
+                         "runtime_thread_id" => "thread-#{job.id}",
+                         "runtime_turn_id" => "turn-#{job.id}",
+                         "kind" => "agent",
+                         "status" => "completed",
+                         "revision" => 0,
+                         "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
+                         "turn_items" => [
+                           %{
+                             "position" => 0,
+                             "item_key" => "answer",
+                             "item" => %{
+                               "type" => "agentMessage",
+                               "id" => "answer",
+                               "text" => "Report finished."
+                             }
+                           }
+                         ],
+                         "progress" => %{
+                           "completed_items" => 0,
+                           "tool_calls" => 0,
+                           "tools_used" => [],
+                           "files_changed" => []
+                         },
+                         "usage" => nil,
+                         "error" => %{},
+                         "started_at" => completed_at,
+                         "completed_at" => completed_at
+                       },
+                       turn_ref,
+                       agent.uid
+                     )
 
-        assert {:ok, %{command_event: steer}} =
-                 BackgroundAgentJobs.send_message(job.id, %{
-                   "agent_uid" => agent.uid,
-                   "message" => "Include the operator runbook.",
-                   "request_id" => "steer-#{job.id}"
-                 })
+            assert {:ok, %{command_event: steer}} =
+                     BackgroundAgentJobs.send_message(job.id, %{
+                       "agent_uid" => agent.uid,
+                       "message" => "Include the operator runbook.",
+                       "request_id" => "steer-#{job.id}"
+                     })
 
-        %{agent: agent, actor_key: actor_key, job: job, turn: turn, route: route, steer: steer}
-      end)
+            {:ok,
+             %{
+               agent: agent,
+               actor_key: actor_key,
+               job: job,
+               turn: turn,
+               route: route,
+               steer: steer
+             }}
+          end)
+        end)
+
+      context
     end
 
     test "terminal RPC takes the Worker lock before a waiting steer takes its event", ctx do
       terminal =
         start_unboxed(fn ->
           pause_after_query(fn metadata ->
-            metadata.source == "agent_computer_workers" and
-              String.contains?(metadata.query, "FOR UPDATE")
+            if metadata.source == "background_agent_jobs" and
+                 String.contains?(metadata.query, "FOR UPDATE") do
+              count = Process.get(:job_locks, 0) + 1
+              Process.put(:job_locks, count)
+              count == 2
+            else
+              false
+            end
           end)
 
           terminal_job_rpc(ctx)
@@ -569,7 +584,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert terminal_pid == terminal.task.pid
 
       steer =
-        start_unboxed(fn -> ReadyEventProcessor.process_ready_event_for_actor(ctx.actor_key) end)
+        start_unboxed(fn -> CodexJob.admit(ctx.actor_key, ctx.steer, []) end)
 
       assert_blocked_by(steer, terminal)
 
@@ -588,23 +603,32 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       send(terminal.task.pid, :continue_query)
       assert_terminal_rpc(finish(terminal))
-      assert {:ok, %{status: :idle}} = finish(steer)
-      assert_successor(ctx)
+      # Admission completes a terminal Job's event without starting another attempt.
+      assert {:ok, %{status: :idle, actor_event: %ActorEvent{} = completed_event}} = finish(steer)
+      assert completed_event.id == ctx.steer.id
+      assert %DateTime{} = completed_event.completed_at
+      persisted = Repo.get!(Job, ctx.job.id)
+      assert persisted.status == "succeeded"
+      assert persisted.attempts == 1
+      assert persisted.runtime_thread_id == "thread-#{ctx.job.id}"
+      assert Repo.get!(ActorEvent, ctx.steer.id).completed_at
+
+      assert Repo.aggregate(from(j in Job, where: j.continued_from_job_id == ^ctx.job.id), :count) ==
+               1
     end
 
-    test "a delivered but unaccepted steer survives a terminal RPC waiting on the Worker", ctx do
-      steer =
-        hold_transaction(fn ->
-          ReadyEventProcessor.process_ready_event_for_actor(ctx.actor_key)
-        end)
+    test "duplicate terminal RPCs commit once and seed one successor for unapplied input", ctx do
+      first = hold_transaction(fn -> terminal_job_rpc(ctx) end)
+      repeated = start_unboxed(fn -> terminal_job_rpc(ctx) end)
+      assert_blocked_by(repeated, first)
+      release(first)
+      assert_terminal_rpc(finish(first))
+      assert_terminal_rpc(finish(repeated))
+      assert Repo.get!(Job, ctx.job.id).status == "succeeded"
+      assert Repo.get!(ActorEvent, ctx.steer.id).completed_at
 
-      terminal = start_unboxed(fn -> terminal_job_rpc(ctx) end)
-      assert_blocked_by(terminal, steer)
-      release(steer)
-
-      assert {:ok, %{status: :active_steer_nudged}} = finish(steer)
-      assert_terminal_rpc(finish(terminal))
-      assert_successor(ctx)
+      assert Repo.aggregate(from(j in Job, where: j.continued_from_job_id == ^ctx.job.id), :count) ==
+               1
     end
   end
 
@@ -612,24 +636,27 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     setup do
       suffix = System.unique_integer([:positive])
       provider_ids = ["concurrent-a-#{suffix}", "concurrent-b-#{suffix}"]
+      application_suffix = String.replace(Repo.tenant_id!(), "-", "")
+      app_ids = ["cli_first_#{application_suffix}", "cli_second_#{application_suffix}"]
       definition = ProviderConfig.active_definition()
+      scope = "tenant:" <> Repo.tenant_id!()
       Cache.clear_for_test()
 
       original =
         Sandbox.unboxed_run(Repo, fn ->
-          Repo.get_by(AppConfig, scope: "global", key: definition.key)
+          Repo.get_by(AppConfig, scope: scope, key: definition.key)
         end)
 
-      on_exit(fn ->
+      on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           Repo.delete_all(
-            from(row in AppConfig, where: row.scope == "global" and row.key == ^definition.key)
+            from(row in AppConfig, where: row.scope == ^scope and row.key == ^definition.key)
           )
 
           if original, do: Repo.insert!(original)
 
           for adapter <- ["lark", "local"], provider_id <- provider_ids do
-            AppConfigure.delete_global_by_key(
+            AppConfigure.delete_tenant_by_key(
               "principals.identity_providers.#{adapter}.#{provider_id}"
             )
           end
@@ -639,18 +666,19 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       end)
 
       assert {:ok, []} = ProviderConfig.active_providers()
-      %{provider_ids: provider_ids, definition: definition}
+      %{provider_ids: provider_ids, app_ids: app_ids, definition: definition, scope: scope}
     end
 
     test "both saves merge with the committed activation list and retain their own configuration",
          ctx do
       [first_id, second_id] = ctx.provider_ids
+      [first_app_id, second_app_id] = ctx.app_ids
 
       first =
         paused_provider_save(
           first_id,
           "lark",
-          %{"appID" => "cli_first", "appSecret" => "first-secret"},
+          %{"appID" => first_app_id, "appSecret" => "first-secret"},
           false
         )
 
@@ -659,7 +687,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           IdentityProviders.save_provider(
             second_id,
             "lark",
-            %{"appID" => "cli_second", "appSecret" => "second-secret"},
+            %{"appID" => second_app_id, "appSecret" => "second-secret"},
             false
           )
         end)
@@ -673,12 +701,12 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert Enum.sort(Enum.map(providers, & &1["provider_id"])) == Enum.sort(ctx.provider_ids)
       assert Enum.all?(providers, &(&1["enabled"] == false))
 
-      for {provider_id, app_id} <- [{first_id, "cli_first"}, {second_id, "cli_second"}] do
+      for {provider_id, app_id} <- [{first_id, first_app_id}, {second_id, second_app_id}] do
         key = "principals.identity_providers.lark.#{provider_id}"
         assert {:ok, %{"appID" => ^app_id}} = AppConfigure.get_by_key(key)
 
         assert %AppConfig{value: %{"type" => "cipher"}} =
-                 Repo.get_by!(AppConfig, scope: "global", key: key)
+                 Repo.get_by!(AppConfig, scope: ctx.scope, key: key)
       end
     end
 
@@ -700,7 +728,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                ProviderConfig.active_providers()
 
       refute Repo.get_by(AppConfig,
-               scope: "global",
+               scope: ctx.scope,
                key: "principals.identity_providers.local.#{second_id}"
              )
 
@@ -717,10 +745,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   end
 
   defp paused_provider_save(provider_id, adapter_id, config, enabled) do
+    activation_lock =
+      "app_configure:tenant:#{Repo.tenant_id!()}:#{ProviderConfig.active_definition().key}"
+
     operation =
       start_unboxed(fn ->
         pause_after_query(fn metadata ->
-          String.contains?(metadata.query, "pg_advisory_xact_lock")
+          String.contains?(metadata.query, "pg_advisory_xact_lock") and
+            metadata.params == [activation_lock]
         end)
 
         IdentityProviders.save_provider(provider_id, adapter_id, config, enabled)
@@ -741,10 +773,10 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           status: "succeeded",
           result_json: Ankole.JSON.encode!(%{"summary" => "Report finished."})
         },
-        turn: ctx.turn
+        job_turn: ctx.turn
       )
 
-    RPCLane.handle_request(request, ctx.route)
+    RPCLane.handle_request(request, %{transport_route: ctx.route, worker_id: ctx.agent.uid})
   end
 
   defp assert_terminal_rpc({:ok, envelope}) do
@@ -752,43 +784,19 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert response.status == "succeeded"
   end
 
-  defp assert_successor(ctx) do
-    assert [%Job{} = successor] =
-             Repo.all(from(job in Job, where: job.continued_from_job_id == ^ctx.job.id))
-
-    assert successor.status == "queued"
-    assert successor.task == "Include the operator runbook."
-    assert successor.runtime_thread_id == "thread-#{ctx.job.id}"
-    assert successor.source_actor_event_id == ctx.steer.id
-    source = Repo.get!(Job, ctx.job.id)
-    assert source.status == "succeeded"
-    assert is_binary(successor.metadata["owner_conversation_id"])
-    assert successor.metadata["owner_conversation_id"] == source.metadata["owner_conversation_id"]
-    assert Repo.get!(ActorEvent, ctx.steer.id).completed_at != nil
-
-    wakeup =
-      Repo.one!(
-        from(event in ActorEvent,
-          where:
-            event.agent_uid == ^ctx.agent.uid and event.session_id == ^source.owner_session_id
-        )
-      )
-
-    assert get_in(wakeup.payload, ["data", "successor_job_id"]) == successor.id
-  end
-
-  defp write_library_page(dir, slug, body) do
-    File.write!(Path.join(dir, "page.md"), """
-    ---
-    slug: #{slug}
-    type: concept
-    title: Library concurrency
-    aliases:
-      - Shipped alias
-    ---
-
-    #{body}
-    """)
+  defp library_skill_set(name, description) do
+    %{
+      set_id: name,
+      name: "Library Skill inventory",
+      skills: [
+        %{
+          name: name,
+          description: description,
+          source_hash: description,
+          metadata: %{"tags" => []}
+        }
+      ]
+    }
   end
 
   defp chunk_texts(object) do
@@ -811,9 +819,12 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
   defp start_unboxed(fun) do
     parent = self()
+    tenant_id = Repo.tenant_id!()
 
     task =
       Task.async(fn ->
+        Repo.put_tenant_id(tenant_id)
+
         Sandbox.unboxed_run(Repo, fn ->
           Process.put({__MODULE__, :parent}, parent)
           %{rows: [[backend_pid]]} = Repo.query!("SELECT pg_backend_pid()")
@@ -862,6 +873,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
   defp release(operation), do: send(operation.task.pid, :commit_transaction)
   defp finish(operation), do: Task.await(operation.task, 10_000)
+
+  defp on_exit_in_tenant(fun) do
+    tenant_id = Repo.tenant_id!()
+    on_exit(fn -> Repo.with_tenant(tenant_id, fun) end)
+  end
 
   defp pause_after_query(predicate) do
     handler_id = {__MODULE__, self(), make_ref()}

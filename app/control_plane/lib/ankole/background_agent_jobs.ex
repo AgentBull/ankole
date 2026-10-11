@@ -18,7 +18,6 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
-  alias Ankole.BackgroundAgentJobs.TurnWatchdog
   alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
 
   @job_session_prefix "job:"
@@ -37,7 +36,7 @@ defmodule Ankole.BackgroundAgentJobs do
   Builds the durable actor-session id for one BackgroundAgentJob.
 
   The `"job:" <> Integer.to_string(job_id)` format is a frozen public contract: it is persisted in
-  `actor_events.session_id`, worker assignments, and AIGateway
+  `actor_events.session_id` and AIGateway
   `conversations.conversation_key`; documented in the Console API session
   schema; and typed by operators in the Console session picker. See
   `docs/design-docs/BackgroundAgentJob.md`. Changing it means a data migration
@@ -84,7 +83,6 @@ defmodule Ankole.BackgroundAgentJobs do
   def job_session_prefix, do: @job_session_prefix
 
   @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   @spec turn_error_retry_at(map(), pos_integer(), DateTime.t()) :: DateTime.t()
   def turn_error_retry_at(reason, delivery_attempt_no, %DateTime{} = now)
       when is_map(reason) and is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
@@ -95,12 +93,6 @@ defmodule Ankole.BackgroundAgentJobs do
         :second
       )
   end
-
-  @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
-  def dead_letter_after_turn_error?(%ActorEvent{}, _reason, recoverable?)
-      when is_boolean(recoverable?),
-      do: not recoverable?
 
   @background_job_wakeup_notice_keys %{
     "background_agent_job.completed" => "background_agent_job_dead_letter_succeeded",
@@ -135,53 +127,6 @@ defmodule Ankole.BackgroundAgentJobs do
 
   def dead_letter_notice_text(%ActorEvent{}), do: nil
 
-  @doc "True when a completed Job event carries an explicit provider-delivery receipt."
-  @spec silent_success_allowed?(ActorEvent.t()) :: boolean()
-  def silent_success_allowed?(%ActorEvent{
-        type: "background_agent_job.completed",
-        payload: payload
-      }) do
-    get_in(payload || %{}, ["data", "silent_success_allowed"]) == true
-  end
-
-  def silent_success_allowed?(%ActorEvent{}), do: false
-
-  @doc false
-  @spec silent_success_text?(term()) :: boolean()
-  def silent_success_text?(text) when is_binary(text) do
-    case Ankole.JSON.decode(text) do
-      {:ok, %{"outcome" => "silent_success", "reply" => nil} = value} ->
-        map_size(value) == 2
-
-      _other ->
-        false
-    end
-  end
-
-  def silent_success_text?(_text), do: false
-
-  @doc "Rejects a background completion that claims silence without the persisted receipt."
-  @spec validate_completion(ActorEvent.t(), map(), String.t()) :: :ok | {:error, atom()}
-  def validate_completion(
-        %ActorEvent{type: "background_agent_job.completed"} = event,
-        completion,
-        outcome
-      )
-      when is_map(completion) and is_binary(outcome) do
-    cond do
-      outcome == "silent" and not silent_success_allowed?(event) ->
-        {:error, :background_agent_job_silent_success_not_allowed}
-
-      outcome != "silent" and silent_success_text?(Map.get(completion, :final_text)) ->
-        {:error, :background_agent_job_silent_success_not_allowed}
-
-      true ->
-        :ok
-    end
-  end
-
-  def validate_completion(%ActorEvent{}, _completion, _outcome), do: :ok
-
   defp ladder_seconds(:infrastructure, delivery_attempt_no) do
     Enum.at(
       @infrastructure_retry_seconds,
@@ -203,46 +148,14 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
 
   @doc false
-  defdelegate claim_attempt_in_tx(
-                repo,
-                job_id,
-                agent_uid,
-                expected_attempt,
-                turn_start_spec,
-                max_running_per_agent
-              ),
-              to: Lifecycle
-
-  @doc false
-  defdelegate claim_continuation_in_tx(
-                repo,
-                job_id,
-                agent_uid,
-                expected_attempt,
-                turn_start_spec,
-                max_running_per_agent
-              ),
-              to: Lifecycle
-
-  @doc false
-  defdelegate requeue_unstarted_attempt(job_id, agent_uid, expected_attempt),
-    to: Lifecycle
-
-  @doc false
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
     to: Lifecycle
-
-  @doc false
-  defdelegate finalize_worker_turn_in_tx(repo, turn_ref, now), to: Lifecycle
 
   @doc "Delays one still-open job actor event without consuming it."
   defdelegate defer_actor_event(actor_event, available_at), to: Dispatch
 
   @doc "Completes a job actor event that no longer needs execution."
   defdelegate complete_actor_event(actor_event), to: Dispatch
-
-  @doc "Consumes a superseded initial dispatch before a queued steer starts work."
-  defdelegate complete_open_dispatch(job_id, agent_uid), to: Dispatch
 
   @doc "Commits one lifecycle transition and its parent wakeup atomically."
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []),
@@ -281,7 +194,6 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   def compensate_turn_error_in_tx(
         repo,
         %ActorEvent{
@@ -353,9 +265,9 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   # A retryable attempt failure returns the Job to `queued` so `running` always
-  # means an active runtime Turn. The Job stops holding an Agent slot and a
-  # Worker assignment while its actor event waits on the retry ladder; the next
-  # delivery claims a fresh attempt through the ordinary capacity checks.
+  # means an active runtime Turn. The Job stops holding an Agent slot while its
+  # actor event waits on the retry ladder; the next delivery claims a fresh
+  # attempt through the ordinary capacity checks.
   def compensate_turn_error_in_tx(
         repo,
         %ActorEvent{
@@ -376,13 +288,34 @@ defmodule Ankole.BackgroundAgentJobs do
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
+  @doc "Returns a terminal Job error when the Agent quota is exhausted."
+  @spec quota_terminal_error(map(), String.t()) :: map()
+  def quota_terminal_error(error, agent_uid) do
+    if get_in(error, ["details_json", "error_code"]) == "credential_pool_exhausted" and
+         match?(
+           {:error, {:agent_token_quota_exceeded, _}},
+           Ankole.AIAgent.TokenQuota.ensure_available(agent_uid)
+         ) do
+      %{
+        "code" => "worker_turn_failed",
+        "message" => "The Agent has used its token quota for the current period.",
+        "details_json" => %{
+          "runtime" => "bun",
+          "retryable" => false,
+          "error_code" => "agent_token_quota_exceeded"
+        }
+      }
+    else
+      error
+    end
+  end
+
   # A quota rejection is the Job's own verdict, not a generic Worker turn
   # failure, so the stored code names it for every reader of the Job.
   defp terminal_failure_code(code, details) do
-    if details["error_code"] == "agent_token_quota_exceeded" or
-         get_in(details, ["aigateway", "code"]) == "agent_token_quota_exceeded",
-       do: "agent_token_quota_exceeded",
-       else: code
+    if details["error_code"] == "agent_token_quota_exceeded",
+      do: "agent_token_quota_exceeded",
+      else: code
   end
 
   # A declared pool recovery time is AIGateway backpressure, so the requeue
@@ -441,40 +374,6 @@ defmodule Ankole.BackgroundAgentJobs do
   defp charged_turn_error?(%{"code" => "context_overflow"}), do: false
   defp charged_turn_error?(reason), do: TurnErrorClassifier.classify(reason) != :infrastructure
 
-  @doc false
-  def finalize_turn_error(
-        {:ok,
-         %{
-           turn_error_compensation: %{kind: kind} = compensation
-         } = result}
-      )
-      when kind in [:credential_pool_requeued, :retryable_requeued] do
-    {:ok,
-     result
-     |> Map.delete(:turn_error_compensation)
-     |> Map.put(:status, :background_agent_job_requeued)
-     |> Map.put(:background_agent_job_requeue, compensation)}
-  end
-
-  def finalize_turn_error({:ok, %{turn_error_compensation: compensation} = result}) do
-    {:ok,
-     result
-     |> Map.delete(:turn_error_compensation)
-     |> Map.put(:status, :background_agent_job_failed)
-     |> Map.put(:background_agent_job_failure, compensation)}
-  end
-
-  def finalize_turn_error(result), do: result
-
-  @doc false
-  defdelegate runtime_event_snapshot(), to: TurnWatchdog
-
-  @doc "Fails or retries one Job whose runtime Turn stopped recording progress."
-  def reconcile_stuck_job(job_id, opts \\ []), do: TurnWatchdog.reconcile_stuck_job(job_id, opts)
-
-  @doc false
-  defdelegate pending_steer_events(job_id, agent_uid, excluded_event_id), to: Dispatch
-
   @doc "Lists a page of work owned by one Agent."
   def list_for_agent(agent_uid, opts \\ []), do: Queries.list_for_agent(agent_uid, opts)
 
@@ -528,7 +427,7 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
 
   @doc false
-  defdelegate upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, route),
+  defdelegate upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id),
     to: Lifecycle
 
   @doc "Lists normalized runtime turns for one job."

@@ -246,6 +246,7 @@ export function CronEditor({
             aria-label={labels.weekday}
             className="flex-wrap"
             disabled={disabled}
+            spacing={0}
             value={[String(fields.weekday)]}
             onValueChange={groupValue => {
               const next = groupValue.find(item => item !== String(fields.weekday)) ?? groupValue[0]

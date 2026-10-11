@@ -134,7 +134,8 @@ defmodule Ankole.I18n.Catalog do
   # AppConfigure only promises a non-empty string. This is the enforcement point
   # where that durable value must match the loaded application catalog.
   defp apply_config_default_locale do
-    with {:ok, configured} <- Config.default_locale(),
+    with {:ok, configured} <-
+           Ankole.AppConfigure.get(Config.default_locale_definition(), scope: :global),
          {:ok, tag} <- language_tag_for_loaded_locale(configured) do
       {:ok, _tag} = Localize.put_default_locale(tag)
       Resolver.clear_chain_cache()

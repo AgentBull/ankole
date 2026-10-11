@@ -1,3 +1,4 @@
+import { principalLabel } from '../../state/principal-label'
 import {
   Badge,
   Button,
@@ -41,10 +42,11 @@ export function BrainSearchPreviewPage() {
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const candidates = (principals.data?.principals ?? []).map(principal => ({
     id: principal.uid,
-    label: principal.display_name
+    label: principalLabel(principal),
+    description: principal.email ?? principal.handle
   }))
 
-  const preview = useMutation(ankoleWebBrainControllerSearchPreviewMutation())
+  const preview = useMutation({ ...ankoleWebBrainControllerSearchPreviewMutation(), meta: { invalidates: false } })
   const runPreview = () =>
     preview.mutate({
       body: {
@@ -169,8 +171,7 @@ export function BrainSearchPreviewPage() {
           <p className="text-xs text-muted-foreground">
             {t('console.brain.recall_stats', {
               claims: result.claims.length,
-              chunks: result.chunks.length,
-              sanitized: result.sanitized_count
+              chunks: result.chunks.length
             })}
           </p>
 

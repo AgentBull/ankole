@@ -18,25 +18,8 @@ defmodule Ankole.Plugins.SlackAdapter.ErrorPolicy do
     })
   end
 
-  def normalize_delivery_result({:error, :outbound_attachment_path_missing}) do
-    delivery_error(:operator_action_required, %{"code" => "attachment_path_missing"})
-  end
-
-  def normalize_delivery_result({:error, :multiple_outbound_attachments_not_supported}) do
-    delivery_error(:operator_action_required, %{
-      "code" => "multiple_attachments_not_supported"
-    })
-  end
-
   def normalize_delivery_result({:error, :slack_partial_delivery}) do
     delivery_error(:operator_action_required, %{"code" => "slack_delivery_unknown"})
-  end
-
-  def normalize_delivery_result({:error, %{"code" => code}}) when is_binary(code) do
-    delivery_error(:operator_action_required, %{
-      "code" => "attachment_file_unavailable",
-      "worker_file_code" => code
-    })
   end
 
   def normalize_delivery_result(result), do: result

@@ -5,13 +5,13 @@ defmodule Ankole.Brain.Schemas.Timeline do
   object instead of storing a second vector.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
 
   schema "brain_timelines" do
     field :object_slug, :string
-    field :author_uid, :string
+    field :author, Ankole.Ecto.ActorRef
     field :date, :date
     field :provenance, :string
     field :summary, :string

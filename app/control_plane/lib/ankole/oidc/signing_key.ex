@@ -9,7 +9,6 @@ defmodule Ankole.OIDC.SigningKey do
 
   use GenServer
 
-  alias Ankole.OIDC.Crypto
   alias Ankole.OIDC.SigningKeyRecord
   alias Ankole.Repo
 
@@ -63,7 +62,10 @@ defmodule Ankole.OIDC.SigningKey do
   defp load_or_create do
     with {:ok, row} <- ensure_row(),
          {:ok, private_key_pem} <-
-           Crypto.unseal(row.private_key_ciphertext, "signing_key", @record_id),
+           Ankole.SecretKeyBase.unseal(row.private_key_ciphertext, "oidc", [
+             "signing_key",
+             @record_id
+           ]),
          {:ok, public_jwk, kid} <- public_jwk_from_private_pem(private_key_pem),
          true <- row.kid == kid and row.public_jwk == public_jwk do
       {:ok, %{kid: kid, private_key_pem: private_key_pem, public_jwk: public_jwk}}
@@ -81,7 +83,7 @@ defmodule Ankole.OIDC.SigningKey do
 
         nil ->
           with {:ok, private_key_pem, public_jwk, kid} <- generate_key(),
-               {:ok, ciphertext} <- Crypto.seal(private_key_pem, "signing_key", @record_id),
+               {:ok, ciphertext} <- Ankole.OIDC.seal(private_key_pem, "signing_key", @record_id),
                {:ok, _inserted} <-
                  %SigningKeyRecord{}
                  |> SigningKeyRecord.changeset(%{

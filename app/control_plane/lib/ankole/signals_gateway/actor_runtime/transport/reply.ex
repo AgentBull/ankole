@@ -3,12 +3,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Reply do
   Deferred acknowledgement of one inbound Worker Channel message.
 
   The Worker Channel answers a `durable` or `control` message only after the
-  domain owner has committed it, but the commit runs in another process. The
-  channel hands that process a reply handle; the process calls `done/2` once.
+  domain owner has taken it. Environment messages are forwarded to the Driver.
+  Job tasks and Channel lifecycle writes
+  call `done/2` once with the reply handle.
   The reply itself is sent by the channel process, because the wire
   acknowledgement carries the stream's cumulative sequence and remaining
-  credits, which only the channel knows. A `nil` handle (local and ZeroMQ
-  routes) is a no-op.
+  credits, which only the channel knows. A `nil` handle (a local test route)
+  is a no-op.
   """
 
   @type t ::

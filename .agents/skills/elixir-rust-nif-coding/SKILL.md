@@ -52,9 +52,10 @@ Normal-scheduler NIFs must finish in **<1 ms** or they stall the BEAM. In this
 crate:
 
 - `DirtyCpu` — crypto, hashing, encoding, JWT, authz (cost scales with payload)
-- `DirtyIo` — ZeroMQ socket work (`runtime_fabric_router_*`)
+- `DirtyIo` — network and file work (`object_store_*_nif`,
+  `universal_ai_client_open_nif`)
 - normal scheduler — only trivially cheap calls (`gen_uuid`, `generate_key`,
-  `runtime_fabric_router_endpoint`)
+  `runtime_fabric_protocol_version`)
 
 ### 3. Return `NifResult<T>`; never panic
 
@@ -139,43 +140,65 @@ pub fn authz_authorize_json(snapshot_json: Term<'_>) -> NifResult<String> {
 
 The attribute macro is **mandatory** — a bare `impl Resource` compiles but panics at
 runtime (`Option::unwrap()` on `None`) because the type never registers. Keep the
-resource a plain newtype over a handle that owns its own thread/channels.
+resource a plain newtype over a handle; long-running work runs on a Rust-owned
+runtime, not on the scheduler that called the NIF. Rustler decodes arguments inside
+its own `catch_unwind`, so a resource needs no `UnwindSafe` impl. Set
+`IMPLEMENTS_DESTRUCTOR`/`IMPLEMENTS_DOWN` only when dropping the resource or the
+exit of its owner must stop work (`UniversalAIClientStreamResource`).
 
 ```rust
-pub struct RuntimeFabricRouterResource(pub RouterHandle);
+/// Owns one opened object store for the control-plane file service.
+pub struct ObjectStoreResource(pub object_store::Store);
 
 #[rustler::resource_impl]
-impl rustler::Resource for RuntimeFabricRouterResource {}
+impl rustler::Resource for ObjectStoreResource {}
 
 #[rustler::nif(schedule = "DirtyIo")]
-pub fn runtime_fabric_router_start(/* ... */) -> NifResult<ResourceArc<RuntimeFabricRouterResource>> {
-    let handle = runtime_fabric::transport::start_router(config, sink).map_err(error)?;
-    Ok(ResourceArc::new(RuntimeFabricRouterResource(handle)))
+pub fn object_store_open_nif<'a>(env: Env<'a>, spec: Term<'a>) -> NIFResult<Term<'a>> {
+    let spec = decode_string(spec, "spec")?;
+    match object_store::open(&spec) {
+        Ok(store) => Ok((atoms::ok(), ResourceArc::new(ObjectStoreResource(store))).encode(env)),
+        Err(reason) => Ok((atoms::error(), encode_object_store_error(env, &reason)).encode(env)),
+    }
 }
 ```
 
-### 9. Push async events with `OwnedEnv` + `send_and_clear`, from a Rust-owned thread
+### 9. Push async results with `OwnedEnv` + `send_and_clear`, from a Rust-owned thread
 
-Capture the owner `LocalPid`, build messages in an `OwnedEnv`, and tag them with
-`rustler::atoms!`. **Never** call `send_and_clear` from a BEAM-managed thread — it
-panics. Only Rust-owned socket/worker threads may send.
+The NIF starts the work and returns at once; the result arrives later as one
+tagged message to the owner `LocalPid`. Keep the caller's ref in an `OwnedEnv`
+(`BeamStreamRef`) so that the Rust task can tag the message after the NIF returned.
+**Never** call `send_and_clear` from a BEAM-managed thread — it panics. Only
+Rust-owned threads (the shared Tokio runtime, worker threads) may send.
 
 ```rust
-mod atoms {
-    rustler::atoms! { runtime_fabric_router_received, runtime_fabric_router_socket_error }
-}
-
-fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
+let request_ref = BeamStreamRef::new(request_ref);
+let sink: object_store::ResultSink = Box::new(move |result| {
+    // Runs on the kernel's Tokio runtime, not on a BEAM scheduler.
     let mut env = OwnedEnv::new();
-    let _ = env.send_and_clear(&owner_pid, |env| match event {
-        RouterEvent::Received { transport_route, envelope_json, .. } => {
-            (atoms::runtime_fabric_router_received(), transport_route, envelope_json).encode(env)
-        }
-        RouterEvent::SocketError { reason } => {
-            (atoms::runtime_fabric_router_socket_error(), reason).encode(env)
-        }
+    let _ = env.send_and_clear(&owner_pid, |env| {
+        let result = match result {
+            Ok(object_store::Outcome::Done) => atoms::ok().encode(env),
+            // ... the other outcomes and `{:error, reason}`
+        };
+        (atoms::object_store(), request_ref.encode(env), result).encode(env)
     });
-}
+});
+object_store::start(&store.0, operation, sink)
+```
+
+```elixir
+ref = make_ref()
+
+case start_native.(ref) do
+  :ok ->
+    receive do
+      {:object_store, ^ref, result} -> result
+    end
+
+  {:error, _reason} = error ->
+    error
+end
 ```
 
 ### 10. `@spec` every function in the Elixir module
@@ -220,7 +243,7 @@ nif  = ["dep:rustler"]
 [dependencies]
 rustler = { version = "0.38.0", optional = true }
 serde_json = "1"
-# ... native crates: blake3, jsonwebtoken, zmq, prost, uuid, ...
+# ... native crates: blake3, jsonwebtoken, opendal, prost, uuid, ...
 ```
 
 `src/lib.rs` gates the binding module; `nif_exports.rs` registers the NIFs:
@@ -288,8 +311,8 @@ use Rustler,
 
 ## When NOT to write a NIF
 
-- I/O-bound orchestration — let the BEAM do it; drop to Rust only for socket-level
-  work that needs a Rust-only crate (e.g. the ZeroMQ ROUTER).
+- I/O-bound orchestration — let the BEAM do it; drop to Rust only for I/O that
+  needs a Rust-only crate (e.g. the OpenDAL object store).
 - Logic with no Rust-only dependency and no measured hot path — the boundary plus
   JSON cost can erase small wins; benchmark before assuming.
 - Anything that must survive a crash in isolation — a NIF panic takes the whole VM

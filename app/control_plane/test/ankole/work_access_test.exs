@@ -2,26 +2,55 @@ defmodule Ankole.WorkAccessTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.{AuthZ, AutomationJobs, Schedule, Workflow}
   alias Ankole.Principals.{HumanAccess, WorkAccess, WorkCleanup}
-  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
+  alias Ankole.Conversations.Admission
+
+  test "suspension allows stopping and finishing existing work", %{tenant: tenant} do
+    %{principal: agent} = agent_fixture()
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    source = source_event(agent.uid, human.uid)
+
+    assert {:ok, %{cron_schedule: cron}} =
+             Schedule.create_cron_schedule(cron(source),
+               created_by: %{"kind" => "turn", "actor_event_id" => source.id}
+             )
+
+    assert {:ok, %{run: run}} = Workflow.create_with_dispatch(workflow(source))
+    Repo.update!(Ecto.Changeset.change(tenant, suspended_at: DateTime.utc_now()))
+    assert {:ok, %{status: "paused"}} = Schedule.pause_cron_schedule(cron.id)
+    assert {:error, :tenant_suspended} = Schedule.run_cron_schedule(cron.id)
+
+    assert {:error, :tenant_suspended} =
+             Workflow.commit_replay_pending(
+               run.id,
+               [%{namespace: nil, name: "agent", arguments: %{"prompt" => "new work"}}],
+               0
+             )
+
+    assert Repo.reload!(run).status == "running"
+    assert {:ok, %{new_calls: []}} = Workflow.commit_replay_pending(run.id, [], 0)
+    assert {:ok, _} = Workflow.complete_replay(run.id, "finished existing work", 0)
+  end
 
   test "a committed admission may finish after disablement; retry and new work cannot start" do
     %{principal: agent} = agent_fixture()
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
-    route = unique_route()
-    :ok = WorkerRoute.register_local_worker(route, self())
-    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-    assert {:ok, _} = admit_worker(route)
     source = source_event(agent.uid, human.uid)
     key = %{agent_uid: agent.uid, session_id: source.session_id}
-    assert {:ok, admitted} = TurnLifecycle.start_worker_turn(key, source)
+    assert {:ok, admitted} = Admission.admit(key, source)
     assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
     assert {:ok, %{running: 1}} = WorkCleanup.cleanup(human.uid, disabled.access_version)
     assert Repo.get!(ActorEvent, source.id).input_state == "open"
-    assert {:error, :human_access_revoked} = TurnLifecycle.start_worker_turn(key, source)
+
+    assert {:error, :human_access_revoked} =
+             Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, source) end)
+
     assert {:error, :human_access_revoked} = Schedule.create_check_back_later(checkback(source))
 
-    assert {:ok, _} = complete_turn_silent(admitted.turn_ref)
+    assert {:ok, _} = complete_turn_silent(admitted)
     assert Repo.get!(ActorEvent, source.id).completed_at
+    next = source_event(agent.uid, human.uid)
+    assert {:ok, %{status: :access_revoked}} = Admission.admit(next, next)
+    assert Repo.reload!(next).input_state == "dead_letter"
     assert {:ok, %{running: 0}} = WorkCleanup.cleanup(human.uid, disabled.access_version)
 
     [restriction] = HumanAccess.restrictions(human.uid)
@@ -65,6 +94,7 @@ defmodule Ankole.WorkAccessTest do
                created_by: %{"kind" => "turn", "actor_event_id" => source.id}
              )
 
+    Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/check/main.ts")
     assert {:ok, job} = AutomationJobs.create_job(automation(source))
 
     assert {:ok, %{automation_job_run: queued}} =
@@ -116,10 +146,18 @@ defmodule Ankole.WorkAccessTest do
     assert {:error, :human_access_revoked} = Workflow.commit_replay_pending(workflow.id, [], 1)
 
     assert {:ok, %{accepted: true, call: %{status: "succeeded"}}} =
-             Workflow.submit_result(call.id, agent.uid, Workflow.task_session_id(call.id), %{
-               "ok" => true,
-               "value" => "Completed admitted work"
-             })
+             Ankole.Repo.transact(fn repo ->
+               Workflow.submit_result_in_tx(
+                 repo,
+                 call.id,
+                 agent.uid,
+                 Workflow.task_session_id(call.id),
+                 %{
+                   "ok" => true,
+                   "value" => "Completed admitted work"
+                 }
+               )
+             end)
 
     assert Repo.get!(Ankole.Workflow.Schemas.Run, workflow.id).status == "cancelled"
     assert {:ok, _} = WorkCleanup.cleanup(human.uid, disabled.access_version)
@@ -178,7 +216,7 @@ defmodule Ankole.WorkAccessTest do
                "actor_event",
                source.id,
                nil,
-               reviewer.uid,
+               Ankole.ActorRef.from_principal(reviewer),
                "Verified an independent service trigger"
              )
 
@@ -189,7 +227,7 @@ defmodule Ankole.WorkAccessTest do
                "actor_event",
                source.id,
                reviewer.uid,
-               reviewer.uid,
+               Ankole.ActorRef.from_principal(reviewer),
                "Cannot replace an established authority"
              )
 
@@ -200,16 +238,18 @@ defmodule Ankole.WorkAccessTest do
     id = Ecto.UUID.generate()
 
     {:ok, event} =
-      SignalsGateway.append_actor_event(%{
-        agent_uid: agent_uid,
-        sender_key: sender_uid,
-        binding_name: "bot",
-        session_id: "work:#{id}",
-        source_event_id: id,
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(),
-        payload: %{"data" => %{"text" => "Check status"}}
-      })
+      Repo.transact(fn repo ->
+        SignalsGateway.append_actor_event_in_tx(repo, %{
+          agent_uid: agent_uid,
+          sender_key: sender_uid,
+          binding_name: "bot",
+          session_id: "work:#{id}",
+          source_event_id: id,
+          type: "im.message.addressed",
+          available_at: DateTime.utc_now(),
+          payload: %{"data" => %{"text" => "Check status"}}
+        })
+      end)
 
     event
   end
@@ -254,7 +294,7 @@ defmodule Ankole.WorkAccessTest do
       source_actor_event_id: source.id,
       source_provenance: %{"kind" => "turn"},
       reply_route: %{"binding_name" => source.binding_name},
-      directory_path: "/agents/work-test/automation/check",
+      drive_prefix: "automation/check",
       label: "Check status"
     }
 

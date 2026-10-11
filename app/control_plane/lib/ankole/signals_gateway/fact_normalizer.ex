@@ -416,39 +416,21 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
     do: {:error, {:invalid_attachment_payload, Sanitizer.transport(attachment)}}
 
   # An attachment is only accepted into durable state once it points at something
-  # that will still resolve later: a provider/blob/storage reference, or a file
-  # already materialized on the Agent Computer workspace. A raw in-memory or
-  # transient attachment is rejected (see normalize_attachment/1) so the mirror
-  # never stores a dangling pointer the agent can't re-fetch.
+  # that will still resolve later: a provider, drive content, or storage
+  # reference. A Home path can change and is not an attachment reference.
+  # Raw in-memory or transient attachments are rejected (normalize_attachment/1),
+  # so the mirror does not store a pointer that the Agent cannot fetch again.
   defp durable_attachment?(attachment) do
     Enum.any?(
-      [
-        "provider_ref",
-        "provider_file_id",
-        "provider_uri",
-        "blob_ref",
-        "storage_ref",
-        "agent_computer_path"
-      ],
+      ["provider_ref", "provider_file_id", "provider_uri", "blob_ref", "storage_ref"],
       &present_text?(attachment, &1)
-    ) || agent_computer_visible_file_path?(attachment)
+    )
   end
 
   defp present_text?(map, key) do
     case Map.get(map, key) do
       value when is_binary(value) -> String.trim(value) != ""
       _value -> false
-    end
-  end
-
-  defp agent_computer_visible_file_path?(attachment) do
-    case Map.get(attachment, "file_path") do
-      path when is_binary(path) ->
-        String.starts_with?(path, "/agents/") ||
-          Map.get(attachment, "visible_to") == "agent_computer"
-
-      _path ->
-        false
     end
   end
 end

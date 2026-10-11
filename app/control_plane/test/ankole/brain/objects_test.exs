@@ -29,6 +29,37 @@ defmodule Ankole.Brain.ObjectsTest do
   end
 
   describe "create_object/3" do
+    test "previously promoted types stay writable after the promotion path is removed", %{
+      human: human
+    } do
+      Repo.insert!(%Ankole.Brain.Schemas.SchemaPack{
+        name: "promoted",
+        version: "0",
+        content_hash: "promoted",
+        manifest: %{"name" => "promoted", "promoted" => true},
+        installed_at: DateTime.utc_now(:microsecond)
+      })
+
+      Repo.insert!(%Ankole.Brain.Schemas.SchemaType{
+        name: "research",
+        primitive: "concept",
+        slug_prefix: "researchs/",
+        pack_name: "promoted",
+        extractable: true,
+        created_at: DateTime.utc_now(:microsecond)
+      })
+
+      assert Enum.any?(Objects.writable_types(), &(&1.name == "research" and &1.extractable))
+
+      assert {:ok, object} =
+               Objects.create_object(
+                 %{slug: "researchs/retained", type: "research", title: "Retained type"},
+                 human.uid
+               )
+
+      assert object.type == "research"
+    end
+
     test "reserves the Agent type and namespace even for system writers", %{human: human} do
       for writer <- [:system, human.uid] do
         assert {:error, {:reserved_object_type, "agent"}} =
@@ -122,6 +153,8 @@ defmodule Ankole.Brain.ObjectsTest do
 
       assert "note" in details.installed_types
       assert "company" in details.installed_types
+      assert is_list(details.vocabulary_terms)
+      assert is_binary(details.hint)
     end
 
     test "rejects a group scope the writer does not satisfy", %{human: human} do
@@ -205,7 +238,7 @@ defmodule Ankole.Brain.ObjectsTest do
 
       assert [version] = versions
       assert version.body == "v1"
-      assert version.author_uid == human.uid
+      assert version.author == Ankole.ActorRef.from_principal(human)
     end
 
     test "chunk positions keep unchanged rows and reset changed ones", %{human: human} do

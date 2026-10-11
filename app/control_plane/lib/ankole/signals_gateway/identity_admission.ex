@@ -5,8 +5,8 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
 
   Identification is best effort and always automatic: an existing
   platform-subject binding for any candidate id wins, then the owner of the
-  platform-reported email or mobile number, then the Principal whose UID
-  matches the primary subject. What an unmatched sender means is the binding's
+  platform-reported email or mobile number, within the current tenant.
+  What an unmatched sender means is the binding's
   `unmatched_sender_policy`: `:create_standalone` creates a standalone account
   and serves them; `:manual_review` records the sender in the console pending
   list, answers an addressed message with one fixed notice, and gives the
@@ -103,17 +103,11 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
          %Binding{unmatched_sender_policy: :create_standalone} = binding,
          fact,
          provider,
-         now
+         _now
        ) do
     case upsert_subject(provider, fact.author, nil) do
       {:ok, principal} ->
         admitted_fact(binding, put_author_display(fact, principal), principal.uid)
-
-      # The subject id is already a Principal UID, such as a local account's
-      # sign-in email. Whether they are the same person is an operator
-      # decision, so the sender waits for review instead of a new account.
-      {:error, :principal_uid_taken} ->
-        apply_policy(%{binding | unmatched_sender_policy: :manual_review}, fact, provider, now)
 
       {:error, reason} ->
         held_silently(fact, {:standalone_account_failed, reason})

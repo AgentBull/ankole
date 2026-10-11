@@ -23,28 +23,38 @@ defmodule AnkoleWeb.OIDCLogoutController do
   end
 
   def confirmation(conn, %{"id" => id}) do
-    with {:ok, request} <- RPLogout.confirmation(WebSession.browser_reference(conn), id) do
+    with {:ok, request} <-
+           Ankole.Repo.across_tenants(fn ->
+             RPLogout.confirmation(WebSession.browser_reference(conn), id)
+           end),
+         :ok <- Ankole.Repo.put_tenant_id(request.tenant_id) do
       auth = WebSession.oauth_session(conn) || WebSession.admin_session(conn)
 
       identity =
         case auth do
           %{"principal_uid" => uid} ->
-            {:ok, principal} = Ankole.Principals.get_principal(uid)
+            case Ankole.Repo.across_tenants(fn -> Ankole.Principals.get_principal(uid) end) do
+              {:ok, principal} ->
+                %{
+                  principalUID: uid,
+                  displayName: principal.display_name || uid,
+                  providerID: auth["provider_id"]
+                }
 
-            %{
-              principalUID: uid,
-              displayName: principal.display_name || uid,
-              providerID: auth["provider_id"]
-            }
+              {:error, :not_found} ->
+                nil
+            end
 
           nil ->
             nil
         end
 
       client_name =
-        case Ankole.OIDC.get_active_client(request.client_id) do
-          {:ok, client} -> client.name
-          _ -> nil
+        if request.client_id do
+          case Ankole.OIDC.get_active_client(request.client_id) do
+            {:ok, client} -> client.name
+            _ -> nil
+          end
         end
 
       json(conn, %{identity: identity, clientName: client_name})

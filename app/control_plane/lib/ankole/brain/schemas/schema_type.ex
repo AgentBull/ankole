@@ -4,7 +4,7 @@ defmodule Ankole.Brain.Schemas.SchemaType do
   validate against these rows, not against pack seed files.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   alias Ankole.Brain.Ecto.StringList
 

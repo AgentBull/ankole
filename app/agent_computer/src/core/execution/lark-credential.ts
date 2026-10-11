@@ -1,6 +1,8 @@
+import { writeFileAtomicSync } from '../../common/atomic-write'
 import { ms } from '@agentbull/active-support'
 import { randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, unlinkSync } from 'node:fs'
+import { mkdirAgentSync } from '../../common/agent-user'
 import { join } from 'node:path'
 import type { RPCRequester } from '../../lanes/rpc_lane'
 import { resolveAgentWorkerEnvParts, type ResolvedAgentWorkerEnv } from './worker_env'
@@ -8,7 +10,7 @@ import { resolveAgentWorkerEnvParts, type ResolvedAgentWorkerEnv } from './worke
 /** Binding-scoped raw token returned only through WorkerEnv RPC. */
 export const LARK_TENANT_TOKEN_ENV = 'LARKSUITE_CLI_TENANT_ACCESS_TOKEN'
 /** File-path handoff read by the image-provided lark-cli launcher. */
-export const LARK_TENANT_TOKEN_FILE_ENV = 'ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE'
+const LARK_TENANT_TOKEN_FILE_ENV = 'ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE'
 
 // App ID and brand identify the binding. A refresh must not cross this
 // identity boundary.
@@ -30,7 +32,6 @@ export type MaterializedLarkCredential = {
  * file is a disposable projection read by the image-provided lark-cli wrapper.
  */
 export function materializeLarkCredential(input: {
-  agentUID: string
   agentHome: string
   rpc: RPCRequester
   workerEnv: ResolvedAgentWorkerEnv
@@ -43,7 +44,7 @@ export function materializeLarkCredential(input: {
   if (!initialToken || !bindingIdentity) return { workerEnv, runtimeEnv: {}, cleanup: () => undefined }
 
   const directory = join(input.agentHome, 'runtime-materials', 'credentials')
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  mkdirAgentSync(directory, 0o700)
   chmodSync(directory, 0o700)
   const path = join(directory, `lark-tenant-token-${randomUUID()}`)
   atomicWriteToken(path, initialToken)
@@ -64,7 +65,7 @@ export function materializeLarkCredential(input: {
 
   const refresh = async (): Promise<void> => {
     try {
-      const current = await resolveAgentWorkerEnvParts(input.agentUID, input.rpc, input.bindingName)
+      const current = await resolveAgentWorkerEnvParts(input.rpc, input.bindingName)
       if (stopped) return
       const token = current.bindingVars[LARK_TENANT_TOKEN_ENV]
       if (token && larkBindingIdentity(current.bindingVars) === bindingIdentity) atomicWriteToken(path, token)
@@ -118,13 +119,7 @@ function atomicWriteToken(path: string, token: string): void {
     throw new Error('Lark tenant token has an invalid value')
   }
 
-  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    writeFileSync(temporary, `${token}\n`, { mode: 0o600, flag: 'wx' })
-    renameSync(temporary, path)
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary)
-  }
+  writeFileAtomicSync(path, `${token}\n`, 0o600)
 }
 
 function unlinkIfPresent(path: string): void {

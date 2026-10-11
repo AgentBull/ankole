@@ -1,5 +1,6 @@
 defmodule Ankole.Plugins.WeComAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
 
@@ -10,7 +11,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
-  alias Ankole.Plugins.WeComAdapter.ConnectionSupervisor
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
   alias Ankole.Plugins.WeComAdapter.Inbound
   alias Ankole.Plugins.WeComAdapter.Outbox
@@ -190,11 +190,11 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         )
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  Inbound.chat_consumer(context, config)
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
 
@@ -461,7 +461,13 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         signal_channel_id: "wecom:mediach",
         operation: :post,
         payload: %{
-          "attachments" => [%{"name" => "a.png", "user_files_relative_path" => "x/a.png"}]
+          "attachments" => [
+            %{
+              "name" => "a.png",
+              "path" => "sent/abababababababab/a.png",
+              "blob_ref" => "abababababababababababababababababababababababababababababababab"
+            }
+          ]
         }
       )
 

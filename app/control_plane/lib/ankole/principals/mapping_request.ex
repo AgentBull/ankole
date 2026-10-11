@@ -3,7 +3,7 @@ defmodule Ankole.Principals.MappingRequest do
   One unmapped signal sender waiting for an operator to bind it to a Principal.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

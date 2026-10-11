@@ -5,7 +5,7 @@ section: Guides
 order: 316
 ---
 
-Ankole ships with its security boundaries in place — Principal/AuthZ, encrypted secrets, sandboxed workers, authenticated ingress. Hardening is not adding walls; it is tightening the ones that are there to the smallest surface your actual usage needs. This page walks the five surfaces an operator hardens, in the order that closes the most risk first.
+Ankole ships with its security boundaries in place — Principal/AuthZ, encrypted secrets, one Worker container per Agent, authenticated ingress. Hardening is not adding walls; it is tightening the ones that are there to the smallest surface your actual usage needs. This page walks the six surfaces an operator hardens, in the order that closes the most risk first.
 
 The decisive property, stated up front: Ankole's model is *least authority by default, expanded only where evidence demands*. Every move below narrows a permission, a secret's reach, or a network path. If you find yourself widening one, ask why — a widening is the move that deserves the scrutiny, not the narrowing.
 
@@ -26,8 +26,8 @@ Store credentials for Agent tools in **Environment variables** in the Console, w
 
 - **Reveal values sparingly.** Enter a replacement value to rotate a credential. Do not reveal the old value only to check it. See [Environment variables](../worker-env/).
 - **Scope secrets per agent when you can.** A global secret reaches every agent; a per-agent secret reaches one. Prefer the per-agent form unless the secret is genuinely shared.
-- **Do not override reserved names.** You cannot set `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, names that start with `ANKOLE_`, or some sandbox names in the Console. Do not bypass this restriction.
-- **Rotate the bootstrap secrets on a cadence.** `ANKOLE_SECRET_BASE` and `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` derive other keys; rotating them is a deployment-restart operation, and the blast radius of a compromised `ANKOLE_SECRET_BASE` is the whole instance.
+- **Do not override reserved names.** In the Console, you cannot set `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, names that start with `ANKOLE_`, or the other reserved names that [Environment variables](../worker-env/) lists. Do not bypass this restriction.
+- **Rotate the bootstrap secret on a cadence.** `ANKOLE_SECRET_BASE` derives other keys; rotating it is a deployment-restart operation, and the blast radius of a compromised `ANKOLE_SECRET_BASE` is the whole instance. Worker credentials are not bootstrap secrets, and you never set one: the control plane creates a random credential for each Worker generation, stores its digest for authentication, and encrypts the retry value needed to repeat the same launch.
 
 ## Surface 3: SSRF and model-controlled fetches
 
@@ -52,9 +52,19 @@ Each chat adapter and identity provider holds credentials (`appID`/`appSecret`, 
 Ankole needs some ingress; it rarely needs all of it. Tighten to what each transport actually requires.
 
 - **Long-connection adapters need only outbound.** Lark, Slack, and DingTalk open outbound WebSocket/Stream connections; they do not need a public ingress endpoint. Keep the deployment private if you only use these.
-- **Teams and webhook ingress need a public endpoint — scope it.** Bot Framework and the `/webhooks/v1/...` front door need to be reachable. Use your ingress to restrict that path to the expected providers (by source IP where you can), and rely on the adapter's own authentication (Bot Framework JWT, Graph `clientState`, ZAP/PLAIN worker auth) for the rest.
+- **Teams and webhook ingress need a public endpoint — scope it.** Bot Framework and the `/webhooks/v1/...` front door need to be reachable. Use your ingress to restrict that path to the expected providers (by source IP where you can), and rely on the adapter's own authentication (Bot Framework JWT, Graph `clientState`) for the rest.
 - **Webhook delegation URLs are credentials.** `/webhooks/v1/event-callbacks/*` must be reachable when an Agent delegates detection to an external system. Redact the complete path in ingress, proxy, CDN, and application logs. The URL authorizes only a wake-up, so the Agent must verify current external state before a consequential action.
 - **The Console itself** should be behind your admin network or VPN, not open to the public internet. The bearer gate stops unauthorized access, but there is no reason to expose the admin surface to the world.
+
+## Surface 6: Worker containers and the control plane
+
+Each Agent has its own Worker container or Pod, and Agents never share a Worker, a cache disk, or a credential. The container is the only isolation boundary: commands, the Codex app-server, Automation scripts, and the browser run as the Worker's user without an inner sandbox, and these Agent processes run as uid 1000 with no capabilities or sudo.
+
+- Commands run as uid 1000 without sudo. Agents can install user packages in Home, but cannot install system packages. Sessions of one Agent share its files and processes.
+- **The Worker credential stands for one Agent only.** The Worker keeps it in memory and removes it from the environment of its commands. A credential of another Agent, or of a Worker that was replaced, cannot connect.
+- **Protect the control plane as a root-equivalent component.** It creates Workers through the Docker socket or through a namespace Role that creates and deletes Pods, Secrets, and PVCs. Access to the Docker socket is equal to root access on the host.
+- **Add gVisor on Kubernetes.** Set `podTemplate.spec.runtimeClassName` in the Kubernetes provider YAML to the cluster's gVisor RuntimeClass, for example `gvisor`. Instance-setting changes replace idle Workers in that pool. Helm's `worker.runtimeClassName` initializes the generated provider on first startup; after import, edit the provider in the Console.
+- **Limit what Workers can reach.** With Docker Compose, Worker containers join the `ankole_workers` network: they reach the control plane and the internet, but not PostgreSQL. On a cloud virtual machine, set the instance metadata hop limit to 1 or block `169.254.169.254` for containers. With Helm, `networkPolicy.enabled` makes Worker Pods accept no connection and reach only the control plane, DNS, and public addresses, not the private ranges and the node metadata address in `networkPolicy.workerDeniedCIDRs`. Also set the instance metadata hop limit of the nodes to 1.
 
 ## The audit posture
 
@@ -72,3 +82,4 @@ It is not a penetration test, and not a compliance checklist — it is the opera
 - For the permission model, read [Principal and AuthZ](../principal-authz/).
 - For credentials that Agents use, read [Environment variables](../worker-env/).
 - For the SSRF key and the bootstrap secrets, read [Environment variables](../environment-variables/).
+- For the Worker that runs each Agent's commands, read [Agent Computer Worker](../agent-computer-worker/).

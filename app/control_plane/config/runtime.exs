@@ -7,6 +7,27 @@ Ankole.Config.Bootstrap.load_dotenv!(
   env: config_env()
 )
 
+# Load database URLs after dotenv files in development and tests.
+# The release reads its database URL in the :prod branch below.
+case config_env() do
+  :dev ->
+    config :ankole, Ankole.Repo, url: Ankole.Config.Bootstrap.env!("DATABASE_URL")
+
+  :test ->
+    database_url = URI.parse(Ankole.Config.Bootstrap.env!("DATABASE_URL"))
+    partition = Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")
+
+    config :ankole, Ankole.Repo,
+      url: URI.to_string(%{database_url | path: "/ankole_test#{partition}"})
+
+  :prod ->
+    :ok
+end
+
+config :ankole,
+       :site_admin_console_path,
+       System.get_env("ANKOLE_SITE_ADMIN_CONSOLE_PATH", "/site-admin-console")
+
 # AppConfigure is the only owner of trace export. Remove standard exporter
 # variables before the OpenTelemetry application starts, or OS configuration
 # can override the default-off SDK configuration below the application layer.
@@ -56,16 +77,8 @@ config :opentelemetry,
   traces_exporter: :none,
   resource: ankole_otel_resource
 
-# The ZeroMQ ROUTER stays bound while Workers that have not switched to the
-# Worker Channel still connect with `tcp://`. No bind endpoint disables it.
-runtime_fabric_bind_endpoint = System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT")
-
-if runtime_fabric_bind_endpoint do
-  config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint
-end
-
 # Workers reach the relay endpoint of the control-plane Pod that issued a
-# signed file URL, so the origin must name this Pod, never a load-balanced
+# relay URL, so the origin must name this Pod, never a load-balanced
 # Service address. Kubernetes supplies POD_IP through the Downward API.
 runtime_fabric_internal_origin =
   case {System.get_env("ANKOLE_RUNTIME_FABRIC_INTERNAL_ORIGIN"), System.get_env("POD_IP")} do
@@ -160,6 +173,69 @@ if config_env() == :dev do
 
     nil ->
       :ok
+  end
+end
+
+# File-service bytes (attachments and drive files). Tests keep
+# the per-partition directory from config/test.exs.
+if config_env() != :test do
+  files_store_spec =
+    case Ankole.Config.Bootstrap.env_string("ANKOLE_FILES_STORE") do
+      nil ->
+        nil
+
+      "fs" ->
+        %{scheme: "fs", root: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_FS_ROOT")}
+
+      "s3" ->
+        %{
+          scheme: "s3",
+          bucket: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_S3_BUCKET"),
+          region: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_S3_REGION")
+        }
+        |> then(fn spec ->
+          [
+            endpoint: "ANKOLE_FILES_S3_ENDPOINT",
+            root: "ANKOLE_FILES_S3_ROOT",
+            access_key_id: "ANKOLE_FILES_S3_ACCESS_KEY_ID",
+            secret_access_key: "ANKOLE_FILES_S3_SECRET_ACCESS_KEY"
+          ]
+          |> Enum.reduce(spec, fn {key, name}, spec ->
+            case Ankole.Config.Bootstrap.env_string(name) do
+              value when is_binary(value) and value != "" -> Map.put(spec, key, value)
+              _missing -> spec
+            end
+          end)
+        end)
+
+      other ->
+        raise "invalid ANKOLE_FILES_STORE=#{inspect(other)}; expected fs or s3"
+    end
+
+  cond do
+    files_store_spec ->
+      config :ankole, Ankole.ObjectStore, spec: files_store_spec
+
+    config_env() == :prod ->
+      raise "ANKOLE_FILES_STORE is required: set it to fs or s3"
+
+    true ->
+      :ok
+  end
+end
+
+# Node startup facts; provider settings and credentials are owned by PostgreSQL.
+if config_env() != :test do
+  config :ankole,
+         :worker_providers_file,
+         Ankole.Config.Bootstrap.env_string("ANKOLE_WORKER_PROVIDERS_FILE")
+
+  if config_env() == :prod or Ankole.Config.Bootstrap.env_string("ANKOLE_AGENT_COMPUTER_IMAGE") do
+    config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
+      image: Ankole.Config.Bootstrap.env!("ANKOLE_AGENT_COMPUTER_IMAGE"),
+      runtime_fabric_endpoint:
+        Ankole.Config.Bootstrap.env!("ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT"),
+      installation: Ankole.Config.Bootstrap.env_string("ANKOLE_WORKER_INSTALLATION") || "ankole"
   end
 end
 

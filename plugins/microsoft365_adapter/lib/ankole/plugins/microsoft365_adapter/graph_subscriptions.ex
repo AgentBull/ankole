@@ -130,10 +130,16 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     do: create_subscription(client, resource, notification_url, now)
 
   defp ensure_resource(client, resource, existing, notification_url, now) do
-    if needs_renewal?(existing, now) do
-      renew_subscription(client, resource, existing, notification_url, now)
-    else
-      {:ok, existing}
+    cond do
+      existing["notificationUrl"] != notification_url ->
+        with :ok <- delete_subscription(client, existing),
+             do: create_subscription(client, resource, notification_url, now)
+
+      needs_renewal?(existing, now) ->
+        renew_subscription(client, resource, existing, notification_url, now)
+
+      true ->
+        {:ok, existing}
     end
   end
 
@@ -155,6 +161,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
          %{
            "id" => Map.get(subscription, "id"),
            "resource" => resource,
+           "notificationUrl" => notification_url,
            "expiration" => Map.get(subscription, "expirationDateTime") || expiration,
            "clientState" => client_state
          }}
@@ -233,7 +240,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   @spec notification_url(String.t(), map()) :: String.t()
   def notification_url(provider_id, config) do
     base = config |> Map.fetch!("publicBaseURL") |> String.trim_trailing("/")
-    base <> "/webhooks/v1/entra-id/" <> URI.encode(provider_id) <> "/directory"
+    instance_id = Ankole.Repo.tenant_id!() <> "." <> provider_id
+    base <> "/webhooks/v1/entra-id/" <> URI.encode(instance_id) <> "/directory"
   end
 
   defp load_state(provider_id) do
@@ -244,7 +252,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   end
 
   defp persist_state(provider_id, entries) do
-    AppConfigure.put_global_by_key(Config.subscription_state_key(provider_id), %{
+    AppConfigure.put_tenant_by_key(Config.subscription_state_key(provider_id), %{
       "subscriptions" => entries
     })
   end

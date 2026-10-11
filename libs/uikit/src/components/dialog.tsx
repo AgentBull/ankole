@@ -37,7 +37,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 isolate z-50 bg-black/60 transition-opacity duration-(--duration-dialog) ease-out data-starting-style:opacity-0 data-ending-style:opacity-0',
+        'fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-(--duration-dialog) ease-out data-starting-style:opacity-0 data-ending-style:opacity-0',
         className
       )}
       {...props}
@@ -61,7 +61,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 rounded-none border border-border bg-popover p-6 text-sm text-popover-foreground shadow-none outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
+          'ceramic fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-hidden p-6 text-sm text-popover-foreground outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
           className
         )}
         {...props}>
@@ -69,7 +69,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            render={<Button variant="ghost" className="absolute top-0 right-0" size="icon" />}>
+            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon" />}>
             <RiCloseLine />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
@@ -102,7 +102,7 @@ function DialogFooter({
       )}
       {...props}>
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="secondary" />}>{closeLabel}</DialogPrimitive.Close>
+        <DialogPrimitive.Close render={<Button variant="outline" />}>{closeLabel}</DialogPrimitive.Close>
       )}
       {children}
     </div>

@@ -11,7 +11,7 @@ defmodule AnkoleWeb.ChannelCase do
 
   using do
     quote do
-      import Phoenix.ChannelTest
+      import Phoenix.ChannelTest, except: [connect: 2, connect: 3]
       import AnkoleWeb.ChannelCase
 
       alias Ankole.Repo
@@ -20,8 +20,25 @@ defmodule AnkoleWeb.ChannelCase do
     end
   end
 
+  defmacro connect(handler, params, options \\ []) do
+    endpoint = Module.get_attribute(__CALLER__.module, :endpoint)
+
+    quote do
+      Ankole.Repo.without_tenant(fn ->
+        Phoenix.ChannelTest.__connect__(
+          unquote(endpoint),
+          unquote(handler),
+          unquote(params),
+          unquote(options)
+        )
+      end)
+    end
+  end
+
   setup tags do
     Ankole.DataCase.setup_sandbox(tags)
-    :ok
+    tenant = Ankole.DataCase.create_tenant()
+    Ankole.Repo.put_tenant_id(tenant.id)
+    {:ok, tenant: tenant}
   end
 end

@@ -23,7 +23,8 @@ defmodule AnkoleWeb.Plugs.OIDCCORS do
         conn
 
       [origin] ->
-        if origin == request_origin(conn) or origin in OIDC.active_origins() do
+        if origin == request_origin(conn) or
+             origin in Ankole.Repo.across_tenants(fn -> OIDC.active_origins() end) do
           conn
           |> put_resp_header("access-control-allow-origin", origin)
           |> put_resp_header("vary", merge_vary(get_resp_header(conn, "vary"), "Origin"))

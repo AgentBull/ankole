@@ -27,7 +27,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress
-  alias Ankole.WorkerFiles
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Bot.Event
   alias WeComOpenAPI.Media
@@ -107,7 +106,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
                "dm_user_id" =>
                  if(channel_kind == :im_dm, do: optional_text(sender(payload), "userid"))
              }),
-           raw_payload: compact_map(payload)
+           raw_payload: durable_media_payload(compact_map(payload))
          },
          text: text,
          formatted_content: formatted_content(text),
@@ -125,7 +124,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
              "req_id" => req_id,
              "voice_transcript" => optional_text(payload, "msgtype") == "voice" || nil
            }),
-         raw_payload: compact_map(payload),
+         raw_payload: durable_media_payload(compact_map(payload)),
          provider_time: provider_time(payload)
        }}
     end
@@ -528,79 +527,30 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp resource_attachment(_type, _source), do: nil
 
-  defp materialize_attachments(%{attachments: []} = input, _consumer), do: {:ok, input}
+  defp materialize_attachments(input, _consumer) do
+    attachments =
+      Ingress.materialize_attachments(input.attachments, "wecom", &download_attachment/1,
+        drop_keys: ["temp_url", "aeskey"]
+      )
 
-  defp materialize_attachments(%{attachments: attachments} = input, %{
-         context: %{agent_uid: agent_uid}
-       }) do
-    materialized = Enum.map(attachments, &materialize_attachment(&1, agent_uid))
-    {:ok, %{input | attachments: materialized}}
+    {:ok, %{input | attachments: attachments}}
   end
 
-  # The five-minute URL and its key must never outlive this call: success
-  # stores plaintext bytes under a durable path, failure keeps only an inert
-  # descriptor. Media without an aeskey is not expected (design fact); treat it
-  # as a failed materialization rather than storing undecryptable bytes.
-  defp materialize_attachment(%{"temp_url" => url} = attachment, agent_uid)
-       when is_binary(url) do
+  # The temporary URL and key are removed from every result by Ingress.
+  defp download_attachment(%{"temp_url" => url} = attachment) when is_binary(url) do
     result =
       case attachment["aeskey"] do
         aeskey when is_binary(aeskey) -> Media.download(url, aeskey)
         _missing -> {:error, :media_aeskey_missing}
       end
 
-    case result do
-      {:ok, %{body: body, filename: filename}} ->
-        name = attachment["name"] || filename || "attachment"
-        relative_path = materialized_relative_path(attachment, name)
-        lane_path = Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path)
-
-        case WorkerFiles.put("user_files", lane_path, body) do
-          {:ok, result} ->
-            attachment
-            |> Map.drop(["temp_url", "aeskey"])
-            |> Map.put(
-              "agent_computer_path",
-              Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
-            )
-            |> Map.put("user_files_relative_path", relative_path)
-            |> Map.put("name", name)
-            |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
-            |> MapHelpers.put_present("size", result["size"])
-
-          {:error, reason} ->
-            log_materialization_skip(attachment, reason)
-            Map.drop(attachment, ["temp_url", "aeskey"])
-        end
-
-      {:error, reason} ->
-        log_materialization_skip(attachment, reason)
-        Map.drop(attachment, ["temp_url", "aeskey"])
+    with {:ok, %{body: body, filename: filename}} <- result do
+      name = attachment["name"] || filename || "attachment"
+      {:ok, %{body: body, filename: name, content_type: nil, put: %{"name" => name}}}
     end
-  rescue
-    error ->
-      log_materialization_skip(attachment, error)
-      Map.drop(attachment, ["temp_url", "aeskey"])
   end
 
-  defp materialize_attachment(attachment, _agent_uid), do: attachment
-
-  defp log_materialization_skip(attachment, reason) do
-    Logging.warning(
-      "wecom_adapter.attachment.materialization_skipped",
-      "wecom attachment materialization skipped",
-      %{provider_ref: attachment["provider_ref"], reason: inspect(reason)}
-    )
-  end
-
-  defp materialized_relative_path(attachment, name) do
-    Path.join([
-      "inbox",
-      "wecom",
-      WorkerFiles.sanitize_path_segment(attachment["provider_ref"]),
-      WorkerFiles.sanitize_path_segment(name)
-    ])
-  end
+  defp download_attachment(_attachment), do: {:error, :attachment_reference_missing}
 
   # helpers
 
@@ -634,4 +584,23 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
       nil -> {:error, {:missing, key}}
     end
   end
+
+  # Media URLs and AES keys expire after this call. Keep other provider facts.
+  defp durable_media_payload(payload) when is_map(payload) do
+    payload
+    |> Map.drop(["aeskey", "temp_url"])
+    |> Map.new(fn {key, value} ->
+      value =
+        if key in ["image", "file", "video"] and is_map(value),
+          do: Map.drop(value, ["url", "aeskey"]),
+          else: value
+
+      {key, durable_media_payload(value)}
+    end)
+  end
+
+  defp durable_media_payload(payload) when is_list(payload),
+    do: Enum.map(payload, &durable_media_payload/1)
+
+  defp durable_media_payload(payload), do: payload
 end

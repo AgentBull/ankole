@@ -17,15 +17,13 @@ defmodule Ankole.AIGateway.MaxToolCalls do
     :hosted_responses,
     "hosted_responses"
   ]
-  @terminal_call_statuses ["completed", "failed", "incomplete", "cancelled"]
 
   @enforce_keys [:limit]
-  defstruct limit: nil, started: MapSet.new(), observed: MapSet.new()
+  defstruct limit: nil, started: MapSet.new()
 
   @type t :: %__MODULE__{
           limit: non_neg_integer(),
-          started: MapSet.t(),
-          observed: MapSet.t()
+          started: MapSet.t()
         }
 
   @spec new(term(), term(), keyword()) :: t() | nil
@@ -96,15 +94,6 @@ defmodule Ankole.AIGateway.MaxToolCalls do
     end)
   end
 
-  @spec exhausted?(t() | nil) :: boolean()
-  def exhausted?(nil), do: false
-  def exhausted?(%__MODULE__{limit: 0}), do: true
-
-  def exhausted?(%__MODULE__{} = policy) do
-    MapSet.size(policy.started) >= policy.limit and
-      MapSet.subset?(policy.started, policy.observed)
-  end
-
   @spec remaining(t() | nil) :: non_neg_integer() | nil
   def remaining(nil), do: nil
 
@@ -152,28 +141,13 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   def event_item_admitted?(%__MODULE__{}, _event, _scope), do: true
 
-  @spec details(t()) :: %{required(String.t()) => non_neg_integer()}
-  def details(%__MODULE__{} = policy) do
-    observed = MapSet.size(policy.observed)
-
-    %{
-      "limit" => policy.limit,
-      "observed" => observed,
-      "overshoot" => max(observed - policy.limit, 0)
-    }
-  end
-
   defp observe_provider_item(policy, item, event, phase, scope) do
     if ResponseItems.budget_role(item) == :provider_effect do
       {policy, key} = resolve_call_key(policy, event, item, phase, scope)
 
       case admit_call(policy, key) do
         {:admitted, policy} ->
-          maybe_finish_call(
-            policy,
-            key,
-            phase != :added or item["status"] in @terminal_call_statuses
-          )
+          policy
 
         :ignored ->
           policy
@@ -189,7 +163,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
       {policy, key} = resolve_call_key(policy, event, item, phase, scope)
 
       case admit_call(policy, key) do
-        {:admitted, policy} -> finish_call(policy, key)
+        {:admitted, policy} -> policy
         :ignored -> policy
       end
     else
@@ -217,8 +191,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
   defp remap_key(policy, provisional, stable) do
     %{
       policy
-      | started: replace_key(policy.started, provisional, stable),
-        observed: replace_key(policy.observed, provisional, stable)
+      | started: replace_key(policy.started, provisional, stable)
     }
   end
 
@@ -289,12 +262,4 @@ defmodule Ankole.AIGateway.MaxToolCalls do
         :ignored
     end
   end
-
-  defp finish_call(policy, nil), do: policy
-
-  defp finish_call(%__MODULE__{} = policy, key),
-    do: %{policy | observed: MapSet.put(policy.observed, key)}
-
-  defp maybe_finish_call(policy, key, true), do: finish_call(policy, key)
-  defp maybe_finish_call(policy, _key, false), do: policy
 end

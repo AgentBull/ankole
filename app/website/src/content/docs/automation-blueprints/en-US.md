@@ -7,7 +7,7 @@ order: 309
 
 Automation in Ankole combines one of three triggers with one of two consumers. An Agent session handles work that needs judgment, memory, or conversation. An automation job runs a deterministic script for mechanical handling. This page gives ready-to-use blueprints for the common shapes.
 
-An Automation Job is not a workflow language or a step graph. It is an ordinary Bun `main.ts` inside the Agent Home. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
+An Automation Job is not a workflow language or a step graph. It is an ordinary Bun `main.ts` in a folder of the Agent's drive. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
 
 A [Workflow](../workflows/) is a separate execution shape. The main Agent starts one fixed, bounded subagent orchestration during a turn. It is not a schedule or webhook consumer, and it does not poll an external state. Use it when one delivery or conversation request has a finite set of independent judgments that can run in parallel.
 
@@ -36,9 +36,12 @@ Start with a direct Agent wake while the handling is unclear. Move only the prov
 
 A schedule wakes the Agent once a day. The Agent collects and summarizes the requested information, then posts the result to the bound chat channel. Create and test it with [Schedules](../schedules/) before you set the daily cron expression.
 
+Get the browser session cookie and `x-csrf-token` value from a signed-in browser before you run this Console request.
+
 ```bash
 curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
+  -H "Cookie: $CONSOLE_COOKIE" \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "owner_session_id": "<session_id>",

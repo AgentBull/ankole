@@ -11,10 +11,11 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library
-  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.Conversations.JobTurnRef
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.TurnControl
 
   @type capability :: {:agent_plugin, String.t()} | {:skill, String.t()}
@@ -91,37 +92,47 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   def disabled_skill_names(_capabilities, _capability), do: []
 
   defp active_agent_uids(repo) do
-    ActorEventDelivery
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> where(
-      [delivery],
-      like(delivery.session_id, ^"#{BackgroundAgentJobs.job_session_prefix()}%")
-    )
-    |> select([delivery], delivery.agent_uid)
-    |> distinct(true)
-    |> repo.all()
+    repo.all(from j in Job, where: j.status == "running", select: j.agent_uid, distinct: true)
   end
 
   defp dispatch([], _repo, _agent_uid), do: :ok
 
   defp dispatch(skill_names, repo, agent_uid) do
-    repo
-    |> active_deliveries(agent_uid)
-    |> TurnControl.collect(:skill_disabled, nil, payload: %{"skill_names" => skill_names})
+    repo.all(from j in Job, where: j.agent_uid == ^agent_uid and j.status == "running")
+    |> Enum.flat_map(fn job ->
+      session = "job:#{job.id}"
+
+      case repo.one(
+             from e in ActorEvent,
+               where:
+                 e.agent_uid == ^agent_uid and e.session_id == ^session and
+                   e.input_state == "open" and is_nil(e.completed_at),
+               order_by: e.queue_sequence,
+               limit: 1
+           ) do
+        nil ->
+          []
+
+        event ->
+          [
+            %{
+              turn_ref: %JobTurnRef{
+                agent_uid: agent_uid,
+                session_id: session,
+                actor_event_id: event.id,
+                job_id: job.id,
+                attempt: job.attempts
+              },
+              verb: :skill_disabled,
+              reason: nil,
+              payload: %{"skill_names" => skill_names}
+            }
+          ]
+      end
+    end)
     |> TurnControl.dispatch()
 
     :ok
-  end
-
-  defp active_deliveries(repo, agent_uid) do
-    ActorEventDelivery
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> where(
-      [delivery],
-      like(delivery.session_id, ^"#{BackgroundAgentJobs.job_session_prefix()}%")
-    )
-    |> repo.all()
   end
 
   defp all_skills(capabilities) do

@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.Schemas.HumanAccessAPI do
   @moduledoc "Console contracts for Human access and recovery."
   alias OpenApiSpex.Schema
+  alias AnkoleWeb.Schemas.ConsoleAPI.ActorRef
   alias AnkoleWeb.Schemas.ConsoleAPI.JSONValue
 
   defmodule AccessReasonRequest do
@@ -110,7 +111,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           source: %Schema{type: :string},
           action: %Schema{type: :string},
           reason: %Schema{type: :string},
-          actor_uid: %Schema{type: :string, nullable: true},
+          actor: %Schema{allOf: [ActorRef], nullable: true},
           access_version: %Schema{type: :integer},
           details: JSONValue,
           inserted_at: %Schema{type: :string}
@@ -120,7 +121,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           :source,
           :action,
           :reason,
-          :actor_uid,
+          :actor,
           :access_version,
           :details,
           :inserted_at
@@ -252,6 +253,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           authorization_kind: %Schema{type: :string},
           human_uid: %Schema{type: :string, nullable: true},
           human_access_version: %Schema{type: :integer, nullable: true},
+          can_reauthorize: %Schema{type: :boolean},
           updated_at: %Schema{type: :string}
         },
         required: [
@@ -262,6 +264,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           :authorization_kind,
           :human_uid,
           :human_access_version,
+          :can_reauthorize,
           :updated_at
         ],
         additionalProperties: false
@@ -376,7 +379,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           last_started_at: %Schema{type: :string, nullable: true},
           last_success_at: %Schema{type: :string, nullable: true},
           last_error: %Schema{type: :string, nullable: true},
-          reviewed_by: %Schema{type: :string, nullable: true},
+          reviewed_by: %Schema{allOf: [ActorRef], nullable: true},
           reviewed_at: %Schema{type: :string, nullable: true},
           review_reason: %Schema{type: :string, nullable: true}
         },
@@ -420,7 +423,7 @@ defmodule AnkoleWeb.Schemas.HumanAccessAPI do
           status: %Schema{type: :string},
           last_error: %Schema{type: :string, nullable: true},
           processed_at: %Schema{type: :string, nullable: true},
-          reviewed_by: %Schema{type: :string, nullable: true},
+          reviewed_by: %Schema{allOf: [ActorRef], nullable: true},
           review_reason: %Schema{type: :string, nullable: true},
           inserted_at: %Schema{type: :string}
         },

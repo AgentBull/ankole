@@ -90,10 +90,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv do
     vars
     |> Enum.reduce_while({:ok, acc}, fn
       {name, value}, {:ok, merged} when is_binary(name) and is_binary(value) ->
-        case Map.fetch(merged, name) do
-          :error -> {:cont, {:ok, Map.put(merged, name, value)}}
-          {:ok, ^value} -> {:cont, {:ok, merged}}
-          {:ok, _other} -> {:halt, {:error, {:binding_worker_env_conflict, name}}}
+        case Ankole.SignalsGateway.ActorRuntime.WorkerEnv.validate_name(name) do
+          :ok ->
+            case Map.fetch(merged, name) do
+              :error -> {:cont, {:ok, Map.put(merged, name, value)}}
+              {:ok, ^value} -> {:cont, {:ok, merged}}
+              {:ok, _other} -> {:halt, {:error, {:binding_worker_env_conflict, name}}}
+            end
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
         end
 
       entry, {:ok, _merged} ->

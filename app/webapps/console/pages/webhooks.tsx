@@ -1,7 +1,7 @@
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { TableCell, TableRow, toast } from '@ankole/uikit'
 import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -11,7 +11,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { WebhookEndpointItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
+import { ConfirmDeleteButton, StatusIndicator, type StatusTone } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -23,7 +23,6 @@ function live(endpoint: WebhookEndpointItem): boolean {
 
 export function WebhooksPage() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -54,7 +53,6 @@ export function WebhooksPage() {
     ...ankoleWebWebhookEndpointControllerDeleteMutation(),
     onSuccess: () => {
       toast.success(t('console.webhooks.cancelled'))
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -174,9 +172,7 @@ function WebhookEndpointRow({
   )
 }
 
-function webhookStatusTone(
-  status: WebhookEndpointItem['status']
-): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {
+function webhookStatusTone(status: WebhookEndpointItem['status']): StatusTone {
   switch (status) {
     case 'armed':
     case 'active':

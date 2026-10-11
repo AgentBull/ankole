@@ -5,7 +5,7 @@ section: Guides
 order: 316
 ---
 
-Ankole はセキュリティ境界を備えた状態で出荷されます。Principal/AuthZ、暗号化された secret、sandbox 化された worker、認証付きの入り口です。強化とは壁を足すことではなく、実際の利用に必要な最小の表面まで既存の壁を締めることです。このページは、オペレーターが強化する 5 つの面を、最初に最もリスクを閉じる順で説明します。
+Ankole はセキュリティ境界を備えた状態で出荷されます。Principal/AuthZ、暗号化された secret、Agent ごとに 1 つの Worker コンテナ、認証付きの入り口です。強化とは壁を足すことではなく、実際の利用に必要な最小の表面まで既存の壁を締めることです。このページは、オペレーターが強化する 6 つの面を、最初に最もリスクを閉じる順で説明します。
 
 決定的な性質を先に述べます。Ankole のモデルは*既定で最小権限、証拠が要求する場合にのみ拡大*です。以下のすべての手順は、権限、secret の到達範囲、またはネットワーク経路を狭めます。何かを広げようとしていることに気づいたら、なぜかを問うてください——精査に値するのは広げる方の手であり、狭める方ではありません。
 
@@ -26,8 +26,8 @@ Agent の tool 用の credential は、Console の **Environment variables** に
 
 - **値を控えめに表示する。** credential をローテーションするには置換値を入力します。確認のためだけに古い値を表示しないでください。[Environment variables](../worker-env/) を参照してください。
 - **可能なら secret を Agent ごとにスコープする。** グローバルな secret はすべての Agent に届きます。Agent 単位の secret は 1 つに届きます。secret が本当に共有されていない限り、Agent 単位の形式を優先してください。
-- **予約された名前を上書きしない。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、`ANKOLE_` で始まる名前、および一部の sandbox 名は Console で設定できません。この制限を迂回しないでください。
-- **bootstrap secret を定期的にローテーションする。** `ANKOLE_SECRET_BASE` と `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` は他のキーを導出します。これらをローテーションするにはデプロイの再起動が必要であり、`ANKOLE_SECRET_BASE` が侵害された場合の爆発半径はインスタンス全体です。
+- **予約された名前を上書きしない。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、`ANKOLE_` で始まる名前、および [Environment variables](../worker-env/) に記載されたその他の予約名は Console で設定できません。この制限を迂回しないでください。
+- **bootstrap secret を定期的にローテーションする。** `ANKOLE_SECRET_BASE` は他のキーを導出します。ローテーションするにはデプロイの再起動が必要であり、`ANKOLE_SECRET_BASE` が侵害された場合の爆発半径はインスタンス全体です。Worker の credential は bootstrap secret ではなく、オペレーターが設定することもありません。コントロールプレーンは Worker generation ごとにランダムな credential を作成します。認証には保存したダイジェストを使い、同じ generation の起動を繰り返すための値は暗号化して保存します。
 
 ## 面 3:SSRF と model 制御の fetch
 
@@ -52,9 +52,19 @@ Agent の tool 用の credential は、Console の **Environment variables** に
 Ankole にはある程度の入り口が必要です。すべてが必要になることはまれです。各トランスポートが実際に要求するものまで締めましょう。
 
 - **長接続の adapter は出方向だけで十分です。** Lark、Slack、DingTalk は出方向の WebSocket/Stream 接続を開きます。公開の入り口エンドポイントは必要ありません。これらだけを使うなら、デプロイをプライベートに保ってください。
-- **Teams と webhook の入り口には公開エンドポイントが必要——スコープを限定してください。** Bot Framework と `/webhooks/v1/...` の玄関が到達可能である必要があります。入り口を使って、そのパスを想定される provider に制限し（可能なら送信元 IP で）、残りは adapter 自身の認証（Bot Framework JWT、Graph の `clientState`、ZAP/PLAIN の worker 認証）に頼ります。
+- **Teams と webhook の入り口には公開エンドポイントが必要——スコープを限定してください。** Bot Framework と `/webhooks/v1/...` の玄関が到達可能である必要があります。入り口を使って、そのパスを想定される provider に制限し（可能なら送信元 IP で）、残りは adapter 自身の認証（Bot Framework JWT、Graph の `clientState`）に頼ります。
 - **webhook 委譲 URL は credential です。** Agent が検知を外部システムに委譲する場合、`/webhooks/v1/event-callbacks/*` が到達可能である必要があります。入り口、proxy、CDN、アプリケーションログで完全なパスを秘匿してください。この URL が許可するのは wake-up だけなので、Agent は結果に影響するアクションの前に、外部の現在の状態を検証しなければなりません。
 - **Console 自体**は、管理ネットワークまたは VPN の背後に置き、パブリックインターネットに晒さないでください。bearer ゲートが不正アクセスを防ぎますが、管理者面を世界に晒す理由はありません。
+
+## 面 6:Worker コンテナとコントロールプレーン
+
+各 Agent は自分専用の Worker コンテナまたは Pod を持ち、Agent 同士が Worker、キャッシュディスク、credential を共有することはありません。コンテナが唯一の隔離境界です。コマンド、Codex app-server、Automation スクリプト、ブラウザーは、内側の sandbox なしで Worker のユーザーとして実行され、Agent プロセスは uid 1000 で実行し、capabilities と sudo はありません。
+
+- コマンドは sudo なしの uid 1000 で実行します。Home にユーザーパッケージを導入できますが、システムパッケージは導入できません。同じ Agent の Session はファイルとプロセスを共有します。
+- **Worker の credential は 1 つの Agent だけを表す。** Worker は credential をメモリに保持し、コマンドの環境からは取り除きます。別の Agent の credential や、置き換えられた Worker の credential では接続できません。
+- **コントロールプレーンを root 相当のコンポーネントとして保護する。** コントロールプレーンは、Docker socket、または Pod、Secret、PVC を作成・削除する namespace Role を通じて Worker を作成します。Docker socket へのアクセスはホストの root アクセスと同等です。
+- **Kubernetes では gVisor を追加する。** Kubernetes provider YAML の `podTemplate.spec.runtimeClassName` に、クラスターの gVisor RuntimeClass（例: `gvisor`）を設定します。インスタンス設定を変えると、その pool の Worker はアイドル時に置換されます。Helm の `worker.runtimeClassName` は初回起動で生成する provider の初期値です。インポート後は Console で provider を編集します。
+- **Worker が到達できる範囲を限定する。** Docker Compose では、Worker コンテナは `ankole_workers` ネットワークに参加し、コントロールプレーンとインターネットに到達しますが、PostgreSQL には到達しません。クラウドの仮想マシンでは、インスタンスメタデータの hop limit を 1 にするか、コンテナから `169.254.169.254` を遮断してください。Helm では、`networkPolicy.enabled` により Worker Pod は接続を一切受け付けず、コントロールプレーン、DNS、パブリックアドレスにのみ到達し、`networkPolicy.workerDeniedCIDRs` のプライベートレンジとノードのメタデータアドレスには到達しません。あわせて、ノードのインスタンスメタデータの hop limit を 1 に設定してください。
 
 ## 監査の姿勢
 
@@ -72,3 +82,4 @@ Ankole にはある程度の入り口が必要です。すべてが必要にな�
 - 権限モデルについては、[Principal and AuthZ](../principal-authz/) を読んでください。
 - Agent が使う credential については、[Environment variables](../worker-env/) を読んでください。
 - SSRF キーと bootstrap secret については、[Environment variables](../environment-variables/) を読んでください。
+- 各 Agent のコマンドを実行する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。

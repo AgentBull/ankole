@@ -10,6 +10,8 @@ defmodule Ankole.Observability.Providers.Langfuse do
   @impl true
   def trace_attributes(context) do
     %{"langfuse.trace.tags" => ["ankole", "ai_gateway"]}
+    |> put_present("langfuse.trace.metadata.tenant_id", Map.get(context, :tenant_id))
+    |> put_present("langfuse.trace.metadata.tenant_slug", Map.get(context, :tenant_slug))
     |> put_present("langfuse.trace.metadata.principal_uid", context.principal_uid)
     |> put_present("langfuse.trace.metadata.principal_type", context.principal_type)
     |> put_present("langfuse.trace.metadata.actor_event_id", context.actor_event_id)

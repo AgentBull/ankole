@@ -30,7 +30,128 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
+  describe "attachment materialization" do
+    test "stores download bytes with the adapter's name, type and added fields" do
+      [stored] =
+        Ingress.materialize_attachments(
+          [%{"provider_ref" => "fixture:one", "name" => "source.txt"}],
+          "fixture",
+          fn _attachment ->
+            {:ok,
+             %{
+               body: "download bytes",
+               filename: "stored.txt",
+               content_type: "text/plain",
+               put: %{"mimetype" => "text/plain"}
+             }}
+          end
+        )
+
+      assert stored["name"] == "source.txt"
+      assert String.ends_with?(stored["path"], "/stored.txt")
+      assert stored["mimetype"] == "text/plain"
+      assert stored["materialization_state"] == "complete"
+      assert stored["size"] == byte_size("download bytes")
+      assert Projection.stored_attachment?(stored)
+      refute Ingress.attachments_need_bytes?([stored])
+      assert Ingress.materialization_state([stored]) == "complete"
+    end
+
+    test "does not fetch stored bytes or provider facts and drops credentials from every result" do
+      {:ok, stored} = Ingress.store_attachment(%{"name" => "stored.bin"}, "stored")
+
+      restricted = %{
+        "provider_ref" => "fixture:large",
+        "materialization_state" => "provider_download_limit",
+        "restriction" => "original restriction"
+      }
+
+      external = %{
+        "provider_ref" => "fixture:external",
+        "materialization_state" => "provider_external_content"
+      }
+
+      attachments =
+        Enum.map([stored, restricted, external], &Map.put(&1, "download_code", "temporary"))
+
+      assert [^stored, ^restricted, ^external] =
+               Ingress.materialize_attachments(
+                 attachments,
+                 "fixture",
+                 fn _ -> flunk("must not download") end,
+                 drop_keys: ["download_code"]
+               )
+
+      refute Ingress.attachments_need_bytes?(attachments)
+      assert Ingress.materialization_state(attachments) == "complete"
+    end
+
+    test "records download limits without changing the provider restriction" do
+      [attachment] =
+        Ingress.materialize_attachments(
+          [%{"provider_ref" => "fixture:large"}],
+          "fixture",
+          fn _ -> {:error, :provider_download_limit} end,
+          restriction: "provider limit"
+        )
+
+      assert attachment["materialization_state"] == "provider_download_limit"
+      assert attachment["restriction"] == "provider limit"
+      assert Ingress.materialization_state([attachment]) == "complete"
+    end
+
+    test "failure and exception remove temporary keys and remain unsatisfied" do
+      for download <- [fn _ -> {:error, :unavailable} end, fn _ -> raise "download failed" end] do
+        [attachment] =
+          Ingress.materialize_attachments(
+            [
+              %{
+                "provider_ref" => "fixture:failed",
+                "temp_url" => "temporary",
+                "aeskey" => "secret"
+              }
+            ],
+            "fixture",
+            download,
+            drop_keys: ["temp_url", "aeskey"]
+          )
+
+        assert attachment["materialization_state"] == "failed"
+        refute Map.has_key?(attachment, "temp_url")
+        refute Map.has_key?(attachment, "aeskey")
+        assert Ingress.attachments_need_bytes?([attachment])
+        assert Ingress.materialization_state([attachment]) == "failed"
+      end
+    end
+
+    test "a failed observation can fetch again and become complete" do
+      [attachment] =
+        Ingress.materialize_attachments(
+          [%{"provider_ref" => "fixture:retry", "materialization_state" => "failed"}],
+          "fixture",
+          fn _ ->
+            {:ok, %{body: "retried", filename: "retry.bin", content_type: nil, put: %{}}}
+          end
+        )
+
+      assert attachment["materialization_state"] == "complete"
+      assert Projection.stored_attachment?(attachment)
+    end
+  end
+
   describe "ingress attribute keys" do
+    test "raises when an internal fact constructor receives an unknown field" do
+      assert_raise KeyError, fn ->
+        IngressFact.entry(%{
+          agent_uid: "unused-agent",
+          binding_name: "lark-main",
+          adapter: "lark",
+          source_event_id: "unknown-field-event",
+          unknown_key: true
+        })
+      end
+    end
+
     test "rejects a string-key alias in the internal ingress envelope" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :record_only)
@@ -71,12 +192,28 @@ defmodule Ankole.SignalsGatewayIngressTest do
       older_seen_at = DateTime.add(@base_time, 1, :second)
       parent = self()
 
+      tenant =
+        Sandbox.unboxed_run(Repo, fn ->
+          %Ankole.Tenants.Tenant{}
+          |> Ankole.Tenants.Tenant.changeset(%{
+            slug: "projection-" <> Ecto.UUID.generate(),
+            display_name: "Projection claim test"
+          })
+          |> Repo.insert!()
+        end)
+
+      Repo.put_tenant_id(tenant.id)
+
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
-          case Repo.get(Channel, channel_id) do
+          Repo.put_tenant_id(tenant.id)
+
+          case Repo.get_by(Channel, id: channel_id) do
             nil -> :ok
             channel -> Repo.delete!(channel)
           end
+
+          Repo.delete!(tenant)
         end)
       end)
 
@@ -92,39 +229,43 @@ defmodule Ankole.SignalsGatewayIngressTest do
       end)
 
       first =
-        Task.async(fn ->
-          Sandbox.unboxed_run(Repo, fn ->
-            Repo.transact(fn repo ->
-              result =
-                Projection.upsert_channel(
-                  repo,
-                  channel_fact(channel_id, %{"first" => true}),
-                  first_seen_at
-                )
+        Task.async(
+          Repo.bind_tenant(fn ->
+            Sandbox.unboxed_run(Repo, fn ->
+              Repo.transact(fn repo ->
+                result =
+                  Projection.upsert_channel(
+                    repo,
+                    channel_fact(channel_id, %{"first" => true}),
+                    first_seen_at
+                  )
 
-              send(parent, :first_channel_update_written)
+                send(parent, :first_channel_update_written)
 
-              receive do
-                :commit_first_channel_update -> result
-              end
+                receive do
+                  :commit_first_channel_update -> result
+                end
+              end)
             end)
           end)
-        end)
+        )
 
       assert_receive :first_channel_update_written, 5_000
 
       second =
-        Task.async(fn ->
-          Sandbox.unboxed_run(Repo, fn ->
-            Repo.transact(fn repo ->
-              Projection.upsert_channel(
-                repo,
-                channel_fact(channel_id, %{"second" => true}),
-                older_seen_at
-              )
+        Task.async(
+          Repo.bind_tenant(fn ->
+            Sandbox.unboxed_run(Repo, fn ->
+              Repo.transact(fn repo ->
+                Projection.upsert_channel(
+                  repo,
+                  channel_fact(channel_id, %{"second" => true}),
+                  older_seen_at
+                )
+              end)
             end)
           end)
-        end)
+        )
 
       refute Task.yield(second, 50)
       send(first.pid, :commit_first_channel_update)
@@ -132,7 +273,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, %Channel{}} = Task.await(first, 5_000)
       assert {:ok, %Channel{}} = Task.await(second, 5_000)
 
-      channel = Repo.get!(Channel, channel_id)
+      channel = Repo.get_by!(Channel, id: channel_id)
       assert channel.metadata == %{"base" => true, "first" => true, "second" => true}
       assert channel.last_seen_at == first_seen_at
     end
@@ -209,13 +350,14 @@ defmodule Ankole.SignalsGatewayIngressTest do
                |> List.first()
                |> get_in(["attachments", Access.at(0), "attachment_id"])
 
+      {:ok, stored} =
+        Ingress.store_attachment(%{"name" => "AlphaJiuGongGeYinZiFenYu.md"}, "notes")
+
       materialized_attachment =
         attachment
         |> Map.put(:attachment_id, attachment_id)
-        |> Map.put(
-          :agent_computer_path,
-          "/agents/#{agent.uid}/user-files/inbox/#{attachment_id}/AlphaJiuGongGeYinZiFenYu.md"
-        )
+        |> Map.put(:blob_ref, stored["blob_ref"])
+        |> Map.put(:path, stored["path"])
 
       assert {:ok, %{signal_entry: refreshed_entry}} =
                Ingress.emit_entry(
@@ -470,7 +612,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert input.sender_key == nil
     end
 
-    test "inbound batch deadline finalizes exact batch revision" do
+    test "an inbound batch finalizes once due and waits when it is not due" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
@@ -479,12 +621,15 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert Repo.aggregate(ActorEvent, :count) == 0
 
+      early = DateTime.add(batch.available_at, -1, :millisecond)
+
+      assert {:ok, %{status: :not_due, available_at: due_at}} =
+               SignalsGateway.finalize_inbound_batch_by_id(batch.id, now: early)
+
+      assert due_at == batch.available_at
+
       assert {:ok, %{status: :accepted, actor_event: input}} =
-               SignalsGateway.finalize_inbound_batch_by_id(
-                 batch.id,
-                 batch.batch_revision,
-                 now: batch.available_at
-               )
+               SignalsGateway.finalize_inbound_batch_by_id(batch.id, now: batch.available_at)
 
       assert input.type == "im.message.may_intervene"
       assert Repo.get!(InboundBatch, batch.id).batch_state == "finalized"
@@ -652,8 +797,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "bob"})
-      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+      %{principal: %{uid: bob_uid}} = human_fixture()
+      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Ingress.emit_entry(
@@ -791,8 +936,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert %InboundBatch{
                batch_state: "finalized",
-               entries: [%{"source_entry_id" => "msg-ambient-remove-second"}],
-               outcome: "ambient"
+               entries: [%{"source_entry_id" => "msg-ambient-remove-second"}]
              } = Repo.get!(InboundBatch, first.id)
     end
 
@@ -800,8 +944,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "bob"})
-      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+      %{principal: %{uid: bob_uid}} = human_fixture()
+      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Ingress.emit_entry(
@@ -855,7 +999,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, [%{status: :ignored, inbound_batch: finalized}]} =
                finalize_due_inbound_batch_events(now: updated.available_at)
 
-      assert finalized.outcome == "no_actor_event"
+      assert finalized.batch_state == "finalized"
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
@@ -885,8 +1029,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert dm_input.type == "im.message.addressed"
       assert dm_batch.mode == "addressed"
 
-      assert Repo.get!(Channel, "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
-               "alice"
+      assert Repo.get_by!(Channel, id: "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
+               dm_input.sender_key
 
       # A provider echo authored by the agent itself must not replace the
       # durable "other participant" identity used by conversation-origin DM
@@ -910,8 +1054,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert Repo.get!(Channel, "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
-               "alice"
+      assert Repo.get_by!(Channel, id: "lark:dm:alice-agent").metadata["dm_peer_principal_uid"] ==
+               dm_input.sender_key
 
       assert {:ok, %{inbound_batch: mention_batch}} =
                Ingress.emit_entry(
@@ -988,7 +1132,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: reply_time
                )
 
-      assert Repo.get!(InboundBatch, target_batch.id).outcome == "no_actor_event"
+      assert Repo.get!(InboundBatch, target_batch.id).batch_state == "finalized"
       assert reply_batch.mode == "addressed"
       assert reply_batch.reply_to_source_entry_id == "msg-agent-report"
 
@@ -1091,11 +1235,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
       binding_fixture(agent_a.uid, "lark-main", :record_only)
       binding_fixture(agent_b.uid, "lark-main", :ignore)
 
-      attachment = %{
-        "name" => "strategy.pdf",
-        "resource_type" => "file",
-        "agent_computer_path" => "/agents/#{agent_a.uid}/user-files/inbox/strategy.pdf"
-      }
+      {:ok, attachment} =
+        Ingress.store_attachment(%{"name" => "strategy.pdf", "resource_type" => "file"}, "pdf")
 
       assert {:ok, %{status: :recorded}} =
                Ingress.emit_entry(
@@ -1117,7 +1258,13 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert attachment_id >= 10_000
-      assert Map.delete(stored_attachment, "attachment_id") == attachment
+
+      assert Map.delete(stored_attachment, "attachment_id") ==
+               Map.put(
+                 attachment,
+                 "path",
+                 Ankole.Files.chat_path("lark:chat:group-a", attachment["path"])
+               )
 
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(
@@ -1328,12 +1475,11 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:ok, observed} =
                AdapterContext.observe_platform_subject(context, %{
                  external_id: "ou_alice",
-                 uid: "Alice",
                  display_name: "Alice",
                  metadata: %{"tenant_key" => "tenant-a"}
                })
 
-      assert observed.principal.uid == "alice"
+      assert {:ok, _} = Ecto.UUID.cast(observed.principal.uid)
       assert observed.identity.provider == "lark-main"
       assert observed.identity.external_id == "ou_alice"
     end
@@ -1342,12 +1488,12 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      platform_subject_fixture(
-        provider: "bot",
-        external_id: "ou_alice",
-        uid: "Alice",
-        display_name: "Alice"
-      )
+      %{principal: %{uid: alice_uid}} =
+        platform_subject_fixture(
+          provider: "bot",
+          external_id: "ou_alice",
+          display_name: "Alice"
+        )
 
       %{actor_event: input} =
         emit_addressed_actor_event(
@@ -1361,9 +1507,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
           })
         )
 
-      assert input.sender_key == "alice"
+      assert input.sender_key == alice_uid
 
-      assert %Entry{author: %{"principal_uid" => "alice", "platform_subject" => "ou_alice"}} =
+      assert %Entry{author: %{"principal_uid" => ^alice_uid, "platform_subject" => "ou_alice"}} =
                Repo.get_by!(Entry,
                  signal_channel_id: "lark:chat:group-a",
                  source_entry_id: "msg-known-author"
@@ -1450,11 +1596,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert compress_event.type == "command.compress"
       assert compress_event.payload["type"] == "command.compress"
       assert compress_event.payload["data"]["command"]["argsText"] == "release notes"
-      assert ActorEventTypes.command_runtime_policy("command.stop") == :control_now
-      assert ActorEventTypes.command_runtime_policy("command.retry") == :control_now
-      assert ActorEventTypes.command_runtime_policy("command.new") == :control_now
-      assert ActorEventTypes.command_runtime_policy("command.compress") == :control_now
-      assert ActorEventTypes.command_runtime_policy("command.steer") == :checkpoint_nudge
 
       assert {:ok, %{actor_event: input}} =
                Ingress.emit_entry(
@@ -1688,7 +1829,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert help_event.type == "command.llm_help"
       refute Map.has_key?(help_event.payload["data"]["command"], "modelProfile")
-      assert ActorEventTypes.command_runtime_policy(help_event.type) == :control_now
       refute ActorEventTypes.supersedes_pending_interaction?(help_event.type)
 
       assert {:ok, %{actor_event: turn_event}} =
@@ -1707,7 +1847,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert turn_event.type == "command.llm"
       assert get_in(turn_event.payload, ["data", "command", "modelProfile"]) == "kimi"
       assert get_in(turn_event.payload, ["data", "command", "argsText"]) == ""
-      assert ActorEventTypes.command_runtime_policy(turn_event.type) == :worker_turn
       assert ActorEventTypes.supersedes_pending_interaction?(turn_event.type)
     end
 
@@ -1715,10 +1854,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "alice"})
-      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
-      human_fixture(%{uid: "bob"})
-      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+      %{principal: %{uid: alice_uid}} = human_fixture()
+      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      %{principal: %{uid: bob_uid}} = human_fixture()
+      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
 
       for {event_id, entry_id, author, offset, text} <- [
             {"evt-a1", "msg-a1", alice, 0, "first"},
@@ -1747,7 +1886,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
         |> order_by([input], asc: input.inserted_at)
         |> Repo.all()
 
-      assert Enum.map(rows, & &1.sender_key) == ["alice"]
+      assert Enum.map(rows, & &1.sender_key) == [alice_uid]
 
       [alice_input] = rows
       assert alice_input.source_entry_id == "msg-a2"
@@ -1758,7 +1897,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                %{"source_entry_id" => "msg-a2", "text" => "second"}
              ] = get_in(alice_input.payload, ["data", "entries"])
 
-      assert [%InboundBatch{mode: "addressed", requester_sender_key: "bob"} = bob_batch] =
+      assert [%InboundBatch{mode: "addressed", requester_sender_key: ^bob_uid} = bob_batch] =
                InboundBatch
                |> where([batch], batch.batch_state == "open")
                |> Repo.all()
@@ -1956,10 +2095,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "alice"})
-      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
-      human_fixture(%{uid: "bob"})
-      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+      %{principal: %{uid: alice_uid}} = human_fixture()
+      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      %{principal: %{uid: bob_uid}} = human_fixture()
+      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :ignored}} =
                Ingress.emit_entry(
@@ -2003,7 +2142,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert addressed_batch.mode == "addressed"
-      assert addressed_batch.requester_sender_key == "bob"
+      assert addressed_batch.requester_sender_key == bob_uid
 
       due_at = addressed_batch.available_at
 
@@ -2027,10 +2166,10 @@ defmodule Ankole.SignalsGatewayIngressTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      human_fixture(%{uid: "alice"})
-      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
-      human_fixture(%{uid: "bob"})
-      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+      %{principal: %{uid: alice_uid}} = human_fixture()
+      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      %{principal: %{uid: bob_uid}} = human_fixture()
+      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
                Ingress.emit_entry(
@@ -2070,7 +2209,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert second_batch.id != first_batch.id
       assert first_event.type == "im.message.addressed"
       assert get_in(first_event.payload, ["data", "entry", "text"]) == "@Agent first"
-      assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, first_event.id) == []
+      assert Ankole.SignalsGateway.AIReplyPreview.lookup(first_event.id) == []
     end
 
     test "addressed text followed by attachment waits on the attachment window and merges" do
@@ -2185,10 +2324,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert pending_batch.available_at ==
                DateTime.add(attachment_at, 4_000, :millisecond)
 
-      assert pending_batch.hard_cap_at == pending_batch.available_at
-
       materialized_at = DateTime.add(attachment_at, 2_000, :millisecond)
-      materialized_path = "/agents/#{agent.uid}/user-files/inbox/chart.png"
+      {:ok, stored} = Ingress.store_attachment(%{"name" => "chart.png"}, "png")
+      materialized_path = stored["path"]
 
       materialized =
         pending
@@ -2196,14 +2334,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
           :metadata,
           Ingress.put_attachment_materialization(pending.metadata, "complete", attachment_at)
         )
-        |> put_in(
-          [
-            :attachments,
-            Access.at(0),
-            :agent_computer_path
-          ],
-          materialized_path
-        )
+        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :path], materialized_path)
 
       assert {:ok, %{inbound_batch: materialized_batch}} =
                Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
@@ -2211,94 +2343,105 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert materialized_batch.available_at ==
                DateTime.add(attachment_at, 1_200, :millisecond)
 
-      assert is_nil(materialized_batch.hard_cap_at)
-
       assert {:ok, [%{actor_event: input}]} =
                finalize_due_inbound_batch_events(now: materialized_at)
 
       assert get_in(input.payload, ["data", "entry", "text"]) == "inspect this"
+      drive_path = Ankole.Files.chat_path(input.signal_channel_id, materialized_path)
 
       assert [
                %{
-                 "agent_computer_path" => ^materialized_path,
+                 "path" => ^drive_path,
                  "provider_ref" => "lark:image:pending-image"
                }
              ] =
                get_in(input.payload, ["data", "entry", "attachments"])
-               |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
+               |> Enum.map(&Map.take(&1, ["path", "provider_ref"]))
     end
 
     test "materialization after the batch hard cap refreshes the open actor event" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
+      # The owning transaction keeps input delivery pending while its content is revised.
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 %{principal: agent} = agent_fixture()
+                 binding_fixture(agent.uid, "bot", :ignore)
 
-      observed_at = DateTime.to_iso8601(@base_time)
+                 observed_at = DateTime.to_iso8601(@base_time)
 
-      pending =
-        group_entry(%{
-          explicit: true,
-          source_event_id: "evt-slow-image",
-          source_entry_id: "msg-slow-image",
-          text: "inspect this image",
-          attachments: [
-            %{
-              provider_ref: "lark:image:slow-image",
-              source_message_id: "msg-slow-image",
-              resource_type: "image"
-            }
-          ],
-          metadata: %{
-            "attachment_materialization" => %{
-              "state" => "pending",
-              "observed_at" => observed_at
-            }
-          }
-        })
+                 pending =
+                   group_entry(%{
+                     explicit: true,
+                     source_event_id: "evt-slow-image",
+                     source_entry_id: "msg-slow-image",
+                     text: "inspect this image",
+                     attachments: [
+                       %{
+                         provider_ref: "lark:image:slow-image",
+                         source_message_id: "msg-slow-image",
+                         resource_type: "image"
+                       }
+                     ],
+                     metadata: %{
+                       "attachment_materialization" => %{
+                         "state" => "pending",
+                         "observed_at" => observed_at
+                       }
+                     }
+                   })
 
-      assert {:ok, %{inbound_batch: pending_batch}} =
-               Ingress.emit_entry(agent.uid, "bot", pending, now: @base_time)
+                 assert {:ok, %{inbound_batch: pending_batch}} =
+                          Ingress.emit_entry(agent.uid, "bot", pending, now: @base_time)
 
-      assert {:ok, [%{actor_event: pending_event}]} =
-               finalize_due_inbound_batch_events(now: pending_batch.available_at)
+                 assert {:ok, [%{actor_event: pending_event}]} =
+                          Repo.transact(fn _repo ->
+                            finalize_due_inbound_batch_events(now: pending_batch.available_at)
+                          end)
 
-      materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
-      materialized_path = "/agents/#{agent.uid}/user-files/inbox/slow-image.png"
+                 materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
 
-      materialized =
-        pending
-        |> put_in([:metadata, "attachment_materialization", "state"], "complete")
-        |> put_in(
-          [:attachments, Access.at(0), :agent_computer_path],
-          materialized_path
-        )
+                 {:ok, stored} =
+                   Ingress.store_attachment(%{"name" => "slow-image.png"}, "slow png")
 
-      assert {:ok,
-              %{
-                status: :input_superseded_refresh,
-                actor_event: refreshed_event
-              }} =
-               Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+                 materialized_path = stored["path"]
 
-      assert refreshed_event.id == pending_event.id
-      assert refreshed_event.available_at == materialized_at
-      assert Repo.aggregate(ActorEvent, :count) == 1
-      assert Repo.aggregate(InboundBatch, :count) == 1
+                 materialized =
+                   pending
+                   |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+                   |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+                   |> put_in([:attachments, Access.at(0), :path], materialized_path)
 
-      assert [
-               %{
-                 "agent_computer_path" => ^materialized_path,
-                 "provider_ref" => "lark:image:slow-image"
-               }
-             ] =
-               get_in(refreshed_event.payload, ["data", "entry", "attachments"])
-               |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
+                 assert {:ok,
+                         %{
+                           status: :input_superseded,
+                           actor_event: refreshed_event
+                         }} =
+                          Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
 
-      redelivered_at = DateTime.add(materialized_at, 1, :second)
+                 assert refreshed_event.id == pending_event.id
+                 assert refreshed_event.available_at == materialized_at
+                 assert Repo.aggregate(ActorEvent, :count) == 1
+                 assert Repo.aggregate(InboundBatch, :count) == 1
 
-      assert {:ok, %{status: :duplicate}} =
-               Ingress.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
+                 drive_path =
+                   Ankole.Files.chat_path(refreshed_event.signal_channel_id, materialized_path)
 
-      assert Repo.get!(ActorEvent, refreshed_event.id).available_at == materialized_at
+                 assert [
+                          %{
+                            "path" => ^drive_path,
+                            "provider_ref" => "lark:image:slow-image"
+                          }
+                        ] =
+                          get_in(refreshed_event.payload, ["data", "entry", "attachments"])
+                          |> Enum.map(&Map.take(&1, ["path", "provider_ref"]))
+
+                 redelivered_at = DateTime.add(materialized_at, 1, :second)
+
+                 assert {:ok, %{status: :duplicate}} =
+                          Ingress.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
+
+                 assert Repo.get!(ActorEvent, refreshed_event.id).available_at == materialized_at
+                 {:ok, :verified}
+               end)
     end
 
     test "single addressed message over the normal text budget is not split" do
@@ -2331,7 +2474,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   end
 
   describe "attachment observation surface" do
-    test "a later observation without a path never replaces a materialized attachment" do
+    test "a later observation without stored bytes never replaces a stored attachment" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
       observed_at = DateTime.add(@base_time, 500, :millisecond)
@@ -2355,7 +2498,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
           source_entry_id: "msg-guarded-image"
         )
 
-      path = "/agents/#{agent.uid}/user-files/inbox/#{attachment_id}/chart.png"
+      {:ok, stored} = Ingress.store_attachment(%{"name" => "chart.png"}, <<137, 80, 78, 71>>)
+      path = stored["path"]
 
       complete =
         pending
@@ -2363,7 +2507,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
           :metadata,
           Ingress.put_attachment_materialization(%{}, "complete", observed_at)
         )
-        |> put_in([:attachments, Access.at(0), :agent_computer_path], path)
+        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :path], path)
         |> put_in([:attachments, Access.at(0), :materialization_state], "complete")
 
       assert {:ok, _complete} =
@@ -2388,40 +2533,27 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert kept["attachment_id"] == attachment_id
-      assert kept["agent_computer_path"] == path
+      drive_path = Ankole.Files.chat_path("lark:chat:group-a", path)
+      assert kept["path"] == drive_path
+      assert kept["blob_ref"] == stored["blob_ref"]
       assert kept["materialization_state"] == "complete"
+      assert {:ok, %{source: "inbound"}} = Ankole.Files.fetch(agent.uid, drive_path)
     end
 
-    test "attachments need bytes until the ID and the path both point into this agent's inbox" do
-      materialized = %{
+    test "attachments need bytes until the file service holds every one of them" do
+      stored = %{
         "attachment_id" => 10_042,
-        "agent_computer_path" => "/agents/agent-a/user-files/inbox/10042/report.pdf"
+        "blob_ref" => String.duplicate("ab", 32),
+        "path" => "inbox/abababababababab/report.pdf"
       }
 
-      refute Ingress.attachments_need_bytes?("agent-a", [])
-      refute Ingress.attachments_need_bytes?("agent-a", [materialized])
+      refute Ingress.attachments_need_bytes?([])
+      refute Ingress.attachments_need_bytes?([stored])
 
-      assert Ingress.attachments_need_bytes?("agent-a", [
-               materialized,
-               %{"provider_ref" => "lark:file:fresh"}
-             ])
-
-      assert Ingress.attachments_need_bytes?("agent-a", [%{"attachment_id" => 10_042}])
-      assert Ingress.attachments_need_bytes?("agent-b", [materialized])
-
-      assert Ingress.attachments_need_bytes?("agent-a", [
-               %{
-                 materialized
-                 | "agent_computer_path" => "/agents/agent-a/user-files/inbox/10043/report.pdf"
-               }
-             ])
-
-      assert Ingress.attachments_need_bytes?("agent-a", [
-               %{
-                 "attachment_id" => 42,
-                 "agent_computer_path" => "/agents/agent-a/user-files/inbox/42/report.pdf"
-               }
-             ])
+      assert Ingress.attachments_need_bytes?([stored, %{"provider_ref" => "lark:file:fresh"}])
+      assert Ingress.attachments_need_bytes?([%{"attachment_id" => 10_042}])
+      assert Ingress.attachments_need_bytes?([Map.delete(stored, "path")])
+      assert Ingress.attachments_need_bytes?([%{stored | "blob_ref" => ""}])
     end
 
     test "the observation metadata always carries the state and the observed time" do

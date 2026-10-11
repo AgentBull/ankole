@@ -1,6 +1,52 @@
 defmodule Ankole.Plugins.MarkdownChunks do
   @moduledoc "Byte-exact Markdown chunks and closed-fence display forms."
 
+  @doc "Rewrites prose in full context while original code bytes stay unchanged."
+  @spec rewrite_prose(String.t(), (String.t(), String.t() | nil -> String.t())) :: String.t()
+  def rewrite_prose(text, rewrite) when is_binary(text) and is_function(rewrite, 2) do
+    case Ankole.Kernel.markdown_code_ranges(text) do
+      [] -> rewrite.(text, nil)
+      ranges -> rewrite_protected(text, ranges, rewrite)
+    end
+  end
+
+  defp rewrite_protected(text, ranges, rewrite, index \\ 0) do
+    {marker, index} = code_marker(text, index)
+
+    masked = mask_code(text, ranges, marker, [], 0)
+    parts = masked |> rewrite.(marker) |> :binary.split(marker, [:global])
+
+    # Prose rewrites keep inserted markers, but may join text into a new marker.
+    case length(parts) - length(ranges) - 1 do
+      0 ->
+        parts
+        |> Enum.zip_with(ranges, fn prose, {start, length} ->
+          [prose, binary_part(text, start, length)]
+        end)
+        |> then(&[&1, List.last(parts)])
+        |> IO.iodata_to_binary()
+
+      extra when extra > 0 ->
+        rewrite_protected(text, ranges, rewrite, index + 1)
+    end
+  end
+
+  defp mask_code(text, [{start, length} | ranges], marker, pieces, offset) do
+    prose = binary_part(text, offset, start - offset)
+    mask_code(text, ranges, marker, [marker, prose | pieces], start + length)
+  end
+
+  defp mask_code(text, [], _marker, pieces, offset) do
+    [Enum.reverse(pieces), binary_part(text, offset, byte_size(text) - offset)]
+    |> IO.iodata_to_binary()
+  end
+
+  defp code_marker(text, index) do
+    # One leading NUL and no trailing NUL make marker matches non-overlapping.
+    marker = "\0#{index}X"
+    if String.contains?(text, marker), do: code_marker(text, index + 1), else: {marker, index}
+  end
+
   @doc "Split source text into chunks each within `max_bytes`."
   @spec split(String.t(), non_neg_integer()) :: [String.t()]
   def split(text, max_bytes) when is_binary(text) do
@@ -25,13 +71,14 @@ defmodule Ankole.Plugins.MarkdownChunks do
           {chunks, candidate}
 
         byte_size(unit) > max_bytes ->
-          {chunks ++ flush(current) ++ split_long_line(unit, max_bytes), ""}
+          {Enum.reverse(split_long_line(unit, max_bytes), Enum.reverse(flush(current), chunks)),
+           ""}
 
         true ->
-          {chunks ++ flush(current), unit}
+          {Enum.reverse(flush(current), chunks), unit}
       end
     end)
-    |> then(fn {chunks, current} -> chunks ++ flush(current) end)
+    |> then(fn {chunks, current} -> Enum.reverse(chunks, flush(current)) end)
     |> case do
       [] -> [""]
       chunks -> chunks
@@ -103,11 +150,11 @@ defmodule Ankole.Plugins.MarkdownChunks do
       candidate = current <> grapheme
 
       if byte_size(candidate) > max_bytes do
-        {chunks ++ [current], grapheme}
+        {[current | chunks], grapheme}
       else
         {chunks, candidate}
       end
     end)
-    |> then(fn {chunks, current} -> chunks ++ flush(current) end)
+    |> then(fn {chunks, current} -> Enum.reverse(chunks, flush(current)) end)
   end
 end

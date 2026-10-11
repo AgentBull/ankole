@@ -15,7 +15,6 @@ defmodule Ankole.Workflow do
   alias Ankole.I18n
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
@@ -32,8 +31,6 @@ defmodule Ankole.Workflow do
   @minimum_id 1000
   @maximum_id 9_007_199_254_740_991
   @result_window_bytes 8_000
-  @turn_error_retry_base_seconds 5
-  @turn_error_retry_max_seconds 120
   @memo_budget_bytes 6 * 1_024 * 1_024
   @value_max_bytes 24 * 1_024
   @capacity_defer_reason "agent_capacity"
@@ -77,20 +74,6 @@ defmodule Ankole.Workflow do
   @doc false
   def task_session_prefix, do: @task_session_prefix
 
-  @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
-  def dead_letter_after_turn_error?(%ActorEvent{}, _reason, _recoverable?), do: false
-
-  @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
-  def turn_error_retry_at(_reason, delivery_attempt_no, %DateTime{} = now)
-      when is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
-    exponential =
-      round(@turn_error_retry_base_seconds * :math.pow(2, delivery_attempt_no - 1))
-
-    DateTime.add(now, min(exponential, @turn_error_retry_max_seconds), :second)
-  end
-
   @workflow_wakeup_notice_keys %{
     "workflow.run.completed" => "workflow_dead_letter_completed",
     "workflow.run.failed" => "workflow_dead_letter_failed"
@@ -127,7 +110,6 @@ defmodule Ankole.Workflow do
   def dead_letter_notice_text(%ActorEvent{}), do: nil
 
   @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   def compensate_turn_error_in_tx(
         repo,
         %{agent_uid: agent_uid, session_id: session_id},
@@ -154,13 +136,6 @@ defmodule Ankole.Workflow do
     end
   end
 
-  @spec submit_result(pos_integer(), String.t(), String.t(), map()) ::
-          {:ok, %{accepted: boolean(), call: struct(), run: struct()}} | {:error, term()}
-  def submit_result(call_id, agent_uid, session_id, outcome) do
-    submit_result_in_storage(call_id, agent_uid, session_id, outcome)
-    |> cleanup_terminal_transition()
-  end
-
   @spec fail_unstarted_task(
           pos_integer(),
           String.t(),
@@ -172,8 +147,6 @@ defmodule Ankole.Workflow do
     fail_unstarted_task_in_storage(call_id, agent_uid, code, summary, available_at)
     |> cleanup_terminal_transition()
   end
-
-  def cancel(run_id, agent_uid), do: RunServer.cancel(run_id, agent_uid)
 
   @doc false
   @spec cleanup_terminal_transition(term()) :: term()
@@ -189,6 +162,9 @@ defmodule Ankole.Workflow do
 
   def cleanup_terminal_transition({:ok, %{run: %Run{status: status} = run} = result})
       when status in ["completed", "failed", "cancelled"] do
+    if status == "cancelled", do: RunServer.stop_replay(run.id)
+    Ankole.Conversations.deliver_events([Map.get(result, :wakeup_event)])
+
     case cleanup_terminal_run(run) do
       {:ok, cleaned_run} ->
         {:ok, result |> Map.put(:run, cleaned_run) |> Map.put(:cleanup_errors, [])}
@@ -211,6 +187,39 @@ defmodule Ankole.Workflow do
   end
 
   def cleanup_terminal_transition(result), do: result
+
+  @doc false
+  def reconcile_run_wakeups do
+    terminal = Run.terminal_statuses()
+
+    Repo.transact(fn repo ->
+      runs =
+        Repo.across_tenants(fn ->
+          from(run in Run,
+            where:
+              run.status == "running" or
+                (run.status in ^terminal and is_nil(run.cleanup_completed_at)),
+            select: %{id: run.id, tenant_id: run.tenant_id}
+          )
+          |> repo.all()
+        end)
+
+      runs
+      |> Enum.reject(&RunServer.whereis(&1.id))
+      |> Enum.reduce_while({:ok, :ok}, fn run, result ->
+        case Repo.with_tenant(run.tenant_id, fn ->
+               Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id)
+             end) do
+          :ok -> {:cont, result}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
 
   @doc false
   @spec cleanup_terminal_run(struct()) ::
@@ -262,28 +271,38 @@ defmodule Ankole.Workflow do
   end
 
   @doc false
-  @spec complete_task_event(ActorEvent.t(), DateTime.t()) ::
-          {:ok, ActorEvent.t()} | {:error, term()}
-  def complete_task_event(%ActorEvent{} = actor_event, %DateTime{} = completed_at) do
-    Repo.transact(fn repo ->
-      with :ok <-
-             Actors.lock_actor_session_in_tx(
-               repo,
-               actor_event.agent_uid,
-               actor_event.session_id
-             ) do
-        case Actors.lock_actor_event_in_tx(repo, actor_event.id) do
-          %ActorEvent{completed_at: %DateTime{}} = completed_event ->
-            {:ok, completed_event}
+  @spec lock_task_progress_in_tx(module(), pos_integer(), String.t(), String.t(), pos_integer()) ::
+          {:ok, AgentCall.t() | nil} | {:error, term()}
+  def lock_task_progress_in_tx(repo, call_id, agent_uid, session_id, attempt)
+      when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
+             is_binary(session_id) and is_integer(attempt) and attempt > 0 do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
+         %Run{} = run <- lock_run(repo, run_id, agent_uid),
+         %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid),
+         :ok <- authorize_session(call, session_id) do
+      current =
+        if run.status == "running" and call.status == "running" and call.attempts == attempt,
+          do: call
 
-          %ActorEvent{} = open_event ->
-            Actors.mark_event_completed_in_tx(repo, open_event, completed_at)
+      {:ok, current}
+    else
+      nil -> {:error, :workflow_task_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
 
-          nil ->
-            {:error, :workflow_task_event_not_found}
-        end
-      end
-    end)
+  @doc false
+  @spec touch_running_task_in_tx(module(), AgentCall.t() | nil, DateTime.t()) ::
+          :ok | {:error, term()}
+  def touch_running_task_in_tx(_repo, nil, _now), do: :ok
+
+  # The caller holds the task locks and records a new round in this transaction.
+  def touch_running_task_in_tx(repo, %AgentCall{status: "running"} = call, now) do
+    case call |> Ecto.Changeset.change(updated_at: now) |> repo.update() do
+      {:ok, _call} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   @spec get(pos_integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -335,9 +354,9 @@ defmodule Ankole.Workflow do
                  )
                ),
              :ok <- ensure_task_message_target(run, call),
-             {:ok, _event} <-
+             {:ok, event} <-
                append_task_message_event(repo, run, call, message, source_tool_call_id, now) do
-          {:ok, %{call: call, run: run}}
+          {:ok, %{call: call, run: run, event: event}}
         else
           nil -> {:error, :workflow_task_not_found}
           {:error, _reason} = error -> error
@@ -501,19 +520,6 @@ defmodule Ankole.Workflow do
     end)
   end
 
-  @doc false
-  @spec runtime_event_snapshot() :: [{String.t(), map()}]
-  def runtime_event_snapshot do
-    Run
-    |> where([run], is_nil(run.cleanup_completed_at))
-    |> order_by([run], asc: run.id)
-    |> select([run], run.id)
-    |> Repo.all()
-    |> Enum.map(fn run_id ->
-      {RuntimeEvents.workflow_run_ready_channel(), %{"run_id" => run_id}}
-    end)
-  end
-
   defp task_sessions(run_id) do
     AgentCall
     |> where([call], call.run_id == ^run_id)
@@ -582,8 +588,12 @@ defmodule Ankole.Workflow do
              "agent_uid" => run.agent_uid,
              "cancel_requested_by" => "workflow:#{run.id}"
            }) do
-        {:ok, _result} -> []
-        {:error, reason} -> [%{job_id: job_id, reason: reason}]
+        {:ok, result} ->
+          Ankole.Conversations.stop_job_turn(result.job, result.turn)
+          []
+
+        {:error, reason} ->
+          [%{job_id: job_id, reason: reason}]
       end
     end)
   end
@@ -710,11 +720,12 @@ defmodule Ankole.Workflow do
   defp persist_in_tx(repo, attrs) do
     attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
-    with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+         :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
          :ok <- lock_idempotency(repo, attrs) do
       case find_existing(repo, attrs) do
         %Run{status: "running"} = run ->
-          with :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id) do
+          with :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
             {:ok, %{run: run}}
           end
 
@@ -723,7 +734,7 @@ defmodule Ankole.Workflow do
 
         nil ->
           with {:ok, run} <- repo.insert(Run.creation_changeset(%Run{}, attrs)),
-               :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id) do
+               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
             {:ok, %{run: run}}
           end
       end
@@ -853,6 +864,9 @@ defmodule Ankole.Workflow do
       with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id),
            do: commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
     end)
+    |> Ankole.Conversations.deliver_committed(fn value ->
+      Map.get(value, :dispatch_events, []) ++ [Map.get(value, :wakeup_event)]
+    end)
   end
 
   @doc false
@@ -924,60 +938,7 @@ defmodule Ankole.Workflow do
            :ok <- lock_agent_slots(repo, snapshot.agent_uid),
            %Run{} = run <- lock_run(repo, run_id, snapshot.agent_uid) do
         if run.status == "running" do
-          calls =
-            AgentCall
-            |> where(
-              [call],
-              call.run_id == ^run.id and call.status == "running" and
-                call.updated_at < ^cutoff
-            )
-            |> order_by([call], asc: call.call_seq)
-            |> lock("FOR UPDATE")
-            |> repo.all()
-
-          calls
-          |> Enum.reduce_while({:ok, 0, run, []}, fn call,
-                                                     {:ok, count, current_run, running_ids} ->
-            failure = %{
-              "code" => "workflow_task_stale",
-              "summary" => "The Workflow task Turn did not finish before the one-hour watchdog.",
-              "retryable" => true
-            }
-
-            case commit_failure(
-                   repo,
-                   current_run,
-                   call,
-                   failure,
-                   call.attempts < 3,
-                   reconciled_at
-                 ) do
-              {:ok, %{run: %Run{} = next_run} = result} ->
-                next =
-                  {:ok, count + 1, next_run,
-                   Map.get(result, :running_session_ids, []) ++ running_ids}
-
-                if next_run.status == "running", do: {:cont, next}, else: {:halt, next}
-
-              {:error, reason} ->
-                {:halt, {:error, reason}}
-            end
-          end)
-          |> case do
-            {:ok, count, current_run, running_ids} ->
-              with {:ok, overdue_count, current_run} <-
-                     reconcile_overdue_sleeping(repo, current_run, cutoff, reconciled_at) do
-                {:ok,
-                 %{
-                   run: current_run,
-                   reconciled: count + overdue_count,
-                   running_session_ids: Enum.reverse(running_ids)
-                 }}
-              end
-
-            {:error, _reason} = error ->
-              error
-          end
+          reconcile_running_tasks_in_tx(repo, run, cutoff, reconciled_at)
         else
           {:ok, %{run: run, reconciled: 0, running_session_ids: []}}
         end
@@ -1053,31 +1014,45 @@ defmodule Ankole.Workflow do
   @doc false
   @spec claim_task_in_tx(module(), pos_integer(), String.t(), pos_integer()) ::
           {:ok, %{call: struct(), run: struct()}} | {:error, term()}
-  def claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent)
+  def claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent, opts \\ [])
       when is_atom(repo) and is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
              is_integer(max_running_per_agent) and max_running_per_agent > 0 do
     with {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
-         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id),
          :ok <- lock_agent_slots(repo, agent_uid),
          %Run{} = run <- lock_run(repo, run_id, agent_uid),
          %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid),
-         :ok <- ensure_claimable(run, call),
-         :ok <- enforce_capacity(repo, run, max_running_per_agent),
-         {:ok, call} <-
-           call
-           |> AgentCall.changeset(%{
-             status: "running",
-             attempts: call.attempts + 1,
-             attention: false,
-             error: %{}
-           })
-           |> repo.update() do
-      {:ok, %{call: call, run: run}}
+         :ok <- ensure_claimable_or_adopted(run, call, opts) do
+      if call.status == "running" do
+        {:ok, %{call: call, run: run}}
+      else
+        with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+             :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
+             :ok <- enforce_capacity(repo, run, max_running_per_agent),
+             {:ok, call} <-
+               call
+               |> AgentCall.changeset(%{
+                 status: "running",
+                 attempts: call.attempts + 1,
+                 attention: false,
+                 error: %{}
+               })
+               |> repo.update() do
+          {:ok, %{call: call, run: run}}
+        end
+      end
     else
       nil -> {:error, :workflow_task_not_found}
       {:error, _reason} = error -> error
     end
   end
+
+  defp ensure_claimable_or_adopted(%Run{status: "running"}, %AgentCall{status: "running"}, opts) do
+    if Keyword.get(opts, :adopt_running, false),
+      do: :ok,
+      else: {:error, {:workflow_task_not_queued, "running"}}
+  end
+
+  defp ensure_claimable_or_adopted(run, call, _opts), do: ensure_claimable(run, call)
 
   @doc false
   @spec authorize_delegated_job_in_tx(module(), pos_integer(), String.t()) ::
@@ -1102,16 +1077,18 @@ defmodule Ankole.Workflow do
           ActorEvent.t(),
           pos_integer(),
           String.t(),
-          pos_integer()
+          pos_integer(),
+          keyword()
         ) :: {:ok, %{call: struct(), run: struct()}} | {:error, term()}
   def claim_task_for_dispatch_in_tx(
         repo,
         %ActorEvent{} = actor_event,
         call_id,
         agent_uid,
-        max_running_per_agent
+        max_running_per_agent,
+        opts \\ []
       ) do
-    with {:ok, result} <- claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent),
+    with {:ok, result} <- claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent, opts),
          :ok <- clear_task_event_defer_in_tx(repo, actor_event) do
       {:ok, result}
     end
@@ -1142,10 +1119,12 @@ defmodule Ankole.Workflow do
                    })
                    |> repo.update(),
                  :ok <-
-                   RuntimeEvents.notify_actor_session_ready(
+                   Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
                      repo,
-                     deferred_event.agent_uid,
-                     deferred_event.session_id,
+                     %{
+                       agent_uid: deferred_event.agent_uid,
+                       session_id: deferred_event.session_id
+                     },
                      deferred_event.available_at
                    ) do
               {:ok, deferred_event}
@@ -1155,16 +1134,6 @@ defmodule Ankole.Workflow do
             {:error, :workflow_task_event_not_found}
         end
       end
-    end)
-  end
-
-  @spec submit_result_in_storage(pos_integer(), String.t(), String.t(), map()) ::
-          {:ok, %{accepted: boolean(), call: struct(), run: struct()}} | {:error, term()}
-  defp submit_result_in_storage(call_id, agent_uid, session_id, outcome)
-       when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
-              is_binary(session_id) and is_map(outcome) do
-    Repo.transact(fn repo ->
-      submit_result_in_tx(repo, call_id, agent_uid, session_id, outcome)
     end)
   end
 
@@ -1184,14 +1153,6 @@ defmodule Ankole.Workflow do
     end
   end
 
-  @spec sleep_task(pos_integer(), String.t(), String.t(), map()) ::
-          {:ok, %{call: struct(), run: struct()}} | {:error, term()}
-  def sleep_task(call_id, agent_uid, session_id, params)
-      when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
-             is_binary(session_id) and is_map(params) do
-    Repo.transact(fn repo -> sleep_task_in_tx(repo, call_id, agent_uid, session_id, params) end)
-  end
-
   @doc false
   @spec sleep_task_in_tx(module(), pos_integer(), String.t(), String.t(), map()) ::
           {:ok, %{call: struct(), run: struct()}} | {:error, term()}
@@ -1208,29 +1169,6 @@ defmodule Ankole.Workflow do
       nil -> {:error, :workflow_task_not_found}
       {:error, _reason} = error -> error
     end
-  end
-
-  @doc false
-  @spec requeue_unstarted_task(
-          pos_integer(),
-          String.t(),
-          pos_integer(),
-          DateTime.t()
-        ) :: {:ok, %{call: struct(), run: struct()}} | {:error, term()}
-  def requeue_unstarted_task(call_id, agent_uid, expected_attempt, %DateTime{} = available_at)
-      when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
-             is_integer(expected_attempt) and expected_attempt > 0 do
-    Repo.transact(fn repo ->
-      with :ok <- lock_agent_slots(repo, agent_uid),
-           {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
-           %Run{} = run <- lock_run(repo, run_id, agent_uid),
-           %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid) do
-        requeue_unstarted_locked(repo, run, call, expected_attempt, available_at)
-      else
-        nil -> {:error, :workflow_task_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
   end
 
   @doc false
@@ -1265,7 +1203,7 @@ defmodule Ankole.Workflow do
           run.status != "running" ->
             {:ok, %{accepted: false, call: call, run: run}}
 
-          call.status == "queued" ->
+          call.status in ["queued", "sleeping"] ->
             commit_failure(repo, run, call, failure, false, available_at)
 
           call.status in AgentCall.terminal_statuses() ->
@@ -1279,14 +1217,6 @@ defmodule Ankole.Workflow do
         {:error, _reason} = error -> error
       end
     end)
-  end
-
-  @doc false
-  @spec cancel_in_storage(pos_integer(), String.t()) ::
-          {:ok, %{run: struct(), running_session_ids: [String.t()]}} | {:error, term()}
-  def cancel_in_storage(run_id, agent_uid)
-      when is_integer(run_id) and run_id > 0 and is_binary(agent_uid) do
-    Repo.transact(fn repo -> cancel_in_tx(repo, run_id, agent_uid) end)
   end
 
   @doc false
@@ -1313,7 +1243,8 @@ defmodule Ankole.Workflow do
     end)
   end
 
-  defp cancel_in_tx(repo, run_id, agent_uid) do
+  @doc false
+  def cancel_in_tx(repo, run_id, agent_uid) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Run{} = run <- lock_run(repo, run_id, agent_uid) do
       if run.status == "running" do
@@ -1324,7 +1255,7 @@ defmodule Ankole.Workflow do
                run
                |> Run.changeset(%{status: "cancelled", completed_at: completed_at, error: %{}})
                |> repo.update(),
-             :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id) do
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
           {:ok, %{run: run, running_session_ids: running_ids}}
         end
       else
@@ -1336,33 +1267,68 @@ defmodule Ankole.Workflow do
     end
   end
 
+  defp reconcile_running_tasks_in_tx(repo, run, cutoff, reconciled_at) do
+    calls =
+      AgentCall
+      |> where(
+        [call],
+        call.run_id == ^run.id and call.status == "running" and
+          call.updated_at < ^cutoff
+      )
+      |> order_by([call], asc: call.call_seq)
+      |> lock("FOR UPDATE")
+      |> repo.all()
+
+    calls
+    |> Enum.reduce_while({:ok, 0, run, []}, fn call, {:ok, count, current_run, running_ids} ->
+      failure = %{
+        "code" => "workflow_task_stale",
+        "summary" => "The Workflow task Turn did not finish before the one-hour watchdog.",
+        "retryable" => true
+      }
+
+      case commit_failure(
+             repo,
+             current_run,
+             call,
+             failure,
+             call.attempts < 3,
+             reconciled_at
+           ) do
+        {:ok, %{run: %Run{} = next_run} = result} ->
+          next =
+            {:ok, count + 1, next_run, Map.get(result, :running_session_ids, []) ++ running_ids}
+
+          if next_run.status == "running", do: {:cont, next}, else: {:halt, next}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, count, current_run, running_ids} ->
+        with {:ok, overdue_count, current_run} <-
+               reconcile_overdue_sleeping(repo, current_run, cutoff, reconciled_at) do
+          {:ok,
+           %{
+             run: current_run,
+             reconciled: count + overdue_count,
+             running_session_ids: Enum.reverse(running_ids)
+           }}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length) do
     case lock_run(repo, run_id) do
       %Run{status: "running"} = run ->
         calls = lock_run_calls_by_sequence(repo, run.id)
 
         with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
-          case Program.stall_diff(calls, pending_calls, run.max_agent_calls) do
-            {:ok, %{new_calls: new_calls}} ->
-              case prepare_new_calls(run, new_calls) do
-                {:ok, call_changesets, memo_bytes} ->
-                  case insert_and_dispatch_calls(repo, run, call_changesets, now()) do
-                    {:ok, calls} ->
-                      with {:ok, run} <- update_run_memo_bytes(repo, run, memo_bytes) do
-                        {:ok, %{run: run, new_calls: calls}}
-                      end
-
-                    {:error, _reason} = error ->
-                      error
-                  end
-
-                {:error, reason} ->
-                  fail_pending_commit(repo, run, reason)
-              end
-
-            {:error, reason} ->
-              fail_pending_commit(repo, run, reason)
-          end
+          prepare_and_commit_pending(repo, run, calls, pending_calls)
         end
 
       %Run{} = run ->
@@ -1370,6 +1336,30 @@ defmodule Ankole.Workflow do
 
       nil ->
         {:error, :workflow_not_found}
+    end
+  end
+
+  defp prepare_and_commit_pending(repo, run, calls, pending_calls) do
+    prepared =
+      with {:ok, %{new_calls: new_calls}} <-
+             Program.stall_diff(calls, pending_calls, run.max_agent_calls),
+           do: prepare_new_calls(run, new_calls)
+
+    case prepared do
+      {:ok, call_changesets, memo_bytes} ->
+        with :ok <-
+               (case call_changesets do
+                  [] -> :ok
+                  [_ | _] -> Ankole.Tenants.check_work_admission(Repo.tenant_id!())
+                end),
+             {:ok, calls, dispatch_events} <-
+               insert_and_dispatch_calls(repo, run, call_changesets, now()),
+             {:ok, run} <- update_run_memo_bytes(repo, run, memo_bytes) do
+          {:ok, %{run: run, new_calls: calls, dispatch_events: dispatch_events}}
+        end
+
+      {:error, reason} ->
+        fail_pending_commit(repo, run, reason)
     end
   end
 
@@ -1418,16 +1408,16 @@ defmodule Ankole.Workflow do
   end
 
   defp insert_and_dispatch_calls(repo, run, call_changesets, inserted_at) do
-    Enum.reduce_while(call_changesets, {:ok, []}, fn changeset, {:ok, calls} ->
+    Enum.reduce_while(call_changesets, {:ok, [], []}, fn changeset, {:ok, calls, events} ->
       with {:ok, call} <- repo.insert(changeset),
-           {:ok, _event} <- append_dispatch_event(repo, run, call, inserted_at) do
-        {:cont, {:ok, [call | calls]}}
+           {:ok, event} <- append_dispatch_event(repo, run, call, inserted_at) do
+        {:cont, {:ok, [call | calls], [event | events]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, calls} -> {:ok, Enum.reverse(calls)}
+      {:ok, calls, events} -> {:ok, Enum.reverse(calls), Enum.reverse(events)}
       {:error, _reason} = error -> error
     end
   end
@@ -1514,7 +1504,7 @@ defmodule Ankole.Workflow do
            })
            |> repo.update(),
          {:ok, wakeup_event} <- append_wakeup_event(repo, run, completed_at),
-         :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id) do
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
       {:ok, %{run: run, wakeup_event: wakeup_event, running_session_ids: running_ids}}
     end
   end
@@ -1630,9 +1620,9 @@ defmodule Ankole.Workflow do
              error: %{}
            }),
          {:ok, _wake_event} <- append_wake_event(repo, run, call, now),
-         :ok <- maybe_append_attention_event(repo, run, call, attention?, now),
+         {:ok, attention_event} <- maybe_append_attention_event(repo, run, call, attention?, now),
          :ok <- wake_next_capacity_deferred_task(repo, run, now) do
-      {:ok, %{call: call, run: run}}
+      {:ok, %{call: call, run: run, attention_event: attention_event}}
     end
   end
 
@@ -1675,7 +1665,7 @@ defmodule Ankole.Workflow do
   # One attention event per run per hour bucket: the idempotent source id makes
   # concurrent escalations collapse into the first stored event, and the owner
   # reads current detail through `show_workflow` instead of the payload.
-  defp maybe_append_attention_event(_repo, _run, _call, false, _now), do: :ok
+  defp maybe_append_attention_event(_repo, _run, _call, false, _now), do: {:ok, nil}
 
   defp maybe_append_attention_event(repo, run, call, true, now) do
     bucket = Calendar.strftime(now, "%Y%m%d%H")
@@ -1683,7 +1673,7 @@ defmodule Ankole.Workflow do
     reply_route = run.reply_route || %{}
 
     with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name"),
-         {:ok, _event} <-
+         {:ok, event} <-
            SignalsGateway.append_actor_event_in_tx(repo, %{
              source_work: run,
              agent_uid: run.agent_uid,
@@ -1710,7 +1700,7 @@ defmodule Ankole.Workflow do
                }
              }
            }) do
-      :ok
+      {:ok, event}
     else
       nil -> {:error, :workflow_reply_route_binding_missing}
       {:error, _reason} = error -> error
@@ -1818,7 +1808,7 @@ defmodule Ankole.Workflow do
         with {:ok, call} <-
                update_call(repo, call, %{status: "succeeded", result: envelope, error: %{}}),
              {:ok, run} <- update_run_memo_bytes(repo, run, memo_bytes),
-             :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id),
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
              :ok <- notify_task_ready(repo, call, now),
              :ok <- wake_next_capacity_deferred_task(repo, run, now) do
           {:ok, %{accepted: true, call: call, run: run}}
@@ -1830,6 +1820,9 @@ defmodule Ankole.Workflow do
   # A call that has slept returns to `sleeping`, not `queued`: its open wake
   # event owns redelivery, while the completed original dispatch event could
   # never re-dispatch a `queued` row.
+  defp requeue_status(%AgentCall{sleeping_until: %DateTime{}}), do: "sleeping"
+  defp requeue_status(%AgentCall{}), do: "queued"
+
   defp commit_failure(repo, run, call, failure, true, available_at) do
     with {:ok, call} <-
            update_call(repo, call, %{
@@ -1837,7 +1830,7 @@ defmodule Ankole.Workflow do
              result: nil,
              error: Map.delete(failure, "retryable")
            }),
-         :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id),
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
          :ok <- notify_task_ready(repo, call, available_at) do
       {:ok, %{accepted: true, call: call, run: run}}
     end
@@ -1859,7 +1852,7 @@ defmodule Ankole.Workflow do
                  error: Map.delete(envelope, "ok")
                }),
              {:ok, run} <- update_run_memo_bytes(repo, run, memo_bytes),
-             :ok <- RuntimeEvents.notify_workflow_run_ready(repo, run.id),
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id),
              :ok <- notify_task_ready(repo, call, now),
              :ok <- maybe_wake_next_capacity_deferred_task(repo, run, now, released_capacity?) do
           {:ok, %{accepted: true, call: call, run: run}}
@@ -1867,9 +1860,6 @@ defmodule Ankole.Workflow do
       end
     end
   end
-
-  defp requeue_status(%AgentCall{sleeping_until: %DateTime{}}), do: "sleeping"
-  defp requeue_status(%AgentCall{}), do: "queued"
 
   defp fail_memo_budget(repo, run, call, now) do
     error = %{
@@ -1886,45 +1876,10 @@ defmodule Ankole.Workflow do
     end
   end
 
-  defp requeue_unstarted_locked(repo, run, call, expected_attempt, available_at) do
-    cond do
-      run.status != "running" and call.status == "running" ->
-        with {:ok, call} <-
-               update_call(repo, call, %{status: "cancelled", result: nil, error: %{}}),
-             :ok <- notify_task_ready(repo, call, available_at) do
-          {:ok, %{call: call, run: run}}
-        end
-
-      run.status != "running" ->
-        {:ok, %{call: call, run: run}}
-
-      call.status == "running" and call.attempts == expected_attempt ->
-        with {:ok, call} <-
-               update_call(repo, call, %{
-                 status: requeue_status(call),
-                 attempts: expected_attempt - 1,
-                 result: nil,
-                 error: %{}
-               }),
-             :ok <- notify_task_ready(repo, call, available_at) do
-          {:ok, %{call: call, run: run}}
-        end
-
-      call.status in ["queued", "sleeping"] and call.attempts == expected_attempt - 1 ->
-        with :ok <- notify_task_ready(repo, call, available_at) do
-          {:ok, %{call: call, run: run}}
-        end
-
-      true ->
-        {:error, :workflow_task_attempt_changed}
-    end
-  end
-
   defp notify_task_ready(repo, call, available_at) do
-    RuntimeEvents.notify_actor_session_ready(
+    Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
       repo,
-      call.agent_uid,
-      task_session_id(call.id),
+      %{agent_uid: call.agent_uid, session_id: task_session_id(call.id)},
       available_at
     )
   end
@@ -2004,10 +1959,9 @@ defmodule Ankole.Workflow do
              })
              |> repo.update(),
            :ok <-
-             RuntimeEvents.notify_actor_session_ready(
+             Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
                repo,
-               event.agent_uid,
-               event.session_id,
+               %{agent_uid: event.agent_uid, session_id: event.session_id},
                now
              ) do
         :ok
@@ -2268,7 +2222,7 @@ defmodule Ankole.Workflow do
   defp now, do: DateTime.utc_now()
 
   def stop_human_work_in_tx(repo, uid, version, now) do
-    runs = from r in Run, where: r.human_uid == ^uid and r.human_access_version < ^version
+    runs = from(r in Run, where: r.human_uid == ^uid and r.human_access_version < ^version)
 
     repo.update_all(from(r in runs, where: r.status == "running"),
       set: [
@@ -2283,7 +2237,7 @@ defmodule Ankole.Workflow do
     repo.update_all(
       from(c in AgentCall,
         where:
-          c.run_id in subquery(from r in runs, select: r.id) and
+          c.run_id in subquery(from(r in runs, select: r.id)) and
             c.status in ["queued", "sleeping"]
       ),
       set: [status: "cancelled", updated_at: now, error: %{"code" => "human_access_revoked"}]

@@ -16,7 +16,7 @@ Workflow는 Main Agent가 한 번 시작하는 유한한 서브에이전트 orch
 | 하나의 짧은 작업 | 현재 turn에서 직접 실행 | 다음 답변에 완료된 결과를 담을 수 있음 |
 | 크기가 고정된 배치 또는 유한한 다단계 분석 | Workflow | 여러 서브에이전트 task를 병렬로 실행하고 코드로 결과를 결합함 |
 | 지속적인 컨텍스트가 필요한 하나의 긴 작업 | Background Agent Job | 고유한 Codex thread와 workspace를 유지하고 후속 메시지와 사용자 질문을 처리함 |
-| 반복 가능한 기계적 이벤트 처리 | Automation Job | Agent Home의 결정적 Bun script가 schedule이나 webhook delivery를 처리함 |
+| 반복 가능한 기계적 이벤트 처리 | Automation Job | Agent 드라이브에 있는 결정적 Bun script가 schedule이나 webhook delivery를 처리함 |
 
 Workflow는 scheduler, YAML 단계 목록, 플랫폼 DAG 또는 범용 이벤트 버스가 아닙니다. 외부 상태를 폴링하거나 시간을 기다리는 용도로 사용하지 마세요.
 

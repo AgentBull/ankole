@@ -18,14 +18,14 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
     :ok
   end
 
-  test "missing bearer token returns 401", %{conn: conn} do
+  test "missing browser session returns 401", %{conn: conn} do
     conn = get(conn, ~p"/api/v1/identity-mapping-requests")
 
-    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
-  test "bearer-authenticated callers without resource grants are forbidden", %{conn: conn} do
-    conn = bearer_conn(conn)
+  test "session-authenticated callers without resource grants are forbidden", %{conn: conn} do
+    conn = console_conn(conn)
     revoke_console_grants()
 
     conn = get(conn, ~p"/api/v1/identity-mapping-requests")
@@ -49,7 +49,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
                external_id: "ou_console_dismiss"
              })
 
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     listed =
       conn
@@ -94,7 +94,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> post(~p"/api/v1/identity-mapping-requests/#{request.id}/bind", %{
         "principal_uid" => agent.uid
       })
@@ -104,7 +104,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
   test "a malformed mapping request id answers not found in the console envelope", %{conn: conn} do
     %{principal: target} = human_fixture()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     assert %{"error" => %{"code" => "not_found", "message" => message}} =
              conn
@@ -128,7 +128,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
     mapped =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> post(~p"/api/v1/identity-mappings", %{
         "principal_uid" => target.uid,
         "provider" => "lark-main",
@@ -150,7 +150,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
     conn =
       conn
-      |> bearer_conn()
+      |> console_conn()
       |> post(~p"/api/v1/identity-mappings", %{
         "principal_uid" => first.uid,
         "provider" => "lark-main",

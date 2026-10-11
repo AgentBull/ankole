@@ -61,7 +61,12 @@ defmodule Ankole.OIDC.Tokens do
          :ok <- require_scope(claims, "openid"),
          %{"client_id" => client_id, "sub" => sub} <- claims,
          true <- is_binary(client_id) and client_id != "" and is_binary(sub) and sub != "",
-         {:ok, _} <- Ankole.OIDC.Sessions.validate(claims["sid"], client_id, sub, claims["scope"]) do
+         {:ok, client} <-
+           Ankole.Repo.across_tenants(fn -> Ankole.OIDC.get_active_client(client_id) end),
+         {:ok, _} <-
+           Ankole.Repo.with_tenant(client.tenant_id, fn ->
+             Ankole.OIDC.Sessions.validate(claims["sid"], client_id, sub, claims["scope"])
+           end) do
       {:ok, claims}
     else
       false -> {:error, :invalid_subject}

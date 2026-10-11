@@ -10,10 +10,6 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Webhooks
 
-  @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
-  @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"
-  @foreign_token "wh_ZYXWVUtsrqponmlkjihgfedcba9876543210ABCDEFG"
-
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
@@ -32,13 +28,13 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     first = source_event!(agent.uid)
     second = source_event!(agent.uid)
 
-    endpoint = create_endpoint!(agent.uid, first, "Watch GitHub issues", @token)
-    other_session_endpoint = create_endpoint!(agent.uid, second, "Watch releases", @other_token)
+    {endpoint, token} = create_endpoint!(agent.uid, first, "Watch GitHub issues")
+    {other_session_endpoint, _} = create_endpoint!(agent.uid, second, "Watch releases")
     foreign_source = source_event!(other_agent.uid)
-    foreign = create_endpoint!(other_agent.uid, foreign_source, "Watch mirrors", @foreign_token)
+    {foreign, _} = create_endpoint!(other_agent.uid, foreign_source, "Watch mirrors")
 
     api_spec = AnkoleWeb.APISpec.spec()
-    conn = bearer_conn(conn)
+    conn = console_conn(conn)
 
     everything =
       conn
@@ -50,7 +46,7 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
 
     list =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> get(~p"/api/v1/webhook-endpoints?agent=#{agent.uid}")
       |> json_response(200)
 
@@ -64,17 +60,17 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
              MapSet.new([first.session_id, second.session_id])
 
     assert Enum.all?(endpoints, &(&1["status"] == "active"))
-    refute inspect(list) =~ @token
-    refute inspect(list) =~ Webhooks.token_digest(@token)
+    refute inspect(list) =~ token
+    refute inspect(list) =~ Webhooks.token_digest(token)
 
     assert conn
-           |> recycle_bearer()
+           |> recycle_api()
            |> delete(~p"/api/v1/agents/#{other_agent.uid}/webhook-endpoints/#{endpoint.id}")
            |> json_response(404)
 
     cancelled =
       conn
-      |> recycle_bearer()
+      |> recycle_api()
       |> delete(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints/#{endpoint.id}")
       |> json_response(200)
 
@@ -82,32 +78,29 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     assert get_in(cancelled, ["webhook_endpoint", "status"]) == "cancelled"
   end
 
-  test "missing bearer token is rejected", %{conn: conn} do
+  test "missing browser session is rejected", %{conn: conn} do
     assert conn
            |> get(~p"/api/v1/webhook-endpoints")
            |> json_response(401)
   end
 
-  defp create_endpoint!(agent_uid, source, label, token) do
-    assert {:ok, %{webhook_endpoint: endpoint}} =
-             Webhooks.create_endpoint(
-               %{
-                 agent_uid: agent_uid,
-                 binding_name: source.binding_name,
-                 session_id: source.session_id,
-                 signal_channel_id: source.signal_channel_id,
-                 provider_thread_id: source.provider_thread_id,
-                 source_actor_event_id: source.id,
-                 source_entry_id: source.source_entry_id,
-                 source_provenance: %{"kind" => "console-test"},
-                 label: label,
-                 mode: "standing",
-                 expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-               },
-               token
-             )
+  defp create_endpoint!(agent_uid, source, label) do
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
+             Webhooks.create_endpoint(%{
+               agent_uid: agent_uid,
+               binding_name: source.binding_name,
+               session_id: source.session_id,
+               signal_channel_id: source.signal_channel_id,
+               provider_thread_id: source.provider_thread_id,
+               source_actor_event_id: source.id,
+               source_entry_id: source.source_entry_id,
+               source_provenance: %{"kind" => "console-test"},
+               label: label,
+               mode: "standing",
+               expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
+             })
 
-    endpoint
+    {endpoint, token}
   end
 
   defp source_event!(agent_uid) do
@@ -135,14 +128,5 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
       })
 
     event
-  end
-
-  defp recycle_bearer(conn) do
-    authorization = get_req_header(conn, "authorization") |> List.first()
-
-    conn
-    |> recycle()
-    |> put_req_header("authorization", authorization)
-    |> put_req_header("content-type", "application/json")
   end
 end

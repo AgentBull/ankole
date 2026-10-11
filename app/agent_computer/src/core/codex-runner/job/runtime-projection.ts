@@ -1,7 +1,7 @@
 import { compareCodePointStrings } from '../../../common/ordering'
 import { isRecord } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
-import type { AgentPluginCatalogEntry, BackgroundAgentJobResponse, RuntimeSkillSummary } from '../../../lanes/rpc_lane'
+import type { BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
 import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
 
 /**
@@ -13,8 +13,6 @@ export type CodexJobRuntimeProjection = {
   version: 1
   modelRef: Record<string, unknown>
   runtimePolicy: Record<string, unknown>
-  skillSelections: Array<{ id: string; name: string; agentPluginID?: string }>
-  agentPluginSelections: Array<{ id: string; skills: string[] }>
   nativeMCPServers: []
   workerEnv: { names: string[]; plainValues: Record<string, string> }
   browser: { mode: 'persistent' }
@@ -42,15 +40,6 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
     version: 1,
     modelRef: value.model_ref,
     runtimePolicy: objectValue(value.runtime_policy),
-    skillSelections: arrayOfObjects(value.skills).map((skill, index) => ({
-      id: requiredString(skill.id, `runtime projection Skill ${index} id`),
-      name: requiredString(skill.name, `runtime projection Skill ${index} name`),
-      ...(optionalString(skill.agent_plugin_id) ? { agentPluginID: optionalString(skill.agent_plugin_id) } : {})
-    })),
-    agentPluginSelections: arrayOfObjects(value.agent_plugins).map((agentPlugin, index) => ({
-      id: requiredString(agentPlugin.id, `runtime projection Agent Plugin ${index} id`),
-      skills: stringArray(agentPlugin.skills, `runtime projection Agent Plugin ${index} Skills`)
-    })),
     nativeMCPServers: [],
     workerEnv: {
       names: stringArray(workerEnv.names, 'runtime projection WorkerEnv names'),
@@ -58,72 +47,6 @@ export function decodeCodexJobRuntimeProjection(job: BackgroundAgentJobResponse)
     },
     browser: { mode: 'persistent' }
   }
-}
-
-/**
- * Derives the Job's selected Skills: the frozen selections that still exist in
- * the Agent's current catalog, in name order. Standalone Skills come first;
- * Agent Plugin Skills follow in the projection's plugin order, sorted by catalog
- * name inside each plugin. Consumers apply the `ankole-runtime` rule.
- */
-export function selectJobSkills(
-  projection: CodexJobRuntimeProjection,
-  catalog: { skills: RuntimeSkillSummary[]; agentPlugins: AgentPluginCatalogEntry[] }
-): RuntimeSkillSummary[] {
-  return [...selectedStandaloneSkills(projection, catalog.skills), ...selectedAgentPluginSkills(projection, catalog)]
-}
-
-function selectedStandaloneSkills(
-  projection: CodexJobRuntimeProjection,
-  current: RuntimeSkillSummary[]
-): RuntimeSkillSummary[] {
-  const selected = new Set(projection.skillSelections.filter(skill => !skill.agentPluginID).map(skill => skill.name))
-  const byName = new Map<string, RuntimeSkillSummary>()
-  for (const skill of current) {
-    if (skill.agentPluginId || !selected.has(skill.skillName)) continue
-    if (byName.has(skill.skillName)) {
-      throw new Error(`Agent conversation Skill catalog has duplicate name: ${skill.skillName}`)
-    }
-    byName.set(skill.skillName, skill)
-  }
-  return [...byName.values()].sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
-}
-
-function selectedAgentPluginSkills(
-  projection: CodexJobRuntimeProjection,
-  catalog: { skills: RuntimeSkillSummary[]; agentPlugins: AgentPluginCatalogEntry[] }
-): RuntimeSkillSummary[] {
-  const currentPlugins = new Map(catalog.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
-  const currentMembers = new Map(
-    catalog.skills
-      .filter(skill => skill.agentPluginId)
-      .map(skill => [memberKey(skill.agentPluginId, skill.skillName), skill])
-  )
-  const selectedMembers = new Set<string>()
-  return projection.agentPluginSelections.flatMap(selection => {
-    const currentPlugin = currentPlugins.get(selection.id)
-    if (!currentPlugin) return []
-    const selectedNames = new Set(selection.skills)
-    return [...currentPlugin.skills]
-      .filter(member => selectedNames.has(member.catalogName))
-      .sort((left, right) => compareCodePointStrings(left.catalogName, right.catalogName))
-      .map(member => {
-        const key = memberKey(selection.id, member.catalogName)
-        const skill = currentMembers.get(key)
-        if (!skill) throw new Error(`Current Agent Plugin Skill is unavailable: ${selection.id}/${member.catalogName}`)
-        if (selectedMembers.has(key)) {
-          throw new Error(
-            `Agent conversation Plugin Skill catalog has duplicate member: ${selection.id}/${member.catalogName}`
-          )
-        }
-        selectedMembers.add(key)
-        return skill
-      })
-  })
-}
-
-function memberKey(agentPluginID: string, catalogName: string): string {
-  return `${agentPluginID}\0${catalogName}`
 }
 
 /**
@@ -172,14 +95,4 @@ function stringMap(value: unknown, label: string): Record<string, string> {
     result[key] = item
   }
   return result
-}
-
-function requiredString(value: unknown, label: string): string {
-  const result = optionalString(value)
-  if (!result) throw new Error(`${label} must be a non-empty string`)
-  return result
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
 }

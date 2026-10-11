@@ -13,10 +13,7 @@ pub enum APIResolverKind {
     #[serde(rename = "openai_chat_completions")]
     OpenAIChatCompletions,
     AnthropicMessages,
-    GeminiGenerateContent,
     BedrockConverse,
-    #[serde(rename = "openai_embeddings")]
-    OpenAIEmbeddings,
     OpenrouterEmbeddings,
     JinaEmbeddings,
     GoogleEmbeddings,
@@ -37,9 +34,7 @@ impl APIResolverKind {
             Self::OpenAIResponses => "openai_responses",
             Self::OpenAIChatCompletions => "openai_chat_completions",
             Self::AnthropicMessages => "anthropic_messages",
-            Self::GeminiGenerateContent => "gemini_generate_content",
             Self::BedrockConverse => "bedrock_converse",
-            Self::OpenAIEmbeddings => "openai_embeddings",
             Self::OpenrouterEmbeddings => "openrouter_embeddings",
             Self::JinaEmbeddings => "jina_embeddings",
             Self::GoogleEmbeddings => "google_embeddings",
@@ -77,55 +72,10 @@ impl UpstreamKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum DownstreamKind {
-    #[serde(rename = "sse")]
-    SSE,
-    #[serde(rename = "websocket_text")]
-    WebSocketText,
-}
-
-impl DownstreamKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SSE => "sse",
-            Self::WebSocketText => "websocket_text",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum HTTPVersionPreference {
-    H3,
-    H2,
-    H1,
-}
-
-impl HTTPVersionPreference {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::H3 => "h3",
-            Self::H2 => "h2",
-            Self::H1 => "h1",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum CompressionPreference {
-    Zstd,
-    Br,
-    Gzip,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct StreamSpec {
     pub api_resolver: APIResolverKind,
     pub upstream: UpstreamSpec,
-    pub downstream: DownstreamKind,
     #[serde(default)]
     pub response_context: ResponseContext,
     #[serde(default)]
@@ -253,24 +203,10 @@ impl TimeoutSpec {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct TransportSpec {
-    #[serde(default = "default_http_versions")]
-    pub http_versions: Vec<HTTPVersionPreference>,
-    #[serde(default = "default_compression")]
-    pub compression: Vec<CompressionPreference>,
     #[serde(default)]
     pub proxy: Option<String>,
-}
-
-impl Default for TransportSpec {
-    fn default() -> Self {
-        Self {
-            http_versions: default_http_versions(),
-            compression: default_compression(),
-            proxy: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -774,22 +710,6 @@ fn default_model_request_timeout_ms() -> u64 {
     1_800_000
 }
 
-fn default_http_versions() -> Vec<HTTPVersionPreference> {
-    vec![
-        HTTPVersionPreference::H3,
-        HTTPVersionPreference::H2,
-        HTTPVersionPreference::H1,
-    ]
-}
-
-fn default_compression() -> Vec<CompressionPreference> {
-    vec![
-        CompressionPreference::Zstd,
-        CompressionPreference::Br,
-        CompressionPreference::Gzip,
-    ]
-}
-
 fn default_max_sse_event_bytes() -> usize {
     16 * 1024 * 1024
 }
@@ -852,8 +772,7 @@ mod tests {
                 "kind": "http_sse",
                 "method": "POST",
                 "url": "https://example.test/v1/chat/completions"
-              },
-              "downstream": "sse"
+              }
             }"#,
         )
         .unwrap();
@@ -1138,5 +1057,19 @@ mod tests {
             json!({"type": "compaction", "encrypted_content": "OpenResponses compacted state."})
         );
         assert_eq!(input[1]["type"], json!("message"));
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::TransportSpec;
+
+    #[test]
+    fn stored_transport_preferences_are_ignored_and_proxy_is_kept() {
+        let transport: TransportSpec = serde_json::from_str(
+            r#"{"http_versions":["h3","h2"],"compression":[],"proxy":"http://proxy.test:8080"}"#,
+        )
+        .unwrap();
+        assert_eq!(transport.proxy.as_deref(), Some("http://proxy.test:8080"));
     }
 }

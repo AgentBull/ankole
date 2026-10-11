@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
   # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
 
+  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AutomationJobs
@@ -15,18 +16,17 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
 
   @now ~U[2026-07-30 01:00:00.000000Z]
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
-  @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"
 
   test "one-shot callback appends one durable receipt and then ignores replay" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
     expires_at = DateTime.add(@now, 1, :hour)
 
-    assert {:ok, %{status: :created, webhook_endpoint: endpoint}} =
-             Webhooks.create_endpoint(endpoint_attrs(source, expires_at), @token, now: @now)
+    assert {:ok, %{token: token, webhook_endpoint: endpoint}} =
+             Webhooks.create_endpoint(endpoint_attrs(source, expires_at), now: @now)
 
-    refute endpoint.token_digest == @token
-    assert endpoint.token_digest == Webhooks.token_digest(@token)
+    refute endpoint.token_digest == token
+    assert endpoint.token_digest == Webhooks.token_digest(token)
 
     headers = [
       {"content-type", "application/json"},
@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
               status: :accepted,
               webhook_endpoint: %WebhookEndpoint{status: "fired"},
               actor_event: receipt
-            }} = Webhooks.receive(@token, headers, ~s({"action":"opened"}), now: @now)
+            }} = Webhooks.receive(token, headers, ~s({"action":"opened"}), now: @now)
 
     assert receipt.type == "webhook.received"
     assert receipt.binding_name == source.binding_name
@@ -66,7 +66,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     assert get_in(receipt.payload, ["data", "body_size"]) == 19
 
     assert {:ok, %{status: :ignored, webhook_endpoint: replayed}} =
-             Webhooks.receive(@token, headers, ~s({"action":"replayed"}), now: @now)
+             Webhooks.receive(token, headers, ~s({"action":"replayed"}), now: @now)
 
     assert replayed.status == "fired"
 
@@ -76,28 +76,68 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
            ) == 1
   end
 
+  test "a capability selects its tenant without ambient context and suspension does not consume it" do
+    tenant_id = Repo.tenant_id!()
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
+             Webhooks.create_endpoint(
+               endpoint_attrs(source, DateTime.add(@now, 1, :hour)),
+               now: @now
+             )
+
+    tenant = Repo.get!(Ankole.Tenants.Tenant, tenant_id)
+    tenant |> Ecto.Changeset.change(suspended_at: @now) |> Repo.update!()
+
+    assert {:ok, %{status: :ignored}} =
+             Repo.without_tenant(fn ->
+               Webhooks.receive(token, [], "paused", now: @now)
+             end)
+
+    assert Repo.reload!(endpoint).status == "armed"
+    assert Repo.aggregate(from(e in ActorEvent, where: e.type == "webhook.received"), :count) == 0
+    tenant |> Repo.reload!() |> Ecto.Changeset.change(suspended_at: nil) |> Repo.update!()
+
+    assert {:ok, %{status: :accepted, actor_event: receipt}} =
+             Repo.without_tenant(fn ->
+               Webhooks.receive(token, [], "ready", now: @now)
+             end)
+
+    assert receipt.tenant_id == tenant_id
+    assert Repo.tenant_id!() == tenant_id
+  end
+
   @tag ownership_timeout: 10_000
   test "concurrent one-shot deliveries claim the endpoint once" do
-    token = token("concurrent-#{System.unique_integer([:positive])}")
-
-    {agent_uid, endpoint_id} =
+    {tenant_id, agent_uid, endpoint_id, token} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        %{principal: agent} = agent_fixture()
-        source = source_event!(agent.uid)
+        tenant =
+          %Ankole.Tenants.Tenant{}
+          |> Ankole.Tenants.Tenant.changeset(%{
+            slug: "webhook-" <> Ecto.UUID.generate(),
+            display_name: "Webhook claim test"
+          })
+          |> Repo.insert!()
 
-        assert {:ok, %{webhook_endpoint: endpoint}} =
-                 Webhooks.create_endpoint(
-                   endpoint_attrs(source, DateTime.add(@now, 1, :hour)),
-                   token,
-                   now: @now
-                 )
+        Repo.with_tenant(tenant.id, fn ->
+          %{principal: agent} = agent_fixture()
+          source = source_event!(agent.uid)
 
-        {agent.uid, endpoint.id}
+          assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
+                   Webhooks.create_endpoint(
+                     endpoint_attrs(source, DateTime.add(@now, 1, :hour)),
+                     now: @now
+                   )
+
+          {tenant.id, agent.uid, endpoint.id, token}
+        end)
       end)
 
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        delete_agent_fixture_rows(agent_uid)
+        Repo.with_tenant(tenant_id, fn -> delete_agent_fixture_rows(agent_uid) end)
+        Repo.get!(Ankole.Tenants.Tenant, tenant_id) |> Repo.delete!()
       end)
     end)
 
@@ -123,27 +163,27 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     assert 1 == Enum.count(results, &match?({:ok, %{status: :ignored}}, &1))
 
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-      assert %WebhookEndpoint{status: "fired"} = Repo.get!(WebhookEndpoint, endpoint_id)
+      Repo.with_tenant(tenant_id, fn ->
+        assert %WebhookEndpoint{status: "fired"} = Repo.get!(WebhookEndpoint, endpoint_id)
 
-      assert Repo.aggregate(
-               from(
-                 event in ActorEvent,
-                 where: event.agent_uid == ^agent_uid and event.type == "webhook.received"
-               ),
-               :count
-             ) == 1
+        assert Repo.aggregate(
+                 from(
+                   event in ActorEvent,
+                   where: event.agent_uid == ^agent_uid and event.type == "webhook.received"
+                 ),
+                 :count
+               ) == 1
+      end)
     end)
   end
 
   test "standing callback appends one ActorEvent for every delivery" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
-    token = token("standing")
 
-    assert {:ok, %{webhook_endpoint: endpoint}} =
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
              Webhooks.create_endpoint(
                endpoint_attrs(source, DateTime.add(@now, 1, :day), mode: "standing"),
-               token,
                now: @now
              )
 
@@ -169,12 +209,10 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
     job = automation_job!(source)
-    token = token("automation-consumer")
 
-    assert {:ok, %{webhook_endpoint: endpoint}} =
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
              Webhooks.create_endpoint(
                endpoint_attrs(source, DateTime.add(@now, 1, :day), automation_job_id: job.id),
-               token,
                now: @now
              )
 
@@ -221,7 +259,6 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
                endpoint_attrs(source, DateTime.add(@now, 1, :day),
                  automation_job_id: other_job.id
                ),
-               token("wrong-owner"),
                now: @now
              )
   end
@@ -229,12 +266,10 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
   test "unknown tokens return not found while known terminal tokens stay successful" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
-    token = token("cancel")
 
-    assert {:ok, %{webhook_endpoint: endpoint}} =
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
              Webhooks.create_endpoint(
                endpoint_attrs(source, DateTime.add(@now, 1, :day), mode: "standing"),
-               token,
                now: @now
              )
 
@@ -247,7 +282,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
              Webhooks.receive(token, [], "ignored", now: DateTime.add(@now, 1, :second))
 
     assert {:error, :webhook_endpoint_not_found} =
-             Webhooks.receive(token("missing"), [], "unknown", now: @now)
+             Webhooks.receive(@token, [], "unknown", now: @now)
 
     assert Repo.aggregate(
              from(event in ActorEvent, where: event.type == "webhook.received"),
@@ -255,31 +290,58 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
            ) == 0
   end
 
-  test "create is idempotent for one token and list projections never expose it" do
+  test "each create has a new capability and safe projections never expose it" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
     attrs = endpoint_attrs(source, DateTime.add(@now, 1, :day))
 
-    assert {:ok, %{status: :created, webhook_endpoint: endpoint}} =
-             Webhooks.create_endpoint(attrs, @token, now: @now)
+    assert {:ok, %{webhook_endpoint: first, token: first_token}} =
+             Webhooks.create_endpoint(attrs, now: @now)
 
-    assert {:ok, %{status: :already_exists, webhook_endpoint: same}} =
-             Webhooks.create_endpoint(attrs, @token, now: @now)
+    assert {:ok, %{webhook_endpoint: second, token: second_token}} =
+             Webhooks.create_endpoint(attrs, now: @now)
 
-    assert same.id == endpoint.id
+    refute first.id == second.id
+    refute first_token == second_token
 
-    assert [listed] =
-             Webhooks.list_endpoints(agent.uid, source.session_id, active_only: true, now: @now)
+    for token <- [first_token, second_token] do
+      assert token =~ ~r/\Awh_[A-Za-z0-9_-]{43}\z/
+    end
 
-    assert listed.id == endpoint.id
+    listed = Webhooks.list_endpoints(agent.uid, source.session_id, active_only: true, now: @now)
+    assert MapSet.new(listed, & &1.id) == MapSet.new([first.id, second.id])
 
-    model_projection = Webhooks.model_projection(listed)
-    console_projection = Webhooks.console_projection(listed)
+    for endpoint <- listed do
+      model_projection = Webhooks.model_projection(endpoint)
+      console_projection = Webhooks.console_projection(endpoint)
 
-    refute Map.has_key?(model_projection, "token")
-    refute Map.has_key?(model_projection, "token_digest")
-    refute Map.has_key?(console_projection, :token)
-    refute Map.has_key?(console_projection, :token_digest)
+      for field <- ["token", "token_digest", "url"],
+          do: refute(Map.has_key?(model_projection, field))
+
+      for field <- [:token, :token_digest, :url],
+          do: refute(Map.has_key?(console_projection, field))
+    end
+  end
+
+  test "the durable digest constraint rejects a collision without inserting another endpoint" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+
+    assert {:ok, %{webhook_endpoint: endpoint}} =
+             Webhooks.create_endpoint(endpoint_attrs(source, DateTime.add(@now, 1, :day)),
+               now: @now
+             )
+
+    assert {:error, changeset} =
+             Repo.transact(fn repo ->
+               %WebhookEndpoint{}
+               |> WebhookEndpoint.changeset(Map.from_struct(endpoint))
+               |> repo.insert()
+             end)
+
+    assert {"has already been taken", details} = Keyword.fetch!(changeset.errors, :token_digest)
+    assert details[:constraint] == :unique
+    assert Repo.aggregate(WebhookEndpoint, :count) == 1
   end
 
   test "a nil session lists and cancels endpoints across every session of one agent" do
@@ -290,10 +352,10 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     expires_at = DateTime.add(@now, 1, :day)
 
     assert {:ok, %{webhook_endpoint: one}} =
-             Webhooks.create_endpoint(endpoint_attrs(first, expires_at), @token, now: @now)
+             Webhooks.create_endpoint(endpoint_attrs(first, expires_at), now: @now)
 
     assert {:ok, %{webhook_endpoint: two}} =
-             Webhooks.create_endpoint(endpoint_attrs(second, expires_at), @other_token, now: @now)
+             Webhooks.create_endpoint(endpoint_attrs(second, expires_at), now: @now)
 
     listed = Webhooks.list_endpoints(agent.uid, nil, active_only: true, now: @now)
 
@@ -318,8 +380,8 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     source = source_event!(agent.uid)
     expires_at = DateTime.add(@now, 10, :second)
 
-    assert {:ok, %{webhook_endpoint: endpoint}} =
-             Webhooks.create_endpoint(endpoint_attrs(source, expires_at), @token, now: @now)
+    assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
+             Webhooks.create_endpoint(endpoint_attrs(source, expires_at), now: @now)
 
     assert [] =
              Webhooks.list_endpoints(agent.uid, source.session_id,
@@ -331,23 +393,22 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     assert Repo.get!(WebhookEndpoint, endpoint.id).status == "expired"
 
     assert {:ok, %{status: :ignored}} =
-             Webhooks.receive(@token, [], "late", now: DateTime.add(expires_at, 2, :second))
+             Webhooks.receive(token, [], "late", now: DateTime.add(expires_at, 2, :second))
   end
 
   test "binary callback bodies are stored as bounded base64 data" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
 
-    assert {:ok, %{webhook_endpoint: _endpoint}} =
+    assert {:ok, %{webhook_endpoint: _endpoint, token: token}} =
              Webhooks.create_endpoint(
                endpoint_attrs(source, DateTime.add(@now, 1, :hour), mode: "standing"),
-               @token,
                now: @now
              )
 
     for body <- [<<"valid utf-8", 0>>, <<255, 1>>] do
       assert {:ok, %{actor_event: receipt}} =
-               Webhooks.receive(@token, [], body, now: @now)
+               Webhooks.receive(token, [], body, now: @now)
 
       assert get_in(receipt.payload, ["data", "body"]) == Base.encode64(body)
       assert get_in(receipt.payload, ["data", "body_encoding"]) == "base64"
@@ -400,6 +461,8 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
   end
 
   defp automation_job!(source) do
+    drive_file_fixture(source.agent_uid, "automation/webhook-test/main.ts")
+
     assert {:ok, job} =
              AutomationJobs.create_job(%{
                agent_uid: source.agent_uid,
@@ -413,16 +476,11 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
                  "provider_thread_id" => source.provider_thread_id,
                  "source_entry_id" => source.source_entry_id
                },
-               directory_path: "/agents/#{source.agent_uid}/automation/webhook-test",
+               drive_prefix: "automation/webhook-test",
                label: "Webhook deterministic consumer",
                wake_on_failure: false
              })
 
     job
-  end
-
-  defp token(seed) do
-    digest = :crypto.hash(:sha256, seed) |> Base.url_encode64(padding: false)
-    "wh_" <> digest
   end
 end

@@ -5,12 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { jsonBytes } from '../src/fabric/envelope_proto'
 import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import {
-  loadEnabledSkillMCPServers,
-  materializeMCPorterConfig,
-  renderMCPorterConfig,
-  type MCPServerConfig
-} from '../src/tools/mcp'
+import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MCPServerConfig } from '../src/tools/mcp'
+import { renderMCPorterConfig } from '../src/tools/mcp/mcporter-config'
 
 describe('@ankole/agent-computer Skill MCPorter config', () => {
   const roots: string[] = []
@@ -284,7 +280,7 @@ function writeSkill(root: string, skillName: string, serverName: string, url: st
 }
 
 function writeMetadata(root: string, skillName: string, content: string): void {
-  const agentsRoot = join(root, skillName, 'agents')
-  mkdirSync(agentsRoot, { recursive: true })
-  writeFileSync(join(agentsRoot, 'openai.yaml'), content)
+  const agentHomeRoot = join(root, skillName, 'agents')
+  mkdirSync(agentHomeRoot, { recursive: true })
+  writeFileSync(join(agentHomeRoot, 'openai.yaml'), content)
 }

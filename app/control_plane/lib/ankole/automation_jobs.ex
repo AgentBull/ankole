@@ -15,28 +15,50 @@ defmodule Ankole.AutomationJobs do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.Text
 
   @log_max_bytes 65_536
   @payload_max_bytes 1_048_576
+  @finished_run_statuses ~w(succeeded failed cancelled)
 
   @type enqueue_result :: %{
-          status: :queued | :failed,
-          automation_job_run: Run.t()
+          required(:status) => :queued | :failed,
+          required(:automation_job_run) => Run.t(),
+          optional(:actor_event) => Ankole.SignalsGateway.ActorEvent.t() | nil
         }
 
   @doc """
   Creates one non-idempotent automation job.
+
+  The script must already be in the Agent's drive: `drive_prefix` names a
+  folder that holds `main.ts`.
   """
   @spec create_job(map()) :: {:ok, Job.t()} | {:error, term()}
   def create_job(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
       attrs = Ankole.Principals.WorkAccess.inherit(repo, normalize_agent_uid(attrs))
 
-      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs) do
-        %Job{} |> Job.changeset(attrs) |> repo.insert()
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+           changeset = Job.changeset(%Job{}, attrs),
+           :ok <- require_script_in_drive(changeset) do
+        repo.insert(changeset)
       end
     end)
+  end
+
+  # The check reads the cast fields. An invalid changeset reports its own
+  # errors at the insert.
+  defp require_script_in_drive(%Ecto.Changeset{valid?: false}), do: :ok
+
+  defp require_script_in_drive(changeset) do
+    agent_uid = Ecto.Changeset.get_field(changeset, :agent_uid)
+    prefix = Ecto.Changeset.get_field(changeset, :drive_prefix)
+
+    case Ankole.Files.fetch(agent_uid, prefix <> "/main.ts") do
+      {:ok, _file} -> :ok
+      {:error, _reason} -> {:error, :automation_job_script_missing}
+    end
   end
 
   @doc """
@@ -176,7 +198,8 @@ defmodule Ankole.AutomationJobs do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(event) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
+    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+         :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
          %Job{} = job <- lock_job(repo, job_id),
          true <- job.agent_uid == String.downcase(agent_uid),
          {:ok, job} <- effective_status(repo, job, now),
@@ -192,6 +215,31 @@ defmodule Ankole.AutomationJobs do
   def enqueue_run_in_tx(_repo, _job_id, _agent_uid, _event, _opts),
     do: {:error, :invalid_automation_job_run}
 
+  @doc """
+  Returns the Agent of one unfinished Automation Job run, and the time since
+  which the run waits for its next attempt.
+  """
+  @spec pending_run(pos_integer()) ::
+          {:ok, %{agent_uid: String.t(), waiting_since: DateTime.t()}}
+          | {:error, :automation_job_run_finished | :automation_job_run_not_found}
+  def pending_run(run_id) when is_integer(run_id) and run_id > 0 do
+    Run
+    |> join(:inner, [run], job in Job, on: job.id == run.automation_job_id)
+    |> where([run], run.id == ^run_id)
+    |> select([run, job], {run.status, run.updated_at, job.agent_uid})
+    |> Repo.one()
+    |> case do
+      {status, _updated_at, _agent_uid} when status in @finished_run_statuses ->
+        {:error, :automation_job_run_finished}
+
+      {_status, updated_at, agent_uid} ->
+        {:ok, %{agent_uid: agent_uid, waiting_since: updated_at}}
+
+      nil ->
+        {:error, :automation_job_run_not_found}
+    end
+  end
+
   @doc false
   @spec start_attempt(pos_integer(), keyword()) ::
           {:ok, :noop | %{automation_job: Job.t(), run: Run.t()}} | {:error, term()}
@@ -200,6 +248,7 @@ defmodule Ankole.AutomationJobs do
 
     Repo.transact(fn repo ->
       with %Run{} = snapshot <- repo.get(Run, run_id),
+           :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
            :ok <-
              Ankole.Principals.WorkAccess.check_record_in_tx(
                repo,
@@ -207,7 +256,7 @@ defmodule Ankole.AutomationJobs do
                snapshot.automation_job_id
              ) do
         case lock_job_run(repo, run_id) do
-          {%Job{}, %Run{status: status}} when status in ~w(succeeded failed cancelled) ->
+          {%Job{}, %Run{status: status}} when status in @finished_run_statuses ->
             {:ok, :noop}
 
           {%Job{} = job, %Run{} = run} ->
@@ -226,6 +275,7 @@ defmodule Ankole.AutomationJobs do
         error -> error
       end
     end)
+    |> deliver_failure()
   end
 
   @doc false
@@ -240,14 +290,15 @@ defmodule Ankole.AutomationJobs do
            true <- active_attempt?(run, attempt_id),
            {:ok, attrs} <- completion_attrs(result, now),
            {:ok, run} <- run |> Run.changeset(attrs) |> repo.update(),
-           :ok <- maybe_append_failure_event(repo, job, run, now) do
-        {:ok, run}
+           {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
+        {:ok, {run, event}}
       else
         nil -> {:error, :automation_job_run_not_found}
         false -> {:ok, :stale}
         {:error, _reason} = error -> error
       end
     end)
+    |> deliver_failure()
   end
 
   @doc false
@@ -271,14 +322,15 @@ defmodule Ankole.AutomationJobs do
              run
              |> Run.changeset(infrastructure_failure_attrs(disposition, error, now))
              |> repo.update(),
-           :ok <- maybe_append_failure_event(repo, job, run, now) do
-        {:ok, run}
+           {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
+        {:ok, {run, event}}
       else
         nil -> {:error, :automation_job_run_not_found}
         false -> {:ok, :stale}
         {:error, _reason} = error -> error
       end
     end)
+    |> deliver_failure()
   end
 
   @doc """
@@ -316,6 +368,7 @@ defmodule Ankole.AutomationJobs do
         {:error, _reason} = error -> error
       end
     end)
+    |> Ankole.Conversations.deliver_committed(&[&1])
   end
 
   def emit_event(_agent_uid, _run_id, _attempt_id, _payload, _opts),
@@ -352,6 +405,7 @@ defmodule Ankole.AutomationJobs do
       "label" => job.label,
       "status" => job.status,
       "wake_on_failure" => job.wake_on_failure,
+      "drive_prefix" => job.drive_prefix,
       "created_at" => iso8601(job.inserted_at)
     }
     |> Ankole.Attrs.maybe_put("expires_at", iso8601(job.expires_at))
@@ -371,7 +425,7 @@ defmodule Ankole.AutomationJobs do
         "source_entry_id" => job.source_entry_id,
         "source_provenance" => job.source_provenance || %{},
         "reply_route" => job.reply_route || %{},
-        "directory_path" => job.directory_path,
+        "drive_prefix" => job.drive_prefix,
         "label" => job.label,
         "wake_on_failure" => job.wake_on_failure,
         "status" => job.status,
@@ -403,11 +457,7 @@ defmodule Ankole.AutomationJobs do
              attempts: 0
            })
            |> repo.insert(),
-         {:ok, oban_job} <- insert_execution_job(run, opts),
-         {:ok, run} <-
-           run
-           |> Run.changeset(%{oban_job_id: oban_job.id})
-           |> repo.update() do
+         {:ok, _oban_job} <- insert_execution_job(run, opts) do
       {:ok, %{status: :queued, automation_job_run: run}}
     end
   end
@@ -426,8 +476,8 @@ defmodule Ankole.AutomationJobs do
              error: error
            })
            |> repo.insert(),
-         :ok <- maybe_append_failure_event(repo, job, run, now) do
-      {:ok, %{status: :failed, automation_job_run: run}}
+         {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
+      {:ok, %{status: :failed, automation_job_run: run, actor_event: event}}
     end
   end
 
@@ -449,7 +499,6 @@ defmodule Ankole.AutomationJobs do
              attempts: run.attempts + 1,
              attempt_id: attempt_id,
              started_at: run.started_at || now,
-             last_attempt_at: now,
              finished_at: nil,
              error: nil
            })
@@ -468,8 +517,8 @@ defmodule Ankole.AutomationJobs do
              error: "automation job is #{status}"
            })
            |> repo.update(),
-         :ok <- maybe_append_failure_event(repo, job, run, now) do
-      {:ok, :noop}
+         {:ok, {_run, event}} <- maybe_append_failure_event(repo, job, run, now) do
+      {:ok, {:noop, event}}
     end
   end
 
@@ -502,51 +551,74 @@ defmodule Ankole.AutomationJobs do
     %{status: "failed", attempt_id: nil, finished_at: now, error: error}
   end
 
-  defp maybe_append_failure_event(_repo, _job, %Run{status: status}, _now)
+  defp maybe_append_failure_event(_repo, _job, %Run{status: status} = run, _now)
        when status != "failed",
-       do: :ok
+       do: {:ok, {run, nil}}
 
-  defp maybe_append_failure_event(_repo, %Job{wake_on_failure: false}, %Run{}, _now),
-    do: :ok
+  defp maybe_append_failure_event(_repo, %Job{wake_on_failure: false}, %Run{} = run, _now),
+    do: {:ok, {run, nil}}
 
   defp maybe_append_failure_event(repo, %Job{} = job, %Run{} = run, now) do
-    case append_owner_event(repo, job, "automation_job.run_failed", now, %{
-           "automation_job" => %{"id" => job.id, "label" => job.label},
-           "automation_job_run_id" => run.id,
-           "attempts" => run.attempts,
-           "error" => run.error || "automation job run failed"
-         }) do
-      {:ok, _actor_event} -> :ok
-      {:error, _reason} = error -> error
+    result =
+      append_owner_event(repo, job, "automation_job.run_failed", now, %{
+        "automation_job" => %{"id" => job.id, "label" => job.label},
+        "automation_job_run_id" => run.id,
+        "attempts" => run.attempts,
+        "error" => run.error || "automation job run failed"
+      })
+
+    case result do
+      {:ok, event} ->
+        {:ok, {run, event}}
+
+      {:error, :long_lived_reply_owner_not_found} ->
+        error = bounded_text("#{run.error}; long_lived_reply_owner_not_found", @log_max_bytes)
+
+        with {:ok, run} <- run |> Run.changeset(%{error: error}) |> repo.update(),
+             do: {:ok, {run, nil}}
+
+      error ->
+        error
     end
   end
+
+  defp deliver_failure({:ok, {value, event}}) do
+    Ankole.Conversations.deliver_events([event])
+    {:ok, value}
+  end
+
+  defp deliver_failure(result), do: result
 
   defp append_owner_event(repo, job, type, now, data) do
     source_event_id =
       "automation-job:#{job.id}:run:#{data["automation_job_run_id"]}:#{type}:#{Ecto.UUID.generate()}"
 
-    SignalsGateway.append_actor_event_in_tx(repo, %{
-      source_work: job,
-      agent_uid: job.agent_uid,
-      binding_name: route_text(job.reply_route, "binding_name"),
-      session_id: job.owner_session_id,
-      source_event_id: source_event_id,
-      signal_channel_id: route_text(job.reply_route, "signal_channel_id"),
-      provider_thread_id: route_text(job.reply_route, "provider_thread_id"),
-      source_entry_id: route_text(job.reply_route, "source_entry_id") || job.source_entry_id,
-      type: type,
-      available_at: now,
-      sender_key: nil,
-      payload: %{
-        "specversion" => "1.0",
-        "id" => source_event_id,
-        "source" => "control-plane://automation-jobs/#{job.id}",
-        "subject" => "automation_job_run:#{data["automation_job_run_id"]}",
-        "time" => DateTime.to_iso8601(now),
-        "type" => type,
-        "data" => data
-      }
-    })
+    with {:ok, owner} <- ReplyRoute.long_lived_owner(job.agent_uid, job.owner_session_id) do
+      route = owner.reply_route || job.reply_route
+
+      SignalsGateway.append_actor_event_in_tx(repo, %{
+        source_work: job,
+        agent_uid: job.agent_uid,
+        binding_name: route_text(route, "binding_name"),
+        session_id: owner.session_id,
+        source_event_id: source_event_id,
+        signal_channel_id: route_text(route, "signal_channel_id"),
+        provider_thread_id: route_text(route, "provider_thread_id"),
+        source_entry_id: route_text(route, "source_entry_id") || job.source_entry_id,
+        type: type,
+        available_at: now,
+        sender_key: nil,
+        payload: %{
+          "specversion" => "1.0",
+          "id" => source_event_id,
+          "source" => "control-plane://automation-jobs/#{job.id}",
+          "subject" => "automation_job_run:#{data["automation_job_run_id"]}",
+          "time" => DateTime.to_iso8601(now),
+          "type" => type,
+          "data" => data
+        }
+      })
+    end
   end
 
   defp normalize_event(event) do

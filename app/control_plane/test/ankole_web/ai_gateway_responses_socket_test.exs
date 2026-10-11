@@ -55,6 +55,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           test_pid: opts[:test_pid],
           scenario: opts[:scenario] || :created,
           counter: opts[:counter],
+          headers: Map.new(conn.req_headers),
           authorization: conn |> get_req_header("authorization") |> List.first()
         },
         []
@@ -81,6 +82,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     @impl true
     def handle_in({payload, [opcode: :text]}, state) do
       send(state.test_pid, {:native_socket_upstream_request, Ankole.JSON.decode!(payload)})
+      send(state.test_pid, {:native_socket_upstream_headers, state.headers})
 
       case response_frames(state) do
         [frame] -> {:push, frame, state}
@@ -2196,8 +2198,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           "tool" => "reply_attachment",
           "attachments" => [
             %{
-              "file_path" => "/agents/agent-1/user-files/report.pdf",
-              "visible_to" => "agent_computer"
+              "path" => "sent/abababababababab/report.pdf",
+              "blob_ref" => String.duplicate("ab", 32),
+              "name" => "report.pdf",
+              "size" => 1
             }
           ]
         }
@@ -2669,155 +2673,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     _ = AIGateway.cancel_response_stream(state.active_stream.stream)
   end
 
-  test "response.tool_results.record writes a completed journal row without opening a provider stream" do
-    %{principal: agent} = agent_fixture()
-
-    {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-tool-results-record")
-
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "socket-tool-results-record")
-
-    {:ok, anchor} =
-      start_response_run(%{
-        subject_uid: agent.uid,
-        conversation_id: conversation.id,
-        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}},
-        request_items: [text_message("user", "use a tool")]
-      })
-
-    {:ok, anchor} =
-      StatefulResponses.commit_complete(anchor, [
-        %{
-          "type" => "function_call",
-          "call_id" => "call_socket_record",
-          "name" => "lookup",
-          "arguments" => "{}"
-        }
-      ])
-
-    :ok = Events.subscribe(agent.uid, conversation.id)
-
-    request =
-      Ankole.JSON.encode!(%{
-        "type" => "response.tool_results.record",
-        "model" => "primary",
-        "input" => [
-          %{
-            "type" => "function_call_output",
-            "call_id" => "call_socket_record",
-            "output" => "recorded"
-          }
-        ],
-        "store" => true,
-        "previous_response_id" => "resp_#{anchor.id}",
-        "metadata" => %{"actor_event_id" => actor_event.id}
-      })
-
-    assert {:push, {:text, pushed}, state} =
-             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
-               subject_uid: agent.uid,
-               subject_type: "agent"
-             })
-
-    refute Map.has_key?(state, :active_stream)
-    anchor_response_id = "resp_#{anchor.id}"
-
-    assert %{
-             "type" => "response.tool_results.recorded",
-             "response_id" => response_id,
-             "response" => %{
-               "id" => response_id,
-               "status" => "completed",
-               "previous_response_id" => ^anchor_response_id,
-               "input" => [
-                 %{
-                   "type" => "function_call_output",
-                   "call_id" => "call_socket_record",
-                   "output" => "recorded"
-                 }
-               ],
-               "output" => []
-             }
-           } = Ankole.JSON.decode!(pushed)
-
-    "resp_" <> message_id = response_id
-
-    assert %Message{status: "complete", previous_message_id: anchor_id} =
-             Repo.get!(Message, message_id)
-
-    assert anchor_id == anchor.id
-
-    assert_receive {:ai_gateway_event, :tool_call_completed, event}
-    assert event.response_id == response_id
-    assert event.metadata["actor_event_id"] == actor_event.id
-
-    assert event.payload == %{
-             "call_id" => "call_socket_record",
-             "output" => "recorded",
-             "seq" => nil
-           }
-  end
-
-  test "response.tool_results.record reports quarantined orphan output without opening a provider stream" do
-    %{principal: agent} = agent_fixture()
-
-    {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
-
-    {:ok, anchor} =
-      start_response_run(%{
-        subject_uid: agent.uid,
-        conversation_id: conversation.id,
-        request_items: [text_message("user", "stable input")]
-      })
-
-    {:ok, anchor} =
-      StatefulResponses.commit_complete(anchor, [text_message("assistant", "stable answer")])
-
-    request =
-      Ankole.JSON.encode!(%{
-        "type" => "response.tool_results.record",
-        "model" => "primary",
-        "input" => [
-          %{
-            "type" => "function_call_output",
-            "call_id" => "call_socket_orphan",
-            "output" => "raw side effect result"
-          }
-        ],
-        "store" => true,
-        "previous_response_id" => "resp_#{anchor.id}"
-      })
-
-    assert {:push, {:text, pushed}, state} =
-             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
-               subject_uid: agent.uid,
-               subject_type: "agent"
-             })
-
-    refute Map.has_key?(state, :active_stream)
-
-    assert %{
-             "type" => "error",
-             "status" => 409,
-             "error" => %{
-               "code" => "tool_results_quarantined",
-               "param" => "input",
-               "details_json" => %{
-                 "reason" => "orphan_tool_call_output",
-                 "orphan_call_ids" => ["call_socket_orphan"],
-                 "quarantine_response_id" => quarantine_response_id,
-                 "quarantine_status" => "error"
-               }
-             }
-           } = Ankole.JSON.decode!(pushed)
-
-    "resp_" <> quarantine_id = quarantine_response_id
-    assert Repo.get!(Message, quarantine_id).status == "error"
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
-  end
-
   test "stateful response.create treats duplicate actor metadata as opaque" do
     %{principal: agent} = agent_fixture()
 
@@ -3246,6 +3101,128 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     "http://127.0.0.1:#{port}/v1"
+  end
+
+  test "stateless ChatGPT sockets use the upstream thread key for credential affinity" do
+    %{principal: agent} = agent_fixture()
+    base_url = start_native_socket_upstream(:completed, :atomics.new(1, []))
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-socket-affinity",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
+               credential_pool: %{
+                 "strategy" => "round_robin",
+                 "entries" =>
+                   for id <- ["first", "second"] do
+                     %{
+                       "id" => id,
+                       "label" => id,
+                       "access_token" => "access-#{id}",
+                       "account_id" => "account-#{id}",
+                       "auth_type" => "enterprise_access_token"
+                     }
+                   end
+               }
+             })
+
+    for key <- [nil, "thread-1"] do
+      request = %{
+        "type" => "response.create",
+        "model" => "chatgpt-socket-affinity/gpt-main",
+        "store" => false,
+        "input" => [text_message("user", "hello")]
+      }
+
+      request = if key, do: Map.put(request, "prompt_cache_key", key), else: request
+
+      assert {:ok, %{active_stream: active} = state} =
+               AIGatewayResponsesSocket.handle_in(
+                 {Ankole.JSON.encode!(request), [opcode: :text]},
+                 %{subject_uid: agent.uid, subject_type: "agent"}
+               )
+
+      assert_receive {:native_socket_upstream_request, upstream}, 2_000
+      assert_receive {:native_socket_upstream_headers, headers}, 2_000
+      cache_key = upstream["prompt_cache_key"]
+      assert is_binary(cache_key) and cache_key != ""
+      if key, do: assert(cache_key == key)
+      assert headers["session_id"] == cache_key
+
+      {{credential_id, _revision}, _recency} =
+        :sys.get_state(Ankole.AIGateway.CredentialPool)[provider.id].affinity[cache_key]
+
+      assert headers["authorization"] == "Bearer access-#{credential_id}"
+      _ = drain_response_stream(state)
+      _ = AIGateway.cancel_response_stream(active.stream)
+    end
+  end
+
+  test "stateless bound sockets invoke a vision fallback once" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn
+        %{method: :get} ->
+          {:json, 200, %{"data" => []}}
+
+        request ->
+          send(test_pid, {:vision_fallback_request, request.body})
+          {:json, 200, Ankole.AIGatewayCase.chat_completion_body("vision", "a red square")}
+      end)
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "socket-vision",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    native_url = start_native_socket_upstream(:completed, :atomics.new(1, []))
+    configure_native_socket_provider(agent.uid, "socket-text", native_url)
+
+    binding = %{
+      "selector" => "socket-text/gpt-main",
+      "provider_options" => %{},
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"],
+      "vision_fallback" => %{
+        "selector" => "socket-vision/vision",
+        "provider_options" => %{},
+        "input_modalities" => ["text", "image"]
+      }
+    }
+
+    request = %{
+      "type" => "response.create",
+      "model" => "primary",
+      "store" => false,
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_image", "image_url" => "data:image/png;base64,AA=="}
+          ]
+        }
+      ]
+    }
+
+    assert {:ok, state} =
+             AIGatewayResponsesSocket.handle_in(
+               {Ankole.JSON.encode!(request), [opcode: :text]},
+               %{subject_uid: agent.uid, subject_type: "agent", codex_model_binding: binding}
+             )
+
+    assert_receive {:vision_fallback_request, _}, 2_000
+    assert_receive {:native_socket_upstream_request, upstream}, 2_000
+    assert Ankole.JSON.encode!(upstream["input"]) =~ "a red square"
+    refute Ankole.JSON.encode!(upstream["input"]) =~ "input_image"
+    _ = drain_response_stream(state)
+    refute_receive {:vision_fallback_request, _}, 200
   end
 
   defp configure_native_socket_provider(agent_uid, provider_id, base_url) do

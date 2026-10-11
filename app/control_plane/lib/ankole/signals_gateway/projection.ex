@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.Projection do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.AgentHomePaths
+  alias Ankole.Files
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.Channel
@@ -16,8 +16,29 @@ defmodule Ankole.SignalsGateway.Projection do
   @attachment_id_sequence "signal_gateway_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
-  @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref user_files_relative_path agent_computer_path)
-  @attachment_materialization_fields ~w(attachment_id agent_computer_path user_files_relative_path xxh3_128 size size_bytes bytes)
+  @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref)
+  @attachment_materialization_fields ~w(attachment_id blob_ref path content_type size size_bytes bytes)
+
+  @doc "Resolves one observed direct conversation reachable through this binding."
+  def existing_direct_conversation(binding, principal_uid) do
+    Ankole.Repo.all(
+      from channel in Channel,
+        join: event in Ankole.SignalsGateway.ActorEvent,
+        on: event.tenant_id == channel.tenant_id and event.signal_channel_id == channel.id,
+        where:
+          event.agent_uid == ^binding.agent_uid and event.binding_name == ^binding.name and
+            channel.kind == :im_dm and
+            fragment("?->>'dm_peer_principal_uid'", channel.metadata) == ^principal_uid,
+        distinct: true,
+        limit: 2,
+        select: channel
+    )
+    |> case do
+      [channel] -> {:ok, channel}
+      [] -> {:error, :principal_conversation_not_observed}
+      _ambiguous -> {:error, :principal_conversation_ambiguous}
+    end
+  end
 
   @doc """
   Updates the metadata of one channel mirror under the channel row lock.
@@ -71,7 +92,7 @@ defmodule Ankole.SignalsGateway.Projection do
       nil ->
         %Channel{}
         |> Channel.changeset(attrs)
-        |> repo.insert(on_conflict: :nothing, conflict_target: :id)
+        |> repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :id])
         |> case do
           {:ok, _attempted_channel} ->
             update_existing_channel(repo, fact.signal_channel_id, attrs)
@@ -207,45 +228,195 @@ defmodule Ankole.SignalsGateway.Projection do
     end
   end
 
+  # Names every stored attachment in the drive of the Agent that receives the
+  # fact, in the same transaction as the mirror. The drive reference keeps the
+  # bytes from collection until the ActorEvent reaches the Agent, however long
+  # that takes. A content that collection already removed loses its
+  # `blob_ref`, so the attachment counts as one without bytes.
   defp put_attachment_ids(repo, fact, existing_attachments) do
-    agent_uid = Map.get(fact, :agent_uid)
-
     attachments =
       fact.attachments
       |> List.wrap()
       |> Enum.with_index()
       |> Enum.map(fn {attachment, index} ->
-        put_attachment_id(repo, agent_uid, attachment, index, List.wrap(existing_attachments))
+        put_attachment_id(repo, attachment, index, List.wrap(existing_attachments))
       end)
+      |> channel_attachments(fact.signal_channel_id)
+      |> Enum.map(&link_attachment(repo, Map.get(fact, :agent_uid), provenance(fact), &1))
 
     Map.put(fact, :attachments, attachments)
   end
 
-  # A later observation cannot take a readable file away from the Agent that
-  # holds it. A provider that redelivers an event can fetch the same file
-  # twice; when the second fetch fails after the first one wrote the bytes, or
-  # reports before it, the stored result with its path stays. This runs under
-  # the entry lock, so the order in which two downloads finish cannot lose the
-  # file. A path that a different Agent wrote is not this Agent's copy, so it
-  # does not block this Agent's own observation.
-  defp put_attachment_id(repo, agent_uid, attachment, index, existing_attachments)
+  # A later observation cannot take stored bytes away from an attachment. A
+  # provider that redelivers an event can fetch the same file twice; when the
+  # second fetch fails after the first one stored the bytes, or reports before
+  # it, the stored result with its `blob_ref` stays. This runs under the entry
+  # lock, so the order in which two downloads finish cannot lose the bytes.
+  defp put_attachment_id(repo, attachment, index, existing_attachments)
        when is_map(attachment) do
     existing = matching_existing_attachment(attachment, index, existing_attachments)
 
-    if materialized_attachment?(agent_uid, existing) and not materialized_path?(attachment) do
+    if stored_attachment?(existing) and not stored_attachment?(attachment) do
       existing
     else
-      attachment_id =
-        valid_attachment_id(existing) ||
-          materialized_attachment_id(attachment) ||
-          next_attachment_id(repo)
-
-      Map.put(attachment, "attachment_id", attachment_id)
+      Map.put(
+        attachment,
+        "attachment_id",
+        valid_attachment_id(existing) || next_attachment_id(repo)
+      )
     end
   end
 
-  defp put_attachment_id(_repo, _agent_uid, attachment, _index, _existing_attachments),
-    do: attachment
+  defp put_attachment_id(_repo, attachment, _index, _existing_attachments), do: attachment
+
+  @doc """
+  Names in the Agent's drive every stored attachment that an ActorEvent
+  payload shows to the Agent and that the drive does not name yet.
+
+  The control plane calls it before it hands a payload to a Worker. Paths that
+  bypass the mirror, or reach the Agent before the mirror, then still give the
+  Agent attachments it can read: an entry whose stored copy is newer than the
+  observation, a group entry that is mirrored only when its batch closes, and
+  a supplement that updates an open ActorEvent before the mirror. A path that
+  the drive already names stays as its writer left it, with the provenance of
+  the mirror and the source of a sent or generated file.
+  """
+  @spec link_payload_attachments(String.t(), map(), String.t() | nil) :: :ok
+  def link_payload_attachments(agent_uid, payload, channel_id)
+      when is_binary(agent_uid) and is_map(payload) do
+    payload
+    |> channel_payload(channel_id)
+    |> payload_attachments()
+    |> Enum.filter(&stored_attachment?/1)
+    |> Enum.uniq_by(&{&1["path"], &1["blob_ref"]})
+    |> Enum.reject(&match?({:ok, _file}, Files.fetch(agent_uid, &1["path"])))
+    |> Enum.each(fn attachment ->
+      {:ok, _attachment} =
+        Ankole.Repo.transact(fn repo ->
+          {:ok, link_attachment(repo, agent_uid, %{signal_channel_id: channel_id}, attachment)}
+        end)
+    end)
+  end
+
+  def link_payload_attachments(_agent_uid, _payload, _channel_id), do: :ok
+
+  @doc "Gives received files their channel paths, including old inbox references."
+  def channel_attachments(attachments, channel_id) do
+    Enum.map(attachments, fn
+      %{"path" => "inbox/" <> _rest = path} = attachment when is_binary(channel_id) ->
+        Map.put(attachment, "path", Files.chat_path(channel_id, path))
+
+      attachment ->
+        attachment
+    end)
+  end
+
+  @doc "Updates received attachment paths in an input payload without changing its other facts."
+  def channel_payload(payload, channel_id) do
+    case payload do
+      %{"data" => data} when is_map(data) ->
+        data =
+          Enum.reduce(["entry", "entries", "unreplied_messages"], data, fn key, acc ->
+            case Map.fetch(acc, key) do
+              {:ok, entries} when is_list(entries) ->
+                Map.put(acc, key, Enum.map(entries, &channel_entry(&1, channel_id)))
+
+              {:ok, entry} when is_map(entry) ->
+                Map.put(acc, key, channel_entry(entry, channel_id))
+
+              _missing ->
+                acc
+            end
+          end)
+
+        Map.put(payload, "data", data)
+
+      _other ->
+        payload
+    end
+  end
+
+  defp channel_entry(entry, channel_id) when is_map(entry) do
+    entry =
+      case Map.fetch(entry, "attachments") do
+        {:ok, attachments} when is_list(attachments) ->
+          Map.put(entry, "attachments", channel_attachments(attachments, channel_id))
+
+        _missing ->
+          entry
+      end
+
+    case Map.get(entry, "reply_to") do
+      reply when is_map(reply) -> Map.put(entry, "reply_to", channel_entry(reply, channel_id))
+      _missing -> entry
+    end
+  end
+
+  defp channel_entry(other, _channel_id), do: other
+
+  # Attachments of the entry, of the message it quotes, and of every entry of
+  # a batch. The payload is the stored JSON of an ActorEvent, so its keys are
+  # strings.
+  defp payload_attachments(payload) do
+    data = field(payload, "data") || %{}
+
+    entries =
+      [field(data, "entry")] ++
+        List.wrap(field(data, "entries")) ++
+        List.wrap(field(data, "unreplied_messages"))
+
+    Enum.flat_map(entries, fn
+      entry when is_map(entry) ->
+        List.wrap(field(entry, "attachments")) ++
+          List.wrap(field(field(entry, "reply_to"), "attachments"))
+
+      _other ->
+        []
+    end)
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp field(map, key) when is_map(map), do: Map.get(map, key)
+  defp field(_value, _key), do: nil
+
+  defp provenance(fact),
+    do: %{signal_channel_id: fact.signal_channel_id, source_entry_id: fact.source_entry_id}
+
+  defp link_attachment(
+         repo,
+         agent_uid,
+         provenance,
+         %{"blob_ref" => sha256, "path" => path} = attachment
+       )
+       when is_binary(agent_uid) and is_binary(sha256) and is_binary(path) do
+    upsert = %{
+      path: path,
+      sha256: sha256,
+      source: "inbound",
+      content_type: attachment_content_type(attachment),
+      signal_channel_id: Map.get(provenance, :signal_channel_id),
+      source_entry_id: Map.get(provenance, :source_entry_id)
+    }
+
+    case Files.commit(repo, agent_uid, [upsert], []) do
+      {:ok, _result} -> attachment
+      {:error, {:blob_missing, _sha256}} -> Map.drop(attachment, ["blob_ref", "path"])
+      {:error, reason} -> raise ArgumentError, "invalid stored attachment: #{inspect(reason)}"
+    end
+  end
+
+  defp link_attachment(_repo, _agent_uid, _fact, attachment), do: attachment
+
+  @doc "The declared content type of one attachment, if the provider gave one."
+  @spec attachment_content_type(map()) :: String.t() | nil
+  def attachment_content_type(attachment) when is_map(attachment) do
+    Enum.find_value(["content_type", "mimetype", "mime_type"], fn key ->
+      case Map.get(attachment, key) do
+        value when is_binary(value) and value != "" -> value
+        _missing -> nil
+      end
+    end)
+  end
 
   defp matching_existing_attachment(attachment, index, existing_attachments) do
     case attachment_identity(attachment) do
@@ -259,11 +430,6 @@ defmodule Ankole.SignalsGateway.Projection do
         Enum.find(existing_attachments, &(attachment_identity(&1) == identity))
     end
   end
-
-  defp materialized_path?(%{"agent_computer_path" => path}) when is_binary(path) and path != "",
-    do: true
-
-  defp materialized_path?(_attachment), do: false
 
   defp attachment_identity(attachment) when is_map(attachment) do
     Enum.find_value(@attachment_identity_fields, fn field ->
@@ -281,40 +447,18 @@ defmodule Ankole.SignalsGateway.Projection do
 
   defp attachment_descriptor(_attachment), do: nil
 
-  defp materialized_attachment_id(%{"agent_computer_path" => path} = attachment)
-       when is_binary(path) do
-    case valid_attachment_id(attachment) do
-      attachment_id when is_integer(attachment_id) ->
-        if String.contains?(path, "/user-files/inbox/#{attachment_id}/"),
-          do: attachment_id
+  @doc """
+  Returns whether the file service already holds the bytes of an attachment.
 
-      _missing_or_invalid ->
-        nil
-    end
-  end
+  The bytes are content addressed and shared, so one stored copy serves every
+  Agent that receives the attachment.
+  """
+  @spec stored_attachment?(term()) :: boolean()
+  def stored_attachment?(%{"blob_ref" => sha256, "path" => path})
+      when is_binary(sha256) and sha256 != "" and is_binary(path) and path != "",
+      do: true
 
-  defp materialized_attachment_id(_attachment), do: nil
-
-  # One provider file keeps one gateway ID across agents, but each agent
-  # downloads its own copy, so only a path in this agent's inbox proves that
-  # this agent has the bytes.
-  def materialized_attachment?(agent_uid, %{"agent_computer_path" => path} = attachment)
-      when is_binary(agent_uid) and is_binary(path) do
-    case valid_attachment_id(attachment) do
-      attachment_id when is_integer(attachment_id) ->
-        String.starts_with?(path, inbox_prefix(agent_uid, attachment_id))
-
-      _missing_or_invalid ->
-        false
-    end
-  end
-
-  def materialized_attachment?(_agent_uid, _attachment), do: false
-
-  defp inbox_prefix(agent_uid, attachment_id) do
-    Path.join([AgentHomePaths.user_files(agent_uid), "inbox", Integer.to_string(attachment_id)]) <>
-      "/"
-  end
+  def stored_attachment?(_attachment), do: false
 
   defp valid_attachment_id(%{"attachment_id" => attachment_id})
        when is_integer(attachment_id) and attachment_id >= @attachment_id_min and

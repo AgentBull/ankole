@@ -3,14 +3,10 @@ import { create } from '@bufbuild/protobuf'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  LARK_TENANT_TOKEN_ENV,
-  LARK_TENANT_TOKEN_FILE_ENV,
-  materializeLarkCredential
-} from '../src/core/execution/lark-credential'
+import { LARK_TENANT_TOKEN_ENV, materializeLarkCredential } from '../src/core/execution/lark-credential'
 import type { ResolvedAgentWorkerEnv } from '../src/core/execution/worker_env'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
+import { type RPCRequester } from '../src/lanes/rpc_lane'
 
 const roots: string[] = []
 
@@ -33,14 +29,13 @@ describe('Lark execution credential', () => {
     )
 
     const materialized = materializeLarkCredential({
-      agentUID: 'agent-a',
       agentHome,
       rpc,
       workerEnv: workerEnv('tenant-token-1'),
       bindingName: 'lark-secondary',
       refreshIntervalMs: 5
     })
-    const path = materialized.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]!
+    const path = materialized.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']!
 
     expect(materialized.workerEnv.vars[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
     expect(materialized.workerEnv.operatorVars[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
@@ -62,13 +57,12 @@ describe('Lark execution credential', () => {
     // oxlint-disable-next-line prefer-const
     let refreshToken: string | undefined
     const materialized = materializeLarkCredential({
-      agentUID: 'agent-a',
       agentHome,
       rpc: workerEnvRPC(() => refreshToken),
       workerEnv: workerEnv('tenant-token-1'),
       refreshIntervalMs: 5
     })
-    const path = materialized.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]!
+    const path = materialized.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']!
 
     await waitUntil(async () => !(await Bun.file(path).exists()))
     refreshToken = 'tenant-token-2'
@@ -83,7 +77,6 @@ describe('Lark execution credential', () => {
     const agentHome = fixtureAgentHome()
     let appID = 'app-1'
     const materialized = materializeLarkCredential({
-      agentUID: 'agent-a',
       agentHome,
       rpc: workerEnvRPC(
         () => 'tenant-token-2',
@@ -92,7 +85,7 @@ describe('Lark execution credential', () => {
       workerEnv: workerEnv('tenant-token-1'),
       refreshIntervalMs: 5
     })
-    const path = materialized.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]!
+    const path = materialized.runtimeEnv['ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE']!
 
     appID = 'app-2'
     await waitUntil(async () => !(await Bun.file(path).exists()))
@@ -106,7 +99,6 @@ describe('Lark execution credential', () => {
 
   it('does not create a refresh owner without a binding-derived token', () => {
     const materialized = materializeLarkCredential({
-      agentUID: 'agent-a',
       agentHome: fixtureAgentHome(),
       rpc: workerEnvRPC(() => 'unused'),
       workerEnv: workerEnv(undefined)
@@ -145,9 +137,9 @@ function workerEnvRPC(
   bindingName = ''
 ): RPCRequester {
   return (async (method: unknown, payload: unknown, frame: unknown) => {
-    expect(method).toBe(rpcMethods.workerEnvResolve)
+    expect(method).toBe('worker_env.resolve')
     expect(payload).toMatchObject({ bindingName })
-    expect((frame as { agentUid: string }).agentUid).toBe('agent-a')
+    expect(frame).toBeUndefined()
     const current = token()
     const bindingVars: Record<string, string> = {}
     if (current) {

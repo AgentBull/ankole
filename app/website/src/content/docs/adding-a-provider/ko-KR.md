@@ -24,7 +24,6 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
-      upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
@@ -86,7 +85,6 @@ setting(:reasoningEffort, type: :select, default: "high",
 
 ```elixir
 language_model do
-  upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
   supports_parallel_tool_calls()
@@ -97,7 +95,7 @@ end
 | 필드 | 의미 |
 |---|---|
 | `kind` | `:language_model`, `:embedding_model`, `:rerank_model`, `:web_search`, `:web_fetch`, `:image_generate` 중 하나 |
-| `upstream` | 유선 형태: `:sse`, `:eventstream`, `:websocket_text`, 또는 `:json` |
+| `upstream` | 유선 형태. `kind`에서 정해집니다: `:language_model`은 `:sse`, 다른 모든 kind는 `:json` |
 | `api_resolver` | 인코딩과 전송을 소유하는 Rust 쪽 리졸버 atom(예: `:openai_responses`) |
 | `prepare` | 준비된 요청을 만드는 Elixir 함수 |
 | `timeout_ms` | Capability별 선택적 타임아웃 |

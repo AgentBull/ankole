@@ -63,12 +63,12 @@ export const commonIssues = [
     cause: 'Console 경로도 실패한다면 공유 다운스트림 경로가 원인일 가능성이 높습니다. LLM Provider, Agent model profile, 또는 Worker이며, 하나의 플랫폼 이벤트 권한이 아닙니다.',
     resolution: [
       'LLM Provider가 활성화되었는지, credential과 모델 이름이 작동하는지 확인하세요.',
-      'Agent에 primary, light, heavy profile이 있고 Worker가 하나 이상 준비되었는지 확인하세요.',
+      'Agent에 primary, light, heavy profile이 있고 Console → Workers에서 그 Agent의 Worker에 실패 이유가 표시되지 않는지 확인하세요.',
       'Console에서 실제 모델 대화 하나를 완료한 다음 선택한 채팅 플랫폼 탭으로 돌아가세요.'
     ],
     links: [
       { href: '../quickstart/#llm-providers', label: 'LLM Provider와 Agent 구성' },
-      { href: '../worker-management/', label: 'Worker fleet' }
+      { href: '../worker-management/', label: 'Workers' }
     ]
   },
   {
@@ -91,7 +91,7 @@ export const commonIssues = [
     resolution: [
       '실행 기록을 열고 결과를 확인한 후 첫 번째 오류를 읽으세요.',
       '대상 Agent와 대화 또는 채팅 목적지, 그리고 signal routing 규칙을 확인하세요.',
-      'Agent model profile이 작동하는지, Worker가 하나 이상 준비되었는지 확인하세요.'
+      'Agent model profile이 작동하는지, Console → Workers에서 그 Agent의 Worker에 실패 이유가 표시되지 않는지 확인하세요.'
     ],
     links: [
       { href: '../schedules/', label: '스케줄 실행 기록 조회' },

@@ -9,7 +9,8 @@ defmodule Ankole.OIDC.Sessions do
     ref = %{"id" => auth["browser_id"], "generation" => auth["browser_generation"]}
 
     BrowserSessions.authorize(ref, auth, fn repo ->
-      with {:ok, client} <- OIDC.get_active_client(client_id),
+      with :ok <- accepting_work(),
+           {:ok, client} <- OIDC.get_active_client(client_id),
            :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]) do
         now = DateTime.utc_now()
 
@@ -58,7 +59,8 @@ defmodule Ankole.OIDC.Sessions do
   end
 
   def validate(id, client_id, principal_uid, scope, kind \\ :access) do
-    with {:ok, session} <- get(id),
+    with :ok <- accepting_work(),
+         {:ok, session} <- get(id),
          true <- session.client_id == client_id and session.principal_uid == principal_uid,
          true <-
            is_nil(session.revoked_at) and
@@ -93,6 +95,12 @@ defmodule Ankole.OIDC.Sessions do
     }
   end
 
+  defp accepting_work do
+    if Ankole.Tenants.accepting_work?(Repo.tenant_id!()),
+      do: :ok,
+      else: {:error, :tenant_suspended}
+  end
+
   def revoke(id) do
     Repo.transact(fn repo ->
       with {:ok, session} <- get(id) do
@@ -102,7 +110,17 @@ defmodule Ankole.OIDC.Sessions do
   end
 
   def end_browser_in_tx(repo, browser_id) do
-    terminate(repo, from(s in Session, where: s.browser_id == ^browser_id), :browser)
+    sessions =
+      Repo.across_tenants(fn ->
+        repo.all(
+          from s in Session,
+            where: s.browser_id == ^browser_id,
+            order_by: s.id,
+            lock: "FOR UPDATE"
+        )
+      end)
+
+    terminate_sessions(repo, sessions, :browser)
   end
 
   def revoke_human_in_tx(repo, principal_uid, access_version) do
@@ -116,8 +134,12 @@ defmodule Ankole.OIDC.Sessions do
   end
 
   defp terminate(repo, query, kind) do
-    now = DateTime.utc_now()
     sessions = repo.all(query |> order_by([s], s.id) |> lock("FOR UPDATE"))
+    terminate_sessions(repo, sessions, kind)
+  end
+
+  defp terminate_sessions(repo, sessions, kind) do
+    now = DateTime.utc_now()
 
     Enum.reduce_while(sessions, :ok, fn session, :ok ->
       attrs =
@@ -125,13 +147,15 @@ defmodule Ankole.OIDC.Sessions do
           do: [revoked_at: session.revoked_at || now, ended_at: session.ended_at || now],
           else: [ended_at: session.ended_at || now]
 
-      with {:ok, session} <- session |> Ecto.Changeset.change(attrs) |> repo.update(),
-           %Client{} = client <- repo.get(Client, session.client_id),
-           :ok <- Ankole.OIDC.Logout.enqueue_in_tx(repo, session, client) do
-        {:cont, :ok}
-      else
-        {:error, _} = error -> {:halt, error}
-      end
+      Repo.with_tenant(session.tenant_id, fn ->
+        with {:ok, session} <- session |> Ecto.Changeset.change(attrs) |> repo.update(),
+             %Client{} = client <- repo.get(Client, session.client_id),
+             :ok <- Ankole.OIDC.Logout.enqueue_in_tx(repo, session, client) do
+          {:cont, :ok}
+        else
+          {:error, _} = error -> {:halt, error}
+        end
+      end)
     end)
   end
 

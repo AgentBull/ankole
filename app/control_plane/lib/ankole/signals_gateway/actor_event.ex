@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   `input_state` is constrained to only `open | dead_letter`.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
@@ -45,9 +45,11 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     field :reply_preview_source_entry_id, :string
     field :reply_preview_checkpoint, :map
     field :reply_preview_sequence_high_water, :integer, default: 0
-    field :reply_preview_cleanup_at, :utc_datetime_usec
     field :type, :string
     field :available_at, :utc_datetime_usec
+    field :attempt_count, :integer, default: 0
+    field :provider_capacity_attempt_count, :integer, default: 0
+    field :last_attempt_at, :utc_datetime_usec
     # Per-session sequence for ordering currently open actor events.
     field :queue_sequence, :integer
     # Only open | dead_letter. Normal completion is recorded separately.
@@ -85,9 +87,11 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :reply_preview_source_entry_id,
       :reply_preview_checkpoint,
       :reply_preview_sequence_high_water,
-      :reply_preview_cleanup_at,
       :type,
       :available_at,
+      :attempt_count,
+      :provider_capacity_attempt_count,
+      :last_attempt_at,
       :queue_sequence,
       :input_state,
       :completed_at,
@@ -128,6 +132,11 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     |> validate_inclusion(:input_state, @states)
     |> validate_inclusion(:turn_outcome, @turn_outcomes, allow_nil: true)
     |> validate_number(:reply_preview_sequence_high_water, greater_than_or_equal_to: 0)
+    |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
+    |> validate_number(:provider_capacity_attempt_count, greater_than_or_equal_to: 0)
+    |> check_constraint(:provider_capacity_attempt_count,
+      name: :actor_events_capacity_attempt_count_check
+    )
     |> JSONPayload.validate_map(:payload)
     |> JSONPayload.validate_map(:reply_preview_checkpoint)
     |> JSONPayload.validate_map(:dead_letter_reason)
@@ -146,6 +155,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       name: :actor_events_reply_preview_sequence_non_negative
     )
     |> check_constraint(:input_state, name: :actor_events_input_state_check)
+    |> check_constraint(:attempt_count, name: :actor_events_attempt_count_non_negative)
     |> check_constraint(:turn_outcome, name: :actor_events_turn_outcome_check)
     |> check_constraint(:final_response_id, name: :actor_events_completion_anchor_check)
   end
@@ -177,7 +187,32 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   def scheduled_delivery_snapshot(%__MODULE__{}), do: nil
 
   @doc false
+  @spec input_source_entry_ids(t()) :: [String.t()]
+  def input_source_entry_ids(%__MODULE__{
+        type: "input.revised",
+        payload: %{"data" => %{"revision" => %{"kind" => "remove"}}}
+      }),
+      do: []
+
+  def input_source_entry_ids(%__MODULE__{} = event) do
+    [event.source_entry_id | payload_input_source_entry_ids(event.payload)]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp payload_input_source_entry_ids(%{"data" => data}) when is_map(data),
+    do: source_entry_ids_from_messages(data["entries"])
+
+  defp payload_input_source_entry_ids(_payload), do: []
+
+  @doc false
   @spec source_entry_ids(t()) :: [String.t()]
+  def source_entry_ids(%__MODULE__{
+        type: "input.revised",
+        payload: %{"data" => %{"revision" => %{"kind" => "remove"}}}
+      }),
+      do: []
+
   def source_entry_ids(%__MODULE__{} = event) do
     [event.source_entry_id | payload_source_entry_ids(event.payload)]
     |> Enum.filter(&(is_binary(&1) and &1 != ""))

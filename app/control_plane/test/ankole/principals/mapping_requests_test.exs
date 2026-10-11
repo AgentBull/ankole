@@ -1,5 +1,5 @@
 defmodule Ankole.Principals.MappingRequestsTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
 
@@ -38,32 +38,43 @@ defmodule Ankole.Principals.MappingRequestsTest do
     external_id = "ou_#{System.unique_integer([:positive])}"
     parent = self()
 
+    # Both independent transactions need the same committed tenant parent.
+    tenant =
+      Sandbox.unboxed_run(Repo, fn ->
+        %Ankole.Tenants.Tenant{}
+        |> Ankole.Tenants.Tenant.changeset(%{
+          slug: "mapping-#{Ankole.Ecto.UUIDv7.autogenerate()}",
+          display_name: "Mapping race"
+        })
+        |> Repo.insert!()
+      end)
+
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
-        case Repo.get_by(MappingRequest, provider: provider, external_id: external_id) do
-          nil -> :ok
-          request -> Repo.delete!(request)
-        end
+        Repo.with_tenant(tenant.id, fn -> Repo.delete_all(MappingRequest) end)
+        Repo.delete!(tenant)
       end)
     end)
 
     first =
       Task.async(fn ->
-        Sandbox.unboxed_run(Repo, fn ->
-          Repo.transact(fn _repo ->
-            result =
-              MappingRequests.record_observation(%{
-                provider: provider,
-                external_id: external_id,
-                email: "ada@example.com",
-                metadata: %{"binding" => "lark"}
-              })
+        Repo.with_tenant(tenant.id, fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            Repo.transact(fn _repo ->
+              result =
+                MappingRequests.record_observation(%{
+                  provider: provider,
+                  external_id: external_id,
+                  email: "ada@example.com",
+                  metadata: %{"binding" => "lark"}
+                })
 
-            send(parent, :first_observation_written)
+              send(parent, :first_observation_written)
 
-            receive do
-              :commit_first_observation -> result
-            end
+              receive do
+                :commit_first_observation -> result
+              end
+            end)
           end)
         end)
       end)
@@ -72,13 +83,15 @@ defmodule Ankole.Principals.MappingRequestsTest do
 
     second =
       Task.async(fn ->
-        Sandbox.unboxed_run(Repo, fn ->
-          MappingRequests.record_observation(%{
-            provider: provider,
-            external_id: external_id,
-            mobile: "+14155552671",
-            metadata: %{"channel" => "ops"}
-          })
+        Repo.with_tenant(tenant.id, fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            MappingRequests.record_observation(%{
+              provider: provider,
+              external_id: external_id,
+              mobile: "+14155552671",
+              metadata: %{"channel" => "ops"}
+            })
+          end)
         end)
       end)
 
@@ -147,7 +160,7 @@ defmodule Ankole.Principals.MappingRequestsTest do
   test "bind_request refuses agents and disabled principals" do
     %{principal: agent} = agent_fixture()
     %{principal: disabled} = human_fixture()
-    assert {:ok, _principal} = Principals.disable_principal(disabled.uid)
+    assert {:ok, _principal} = Ankole.PrincipalsFixtures.disable_principal_fixture(disabled.uid)
 
     assert {:ok, request} =
              MappingRequests.record_observation(%{

@@ -59,12 +59,14 @@ HTTP Events API, slash-command, or request-signature routes.
 Chat and identity work can share one Socket Mode connection when they use the
 same app token and bot token. If the app token matches but the bot token does
 not, the reconciler reports a credential conflict. `ConnectionReconciler`
-selects the required connections, and `ConnectionSupervisor` runs them. A
-restart rebuilds the connection list.
+selects the required connections, and `Ankole.Plugins.ConnectionLifecycle`
+supervises one Socket Mode client for each. The client is a temporary child.
+If it exits, `ConnectionLifecycle` restarts that key immediately once, then
+waits 5 seconds and 30 seconds between further attempts. Other connections
+stay connected. A restart rebuilds the connection list.
 
-The connection owner resolves the bot identity once when a chat consumer has
-no configured `botUserID`. Consumers with the same credentials share that
-result. A failed lookup prevents startup and can retry on the next
+Each client start resolves the bot identity once. Consumers with the same
+credentials share that result. A failed lookup prevents startup and can retry on the next
 reconciliation. Healthy connections compare configured values only, so a
 temporary identity lookup failure cannot replace their resolved identity.
 
@@ -101,10 +103,10 @@ because the common input format has no entry-edit event. A `message_deleted` eve
 becomes `entry_removed`.
 
 Before the adapter downloads an inbound file, it writes a pending attachment
-projection with a stable attachment ID. It then stores successful downloads
-through WorkerFiles and replaces the pending state with `complete`. If a
-download fails, it records `failed` and keeps the Slack file reference without a
-local file. A message that refers to a recent file or image can reuse up to
+projection with a stable attachment ID. It then stores successful downloads in
+the file service ([Files](../Files.md)) and replaces the pending state with
+`complete`. If a download fails, it records `failed` and keeps the Slack file
+reference without stored bytes. A message that refers to a recent file or image can reuse up to
 three attachments from the same sender and channel from the previous 120
 seconds.
 

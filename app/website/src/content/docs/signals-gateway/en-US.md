@@ -59,6 +59,8 @@ A signal routing rule, stored as a Signal Binding, connects one provider adapter
 
 A rule carries the adapter it uses, a configuration reference, filter rules, a group-message policy, and an `enabled` flag. Disabling a rule stops new facts from waking its Actor without deleting the rule. An unavailable rule records `unavailable_reason` so the operator can see why it stopped.
 
+For a group message that does not address the Agent, `addressed_only` skips identity admission and does not mirror the message or wake the Agent. The gateway retains the complete message and raw provider data for later reply references. It resolves references first: a reply to the Agent or a reference in a thread where the Agent participated still requires identity admission.
+
 Adapters are not hard-coded. They are resolved at boot from the plugin registry under the `signals_gateway.adapter` contract, so the set of available providers is whatever this deployment instance's plugins declare. A request against an adapter id that no declaration provides returns `signal_adapter_not_found`.
 
 ## Provider webhook ingress

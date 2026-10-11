@@ -186,7 +186,7 @@ mod tests {
             "url": url,
             "headers": [["content-type", "application/json"]],
             "timeout": {"connect_ms": 2_000, "first_byte_ms": 2_000, "idle_ms": 2_000, "total_ms": 5_000},
-            "transport": {"http_versions": ["h1"], "compression": []}
+            "transport": {}
         })
     }
 

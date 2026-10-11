@@ -3,7 +3,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
   Provider-scoped external subject binding to an AuthZ group.
   """
 
-  use Ecto.Schema
+  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
 
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]

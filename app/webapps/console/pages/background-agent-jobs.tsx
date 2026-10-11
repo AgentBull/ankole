@@ -43,7 +43,7 @@ import {
   RiUser3Line
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
@@ -103,7 +103,6 @@ export function BackgroundAgentJobsPage() {
 
 function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const searchParam = searchParams.get('q') ?? ''
   const searchFilter = searchParam.trim()
@@ -142,7 +141,6 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     onSuccess: () => {
       toast.success(t('console.background_agent_jobs.cancelled'))
       setCancelTargetID(undefined)
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -152,7 +150,6 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       toast.success(t('console.background_agent_jobs.completed'))
       setCompleteTargetID(undefined)
       setCompleteSummary('')
-      void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -301,12 +298,15 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       ) : null}
 
       {/*
-        The width override must repeat the `data-[side=right]:sm:` variant of the
-        uikit default. A bare `sm:max-w-*` loses to it on specificity — the
-        attribute selector wins — so the panel silently stayed at `max-w-sm`.
+        The width overrides must repeat the `data-[side=right]:` variant of the
+        uikit defaults. A bare `w-full` or `sm:max-w-*` loses to them on
+        specificity, because the attribute selector wins, and the panel keeps
+        the default `w-3/4` and `max-w-sm`.
       */}
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeBackgroundAgentJob()}>
-        <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(80rem,92vw)]">
+        <SheetContent
+          closeLabel={t('common.close')}
+          className="data-[side=right]:w-full data-[side=right]:sm:max-w-[min(80rem,92vw)]">
           <SheetHeader className="gap-3 border-b border-border pb-6">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 pr-10">
               <SheetTitle className="min-w-0 break-words">
@@ -559,7 +559,7 @@ function BackgroundAgentJobCard({
     <article className="grid gap-3 border border-border bg-card p-4 shadow-xs transition-colors hover:border-foreground/30">
       <button
         type="button"
-        className="grid gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="grid gap-3 text-left"
         aria-label={t('console.background_agent_jobs.open_detail', { title: task.title ?? task.id })}
         onClick={onOpen}>
         {/* A title that is one long unbreakable identifier used to set the
@@ -606,7 +606,7 @@ function StatusBadge({ status }: { status: JobStatus }) {
         : status === 'running'
           ? 'info'
           : status === 'waiting_on_user'
-            ? 'warning'
+            ? 'waiting'
             : 'neutral'
   return <StatusIndicator tone={tone}>{t(`console.background_agent_jobs.status_${status}`)}</StatusIndicator>
 }
@@ -699,7 +699,7 @@ function JobOutcome({ job }: { job: BackgroundAgentJobItem }) {
         <div
           className={cn(
             'border border-border px-4 py-3 text-sm leading-6 whitespace-pre-wrap break-words',
-            failed ? 'border-destructive/40 bg-destructive/5' : 'bg-card'
+            failed ? 'border-destructive/40 bg-destructive-subtle' : 'bg-card'
           )}>
           {text}
         </div>
@@ -788,11 +788,11 @@ function TurnCard({ turn, lead }: { turn: BackgroundAgentJobTurn; lead: boolean 
 
   return (
     <li className="relative grid min-w-0 gap-4 border border-border bg-card p-4">
-      <span className="absolute top-6 -left-[1.75rem] size-2 rounded-full bg-primary" aria-hidden />
+      <span className="absolute top-6 -left-[1.75rem] size-2 rounded-full bg-foreground" aria-hidden />
       <header className="grid min-w-0 gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
           <Badge variant="outline">{t(`console.background_agent_jobs.turn_kind_${turn.kind}`)}</Badge>
-          <Badge variant={lead ? 'default' : 'secondary'}>
+          <Badge variant={lead ? 'secondary' : 'outline'}>
             {t(
               lead ? 'console.background_agent_jobs.turn_scope_lead' : 'console.background_agent_jobs.turn_scope_child'
             )}

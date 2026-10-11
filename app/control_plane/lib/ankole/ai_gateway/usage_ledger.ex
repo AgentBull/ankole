@@ -3,8 +3,8 @@ defmodule Ankole.AIGateway.UsageLedger do
   Append-only Agent token ledger behind the Agent token quota.
 
   One row records the provider usage of one counted round. A request counts when
-  it carries an Agent token, so its `subject_type` is `agent`, and it uses the
-  `llm` capability. In-process callers such as Brain and compaction pass no
+  its `subject_type` is `agent` and it uses the `llm` capability. An Agent token
+  and the conversation loop give `agent`. Brain and compaction pass no
   `subject_type` and never reach the ledger.
 
   A ledger write failure logs a warning and returns `:ok`. The provider round
@@ -97,7 +97,7 @@ defmodule Ankole.AIGateway.UsageLedger do
   end
 
   # A Background Agent Job reaches AIGateway through the Codex client, which
-  # declares its own client identity headers. A Worker turn declares none.
+  # declares its own client identity headers. The conversation loop declares none.
   defp origin(runtime) do
     if ChatGPTProtocol.codex_client?(Map.get(runtime, "request_context", %{})),
       do: "codex",

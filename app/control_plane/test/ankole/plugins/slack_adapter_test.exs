@@ -15,7 +15,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     Channels,
     Config,
     ConnectionReconciler,
-    ConnectionSupervisor,
     Dispatcher,
     Emoji,
     ErrorPolicy,
@@ -28,6 +27,8 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{AdapterContext, InboundBatch, OutboxEntry}
+  alias Ankole.SignalsGateway.{ActorEvent, ReplyPresentation, ReplyPreviewAdapter}
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias SlackOpenAPI.Event
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 
@@ -40,7 +41,19 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
   describe "plugin and config contracts" do
     test "dispatches app mentions through the message receiver" do
-      dispatcher = Dispatcher.build([])
+      %{principal: agent} = agent_fixture()
+      config = chat_config(%{"botUserID" => "UBOT"})
+
+      context =
+        AdapterContext.new(
+          agent_uid: agent.uid,
+          binding_name: "main",
+          adapter: "slack",
+          user_name: "Slack"
+        )
+
+      consumer = Inbound.chat_consumer(context, config) |> Map.put(:tenant_id, Repo.tenant_id!())
+      dispatcher = Dispatcher.build([consumer])
 
       envelope =
         {:envelope,
@@ -51,7 +64,9 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert "app_mention" in Dispatcher.event_types()
       assert "group_rename" in Dispatcher.event_types()
-      assert {:ok, []} = SocketDispatcher.dispatch(dispatcher, envelope)
+
+      assert {:ok, [%{status: :ignored_missing_platform_subject}]} =
+               SocketDispatcher.dispatch(dispatcher, envelope)
     end
 
     test "declares chat and identity contracts" do
@@ -147,19 +162,23 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert config["sync"]["pageSize"] == 200
     end
 
-    test "runtime bot identity uses auth.test result without persisting it" do
+    test "runtime bot identity verifies the application without persisting it" do
       {:ok, config} = Config.validate_chat_config(chat_config())
 
       Req.default_options(
         plug: fn conn ->
-          assert conn.request_path == "/api/auth.test"
+          case conn.request_path do
+            "/api/auth.test" ->
+              Req.Test.json(conn, %{
+                "ok" => true,
+                "user_id" => "UBOT",
+                "bot_id" => "B1",
+                "team_id" => "T1"
+              })
 
-          Req.Test.json(conn, %{
-            "ok" => true,
-            "user_id" => "UBOT",
-            "bot_id" => "B1",
-            "team_id" => "T1"
-          })
+            "/api/bots.info" ->
+              Req.Test.json(conn, %{"ok" => true, "bot" => %{"id" => "B1", "app_id" => "A1"}})
+          end
         end
       )
 
@@ -167,6 +186,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert resolved["runtimeBotUserID"] == "UBOT"
       assert resolved["runtimeBotID"] == "B1"
+      assert resolved["runtimeAppID"] == "A1"
       assert resolved["runtimeTeamID"] == "T1"
       assert resolved["botUserID"] == nil
     end
@@ -282,21 +302,17 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     end
 
     test "Block Kit localizes the Slack-owned starting state" do
-      assert :ok =
-               Ankole.I18n.with_locale("zh-Hans-CN", fn ->
-                 assert {:ok, blocks} =
-                          BlockKit.render(%{
-                            "reply_presentation" => %{
-                              "state" => "debouncing",
-                              "answer" => ""
-                            }
-                          })
+      allow_cache_database_access()
+      {:ok, _locale} = Ankole.I18n.put_default_locale("zh-Hans-CN")
 
-                 rendered = Torque.encode!(blocks)
-                 assert rendered =~ "正在接收请求"
-                 refute rendered =~ "Starting"
-                 :ok
-               end)
+      assert {:ok, blocks} =
+               BlockKit.render(%{
+                 "reply_presentation" => %{"state" => "debouncing", "answer" => ""}
+               })
+
+      rendered = Torque.encode!(blocks)
+      assert rendered =~ "正在接收请求"
+      refute rendered =~ "Starting"
     end
 
     test "emoji mapping strips skin tone and round-trips stable keys" do
@@ -444,6 +460,105 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                })
     end
 
+    test "a replacement preview message is checkpointed even when its first source is immutable" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "slack-preview-replacement"
+      config_key = Config.chat_config_key(binding_name)
+      assert {:ok, _} = AppConfigure.put_global_by_key(config_key, chat_config())
+
+      assert {:ok, _} =
+               SignalsGateway.upsert_binding(%{
+                 agent_uid: agent.uid,
+                 name: binding_name,
+                 adapter: "slack",
+                 config_ref: "app-config://" <> config_key,
+                 unaddressed_group_message_policy: :ignore,
+                 unmatched_sender_policy: :create_standalone
+               })
+
+      %{actor_event: event} =
+        emit_addressed_actor_event(
+          agent.uid,
+          binding_name,
+          group_entry(%{
+            signal_channel_id: "slack:C1",
+            source_entry_id: "preview-input",
+            provider_thread_id: nil,
+            explicit: true
+          })
+        )
+
+      parent = self()
+      posts = start_supervised!({Agent, fn -> 0 end})
+
+      Req.default_options(
+        plug: fn conn ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          body = Torque.decode!(body)
+
+          cond do
+            String.ends_with?(conn.request_path, "/chat.postMessage") ->
+              count = Agent.get_and_update(posts, fn n -> {n, n + 1} end)
+              id = if count == 0, do: "preview-A", else: "preview-B"
+              send(parent, {:preview_post, id})
+              Req.Test.json(conn, %{"ok" => true, "ts" => id, "channel" => "C1"})
+
+            String.ends_with?(conn.request_path, "/chat.update") ->
+              send(parent, {:preview_update, body["ts"]})
+
+              if body["ts"] == "preview-A" do
+                Req.Test.json(conn, %{"ok" => false, "error" => "message_not_found"})
+              else
+                Req.Test.json(conn, %{"ok" => true, "ts" => body["ts"], "channel" => "C1"})
+              end
+
+            true ->
+              flunk("unexpected Slack provider operation: #{conn.request_path}")
+          end
+        end
+      )
+
+      {:ok, adapter} = ReplyPreviewAdapter.from_module(SlackAdapter.ReplyPreview)
+
+      request = %Request{
+        actor_event: event,
+        presentation: ReplyPresentation.new() |> ReplyPresentation.replace_answer("first"),
+        mode: :working
+      }
+
+      assert {:ok, _} = ReplyPreviewAdapter.update(adapter, request)
+      assert_receive {:preview_post, "preview-A"}
+
+      changed = %{
+        request
+        | presentation: ReplyPresentation.replace_answer(request.presentation, "second")
+      }
+
+      assert {:error,
+              {:reply_delivery, :operator_action_required, %{"code" => "slack_delivery_unknown"}}} =
+               ReplyPreviewAdapter.update(adapter, changed)
+
+      assert_receive {:preview_update, "preview-A"}
+      assert_receive {:preview_post, "preview-B"}
+      stored = Repo.get!(ActorEvent, event.id)
+      checkpoint = ReplyPreviewAdapter.adapter_checkpoint(stored.reply_preview_checkpoint)
+      assert hd(checkpoint["messages"])["message_id"] == "preview-B"
+      assert stored.reply_preview_source_entry_id == "preview-A"
+
+      changed = %{
+        changed
+        | presentation: ReplyPresentation.replace_answer(request.presentation, "third")
+      }
+
+      assert {:error,
+              {:reply_delivery, :operator_action_required, %{"code" => "slack_delivery_unknown"}}} =
+               ReplyPreviewAdapter.update(adapter, changed)
+
+      assert_receive {:preview_update, "preview-B"}
+      assert Agent.get(posts, & &1) == 2
+      refute_receive {:preview_post, _}, 100
+    end
+
     test "keeps every long reply chunk in the same Slack thread" do
       text = String.duplicate("a", 24_001)
 
@@ -563,6 +678,37 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert entry.metadata["attachment_materialization"]["state"] == "failed"
       assert [%{"attachment_id" => attachment_id}] = entry.attachments
       assert attachment_id >= 10_000
+    end
+
+    test "a filtered attachment message succeeds without downloading or retrying" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "slack", :ignore, adapter: "slack", filters: %{"cel" => "false"})
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+      Req.default_options(plug: fn _conn -> flunk("a filtered attachment must not download") end)
+
+      incoming =
+        event(%{
+          "channel" => "C1",
+          "channel_type" => "channel",
+          "user" => "U1",
+          "text" => "file",
+          "ts" => "1700000000.001",
+          "files" => [
+            %{
+              "id" => "F-filtered",
+              "name" => "file.pdf",
+              "url_private" => "https://media.test/filtered"
+            }
+          ]
+        })
+
+      assert {:ok, [%{status: :filtered}]} =
+               Inbound.handle_message_receive("message", incoming, [consumer])
+
+      refute Repo.get_by(Ankole.SignalsGateway.Entry,
+               signal_channel_id: "slack:C1",
+               source_entry_id: "1700000000.001"
+             )
     end
 
     test "Slack actions carry an authorized Principal identity" do
@@ -752,10 +898,10 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                  unmatched_sender_policy: :create_standalone
                })
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert :ok = Channels.handle_binding_saved(binding, config)
-      assert eventually(fn -> key in ConnectionSupervisor.registered_keys() end)
+      assert eventually(fn -> key in ConnectionReconciler.registered_keys() end)
     end
 
     test "a connection resolves shared bot identity once and keeps it across reconciliation" do
@@ -764,11 +910,16 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       Req.default_options(
         plug: fn conn ->
-          if conn.request_path == "/api/auth.test" do
-            send(parent, :bot_identity_requested)
-            Req.Test.json(conn, %{"ok" => true, "user_id" => "UBOT", "bot_id" => "B1"})
-          else
-            Req.Test.json(conn, %{"ok" => false, "error" => "service_unavailable"})
+          case conn.request_path do
+            "/api/auth.test" ->
+              send(parent, :bot_identity_requested)
+              Req.Test.json(conn, %{"ok" => true, "user_id" => "UBOT", "bot_id" => "B1"})
+
+            "/api/bots.info" ->
+              Req.Test.json(conn, %{"ok" => true, "bot" => %{"id" => "B1", "app_id" => "A1"}})
+
+            _ ->
+              Req.Test.json(conn, %{"ok" => false, "error" => "service_unavailable"})
           end
         end
       )
@@ -789,10 +940,12 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         end)
 
       key = Config.connection_key(config)
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
-      assert {:ok, pid} = ConnectionSupervisor.ensure_started(config, consumers)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
+      assert {:ok, _pid} = start_connection_owner(ConnectionReconciler, config, consumers)
       assert_receive :bot_identity_requested
-      assert {:ok, ^pid} = ConnectionSupervisor.ensure_started(config, consumers)
+
+      assert owner_serves?(ConnectionReconciler, key, config, consumers)
+
       refute_receive :bot_identity_requested, 100
     end
 
@@ -809,17 +962,23 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         )
 
       assert {:ok, old_owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  Inbound.chat_consumer(context, config)
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       rotated = Map.put(config, "botToken", "xoxb-rotated")
       assert Config.connection_key(rotated) == key
 
+      refute owner_serves?(ConnectionReconciler, key, rotated, [
+               Inbound.chat_consumer(context, rotated)
+             ])
+
+      assert :ok = ConnectionReconciler.stop(key)
+
       assert {:ok, new_owner} =
-               ConnectionSupervisor.ensure_started(rotated, [
+               start_connection_owner(ConnectionReconciler, rotated, [
                  Inbound.chat_consumer(context, rotated)
                ])
 
@@ -845,11 +1004,11 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         )
 
       assert {:ok, owner} =
-               ConnectionSupervisor.ensure_started(config, [
+               start_connection_owner(ConnectionReconciler, config, [
                  Inbound.chat_consumer(context, config)
                ])
 
-      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+      on_exit(fn -> ConnectionReconciler.stop(key) end)
 
       assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, binding_name)
 
@@ -878,6 +1037,21 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       user_name: "Slack"
     )
   end
+
+  defp stub_slack_download(%{request_path: "/api/auth.test"} = conn),
+    do:
+      Req.Test.json(conn, %{
+        "ok" => true,
+        "user_id" => "UBOT",
+        "bot_id" => "B1",
+        "team_id" => "T1"
+      })
+
+  defp stub_slack_download(%{request_path: "/api/bots.info"} = conn),
+    do: Req.Test.json(conn, %{"ok" => true, "bot" => %{"id" => "B1", "app_id" => "A1"}})
+
+  defp stub_slack_download(%{request_path: "/api/apps.connections.open"} = conn),
+    do: Req.Test.json(conn, %{"ok" => false, "error" => "service_unavailable"})
 
   defp stub_slack_download(conn) do
     conn
