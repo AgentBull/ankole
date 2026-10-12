@@ -9,6 +9,8 @@ order: 31
 
 各 Agent の control plane ドライブは添付ファイル、画像、公開ファイル、Skill、Automation スクリプトを保存します。Worker が停止中でも Console から操作できます。Session と Job workspace は永続 Home にあり、ドライブ内のフォルダーではありません。
 
+ローカルフォルダー、S3、R2 の設定は [ドライブストレージ設定](../drive-storage/)、旧 Home のインポートは [1.0 から 2.0 への更新](../upgrade-to-2/)を参照してください。
+
 ## Agent のファイルを探す
 
 1. Console で **Agents** を開き、対象の Agent を開きます。

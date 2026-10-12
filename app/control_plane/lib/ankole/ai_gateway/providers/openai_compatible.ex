@@ -61,8 +61,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
   and response normalization remain in the shared native UniversalAIClient path.
   """
   def prepare_language_model(ctx) do
-    ctx = keep_metadata_local(ctx)
-
     case {Providers.responses_endpoint?(ctx), ctx.stream?, ctx.settings[:upstream_transport]} do
       {true, true, "websocket"} ->
         ctx
@@ -93,12 +91,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
         |> OpenAIRequestOptions.put_provider_options(:chat_completions)
     end
-  end
-
-  # Generic compatible endpoints do not consistently implement OpenAI's
-  # metadata field. AIGateway retains caller metadata in its local Response.
-  defp keep_metadata_local(%{request: request} = ctx) when is_map(request) do
-    %{ctx | request: Map.delete(request, "metadata")}
   end
 
   # A connection that does not declare official OpenAI tool support gets the

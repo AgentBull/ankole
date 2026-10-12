@@ -179,7 +179,15 @@ contributions. The fused score then multiplies through the ranking factors:
   `brain.rerank_model` is configured; a timeout keeps the fusion order.
 
 `context_pack` assembles the ambient injection for a turn: cards for the
-resolved entities and channel, current facts first, under a fixed budget.
+resolved entities and channel, current facts first, under a fixed 4,000-token
+budget. Opening injection records its item positions on each stateful request.
+An opening retry can inject memory until its first Response is complete. Later
+tool rounds use the pack already in history. Compaction excludes these items
+from user originals and summary input. Each checkpoint refreshes its pack from
+the latest user task in the current input or the original chain at the request's
+anchor, through earlier checkpoints. It reserves the fresh pack in the
+checkpoint budget and stores it outside the output, before retained user
+originals and the summary when the provider replays it.
 
 Read projections preserve stored text after access and disclosure checks.
 They do not remove words with an injection phrase blacklist. Skill lesson
@@ -208,7 +216,13 @@ read-only subset `recall` and `get_page`.
 
 `context_pack` and `volunteer_pointers` serve the memory injection of a
 stateful Response rather than the model. `docs/design-docs/AIGateway.md`
-describes the declaration, the public items, and the injection.
+describes the declaration, the public items, and the injection. Request input
+stores the caller's originals. Packs and pointer lines are separate local facts;
+provider replay adds them to a copy in a fixed order. Checkpoints do not reopen
+opening injection; pointers can still refresh for new user input. Each new
+checkpoint refreshes its pack from the original task. Existing checkpoints are
+not rewritten. A checkpoint's missing pack lasts until a later checkpoint or the
+conversation reset at 04:30.
 
 ## Learning
 

@@ -6,7 +6,7 @@ pub(super) struct OpenAIResponsesState {
     sequence: u64,
     terminal: bool,
     response: Option<Value>,
-    saw_error: bool,
+    provider_error: Option<Value>,
     emulated_item_ids: BTreeSet<String>,
 }
 
@@ -46,7 +46,9 @@ impl OpenAIResponsesState {
         }
 
         match event_type.as_str() {
-            "error" => self.saw_error = true,
+            "error" if self.provider_error.is_none() => {
+                self.provider_error = provider_error_diagnostic(&event);
+            }
             "response.completed" | "response.failed" | "response.incomplete" => {
                 self.terminal = true;
             }
@@ -103,7 +105,7 @@ impl OpenAIResponsesState {
     fn finish(&mut self) -> Result<Vec<Value>, StreamError> {
         if self.terminal {
             Ok(Vec::new())
-        } else if self.saw_error {
+        } else if self.provider_error.is_some() {
             Err(StreamError::new(
                 "upstream_stream_closed_before_terminal_event",
                 "api_resolver",
@@ -124,10 +126,55 @@ impl OpenAIResponsesState {
         }
 
         self.terminal = true;
-        let error_event = self.event("error", json!({ "error": openresponses_error(error) }));
-        let response = failed_response_resource(context, error, self.response.clone());
+        let normalized_error = self.failure_error(error);
+        let mut response = failed_response_resource(context, error, self.response.clone());
+        response["error"] = normalized_error;
         let failed = self.event("response.failed", json!({ "response": response }));
-        vec![error_event, failed]
+        vec![failed]
+    }
+
+    fn failure_error(&self, error: &StreamError) -> Value {
+        let mut normalized = openresponses_error(error);
+        let Some(diagnostic) = &self.provider_error else {
+            return normalized;
+        };
+
+        let mut details = normalized["details_json"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        for (source, field) in [
+            ("code", "provider_error_code"),
+            ("type", "provider_error_type"),
+            ("status", "provider_status"),
+            ("message", "provider_diagnostic_message"),
+        ] {
+            if let Some(value) = diagnostic.get(source) {
+                details.insert(field.to_string(), value.clone());
+            }
+        }
+        if let Some(message) = diagnostic.get("message") {
+            normalized["message"] = message.clone();
+        }
+
+        let validation = matches!(diagnostic["status"].as_u64(), Some(400 | 422))
+            || matches!(
+                diagnostic["type"].as_str(),
+                Some("invalid_request" | "invalid_request_error")
+            )
+            || matches!(
+                diagnostic["code"].as_str(),
+                Some("bad_request" | "invalid_request" | "invalid_request_error")
+            );
+        if validation && diagnostic["retryable"] != true {
+            normalized["code"] = diagnostic
+                .get("code")
+                .cloned()
+                .unwrap_or_else(|| json!("provider_response_rejected"));
+            normalized["retryable"] = json!(false);
+        }
+        normalized["details_json"] = Value::Object(details);
+        normalized
     }
 
     fn event(&mut self, event_type: &str, fields: Value) -> Value {
@@ -149,6 +196,36 @@ impl OpenAIResponsesState {
         self.sequence = self.sequence.saturating_add(1);
         sequence
     }
+}
+
+fn provider_error_diagnostic(event: &Value) -> Option<Value> {
+    let error = event
+        .get("error")
+        .filter(|value| value.is_object())
+        .unwrap_or(event);
+    let mut diagnostic = Map::new();
+    for field in ["code", "type", "message"] {
+        if let Some(value) = error.get(field).and_then(Value::as_str)
+            && !(field == "type" && value == "error")
+        {
+            diagnostic.insert(
+                field.to_string(),
+                json!(
+                    value
+                        .chars()
+                        .take(super::super::error::PROVIDER_BODY_EXCERPT_LIMIT)
+                        .collect::<String>()
+                ),
+            );
+        }
+    }
+    if let Some(status) = error.get("status").and_then(Value::as_u64) {
+        diagnostic.insert("status".to_string(), json!(status));
+    }
+    if let Some(retryable) = error.get("retryable").and_then(Value::as_bool) {
+        diagnostic.insert("retryable".to_string(), json!(retryable));
+    }
+    (!diagnostic.is_empty()).then_some(Value::Object(diagnostic))
 }
 
 impl APIProtocol for OpenAIResponsesState {

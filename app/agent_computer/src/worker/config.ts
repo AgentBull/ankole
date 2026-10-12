@@ -25,8 +25,8 @@ const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
 /**
  * Parses the worker process environment into the stable computer-worker config.
  *
- * A Worker serves the one Agent that `WORKER_ID` names. The session and the
- * Turn come from each `turn_start` envelope.
+ * A Worker serves the one Agent that `WORKER_ID` names. A conversation
+ * workspace comes from `workspace_open`; a Codex Job comes from `turn_start`.
  */
 export function parseWorkerEnv(env: Record<string, string | undefined>): WorkerConfig {
   if (env.DATABASE_URL) {

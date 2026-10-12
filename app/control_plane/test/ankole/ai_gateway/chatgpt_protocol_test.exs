@@ -42,7 +42,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
 
     refute Map.has_key?(prepared, "generate")
     refute Map.has_key?(prepared, "max_output_tokens")
-    refute Map.has_key?(prepared, "metadata")
+    assert prepared["metadata"] == request["metadata"]
     refute Map.has_key?(prepared, "prompt_cache_retention")
     refute Map.has_key?(prepared, "safety_identifier")
     refute Map.has_key?(prepared, "stream_options")

@@ -27,6 +27,53 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
       assert changeset.valid?
     end
 
+    for version <- [2, 3] do
+      test "version #{version} validates optional context pack message items" do
+        version = unquote(version)
+
+        base =
+          if version == 2,
+            do: %{"version" => 2, "summary" => %{"text" => "summary"}, "output" => []},
+            else: %{
+              "version" => 3,
+              "source" => "upstream",
+              "binding" => %{
+                "provider_row_id" => "p",
+                "provider_updated_at" => "now",
+                "model" => "m"
+              },
+              "output" => [%{"type" => "compaction", "encrypted_content" => "opaque"}]
+            }
+
+        pack = [
+          %{
+            "type" => "message",
+            "role" => "user",
+            "content" => [%{"type" => "input_text", "text" => "memory"}]
+          }
+        ]
+
+        for value <- [[], pack] do
+          assert CompactionArtifact.changeset(%CompactionArtifact{}, %{
+                   subject_uid: "agent-x",
+                   content: Map.put(base, "brain_context_pack", value)
+                 }).valid?
+        end
+
+        for value <- [
+              nil,
+              %{},
+              [%{"type" => "function_call"}],
+              [%{"type" => "message", "role" => "assistant", "content" => []}]
+            ] do
+          refute CompactionArtifact.changeset(%CompactionArtifact{}, %{
+                   subject_uid: "agent-x",
+                   content: Map.put(base, "brain_context_pack", value)
+                 }).valid?
+        end
+      end
+    end
+
     test "rejects non-current artifact versions" do
       changeset = artifact_changeset(999)
 

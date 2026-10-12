@@ -2,7 +2,7 @@ defmodule Ankole.ObservabilityTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Observability
@@ -71,7 +71,7 @@ defmodule Ankole.ObservabilityTest do
               headers: [{"Authorization", "Basic secret"}]
             }} = Observability.runtime_config()
 
-    row = Repo.get_by!(AppConfig, scope: "global", key: headers.key)
+    row = Repo.get_by!(SiteConfig, scope: "global", key: headers.key)
     refute inspect(row) =~ "Basic secret"
     assert row.value["type"] == "cipher"
     refute row.value["value"] =~ "Basic secret"

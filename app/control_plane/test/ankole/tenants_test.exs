@@ -2,7 +2,7 @@ defmodule Ankole.TenantsTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.{AppConfigure, AuthZ, BrowserSessions, SiteAdminAuth, Tenants}
+  alias Ankole.{AppConfigure, AuthZ, BrowserSessions, Tenants}
   alias Ankole.AppConfigure.Schema
   alias Ankole.AuthZ.Group
   alias Ankole.OIDC.{Client, LogoutDelivery, Session}
@@ -39,6 +39,17 @@ defmodule Ankole.TenantsTest do
 
     assert {broken.id, {:error, {:exception, "broken provider"}}} in results
     assert {healthy.id, {:ok, healthy.id}} in results
+    assert Repo.tenant_id!() == original.id
+  end
+
+  test "retention fanout includes suspended and deleting tenants", %{tenant: original} do
+    suspended = new_tenant()
+    deleting = new_tenant()
+    Repo.update!(Ecto.Changeset.change(suspended, suspended_at: DateTime.utc_now()))
+    Repo.update!(Ecto.Changeset.change(deleting, deleting_at: DateTime.utc_now()))
+    results = Tenants.map_all(fn -> {:ok, Repo.tenant_id!()} end)
+    assert {suspended.id, {:ok, suspended.id}} in results
+    assert {deleting.id, {:ok, deleting.id}} in results
     assert Repo.tenant_id!() == original.id
   end
 
@@ -137,8 +148,8 @@ defmodule Ankole.TenantsTest do
              Tenants.transfer_site_administration(second, second_admin.uid)
 
     refute Repo.get_by(Group, name: "siteadmin")
-    refute SiteAdminAuth.active_human_site_admin?(first_admin.uid)
-    assert SiteAdminAuth.active_human_site_admin?(second_admin.uid)
+    refute AuthZ.site_admin?(first_admin.uid)
+    assert AuthZ.site_admin?(second_admin.uid)
     assert Repo.tenant_id!() == first.id
 
     Repo.with_tenant(second.id, fn ->

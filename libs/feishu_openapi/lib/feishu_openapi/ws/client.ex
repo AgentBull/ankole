@@ -433,7 +433,9 @@ defmodule FeishuOpenAPI.WS.Client do
         )
 
         state = handle_send_result(send_ping(state), state, "ping")
-        handle_responses(rest, schedule_ping(state))
+        state = schedule_ping(state)
+        state = decode_buffered_upgrade_data(state)
+        handle_responses(rest, state)
 
       {:error, conn, reason} ->
         state = %{state | conn: conn} |> drop_conn()
@@ -452,20 +454,37 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
-    case Mint.WebSocket.decode(state.websocket, data) do
-      {:ok, websocket, frames} ->
-        state = Enum.reduce(frames, %{state | websocket: websocket}, &handle_ws_frame/2)
-        handle_responses(rest, state)
+  # Mint can emit data before :done. Only a successful handshake decodes it.
+  defp handle_responses(
+         [{:data, ref, data} | rest],
+         %{request_ref: ref, websocket: nil} = state
+       ) do
+    handle_responses(rest, %{state | upgrade_buffer: state.upgrade_buffer <> data})
+  end
 
-      {:error, websocket, reason} ->
-        Logger.warning("feishu_openapi ws decode error: #{inspect(reason)}")
-        handle_responses(rest, %{state | websocket: websocket})
-    end
+  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
+    handle_responses(rest, decode_ws_data(data, state))
   end
 
   defp handle_responses([_other | rest], state) do
     handle_responses(rest, state)
+  end
+
+  defp decode_buffered_upgrade_data(%{upgrade_buffer: <<>>} = state), do: state
+
+  defp decode_buffered_upgrade_data(state) do
+    decode_ws_data(state.upgrade_buffer, %{state | upgrade_buffer: <<>>})
+  end
+
+  defp decode_ws_data(data, state) do
+    case Mint.WebSocket.decode(state.websocket, data) do
+      {:ok, websocket, frames} ->
+        Enum.reduce(frames, %{state | websocket: websocket}, &handle_ws_frame/2)
+
+      {:error, websocket, reason} ->
+        Logger.warning("feishu_openapi ws decode error: #{inspect(reason)}")
+        %{state | websocket: websocket}
+    end
   end
 
   defp handle_ws_frame({:binary, bin}, state) do
@@ -902,7 +921,10 @@ defmodule FeishuOpenAPI.WS.Client do
         ping_timer: nil,
         status: :disconnected,
         fragments: %{},
-        dispatch_tasks: %{}
+        dispatch_tasks: %{},
+        upgrade_buffer: <<>>,
+        _upgrade_status: nil,
+        _upgrade_headers: nil
     }
   end
 

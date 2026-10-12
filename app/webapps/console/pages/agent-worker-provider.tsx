@@ -63,7 +63,7 @@ export function AgentWorkerProvider({ agent, providers }: { agent: AgentItem; pr
       <ErrorBlock error={assign.error} />
       {assignedID ? (
         <ReadOnlyValue>
-          <Link className="link" to={`/settings/worker-providers/${encodeURIComponent(assignedID)}`}>
+          <Link className="link" to={`/worker-providers/${encodeURIComponent(assignedID)}`}>
             {selected ? `${selected.display_name} (${assignedID})` : assignedID}
           </Link>
         </ReadOnlyValue>

@@ -44,6 +44,8 @@ Agent 作成時は provider の選択と Worker 行を保存し、インスタ�
 
 ## Provider とストレージ
 
+プラットフォーム制限、認証情報、接続、SQLite キャッシュは [WorkerProvider とキャッシュディスク](../worker-providers/)を参照してください。旧デプロイは [1.0 から 2.0 への更新](../upgrade-to-2/)を参照してください。
+
 | 種類 | 永続 Home | アイドル時 |
 | --- | --- | --- |
 | Docker | Agent ごとのローカル volume | コンテナ削除 |
@@ -59,7 +61,7 @@ Home はインスタンス削除やイメージ変更後も残ります。Codex 
 
 ## 解放、置換、削除
 
-- provider YAML の `idleReleaseAfter` を設定します。Docker と Kubernetes の既定値は `never`、Cloudflare、Vercel、Lambda、Function Compute は `15m` です。
+- provider YAML の `idleReleaseAfter` を設定します。全 6 種類の既定値は `15m` で、`never` も設定できます。
 - メモリ休止対応の provider はアイドル Worker を休止します。他の種類はインスタンスを削除し、永続ストレージと設定済みキャッシュ volume を残します。
 - イメージやインスタンス設定の変更はアイドル時に置換します。プロトコル変更は即時置換です。古い休止インスタンスは作業再開前に置換します。
 - `agent_computer.worker.ready_timeout` の既定値は 600 秒です。既に観測したインスタンスだけを再構築し、結果不明の作成を終了扱いにはしません。

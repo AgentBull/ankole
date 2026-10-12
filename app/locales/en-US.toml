@@ -986,6 +986,8 @@ schedules = "Schedules"
 webhooks = "Webhooks"
 
 [console.conversations]
+model_profile = "Model profile"
+model = "Model"
 checkpoint_badge = "checkpoint"
 search = "Search by subject UID, name, or session key"
 title = "Conversations"

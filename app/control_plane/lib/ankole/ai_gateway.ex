@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway do
+  alias Ankole.AIGateway.CompactionRequests
+
   @moduledoc """
   Control-plane owned AI provider gateway.
 
@@ -8,7 +10,6 @@ defmodule Ankole.AIGateway do
   """
 
   alias Ankole.AIGateway.CodexVision
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Events
@@ -22,7 +23,6 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel, as: NativeKernel
@@ -53,10 +53,10 @@ defmodule Ankole.AIGateway do
     # The trigger is a request item, not a transport event, so every transport
     # answers it the same way. AIGateway owns it on all of them, which is also
     # why it never reaches a Provider adapter by itself.
-    if Compaction.compaction_trigger?(request) do
+    if CompactionRequests.compaction_trigger?(request) do
       with :ok <- ensure_stateless_request(request),
            {:ok, body} <-
-             Compaction.compact_from_trigger(
+             CompactionRequests.compact_from_trigger(
                subject_uid,
                request,
                Keyword.take(opts, [:subject_type, :request_context])
@@ -297,7 +297,7 @@ defmodule Ankole.AIGateway do
   @spec get_response(String.t(), binary()) ::
           {:ok, Ankole.AIGateway.Schemas.Message.t()} | {:error, :not_found}
   defdelegate get_response(subject_uid, response_id),
-    to: StatefulResponses,
+    to: Ankole.AIGateway.ResponseChain,
     as: :get_response_for_subject
 
   @doc """
@@ -306,13 +306,13 @@ defmodule Ankole.AIGateway do
   @spec list_response_chain(String.t(), binary(), pos_integer()) ::
           {:ok, [Ankole.AIGateway.Schemas.Message.t()]} | {:error, :not_found}
   defdelegate list_response_chain(subject_uid, response_id, max_depth \\ 500),
-    to: StatefulResponses
+    to: Ankole.AIGateway.ResponseChain
 
   @doc """
   Returns the exact caller-supplied opaque metadata map for a Response.
   """
   @spec response_metadata(Ankole.AIGateway.Schemas.Message.t()) :: map()
-  defdelegate response_metadata(response), to: StatefulResponses
+  defdelegate response_metadata(response), to: Ankole.AIGateway.ResponseChain
 
   @doc """
   Reads an active conversation scoped to its owning Principal subject.
@@ -320,7 +320,7 @@ defmodule Ankole.AIGateway do
   @spec get_conversation(String.t(), binary()) ::
           {:ok, Ankole.AIGateway.Schemas.Conversation.t()} | {:error, :invalid_conversation}
   defdelegate get_conversation(subject_uid, conversation_id),
-    to: StatefulResponses,
+    to: Ankole.AIGateway.ResponseChain,
     as: :get_conversation_for_subject
 
   @doc false
@@ -360,7 +360,7 @@ defmodule Ankole.AIGateway do
 
   @doc false
   defdelegate list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []),
-    to: StatefulResponses
+    to: Ankole.AIGateway.ResponseChain
 
   @doc """
   Marks an explicitly identified generating Response failed.
@@ -368,7 +368,7 @@ defmodule Ankole.AIGateway do
   @spec fail_generating_response(String.t(), binary(), map()) ::
           {:ok, Ankole.AIGateway.Schemas.Message.t() | :already_terminal} | {:error, term()}
   defdelegate fail_generating_response(subject_uid, response_id, error_details),
-    to: StatefulResponses
+    to: Ankole.AIGateway.ResponseCommit
 
   @doc false
   defdelegate fail_generating_response_in_tx(
@@ -378,7 +378,7 @@ defmodule Ankole.AIGateway do
                 error_details,
                 now
               ),
-              to: StatefulResponses
+              to: Ankole.AIGateway.ResponseCommit
 
   @doc false
   defdelegate retract_generating_response_in_tx(
@@ -388,7 +388,7 @@ defmodule Ankole.AIGateway do
                 reason,
                 now
               ),
-              to: StatefulResponses
+              to: Ankole.AIGateway.ResponseCommit
 
   @doc false
   defdelegate hard_delete_visible_suffix_in_tx(
@@ -398,7 +398,7 @@ defmodule Ankole.AIGateway do
                 response_ids,
                 opts \\ []
               ),
-              to: StatefulResponses
+              to: Ankole.AIGateway.ResponseChain
 
   @doc false
   defdelegate retract_visible_suffix_in_tx(
@@ -408,7 +408,7 @@ defmodule Ankole.AIGateway do
                 response_ids,
                 opts \\ []
               ),
-              to: StatefulResponses
+              to: Ankole.AIGateway.ResponseChain
 
   @doc """
   Subscribes to generic live events after validating conversation ownership.
@@ -420,11 +420,15 @@ defmodule Ankole.AIGateway do
   defdelegate unsubscribe(subject_uid, conversation_id), to: Events
 
   @doc false
-  defdelegate reconcile_orphaned_response(response_id, opts \\ []), to: StatefulResponses
-  defdelegate reconcile_orphaned_response_in_tx(repo, response_id, opts), to: StatefulResponses
+  defdelegate reconcile_orphaned_response(response_id, opts \\ []),
+    to: Ankole.AIGateway.ResponseCommit
+
+  defdelegate reconcile_orphaned_response_in_tx(repo, response_id, opts),
+    to: Ankole.AIGateway.ResponseCommit
 
   @doc false
-  defdelegate publish_terminal_event(response, event_type, payload), to: StatefulResponses
+  defdelegate publish_terminal_event(response, event_type, payload),
+    to: Ankole.AIGateway.ResponseCommit
 
   @doc false
   @spec open_sse_stream(String.t(), map(), keyword()) ::
@@ -504,7 +508,7 @@ defmodule Ankole.AIGateway do
   def read_response_stream(stream, count \\ 1), do: ResponseStream.read(stream, count)
 
   @doc "Reads the visible Response suffix for one caller-defined run."
-  defdelegate conversation_tail(conversation, actor_event_id), to: StatefulResponses
+  defdelegate conversation_tail(conversation, actor_event_id), to: Ankole.AIGateway.ResponseChain
 
   @doc false
   @spec cancel_response_stream(ResponseStream.t(), String.t()) :: :ok | {:error, term()}

@@ -131,15 +131,118 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     assert Client.status(pid) == :connected
   end
 
-  defp run_websocket_server(listener, parent) do
+  test "HTTP error bodies preserve the handshake failure classification" do
+    previous = Process.flag(:trap_exit, true)
+
+    try do
+      for status <- [503, 403] do
+        {:ok, listener} =
+          :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+        {:ok, {_address, port}} = :inet.sockname(listener)
+        spawn_link(fn -> run_http_error_server(listener, status) end)
+
+        client = handshake_client("cli_ws_http_#{status}", port)
+
+        {:ok, pid} =
+          Client.start_link(client: client, dispatcher: Dispatcher.new(), auto_reconnect: false)
+
+        assert_receive {:EXIT, ^pid,
+                        {:shutdown,
+                         {:handshake_error, ^status,
+                          %Mint.WebSocket.UpgradeFailureError{status_code: ^status}}}},
+                       1_000
+      end
+    after
+      Process.flag(:trap_exit, previous)
+    end
+  end
+
+  test "an HTTP error body schedules the existing reconnect for a transient handshake failure" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    spawn_link(fn -> run_http_error_server(listener, 503) end)
+    client = handshake_client("cli_ws_http_retry", port)
+
+    pid = start_supervised!({Client, client: client, dispatcher: Dispatcher.new()})
+
+    wait_until(fn ->
+      state = :sys.get_state(pid)
+      state.status == :disconnected and not is_nil(state.reconnect_timer)
+    end)
+
+    assert Process.alive?(pid)
+    assert :sys.get_state(pid).websocket == nil
+  end
+
+  test "decodes a WebSocket frame received with the HTTP upgrade response" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    parent = self()
+    server = spawn_link(fn -> run_websocket_server(listener, parent, true) end)
+    client = handshake_client("cli_ws_upgrade_frame", port)
+    pid = start_supervised!({Client, client: client, dispatcher: Dispatcher.new()})
+
+    on_exit(fn -> send(server, :close) end)
+
+    assert_receive {:websocket_frame, ^server, {:ok, payload}}, 1_000
+    assert {:ok, frame} = Frame.decode(payload)
+    assert Frame.type(frame) == "ping"
+    assert_receive {:websocket_pong, ^server, "provider-heartbeat"}, 1_000
+    assert Client.status(pid) == :connected
+  end
+
+  defp handshake_client(app_id, port) do
+    APIClient.new(app_id, "secret",
+      req_options: [
+        plug: fn conn ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "data" => %{"URL" => "ws://127.0.0.1:#{port}/ws"}
+          })
+        end
+      ]
+    )
+  end
+
+  defp run_http_error_server(listener, status) do
+    {:ok, socket} = :gen_tcp.accept(listener, 1_000)
+    :ok = :gen_tcp.close(listener)
+    {:ok, _request} = recv_until_headers(socket)
+    body = "handshake unavailable"
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 #{status} Handshake Error\r\n",
+        "Content-Length: #{byte_size(body)}\r\n",
+        "Connection: close\r\n\r\n",
+        body
+      ])
+
+    :gen_tcp.close(socket)
+  end
+
+  defp run_websocket_server(listener, parent, early_ping? \\ false) do
     result =
       with {:ok, socket} <- :gen_tcp.accept(listener, 1_000),
            :ok <- :gen_tcp.close(listener),
            {:ok, request} <- recv_until_headers(socket),
            {:ok, websocket_key} <- websocket_key(request),
-           :ok <- :gen_tcp.send(socket, upgrade_response(websocket_key)),
+           :ok <-
+             :gen_tcp.send(socket, [
+               upgrade_response(websocket_key),
+               if(early_ping?, do: websocket_frame(0x9, "provider-heartbeat"), else: <<>>)
+             ]),
            {:ok, {0x2, payload}} <- recv_masked_websocket_frame(socket),
-           :ok <- :gen_tcp.send(socket, websocket_frame(0x9, "provider-heartbeat")),
+           :ok <-
+             if(early_ping?,
+               do: :ok,
+               else: :gen_tcp.send(socket, websocket_frame(0x9, "provider-heartbeat"))
+             ),
            {:ok, {0xA, "provider-heartbeat"}} <- recv_masked_websocket_frame(socket) do
         send(parent, {:websocket_frame, self(), {:ok, payload}})
         send(parent, {:websocket_pong, self(), "provider-heartbeat"})

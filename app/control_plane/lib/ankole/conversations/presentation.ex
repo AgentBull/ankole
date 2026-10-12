@@ -6,31 +6,6 @@ defmodule Ankole.Conversations.Presentation do
   alias Ankole.Schedule.Delivery
   alias Ankole.Logging
 
-  @activity_keys %{
-    "check_back_later" => "schedule_follow_up",
-    "cron" => "schedule_follow_up",
-    "create_background_job" => "background_job_create",
-    "respawn_background_job" => "background_job_respawn",
-    "list_background_jobs" => "background_job_list",
-    "show_background_job_details" => "background_job_show",
-    "send_message_to_background_job" => "background_job_send",
-    "stop_background_job" => "background_job_stop",
-    "workflow" => "workflow_create",
-    "list_workflows" => "workflow_list",
-    "show_workflow" => "workflow_show",
-    "cancel_workflow" => "workflow_cancel",
-    "send_message_to_workflow_task" => "workflow_task_message",
-    "sleep" => "workflow_task_sleep",
-    "submit_result" => "submit_result",
-    "skill_view" => "skill_load",
-    "web_search" => "web_search",
-    "web_fetch" => "web_fetch",
-    "reply_attachment" => "attachment_prepare",
-    "send_message" => "processing",
-    "clarify" => "clarify",
-    "set_channel_standing_orders" => "standing_orders_update"
-  }
-
   @impl true
   def normalize(_name, args), do: args
 
@@ -40,6 +15,8 @@ defmodule Ankole.Conversations.Presentation do
       %{
         "type" => "function",
         "name" => "reply_attachment",
+        "activity" => "attachment_prepare",
+        "visible_delivery" => true,
         "description" =>
           "Queue a drive file for native delivery with the final reply. Save local files with ankole-files put first. A file under chats/<channel>/ can only be delivered to that channel. Success records the file for delivery; it does not confirm that the provider received it.",
         "parameters" => %{
@@ -115,7 +92,10 @@ defmodule Ankole.Conversations.Presentation do
   end
 
   def activity(run, call, tool, args, phase, result \\ nil) do
-    {key, bindings} = activity_description(call["name"], args, phase, result)
+    {key, bindings} =
+      if tool.executor != :worker and function_exported?(tool.executor, :activity, 4),
+        do: tool.executor.activity(tool, args, phase, result),
+        else: {tool.activity, Map.take(args, ["name"])}
 
     if key do
       event(run, "tool.activity", %{
@@ -139,40 +119,9 @@ defmodule Ankole.Conversations.Presentation do
 
   def waiting(_run, _call, _wait), do: :ok
 
-  defp activity_description("web_search", args, _phase, _result),
-    do: {"web_search", %{"query" => activity_excerpt(args["query"], 48)}}
+  def activity_excerpt(nil, _limit), do: ""
 
-  defp activity_description("web_fetch", args, _phase, result) do
-    urls = args["urls"] || []
-    pages = if result && is_map(result.details), do: result.details["results"] || [], else: []
-    page = Enum.find(pages, &is_binary(&1["title"])) || List.first(pages) || %{}
-    host = URI.parse(page["url"] || List.first(urls) || "").host
-    title = if is_binary(page["title"]), do: "《#{activity_excerpt(page["title"], 40)}》"
-    target = [title, host] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
-    key = if length(urls) == 1, do: "web_fetch", else: "web_fetch_many"
-
-    {key <> if(target == "", do: "", else: "_target"),
-     %{"target" => target, "count" => length(urls)}}
-  end
-
-  defp activity_description("send_message_to_background_job", args, "completed", result) do
-    key =
-      case result.details do
-        %{"wait_outcome" => "timed_out"} -> "background_job_async"
-        %{"wait_outcome" => "steered"} -> "background_job_steered"
-        %{"wait_outcome" => _outcome} -> "background_job_replied"
-        _ -> if(args["wait_reply"], do: "background_job_replied", else: "background_job_sent")
-      end
-
-    {key, %{}}
-  end
-
-  defp activity_description(name, args, _phase, _result),
-    do: {@activity_keys[name], Map.take(args, ["name"])}
-
-  defp activity_excerpt(nil, _limit), do: ""
-
-  defp activity_excerpt(text, limit) do
+  def activity_excerpt(text, limit) do
     text = text |> String.replace(~r/[\x00-\x1f\x7f\s]+/u, " ") |> String.trim()
     chars = String.codepoints(text)
 
@@ -220,7 +169,7 @@ defmodule Ankole.Conversations.Presentation do
     end
   end
 
-  def commit_outboxes_in_tx(_repo, _event, _completion, "silent", _now), do: {:ok, no_outboxes()}
+  def commit_outboxes_in_tx(_repo, _event, _completion, :silent, _now), do: {:ok, no_outboxes()}
 
   def commit_outboxes_in_tx(repo, event, completion, outcome, now) do
     if AIReplyPreview.channel_reply_eligible?(event) do
@@ -266,7 +215,10 @@ defmodule Ankole.Conversations.Presentation do
   defp no_outboxes, do: %{attachments: [], clarify: nil, finals: []}
 
   defp commit_reply_outboxes(repo, event, completion, outcome, now) do
-    opts = [turn_completion_outcome: outcome, delivery_targets: delivery_targets(event)]
+    opts = [
+      turn_completion_outcome: Ankole.Conversations.Outcome.encode(outcome),
+      delivery_targets: delivery_targets(event)
+    ]
 
     with {:ok, attachments} <-
            Outbox.commit_reply_attachment_outboxes_in_tx(

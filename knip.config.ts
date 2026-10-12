@@ -57,6 +57,16 @@ const config: KnipConfig = {
       project: ['src/**/*.{ts,tsx}!'],
       ignore: ['src/stories/**']
     },
+    'libs/ankole-editor': {
+      entry: [
+        'src/index.ts!',
+        'src/document/index.ts!',
+        'src/editor/index.ts!',
+        'scripts/*.ts!',
+        'playground/*.{ts,tsx}!'
+      ],
+      project: ['src/**/*.{ts,tsx}!', 'scripts/*.ts!', 'playground/*.{ts,tsx}!']
+    },
     'tools/devkit': {
       entry: ['src/main.ts!', 'src/schematics/**/index.ts!', 'src/changelog-release.ts!', 'src/runtime-image-pair.ts!'],
       project: ['src/**/*.ts!', '!src/**/*.test.ts!']

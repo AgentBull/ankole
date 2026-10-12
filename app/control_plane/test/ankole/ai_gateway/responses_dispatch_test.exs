@@ -1,4 +1,8 @@
 defmodule Ankole.AIGateway.ResponsesDispatchTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
+  alias Ankole.AIGateway.CompactionRequests
+  alias Ankole.AIGateway.CompactionPolicy
   use Ankole.AIGatewayCase
 
   import ExUnit.CaptureLog
@@ -15,7 +19,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
@@ -2211,7 +2214,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                text_message("user", "first user message")
              ])
 
-    assert {:ok, previous} = StatefulResponses.commit_complete(previous, [])
+    assert {:ok, previous} = ResponseCommit.commit_complete(previous, [])
 
     assert {:ok, request, stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
@@ -2699,7 +2702,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       }
     ]
 
-    {:ok, first} = StatefulResponses.commit_complete(first, terminal_items)
+    {:ok, first} = ResponseCommit.commit_complete(first, terminal_items)
 
     current_input = [
       %{
@@ -3004,7 +3007,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       }
     ]
 
-    {:ok, first} = StatefulResponses.commit_complete(first, history_items)
+    {:ok, first} = ResponseCommit.commit_complete(first, history_items)
 
     assert {:ok, request, _stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
@@ -3143,7 +3146,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       ])
 
     {:ok, m1} =
-      StatefulResponses.commit_complete(m1, [
+      ResponseCommit.commit_complete(m1, [
         text_message("assistant", "first assistant response")
       ])
 
@@ -3153,7 +3156,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       ])
 
     {:ok, m2} =
-      StatefulResponses.commit_complete(m2, [
+      ResponseCommit.commit_complete(m2, [
         %{
           "id" => "rs_poisoned_replay",
           "type" => "reasoning",
@@ -3186,7 +3189,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       ])
 
     {:ok, m3} =
-      StatefulResponses.commit_complete(m3, [
+      ResponseCommit.commit_complete(m3, [
         %{
           "id" => "mcp_poisoned_replay",
           "type" => "mcp_call",
@@ -3212,10 +3215,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
+    conversation = seed_checkpoint_memory!(agent, conversation, "memory-recovery-seed")
+
     failed_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "replay-recovery-failed")
 
-    failed_input = [text_message("user", "current request that retries once")]
+    failed_input = [text_message("user", "Wire Format: current request that retries once")]
 
     assert {:error, _reason} =
              AIGateway.open_websocket_stream(agent.uid, %{
@@ -3235,6 +3240,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute first_request_json =~ "__ankole_stateful_provider_replay"
 
     summary_request_json = Ankole.JSON.encode!(summary_request.body)
+    refute summary_request_json =~ "MEMORY_ORION"
     refute summary_request_json =~ "POISONED_REASONING_CIPHERTEXT"
     refute summary_request_json =~ "POISONED_FUNCTION_CIPHERTEXT"
 
@@ -3260,6 +3266,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     artifact = Repo.get!(CompactionArtifact, checkpoint.id)
     assert artifact.content["version"] == 2
+    assert [_pack] = artifact.content["brain_context_pack"]
+    refute Ankole.JSON.encode!(artifact.content["output"]) =~ "MEMORY_ORION"
+    assert Ankole.JSON.encode!(hd(retry_request.body["input"])) =~ "MEMORY_ORION"
 
     artifact_json = Ankole.JSON.encode!(artifact.content["output"])
     refute artifact_json =~ "rs_poisoned_replay"
@@ -3350,7 +3359,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       ])
 
     {:ok, prior} =
-      StatefulResponses.commit_complete(prior, [
+      ResponseCommit.commit_complete(prior, [
         %{
           "id" => "rs_late_rejection",
           "type" => "reasoning",
@@ -3430,7 +3439,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
           original_input
         )
 
-      {:ok, call_response} = StatefulResponses.commit_complete(call_response, [tool_call])
+      {:ok, call_response} = ResponseCommit.commit_complete(call_response, [tool_call])
       retry_input = [text_message("user", "run the interrupted #{label} tool")]
 
       assert {:ok, prepared, %{message: run}} =
@@ -3477,7 +3486,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         [text_message("user", "run through a program")]
       )
 
-    {:ok, call_response} = StatefulResponses.commit_complete(call_response, [nested_call])
+    {:ok, call_response} = ResponseCommit.commit_complete(call_response, [nested_call])
     retry_input = [text_message("user", "continue")]
 
     assert {:ok, prepared, %{message: run}} =
@@ -3531,7 +3540,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       ])
 
     {:ok, anchor} =
-      StatefulResponses.commit_complete(anchor, [text_message("assistant", "stable answer")])
+      ResponseCommit.commit_complete(anchor, [text_message("assistant", "stable answer")])
 
     orphan_output = %{
       "type" => "function_call_output",
@@ -3548,7 +3557,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         [orphan_output]
       )
 
-    {:ok, legacy_orphan_row} = StatefulResponses.commit_complete(legacy_orphan_row, [])
+    {:ok, legacy_orphan_row} = ResponseCommit.commit_complete(legacy_orphan_row, [])
     current_input = [text_message("user", "continue safely")]
 
     assert {:ok, prepared, %{message: run}} =
@@ -3635,7 +3644,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     }
 
     {:ok, legacy_row} =
-      StatefulResponses.commit_complete(legacy_row, [
+      ResponseCommit.commit_complete(legacy_row, [
         malformed_call,
         malformed_output,
         partial_program,
@@ -3714,7 +3723,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       })
 
     {:ok, first} =
-      StatefulResponses.commit_complete(first, [text_message("assistant", "first answer")])
+      ResponseCommit.commit_complete(first, [text_message("assistant", "first answer")])
 
     current_input = [text_message("user", "next user")]
 
@@ -3783,7 +3792,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant")
       ])
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [])
+    {:ok, first} = ResponseCommit.commit_complete(first, [])
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "conversation-anchor-b")
@@ -3953,7 +3962,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant")
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [])
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [])
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "compaction-anchor-b", [
@@ -3961,7 +3970,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "second assistant")
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [])
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [])
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "compaction-anchor-c", [
@@ -3969,7 +3978,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "third assistant")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [])
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [])
 
     {:ok, compaction} =
       insert_compaction_checkpoint(
@@ -3980,7 +3989,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         m2.content ++ m3.content
       )
 
-    assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+    assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [
              compaction.id
            ]
 
@@ -4012,7 +4021,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   end
 
   test "compaction threshold follows model context ratio with a configurable cap" do
-    _result = Compaction.delete_config()
+    _result = CompactionPolicy.delete_config()
 
     assert %{
              tokens: 360_000,
@@ -4020,13 +4029,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              effective_context_length: 400_000,
              threshold: 0.90,
              max_threshold_tokens: 400_000
-           } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+           } = CompactionPolicy.threshold_spec(%{"context_length" => 400_000}, %{})
 
     assert %{
              tokens: 64_000,
              effective_context_length: 70_000
            } =
-             Compaction.threshold_spec(%{"context_length" => 100_000}, %{
+             CompactionPolicy.threshold_spec(%{"context_length" => 100_000}, %{
                "max_output_tokens" => 30_000
              })
 
@@ -4037,10 +4046,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              context_length: 400_000,
              threshold: 0.25,
              max_threshold_tokens: 200_000
-           } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+           } = CompactionPolicy.threshold_spec(%{"context_length" => 400_000}, %{})
 
     assert {:error, {:unknown_compaction_config_keys, ["prefer_upstream"]}} =
-             Compaction.put_config(%{"prefer_upstream" => true})
+             CompactionPolicy.put_config(%{"prefer_upstream" => true})
   end
 
   test "websocket stateful history auto-compacts through ChatGPT Subscription streaming" do
@@ -4122,7 +4131,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant answer")
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], camel_usage(160_000))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "compact-b", [
@@ -4130,7 +4139,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "second assistant answer")
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], camel_usage(160_000))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "compact-c", [
@@ -4138,7 +4147,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "third assistant answer kept as tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(320_004))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], camel_usage(320_004))
 
     current_input = [text_message("user", "new current request")]
 
@@ -4294,7 +4303,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", "Load the calendar tool")
       ])
 
-    {:ok, anchor} = StatefulResponses.commit_complete(anchor, [], camel_usage(10))
+    {:ok, anchor} = ResponseCommit.commit_complete(anchor, [], camel_usage(10))
 
     assert {:ok, previous_checkpoint} =
              insert_compaction_checkpoint(
@@ -4314,14 +4323,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         [text_message("user", "Continue after the first checkpoint")]
       )
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [], camel_usage(160_000))
+    {:ok, first} = ResponseCommit.commit_complete(first, [], camel_usage(160_000))
 
     {:ok, tail} =
       start_linked_stateful_message(agent.uid, conversation, first, "client-search-tail", [
         text_message("assistant", "The calendar tool is ready.")
       ])
 
-    {:ok, tail} = StatefulResponses.commit_complete(tail, [], camel_usage(320_004))
+    {:ok, tail} = ResponseCommit.commit_complete(tail, [], camel_usage(320_004))
 
     current_input = [text_message("user", "Use the loaded tool now")]
 
@@ -4352,6 +4361,155 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert Enum.any?(artifact.content["output"], &(&1 == search_call))
     assert Enum.any?(artifact.content["output"], &(&1 == search_output))
+  end
+
+  test "auto-compaction fits a short history by moving the preferred tail boundary forward" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 45_000, tail_rows: 4)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_short_history",
+           "gpt-compact-light",
+           "## Active Task\nThe prior report is complete."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "short-history-compaction", base_url)
+
+    {:ok, conversation} =
+      Conversations.ensure_conversation(agent.uid, "dispatch-short-history-compaction")
+
+    {:ok, first} =
+      start_stateful_message(agent.uid, conversation, "short-history-large", [
+        text_message("assistant", String.duplicate("completed report ", 4_000))
+      ])
+
+    {:ok, first} = ResponseCommit.commit_complete(first, [], camel_usage(100_000))
+
+    tail = text_message("assistant", "latest completed answer")
+
+    {:ok, latest} =
+      start_linked_stateful_message(agent.uid, conversation, first, "short-history-tail", [
+        tail
+      ])
+
+    {:ok, latest} = ResponseCommit.commit_complete(latest, [], camel_usage(100_000))
+    current_input = [text_message("user", "continue the task")]
+
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "short-history-next-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    assert summarizer_request.body["input"] =~ "completed report"
+
+    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    assert compaction.previous_message_id == latest.id
+    assert compaction.metadata["auto"] == true
+    assert compaction.metadata["covered_message_count"] == 1
+
+    artifact = Repo.get!(CompactionArtifact, compaction.id)
+    assert get_in(artifact.content, ["retention", "requested"]) == 4
+    assert get_in(artifact.content, ["retention", "actual"]) == 1
+    assert List.last(artifact.content["output"]) == tail
+
+    [compaction_item | rest] = request.response_context.request["input"]
+
+    assert_local_checkpoint_message(
+      compaction_item,
+      "## Active Task\nThe prior report is complete."
+    )
+
+    assert rest == [tail | current_input]
+  end
+
+  test "auto-compaction continues after a checkpoint with fewer rows than the preferred tail" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 45_000, tail_rows: 4)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_checkpoint_short_tail",
+           "gpt-compact-light",
+           "## Active Task\nProject VEGA remains active. The last answer is complete."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "checkpoint-short-tail-compaction", base_url)
+
+    {:ok, conversation} =
+      Conversations.ensure_conversation(agent.uid, "dispatch-checkpoint-short-tail")
+
+    {:ok, anchor} =
+      start_stateful_message(agent.uid, conversation, "checkpoint-short-tail-anchor", [
+        text_message("user", "Project VEGA remains active.")
+      ])
+
+    {:ok, anchor} = ResponseCommit.commit_complete(anchor, [], camel_usage(10))
+
+    {:ok, previous_checkpoint} =
+      insert_compaction_checkpoint(
+        agent.uid,
+        conversation,
+        anchor,
+        "Project VEGA remains active.",
+        []
+      )
+
+    {:ok, latest} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        previous_checkpoint,
+        "checkpoint-short-tail-response",
+        [text_message("user", "Continue the task"), text_message("assistant", "Answer complete")]
+      )
+
+    {:ok, latest} = ResponseCommit.commit_complete(latest, [], camel_usage(100_000))
+    current_input = [text_message("user", "What project remains active?")]
+
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "checkpoint-short-tail-next-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    assert summarizer_request.body["input"] =~ "Project VEGA remains active."
+    assert summarizer_request.body["input"] =~ "Answer complete"
+
+    [next_checkpoint] =
+      Repo.all(Message)
+      |> Enum.filter(&(&1.type == "checkpoint" and &1.id != previous_checkpoint.id))
+
+    assert next_checkpoint.previous_message_id == latest.id
+    assert next_checkpoint.metadata["covered_message_count"] == 1
+    artifact = Repo.get!(CompactionArtifact, next_checkpoint.id)
+    assert get_in(artifact.content, ["retention", "requested"]) == 4
+    assert get_in(artifact.content, ["retention", "actual"]) == 0
+
+    assert List.last(request.response_context.request["input"]) == hd(current_input)
   end
 
   test "auto-compaction fits the tail after crossing another client Tool Search pair" do
@@ -4406,6 +4564,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                UUIDv7.autogenerate(),
                history,
                [],
+               %{},
                %{},
                %{"context_length" => 256_000}
              )
@@ -4490,6 +4649,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                history,
                [function_output],
                %{},
+               %{},
                %{"context_length" => 256_000}
              )
 
@@ -4550,7 +4710,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant answer that can be summarized")
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], camel_usage(160_000))
 
     tool_calls = [
       %{
@@ -4570,7 +4730,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "compact-tool-b", tool_calls)
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], camel_usage(160_000))
 
     tool_results = [
       %{
@@ -4588,14 +4748,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "compact-tool-c", tool_results)
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(320_004))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], camel_usage(320_004))
 
     {:ok, m4} =
       start_linked_stateful_message(agent.uid, conversation, m3, "compact-tool-d", [
         text_message("assistant", "final answer after the tool result")
       ])
 
-    {:ok, m4} = StatefulResponses.commit_complete(m4, [], camel_usage(320_008))
+    {:ok, m4} = ResponseCommit.commit_complete(m4, [], camel_usage(320_008))
 
     current_input = [text_message("user", "new current request")]
 
@@ -4699,7 +4859,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(170))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(170))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "program-batch-tool-output", [
@@ -4711,7 +4871,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(175))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(175))
 
     large_result = "PROGRAM_RESULT_SENTINEL:" <> String.duplicate("x", 300_000)
 
@@ -4725,7 +4885,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(178))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], usage(178))
 
     {:ok, m4} =
       start_linked_stateful_message(agent.uid, conversation, m3, "program-batch-final", [
@@ -4735,7 +4895,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         )
       ])
 
-    {:ok, _m4} = StatefulResponses.commit_complete(m4, [], usage(180))
+    {:ok, _m4} = ResponseCommit.commit_complete(m4, [], usage(180))
 
     current_input = [text_message("user", "continue with the result")]
 
@@ -4815,14 +4975,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         ]
       )
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(260_000))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], camel_usage(260_000))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "reasoning-redaction-tail", [
         text_message("user", "tail")
       ])
 
-    {:ok, _m2} = StatefulResponses.commit_complete(m2, [], camel_usage(260_004))
+    {:ok, _m2} = ResponseCommit.commit_complete(m2, [], camel_usage(260_004))
 
     assert {:ok, _request, _stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
@@ -4959,7 +5119,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
       ])
 
-    {:ok, _message} = StatefulResponses.commit_complete(message, [], usage(24))
+    {:ok, _message} = ResponseCommit.commit_complete(message, [], usage(24))
 
     assert {:error,
             {:context_overflow,
@@ -5062,7 +5222,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
           end
 
         {:ok, response} =
-          StatefulResponses.commit_complete(
+          ResponseCommit.commit_complete(
             response,
             [],
             provider_usage(input_tokens, output_tokens)
@@ -5084,7 +5244,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
               ]
             )
 
-          {:ok, journal} = StatefulResponses.commit_complete(journal, [], %{})
+          {:ok, journal} = ResponseCommit.commit_complete(journal, [], %{})
           journal
         else
           response
@@ -5157,6 +5317,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                UUIDv7.autogenerate(),
                history,
                [],
+               %{},
                %{"truncation" => "auto"}
              )
 
@@ -5222,6 +5383,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                UUIDv7.autogenerate(),
                history,
                [],
+               %{},
                %{"truncation" => "auto"}
              )
   end
@@ -5263,14 +5425,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, call} = StatefulResponses.commit_complete(call, [], usage(170))
+    {:ok, call} = ResponseCommit.commit_complete(call, [], usage(170))
 
     {:ok, tail} =
       start_linked_stateful_message(agent.uid, conversation, call, "stable-tail-latest", [
         text_message("assistant", "latest response")
       ])
 
-    {:ok, tail} = StatefulResponses.commit_complete(tail, [], usage(180))
+    {:ok, tail} = ResponseCommit.commit_complete(tail, [], usage(180))
 
     current_input = [
       %{
@@ -5334,7 +5496,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         media_message("https://files.example.test/program-boundary.png")
       ])
 
-    {:ok, opaque} = StatefulResponses.commit_complete(opaque, [], usage(120))
+    {:ok, opaque} = ResponseCommit.commit_complete(opaque, [], usage(120))
 
     program_call_id = "call_program_truncation"
     nested_call_id = "call_program_truncation_market"
@@ -5356,7 +5518,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, program} = StatefulResponses.commit_complete(program, [], usage(130))
+    {:ok, program} = ResponseCommit.commit_complete(program, [], usage(130))
 
     {:ok, nested_output} =
       start_linked_stateful_message(
@@ -5374,7 +5536,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         ]
       )
 
-    {:ok, nested_output} = StatefulResponses.commit_complete(nested_output, [], usage(140))
+    {:ok, nested_output} = ResponseCommit.commit_complete(nested_output, [], usage(140))
 
     {:ok, program_output} =
       start_linked_stateful_message(
@@ -5392,7 +5554,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         ]
       )
 
-    {:ok, program_output} = StatefulResponses.commit_complete(program_output, [], usage(150))
+    {:ok, program_output} = ResponseCommit.commit_complete(program_output, [], usage(150))
 
     {:ok, final} =
       start_linked_stateful_message(
@@ -5405,7 +5567,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         ]
       )
 
-    {:ok, _final} = StatefulResponses.commit_complete(final, [], usage(180))
+    {:ok, _final} = ResponseCommit.commit_complete(final, [], usage(180))
 
     current_input = [text_message("user", "use that result")]
 
@@ -5479,7 +5641,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant")
       ])
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [], usage(120))
+    {:ok, first} = ResponseCommit.commit_complete(first, [], usage(120))
 
     {:ok, checkpoint} =
       insert_compaction_checkpoint(
@@ -5499,7 +5661,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         [text_message("assistant", "latest response")]
       )
 
-    {:ok, tail} = StatefulResponses.commit_complete(tail, [], usage(180))
+    {:ok, tail} = ResponseCommit.commit_complete(tail, [], usage(180))
 
     current_input = [text_message("user", "next question")]
 
@@ -5536,7 +5698,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert run.previous_message_id == first_truncation.id
 
     {:ok, next_tail} =
-      StatefulResponses.commit_complete(
+      ResponseCommit.commit_complete(
         run,
         [text_message("assistant", "next response")],
         usage(190)
@@ -5606,7 +5768,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         media_message(media_url)
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(180))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(180))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "truncate-tail", [
@@ -5614,7 +5776,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "tail assistant")
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(200))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(200))
 
     current_input = [text_message("user", "new request")]
 
@@ -5726,7 +5888,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(120))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "tool-truncate-output", [
@@ -5737,14 +5899,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(120))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "tool-truncate-tail", [
         text_message("user", "latest tail")
       ])
 
-    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(240))
+    {:ok, _m3} = ResponseCommit.commit_complete(m3, [], usage(240))
 
     current_input = [text_message("user", "new request")]
 
@@ -5812,21 +5974,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", String.duplicate("first ", 20))
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(120))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "summary-fail-b", [
         text_message("assistant", String.duplicate("second ", 20))
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(120))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "summary-fail-c", [
         text_message("user", "latest tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], usage(260))
 
     current_input = [text_message("user", "new request")]
 
@@ -5913,21 +6075,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", String.duplicate("first ", 20))
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(120))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "retry-summary-b", [
         text_message("assistant", String.duplicate("second ", 20))
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(120))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "retry-summary-c", [
         text_message("user", "latest tail")
       ])
 
-    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, _m3} = ResponseCommit.commit_complete(m3, [], usage(260))
 
     assert {:ok, _request, _stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
@@ -5993,21 +6155,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", String.duplicate("first ", 20))
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(120))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "stateful-trigger-b", [
         text_message("assistant", String.duplicate("second ", 20))
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(120))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "stateful-trigger-c", [
         text_message("user", "latest tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], usage(260))
 
     # The Main Agent asks for compaction through the same protocol Codex uses.
     request =
@@ -6051,11 +6213,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       assert %Message{status: "complete"} = Repo.get!(Message, original.id)
     end
 
-    visible = StatefulResponses.expand_history(conversation_id)
+    visible = ResponseChain.expand_history(conversation_id)
     assert Enum.map(visible, & &1.type) == ["checkpoint"]
 
     raw =
-      StatefulResponses.expand_history(conversation_id,
+      ResponseChain.expand_history(conversation_id,
         previous_response_id: "resp_#{m3.id}",
         stop_at_checkpoint: false
       )
@@ -6106,21 +6268,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", String.duplicate("first ", 20))
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], usage(120))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "socket-trigger-b", [
         text_message("assistant", String.duplicate("second ", 20))
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], usage(120))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "socket-trigger-c", [
         text_message("user", "latest tail")
       ])
 
-    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, _m3} = ResponseCommit.commit_complete(m3, [], usage(260))
 
     request =
       Ankole.JSON.encode!(%{
@@ -7339,46 +7501,41 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert body["usage"]["total_tokens"] == 5
   end
 
-  test "claude provider fails the response with the status of a mid-stream error event" do
-    %{principal: agent} = agent_fixture()
+  for {error_type, status, code, retryable} <- [
+        {"overloaded_error", 529, "provider_status_rejected", true},
+        {"invalid_request_error", 400, "invalid_prompt", false},
+        {"rate_limit_error", 429, "provider_status_rejected", true}
+      ] do
+    @tag claude_stream_error: {error_type, status, code, retryable}
+    test "claude provider fails the response for a mid-stream #{error_type}", context do
+      {error_type, status, code, retryable} = context.claude_stream_error
+      %{principal: agent} = agent_fixture()
 
-    # The model name selects the Anthropic error type that the stream sends
-    # after its first text delta, in place of `message_stop`.
-    base_url =
-      start_upstream_server(fn request ->
-        error_type = request.body["model"]
+      base_url =
+        start_recording_upstream(self(), fn _request ->
+          error_event = %{
+            "type" => "error",
+            "error" => %{"type" => error_type, "message" => "Anthropic #{error_type}"}
+          }
 
-        error_event = %{
-          "type" => "error",
-          "error" => %{"type" => error_type, "message" => "Anthropic #{error_type}"}
-        }
+          {:sse, 200, Enum.take(anthropic_stream_events(), 3) ++ [error_event], false}
+        end)
 
-        {:sse, 200, Enum.take(anthropic_stream_events(), 3) ++ [error_event], false}
-      end)
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: "claude-stream-error",
+                 provider_kind: "claude",
+                 base_url: base_url,
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "anthropic-key"}]
+                 },
+                 connection_options: %{"transport" => %{}}
+               })
 
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "claude-stream-error",
-               provider_kind: "claude",
-               base_url: base_url,
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "anthropic-key"}]
-               },
-               connection_options: %{
-                 "transport" => %{}
-               }
-             })
-
-    # The 429 case runs last: it marks the only credential as exhausted.
-    for {error_type, status, code, retryable} <- [
-          {"overloaded_error", 529, "provider_status_rejected", true},
-          {"invalid_request_error", 400, "invalid_prompt", false},
-          {"rate_limit_error", 429, "provider_status_rejected", true}
-        ] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, "primary", %{
                  provider_id: "claude-stream-error",
-                 model: error_type
+                 model: "claude-sonnet-4-5"
                })
 
       assert {:ok, events} =
@@ -7400,6 +7557,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "provider_status" => ^status,
                "provider_error_type" => ^error_type
              } = terminal_response_body!(events)["error"]
+
+      assert {:ok, provider} = ProviderConfigs.get_provider("claude-stream-error")
+      [credential] = provider["credential_pool"]["entries"]
+      assert credential["status"] == if(status == 429, do: "exhausted", else: "ok")
+      assert_receive {:gateway_request, _request}
+      refute_receive {:gateway_request, _request}
     end
   end
 
@@ -7642,7 +7805,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     input = [text_message("user", "compact this history")]
 
     assert {:ok, body} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => input,
                "store" => false
@@ -7702,7 +7865,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       )
 
     assert {:error, :compaction_output_over_budget} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => oversized_pair,
                "store" => false
@@ -7765,7 +7928,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Enum.take(replayed_input, -length(first_input)) == first_input
 
     assert {:ok, _completed} =
-             StatefulResponses.commit_complete(
+             ResponseCommit.commit_complete(
                first_context.message,
                [text_message("assistant", "native continuation complete")],
                camel_usage(320_010)
@@ -7816,6 +7979,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     base_url =
       start_recording_upstream(self(), fn request ->
         assert request.path == "v1/responses"
+        refute Ankole.JSON.encode!(request.body) =~ "MEMORY_ORION"
         assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
         {:sse, 200, openai_compaction_stream_events("resp_native_manual", native_output)}
       end)
@@ -7826,8 +7990,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {conversation, tail} = compactable_conversation!(agent, "native-manual")
 
+    conversation = seed_checkpoint_memory!(agent, conversation, "memory-manual-native")
+
     assert {:ok, %{compaction: checkpoint}} =
-             Compaction.compact_conversation(agent.uid, conversation.id)
+             CompactionRequests.compact_conversation(agent.uid, conversation.id)
 
     assert_receive {:gateway_request, %{path: "v1/responses"}}
     assert checkpoint.previous_message_id == tail.id
@@ -7835,6 +8001,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     artifact = Repo.get!(CompactionArtifact, checkpoint.id)
     assert artifact.content["version"] == 3
     assert artifact.content["output"] == native_output
+    assert [_pack] = artifact.content["brain_context_pack"]
   end
 
   for status <- [404, 405] do
@@ -7868,8 +8035,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
       request = %{"model" => "primary", "input" => [text_message("user", "history")]}
 
-      assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
-      assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+      assert {:ok, _body} = CompactionRequests.compact_response(agent.uid, request)
+      assert {:ok, _body} = CompactionRequests.compact_response(agent.uid, request)
       assert Agent.get(compact_attempts, & &1) == 1
 
       assert {:ok, _profile} =
@@ -7878,7 +8045,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  model: "gpt-5.6-revision"
                })
 
-      assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+      assert {:ok, _body} = CompactionRequests.compact_response(agent.uid, request)
       assert Agent.get(compact_attempts, & &1) == 2
     end
   end
@@ -7914,11 +8081,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
       request = %{"model" => "primary", "input" => [text_message("user", "history")]}
 
-      assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+      assert {:ok, _body} = CompactionRequests.compact_response(agent.uid, request)
       attempts_after_first_request = Agent.get(compact_attempts, & &1)
       assert attempts_after_first_request > 0
 
-      assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+      assert {:ok, _body} = CompactionRequests.compact_response(agent.uid, request)
       assert Agent.get(compact_attempts, & &1) > attempts_after_first_request
     end
   end
@@ -7933,7 +8100,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     assert {:error, :no_compaction_candidate} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => [
                  %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
@@ -7965,7 +8132,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     opaque_item = %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
 
     assert {:ok, body} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => [
                  retained_message,
@@ -8184,7 +8351,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     assert {:ok, body} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "compact this history")],
                "store" => false
@@ -8221,7 +8388,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     assert {:ok, body} =
-             Compaction.compact_response(agent.uid, %{
+             CompactionRequests.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => [text_message("user", "compact this history")],
                "store" => false
@@ -8230,6 +8397,71 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, request}
     assert compaction_trigger_request?(request)
     assert body["output"] == native_output
+  end
+
+  defp seed_brain_fact!(agent) do
+    {:ok, _packs} = Ankole.Brain.SchemaPacks.install_packs([])
+
+    {:ok, object} =
+      Ankole.Brain.Objects.create_object(
+        %{
+          slug: "concepts/wire-format",
+          type: "concept",
+          title: "Wire Format",
+          body: "memory fixture"
+        },
+        agent.uid
+      )
+
+    {:ok, _claim} =
+      Ankole.Brain.Claims.write_fact(
+        %{
+          object_slug: object.slug,
+          claim: "MEMORY_ORION",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        agent.uid
+      )
+
+    {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
+  end
+
+  defp seed_checkpoint_memory!(agent, conversation, event_id) do
+    seed_brain_fact!(agent)
+    event = actor_event_fixture(agent.uid, conversation.conversation_key, event_id)
+    history = ResponseChain.expand_history(conversation.id)
+    first = hd(history)
+
+    {input, injection} =
+      Ankole.AIGateway.HostedTools.Brain.inject_stateful(
+        agent.uid,
+        %{
+          "tools" => [%{"type" => "brain", "inject" => true}],
+          "metadata" => %{"actor_event_id" => event.id}
+        },
+        conversation,
+        [text_message("user", "Wire Format")],
+        history
+      )
+
+    [pack] = injection["brain_context_pack"]
+    assert input == [text_message("user", "Wire Format")]
+    # Provenance is row-local; a user's literal wrapper remains an original.
+    content = [
+      text_message("user", "<recalled_memory>USER_LITERAL_TAG: VEGA</recalled_memory>")
+      | first.content
+    ]
+
+    metadata = Map.merge(first.metadata, injection)
+    assert metadata["brain_context_pack"] == [pack]
+    first |> Ecto.Changeset.change(content: content, metadata: metadata) |> Repo.update!()
+    Repo.reload!(conversation)
   end
 
   defp start_recording_upstream(test_pid, response_fun) do
@@ -8334,7 +8566,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "first assistant answer " <> extra_text)
       ])
 
-    {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
+    {:ok, m1} = ResponseCommit.commit_complete(m1, [], camel_usage(160_000))
 
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "#{conversation_key}-b", [
@@ -8342,14 +8574,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("assistant", "second assistant answer " <> extra_text)
       ])
 
-    {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
+    {:ok, m2} = ResponseCommit.commit_complete(m2, [], camel_usage(160_000))
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "#{conversation_key}-tail", [
         text_message("user", "tail user says stop doing X")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(320_004))
+    {:ok, m3} = ResponseCommit.commit_complete(m3, [], camel_usage(320_004))
 
     {conversation, m3}
   end
@@ -8592,13 +8824,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   # instead of overwriting each other.
   defp with_compaction_config(config) do
     merged =
-      Compaction.config()
+      CompactionPolicy.config()
       |> Map.merge(Map.new(config, fn {key, value} -> {to_string(key), value} end))
 
-    assert {:ok, _config} = Compaction.put_config(merged)
+    assert {:ok, _config} = CompactionPolicy.put_config(merged)
 
     on_exit(fn ->
-      _result = Compaction.delete_config()
+      _result = CompactionPolicy.delete_config()
       :ok
     end)
   end
@@ -8645,7 +8877,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              },
              usage: %{}
            }) do
-      StatefulResponses.create_compaction_checkpoint(%{
+      ResponseChain.create_compaction_checkpoint(%{
         subject_uid: agent_uid,
         previous_response_id: "resp_#{previous_message.id}",
         artifact: artifact,

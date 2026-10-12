@@ -11,7 +11,8 @@
  * vertical caret motion, belongs in the e2e tests.
  */
 import { expect } from 'bun:test'
-import { Command, insertText } from '../src/core/command'
+import { Command } from '../src/core/command/command'
+import { insertText } from '../src/core/command/commands'
 import type { Node } from '../src/core/doc'
 import { KeyBinding, Wordgard } from '../src/core/editor'
 import { Transaction, type GardState } from '../src/core/state'

@@ -1,7 +1,9 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Plot, Mark, Leaf, Node, ChangeSet, type Token, Schema } from '../../src/core/doc'
-import { CodeBlockLanguage, Emphasis, Strong, Link, ImageAlt, Table, TableRow, BlockCell } from '../../src/core/types'
+import { CodeBlockLanguage, Emphasis, Strong, ImageAlt } from '../../src/core/types/schema'
+import { TableRow } from './types'
+import { Link, Table, BlockCell } from './types'
 import { permute, open, close, slice, rDoc, rChange } from './generate'
 import { basicBuilders, basicSchema, builder, tag, maybeTag, eq } from './schema'
 const { doc, p, h1, blockquote, ol, ul, li, pre, preLang, hr, img, imgAlt, $img, a, em, strong, table, tr, tdB } =

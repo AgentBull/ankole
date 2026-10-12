@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
@@ -6,7 +8,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
   alias Ankole.SignalsGateway.ActorRuntime.EntryLifecycle
 
   alias Ankole.AIGateway.CompactionArtifacts
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyPresentation
 
@@ -61,7 +62,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       )
 
     assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == final.id
+    assert ResponseChain.latest_visible_leaf(conversation.id) == final.id
 
     lifecycle_event = emit_removed_lifecycle!(agent.uid, input, "tail-remove-event")
 
@@ -83,8 +84,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert MapSet.new(deleted_message_ids) == MapSet.new([first.id, final.id])
     refute Repo.get(Message, first.id)
     refute Repo.get(Message, final.id)
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
-    assert StatefulResponses.expand_history(conversation.id) == []
+    assert ResponseChain.latest_visible_leaf(conversation.id) == nil
+    assert ResponseChain.expand_history(conversation.id) == []
     assert %DateTime{} = Repo.get!(ActorEvent, lifecycle_event.id).completed_at
     refute_retracted_note("tail-remove-event")
   end
@@ -161,7 +162,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert get_in(failed_child.metadata, ["error", "code"]) == "source_entry_removed"
 
     assert {:ok, :already_terminal} =
-             StatefulResponses.commit_complete(stale_child.id, [
+             ResponseCommit.commit_complete(stale_child.id, [
                %{
                  "type" => "function_call",
                  "call_id" => "call_after_tail_late",
@@ -170,7 +171,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
                }
              ])
 
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+    assert ResponseChain.latest_visible_leaf(conversation.id) == nil
     assert %DateTime{} = Repo.get!(ActorEvent, lifecycle_event.id).completed_at
   end
 
@@ -239,9 +240,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert deletion_targets(agent.uid, lifecycle_event.id) == []
     assert Repo.get(Message, old_message.id)
     assert Repo.get(Message, new_message.id)
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == new_message.id
+    assert ResponseChain.latest_visible_leaf(conversation.id) == new_message.id
 
-    assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+    assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [
              old_message.id,
              new_message.id
            ]
@@ -302,7 +303,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       })
 
     {:ok, compaction} =
-      StatefulResponses.create_compaction_checkpoint(%{
+      ResponseChain.create_compaction_checkpoint(%{
         subject_uid: agent.uid,
         previous_response_id: "resp_#{tail_message.id}",
         artifact: artifact,
@@ -330,9 +331,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert Repo.get(Message, old_message.id)
     assert Repo.get(Message, tail_message.id)
     assert Repo.get(Message, compaction.id)
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == compaction.id
+    assert ResponseChain.latest_visible_leaf(conversation.id) == compaction.id
 
-    assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+    assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [
              compaction.id
            ]
 
@@ -642,7 +643,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     assert {:ok, run} = start_response_run(attrs)
 
     assert {:ok, complete} =
-             StatefulResponses.commit_complete(run, Keyword.fetch!(opts, :terminal_items))
+             ResponseCommit.commit_complete(run, Keyword.fetch!(opts, :terminal_items))
 
     if Keyword.get(opts, :complete_turn, false) do
       run = Process.get({__MODULE__, actor_event_id})
@@ -650,7 +651,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       assert {:ok, _} =
                Run.finalize(
                  %{run | anchor: complete.id, model_response: complete},
-                 "loop_finished"
+                 :loop_finished
                )
     end
 

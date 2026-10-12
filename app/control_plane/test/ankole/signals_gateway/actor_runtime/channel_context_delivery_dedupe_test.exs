@@ -1,10 +1,10 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
   alias Ankole.Conversations.{Admission, Run}
 
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.SignalsGateway.ChannelContext
@@ -142,7 +142,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
       })
 
     assert {:ok, committed} =
-             StatefulResponses.commit_complete(round, [
+             ResponseCommit.commit_complete(round, [
                %{
                  "type" => "message",
                  "role" => "assistant",

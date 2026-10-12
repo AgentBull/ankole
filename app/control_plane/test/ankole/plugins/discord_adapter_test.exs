@@ -75,7 +75,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   use Ankole.DataCase, async: false
 
   import Ankole.Eventually, only: [eventually: 1]
-  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
@@ -833,7 +833,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_received {:discord_request, "/attachments/1/2/report.txt"}
       assert is_integer(attachment["attachment_id"])
       assert attachment["materialization_state"] == "complete"
-      assert_stored_attachment!(agent.uid, attachment, "attachment", "report.txt")
+      assert_stored_attachment!(agent.uid, @dm_channel, attachment, "attachment", "report.txt")
     end
 
     test "anchors the batch window at the attachment observation, not at the download" do

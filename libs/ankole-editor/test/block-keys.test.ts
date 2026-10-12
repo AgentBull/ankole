@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Wordgard } from '../src/core/editor'
-import { Command, deleteCut, deleteRange } from '../src/core/command'
+import { Command } from '../src/core/command/command'
+import { deleteCut, deleteRange } from '../src/core/command/commands'
 import { GardState } from '../src/core/state'
 import { PageSession } from '../src/editor/page-session'
 import { redo, undo } from '../src/editor/commands'

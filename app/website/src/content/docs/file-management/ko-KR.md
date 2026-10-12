@@ -9,6 +9,8 @@ order: 31
 
 각 Agent의 control plane 드라이브에는 첨부 파일, 이미지, 게시한 파일, Skill, Automation 스크립트가 있습니다. Worker가 없어도 Console에서 관리할 수 있습니다. Session과 Job 작업 공간은 영구 Home에 있으며 드라이브 폴더가 아닙니다.
 
+로컬 폴더, S3, R2 설정은 [제어면 드라이브 저장소](../drive-storage/), 이전 Home 가져오기는 [1.0에서 2.0으로 업그레이드](../upgrade-to-2/)를 참조하세요.
+
 ## Agent의 파일 찾기
 
 1. Console에서 **Agents**를 열고 해당 Agent를 엽니다.

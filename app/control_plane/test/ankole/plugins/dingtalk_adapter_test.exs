@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -106,7 +106,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key, _}},
+                    ^cache_pid},
                    1_000
 
     second_save =
@@ -281,12 +282,12 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   defp dingtalk_config(client_id), do: %{"clientId" => client_id, "clientSecret" => "secret"}
 
   defp put_raw_global_config(key, envelope) do
-    AppConfig
+    SiteConfig
     |> where([row], row.scope == "global" and row.key == ^key)
     |> Repo.delete_all()
 
-    %AppConfig{}
-    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    %SiteConfig{}
+    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
     |> Repo.insert!()
   end
 

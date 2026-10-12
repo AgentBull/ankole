@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LineAdapterTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -38,6 +38,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
   @access_token "line-long-lived-token"
   @bot_user_id "Ubot00000000000000000000000000000"
   @user_id "U4af4980629000000000000000000001"
+  @dm_channel "line:#{@bot_user_id}:user:#{@user_id}"
   @group_id "Ca56f9463700000000000000000000001"
 
   setup do
@@ -506,7 +507,15 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert attachment["attachment_id"] == pending["attachment_id"]
       assert attachment["mimetype"] == "image/jpeg"
-      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-m-photo.jpg")
+
+      assert_stored_attachment!(
+        agent.uid,
+        @dm_channel,
+        attachment,
+        "attachment",
+        "image-m-photo.jpg"
+      )
+
       assert_received {:line_request, "/v2/bot/message/m-photo/content"}
 
       # LINE redelivers the same event after a non-2xx answer. The completed
@@ -582,7 +591,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
         Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-slow")
 
       assert attachment["attachment_id"] == pending["attachment_id"]
-      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-m-slow.jpg")
+
+      assert_stored_attachment!(
+        agent.uid,
+        @dm_channel,
+        attachment,
+        "attachment",
+        "image-m-slow.jpg"
+      )
     end
 
     test "a redelivery after the download task died fetches again" do
@@ -632,7 +648,13 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %Entry{attachments: [first_copy]} =
         Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-moved")
 
-      assert_stored_attachment!(first_agent.uid, first_copy, "attachment", "image-m-moved.jpg")
+      assert_stored_attachment!(
+        first_agent.uid,
+        @dm_channel,
+        first_copy,
+        "attachment",
+        "image-m-moved.jpg"
+      )
 
       # The operator moves the route: the old binding is disabled and the
       # channel now belongs to another Agent. The stored bytes serve every
@@ -652,7 +674,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert kept["attachment_id"] == pending["attachment_id"]
       assert kept["materialization_state"] == "complete"
       assert kept["blob_ref"] == first_copy["blob_ref"]
-      assert_stored_attachment!(second_agent.uid, kept, "attachment", "image-m-moved.jpg")
+
+      assert_stored_attachment!(
+        second_agent.uid,
+        @dm_channel,
+        kept,
+        "attachment",
+        "image-m-moved.jpg"
+      )
     end
   end
 

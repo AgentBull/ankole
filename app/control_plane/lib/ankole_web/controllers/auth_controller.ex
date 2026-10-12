@@ -5,7 +5,7 @@ defmodule AnkoleWeb.AuthController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.SiteAdminAuth
+  alias Ankole.AuthZ
   alias Ankole.BrowserSessions
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.{LocalPassword, Login}
@@ -55,7 +55,7 @@ defmodule AnkoleWeb.AuthController do
   def session(conn, _params) do
     case WebSession.admin_session(conn) do
       %{"principal_uid" => uid} = session ->
-        if SiteAdminAuth.active_human_site_admin?(uid) do
+        if AuthZ.site_admin?(uid) do
           json(conn, %{authenticated: true, principalUID: uid, providerID: session["provider_id"]})
         else
           conn |> put_status(401) |> json(%{authenticated: false})
@@ -92,8 +92,12 @@ defmodule AnkoleWeb.AuthController do
   defp current_identity(conn) do
     case WebSession.oauth_session(conn) || WebSession.admin_session(conn) do
       %{"principal_uid" => uid, "provider_id" => provider} ->
+        {:ok, tenant_id} = Ankole.Principals.resolve_tenant(uid)
+
         {:ok, principal} =
-          Ankole.Repo.across_tenants(fn -> Ankole.Principals.get_principal(uid) end)
+          Ankole.Repo.with_tenant(tenant_id, fn ->
+            Ankole.Principals.get_principal(uid)
+          end)
 
         %{displayName: principal.display_name || uid, providerID: provider}
 
@@ -151,7 +155,7 @@ defmodule AnkoleWeb.AuthController do
 
     cond do
       transaction.purpose == :console and
-          not SiteAdminAuth.active_human_site_admin?(login.principal_uid) ->
+          not AuthZ.site_admin?(login.principal_uid) ->
         error(conn, 403, "not_an_admin")
 
       login.must_change_password ->

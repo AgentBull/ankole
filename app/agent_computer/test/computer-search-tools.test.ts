@@ -295,6 +295,46 @@ describe('find/grep/ls over a real index', () => {
   })
 })
 
+it('finds and greps the Agent Home when it is the process home directory', async () => {
+  const { agentHome, workspaceRoot } = makeHome()
+  writeFileSync(join(agentHome, 'home-search-marker.txt'), 'HOME_SEARCH_CONTENT\n')
+  const script = `
+    import { createComputerTools } from './src/tools/computer/index.ts'
+    import { fffSearchRuntime } from './src/tools/computer/fff-search.ts'
+    import { FakeDrive } from './test/support/fake-drive.ts'
+    const agentHome = process.env.HOME
+    const workspaceRoot = process.env.ANKOLE_SEARCH_TEST_WORKSPACE
+    const tools = createComputerTools({ agentHome, workspaceRoot, drive: new FakeDrive(agentHome).drive() })
+    try {
+      await fffSearchRuntime.acquire(workspaceRoot)
+      const find = tools.find(tool => tool.name === 'find')
+      const grep = tools.find(tool => tool.name === 'grep')
+      const found = await find.execute('home-find', { path: agentHome, pattern: 'home-search-marker' })
+      const matched = await grep.execute('home-grep', { path: '~', pattern: 'HOME_SEARCH_CONTENT' })
+      const outside = await find.execute('outside-find', { path: '/' })
+      console.log(JSON.stringify({ found, matched, outside }))
+    } finally {
+      fffSearchRuntime.destroyAll()
+    }
+  `
+  const child = Bun.spawn([process.execPath, '--eval', script], {
+    cwd: new URL('..', import.meta.url).pathname,
+    env: { ...process.env, HOME: agentHome, ANKOLE_SEARCH_TEST_WORKSPACE: workspaceRoot },
+    stdout: 'pipe',
+    stderr: 'pipe'
+  })
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text()
+  ])
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: '' })
+  const output = JSON.parse(stdout)
+  expect(textOf(output.found)).toContain(`${agentHome}/home-search-marker.txt`)
+  expect(textOf(output.matched)).toContain('HOME_SEARCH_CONTENT')
+  expect(textOf(output.outside)).toContain('outside the agent home')
+}, 30_000)
+
 class BigOutputCommand implements CommandFinished {
   constructor(
     readonly exitCode: number,

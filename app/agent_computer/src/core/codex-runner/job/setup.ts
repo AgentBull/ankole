@@ -1,14 +1,10 @@
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { TurnStart } from '../../../lanes/actor_lane'
-import {
-  type AIGatewayAPIKeyResponse,
-  type BackgroundAgentJobResponse,
-  type RuntimeSkillSummary
-} from '../../../lanes/rpc_lane'
+import { type BackgroundAgentJobResponse, type RuntimeSkillSummary } from '../../../lanes/rpc_lane'
 import { materializeCodexConfig } from '../runtime/agent-home-config'
 import { resolveCodexRuntimeConfig } from '../runtime-config'
 import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spec'
-import { httpClientFromAIGatewayAPIKey } from '../../ai_gateway_transport'
+import {} from '../../ai_gateway_transport'
 import { materializeAgentLibraryDocuments } from './agent-library-documents'
 import { agentHomePaths } from '../../agent-home-paths'
 import { createTurnWebTools } from '../../web-tools'
@@ -68,7 +64,7 @@ export type PreparedCodexJobExecution = {
  * It does not start the shared app-server or own a Codex thread.
  */
 export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promise<PreparedCodexJobExecution> {
-  const { turnStart, opts, jobID, job } = input
+  const { turnStart, opts, job } = input
   opts.abortSignal?.throwIfAborted()
   const runtimeProjection = decodeCodexJobRuntimeProjection(job)
   if (!turnStart.agent_context) throw new Error('Job preparation requires the Agent context')
@@ -91,7 +87,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   const skillLoader = createSkillLoader({
     turn: turnStart.turn,
     enabledSkills: selectedSkills,
-    skillRoots,
     rpc: opts.rpc,
     onSkillLoaded: name => loadedSkillNames.add(name)
   })
@@ -155,14 +150,8 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     projectRoot: jobProject.root,
     hostedWebSearch
   })
-  const projectionAPIKey = runtimeConfig.aiGatewayKey
   const turnTracePropagation = turnTracePropagationFromTurnStart(turnStart)
   opts.abortSignal?.throwIfAborted()
-  const projectionAIGateway = httpClientFromAIGatewayAPIKey(
-    projectionAPIKey,
-    options => requestProjectionAIGatewayKey(turnStart, opts, options),
-    turnTracePropagation
-  )
   const renderedFetchRuntimeConfig = turnStart.fetch_runtime_config
   opts.abortSignal?.throwIfAborted()
   const bindingName = turnStart.actor_event.binding_name
@@ -178,11 +167,9 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     consumeMaterialSourceEnv: async workerEnv => {
       webTools = await createTurnWebTools({
         turnStart,
-        aiGateway: projectionAIGateway,
+        rpc: opts.rpc,
         renderedFetchRuntimeConfig,
         workerEnv,
-        workspaceRoot: jobProject.root,
-        repeatFetchSessionKey: jobID,
         browserRuntime: opts.browserRuntime
       })
     },
@@ -205,7 +192,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     const skillTools = createSkillTools({
       turn: turnStart.turn,
       enabledSkills: loadableSkills,
-      skillRoots,
       rpc: opts.rpc,
       loader: skillLoader
     })
@@ -258,12 +244,4 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     await materials.cleanup().catch(() => undefined)
     throw error
   }
-}
-
-async function requestProjectionAIGatewayKey(
-  turnStart: TurnStart,
-  opts: CodexJobOptions,
-  options?: { forceRefresh?: boolean }
-): Promise<AIGatewayAPIKeyResponse> {
-  return await opts.requestAIGatewayAPIKey(options)
 }

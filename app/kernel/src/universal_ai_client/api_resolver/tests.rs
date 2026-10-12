@@ -163,6 +163,72 @@ fn openai_responses_error_event_is_not_terminal_by_itself() {
 }
 
 #[test]
+fn openai_responses_failure_keeps_the_first_bounded_provider_diagnostic() {
+    let mut resolver =
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
+    let message = "故障".repeat(3000);
+    resolver
+        .ingest(json!({"type": "error", "error": {
+            "code": "upstream_stream_break", "type": "provider_disconnect", "message": message
+        }}))
+        .unwrap();
+    resolver
+        .ingest(json!({"type": "error", "error": {
+            "code": "later_error", "message": "must not replace the first diagnostic"
+        }}))
+        .unwrap();
+    let error = StreamError::new("upstream_read_failed", "read", "connection closed");
+    let events = resolver.fail(&error);
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.failed");
+    let error = &terminal["response"]["error"];
+    assert_eq!(error["code"], "upstream_read_failed");
+    assert_eq!(
+        error["details_json"]["provider_error_code"],
+        "upstream_stream_break"
+    );
+    assert_eq!(
+        error["details_json"]["provider_error_type"],
+        "provider_disconnect"
+    );
+    assert_eq!(
+        error["message"].as_str().unwrap().chars().count(),
+        crate::universal_ai_client::error::PROVIDER_BODY_EXCERPT_LIMIT
+    );
+    assert_eq!(
+        error["details_json"]["provider_diagnostic_message"],
+        error["message"]
+    );
+}
+
+#[test]
+fn openai_responses_validation_diagnostic_owns_the_failure_terminal() {
+    let mut resolver =
+        APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
+    resolver
+        .ingest(json!({"type": "error", "error": {
+            "type": "invalid_request_error", "status": 400, "message": "Invalid tool schema"
+        }}))
+        .unwrap();
+    let close = resolver.finish().unwrap_err();
+    let events = resolver.fail(&close);
+    assert_eq!(events.last().unwrap()["type"], "response.failed");
+    let error = &events.last().unwrap()["response"]["error"];
+    assert_eq!(error["code"], "provider_response_rejected");
+    assert_eq!(error["retryable"], false);
+    assert_eq!(error["message"], "Invalid tool schema");
+    assert_eq!(
+        error["details_json"]["provider_error_type"],
+        "invalid_request_error"
+    );
+    assert_eq!(error["details_json"]["provider_status"], 400);
+    assert!(
+        resolver.fail(&close).is_empty(),
+        "one provider round has one failure terminal"
+    );
+}
+
+#[test]
 fn openai_responses_preserves_encrypted_reasoning_output_item() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIResponses,
@@ -867,10 +933,9 @@ fn openai_chat_top_level_error_chunk_becomes_provider_failure() {
     );
 
     let events = resolver.fail(&error);
-    assert_eq!(events[0]["type"], "error");
-    assert_eq!(events[0]["error"]["status"], 502);
-    assert_eq!(events[1]["type"], "response.failed");
-    assert_eq!(events[1]["response"]["error"]["status"], 502);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["type"], "response.failed");
+    assert_eq!(events[0]["response"]["error"]["status"], 502);
 }
 
 #[test]
@@ -3758,9 +3823,9 @@ fn anthropic_stream_error_event_is_a_provider_failure_with_the_documented_status
         assert_eq!(sonic_rs::from_str::<Value>(excerpt).unwrap(), event);
 
         let events = resolver.fail(&error);
-        let failed = &events[1]["response"];
-        assert_eq!(events[0]["type"], "error");
-        assert_eq!(events[1]["type"], "response.failed");
+        assert_eq!(events.len(), 1);
+        let failed = &events[0]["response"];
+        assert_eq!(events[0]["type"], "response.failed");
         assert_eq!(
             failed["error"]["details_json"]["provider_status"],
             json!(status)
@@ -4242,7 +4307,7 @@ fn jina_reader_web_fetch_normalizes_data_content() {
 }
 
 #[test]
-fn native_error_events_use_openresponses_error_then_failed() {
+fn native_failure_has_one_openresponses_terminal_with_all_error_facts() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
         ResponseContext::default(),
@@ -4254,18 +4319,16 @@ fn native_error_events_use_openresponses_error_then_failed() {
             .provider_body_excerpt(br#"{"error":"upstream unavailable"}"#),
     );
 
-    assert_eq!(events[0]["type"], "error");
-    assert_eq!(events[0]["error"]["status"], 503);
-    assert_eq!(events[0]["error"]["details_json"]["stage"], "api_resolver");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["type"], "response.failed");
+    assert_eq!(events[0]["response"]["status"], "failed");
+    assert_eq!(events[0]["response"]["error"]["status"], 503);
     assert_eq!(
-        events[0]["error"]["details_json"]["provider_body_excerpt"],
-        r#"{"error":"upstream unavailable"}"#
+        events[0]["response"]["error"]["details_json"]["stage"],
+        "api_resolver"
     );
-    assert_eq!(events[1]["type"], "response.failed");
-    assert_eq!(events[1]["response"]["status"], "failed");
-    assert_eq!(events[1]["response"]["error"]["status"], 503);
     assert_eq!(
-        events[1]["response"]["error"]["details_json"]["provider_body_excerpt"],
+        events[0]["response"]["error"]["details_json"]["provider_body_excerpt"],
         r#"{"error":"upstream unavailable"}"#
     );
 }

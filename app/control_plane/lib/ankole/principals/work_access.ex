@@ -65,7 +65,14 @@ defmodule Ankole.Principals.WorkAccess do
             from w in query, where: w.status in ["active", "cancelled"]
         end
 
-      Repo.all(query) |> Enum.map(&projection(kind, &1))
+      tenant_id = Repo.tenant_id!()
+
+      # The root must stay in the current tenant. The author join uses a global
+      # UID because deleting or moving the author's tenant does not move work.
+      Repo.across_tenants(fn ->
+        Repo.all(from w in query, where: w.tenant_id == ^tenant_id)
+      end)
+      |> Enum.map(&projection(kind, &1))
     end)
   end
 

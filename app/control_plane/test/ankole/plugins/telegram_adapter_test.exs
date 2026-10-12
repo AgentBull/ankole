@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.TelegramAdapterTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
@@ -518,7 +518,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert_received {:telegram_request, "/file/bot606:media-secret/documents/report.txt"}
       assert is_integer(attachment["attachment_id"])
       assert attachment["materialization_state"] == "complete"
-      assert_stored_attachment!(agent.uid, attachment, "attachment", "report.txt")
+
+      assert_stored_attachment!(
+        agent.uid,
+        "telegram:606:chat:501",
+        attachment,
+        "attachment",
+        "report.txt"
+      )
     end
 
     test "anchors the batch window at the attachment observation, not at the download" do

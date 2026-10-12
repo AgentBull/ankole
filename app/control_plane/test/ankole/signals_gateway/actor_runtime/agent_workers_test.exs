@@ -207,7 +207,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkersTest do
 
   defp heartbeat(agent_uid, route, incarnation_id) do
     ActorRuntime.handle_worker_heartbeat(
-      %FabricProto.AgentComputerWorkerHeartbeat{
+      %FabricProto.WorkerHeartbeat{
         incarnation_id: incarnation_id,
         max_slots: 4,
         available_slots: 4

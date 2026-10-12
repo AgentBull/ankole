@@ -119,6 +119,8 @@ defmodule Ankole.MixProject do
       {:phoenix, "~> 1.8.15"},
       {:phoenix_pubsub, "~> 2.4"},
       {:phoenix_ecto, "~> 4.7"},
+      # Repo scopes JoinExpr predicates. Update this pin with its SQL contract tests.
+      {:ecto, "3.14.2"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},
       {:phoenix_html, "~> 4.3"},

@@ -9,6 +9,8 @@ order: 31
 
 Each Agent has a control-plane drive for attachments, images, published files, installed Skills, and Automation scripts. The Console can upload, download, move, and delete these files even while no Worker runs. Session and Job workspaces live in persistent Home and are not drive folders.
 
+Operators can configure local folders, S3, or R2 with [Control-plane drive storage](../drive-storage/). For files in legacy Home, see [Upgrade from 1.0 to 2.0](../upgrade-to-2/).
+
 ## Find an Agent's files
 
 1. Open **Agents** in the Console and open the Agent.

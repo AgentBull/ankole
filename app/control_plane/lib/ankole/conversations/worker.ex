@@ -19,11 +19,11 @@ defmodule Ankole.Conversations.Worker do
       actor_event_id: run.actor_event_id
     }
 
-  @spec open(Run.t()) ::
-          {:ok, Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker.t()}
+  @spec prepare_open(Run.t()) ::
+          {:ok, Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker.t(), Proto.Envelope.t()}
           | {:wait, atom()}
           | {:error, term()}
-  def open(run) do
+  def prepare_open(run) do
     with {:ok, row} <-
            Repo.transact(fn repo ->
              with :ok <- Fence.check_in_tx(repo, run, :share) do
@@ -33,25 +33,31 @@ defmodule Ankole.Conversations.Worker do
              end
            end),
          {:ok, row} <- row,
-         {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid),
-         {:ok, _} <-
-           WorkerRoute.send_mandatory(
-             AgentWorkers.target(row),
-             envelope(:workspace_open, %Proto.WorkspaceOpen{
-               run: ref(run),
-               workspace_id: run.workspace_id,
-               runtime_env: run.spec.runtime_env,
-               agent_context: TurnEnvelope.agent_context(run.context),
-               binding_name: run.event.binding_name || "",
-               fetch_runtime_config: fetch,
-               idle_timeout_ms:
-                 max(
-                   get_in(run.spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) || 0,
-                   0
-                 )
-             })
-           ) do
-      {:ok, row}
+         {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid) do
+      {:ok, row,
+       envelope(:workspace_open, %Proto.WorkspaceOpen{
+         run: ref(run),
+         workspace_id: run.workspace_id,
+         runtime_env: run.spec.runtime_env,
+         agent_context: TurnEnvelope.agent_context(run.context),
+         binding_name: run.event.binding_name || "",
+         fetch_runtime_config: fetch,
+         idle_timeout_ms:
+           max(
+             get_in(run.spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) || 0,
+             0
+           )
+       })}
+    end
+  end
+
+  def send_open(row, message) do
+    case WorkerRoute.send_mandatory(AgentWorkers.target(row), message) do
+      {:ok, _receipt} ->
+        {:ok, row}
+
+      {:error, reason} ->
+        if WorkerRoute.retryable?(reason), do: {:wait, :retrying}, else: {:error, reason}
     end
   end
 
@@ -77,7 +83,7 @@ defmodule Ankole.Conversations.Worker do
   @spec connection(map()) :: {:ok, pid()} | {:error, term()}
   def connection(row), do: WorkerRoute.connection_pid(AgentWorkers.target(row))
 
-  @spec send_call(Run.t(), map(), Ankole.Conversations.Driver.PendingCall.t()) ::
+  @spec send_call(Run.t(), map(), Ankole.Conversations.PendingCall.t()) ::
           {:ok, term()} | {:error, term()}
   def send_call(run, row, pending) do
     WorkerRoute.send_mandatory(

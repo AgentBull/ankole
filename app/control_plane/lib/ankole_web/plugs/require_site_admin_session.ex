@@ -16,8 +16,9 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSession do
   @impl Plug
   def call(conn, _opts) do
     with %{"principal_uid" => uid} <- WebSession.site_admin_session(conn),
-         {:ok, principal} <- Repo.across_tenants(fn -> Principals.get_principal(uid) end),
-         :ok <- Repo.put_tenant_id(principal.tenant_id) do
+         {:ok, tenant_id} <- Principals.resolve_tenant(uid),
+         :ok <- Repo.put_tenant_id(tenant_id),
+         {:ok, principal} <- Principals.get_principal(uid) do
       conn
       |> assign(:current_principal_uid, uid)
       |> assign(:current_principal, principal)

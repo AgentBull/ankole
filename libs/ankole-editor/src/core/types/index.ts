@@ -16,41 +16,24 @@ export {
   Heading,
   CodeBlock,
   CodeBlockLanguage,
-  Blockquote,
-  ListItem,
-  InlineListItem,
   OrderedList,
   BulletList,
   HorizontalRule,
   Alignment,
-  Direction,
-  Doc,
-  InlineDoc
+  Direction
 } from './schema'
 
 // ### Inline Structure
 
 // Marks and nodes for inline content.
 
-export {
-  LineBreak,
-  Emphasis,
-  Strong,
-  Underline,
-  Strikethrough,
-  Superscript,
-  Subscript,
-  Link,
-  Code,
-  Color,
-  BackgroundColor
-} from './schema'
+export { LineBreak, Emphasis, Strong, Underline, Strikethrough, Superscript, Subscript, Code } from './schema'
 
 // ### Images
 
 // Image types and their marks.
 
-export { Image, Figure, CaptionedFigure, ImageAlt, ImageSize } from './schema'
+export { Image, ImageAlt } from './schema'
 
 // ### Tables
 
@@ -58,4 +41,4 @@ export { Image, Figure, CaptionedFigure, ImageAlt, ImageSize } from './schema'
 // [wordgard/table](#table) for the supporting extensions that make
 // table editing possible.
 
-export { Cell, HeaderCell, BlockCell, BlockHeaderCell, TableRow, Table, ColSpan, RowSpan } from './schema'
+export { ColSpan, RowSpan } from './schema'

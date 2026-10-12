@@ -1,4 +1,5 @@
 defmodule Ankole.SignalsGatewayIngressTest do
+  alias Ankole.AIGateway.ResponseCommit
   # Serial because the channel-projection test leaves the sandbox with
   # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
@@ -9,7 +10,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEventTypes
@@ -2681,7 +2681,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
              })
 
     assert {:ok, response} =
-             StatefulResponses.commit_complete(response, [
+             ResponseCommit.commit_complete(response, [
                %{
                  "type" => "message",
                  "role" => "assistant",

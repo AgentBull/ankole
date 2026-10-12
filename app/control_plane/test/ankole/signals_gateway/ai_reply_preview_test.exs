@@ -1,4 +1,5 @@
 defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -8,7 +9,6 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.Events
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockSignalProviderOutbox
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -255,7 +255,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
         metadata: request_metadata(%{"actor_event_id" => Ecto.UUID.generate()})
       })
 
-    {:ok, root} = StatefulResponses.commit_complete(root, [])
+    {:ok, root} = ResponseCommit.commit_complete(root, [])
 
     %{response: response} = start_dispatched_preview(subject.uid, actor_event)
 
@@ -300,7 +300,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     }
 
     assert {:ok, first_round} =
-             StatefulResponses.commit_complete(first_round, [function_call])
+             ResponseCommit.commit_complete(first_round, [function_call])
 
     assert Process.alive?(pid)
     refute_receive {:mock_provider_outbox_sent, _terminal_reply}, 100

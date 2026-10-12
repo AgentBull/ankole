@@ -26,6 +26,13 @@ defmodule Ankole.Conversations.Receipts do
   end
 
   def execute(run, response_id, call_id, operation) do
+    :telemetry.execute([:ankole, :conversations, :receipt, :execute], %{}, %{
+      agent_uid: run.agent_uid,
+      session_id: run.session_id,
+      response_id: response_id,
+      call_id: call_id
+    })
+
     result =
       Repo.transact(fn repo ->
         with :ok <- Fence.check_in_tx(repo, run, :share) do

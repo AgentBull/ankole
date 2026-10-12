@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
-import { ankoleWebAgentComputerWorkerControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
+import { ankoleWebAgentWorkerControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentComputerWorkerItem } from '../api/generated/types.gen'
 import { StatusIndicator, type StatusTone } from '../console-form'
 import { ResourceListPage, ResourceSearch } from '../console-list-page'
@@ -20,7 +20,7 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 export function WorkersListPage() {
   const { t } = useTranslation()
   const workers = useQuery({
-    ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
+    ...ankoleWebAgentWorkerControllerIndexOptions(),
     refetchInterval: query =>
       (query.state.data?.workers ?? []).some(worker => worker.state === 'starting' || worker.state === 'draining')
         ? WAITING_REFRESH_MS
@@ -67,7 +67,7 @@ export function WorkersListPage() {
           <TableCell className="font-mono text-xs">{worker.agent_uid}</TableCell>
           <TableCell className="font-mono text-xs">
             {worker.provider_id ? (
-              <Link className="link" to={`/settings/worker-providers/${encodeURIComponent(worker.provider_id)}`}>
+              <Link className="link" to={`/worker-providers/${encodeURIComponent(worker.provider_id)}`}>
                 {worker.provider_id}
               </Link>
             ) : (

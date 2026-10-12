@@ -6,9 +6,15 @@ defmodule Ankole.Conversations.Tool do
     :name,
     :schema,
     :executor,
+    :activity,
+    receipt: "durable",
+    receipt_read_actions: [],
+    visible_delivery: false,
     read_only: false,
     destructive: false,
     retry_safe: false,
+    run_kinds: ~w(main ambient scheduled),
+    ends_run: false,
     execution_mode: "parallel"
   ]
 
@@ -20,6 +26,9 @@ defmodule Ankole.Conversations.Tool do
              (Ankole.Conversations.Run.t(), Ankole.Conversations.ToolResult.t() ->
                 Ankole.Conversations.ToolResult.t())}
   @callback declarations() :: [map()]
+  @callback declarations(Ankole.Conversations.Run.t()) :: [map()]
+  @callback activity(t(), map(), String.t(), Ankole.Conversations.ToolResult.t() | nil) ::
+              {String.t() | nil, map()}
   @callback normalize(String.t(), term()) :: term()
   @callback execute(Ankole.Conversations.Run.t(), map(), term()) ::
               {:ok, execution()} | {:error, term()}
@@ -32,9 +41,45 @@ defmodule Ankole.Conversations.Tool do
               boolean()
             ) ::
               :pending | {:ready, Ankole.Conversations.ToolResult.t(), [String.t()]}
-  @optional_callbacks declarations: 0, execute: 3, execute_in_tx: 4, observe: 4
+  @optional_callbacks declarations: 0,
+                      declarations: 1,
+                      activity: 4,
+                      execute: 3,
+                      execute_in_tx: 4,
+                      observe: 4
 
-  @internal_keys ~w(execution_mode read_only destructive retry_safe)
+  @internal_keys ~w(execution_mode read_only destructive retry_safe receipt receipt_read_actions visible_delivery activity run_kinds ends_run)
+  def available?(declaration, kind),
+    do: Atom.to_string(kind) in Map.get(declaration, "run_kinds", ~w(main ambient scheduled))
+
+  def receipt?(tool, args),
+    do: tool.receipt == "durable" and args["action"] not in tool.receipt_read_actions
+
+  def with_profiles(tool, profiles, default) do
+    description =
+      if profiles == [] do
+        "No custom model profile is available; omit model_profile to use the default #{default} profile."
+      else
+        "Available custom model profiles: " <>
+          Enum.map_join(
+            Enum.sort_by(profiles, & &1["name"]),
+            ", ",
+            &"#{&1["name"]} (#{&1["description"]})"
+          ) <>
+          ". Omit model_profile to use the default #{default} profile."
+      end
+
+    tool = Map.update!(tool, "description", &(&1 <> " " <> description))
+
+    if profiles == [],
+      do: tool,
+      else:
+        put_in(tool, ["parameters", "properties", "model_profile"], %{
+          "type" => "string",
+          "enum" => profiles |> Enum.map(& &1["name"]) |> Enum.sort()
+        })
+  end
+
   @spec new(map(), module() | :worker) :: t()
   def new(declaration, owner) do
     attrs =
@@ -45,11 +90,14 @@ defmodule Ankole.Conversations.Tool do
 
     struct!(
       __MODULE__,
-      Map.merge(attrs, %{
-        name: declaration["name"],
-        schema: Map.drop(declaration, @internal_keys),
-        executor: owner
-      })
+      Map.merge(
+        Map.put_new(attrs, :receipt, if(attrs[:read_only], do: "none", else: "durable")),
+        %{
+          name: declaration["name"],
+          schema: Map.drop(declaration, @internal_keys),
+          executor: owner
+        }
+      )
     )
   end
 end

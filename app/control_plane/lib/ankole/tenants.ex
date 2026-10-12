@@ -2,7 +2,7 @@ defmodule Ankole.Tenants do
   @moduledoc "Durable tenant lifecycle and the single site-administration assignment."
   import Ecto.Query
   alias Ankole.{AppConfigure, Repo}
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AuthZ.{Grant, Group, Grants, Root, Store}
   alias Ankole.Principals.Principal
   alias Ankole.Tenants.Tenant
@@ -53,7 +53,14 @@ defmodule Ankole.Tenants do
           order_by: [asc: tenant.inserted_at, asc: tenant.id]
       )
 
-    Enum.map(active, fn tenant ->
+    map(active, fun)
+  end
+
+  @doc "Runs retention work in every tenant, including suspended and deleting tenants."
+  def map_all(fun) when is_function(fun, 0), do: map(list(), fun)
+
+  defp map(tenants, fun) do
+    Enum.map(tenants, fn tenant ->
       result =
         Repo.with_tenant(tenant.id, fn ->
           try do
@@ -299,7 +306,7 @@ defmodule Ankole.Tenants do
   @doc false
   def lock_administration(repo) do
     case repo.one(
-           from config in AppConfig,
+           from config in SiteConfig,
              where: config.scope == "global" and config.key == @privileged_key,
              lock: "FOR UPDATE"
          ) do

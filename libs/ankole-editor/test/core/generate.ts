@@ -1,5 +1,6 @@
 import { Plot, Node, Mark, Leaf, Slice, type Token, ChangeSet, Schema } from '../../src/core/doc'
-import { Paragraph, Blockquote, CodeBlock, CodeBlockLanguage, Emphasis, Strong, Code, Link } from '../../src/core/types'
+import { Paragraph, CodeBlock, CodeBlockLanguage, Emphasis, Strong, Code } from '../../src/core/types/schema'
+import { Blockquote, Link } from './types'
 import { builder, basicBuilders, basicSchema } from './schema'
 const { p, h1, pre, ul, ol, li, blockquote, img, br } = basicBuilders
 

@@ -21,25 +21,6 @@ export type AIGatewayFetch = (
   init?: Parameters<typeof fetch>[1]
 ) => Promise<Response>
 
-export interface AIGatewayHTTPClient {
-  baseURL: string
-  fetch: AIGatewayFetch
-}
-
-/**
- * Builds the small HTTP client used by worker tools that call AIGateway.
- */
-export function httpClientFromAIGatewayAPIKey(
-  apiKey: AIGatewayAPIKeyResponse,
-  refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  turnTracePropagation?: TurnTracePropagation
-): AIGatewayHTTPClient {
-  return {
-    baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation)
-  }
-}
-
 /**
  * Builds the trusted trace headers for one AIGateway request.
  *

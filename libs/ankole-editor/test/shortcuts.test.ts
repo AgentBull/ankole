@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { insertText } from '../src/core/command'
+import { insertText } from '../src/core/command/commands'
 import type { Leaf } from '../src/core/doc'
 import { undo } from '../src/core/history'
 import { GardSelection, Transaction, type GardState } from '../src/core/state'

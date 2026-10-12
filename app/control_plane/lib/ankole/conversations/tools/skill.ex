@@ -6,6 +6,7 @@ defmodule Ankole.Conversations.Tools.Skill do
                 {
                   "type": "function",
                   "name": "skill_view",
+                  "activity": "skill_load",
                   "description": "Read an enabled Skill file. In the main runtime, a background-job-only Skill returns routing guidance and rejects referenced resources; inside a background agent job, skill_view loads its full instructions. Read referenced files only when needed and resolve relative paths from the returned Skill directory. This tool cannot enable disabled Skills.",
                   "parameters": {
                     "type": "object",
@@ -39,7 +40,11 @@ defmodule Ankole.Conversations.Tools.Skill do
 
   @impl true
   def execute(run, _call, args) do
-    summary = Enum.find(run.context.skills, &(&1["skill_name"] == args["name"]))
+    view(run.agent_uid, args, "main", run.context.skills)
+  end
+
+  def view(agent_uid, args, execution_runtime, skills) do
+    summary = Enum.find(skills, &(&1["skill_name"] == args["name"]))
     runtime = get_in(summary || %{}, ["metadata", "ankole-runtime"]) || "any"
 
     cond do
@@ -49,11 +54,15 @@ defmodule Ankole.Conversations.Tools.Skill do
       runtime not in ["any", "main", "background_job"] ->
         {:error, "invalid ankole-runtime for Skill #{args["name"]}: #{runtime}"}
 
-      runtime == "background_job" and args["filePath"] not in [nil, "SKILL.md"] ->
+      execution_runtime == "background_job" and runtime == "main" ->
+        {:error, "skill is not available in the background_job runtime: #{args["name"]}"}
+
+      execution_runtime == "main" and runtime == "background_job" and
+          args["filePath"] not in [nil, "SKILL.md"] ->
         {:error,
          "This Skill runs in a background agent job. Referenced resources are not available in the main runtime."}
 
-      runtime == "background_job" ->
+      execution_runtime == "main" and runtime == "background_job" ->
         {:ok,
          Ankole.Conversations.Tools.result(
            %{"name" => args["name"], "path" => "SKILL.md"},
@@ -71,7 +80,7 @@ defmodule Ankole.Conversations.Tools.Skill do
 
       true ->
         with {:ok, skill} <-
-               Ankole.AIAgent.Library.skill_view(run.agent_uid, args["name"], args["filePath"]) do
+               Ankole.AIAgent.Library.skill_view(agent_uid, args["name"], args["filePath"]) do
           directory = Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.skill_directory(summary)
           path = args["filePath"] || "SKILL.md"
 

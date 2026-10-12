@@ -1,7 +1,8 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Schema, Plot, Node, Leaf } from '../../src/core/doc'
-import { Table, TableRow, Cell, HeaderCell } from '../../src/core/types'
+import { Table, Cell, HeaderCell } from './types'
+import { TableRow } from './types'
 import { GardSelection, GardState } from '../../src/core/state'
 import { basicSchema, basicBuilders, builder, maybeTag } from './schema'
 const { p, hr, blockquote, pre, ul, li, $img, table, tr, td, th } = basicBuilders

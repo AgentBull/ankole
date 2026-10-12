@@ -6,7 +6,8 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "workflow",
-                  "description": "Run a bounded JavaScript orchestration that fans work out to independent subagents and wakes this conversation when the run finishes. The script starts with its persisted input object as args and calls await agent(prompt, { label?, model_profile?, schema? }); a successful call resolves to its structured value and a failed call resolves to null. Use Promise.all for parallel fanout, handle null explicitly, and return the final value from the script. Each attempt is one real subagent turn; one agent() call can use up to three attempts, so give each call a meaningful task and set concurrency and max_agent_calls deliberately. The script must terminate: use finite input arrays and explicit loop bounds, and do not poll or wait for external state. A result schema must use the supported OpenAPI-compatible JSON Schema subset and cannot allow null. Every object must set additionalProperties to false and list every property name in required. No custom model profile is available; omit model_profile to use the default primary profile.",
+                  "activity": "workflow_create",
+                  "description": "Run a bounded JavaScript orchestration that fans work out to independent subagents and wakes this conversation when the run finishes. The script starts with its persisted input object as args and calls await agent(prompt, { label?, model_profile?, schema? }); a successful call resolves to its structured value and a failed call resolves to null. Use Promise.all for parallel fanout, handle null explicitly, and return the final value from the script. Each attempt is one real subagent turn; one agent() call can use up to three attempts, so give each call a meaningful task and set concurrency and max_agent_calls deliberately. The script must terminate: use finite input arrays and explicit loop bounds, and do not poll or wait for external state. A result schema must use the supported OpenAPI-compatible JSON Schema subset and cannot allow null. Every object must set additionalProperties to false and list every property name in required.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -50,6 +51,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "show_workflow",
+                  "activity": "workflow_show",
                   "description": "Show a Workflow run, including task counts, live tasks, bounded failure summaries, and a terminal error. A sleeping task is still executing: it hibernates until an event wakes it, and its note states what it waits for. A task with attention=true waits for your input; answer it with send_message_to_workflow_task. To read a completed result, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null. Result offsets are stable and can be resumed in a later turn.",
                   "parameters": {
                     "type": "object",
@@ -77,6 +79,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "list_workflows",
+                  "activity": "workflow_list",
                   "description": "List Workflow runs owned by the current Agent. status defaults to live. live includes running; done includes completed, failed, and cancelled. Each page contains at most 32 runs, newest first. Use next_page to continue.",
                   "parameters": {
                     "type": "object",
@@ -104,6 +107,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "send_message_to_workflow_task",
+                  "activity": "workflow_task_message",
                   "description": "Send a message to one live Workflow task, addressed by run_id and call_seq from show_workflow. The send is asynchronous and returns immediately: a sleeping task wakes with the message, a running task receives it when its current turn ends. Use it to answer a task that sleeps with attention, or to steer a task mid-run. It cannot reach a terminal task.",
                   "parameters": {
                     "type": "object",
@@ -139,6 +143,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "cancel_workflow",
+                  "activity": "workflow_cancel",
                   "description": "Cancel a running Workflow. A terminal Workflow is an idempotent no-op.",
                   "parameters": {
                     "type": "object",
@@ -161,6 +166,9 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "sleep",
+                  "run_kinds": ["workflow_task"],
+                  "ends_run": true,
+                  "activity": "workflow_task_sleep",
                   "description": "Hibernate this Workflow task and end the current turn. The task stays non-terminal and holds no worker slot. Any of these wakes it into a new turn with this conversation intact: the wake_after_ms deadline, a message from the main Agent, or a lifecycle event from a background job this task created. Sleep after create_background_job instead of waiting in this turn. The wake budget is bounded, so sleep for the expected wait instead of polling with short sleeps.",
                   "parameters": {
                     "type": "object",
@@ -197,6 +205,9 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 {
                   "type": "function",
                   "name": "submit_result",
+                  "run_kinds": ["workflow_task"],
+                  "ends_run": true,
+                  "activity": "submit_result",
                   "description": "Submit the final result of this Workflow task. Call this tool only after the task is complete. A schema rejection is recoverable: correct the result and call the tool again. An accepted result ends this task turn.",
                   "parameters": {
                     "type": "object",
@@ -219,6 +230,23 @@ defmodule Ankole.Conversations.Tools.Workflow do
                 """)
   @impl true
   def declarations, do: @declarations
+  @impl true
+  def declarations(run) do
+    Enum.map(@declarations, fn
+      %{"name" => "workflow"} = tool ->
+        Ankole.Conversations.Tool.with_profiles(
+          tool,
+          run.spec.request_context["custom_model_profiles"] || [],
+          "primary"
+        )
+
+      %{"name" => "submit_result"} = tool ->
+        put_in(tool, ["parameters", "properties", "result"], run.spec.request_context["schema"])
+
+      tool ->
+        tool
+    end)
+  end
 
   @impl true
   def normalize("sleep", args), do: Map.put_new(args, "attention", false)
@@ -349,7 +377,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
       {:ok,
        Tools.result(%{"accepted" => value.accepted, "task_status" => value.call.status},
          terminate: true,
-         outcome: "submitted"
+         outcome: :submitted
        ), [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end]}
     end
   end
@@ -370,7 +398,7 @@ defmodule Ankole.Conversations.Tools.Workflow do
       {:ok,
        Tools.result(%{"task_status" => value.call.status, "wake_count" => value.call.wake_count},
          terminate: true,
-         outcome: "sleeping"
+         outcome: :sleeping
        ), [fn -> Ankole.Conversations.deliver_events([value.attention_event]) end]}
     end
   end

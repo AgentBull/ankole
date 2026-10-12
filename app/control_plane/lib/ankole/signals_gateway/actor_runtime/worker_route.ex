@@ -17,8 +17,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRoute do
        Erlang, and wait for the Worker's explicit acknowledgement. No PubSub
        broadcast enters the Worker command path.
     4. An empty directory, a stale entry, or a missing acknowledgement is an
-       error; the caller keeps its durable delivery and never changes durable
-       state from a directory result.
+       error. A lost connection marks only the Worker that still owns this route
+       stale. A stale directory entry leaves its replacement unchanged.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -27,11 +27,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRoute do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerTracker
 
   @type target :: %{worker_id: String.t(), transport_route: String.t()} | String.t()
   @default_rpc_timeout_ms 60_000
   @deliver_timeout_ms 15_000
+
+  @retryable_errors [:unknown_route, :socket_closed, :stale_route, :backpressure, :timeout]
+  def retryable?(reason), do: reason in @retryable_errors
 
   @doc "Returns the tracker topic of one Worker."
   @spec topic(String.t()) :: String.t()
@@ -67,7 +71,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRoute do
           | {:error, :unknown_route | :stale_route | :backpressure | :timeout | term()}
   def send_mandatory(target, %FabricProto.Envelope{} = envelope) do
     deliver(target, {:deliver, envelope}, @deliver_timeout_ms)
+    |> tap(fn
+      {:error, reason} when reason in [:unknown_route, :socket_closed] ->
+        WorkerAdmission.mark_route_unusable(route_of(target), reason)
+
+      _ ->
+        :ok
+    end)
   end
+
+  defp route_of(%{transport_route: route}), do: route
+  defp route_of(route) when is_binary(route), do: route
 
   @doc """
   Sends one reply envelope to a transport route without waiting for an acknowledgement.

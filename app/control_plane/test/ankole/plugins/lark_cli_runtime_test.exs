@@ -16,7 +16,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -361,7 +361,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key, _}},
+                    ^cache_pid},
                    1_000
 
     second_save =
@@ -506,8 +507,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     # The save also starts a Lark connection reconciliation. That reconciliation
     # can load the committed row into the cache at any time, so the cache can
     # hold the committed row or nothing. It must not keep the pre-save state.
-    %AppConfig{value: committed_envelope} =
-      Repo.get_by!(AppConfig, scope: "global", key: config_key)
+    %SiteConfig{value: committed_envelope} =
+      Repo.get_by!(SiteConfig, scope: "global", key: config_key)
 
     assert AppConfigureCache.lookup("global", config_key) in [
              :miss,
@@ -833,12 +834,12 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   end
 
   defp put_raw_global_config(key, envelope) do
-    AppConfig
+    SiteConfig
     |> where([row], row.scope == "global" and row.key == ^key)
     |> Repo.delete_all()
 
-    %AppConfig{}
-    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    %SiteConfig{}
+    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
     |> Repo.insert!()
   end
 

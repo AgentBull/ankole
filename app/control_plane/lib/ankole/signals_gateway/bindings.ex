@@ -55,7 +55,8 @@ defmodule Ankole.SignalsGateway.Bindings do
              )
            end) do
           repo.delete_all(
-            from config in AppConfig, where: config.scope == "global" and config.key == ^key
+            from config in Ankole.AppConfigure.SiteConfig,
+              where: config.scope == "global" and config.key == ^key
           )
         end
 
@@ -504,7 +505,7 @@ defmodule Ankole.SignalsGateway.Bindings do
        ) do
     repo.all(
       from binding in Binding,
-        left_join: config in AppConfig,
+        left_join: config in Ankole.AppConfigure.SiteConfig,
         on:
           config.scope == "global" and
             binding.config_ref == fragment("'app-config://' || ?", config.key),
@@ -798,14 +799,18 @@ defmodule Ankole.SignalsGateway.Bindings do
         Repo.across_tenants(fn ->
           repo.exists?(
             from row in Ankole.AppConfigure.AppConfig,
-              left_join: binding in Binding,
-              on:
-                row.scope == "global" and
-                  binding.config_ref == fragment("'app-config://' || ?", row.key),
               where:
                 fragment("?->>'platform_application' = ?", row.value, ^application) and
-                  (row.tenant_id != ^tenant_id or binding.tenant_id != ^tenant_id)
-          )
+                  row.tenant_id != ^tenant_id
+          ) or
+            repo.exists?(
+              from row in Ankole.AppConfigure.SiteConfig,
+                join: binding in Binding,
+                on: binding.config_ref == fragment("'app-config://' || ?", row.key),
+                where:
+                  fragment("?->>'platform_application' = ?", row.value, ^application) and
+                    binding.tenant_id != ^tenant_id
+            )
         end)
 
       if conflict, do: {:error, :platform_app_bound_to_another_tenant}, else: :ok
@@ -816,13 +821,20 @@ defmodule Ankole.SignalsGateway.Bindings do
   # encrypted credentials. It is never accepted from an API request.
   @doc false
   def record_platform_application_in_tx(repo, {_parsed, scope, key}, application) do
-    case SQL.query(
-           repo,
-           "UPDATE app_configurations SET value = value || $1::jsonb WHERE scope = $2 AND key = $3",
-           [%{"platform_application" => application}, scope, key]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:error, reason} -> {:error, reason}
+    schema = AppConfig.for_scope(scope)
+
+    query =
+      from row in schema,
+        where: row.scope == ^scope and row.key == ^key,
+        update: [
+          set: [
+            value: fragment("? || ?::jsonb", row.value, ^%{"platform_application" => application})
+          ]
+        ]
+
+    case repo.update_all(query, []) do
+      {1, _} -> :ok
+      {0, _} -> {:error, :configuration_not_found}
     end
   end
 

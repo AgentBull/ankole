@@ -1,4 +1,5 @@
 defmodule Ankole.AIGateway.HostedTools.BrainTest do
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
@@ -13,6 +14,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Tools
+  alias Ankole.Kernel, as: NativeKernel
 
   setup do
     {:ok, _result} = SchemaPacks.install_packs([])
@@ -278,6 +280,61 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   end
 
   describe "injection" do
+    test "an oversized pack keeps its wrapper and whole fitted lines", context do
+      {:ok, threads} =
+        Objects.create_object(
+          %{slug: "concepts/open-work", type: "concept", title: "Open Work"},
+          context.agent.uid
+        )
+
+      claims =
+        for index <- 1..5 do
+          {context.object.slug, "fact",
+           "Claim #{index}: " <> String.duplicate("规范 ", 600) <> "COMPLETE"}
+        end
+
+      claims = claims ++ Enum.map(1..3, &{threads.slug, "commitment", "Open work #{&1}"})
+
+      for {slug, kind, claim} <- claims do
+        assert {:ok, _} =
+                 Claims.write_fact(
+                   %{
+                     object_slug: slug,
+                     claim: claim,
+                     kind: kind,
+                     holder: "world",
+                     audience_scope: "world",
+                     notability: "high",
+                     confidence: 0.9,
+                     valid_from: DateTime.utc_now(:microsecond),
+                     provenance: "test"
+                   },
+                   context.agent.uid,
+                   embed: false,
+                   dedup: false
+                 )
+      end
+
+      assert NativeKernel.estimate_o200k_base_tokens(Enum.map_join(claims, "\n", &elem(&1, 2))) >
+               4_000
+
+      [pack, _prompt] =
+        inject_stateful(
+          context.agent.uid,
+          injecting_request(),
+          insert_conversation!(context.agent.uid),
+          [
+            user_message("Wire Format")
+          ]
+        )
+
+      text = pack_text(pack)
+      assert NativeKernel.estimate_o200k_base_tokens(text) <= 4_000
+      assert String.ends_with?(text, "</recalled_memory>")
+      assert text |> String.split("\n") |> Enum.at(-2) != "open threads:"
+      assert text |> String.split("\n") |> Enum.at(-2) |> String.ends_with?("COMPLETE")
+    end
+
     test "relations and aliases keep the full injected pack unchanged", context do
       {:ok, header} =
         Objects.create_object(
@@ -308,54 +365,114 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       assert pack_text(pack) == expected
     end
 
-    test "injects the pack at conversation start and again after a compaction checkpoint",
+    test "opening memory is separate from originals and a checkpoint builds a fresh pack",
          context do
       conversation = insert_conversation!(context.agent.uid)
       request = injecting_request()
       input = [user_message("Tell me about the Wire Format")]
 
-      {injected, provenance} =
-        Brain.inject_stateful(context.agent.uid, request, conversation, input)
+      {stored, memory} =
+        Brain.inject_stateful(context.agent.uid, request, conversation, input, [])
 
-      assert %{
-               "items" => [0],
-               "environment" => %{
-                 "item_index" => 1,
-                 "part_index" => 0,
-                 "offset" => 0,
-                 "length" => injected_bytes
-               }
-             } = provenance
-
-      assert [pack, prompt] = injected
-      assert injected_bytes == byte_size(environment_text(prompt))
-      assert pack["role"] == "user"
-      assert pack_text(pack) =~ "<recalled_memory>"
-      assert pack_text(pack) =~ "entity: concepts/wire-format — Wire Format (concept)"
+      assert stored == input
+      assert memory["brain_context_pack_claimed"]
+      assert [pack] = memory["brain_context_pack"]
       assert pack_text(pack) =~ "The wire format carries dated facts"
-      assert environment_text(prompt) =~ "memory: concepts/wire-format — Wire Format (concept)"
-
-      # Later requests of the same conversation get the pointers only.
-      conversation = Repo.reload!(conversation)
-
-      assert [prompt_only] =
-               inject_stateful(context.agent.uid, request, conversation, input)
-
+      refute Map.has_key?(memory, "items")
+      refute Map.has_key?(memory, "environment")
+      assert [^pack, prompt] = Brain.replay(stored, memory)
+      assert environment_text(prompt) =~ "memory: concepts/wire-format"
+      insert_memory!(context.agent.uid, conversation, stored, memory)
+      assert [prompt_only] = inject_stateful(context.agent.uid, request, conversation, input)
       assert environment_text(prompt_only) =~ "memory: concepts/wire-format"
-
-      # A compaction checkpoint newer than the recorded slot reopens it once.
       insert_checkpoint!(context.agent.uid, conversation.id)
 
-      assert [_pack, _prompt] =
-               inject_stateful(context.agent.uid, request, conversation, input)
+      assert [fresh] =
+               Brain.checkpoint_context_pack(context.agent.uid, conversation, %{}, input, fn ->
+                 []
+               end)
 
-      conversation = Repo.reload!(conversation)
-
-      assert [_prompt_only] =
-               inject_stateful(context.agent.uid, request, conversation, input)
+      assert pack_text(fresh) =~ "The wire format carries dated facts"
+      assert [_prompt_only] = inject_stateful(context.agent.uid, request, conversation, input)
     end
 
-    test "reopens the slot for a retry of the same actor event", context do
+    test "a checkpoint without opening injection stays without a pack", context do
+      conversation = insert_conversation!(context.agent.uid)
+
+      assert [] ==
+               Brain.checkpoint_context_pack(
+                 context.agent.uid,
+                 conversation,
+                 %{},
+                 [user_message("Wire Format")],
+                 fn -> [] end
+               )
+    end
+
+    test "a checkpoint pack failure degrades to empty and records a warning", context do
+      conversation = insert_conversation!(context.agent.uid)
+
+      inject_stateful(context.agent.uid, injecting_request(), conversation, [
+        user_message("Wire Format")
+      ])
+
+      conversation = Repo.reload!(conversation)
+      %{principal: other} = agent_fixture()
+      event = insert_actor_event!(other.uid)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert [] ==
+                   Brain.checkpoint_context_pack(
+                     context.agent.uid,
+                     conversation,
+                     %{"metadata" => %{"actor_event_id" => event.id}},
+                     [user_message("Wire Format")],
+                     fn -> [] end
+                   )
+        end)
+
+      assert log =~ "Brain context pack assembly failed; the checkpoint continues without it"
+    end
+
+    test "checkpoint input selects the pack without loading history", context do
+      conversation = insert_conversation!(context.agent.uid)
+      input = [user_message("Wire Format")]
+      inject_stateful(context.agent.uid, injecting_request(), conversation, input)
+
+      assert [pack] =
+               Brain.checkpoint_context_pack(
+                 context.agent.uid,
+                 Repo.reload!(conversation),
+                 %{},
+                 input,
+                 fn -> flunk("history must not load") end
+               )
+
+      assert pack_text(pack) =~ "The wire format carries dated facts"
+    end
+
+    test "a tool continuation selects checkpoint memory from the original user history",
+         context do
+      conversation = insert_conversation!(context.agent.uid)
+      history = [user_message("Wire Format")]
+      inject_stateful(context.agent.uid, injecting_request(), conversation, history)
+      input = [%{"type" => "function_call_output", "call_id" => "call-1", "output" => "Done"}]
+
+      assert [pack] =
+               Brain.checkpoint_context_pack(
+                 context.agent.uid,
+                 Repo.reload!(conversation),
+                 %{},
+                 input,
+                 fn -> history end
+               )
+
+      assert pack_text(pack) =~ "The wire format carries dated facts"
+    end
+
+    test "a retry preserves the existing opening claim and does not inject a second pack",
+         context do
       conversation = insert_conversation!(context.agent.uid)
       event = insert_actor_event!(context.agent.uid)
       request = injecting_request(%{"actor_event_id" => event.id})
@@ -366,7 +483,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
 
       conversation = Repo.reload!(conversation)
 
-      assert [_pack, _prompt] =
+      assert [_prompt_only] =
                inject_stateful(context.agent.uid, request, conversation, input)
 
       successor = insert_actor_event!(context.agent.uid)
@@ -490,8 +607,32 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   end
 
   defp inject_stateful(subject_uid, request, conversation, input) do
-    {items, _provenance} = Brain.inject_stateful(subject_uid, request, conversation, input)
-    items
+    {items, memory} =
+      Brain.inject_stateful(
+        subject_uid,
+        request,
+        conversation,
+        input,
+        ResponseChain.expand_history(conversation.id)
+      )
+
+    assert items == input
+    insert_memory!(subject_uid, conversation, items, memory)
+    Brain.replay(items, memory)
+  end
+
+  defp insert_memory!(subject_uid, conversation, input, memory) do
+    previous = ResponseChain.latest_visible_leaf(conversation.id)
+
+    Repo.insert!(%Ankole.AIGateway.Schemas.Message{
+      subject_uid: subject_uid,
+      conversation_id: conversation.id,
+      previous_message_id: previous,
+      type: "message",
+      status: "complete",
+      content: input,
+      metadata: memory
+    })
   end
 
   defp loop!(subject_uid, declaration) do
@@ -574,12 +715,13 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   end
 
   defp insert_checkpoint!(subject_uid, conversation_id) do
-    # Strictly after the recorded slot timestamp, so the comparison is stable.
-    at = DateTime.add(DateTime.utc_now(:microsecond), 1, :second)
+    at = DateTime.utc_now(:microsecond)
+    previous = ResponseChain.latest_visible_leaf(conversation_id)
 
     Repo.insert!(%Ankole.AIGateway.Schemas.Message{
       subject_uid: subject_uid,
       conversation_id: conversation_id,
+      previous_message_id: previous,
       type: "checkpoint",
       status: "complete",
       content: [%{"id" => "cmp_#{Ecto.UUID.generate()}", "type" => "compaction_artifact"}],

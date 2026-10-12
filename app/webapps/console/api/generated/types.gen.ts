@@ -3451,6 +3451,33 @@ export type AnkoleWebWorkerProviderControllerUpdateResponses = {
 export type AnkoleWebWorkerProviderControllerUpdateResponse =
   AnkoleWebWorkerProviderControllerUpdateResponses[keyof AnkoleWebWorkerProviderControllerUpdateResponses]
 
+export type AnkoleWebAgentWorkerControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/agent-workers'
+}
+
+export type AnkoleWebAgentWorkerControllerIndexErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentWorkerControllerIndexError =
+  AnkoleWebAgentWorkerControllerIndexErrors[keyof AnkoleWebAgentWorkerControllerIndexErrors]
+
+export type AnkoleWebAgentWorkerControllerIndexResponses = {
+  /**
+   * Workers
+   */
+  200: AgentComputerWorkerListResponse
+}
+
+export type AnkoleWebAgentWorkerControllerIndexResponse =
+  AnkoleWebAgentWorkerControllerIndexResponses[keyof AnkoleWebAgentWorkerControllerIndexResponses]
+
 export type AnkoleWebAiGatewayFilesControllerDeleteData = {
   body?: never
   path: {
@@ -8063,33 +8090,6 @@ export type AnkoleWebAgentLibraryControllerIndexResponses = {
 
 export type AnkoleWebAgentLibraryControllerIndexResponse =
   AnkoleWebAgentLibraryControllerIndexResponses[keyof AnkoleWebAgentLibraryControllerIndexResponses]
-
-export type AnkoleWebAgentComputerWorkerControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/agent-computer-workers'
-}
-
-export type AnkoleWebAgentComputerWorkerControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentComputerWorkerControllerIndexError =
-  AnkoleWebAgentComputerWorkerControllerIndexErrors[keyof AnkoleWebAgentComputerWorkerControllerIndexErrors]
-
-export type AnkoleWebAgentComputerWorkerControllerIndexResponses = {
-  /**
-   * Workers
-   */
-  200: AgentComputerWorkerListResponse
-}
-
-export type AnkoleWebAgentComputerWorkerControllerIndexResponse =
-  AnkoleWebAgentComputerWorkerControllerIndexResponses[keyof AnkoleWebAgentComputerWorkerControllerIndexResponses]
 
 export type AnkoleWebHumanAccessControllerDisableData = {
   /**

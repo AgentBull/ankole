@@ -380,6 +380,57 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
     end
 
+    test "removal of a resolved reply target rejects completion as withdrawn context" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      %{actor_event: event} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
+
+      payload =
+        put_in(event.payload, ["data", "entry", "reply_to"], %{
+          "resolution" => "resolved",
+          "source_entry_id" => "quoted-entry",
+          "text" => "Withdraw this quoted context."
+        })
+
+      event = event |> ActorEvent.changeset(%{payload: payload}) |> Repo.update!()
+
+      assert ActorEvent.source_entry_ids(event) == [event.source_entry_id]
+
+      assert ActorEvent.withdrawal_source_entry_ids(event) == [
+               event.source_entry_id,
+               "quoted-entry"
+             ]
+
+      refute Repo.get_by(Entry,
+               signal_channel_id: event.signal_channel_id,
+               source_entry_id: "quoted-entry"
+             )
+
+      assert {:ok, %{status: :accepted, canceled_actor_events: 0}} =
+               Ingress.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{
+                   source_entry_id: "quoted-entry",
+                   source_event_id: "withdraw-quoted-entry"
+                 }),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert {:error, :actor_event_context_canceled} =
+               complete_actor_event(
+                 agent.uid,
+                 "bot",
+                 event.source_event_id,
+                 actor_commit_opts(completed_at: DateTime.add(@base_time, 2, :second))
+               )
+
+      assert is_nil(Repo.reload!(event).completed_at)
+      refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
+    end
+
     test "removal of record_only entry only updates mirror and tombstone" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)

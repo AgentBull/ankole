@@ -1,7 +1,9 @@
 defmodule Ankole.Conversations.MessageToolTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
   import Ankole.FilesFixtures, only: [drive_file_fixture: 3]
   alias Ankole.Conversations.{Admission, Context, ToolCatalog, Tools}
+  alias Ankole.Conversations.Prompt.Input
 
   setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
 
@@ -17,6 +19,10 @@ defmodule Ankole.Conversations.MessageToolTest do
     drive_file_fixture(agent.uid, "reports/weekly.pdf", "%PDF weekly")
     {:ok, run} = Admission.admit(input, input)
     {:ok, context} = Context.resolve(run.agent_uid, run.session_id)
+    [%{"content" => content}] = Input.messages(%{run | context: context}, input)
+    prompt = Enum.map_join(content, "\n", & &1["text"])
+    assert prompt =~ "binding_name: bot"
+    assert prompt =~ "signal_channel_id: #{input.signal_channel_id}"
     {tools, _hosted} = ToolCatalog.for_run(%{run | context: context})
 
     call = %{
@@ -34,7 +40,7 @@ defmodule Ankole.Conversations.MessageToolTest do
     {:ok, response} =
       start_response_run(%{subject_uid: run.agent_uid, conversation_id: run.conversation.id})
 
-    {:ok, response} = StatefulResponses.commit_complete(response, [call])
+    {:ok, response} = ResponseCommit.commit_complete(response, [call])
     run = %{run | context: context, tools: tools, model_response: response}
 
     assert {:ok, tool, args} = Tools.prepare(run, call)

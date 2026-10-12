@@ -1,21 +1,14 @@
 defmodule Ankole.Plugins.WhatsAppAdapterTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Plugins.WhatsAppAdapter
 
-  alias Ankole.Plugins.WhatsAppAdapter.{
-    Config,
-    Inbound,
-    Outbox,
-    Presentation,
-    Signature,
-    Webhook
-  }
+  alias Ankole.Plugins.WhatsAppAdapter.{Config, Inbound, Outbox, Presentation, Signature, Webhook}
 
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
@@ -513,7 +506,15 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert attachment["attachment_id"] == pending["attachment_id"]
       assert attachment["mimetype"] == "image/jpeg"
-      assert_stored_attachment!(agent.uid, attachment, "attachment", "image-media-photo.jpg")
+
+      assert_stored_attachment!(
+        agent.uid,
+        @channel_id,
+        attachment,
+        "attachment",
+        "image-media-photo.jpg"
+      )
+
       assert_received {:whatsapp_request, "/media/media-photo/bytes"}
 
       # Meta delivers the same change again after a non-200 answer. The

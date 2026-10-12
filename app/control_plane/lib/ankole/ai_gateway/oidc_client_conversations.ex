@@ -74,16 +74,7 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
 
   defp request_evidence(message) do
     input_count = message.metadata["request_item_count"] || 0
-    injection = message.metadata["brain_injection"] || %{}
     {input, output} = Enum.split(message.content, input_count)
-
-    input =
-      input
-      |> Enum.with_index()
-      |> Enum.reject(fn {_item, index} -> index in (injection["items"] || []) end)
-      |> Enum.map(fn {item, index} ->
-        without_environment(item, index, injection["environment"])
-      end)
 
     %{
       response_id: "resp_#{message.id}",
@@ -96,33 +87,6 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
       output: if(message.status == "complete", do: dialogue(output), else: [])
     }
   end
-
-  defp without_environment(
-         %{"content" => parts} = item,
-         index,
-         %{
-           "item_index" => index,
-           "part_index" => part_index,
-           "offset" => offset,
-           "length" => length
-         }
-       )
-       when is_list(parts) do
-    content =
-      List.update_at(parts, part_index, fn %{"text" => text} = part ->
-        ending = offset + length
-
-        Map.put(
-          part,
-          "text",
-          binary_part(text, 0, offset) <> binary_part(text, ending, byte_size(text) - ending)
-        )
-      end)
-
-    Map.put(item, "content", content)
-  end
-
-  defp without_environment(item, _index, _position), do: item
 
   defp dialogue(items) do
     Enum.flat_map(items, fn

@@ -1,12 +1,11 @@
 import { Plot, Leaf, Node, Mark, Schema } from '../../src/core/doc'
+import { Doc, Blockquote, Link, Table, Cell, HeaderCell, BlockCell, BlockHeaderCell } from './types'
 import {
-  Doc,
   Paragraph,
   Heading,
   CodeBlock,
   CodeBlockLanguage,
   LineBreak,
-  Blockquote,
   OrderedList,
   BulletList,
   ListItem,
@@ -18,20 +17,14 @@ import {
   Emphasis,
   Strong,
   Code,
-  Link,
   Underline,
   Superscript,
   Subscript,
   Alignment,
-  Table,
-  TableRow,
-  Cell,
-  HeaderCell,
-  BlockCell,
-  BlockHeaderCell,
   ColSpan,
   RowSpan
-} from '../../src/core/types'
+} from '../../src/core/types/schema'
+import { TableRow } from './types'
 
 export type ContentSpec = Node | string | number | null | readonly ContentSpec[]
 

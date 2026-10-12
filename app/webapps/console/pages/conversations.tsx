@@ -525,7 +525,8 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <RiFunctionLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 <ToolSummary content={message.content} />
-                <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-muted-foreground">
+                  <MessageModel message={message} />
                   <MessageStatus message={message} />
                   <span>{formatConsoleDate(message.inserted_at)}</span>
                 </span>
@@ -542,12 +543,34 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 
   return (
     <article className="grid gap-1.5">
-      <header className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <header className="flex flex-wrap items-center gap-2 px-1 text-xs text-muted-foreground">
+        <MessageModel message={message} />
         <MessageStatus message={message} />
         <span>{formatConsoleDate(message.inserted_at)}</span>
       </header>
       {text ? <MarkdownBody text={text} /> : <RawJSON value={message.content} />}
     </article>
+  )
+}
+
+function MessageModel({ message }: { message: AIGatewayMessageItem }) {
+  const { t } = useTranslation()
+  const profile = message.metadata.model_profile
+  const model = message.metadata.provider_model ?? message.metadata.request_model
+
+  return (
+    <>
+      {typeof profile === 'string' && profile.trim() ? (
+        <span className="break-all">
+          {t('console.conversations.model_profile')}: {profile}
+        </span>
+      ) : null}
+      {typeof model === 'string' && model.trim() ? (
+        <span className="break-all">
+          {t('console.conversations.model')}: {model}
+        </span>
+      ) : null}
+    </>
   )
 }
 

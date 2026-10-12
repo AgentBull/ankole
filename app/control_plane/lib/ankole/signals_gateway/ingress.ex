@@ -16,7 +16,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   transaction behind the per-entry lock.
   """
 
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
+  alias Ankole.SignalsGateway.InputRevisions
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.ActorEvent
@@ -519,7 +519,7 @@ defmodule Ankole.SignalsGateway.Ingress do
                fact.source_entry_id
              ),
            {:ok, runtime_retractions} <-
-             TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
+             InputRevisions.retract_source_entry_in_tx(repo, fact, :removed, now),
            {:ok, lifecycle_events} <-
              append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
         {:ok,

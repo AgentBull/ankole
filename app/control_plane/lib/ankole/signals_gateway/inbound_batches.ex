@@ -6,7 +6,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEventEnvelope
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
+  alias Ankole.SignalsGateway.InputRevisions
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
@@ -210,7 +210,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          source_entry,
          now
        ) do
-    TurnRetry.merge_attachment_supplement_in_tx(repo, fact, source_entry, now)
+    InputRevisions.merge_attachment_supplement_in_tx(repo, fact, source_entry, now)
   end
 
   defp maybe_apply_live_attachment_supplement(
@@ -220,7 +220,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          source_entry,
          now
        ) do
-    TurnRetry.refresh_attachment_supplement_in_tx(repo, fact, source_entry, now)
+    InputRevisions.refresh_attachment_supplement_in_tx(repo, fact, source_entry, now)
   end
 
   defp route_finalized_duplicate_or_attachment_supplement(

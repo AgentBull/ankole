@@ -6,7 +6,9 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "create_background_job",
-                  "description": "Delegate a durable job to a background agent. title is only a management label and is not sent to Codex. task is the work handed off to the background agent to complete. State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing. The background agent cannot create background jobs or load a Skill that has runtime=\"main\". Create each job that the work needs with this tool. Do the steps of a runtime=\"main\" Skill yourself, and give a job only the task that the Skill defines. No custom model profile is available; omit model_profile to use the default coding profile. No workspace template is available; omit workspace_template_id.",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "background_job_create",
+                  "description": "Delegate a durable job to a background agent. title is only a management label and is not sent to Codex. task is the work handed off to the background agent to complete. State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing. The background agent cannot create background jobs or load a Skill that has runtime=\"main\". Create each job that the work needs with this tool. Do the steps of a runtime=\"main\" Skill yourself, and give a job only the task that the Skill defines.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -36,6 +38,7 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "list_background_jobs",
+                  "activity": "background_job_list",
                   "description": "List background agent jobs owned by the current Agent. status defaults to live. live includes queued, running, and waiting_on_user. stop includes succeeded, failed, and stopped. Each page contains at most 32 background agent jobs, with the most recently updated background agent job first. Use next_page to continue.",
                   "parameters": {
                     "type": "object",
@@ -63,6 +66,8 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "show_background_job_details",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "background_job_show",
                   "description": "Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page. For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null. Each result chunk also carries the real Job Workspace (project_path, owned by workspace_owner_job_id) and absolute artifact paths; use those paths to read or copy the files instead of guessing a directory from the job id or a relative path in the text. Result offsets are stable and can be resumed in a later turn.",
                   "parameters": {
                     "type": "object",
@@ -90,6 +95,8 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "send_message_to_background_job",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "background_job_send",
                   "description": "Send a message to any live job: queued, running, or waiting_on_user. A queued message stays behind the original task and is applied when execution starts. wait_reply (default: true) observes the exact background Turn for up to wait_timeout_ms (default: 30s). timeout only ends foreground observation while the Job keeps running. set wait_reply=false if the Turn result is not needed immediately.",
                   "parameters": {
                     "type": "object",
@@ -132,6 +139,7 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "respawn_background_job",
+                  "activity": "background_job_respawn",
                   "description": "Respawn one non-running background agent job as a new one. It uses the same workspace and thread, and sends the message as the next user input.",
                   "parameters": {
                     "type": "object",
@@ -159,6 +167,8 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 {
                   "type": "function",
                   "name": "stop_background_job",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "background_job_stop",
                   "description": "Stop running job. A terminal job is an idempotent no-op.",
                   "parameters": {
                     "type": "object",
@@ -182,6 +192,59 @@ defmodule Ankole.Conversations.Tools.Jobs do
                 """)
   @impl true
   def declarations, do: @declarations
+  @impl true
+  def declarations(run) do
+    profiles = run.spec.request_context["custom_model_profiles"] || []
+
+    templates =
+      run.context.agent_plugins
+      |> Enum.filter(& &1["has_workspace_template"])
+      |> Enum.sort_by(& &1["id"])
+
+    Enum.map(@declarations, fn
+      %{"name" => "create_background_job"} = tool ->
+        tool = Ankole.Conversations.Tool.with_profiles(tool, profiles, "coding")
+
+        description =
+          if templates == [],
+            do: "No workspace template is available; omit workspace_template_id.",
+            else:
+              "Available workspace templates: " <>
+                Enum.map_join(
+                  templates,
+                  ", ",
+                  &"#{&1["id"]} (#{Ankole.Conversations.Prompt.catalog_line(&1["description"], 400)})"
+                ) <> ". Omit workspace_template_id to use no template."
+
+        tool = Map.update!(tool, "description", &(&1 <> " " <> description))
+
+        if templates == [],
+          do: tool,
+          else:
+            put_in(tool, ["parameters", "properties", "workspace_template_id"], %{
+              "type" => "string",
+              "enum" => Enum.map(templates, & &1["id"])
+            })
+
+      tool ->
+        tool
+    end)
+  end
+
+  @impl true
+  def activity(%{name: "send_message_to_background_job"}, args, "completed", result) do
+    key =
+      case result.details do
+        %{"wait_outcome" => "timed_out"} -> "background_job_async"
+        %{"wait_outcome" => "steered"} -> "background_job_steered"
+        %{"wait_outcome" => _outcome} -> "background_job_replied"
+        _ -> if(args["wait_reply"], do: "background_job_replied", else: "background_job_sent")
+      end
+
+    {key, %{}}
+  end
+
+  def activity(tool, args, _phase, _result), do: {tool.activity, Map.take(args, ["name"])}
 
   alias Ankole.BackgroundAgentJobs, as: Jobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job

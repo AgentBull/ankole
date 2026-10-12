@@ -1,4 +1,5 @@
 defmodule Ankole.AIGateway.ProviderFailureContractTest do
+  alias Ankole.AIGateway.FailureResponse
   use Ankole.AIGatewayCase
 
   alias Ankole.AIGateway.CredentialPool
@@ -180,7 +181,7 @@ defmodule Ankole.AIGateway.ProviderFailureContractTest do
   def snapshot(row) do
     reason = reason(row)
     classification = FailureDiagnostics.classify(reason)
-    projection = FailureDiagnostics.project(reason)
+    projection = FailureResponse.project(reason)
     image = ImageGeneration.normalize_execution_error(reason)
 
     context = %{
@@ -210,7 +211,7 @@ defmodule Ankole.AIGateway.ProviderFailureContractTest do
         "project_status" => projection.status,
         "project_code" => projection.error["code"]
       },
-      "classification" => classification,
+      "classification" => FailureDiagnostics.log_fields(reason),
       "projection" => Map.update!(projection, :headers, &Map.delete(&1, "retry-after")),
       "image_error" => Map.from_struct(image),
       "image_log_fields" => ImageGeneration.failure_log_fields(nil, reason)

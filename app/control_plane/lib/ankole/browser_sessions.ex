@@ -173,7 +173,7 @@ defmodule Ankole.BrowserSessions do
     Repo.transact(fn repo ->
       with {:ok, browser} <- fetch_session(repo, ref, true),
            %{"principal_uid" => uid, "access_version" => version} = auth <- browser.admin_auth,
-           true <- Ankole.SiteAdminAuth.active_human_site_admin?(uid),
+           true <- Ankole.AuthZ.site_admin?(uid),
            :ok <- HumanAccess.check(uid, version) do
         browser |> Ecto.Changeset.change(oauth_auth: auth) |> repo.update()
       else
@@ -305,7 +305,7 @@ defmodule Ankole.BrowserSessions do
         {:error, :human_access_revoked}
 
       transaction.purpose == :console and
-          not Ankole.SiteAdminAuth.active_human_site_admin?(principal.uid) ->
+          not Ankole.AuthZ.site_admin?(principal.uid) ->
         {:error, :not_an_admin}
 
       true ->

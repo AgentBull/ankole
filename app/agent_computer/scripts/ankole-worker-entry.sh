@@ -13,6 +13,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 if [ "${ANKOLE_WORKER_BOOTSTRAP:-}" = lambda ]; then
+  echo 'Lambda bootstrap: starting Bun hooks' >&2
   exec bun /repo/app/agent_computer/src/worker/lambda-hooks.ts
 fi
 if [ "${ANKOLE_WORKER_BOOTSTRAP:-}" = function_compute ]; then
@@ -35,10 +36,12 @@ if [ "${ANKOLE_WORKER_TASK:-worker}" = delete_storage ]; then
   if [ -e "/workspace/$WORKER_ID" ] || [ -L "/workspace/$WORKER_ID" ]; then
     mv -T -- "/workspace/$WORKER_ID" "/workspace/.deleted/$WORKER_ID-$(cat /proc/sys/kernel/random/uuid)"
   fi
+  rm -rf -- /workspace/.deleted/*
   if [ "${ANKOLE_WORKER_STORAGE:-}" = nfs ]; then
+    # Lambda reports RUNNING after this marker. Storage deletion must finish
+    # before RUNNING can confirm deletion to the control plane.
     touch /run/ankole-entry-ready
   fi
-  rm -rf -- /workspace/.deleted/*
   exit 0
 fi
 

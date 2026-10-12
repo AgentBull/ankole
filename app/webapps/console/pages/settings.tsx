@@ -158,11 +158,6 @@ function SettingsList() {
     <ResourceListPage
       title={t('console.settings.title')}
       description={t('console.settings.description')}
-      subNav={
-        <Link className="link text-sm" to="/settings/worker-providers">
-          {t('console.worker_providers.title')}
-        </Link>
-      }
       columns={[
         t('console.settings.key'),
         t('console.settings.kind'),

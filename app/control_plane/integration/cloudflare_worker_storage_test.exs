@@ -7,11 +7,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
   alias Ankole.Principals
   alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Cloudflare,
-    Config,
-    Providers
-  }
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Cloudflare, Config, Providers}
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap

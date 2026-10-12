@@ -24,10 +24,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
   @impl true
-  def run(job), do: Ankole.Repo.across_tenants(fn -> sweep(job) end)
+  def run(job), do: sweep(job)
 
   defp sweep(%Oban.Job{args: args}) do
-    Repo.all(
+    rows(
       from w in AgentWorker,
         where: w.state == "deleting" and is_nil(w.provider_id),
         select: w
@@ -43,13 +43,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
 
         {:error, _reason} ->
           # Reconciliation writes this provider's failure to each affected row.
-          Repo.all(from w in AgentWorker, where: w.provider_id == ^row.provider_id, select: w)
+          rows(from w in AgentWorker, where: w.provider_id == ^row.provider_id, select: w)
           |> Enum.each(&ReconcileJob.enqueue/1)
       end
     end)
 
     :ok
   end
+
+  # Only the inventory read crosses tenants. Enqueueing binds each selected
+  # row's tenant, and provider I/O runs with no query bypass in force.
+  defp rows(query), do: Repo.across_tenants(fn -> Repo.all(query) end)
 
   defp candidates(provider) do
     idle =
@@ -88,7 +92,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
           (w.state == "ready" and (is_nil(p.uid) or p.status != :active or ^idle))
       )
 
-    Repo.all(
+    rows(
       from w in AgentWorker,
         left_join: p in Principal,
         on: p.uid == w.agent_uid,
@@ -104,7 +108,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
     case kind.list_instances(provider, :all) do
       {:ok, objects} ->
         rows =
-          Repo.all(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
+          rows(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
           |> Map.new(&{&1.agent_uid, &1})
 
         lifetime = kind.definition().max_instance_lifetime
@@ -153,11 +157,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
   defp delete_orphan(provider, kind, object) do
     owner =
       object.agent_uid &&
-        Repo.one(
-          from w in AgentWorker,
-            where: w.agent_uid == ^object.agent_uid and w.provider_id == ^provider.provider_id,
-            select: w
+        from(w in AgentWorker,
+          where: w.agent_uid == ^object.agent_uid and w.provider_id == ^provider.provider_id,
+          select: w
         )
+        |> rows()
+        |> List.first()
 
     result =
       if owner,

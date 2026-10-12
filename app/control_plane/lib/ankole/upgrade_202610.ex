@@ -14,7 +14,7 @@ defmodule Ankole.Upgrade202610 do
   import Ecto.Query
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.{AppConfig, Cache, Crypto, Registry}
+  alias Ankole.AppConfigure.{AppConfig, SiteConfig, Cache, Crypto, Registry}
   alias Ankole.Repo
   alias Ankole.SignalsGateway.{Binding, Bindings}
   alias Ankole.Tenants.Tenant
@@ -81,7 +81,7 @@ defmodule Ankole.Upgrade202610 do
     case Repo.transact(fn repo ->
            rows =
              repo.all(
-               from config in AppConfig,
+               from config in SiteConfig,
                  where:
                    config.scope == "global" and fragment("?->>'type' = 'cipher'", config.value) and
                      (like(config.key, "principals.identity_providers.%") or
@@ -114,14 +114,19 @@ defmodule Ankole.Upgrade202610 do
     with {:ok, value} <- Crypto.unseal(cipher, "global", row.key),
          {:ok, resealed} <- Crypto.seal(value, scope, row.key),
          {:ok, _} <-
-           repo.insert(
-             AppConfig.changeset(%AppConfig{tenant_id: tenant.id}, %{
-               scope: scope,
-               key: row.key,
-               value: %{"type" => "cipher", "value" => resealed}
-             })
-           ) do
-      repo.delete_all(from old in AppConfig, where: old.scope == "global" and old.key == ^row.key)
+           Repo.with_tenant(tenant.id, fn ->
+             repo.insert(
+               AppConfig.changeset(%AppConfig{tenant_id: tenant.id}, %{
+                 scope: scope,
+                 key: row.key,
+                 value: %{"type" => "cipher", "value" => resealed}
+               })
+             )
+           end) do
+      repo.delete_all(
+        from old in SiteConfig, where: old.scope == "global" and old.key == ^row.key
+      )
+
       :ok
     end
   end
@@ -138,21 +143,22 @@ defmodule Ankole.Upgrade202610 do
         Enum.flat_map(specs, & &1.app_config_patterns)
       )
 
-    Repo.across_tenants(fn ->
-      Binding
-      |> where([binding], binding.adapter in ["slack", "teams"])
-      |> Repo.all()
-      |> Enum.filter(fn binding ->
-        binding.config_ref ==
-          "app-config://#{config_module(binding).chat_config_key(binding.name)}"
+    # Only discovery crosses tenants. Each binding write runs in its tenant.
+    bindings =
+      Repo.across_tenants(fn ->
+        Repo.all(from binding in Binding, where: binding.adapter in ["slack", "teams"])
       end)
-      |> Enum.group_by(& &1.config_ref)
-      |> Enum.each(fn {"app-config://" <> old_key, bindings} ->
-        case Repo.transact(fn repo -> migrate_shared_key(repo, old_key, bindings) end) do
-          {:ok, :ok} -> :ok
-          {:error, reason} -> raise "binding configuration migration failed: #{inspect(reason)}"
-        end
-      end)
+
+    bindings
+    |> Enum.filter(fn binding ->
+      binding.config_ref == "app-config://#{config_module(binding).chat_config_key(binding.name)}"
+    end)
+    |> Enum.group_by(& &1.config_ref)
+    |> Enum.each(fn {"app-config://" <> old_key, bindings} ->
+      case Repo.transact(fn repo -> migrate_shared_key(repo, old_key, bindings) end) do
+        {:ok, :ok} -> :ok
+        {:error, reason} -> raise "binding configuration migration failed: #{inspect(reason)}"
+      end
     end)
 
     backfill_application_identities(specs)
@@ -163,9 +169,14 @@ defmodule Ankole.Upgrade202610 do
          :ok <- migrate_bindings(repo, bindings, config) do
       old_ref = "app-config://#{old_key}"
 
-      unless repo.exists?(from binding in Binding, where: binding.config_ref == ^old_ref) do
+      remaining? =
+        Repo.across_tenants(fn ->
+          repo.exists?(from binding in Binding, where: binding.config_ref == ^old_ref)
+        end)
+
+      unless remaining? do
         repo.delete_all(
-          from row in AppConfig, where: row.scope == "global" and row.key == ^old_key
+          from row in SiteConfig, where: row.scope == "global" and row.key == ^old_key
         )
       end
 
@@ -257,7 +268,10 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp backfill_identity(tenant_id, scope, key, module, source) do
-    row = Repo.get_by(AppConfig, scope: scope, key: key)
+    row =
+      Repo.with_tenant(tenant_id, fn ->
+        Repo.get_by(AppConfig.for_scope(scope), scope: scope, key: key)
+      end)
 
     if row && not Map.has_key?(row.value, "platform_application") do
       result =
@@ -280,9 +294,11 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp record_identity_in_tx(repo, row, config, application) do
+    schema = AppConfig.for_scope(row.scope)
+
     locked =
       repo.one(
-        from config in AppConfig,
+        from config in schema,
           where: config.scope == ^row.scope and config.key == ^row.key,
           lock: "FOR UPDATE"
       )

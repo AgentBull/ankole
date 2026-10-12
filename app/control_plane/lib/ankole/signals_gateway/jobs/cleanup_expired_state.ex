@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.Jobs.CleanupExpiredState do
 
   @impl Ankole.Job
   @spec perform(Oban.Job.t()) :: :ok
-  def run(_job), do: Ankole.Repo.across_tenants(fn -> do_perform() end)
+  def run(_job), do: Ankole.Tenants.map_all(&do_perform/0) |> Ankole.Tenants.fanout_result()
 
   defp do_perform do
     # Counts are intentionally discarded; the job is for the side effect, and

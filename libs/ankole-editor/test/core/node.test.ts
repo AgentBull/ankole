@@ -1,7 +1,7 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { Plot, Leaf, Node } from '../../src/core/doc'
-import { Paragraph, Image } from '../../src/core/types'
+import { Paragraph, Image } from '../../src/core/types/schema'
 import { basicSchema as schema, basicBuilders, tag, eq } from './schema'
 const { doc, blockquote, p, h1, li, ul, hr, em, strong, code, $img, $a } = basicBuilders
 

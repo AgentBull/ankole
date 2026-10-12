@@ -229,28 +229,33 @@ A checkback contains these model-visible fields:
 `context_summary` accepts 8,000 characters.
 
 `quiet_success` defaults to `false`.
-Scheduled turns use the `scheduled_turn_result` structured response format.
-A visible result is `{"outcome":"reply","reply":"message text"}`. When
-`quiet_success` is `true`, a turn can instead return
-`{"outcome":"silent_success","reply":null}`. Failures, changed state, or a
-need for human action still require a visible reply.
+Scheduled turns finish through the `finish_scheduled(outcome, reply)` tool.
+A visible result uses `outcome: "reply"` and a nonempty reply string. When
+`quiet_success` is true, a successful check without a useful update can use
+`outcome: "silent_success"` and a null reply. Failures, changed state, or a
+need for human action require a visible reply. Ordinary turns do not expose
+this termination tool.
 
-The control-plane conversation loop permits one format correction with tools
-disabled. It validates the result and silent-success permission before it commits
-delivery. An invalid result, including an empty result, ends the turn as a
-dead letter. The same transaction stores its failure reason and Response
-anchor, ends the applied input prefix, releases the turn, and queues the
-standard failure notice for the current reply owner. Unapplied instructions
-stay queued. Repeated completion requests return the same rejection without
-another notice. Lease expiry cannot run the failed task again; completed tool
-results stay in the transcript.
+The tool validates the arguments and silent-success permission. An invalid
+call returns a normal tool error, so the model can correct it in its tool loop.
+An accepted result ends the turn. Its outcome and visible text are recorded
+with the tool journal in Conversations' typed round state; recovery reads that
+result without executing the termination tool again. Scheduled turns do not
+use a JSON response format or a separate format-repair round.
+
+A turn that ends with nonempty ordinary text and no accepted termination result
+completes as a visible reply. Silent success still requires an accepted
+`finish_scheduled` call. A turn with neither result becomes a dead letter.
+The same transaction stores its failure reason and Response anchor, ends the
+applied input prefix, releases the turn, and queues the standard failure notice
+for the current reply owner. Unapplied instructions stay queued. Repeated
+completion requests return the same rejection without another notice. Lease
+expiry cannot run the failed task again; recorded tool results stay in the tape.
 
 Raw scheduled model text is never streamed to a channel, including after a
-preview owner changes. Only the validated `reply` field enters the final
-outbox. Clarify and attachment tools keep their existing delivery contracts.
-
-Text markers have no control meaning. The structured response instructions
-override old task text that requests a marker.
+preview owner changes. The accepted tool reply or the completed ordinary text
+enters the final outbox. Clarify and attachment tools keep their existing delivery contracts.
+Text markers have no control meaning.
 
 Updating a pending checkback changes the same row in place, so `checkback_id`
 does not change. When the due time changes, Schedule moves the Oban job. A row

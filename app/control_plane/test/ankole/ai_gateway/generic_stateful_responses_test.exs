@@ -1,4 +1,7 @@
 defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
+  alias Ankole.AIGateway.ToolResultJournal
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.DataCase, async: true
 
   import Ecto.Query, warn: false
@@ -10,7 +13,6 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
 
   test "run recovery reads model output, recorded calls, without the live Response (G3)" do
@@ -29,7 +31,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       })
 
     {:ok, completed} =
-      StatefulResponses.commit_complete(response, [
+      ResponseCommit.commit_complete(response, [
         %{
           "type" => "function_call",
           "call_id" => "c1",
@@ -71,7 +73,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
     assert {:ok, :failed} = AIGateway.reconcile_orphaned_response(live.id, force: true)
     assert Repo.get!(Message, live.id).status == "error"
-    assert {:ok, :already_terminal} = StatefulResponses.commit_complete(live, [])
+    assert {:ok, :already_terminal} = ResponseCommit.commit_complete(live, [])
   end
 
   test "caller metadata round-trips without colliding with response facts" do
@@ -106,12 +108,12 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert response_id == "resp_#{response.id}"
 
     {:ok, completed} =
-      StatefulResponses.commit_complete(response, [], %{
+      ResponseCommit.commit_complete(response, [], %{
         "usage" => %{"input_tokens" => 9},
         "provider_model" => "provider-model"
       })
 
-    assert StatefulResponses.response_metadata(completed) == caller_metadata
+    assert ResponseChain.response_metadata(completed) == caller_metadata
 
     assert_receive {:ai_gateway_event, :response_completed,
                     %{response_id: ^response_id, metadata: ^caller_metadata}}
@@ -131,7 +133,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       })
 
     {:ok, completed} =
-      StatefulResponses.commit_complete(response, [
+      ResponseCommit.commit_complete(response, [
         %{
           "type" => "function_call",
           "call_id" => "call_1",
@@ -156,10 +158,10 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       })
 
     assert journal.previous_message_id == completed.id
-    assert StatefulResponses.response_metadata(journal) == %{"request" => "two"}
+    assert ResponseChain.response_metadata(journal) == %{"request" => "two"}
 
     assert {:ok, [final, parent]} =
-             StatefulResponses.list_response_chain(subject.uid, "resp_#{journal.id}")
+             ResponseChain.list_response_chain(subject.uid, "resp_#{journal.id}")
 
     assert final.id == journal.id
     assert parent.id == completed.id
@@ -227,7 +229,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
         conversation_id: conversation.id
       })
 
-    {:ok, anchor} = StatefulResponses.commit_complete(anchor, [])
+    {:ok, anchor} = ResponseCommit.commit_complete(anchor, [])
 
     {:ok, child} =
       start_response_run(%{
@@ -264,7 +266,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
         conversation_id: conversation.id
       })
 
-    {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
+    {:ok, predecessor} = ResponseCommit.commit_complete(predecessor, [])
 
     {:ok, first} =
       start_response_run(%{
@@ -272,7 +274,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
         previous_response_id: "resp_#{predecessor.id}"
       })
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [])
+    {:ok, first} = ResponseCommit.commit_complete(first, [])
 
     {:ok, second} =
       start_response_run(%{
@@ -280,7 +282,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
         previous_response_id: "resp_#{first.id}"
       })
 
-    {:ok, second} = StatefulResponses.commit_complete(second, [])
+    {:ok, second} = ResponseCommit.commit_complete(second, [])
     retracted_at = DateTime.utc_now(:microsecond)
 
     assert {:ok,
@@ -309,7 +311,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       assert stored.metadata["retraction"]["retracted_at"] == DateTime.to_iso8601(retracted_at)
     end
 
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == predecessor.id
+    assert ResponseChain.latest_visible_leaf(conversation.id) == predecessor.id
   end
 
   test "facade publishes a generic terminal event after an in-transaction failure" do
@@ -350,15 +352,89 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     assert response_id == "resp_#{response.id}"
   end
 
+  test "heartbeat replaces only upstream progress and terminal failures keep it" do
+    %{principal: subject} = human_fixture()
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "stream-progress")
+    caller = %{"tag" => "kept", "upstream_progress" => "caller-owned"}
+
+    {:ok, response} =
+      start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id,
+        metadata: %{
+          "request_metadata" => caller,
+          "provider_model" => "kept-model",
+          "upstream_progress" => %{"event_count" => 0}
+        }
+      })
+
+    progress = %{"attempt" => 2, "event_count" => 3, "last_event_at" => "2026-10-12T00:00:00Z"}
+
+    assert :ok =
+             ResponseCommit.record_upstream_progress(
+               subject.uid,
+               "resp_#{response.id}",
+               progress
+             )
+
+    recorded = Repo.get!(Message, response.id)
+    assert recorded.updated_at == response.updated_at
+    assert recorded.metadata["upstream_progress"] == progress
+    assert recorded.metadata["request_metadata"] == caller
+    assert recorded.metadata["provider_model"] == "kept-model"
+
+    assert {:ok, touched} =
+             ResponseCommit.touch_generating_response(
+               subject.uid,
+               "resp_#{response.id}",
+               progress
+             )
+
+    assert touched.status == "generating"
+    assert touched.metadata["upstream_progress"] == progress
+    assert touched.metadata["request_metadata"] == caller
+    assert touched.metadata["provider_model"] == "kept-model"
+
+    assert {:ok, failed} =
+             Repo.transact(fn repo ->
+               ResponseCommit.fail_generating_response_in_tx(
+                 repo,
+                 subject.uid,
+                 "resp_#{response.id}",
+                 %{"code" => "cancelled"},
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    assert failed.metadata["upstream_progress"] == progress
+    assert failed.metadata["request_metadata"] == caller
+
+    assert {:error, :not_found} =
+             ResponseCommit.record_upstream_progress(
+               subject.uid,
+               "resp_#{response.id}",
+               %{"event_count" => 99}
+             )
+
+    assert {:ok, :already_terminal} =
+             ResponseCommit.touch_generating_response(
+               subject.uid,
+               "resp_#{response.id}",
+               %{"event_count" => 99}
+             )
+
+    assert Repo.get!(Message, response.id).metadata["upstream_progress"] == progress
+  end
+
   defp record_tool_results(attrs) do
     {:ok, result} =
       Ankole.Repo.transact(fn repo ->
-        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+        {:ok, ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
       end)
 
     case result do
       {:ok, message, _disposition} ->
-        StatefulResponses.publish_tool_result_events(message)
+        ToolResultJournal.publish_tool_result_events(message)
         {:ok, message}
 
       error ->

@@ -1,9 +1,9 @@
 defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
 
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -161,7 +161,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
       content = assistant_content("final answer")
 
-      assert {:ok, completed} = StatefulResponses.commit_complete(message, content)
+      assert {:ok, completed} = ResponseCommit.commit_complete(message, content)
       assert completed.status == "complete"
       assert_turn_completed(turn_ref, completed)
 
@@ -206,7 +206,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       |> Repo.update!()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(
+               ResponseCommit.commit_complete(
                  message,
                  assistant_content("我已修正配置并重新提交任务。")
                )
@@ -233,7 +233,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       |> Repo.update!()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("edited final"))
+               ResponseCommit.commit_complete(message, assistant_content("edited final"))
 
       assert_turn_completed(turn_ref, completed)
 
@@ -314,7 +314,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                })
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("final with plan"))
+               ResponseCommit.commit_complete(message, assistant_content("final with plan"))
 
       assert_turn_completed(turn_ref, completed)
 
@@ -536,7 +536,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("fast final"))
+               ResponseCommit.commit_complete(message, assistant_content("fast final"))
 
       preview_source_entry_id = "provider-preview-late"
 
@@ -618,7 +618,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("recovered final"))
+               ResponseCommit.commit_complete(message, assistant_content("recovered final"))
 
       assert [{existing_preview_pid, _value}] =
                AIReplyPreview.lookup(event.id)
@@ -691,7 +691,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("retryable final"))
+               ResponseCommit.commit_complete(message, assistant_content("retryable final"))
 
       preview_source_entry_id = "provider-preview-after-timeout"
 
@@ -786,7 +786,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       |> Repo.update!()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("fallback final"))
+               ResponseCommit.commit_complete(message, assistant_content("fallback final"))
 
       assert_turn_completed(turn_ref, completed)
 
@@ -836,7 +836,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
-               StatefulResponses.commit_complete(message, assistant_content("scheduled final"))
+               ResponseCommit.commit_complete(message, assistant_content("scheduled final"))
 
       assert_turn_completed(turn_ref, completed)
 
@@ -916,7 +916,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     assert {:ok, _} =
              Run.finalize(
                %{turn_ref | anchor: message.id, model_response: message},
-               "loop_finished"
+               :loop_finished
              )
   end
 

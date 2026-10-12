@@ -13,24 +13,6 @@ defmodule AnkoleWeb.WorkerProviderController do
   security([%{"consoleSession" => []}])
   plug OpenApiSpex.Plug.CastAndValidate, render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
-  # The tags of the platform errors that provider kinds return from `check/1`.
-  @platform_apis %{
-    docker_api: "Docker Engine",
-    kubernetes_api: "The Kubernetes API",
-    cloudflare_adapter: "The Cloudflare adapter",
-    vercel_api: "The Vercel API",
-    lambda_api: "The AWS Lambda API",
-    function_compute_api: "The Function Compute API"
-  }
-  @platform_connections %{
-    docker_unreachable: "Docker Engine",
-    kubernetes_request: "The Kubernetes API",
-    cloudflare_adapter_unreachable: "The Cloudflare adapter",
-    vercel_unreachable: "The Vercel API",
-    lambda_unreachable: "The AWS Lambda API",
-    function_compute_unreachable: "The Function Compute API"
-  }
-
   operation(:index,
     summary: "List Worker providers",
     responses: [
@@ -205,117 +187,12 @@ defmodule AnkoleWeb.WorkerProviderController do
     do:
       ConsoleErrors.render(conn, 409, "agent_uid_pending_deletion", "This Agent is being deleted")
 
-  defp error(conn, {:invalid_worker_provider_config, errors}),
-    do: invalid(conn, "Worker provider YAML is invalid", errors)
-
-  defp error(conn, %Ecto.Changeset{} = changeset),
-    do: invalid(conn, "Worker provider is invalid", ConsoleErrors.changeset_details(changeset))
-
-  defp error(conn, {:invalid_worker_provider_credential, name}),
-    do:
-      invalid(conn, "A required credential is missing", [
-        %{path: "credentials.#{name}", message: "is required"}
-      ])
-
-  defp error(conn, {:invalid_worker_provider_credentials, message}),
-    do: invalid(conn, "The credentials are invalid", [%{path: "credentials", message: message}])
-
-  defp error(conn, :lambda_credentials_unavailable),
-    do:
-      invalid(conn, "The control plane has no AWS credentials", [
-        %{
-          path: "credentials",
-          message:
-            "enter accessKeyId and secretAccessKey, or give AWS credentials to the control plane"
-        }
-      ])
-
-  defp error(conn, {:worker_provider_credential_unreadable, name}),
-    do:
-      invalid(conn, "A stored credential cannot be decrypted", [
-        %{path: "credentials.#{name}", message: "cannot decrypt this credential"}
-      ])
-
-  defp error(conn, {:unknown_worker_provider_credentials, names}),
-    do:
-      invalid(
-        conn,
-        "Unknown credential fields",
-        Enum.map(
-          names,
-          &%{path: "credentials.#{&1}", message: "is not declared by this provider kind"}
-        )
-      )
-
-  defp error(conn, :worker_provider_cluster_immutable),
-    do:
-      invalid(conn, "The Kubernetes cluster cannot change after creation", [
-        %{
-          path: "credentials.kubeconfig",
-          message:
-            "keep the cluster address and CA; a provider cannot change between in-cluster and remote access"
-        }
-      ])
-
-  defp error(conn, :invalid_worker_provider_kubeconfig),
-    do:
-      invalid(conn, "The kubeconfig has no valid current context", [
-        %{
-          path: "credentials.kubeconfig",
-          message: "must name a valid cluster and current context"
-        }
-      ])
-
-  defp error(conn, :worker_provider_ca_unreadable),
-    do:
-      invalid(conn, "The kubeconfig CA file cannot be read", [
-        %{path: "credentials.kubeconfig", message: "use readable certificate-authority data"}
-      ])
-
-  defp error(conn, :unknown_worker_provider_kind),
-    do:
-      invalid(conn, "Unknown Worker provider kind", [%{path: "kind", message: "is not supported"}])
-
-  defp error(conn, :worker_runtime_not_configured),
-    do: invalid(conn, "The Worker image and RuntimeFabric startup configuration are required")
-
-  defp error(conn, {:missing, key}),
-    do:
-      invalid(conn, "A required field is missing", [
-        %{path: to_string(key), message: "is required"}
-      ])
-
-  defp error(conn, {:kubernetes_permission_denied, verb, resource, reason}),
-    do: invalid(conn, "Kubernetes denied #{verb} on #{resource}" <> suffix(": ", reason, ""))
-
-  defp error(conn, {:kubernetes_credentials, message}),
-    do: invalid(conn, "The Kubernetes credentials cannot be loaded: #{message}")
-
-  # Lambda gives an AWS error code in place of a message.
-  defp error(conn, {platform, status, message}) when is_map_key(@platform_apis, platform),
-    do: error(conn, {platform, status, nil, message})
-
-  defp error(conn, {platform, status, code, message}) when is_map_key(@platform_apis, platform),
-    do:
-      invalid(
-        conn,
-        "#{@platform_apis[platform]} returned HTTP #{status}" <>
-          suffix(" (", code, ")") <> suffix(": ", message, "")
-      )
-
-  defp error(conn, {platform, %_{} = reason}) when is_map_key(@platform_connections, platform),
-    do:
-      invalid(
-        conn,
-        "#{@platform_connections[platform]} is unreachable: #{Exception.message(reason)}"
-      )
-
   defp error(conn, reason),
-    do: ConsoleErrors.unexpected(conn, "worker_provider.api_failed", reason)
+    do: render_provider_error(conn, Providers.Errors.describe(reason), reason)
 
-  defp invalid(conn, message, details \\ []),
+  defp render_provider_error(conn, {:invalid, message, details}, _reason),
     do: ConsoleErrors.render(conn, 422, "invalid_worker_provider", message, details)
 
-  defp suffix(_before, value, _after) when value in [nil, ""], do: ""
-  defp suffix(before, value, after_value), do: "#{before}#{value}#{after_value}"
+  defp render_provider_error(conn, :unknown, reason),
+    do: ConsoleErrors.unexpected(conn, "worker_provider.api_failed", reason)
 end

@@ -38,16 +38,18 @@ defmodule Ankole.FilesFixtures do
   end
 
   @doc """
-  Asserts that an adapter stored an inbound attachment once and named it in
-  the Agent's drive at `inbox/<digest prefix>/<file name>`.
+  Asserts that an inbound attachment names its stored bytes in the Agent's
+  drive at `chats/<channel>/inbox/<digest prefix>/<file name>`.
   """
-  def assert_stored_attachment!(agent_uid, attachment, content, file_name) do
+  def assert_stored_attachment!(agent_uid, channel_id, attachment, content, file_name) do
     blob_ref = Base.encode16(:crypto.hash(:sha256, content), case: :lower)
-    path = "inbox/#{String.slice(blob_ref, 0, 16)}/#{file_name}"
+    path = Files.chat_path(channel_id, Files.content_path("inbox", blob_ref, file_name))
 
     assert %{"blob_ref" => ^blob_ref, "path" => ^path} = attachment
     assert attachment["size"] == byte_size(content)
     assert {:ok, ^content} = Files.read_content(blob_ref)
-    assert {:ok, %{source: "inbound"}} = Files.fetch(agent_uid, path)
+
+    assert {:ok, %{source: "inbound", signal_channel_id: ^channel_id}, ^content} =
+             Files.read(agent_uid, path)
   end
 end

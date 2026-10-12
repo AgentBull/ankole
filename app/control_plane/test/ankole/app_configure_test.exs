@@ -78,7 +78,7 @@ defmodule Ankole.AppConfigureTest do
     assert {:ok, %{"enabled" => true, "limit" => 3}} =
              AppConfigure.put_global(definition, %{"enabled" => true, "limit" => 3})
 
-    assert %AppConfig{value: %{"type" => "plaintext", "value" => %{"limit" => 3}}} =
+    assert %{value: %{"type" => "plaintext", "value" => %{"limit" => 3}}} =
              get_row!("global", definition.key)
 
     assert {:ok, %{"enabled" => true, "limit" => 3}} = AppConfigure.get(definition)
@@ -181,7 +181,7 @@ defmodule Ankole.AppConfigureTest do
     assert :miss = Cache.lookup("global", definition.key)
     assert {:ok, %{"committed" => true}} = AppConfigure.get(definition)
 
-    %AppConfig{value: committed_envelope} = get_row!("global", definition.key)
+    %{value: committed_envelope} = get_row!("global", definition.key)
     assert {:ok, {:row, ^committed_envelope}} = Cache.lookup("global", definition.key)
   end
 
@@ -298,7 +298,7 @@ defmodule Ankole.AppConfigureTest do
              end)
 
     Repo.delete_all(
-      from(row in AppConfig,
+      from(row in Ankole.AppConfigure.SiteConfig,
         where: row.scope == "global" and row.key == ^definition.key
       )
     )
@@ -352,7 +352,9 @@ defmodule Ankole.AppConfigureTest do
              AppConfigure.resolve(definition)
   end
 
-  test "Agent overrides retain encrypted values and stay within their tenant", %{prefix: prefix} do
+  test "Agent overrides and warm caches retain encrypted values within their tenant", %{
+    prefix: prefix
+  } do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
     definition =
@@ -377,8 +379,18 @@ defmodule Ankole.AppConfigureTest do
     assert row.value["type"] == "cipher"
 
     other = create_tenant()
+    foreign_id = other.id
+    agent_scope = "agent:" <> agent.uid
+    config_key = definition.key
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "app_configure:cache")
 
     Repo.with_tenant(other.id, fn ->
+      assert :miss = Cache.lookup(agent_scope, config_key)
+      assert {:ok, :absent} = Cache.load(agent_scope, config_key)
+      assert {:ok, :absent} = Cache.refresh(agent_scope, config_key)
+      assert {:ok, :absent} = Cache.lookup(agent_scope, config_key)
+      assert_receive {:invalidate, ^agent_scope, ^config_key, ^foreign_id}
+
       assert {:error, :agent_not_found} = AppConfigure.resolve(definition, agent_id: agent.uid)
 
       assert {:error, :agent_not_found} =
@@ -386,6 +398,12 @@ defmodule Ankole.AppConfigureTest do
 
       assert {:error, :agent_not_found} = AppConfigure.delete_for_agent(agent.uid, definition)
     end)
+
+    assert {:ok, {:row, envelope}} = Cache.lookup(agent_scope, config_key)
+    assert envelope == row.value
+
+    assert {:ok, %{value: "agent", source: :agent}} =
+             AppConfigure.resolve(definition, agent_id: agent.uid)
 
     Cache.clear_for_test()
 
@@ -459,7 +477,7 @@ defmodule Ankole.AppConfigureTest do
     assert {:ok, %{"apiKey" => "secret-api-key"}} =
              AppConfigure.put_global(definition, %{"apiKey" => "secret-api-key"})
 
-    assert %AppConfig{value: %{"type" => "cipher", "value" => ciphertext}} =
+    assert %{value: %{"type" => "cipher", "value" => ciphertext}} =
              get_row!("global", definition.key)
 
     assert is_binary(ciphertext)
@@ -563,12 +581,13 @@ defmodule Ankole.AppConfigureTest do
              Ecto.Adapters.SQL.query(
                Repo,
                """
-               INSERT INTO app_configurations (scope, key, value, inserted_at, updated_at)
-               VALUES ($1, $2, jsonb_build_object('type', 'plaintext', 'value', 'bad'), now(), now())
+               INSERT INTO app_configurations (scope, key, value, tenant_id, inserted_at, updated_at)
+               VALUES ($1, $2, jsonb_build_object('type', 'plaintext', 'value', 'bad'), $3::uuid, now(), now())
                """,
                [
                  "agent:",
-                 key(prefix, "empty-agent-scope")
+                 key(prefix, "empty-agent-scope"),
+                 Ecto.UUID.dump!(Repo.tenant_id!())
                ]
              )
   end
@@ -588,25 +607,40 @@ defmodule Ankole.AppConfigureTest do
     assert :error = AppConfigure.get(definition)
 
     refute Repo.exists?(
-             from(row in AppConfig, where: row.scope == "global" and row.key == ^definition.key)
+             from(row in Ankole.AppConfigure.SiteConfig,
+               where: row.scope == "global" and row.key == ^definition.key
+             )
            )
   end
 
   defp key(prefix, name), do: prefix <> "." <> name
 
   defp get_row!(scope, key) do
-    Repo.one!(from(row in AppConfig, where: row.scope == ^scope and row.key == ^key))
+    Repo.one!(
+      from(row in AppConfig.for_scope(scope), where: row.scope == ^scope and row.key == ^key)
+    )
   end
 
   defp insert_row!(scope, key, value) do
-    %AppConfig{tenant_id: if(scope == "global", do: nil, else: Repo.tenant_id!())}
-    |> AppConfig.changeset(%{scope: scope, key: key, value: value})
+    schema = AppConfig.for_scope(scope)
+
+    row =
+      if scope == "global",
+        do: struct!(schema),
+        else: struct!(schema, tenant_id: Repo.tenant_id!())
+
+    row
+    |> schema.changeset(%{scope: scope, key: key, value: value})
     |> Repo.insert!()
   end
 
   defp delete_unboxed_global_row(key) do
     Sandbox.unboxed_run(Repo, fn ->
-      Repo.delete_all(from(row in AppConfig, where: row.scope == "global" and row.key == ^key))
+      Repo.delete_all(
+        from(row in Ankole.AppConfigure.SiteConfig,
+          where: row.scope == "global" and row.key == ^key
+        )
+      )
     end)
   end
 
@@ -623,7 +657,7 @@ defmodule Ankole.AppConfigureTest do
         handler_id,
         event,
         fn _event, _measurements, metadata, {reader, test_pid} ->
-          if self() == reader and metadata.source == "app_configurations" do
+          if self() == reader and metadata.source == "site_app_configurations" do
             send(test_pid, {:app_configure_row_read, reader})
 
             receive do

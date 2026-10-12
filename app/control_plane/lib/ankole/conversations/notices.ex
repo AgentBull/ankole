@@ -210,7 +210,7 @@ defmodule Ankole.Conversations.Notices do
   # before closing its input and writing the notice.
   defp complete_without_turn(actor_event, _now, status, fields, commit_notice) do
     Repo.transact(fn repo ->
-      with {:ok, result} <- Run.reject_input_in_tx(repo, actor_event, "stopped", status) do
+      with {:ok, result} <- Run.reject_input_in_tx(repo, actor_event, :stopped, status) do
         if result.status == :completed do
           notice_result = maybe_commit_notice(repo, result.reply_event, commit_notice)
 

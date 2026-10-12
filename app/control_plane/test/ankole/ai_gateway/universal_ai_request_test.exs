@@ -112,6 +112,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
 
   test "start_stream returns before ready and assigns the selected receiver" do
     {:ok, url, server} = start_blocked_sse_server()
+    on_exit(fn -> Process.exit(server, :kill) end)
     test_pid = self()
     receiver = spawn_link(fn -> forward_stream_messages(test_pid) end)
 
@@ -129,6 +130,8 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     refute Map.has_key?(meta, "downstream_kind")
 
     assert :ok = Ankole.Kernel.UniversalAIClient.cancel(stream)
+    assert_receive {:stream_message, {:universal_ai_client, ^ref, :aborted}}, 1_000
+    send(server, :stop)
     send(receiver, :stop)
   end
 
@@ -222,19 +225,19 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
 
         receive do
           :release_response ->
-            body = "data: [DONE]\n\n"
-
             :ok =
               :gen_tcp.send(socket, [
                 "HTTP/1.1 200 OK\r\n",
                 "content-type: text/event-stream\r\n",
-                "content-length: #{byte_size(body)}\r\n",
-                "\r\n",
-                body
+                "transfer-encoding: chunked\r\n",
+                "\r\n"
               ])
 
-            :gen_tcp.close(socket)
-            :gen_tcp.close(listen_socket)
+            receive do
+              :stop ->
+                :gen_tcp.close(socket)
+                :gen_tcp.close(listen_socket)
+            end
         end
       end)
 

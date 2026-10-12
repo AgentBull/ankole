@@ -1,4 +1,6 @@
 defmodule Ankole.Conversations.Commands do
+  alias Ankole.AIGateway.CompactionRequests
+
   @moduledoc """
   Applies conversation commands through their existing domain owners.
 
@@ -9,15 +11,11 @@ defmodule Ankole.Conversations.Commands do
   import Ecto.Query
   alias Ankole.{AIGateway, I18n, Repo, SignalsGateway}
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.SignalsGateway.InputRevisions
   alias Ankole.Conversations.{Fence, Run}
   alias Ankole.SignalsGateway.{ActorEvent, Actors, AIGatewayLink, AIReplyPreview, Entry}
 
-  alias Ankole.SignalsGateway.ActorRuntime.{
-    EntryLifecycle,
-    ReplyDeletion,
-    SessionReset,
-    TurnRetry
-  }
+  alias Ankole.SignalsGateway.ActorRuntime.{EntryLifecycle, ReplyDeletion, SessionReset}
 
   @spec route(ActorEvent.t()) :: :run | :control
   def route(%{type: "command.steer", last_attempt_at: %DateTime{}}), do: :run
@@ -207,7 +205,7 @@ defmodule Ankole.Conversations.Commands do
   end
 
   defp stop_and_process(run, event) do
-    with {:ok, %{reply_event: reply_event}} <- Run.finalize(run, "stopped") do
+    with {:ok, %{reply_event: reply_event}} <- Run.finalize(run, :stopped) do
       settle_stopped_preview(reply_event, event)
       if route(event) == :run, do: {:ok, :restart}, else: process(run, event)
     end
@@ -308,7 +306,7 @@ defmodule Ankole.Conversations.Commands do
         process_command_feedback(event, "Nothing to compress.", DateTime.utc_now(:microsecond))
 
       conversation ->
-        case Ankole.AIGateway.Compaction.compact_conversation(key.agent_uid, conversation.id, %{
+        case CompactionRequests.compact_conversation(key.agent_uid, conversation.id, %{
                "metadata" => %{"actor_event_id" => event.id}
              }) do
           {:ok, %{compaction: compaction}} ->
@@ -463,7 +461,7 @@ defmodule Ankole.Conversations.Commands do
   defp append_actor_event_retry(repo, command_event, source, outbox_intents, now) do
     payload =
       source.payload
-      |> TurnRetry.put_retry_metadata(source.id, "command.retry", %{})
+      |> InputRevisions.put_retry_metadata(source.id, "command.retry", %{})
       |> Map.put("id", "retry:#{command_event.id}")
       |> Map.put("time", DateTime.to_iso8601(now))
 

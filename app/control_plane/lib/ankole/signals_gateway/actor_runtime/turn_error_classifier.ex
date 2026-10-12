@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier do
   @moduledoc false
 
   # Conversation and Codex retry owners share the meaning of a failure.
-  # Each owner keeps its own budget and waiting strategy.
+  # The retry policy preserves the distinct Job and conversation waiting budgets.
 
   @infrastructure_error_codes ~w(
     background_agent_job_runtime_exception
@@ -30,7 +30,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier do
   """
   @spec classify(map()) :: class()
   def classify(reason) when is_map(reason) do
-    if infrastructure_error?(reason, details(reason)), do: :infrastructure, else: :execution
+    code = Ankole.AIGateway.FailureDiagnostics.classify(reason)[:error_code]
+    if code in @infrastructure_error_codes, do: :infrastructure, else: :execution
   end
 
   @doc "Reads the retryable conclusion the Worker recorded for one turn failure."
@@ -45,41 +46,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier do
   A missing, unparseable, or already elapsed time returns `nil`, which sends
   the failure back to the owner's ordinary capacity ladder.
   """
-  @spec credential_pool_retry_at(map(), DateTime.t()) :: DateTime.t() | nil
-  def credential_pool_retry_at(reason, %DateTime{} = now) when is_map(reason) do
-    details = details(reason)
+  @spec credential_pool_retry_at(term(), DateTime.t()) :: DateTime.t() | nil
+  def credential_pool_retry_at(reason, %DateTime{} = now) do
+    failure = Ankole.AIGateway.FailureDiagnostics.classify(reason)
 
-    if credential_pool_exhausted?(details) do
-      details
-      |> pool_retry_at()
-      |> parse_future_datetime(now)
+    if failure[:error_code] == @credential_pool_exhausted_code do
+      case failure[:retry_at] do
+        %DateTime{} = time -> if DateTime.compare(time, now) == :gt, do: time
+        _ -> nil
+      end
     end
   end
 
-  def credential_pool_retry_at(_reason, %DateTime{}), do: nil
+  # Job execution retries span an upstream outage; infrastructure interruptions
+  # never consume that failure budget. Conversation retries retain their shorter
+  # interactive policy. Both strategies have this single owner.
+  @job_execution [60, 600, 1_800, 3_600, 7_200]
+  @job_infrastructure [15, 30, 60, 120, 300]
+  @conversation_capacity [30, 120, 300, 750]
+
+  def delay_seconds(:job, attempt, :infrastructure), do: ladder(@job_infrastructure, attempt)
+  def delay_seconds(:job, attempt, _class), do: ladder(@job_execution, attempt)
+
+  def delay_seconds(:conversation, attempt, :provider_capacity),
+    do: ladder(@conversation_capacity, attempt)
+
+  def delay_seconds(:conversation, attempt, _class),
+    do: min(5 * Integer.pow(2, min(max(attempt - 1, 0), 5)), 120)
+
+  defp ladder(values, attempt), do: Enum.at(values, min(max(attempt - 1, 0), length(values) - 1))
 
   defp details(%{"details_json" => details}) when is_map(details), do: details
   defp details(_reason), do: %{}
-
-  defp infrastructure_error?(reason, details) do
-    reason["code"] in @infrastructure_error_codes or
-      details["error_code"] in @infrastructure_error_codes
-  end
-
-  defp credential_pool_exhausted?(details),
-    do: details["error_code"] == @credential_pool_exhausted_code
-
-  defp pool_retry_at(details), do: details["retry_at"]
-
-  defp parse_future_datetime(retry_at, now) when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, parsed, _offset} ->
-        if DateTime.compare(parsed, now) == :gt, do: parsed
-
-      _error ->
-        nil
-    end
-  end
-
-  defp parse_future_datetime(_retry_at, _now), do: nil
 end

@@ -817,10 +817,14 @@ fails; retain the test database until cleanup is complete.
   S3 build bucket, build IAM role, EFS root, VPC connector, and NAT access.
   The check builds provider images, creates MicroVMs and EFS directories,
   exercises suspend/resume, and deletes its Agents through the coordinator.
-  Check the account's ARM64 memory quota first. The flow needs room for three
-  instances at the configured size, including storage deletion helpers:
-  at least 12 GiB with the default 4 GiB size. A completed helper can retain
-  its allocation until its one-hour platform limit.
+  Read the account's applied ARM64 memory quota with `GetServiceQuota` before
+  the flow starts. This flow has two Agents. Each replacement waits for its
+  old Worker to terminate, and a deletion helper replaces its terminated
+  Worker. It needs room for two instances at the configured size:
+  at least 8 GiB with the default 4 GiB size, after other account usage.
+  Supported sizes are 4096 and 8192 MiB. A deletion helper reports success
+  after file removal. The coordinator then requests its deletion. Wait for AWS
+  to report `TERMINATED` before using that allocation for another instance.
   Remove the tagged images, S3 build objects, and supporting cloud resources
   after the instances have terminated. A local Docker check cannot prove this
   cloud path.

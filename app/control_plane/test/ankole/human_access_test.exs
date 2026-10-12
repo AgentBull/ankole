@@ -100,7 +100,7 @@ defmodule Ankole.HumanAccessTest do
              Ankole.PrincipalsFixtures.first_site_admin_fixture(other.uid)
 
     assert {:ok, _} = HumanAccess.recover_admin(other.uid, "test operator", "identity verified")
-    assert Ankole.SiteAdminAuth.active_human_site_admin?(other.uid)
+    assert Ankole.AuthZ.site_admin?(other.uid)
 
     assert {:error, :active_admin_exists} =
              HumanAccess.recover_admin(human.uid, "test operator", "review")

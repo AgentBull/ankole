@@ -214,10 +214,17 @@ defmodule Ankole.Brain.Config do
   def model_provider_references(repo, provider_id) do
     rows =
       repo.all(
-        Ecto.Query.from(row in Ankole.AppConfigure.AppConfig,
+        Ecto.Query.from(row in Ankole.AppConfigure.SiteConfig,
           where: row.key in ^[@embedding_model_key, @rerank_model_key]
         )
-      )
+      ) ++
+        Ankole.Repo.across_tenants(fn ->
+          repo.all(
+            Ecto.Query.from(row in Ankole.AppConfigure.AppConfig,
+              where: row.key in ^[@embedding_model_key, @rerank_model_key]
+            )
+          )
+        end)
 
     Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, refs} ->
       with {:ok, definition} <- Ankole.AppConfigure.Registry.require_key(row.key),

@@ -5,12 +5,7 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
   alias Ankole.Principals
   alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Config,
-    ProviderKind,
-    Providers,
-    Vercel
-  }
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, ProviderKind, Providers, Vercel}
 
   alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel.Client
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker

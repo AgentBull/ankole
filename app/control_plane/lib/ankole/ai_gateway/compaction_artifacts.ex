@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway.CompactionArtifacts do
+  alias Ankole.AIGateway.ResponseChain
+
   @moduledoc """
   Canonical storage and replay seam for AIGateway compaction artifacts.
 
@@ -15,6 +17,21 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   alias Ankole.Principals
   alias Ankole.Repo
 
+  alias Ankole.AIGateway.{CompactionSummarizer}
+  alias Ankole.AIGateway.HostedTools.Brain
+
+  import Ankole.AIGateway.CompactionHistory,
+    only: [
+      raw_history: 3,
+      messages_to_items: 1,
+      provider_neutral_tail_items: 1,
+      input_items: 1,
+      items_token_estimate: 1
+    ]
+
+  import Ankole.AIGateway.CompactionPolicy,
+    only: [checkpoint_budget_tokens: 1, user_message_budget_tokens: 0]
+
   @handle_prefix "ankole:compact:v1:"
 
   @type artifact_attrs :: %{
@@ -28,6 +45,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           optional(:retained_items) => [map()],
           optional(:retained_user_originals) => [map()],
           optional(:opaque_prefix) => [map()],
+          optional(:brain_context_pack) => [map()],
           optional(:retention) => map(),
           optional(:usage) => map()
         }
@@ -105,6 +123,11 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     do: output
 
   def output(_artifact), do: []
+
+  @doc "Returns the items that replace a checkpoint in model history."
+  @spec replay_items(map()) :: [map()]
+  def replay_items(%{"output" => output} = content) when is_list(output),
+    do: Map.get(content, "brain_context_pack", []) ++ output
 
   @spec version(CompactionArtifact.t()) :: 2 | 3 | nil
   def version(%CompactionArtifact{content: %{"version" => version}}) when version in [2, 3],
@@ -287,7 +310,8 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
            "binding" => binding,
            "output" => output,
            "usage" => response_usage(Map.get(attrs, :usage, %{}))
-         }}
+         }
+         |> put_brain_context_pack(attrs)}
     end
   end
 
@@ -327,7 +351,14 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
             do: content,
             else: Map.put(content, "opaque_prefix", opaque_prefix)
 
-        {:ok, content}
+        {:ok, put_brain_context_pack(content, attrs)}
+    end
+  end
+
+  defp put_brain_context_pack(content, attrs) do
+    case Map.get(attrs, :brain_context_pack, []) do
+      [] -> content
+      pack -> Map.put(content, "brain_context_pack", pack)
     end
   end
 
@@ -403,4 +434,141 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   defp unix_timestamp(%DateTime{} = datetime), do: DateTime.to_unix(datetime)
   defp unix_timestamp(_datetime), do: System.system_time(:second)
+
+  def checkpoint_pack(subject_uid, conversation_id, request, input, history) do
+    case ResponseChain.get_conversation_for_subject(subject_uid, conversation_id) do
+      {:ok, conversation} ->
+        Brain.checkpoint_context_pack(subject_uid, conversation, request, input, fn ->
+          conversation_id |> source_chain(history, request) |> messages_to_items()
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  # A checkpoint row is derived context. Its source chain keeps the user text
+  # through consecutive compactions.
+  defp source_chain(conversation_id, history, request) do
+    if Enum.any?(history, &(&1.type == "checkpoint")),
+      do: raw_history(conversation_id, history, request),
+      else: history
+  end
+
+  def upstream_artifact_attrs(subject_uid, conversation_id, upstream) do
+    %{
+      subject_uid: subject_uid,
+      conversation_id: conversation_id,
+      source: :upstream,
+      binding: upstream.binding,
+      output: upstream.output,
+      usage: upstream.usage
+    }
+  end
+
+  def create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary) do
+    insert_artifact(
+      artifact_attrs_for_candidate(subject_uid, conversation_id, candidate, summary)
+    )
+  end
+
+  def artifact_attrs_for_candidate(subject_uid, conversation_id, candidate, summary) do
+    %{
+      subject_uid: subject_uid,
+      conversation_id: conversation_id,
+      summary_text: summary.text,
+      brain_context_pack: candidate.brain_context_pack,
+      retained_items:
+        candidate.retained_client_tool_search ++
+          provider_neutral_tail_items(candidate.retained_tail),
+      # The replayed originals may end with a still-unanswered clarify
+      # call/output pair; "user_message_count" counts only user messages.
+      retained_user_originals:
+        candidate.retained_user_originals ++ candidate.retained_pending_clarify,
+      retention: %{
+        "strategy" => "tail_rows",
+        "requested" => candidate.tail_rows_requested,
+        "actual" => length(candidate.retained_tail),
+        "user_budget_tokens" => user_message_budget_tokens(),
+        "user_message_count" => length(candidate.retained_user_originals)
+      },
+      usage: summary.usage
+    }
+  end
+
+  def compaction_metadata(summary, candidate, total_tokens, flags) do
+    %{
+      "summarizer" => %{
+        "model" => summary.model,
+        "selector" => CompactionSummarizer.profile(),
+        "usage" => summary.usage,
+        "truncated" => summary.truncated
+      },
+      "history_usage_tokens_before" => total_tokens,
+      "covered_message_count" => length(candidate.prefix)
+    }
+    |> Map.merge(flags)
+  end
+
+  def request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
+  def request_metadata(_request), do: %{}
+
+  # A checkpoint replays Provider items it kept verbatim, so it records its
+  # issuer like any other stored message. The replay recovery is the one
+  # checkpoint without an issuer, because it keeps no Provider state at all.
+  def checkpoint_metadata(request, internal_metadata, issuer) do
+    internal_metadata
+    |> Map.put("request_metadata", request_metadata(request))
+    |> put_issuer(issuer)
+  end
+
+  def put_issuer(metadata, issuer) when is_binary(issuer),
+    do: Map.put(metadata, "issuer", issuer)
+
+  def put_issuer(metadata, _issuer), do: metadata
+
+  def issuer_of(%{runtime: runtime}) when is_map(runtime), do: Map.get(runtime, "provider_id")
+  def issuer_of(_context), do: nil
+
+  def checkpoint_within_budget(candidate, summary, current_input, threshold) do
+    checkpoint_items =
+      candidate.brain_context_pack ++
+        candidate.opaque_prefix ++
+        candidate.retained_user_originals ++
+        candidate.retained_pending_clarify ++
+        [compaction_summary_item(summary.text)] ++
+        candidate.retained_client_tool_search ++
+        provider_neutral_tail_items(candidate.retained_tail) ++ input_items(current_input)
+
+    checkpoint_items_within_budget(checkpoint_items, threshold)
+  end
+
+  def checkpoint_items_within_budget(checkpoint_items, threshold) do
+    if items_token_estimate(checkpoint_items) <= checkpoint_budget_tokens(threshold) do
+      :ok
+    else
+      {:error, :compaction_output_over_budget}
+    end
+  end
+
+  def compaction_summary_item(summary_text) do
+    %{
+      "type" => "compaction",
+      "encrypted_content" => summary_text,
+      "created_by" => "ankole-aigateway"
+    }
+  end
+
+  def with_upstream_pack(
+        %{source: :upstream, output: output} = attrs,
+        pack,
+        current_input,
+        threshold
+      ) do
+    checkpoint_items = pack ++ output ++ input_items(current_input)
+
+    with :ok <- checkpoint_items_within_budget(checkpoint_items, threshold) do
+      {:ok, Map.put(attrs, :brain_context_pack, pack)}
+    end
+  end
 end

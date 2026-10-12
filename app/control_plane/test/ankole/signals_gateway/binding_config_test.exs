@@ -5,7 +5,7 @@ defmodule Ankole.SignalsGateway.BindingConfigTest do
   import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.{AppConfig, Crypto}
+  alias Ankole.AppConfigure.{SiteConfig, Crypto}
   alias Ankole.Plugins.EmailAdapter.Outbox, as: EmailOutbox
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.SignalsGateway.{Bindings, OutboxEntry}
@@ -68,7 +68,7 @@ defmodule Ankole.SignalsGateway.BindingConfigTest do
     # A damaged encrypted row is distinct from an absent configuration row.
     assert {:ok, ciphertext} = Crypto.seal(%{"channelId" => "invalid"}, "global", key)
 
-    Repo.insert!(%AppConfig{
+    Repo.insert!(%SiteConfig{
       scope: "global",
       key: key,
       value: %{"type" => "cipher", "value" => ciphertext}

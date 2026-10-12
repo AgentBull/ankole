@@ -966,6 +966,8 @@ schedules = "Schedules"
 webhooks = "Webhooks"
 
 [console.conversations]
+model_profile = "モデルプロファイル"
+model = "モデル"
 checkpoint_badge = "チェックポイント"
 search = "主体 UID・名前・session key で検索"
 title = "Conversations"

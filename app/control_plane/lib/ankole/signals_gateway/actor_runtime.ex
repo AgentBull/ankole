@@ -15,7 +15,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   Renews the Worker row from an authenticated heartbeat.
   """
   @spec handle_worker_heartbeat(
-          FabricProto.AgentComputerWorkerHeartbeat.t(),
+          FabricProto.WorkerHeartbeat.t(),
           WorkerAdmission.auth()
         ) ::
           {:ok, AgentWorker.t()} | {:error, term()}

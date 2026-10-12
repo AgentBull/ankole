@@ -19,7 +19,7 @@ defmodule Ankole.Conversations.MachineTest do
     call = %{"type" => "function_call", "name" => "command", "call_id" => "c1"}
     run = %{run("", [call]) | iteration: 3}
     assert {:request, next} = Machine.next(run)
-    assert next.outcome == "iteration_exhausted"
+    assert next.outcome == :iteration_exhausted
     assert next.tools == [] and next.hosted_tools == []
     assert hd(next.input)["content"] |> hd() |> Map.fetch!("text") =~ "max_model_iterations=3"
 
@@ -70,11 +70,53 @@ defmodule Ankole.Conversations.MachineTest do
     refute Run.truncated?(truncated(run("partial", [])).model_response)
   end
 
+  test "the Driver executes client calls and leaves hosted Brain calls to AIGateway" do
+    brain = %{
+      "type" => "brain_call",
+      "call_id" => "brain-1",
+      "operation" => "remember",
+      "arguments" => %{"claim" => "The test number is 742284."},
+      "status" => "completed"
+    }
+
+    output = %{
+      "type" => "brain_output",
+      "call_id" => "brain-1",
+      "status" => "completed",
+      "output" => %{"inserted" => true}
+    }
+
+    function = %{
+      "type" => "function_call",
+      "call_id" => "command-1",
+      "name" => "command",
+      "arguments" => "{}",
+      "status" => "completed"
+    }
+
+    custom = %{
+      "type" => "custom_tool_call",
+      "call_id" => "custom-1",
+      "name" => "custom",
+      "input" => "test input",
+      "status" => "completed"
+    }
+
+    assert Run.executable_calls(response("Remembered", [brain, output, function, custom])) ==
+             [function, custom]
+
+    assert Run.executable_calls(response("Remembered", [brain, output])) == []
+    assert Run.executable_calls(response("", [brain])) == []
+
+    completed = run("Remembered", [brain, output])
+    assert {:finalize, _} = Machine.next(%{completed | round_calls: []})
+  end
+
   test "a Workflow task reports failure at the iteration cap and after a second truncation (G4)" do
     call = %{"type" => "function_call", "name" => "web_search", "call_id" => "c1"}
     run = %{run("", [call]) | kind: :workflow_task, iteration: 3}
     assert {:request, next} = Machine.next(run)
-    assert next.outcome == "iteration_exhausted"
+    assert next.outcome == :iteration_exhausted
 
     assert {:workflow_failure, _, %{"code" => "schema_noncompliance", "retryable" => false}} =
              Machine.next(%{
@@ -107,18 +149,20 @@ defmodule Ankole.Conversations.MachineTest do
     assert {:finalize, _} = Machine.next(%{repaired | input: []})
   end
 
-  test "scheduled output has strict shape and one repair without redoing tools (G4)" do
-    for invalid <- [
-          "<silent_success/>",
-          "raw text",
-          ~s({"outcome":"reply","reply":" "}),
-          ~s({"outcome":"reply","reply":"hi","extra":true})
-        ] do
-      run = %{run(invalid, []) | kind: :scheduled}
-      assert {:request, repaired} = Machine.next(run)
-      assert repaired.repaired and repaired.tools == [] and repaired.hosted_tools == []
-      assert {:finalize, _} = Machine.next(%{repaired | input: []})
-    end
+  test "scheduled ordinary text completes as a visible reply" do
+    run = %{run("TICK", []) | kind: :scheduled}
+    assert {:finalize, finished} = Machine.next(run)
+    refute finished.repaired
+
+    assert {:ok, %{final_text: "TICK"}} =
+             Ankole.Conversations.Scheduled.project_completion(finished, %{final_text: "TICK"})
+  end
+
+  test "scheduled empty text cannot complete as silent success without its tool" do
+    run = %{run("", []) | kind: :scheduled}
+
+    assert {:error, :scheduled_turn_not_finished} =
+             Ankole.Conversations.Scheduled.project_completion(run, %{final_text: "  "})
   end
 
   test "a repeated failure warning compares semantic input and excludes volatile keys (G4)" do
@@ -136,6 +180,11 @@ defmodule Ankole.Conversations.MachineTest do
 
     assert hd(second.follow_ups)["content"] |> hd() |> Map.fetch!("text") =~
              "repeated_tool_failure"
+
+    warning = hd(second.follow_ups)["content"] |> hd() |> Map.fetch!("text")
+    assert warning =~ "computer is unavailable"
+    assert warning =~ "explain the blocker without another computer call"
+    refute warning =~ "Do not switch to text-only replies"
 
     assert Machine.failure(second, call, Tools.result(%{})).repeated_failure == nil
   end

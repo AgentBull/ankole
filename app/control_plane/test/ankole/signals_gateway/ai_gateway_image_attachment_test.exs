@@ -1,4 +1,5 @@
 defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -7,7 +8,6 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.Artifacts
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Files
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -65,7 +65,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     end
 
     assert {:ok, response} =
-             StatefulResponses.commit_complete(
+             ResponseCommit.commit_complete(
                response,
                Enum.map(images, &image_item(elem(&1, 0)))
              )
@@ -132,7 +132,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
         metadata: %{"request_metadata" => %{"actor_event_id" => actor_event_id}}
       })
 
-    assert {:ok, response} = StatefulResponses.commit_complete(response, [image_item(id)])
+    assert {:ok, response} = ResponseCommit.commit_complete(response, [image_item(id)])
 
     assert {:error, {:generated_image_artifact_unavailable, ^id, %{code: "not_found"}}} =
              AIGatewayLink.load_turn_completion(
@@ -169,7 +169,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
                message_id: response.id
              )
 
-    assert {:ok, response} = StatefulResponses.commit_complete(response, [image_item(id)])
+    assert {:ok, response} = ResponseCommit.commit_complete(response, [image_item(id)])
 
     root = Application.fetch_env!(:ankole, Ankole.ObjectStore)[:spec].root
     for dir <- [root, Path.join(root, ".tmp")], do: File.chmod!(dir, 0o500)

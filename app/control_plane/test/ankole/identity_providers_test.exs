@@ -2,7 +2,7 @@ defmodule Ankole.IdentityProvidersTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
@@ -40,7 +40,7 @@ defmodule Ankole.IdentityProvidersTest do
     :ok = AppConfigure.delete_global(PluginConfig.enabled_ids_definition())
     now = DateTime.utc_now(:second)
 
-    Repo.insert!(%AppConfig{
+    Repo.insert!(%SiteConfig{
       scope: "global",
       key: "plugins.enabled_ids",
       value: %{"type" => "plaintext", "value" => "invalid"},
@@ -82,7 +82,7 @@ defmodule Ankole.IdentityProvidersTest do
     assert {:error, {:local_provider_exists, "local-main"}} =
              IdentityProviders.save_provider("local-2", "local", %{}, true)
 
-    refute Repo.get_by(AppConfig,
+    refute Repo.get_by(SiteConfig,
              scope: "global",
              key: "principals.identity_providers.local.local-2"
            )

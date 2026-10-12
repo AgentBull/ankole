@@ -188,36 +188,40 @@ defmodule Ankole.SignalsGateway.ActorEvent do
 
   @doc false
   @spec input_source_entry_ids(t()) :: [String.t()]
-  def input_source_entry_ids(%__MODULE__{
-        type: "input.revised",
-        payload: %{"data" => %{"revision" => %{"kind" => "remove"}}}
-      }),
-      do: []
+  def input_source_entry_ids(%__MODULE__{} = event),
+    do: entry_ids(event, [event.source_entry_id | payload_input_source_entry_ids(event.payload)])
 
-  def input_source_entry_ids(%__MODULE__{} = event) do
-    [event.source_entry_id | payload_input_source_entry_ids(event.payload)]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
+  @doc false
+  @spec source_entry_ids(t()) :: [String.t()]
+  def source_entry_ids(%__MODULE__{} = event),
+    do: entry_ids(event, [event.source_entry_id | payload_source_entry_ids(event.payload)])
+
+  @doc false
+  @spec withdrawal_source_entry_ids(t()) :: [String.t()]
+  def withdrawal_source_entry_ids(%__MODULE__{} = event),
+    do:
+      entry_ids(
+        event,
+        [event.source_entry_id | payload_source_entry_ids(event.payload)] ++
+          resolved_reply_entry_ids(event.payload)
+      )
+
+  defp entry_ids(
+         %__MODULE__{
+           type: "input.revised",
+           payload: %{"data" => %{"revision" => %{"kind" => "remove"}}}
+         },
+         _ids
+       ),
+       do: []
+
+  defp entry_ids(_event, ids),
+    do: ids |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq()
 
   defp payload_input_source_entry_ids(%{"data" => data}) when is_map(data),
     do: source_entry_ids_from_messages(data["entries"])
 
   defp payload_input_source_entry_ids(_payload), do: []
-
-  @doc false
-  @spec source_entry_ids(t()) :: [String.t()]
-  def source_entry_ids(%__MODULE__{
-        type: "input.revised",
-        payload: %{"data" => %{"revision" => %{"kind" => "remove"}}}
-      }),
-      do: []
-
-  def source_entry_ids(%__MODULE__{} = event) do
-    [event.source_entry_id | payload_source_entry_ids(event.payload)]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
 
   defp payload_source_entry_ids(%{"data" => data}) when is_map(data) do
     [Map.get(data, "entries"), get_in(data, ["channel_context", "messages"])]
@@ -225,6 +229,15 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   end
 
   defp payload_source_entry_ids(_payload), do: []
+
+  defp resolved_reply_entry_ids(%{
+         "data" => %{
+           "entry" => %{"reply_to" => %{"resolution" => "resolved", "source_entry_id" => id}}
+         }
+       }),
+       do: [id]
+
+  defp resolved_reply_entry_ids(_payload), do: []
 
   defp source_entry_ids_from_messages(entries) when is_list(entries) do
     Enum.map(entries, fn

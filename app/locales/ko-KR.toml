@@ -967,6 +967,8 @@ schedules = "일정"
 webhooks = "Webhooks"
 
 [console.conversations]
+model_profile = "모델 프로필"
+model = "모델"
 checkpoint_badge = "체크포인트"
 search = "주제 UID, 이름 또는 세션 키로 검색"
 title = "대화"

@@ -211,6 +211,7 @@ defmodule Ankole.Conversations.ToolsTest do
         Ankole.AIGatewayCase.start_response_run(%{
           subject_uid: run.agent_uid,
           conversation_id: run.conversation.id,
+          round_state: run,
           metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
         })
 
@@ -740,6 +741,7 @@ defmodule Ankole.Conversations.ToolsTest do
       Ankole.AIGatewayCase.start_response_run(%{
         subject_uid: task.agent_uid,
         conversation_id: task.conversation.id,
+        round_state: task,
         metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(task)}
       })
 

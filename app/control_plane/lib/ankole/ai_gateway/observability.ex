@@ -495,7 +495,7 @@ defmodule Ankole.AIGateway.Observability do
   defp response_body(reason), do: %{"status" => "failed", "error" => error_map(reason)}
 
   defp error_map(reason) do
-    classification = FailureDiagnostics.classify(reason)
+    classification = FailureDiagnostics.log_fields(reason)
 
     details =
       classification

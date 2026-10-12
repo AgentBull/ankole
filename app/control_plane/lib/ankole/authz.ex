@@ -703,6 +703,8 @@ defmodule Ankole.AuthZ do
     Snapshot.build_authorization_batch_snapshot(principal_uid, resource, actions, context)
   end
 
+  defdelegate site_admin?(uid), to: Root
+
   @doc false
   @spec root_init_admin(String.t(), term()) :: {:ok, map()} | {:error, term()}
   def root_init_admin(principal_uid, repo) do

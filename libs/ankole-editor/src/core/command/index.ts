@@ -59,15 +59,7 @@ export {
 
 // Commands that act on the document's block structure.
 
-export {
-  setTextblockType,
-  unwrapBlock,
-  wrapBlock,
-  toggleBlock,
-  setAlignment,
-  setDirection,
-  toggleList
-} from './commands'
+export { setAlignment, setDirection } from './commands'
 
 // ### Inline Mark Commands
 
@@ -79,25 +71,4 @@ export { toggleMark, toggleEmphasis, toggleStrong, toggleUnderline } from './com
 
 // Functions that may be useful when implementing your own commands.
 
-export { listIsActive } from './commands'
-export {
-  liftEmptyBlock,
-  splitTextblock,
-  enterInCode,
-  deleteSelection,
-  deleteBackward,
-  deleteForward,
-  deleteEmptyPlot,
-  joinBackward,
-  joinListItems,
-  joinForward,
-  joinBlocks,
-  selectedTextblocks,
-  clearNonFitting,
-  findWrappable,
-  wrapBlockRange,
-  findUnwrappable,
-  doUnwrapBlock,
-  canAddMarkInRange,
-  autoJoinBlocks
-} from './helper'
+export { deleteSelection, selectedTextblocks } from './helper'

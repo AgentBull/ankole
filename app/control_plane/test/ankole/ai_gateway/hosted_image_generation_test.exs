@@ -1,4 +1,5 @@
 defmodule Ankole.AIGateway.HostedImageGenerationTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.AIGatewayCase
 
   import ExUnit.CaptureLog
@@ -9,7 +10,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
 
   @png_base64 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
@@ -286,7 +286,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert request.upstream.url == "wss://compatible.test/v1/responses"
     assert request.response_context.stream == true
     assert request.response_context.provider_options["service_tier"] == "fast"
-    refute Map.has_key?(request.response_context.request, "metadata")
+
+    assert request.response_context.request["metadata"] == %{
+             "actor_event_id" => "hosted-websocket-event"
+           }
 
     assert request.hosted_tools.public_request["metadata"] == %{
              "actor_event_id" => "hosted-websocket-event"
@@ -1225,7 +1228,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
       "revised_prompt" => "a quiet lake"
     }
 
-    assert {:ok, _message} = StatefulResponses.commit_complete(message, [stored_image])
+    assert {:ok, _message} = ResponseCommit.commit_complete(message, [stored_image])
 
     assert {:ok, prepared, _stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{

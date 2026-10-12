@@ -6,6 +6,7 @@ defmodule Ankole.Conversations.Tools.Session do
                 {
                   "type": "function",
                   "name": "todo",
+                  "receipt": "none",
                   "description": "Manage your task list for the current session. Use for complex tasks with 3+ steps or when the user provides multiple tasks.\nList order is priority. Only ONE item in_progress at a time.\nMark items completed immediately when done. If something fails, cancel it and add a revised item.\nAlways returns the full current list.",
                   "parameters": {
                     "type": "object",
@@ -62,6 +63,9 @@ defmodule Ankole.Conversations.Tools.Session do
                 {
                   "type": "function",
                   "name": "clarify",
+                  "activity": "clarify",
+                  "receipt": "none",
+                  "visible_delivery": true,
                   "description": "Ask the user one question only when the answer is necessary to choose the intended result or next action.\nUse the request and prior conversation before asking. Do not ask about a preference the user already gave or when a safe low-risk default is available.\nFor post-task feedback, ask only when the answer will decide whether to accept, revise, or continue the work.\nOn success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.",
                   "parameters": {
                     "type": "object",
@@ -122,6 +126,7 @@ defmodule Ankole.Conversations.Tools.Session do
                 {
                   "type": "function",
                   "name": "set_channel_standing_orders",
+                  "activity": "standing_orders_update",
                   "description": "Replace the standing orders of the current channel: a short durable policy for when you should proactively speak here without being addressed (for example \"only speak up when CI turns red\" or \"post a daily summary at 18:00\").\nUse this tool when a channel member tells you how to behave in this channel going forward. Any member may set or clear them; the platform records who asked.\nStanding orders drive behavior only where the channel binding allows ambient intervention (group message mode \"may intervene\"); the tool result reports whether they are active.\nThe current standing orders, when present, appear in your conversation context. Writing is a full replacement: to amend, submit the complete new text.\nAfter a confirmed save, summarize the stored orders in your visible reply.",
                   "parameters": {
                     "type": "object",
@@ -179,6 +184,14 @@ defmodule Ankole.Conversations.Tools.Session do
                 """)
   @impl true
   def declarations, do: @declarations
+  @impl true
+  def declarations(run),
+    do:
+      Enum.reject(
+        @declarations,
+        &(&1["name"] in ["set_channel_standing_orders", "read_channel_history"] and
+            is_nil(run.event.signal_channel_id))
+      )
 
   alias Ankole.Conversations.{Run, Tools}
 

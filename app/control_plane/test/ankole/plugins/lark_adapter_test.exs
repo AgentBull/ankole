@@ -36,7 +36,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.TokenStore
 
-  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 4]
+  import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import ExUnit.CaptureLog
 
@@ -2061,6 +2061,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert_stored_attachment!(
         agent.uid,
+        "lark:oc_group",
         attachment,
         "attachment",
         "Alpha九宫格因子分域_研究方案.md"
@@ -2109,7 +2110,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         assert entry.text == "Use this template"
         assert [attachment] = entry.attachments
         assert attachment["name"] == @post_filename
-        assert_stored_attachment!(agent.uid, attachment, "attachment bytes", @post_filename)
+
+        assert_stored_attachment!(
+          agent.uid,
+          "lark:oc_group",
+          attachment,
+          "attachment bytes",
+          @post_filename
+        )
+
         assert Repo.aggregate(ActorEvent, :count) == 0
       end
     end

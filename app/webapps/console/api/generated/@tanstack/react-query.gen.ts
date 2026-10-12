@@ -10,7 +10,6 @@ import {
 
 import { client } from '../client.gen'
 import {
-  ankoleWebAgentComputerWorkerControllerIndex,
   ankoleWebAgentControllerCreate,
   ankoleWebAgentControllerDelete,
   ankoleWebAgentControllerDeleteModelProfile,
@@ -42,6 +41,7 @@ import {
   ankoleWebAgentSkillLessonControllerCreate,
   ankoleWebAgentSkillLessonControllerIndex,
   ankoleWebAgentSkillLessonControllerRetire,
+  ankoleWebAgentWorkerControllerIndex,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
   ankoleWebAiGatewayControllerRerank,
@@ -221,9 +221,6 @@ import {
   type Options
 } from '../sdk.gen'
 import type {
-  AnkoleWebAgentComputerWorkerControllerIndexData,
-  AnkoleWebAgentComputerWorkerControllerIndexError,
-  AnkoleWebAgentComputerWorkerControllerIndexResponse,
   AnkoleWebAgentControllerCreateData,
   AnkoleWebAgentControllerCreateError,
   AnkoleWebAgentControllerCreateResponse,
@@ -317,6 +314,9 @@ import type {
   AnkoleWebAgentSkillLessonControllerRetireData,
   AnkoleWebAgentSkillLessonControllerRetireError,
   AnkoleWebAgentSkillLessonControllerRetireResponse,
+  AnkoleWebAgentWorkerControllerIndexData,
+  AnkoleWebAgentWorkerControllerIndexError,
+  AnkoleWebAgentWorkerControllerIndexResponse,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsError,
   AnkoleWebAiGatewayControllerEmbeddingsResponse,
@@ -1085,6 +1085,34 @@ export const ankoleWebWorkerProviderControllerUpdateMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAgentWorkerControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAgentWorkerControllerIndexData>
+) => createQueryKey('ankoleWebAgentWorkerControllerIndex', options)
+
+/**
+ * List the Worker of each Agent
+ */
+export const ankoleWebAgentWorkerControllerIndexOptions = (
+  options?: Options<AnkoleWebAgentWorkerControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentWorkerControllerIndexResponse,
+    AnkoleWebAgentWorkerControllerIndexError,
+    AnkoleWebAgentWorkerControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentWorkerControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentWorkerControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentWorkerControllerIndexQueryKey(options)
+  })
 
 /**
  * Delete an AIGateway vision file
@@ -5624,34 +5652,6 @@ export const ankoleWebAgentLibraryControllerIndexOptions = (
       return data
     },
     queryKey: ankoleWebAgentLibraryControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebAgentComputerWorkerControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData>
-) => createQueryKey('ankoleWebAgentComputerWorkerControllerIndex', options)
-
-/**
- * List the Worker of each Agent
- */
-export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
-  options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAgentComputerWorkerControllerIndexResponse,
-    AnkoleWebAgentComputerWorkerControllerIndexError,
-    AnkoleWebAgentComputerWorkerControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentComputerWorkerControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentComputerWorkerControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
   })
 
 /**

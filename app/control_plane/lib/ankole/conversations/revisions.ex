@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.Revisions do
   alias Ankole.Repo
   alias Ankole.Conversations.{Fence, Run, Presentation}
   alias Ankole.SignalsGateway.{ActorEvent, Actors, AIGatewayLink, AIReplyPreview}
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
+  alias Ankole.SignalsGateway.InputRevisions
 
   def immediate?(run, event) do
     revision = get_in(event.payload, ["data", "revision"]) || %{}
@@ -33,7 +33,13 @@ defmodule Ankole.Conversations.Revisions do
            {:ok, {run, _journal}} <- Run.record_pending_in_tx(repo, run),
            {:ok, _} <- retract_suffix(repo, run, now, keep_history?),
            {:ok, updated} <-
-             TurnRetry.revise_event_in_tx(repo, target, revision["kind"], revision["entry"], now) do
+             InputRevisions.revise_event_in_tx(
+               repo,
+               target,
+               revision["kind"],
+               revision["entry"],
+               now
+             ) do
         if updated == :removed and target.id == run.actor_event_id do
           complete_removed_trigger_inputs(repo, run, event, now)
         else

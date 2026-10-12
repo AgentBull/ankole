@@ -1,4 +1,5 @@
 defmodule Ankole.SignalsGateway.ActorRuntimeCase do
+  alias Ankole.AIGateway.ResponseCommit
   @moduledoc false
 
   use ExUnit.CaseTemplate
@@ -13,7 +14,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -214,7 +214,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     # The join carries no load; a Worker reports it in its next heartbeat.
     with {:ok, worker} when load != nil <- admitted do
       ActorRuntime.handle_worker_heartbeat(
-        %FabricProto.AgentComputerWorkerHeartbeat{
+        %FabricProto.WorkerHeartbeat{
           incarnation_id: worker.incarnation_id,
           max_slots: max_slots,
           active_slots: active_slots,
@@ -302,7 +302,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   def turn_proto_ref(%FabricProto.JobTurnRef{} = ref), do: ref
   def turn_proto_ref(%FabricProto.RunRef{} = ref), do: ref
 
-  def commit_turn_completion(%Run{} = run, final_response_id, outcome \\ "loop_finished") do
+  def commit_turn_completion(%Run{} = run, final_response_id, outcome \\ :loop_finished) do
     Ankole.Conversations.Run.finalize(
       %{run | anchor: String.replace_prefix(final_response_id, "resp_", "")},
       outcome
@@ -310,7 +310,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def complete_turn_silent(%Run{} = run, _final_response_id \\ nil),
-    do: Ankole.Conversations.Run.finalize(run, "silent")
+    do: Ankole.Conversations.Run.finalize(run, :silent)
 
   @doc """
   Unwraps one expected body payload from a captured envelope struct.
@@ -671,14 +671,14 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
         }
       ])
 
-    {:ok, committed} = StatefulResponses.commit_complete(run, output_items)
+    {:ok, committed} = ResponseCommit.commit_complete(run, output_items)
 
     if Keyword.get(opts, :wait_for_mirror, false) do
       assert {:ok, %{status: :turn_completed}} =
                commit_turn_completion(
                  turn_ref,
                  "resp_#{committed.id}",
-                 Keyword.get(opts, :outcome, "loop_finished")
+                 Keyword.get(opts, :outcome, :loop_finished)
                )
 
       dispatch_final_reply_outbox!(committed.id)

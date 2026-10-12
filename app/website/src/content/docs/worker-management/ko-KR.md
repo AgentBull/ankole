@@ -44,6 +44,8 @@ Agent 생성 시 provider 선택과 Worker 행을 저장하며 인스턴스는 �
 
 ## Provider와 스토리지
 
+플랫폼 제한, 자격 증명, 네트워크, SQLite 캐시는 [WorkerProvider와 캐시 디스크](../worker-providers/)를 참조하세요. 이전 배포는 [1.0에서 2.0으로 업그레이드](../upgrade-to-2/)를 참조하세요.
+
 | 유형 | 영구 Home | 유휴 시 동작 |
 | --- | --- | --- |
 | Docker | Agent별 로컬 volume | 컨테이너 삭제 |
@@ -59,7 +61,7 @@ Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. Codex
 
 ## 해제, 교체, 삭제
 
-- provider YAML의 `idleReleaseAfter`를 설정합니다. Docker와 Kubernetes 기본값은 `never`, Cloudflare, Vercel, Lambda, Function Compute는 `15m`입니다.
+- provider YAML의 `idleReleaseAfter`를 설정합니다. 6종 모두 기본값은 `15m`이며 `never`도 설정할 수 있습니다.
 - 메모리 중지를 지원하는 provider는 유휴 Worker를 중지합니다. 나머지는 인스턴스를 삭제하고 영구 스토리지와 설정된 캐시 volume을 유지합니다.
 - 이미지나 인스턴스 설정 변경은 유휴 시 교체합니다. 프로토콜 변경은 즉시 교체합니다. 오래된 중지 인스턴스는 작업을 받기 전에 교체합니다.
 - `agent_computer.worker.ready_timeout` 기본값은 600초입니다. 이미 관측한 인스턴스만 재구축하며 결과가 불확실한 생성을 종료로 간주하지 않습니다.

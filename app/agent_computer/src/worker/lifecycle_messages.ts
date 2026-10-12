@@ -1,11 +1,6 @@
 import { ms } from '@agentbull/active-support'
 import { create } from '@bufbuild/protobuf'
-import {
-  AgentComputerWorkerHeartbeatSchema,
-  createEnvelope,
-  envelopeHeader,
-  type Envelope
-} from '../fabric/envelope_proto'
+import { WorkerHeartbeatSchema, createEnvelope, envelopeHeader, type Envelope } from '../fabric/envelope_proto'
 import { errorMessage } from '../common/errors'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { WorkerConfig } from './config'
@@ -42,7 +37,7 @@ export class Slots {
       ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
       body: {
         case: 'workerHeartbeat',
-        value: create(AgentComputerWorkerHeartbeatSchema, {
+        value: create(WorkerHeartbeatSchema, {
           incarnationId: this.config.incarnationID,
           activeSlots: this.count,
           maxSlots: this.config.maxConcurrentSlots,

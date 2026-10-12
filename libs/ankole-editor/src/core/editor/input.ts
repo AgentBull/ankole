@@ -603,9 +603,6 @@ function computeHandlers(state: GardState) {
   return result
 }
 
-// Key codes for modifier keys
-export const modifierCodes = [16, 17, 18, 20, 91, 92, 224, 225]
-
 const dragScrollMargin = 6
 
 export const mouseSelectionStyle = GardState.Facet.define<MakeSelectionStyle>()

@@ -9,8 +9,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::stream::{
-    command_send_error, decode_raw_response_body, decode_response_body, run_stream,
-    send_aborted_once,
+    decode_raw_response_body, decode_response_body, run_stream, send_aborted_once,
 };
 use crate::common::{KernelError, KernelResult, io_runtime};
 use crate::universal_ai_client::{
@@ -23,10 +22,20 @@ pub use crate::universal_ai_client::spec::{
 
 pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkOrigin {
+    Provider,
+    Client,
+}
+
 #[derive(Debug)]
 pub enum StreamEvent {
     Ready(Value),
-    Chunk { seq: u64, bytes: Vec<u8> },
+    Chunk {
+        seq: u64,
+        origin: ChunkOrigin,
+        bytes: Vec<u8>,
+    },
     Done(Value),
     Error(Value),
     Aborted,
@@ -61,9 +70,14 @@ impl StreamHandle {
             return Ok(());
         }
 
-        self.command_tx
-            .try_send(StreamCommand::Demand(count))
-            .map_err(command_send_error)
+        // A completed stream has already sent its terminal event.
+        // Late credit must not replace that event with a read failure.
+        match self.command_tx.try_send(StreamCommand::Demand(count)) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(KernelError::new(
+                "universal AI client command queue is full",
+            )),
+        }
     }
 
     pub fn cancel(&self) -> KernelResult<()> {
@@ -218,6 +232,21 @@ async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_credit_does_not_replace_the_native_terminal() {
+        let (command_tx, command_rx) = mpsc::channel(1);
+        let (abort_handle, _registration) = AbortHandle::new_pair();
+        let stream = StreamHandle {
+            command_tx,
+            abort_handle,
+            sink: Arc::new(|_| panic!("late credit must not send another event")),
+            aborted_sent: Arc::new(AtomicBool::new(false)),
+        };
+
+        drop(command_rx);
+        stream.read(1).unwrap();
+    }
 
     #[tokio::test]
     async fn a_panicking_request_future_delivers_an_error_result() {

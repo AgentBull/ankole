@@ -2475,6 +2475,8 @@ You can send this prompt to Codex, Claude Code, or another Agent that can operat
 
 Use Docker Compose for one host or Kubernetes for an enterprise deployment. Install from source for development and debugging.
 
+The Worker installation name uses 1–20 lowercase letters, digits, or hyphens, with a letter or digit at each end. For example, `e2e-1011b01` is valid. Compose sets it with `ANKOLE_WORKER_INSTALLATION` (default `ankole`); Helm uses `worker.installation`, or the release name when that value is empty. Choose the name before the first start and keep it after installation: Worker resources and persistent Home storage use this name.
+
 <QuickstartTabs
   client:visible
   ariaLabel="Choose a deployment method"

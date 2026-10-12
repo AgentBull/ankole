@@ -7,7 +7,7 @@ defmodule Ankole.Repo do
     otp_app: :ankole,
     adapter: Ecto.Adapters.Postgres
 
-  import Ecto.Query, only: [where: 3]
+  import Ecto.Query, only: [from: 1, from: 2, where: 3, update: 3, dynamic: 2]
 
   @tenant_key {__MODULE__, :tenant}
 
@@ -26,7 +26,7 @@ defmodule Ankole.Repo do
 
     @impl true
     def unquote(operation)(value, opts) do
-      super(scope_write(unquote(operation), value, opts), opts)
+      super(scope_write(unquote(operation), value, opts), scope_conflict(value, opts))
     end
   end
 
@@ -34,13 +34,26 @@ defmodule Ankole.Repo do
 
   @impl true
   def insert_all(schema_or_source, entries, opts) do
-    if is_list(entries) and
-         tenancy({schema_or_source, schema_module(schema_or_source)}) == :tenant do
+    if tenancy({schema_or_source, schema_module(schema_or_source)}) == :tenant do
       tenant = Keyword.get(opts, :tenant, Process.get(@tenant_key))
-      Enum.each(entries, &check_write_tenant!(&1[:tenant_id], tenant, false))
+
+      case {entries, tenant} do
+        {rows, _} when is_list(rows) ->
+          Enum.each(rows, &check_write_tenant!(&1[:tenant_id], tenant, false))
+
+        {_, :all} ->
+          :ok
+
+        {_, nil} ->
+          raise Ankole.TenantContextMissing
+
+        _ ->
+          raise ArgumentError,
+                "tenant batch inserts require explicit rows with validated ownership"
+      end
     end
 
-    super(schema_or_source, entries, opts)
+    super(schema_or_source, entries, scope_conflict(schema_or_source, opts))
   end
 
   @doc "Sets the tenant for a process that serves only that tenant."
@@ -162,6 +175,67 @@ defmodule Ankole.Repo do
   defp check_write_tenant!(_tenant_id, _tenant, _inserting),
     do: raise(ArgumentError, "write tenant does not match the selected tenant")
 
+  # Ecto bypasses prepare_query/3 for the ON CONFLICT UPDATE query. Scope it
+  # explicitly so a global unique key cannot update a row owned by another tenant.
+  defp scope_conflict(%Ecto.Changeset{data: data}, opts), do: scope_conflict(data, opts)
+  defp scope_conflict(%{__struct__: schema}, opts), do: scope_conflict(schema, opts)
+
+  defp scope_conflict(source, opts) do
+    tenant = Keyword.get(opts, :tenant, Process.get(@tenant_key))
+    action = Keyword.get(opts, :on_conflict, :raise)
+
+    if tenancy({source, schema_module(source)}) == :tenant and
+         match?({:id, _}, tenant) and action not in [:raise, :nothing] do
+      query = conflict_query(source, action)
+      check_tenant_updates!(query)
+      Keyword.put(opts, :on_conflict, scope_tenant(query, tenant))
+    else
+      opts
+    end
+  end
+
+  defp conflict_query(_source, %Ecto.Query{} = query), do: query
+
+  defp conflict_query(source, updates) when is_list(updates),
+    do: from(row in source, update: ^updates)
+
+  defp conflict_query(source, {:replace, fields}), do: conflict_replace(source, fields)
+
+  defp conflict_query(source, :replace_all),
+    do: conflict_replace(source, replace_fields(source, []))
+
+  defp conflict_query(source, {:replace_all_except, fields}),
+    do: conflict_replace(source, replace_fields(source, fields))
+
+  defp replace_fields(schema, except) do
+    {fields, _} = schema.__schema__(:updatable_fields)
+    fields -- except
+  end
+
+  defp conflict_replace(source, fields) do
+    updates =
+      for field <- fields -- [:tenant_id] do
+        column =
+          if is_binary(source),
+            do: Atom.to_string(field),
+            else: source.__schema__(:field_source, field) |> to_string()
+
+        {field, dynamic([], fragment("EXCLUDED.?", identifier(^column)))}
+      end
+
+    update(from(row in source), [], set: ^updates)
+  end
+
+  defp check_tenant_updates!(query) do
+    for %{expr: updates} <- query.updates,
+        {_operation, fields} <- updates,
+        {:tenant_id, _value} <- fields do
+      raise ArgumentError, "a tenant row's ownership cannot be updated"
+    end
+
+    :ok
+  end
+
   defp schema_module(source) when is_binary(source), do: nil
   defp schema_module(schema), do: schema
 
@@ -171,7 +245,10 @@ defmodule Ankole.Repo do
     query = %{
       query
       | from: scope_source(query.from, tenant),
-        joins: Enum.map(query.joins, &scope_join(&1, tenant)),
+        joins:
+          query.joins
+          |> Enum.with_index(1)
+          |> Enum.map(fn {join, index} -> scope_join(join, query, tenant, index) end),
         wheres: Enum.map(query.wheres, &scope_expression(&1, tenant)),
         havings: Enum.map(query.havings, &scope_expression(&1, tenant)),
         select: scope_expression(query.select, tenant),
@@ -190,9 +267,15 @@ defmodule Ankole.Repo do
     }
 
     case tenancy(query.from.source) do
-      :site -> check_tenant_joins(query, tenant)
-      :subquery -> check_tenant_joins(query, tenant)
-      :tenant -> scope_tenant(query, tenant)
+      :site ->
+        check_tenant_joins(query, tenant)
+
+      :subquery ->
+        check_tenant_joins(query, tenant)
+
+      :tenant ->
+        if tenant != :all, do: check_tenant_updates!(query)
+        scope_tenant(query, tenant)
     end
   end
 
@@ -253,8 +336,70 @@ defmodule Ankole.Repo do
 
   defp scope_source(expression, _tenant), do: expression
 
-  defp scope_join(join, tenant),
-    do: %{scope_source(join, tenant) | on: scope_expression(join.on, tenant)}
+  # This is the Ecto 3.14.2 adapter boundary. The dependency is pinned in mix.exs;
+  # compound ON parameters and every schema's associations run through the SQL
+  # planner in repo_tenancy_test.exs. An unsupported expression must fail closed.
+  defp scope_join(%Ecto.Query.JoinExpr{on: %Ecto.Query.QueryExpr{}} = join, query, tenant, index) do
+    join = %{scope_source(join, tenant) | on: scope_expression(join.on, tenant)}
+
+    case {join_tenancy(join, query), tenant} do
+      {:tenant, {:id, tenant_id}} ->
+        # Keep the tenant condition in ON so an outer join retains its unmatched root.
+        predicate =
+          from(row in "tenant_scope",
+            where: field(row, :tenant_id) == type(^tenant_id, Ecto.UUID)
+          )
+          |> Map.fetch!(:wheres)
+          |> hd()
+
+        offset = length(join.on.params)
+
+        expr =
+          Macro.prewalk(predicate.expr, fn
+            {:&, meta, [0]} -> {:&, meta, [index]}
+            {:^, meta, [0]} -> {:^, meta, [offset]}
+            node -> node
+          end)
+
+        %{
+          join
+          | on: %{
+              join.on
+              | expr: {:and, [], [join.on.expr, expr]},
+                params: join.on.params ++ predicate.params
+            }
+        }
+
+      _ ->
+        join
+    end
+  end
+
+  defp join_tenancy(%{source: nil, assoc: {parent, name}}, query) do
+    schema = binding_schema(query, parent).__schema__(:association, name).related
+    tenancy({schema.__schema__(:source), schema})
+  end
+
+  defp join_tenancy(%{source: {:fragment, _, [{:raw, source}]}}, %{with_ctes: %{queries: queries}}) do
+    case Enum.find(queries, fn {name, _, _} -> source in [name, ~s("#{name}")] end) do
+      {_, _, %Ecto.Query{from: %{source: nested}}} -> tenancy(nested)
+      _ -> :tenant
+    end
+  end
+
+  defp join_tenancy(join, _query), do: tenancy(join.source)
+
+  defp binding_schema(%{from: %{source: {_, schema}}}, 0), do: schema
+
+  defp binding_schema(query, index) do
+    case Enum.at(query.joins, index - 1) do
+      %{source: {_, schema}} ->
+        schema
+
+      %{source: nil, assoc: {parent, name}} ->
+        binding_schema(query, parent).__schema__(:association, name).related
+    end
+  end
 
   defp scope_expression(%{subqueries: subqueries} = expression, tenant),
     do: %{

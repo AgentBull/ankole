@@ -117,7 +117,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmissionTest do
 
   defp report_capacity(worker, route, available_slots) do
     ActorRuntime.handle_worker_heartbeat(
-      %FabricProto.AgentComputerWorkerHeartbeat{
+      %FabricProto.WorkerHeartbeat{
         incarnation_id: worker.incarnation_id,
         max_slots: 1,
         active_slots: 1 - available_slots,

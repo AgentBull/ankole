@@ -31,6 +31,21 @@ Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离�
 
 ## 使用内置 PostgreSQL 安装
 
+内置 PostgreSQL 只有一个副本，默认没有防止自愿驱逐的配置。生产环境应使用外部
+PostgreSQL。若在 Karpenter 管理的节点上使用内置数据库，可添加 Pod 注解：
+
+```yaml
+postgresql:
+  podAnnotations:
+    karpenter.sh/do-not-disrupt: "true"
+```
+
+该注解阻止 Karpenter 合并节点，并可阻止 drift；它不提供数据库故障转移。
+强制中断和 NodeClaim 上配置的 `terminationGracePeriod` 可以绕过该注解，见
+[Karpenter 驱逐规则](https://karpenter.sh/docs/concepts/disruption/)。
+Chart 不默认添加 PodDisruptionBudget：阻止唯一副本被驱逐的 PDB 会卡住节点升级。
+需要移除注解以维护节点时，先安排数据库停机窗口。
+
 先创建 namespace 和 bootstrap Secret。显式创建 Secret 可以避免首次安装失败后，
 PostgreSQL PVC 保留旧密码，而下一次安装生成了新密码。
 
@@ -291,7 +306,9 @@ owner reference，Chart 管理的共享 PVC 还带有 `helm.sh/resource-policy: 
 存储一起备份。
 
 安装标签（`worker.installation`，为空时是 release 名称）是 Worker Pod、Secret 与
-PVC 的名称和标签的一部分，首次安装后不能修改。标签变了，控制面会为独享 Home 新建
+PVC 的名称和标签的一部分。名称为 1–20 个字符，只接受小写字母、数字和连字符，首尾
+必须是字母或数字。Chart 会转成小写、截到 20 个字符并移除末尾连字符；应选择无需这些
+转换的名称。首次安装后不能修改。标签变了，控制面会为独享 Home 新建
 空的 PVC，也看不到正在运行的 Worker，可能再启动一个写同一份 Home 的 Worker。用另一个
 release 名称安装 Chart 时，把 `worker.installation` 设为原来的标签。
 
@@ -306,9 +323,21 @@ ConfigMap `<fullname>-agent-workers` 只拥有 Worker Pod、契约 Secret 和缓
 内置 PostgreSQL StatefulSet 在删除或缩容后保留 PVC。请单独备份数据库：
 
 ```sh
+backup_path="ankole-$(date +%Y%m%d).dump"
 kubectl -n ankole exec statefulset/ankole-postgresql -- \
-  pg_dump -U ankole -d ankole -Fc > "ankole-$(date +%Y%m%d).dump"
+  pg_dump -U ankole -d ankole -Fc > "$backup_path.partial" || exit 1
+pg_restore -l "$backup_path.partial" > "$backup_path.list" || exit 1
+mv "$backup_path.partial" "$backup_path"
 ```
+
+检查每条命令的退出码。文件非空不能证明备份成功。导出或归档检查失败时，上面的命令
+保留 `.partial` 文件；只有两条命令都成功才改为正式文件名。主机上的 `pg_restore`
+版本必须能读取 PostgreSQL 18 归档。`-l` 只检查归档目录，不代替独立数据库上的完整
+恢复演练。
+
+若 `kubectl exec` 截断导出，保留诊断信息，设置
+`KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false`，再重新导出并检查归档。不要把截断的文件
+用作备份。
 
 数据库位于 `postgresql.pgdata` 指定的目录，默认是 PostgreSQL 卷上的 `pgdata`：
 EBS 这类块存储卷的根目录有 `lost+found`，而 `initdb` 需要一个空目录。早期的 Chart

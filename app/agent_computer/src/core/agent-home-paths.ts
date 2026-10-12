@@ -1,4 +1,4 @@
-import { join, normalize, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathIsWithin } from './path-boundary'
 import { canonicalPath } from './real-path-boundary'
@@ -50,22 +50,6 @@ export function sessionWorkspacePath(agentHomeRoot: string, workspaceID: number)
 export function jobWorkspacePath(agentHomeRoot: string, jobID: string): string {
   modelIntegerIDFromWire(jobID, 'background Agent Job id')
   return join(agentHomePaths(agentHomeRoot).jobs, jobID)
-}
-
-export function resolveAgentHomePath(
-  agentHome: string,
-  path: string,
-  options: { cwd?: string; errorMessage?: string } = {}
-): string {
-  const home = canonicalPath(agentHome)
-  const errorMessage = options.errorMessage ?? 'path escapes Agent Home'
-  const cwd = canonicalPath(options.cwd ?? home)
-  if (!pathIsWithin(home, cwd)) throw new Error(errorMessage)
-
-  const expanded = path === '~' ? home : path.startsWith('~/') ? join(home, path.slice(2)) : path
-  const resolved = canonicalPath(expanded.startsWith('/') ? normalize(expanded) : resolve(cwd, normalize(expanded)))
-  if (!pathIsWithin(home, resolved)) throw new Error(errorMessage)
-  return resolved
 }
 
 export function insideAgentHome(agentHome: string, path: string): boolean {

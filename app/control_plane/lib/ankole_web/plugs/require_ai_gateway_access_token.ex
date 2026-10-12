@@ -106,10 +106,9 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
 
   # The verified token subject is globally unique; it establishes the tenant.
   defp put_subject_tenant(uid) do
-    with {:ok, principal} <- Ankole.Repo.across_tenants(fn -> Principals.get_principal(uid) end) do
-      Ankole.Repo.put_tenant_id(principal.tenant_id)
-      {:ok, principal}
-    end
+    with {:ok, tenant_id} <- Principals.resolve_tenant(uid),
+         :ok <- Ankole.Repo.put_tenant_id(tenant_id),
+         do: Principals.get_principal(uid)
   end
 
   defp bearer_token(conn) do

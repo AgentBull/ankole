@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.AIGatewayController do
+  alias Ankole.AIGateway.FailureResponse
+  alias Ankole.AIGateway.CompactionRequests
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -11,8 +13,6 @@ defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.CodexModels
-  alias Ankole.AIGateway.Compaction
-  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.OIDC.Grant
@@ -47,7 +47,7 @@ defmodule AnkoleWeb.AIGatewayController do
       cond do
         # The trigger is a request item, so it must not reach the provider path
         # on any transport. Streaming renders the same reply as events.
-        Compaction.compaction_trigger?(request) ->
+        CompactionRequests.compaction_trigger?(request) ->
           compaction_trigger_response(
             conn,
             subject_uid,
@@ -255,7 +255,7 @@ defmodule AnkoleWeb.AIGatewayController do
     case with(
            :ok <- AIGateway.ensure_stateless_request(request),
            do:
-             Compaction.compact_from_trigger(
+             CompactionRequests.compact_from_trigger(
                subject_uid,
                request,
                Keyword.take(opts, [:subject_type, :request_context])
@@ -272,7 +272,8 @@ defmodule AnkoleWeb.AIGatewayController do
           |> send_chunked(200)
 
         chunks =
-          Enum.map(Compaction.trigger_events(body), &encode_sse_event/1) ++ [done_sse_chunk()]
+          Enum.map(CompactionRequests.trigger_events(body), &encode_sse_event/1) ++
+            [done_sse_chunk()]
 
         case chunk_all(conn, chunks) do
           {:ok, conn} -> conn
@@ -344,7 +345,7 @@ defmodule AnkoleWeb.AIGatewayController do
   end
 
   defp sse_error_event(reason) do
-    %{status: status, error: error} = FailureDiagnostics.project(reason)
+    %{status: status, error: error} = FailureResponse.project(reason)
     %{"type" => "error", "sequence_number" => 0, "status" => status, "error" => error}
   end
 
@@ -380,7 +381,7 @@ defmodule AnkoleWeb.AIGatewayController do
   # One projection names every failure; the controller adds only the HTTP
   # status, response headers, and JSON envelope.
   defp error(conn, reason) do
-    %{status: status, headers: headers, error: error} = FailureDiagnostics.project(reason)
+    %{status: status, headers: headers, error: error} = FailureResponse.project(reason)
 
     headers
     |> Enum.reduce(conn, fn {name, value}, conn -> put_resp_header(conn, name, value) end)

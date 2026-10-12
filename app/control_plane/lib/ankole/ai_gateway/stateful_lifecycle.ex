@@ -1,4 +1,9 @@
 defmodule Ankole.AIGateway.StatefulLifecycle do
+  alias Ankole.AIGateway.ToolResultJournal
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
+  alias Ankole.AIGateway.FailureResponse
+
   @moduledoc """
   Owns the control-plane lifecycle for locally stored Responses.
 
@@ -46,7 +51,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def retrieve_response(subject_uid, response_id) do
     with :ok <- validate_external_response_id(response_id),
          {:ok, %Message{} = message} <-
-           StatefulResponses.get_response_for_subject(subject_uid, response_id),
+           ResponseChain.get_response_for_subject(subject_uid, response_id),
          {:ok, body} <- response_resource(message) do
       {:ok, %{body: body}}
     else
@@ -63,7 +68,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
       when is_map(request) and is_map(internal_metadata) do
     with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, internal_metadata),
          {:ok, %Message{} = message, disposition} <-
-           StatefulResponses.record_tool_results_in_tx(repo, attrs),
+           ToolResultJournal.record_tool_results_in_tx(repo, attrs),
          {:ok, body} <- response_resource(message) do
       {:ok, %{message: message, body: body, disposition: disposition}}
     end
@@ -96,7 +101,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
             request,
             runtime,
             request_context,
-            Keyword.take(opts, [:oidc_client_id, :subject_type, :authorize_run_in_tx])
+            Keyword.take(opts, [
+              :oidc_client_id,
+              :subject_type,
+              :authorize_run_in_tx,
+              :record_response_in_tx,
+              :response_metadata
+            ])
           )
         end
       else
@@ -119,7 +130,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   def commit_socket_open_error(nil, _reason), do: :ok
 
   def commit_socket_open_error(%{message_id: message_id}, reason) do
-    StatefulResponses.commit_error(message_id, [], socket_open_error_details(reason))
+    ResponseCommit.commit_error(message_id, [], socket_open_error_details(reason))
 
     :ok
   end
@@ -137,7 +148,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           request_context: request_context
         }
       }) do
-    with %Message{status: "generating"} = message <- StatefulResponses.get_message(message_id),
+    with %Message{status: "generating"} = message <- ResponseChain.get_message(message_id),
          true <-
            message.subject_uid == subject_uid and message.conversation_id == conversation_id,
          previous_response_id when is_binary(previous_response_id) <-
@@ -148,16 +159,17 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              conversation_id,
              previous_response_id,
              message.content,
+             Brain.memory_fields(message.metadata),
              request,
              runtime
            ),
          {:ok, %{checkpoint: checkpoint, message: message}} <-
            StatefulResponses.install_replay_recovery_checkpoint(message, plan),
          {:ok, conversation} <-
-           StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id),
+           ResponseChain.get_conversation_for_subject(subject_uid, conversation_id),
          checkpoint_response_id = response_id(checkpoint.id),
          history =
-           StatefulResponses.expand_history(conversation_id,
+           ResponseChain.expand_history(conversation_id,
              previous_response_id: checkpoint_response_id
            ),
          context = %{
@@ -165,6 +177,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            conversation: conversation,
            request: request,
            current_input: message.content,
+           source_metadata: Brain.memory_fields(message.metadata),
            recovered_call_ids: [],
            compaction: %{
              history: history,
@@ -277,7 +290,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              previous_response_id,
              public_request_metadata(request)
            ),
-         :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id),
+         :ok <- ResponseChain.validate_response_anchor(conversation.id, previous_response_id),
          :ok <-
            maybe_ensure_implicit_response_run_available(
              conversation.id,
@@ -287,13 +300,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            effective_previous_response_id(conversation.id, previous_response_id),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
          history <-
-           StatefulResponses.expand_history(conversation.id,
+           ResponseChain.expand_history(conversation.id,
              previous_response_id: effective_previous_response_id
            ),
          {current_input, recovered_call_ids} <-
            recover_interrupted_tool_calls(history, current_input, previous_response_id),
          {current_input, injection} <-
-           Brain.inject_stateful(subject_uid, request, conversation, current_input),
+           Brain.inject_stateful(subject_uid, request, conversation, current_input, history),
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
@@ -302,6 +315,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              conversation.id,
              history,
              current_input,
+             injection,
              request,
              runtime
            ) do
@@ -311,12 +325,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          conversation: conversation,
          explicit_previous_response_id: previous_response_id,
          request: request,
-         current_input: current_input,
+         current_input: compaction.current_input,
          source_metadata:
-           if(is_binary(oidc_client_id),
-             do: %{"oidc_client_id" => oidc_client_id, "brain_injection" => injection},
-             else: %{}
-           ),
+           compaction.injection
+           |> Ankole.Attrs.maybe_put("oidc_client_id", oidc_client_id),
          recovered_call_ids: recovered_call_ids,
          compaction: compaction
        }}
@@ -361,7 +373,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              history_items
            ),
          {provider_input, tool_result_quarantine} <-
-           canonical_tool_result_projection(resolved_history_items ++ context.current_input),
+           canonical_tool_result_projection(
+             resolved_history_items ++
+               Brain.replay(context.current_input, context.source_metadata)
+           ),
          {:ok, expanded_input} <-
            CompactionArtifacts.resolve_input_handles(
              context.subject_uid,
@@ -452,7 +467,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         context.compaction
         |> Map.put(
           :history,
-          StatefulResponses.expand_history(context.conversation.id,
+          ResponseChain.expand_history(context.conversation.id,
             previous_response_id: previous_response_id
           )
         )
@@ -710,7 +725,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
        )
        when not is_nil(conversation_id) do
     with :ok <- validate_external_conversation_id(conversation_id) do
-      StatefulResponses.get_conversation_for_subject(subject_uid, decode_conv_id(conversation_id))
+      ResponseChain.get_conversation_for_subject(subject_uid, decode_conv_id(conversation_id))
     end
   end
 
@@ -726,9 +741,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          previous_response_id,
          _metadata
        ) do
-    case StatefulResponses.get_message(previous_response_id) do
+    case ResponseChain.get_message(previous_response_id) do
       %{status: "complete", conversation_id: conversation_id} ->
-        case StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id) do
+        case ResponseChain.get_conversation_for_subject(subject_uid, conversation_id) do
           {:ok, conversation} -> {:ok, conversation}
           {:error, :invalid_conversation} -> {:error, :invalid_anchor}
         end
@@ -755,7 +770,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
        do: previous_response_id
 
   defp effective_previous_response_id(conversation_id, _missing_previous_response_id) do
-    case StatefulResponses.latest_visible_leaf(conversation_id) do
+    case ResponseChain.latest_visible_leaf(conversation_id) do
       nil -> nil
       message_id -> "resp_#{message_id}"
     end
@@ -774,8 +789,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     classification = FailureDiagnostics.classify(reason)
 
     %{
-      "code" => FailureDiagnostics.public_error_code(classification, "provider_call_failed"),
-      "message" => FailureDiagnostics.public_message(classification),
+      "code" => FailureResponse.public_error_code(classification, "provider_call_failed"),
+      "message" => FailureResponse.public_message(classification),
       "stage" => "socket_open",
       "retryable" => Map.get(classification, :retryable, false)
     }
@@ -860,14 +875,18 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           do: :provider_native,
           else: :standard
 
-      {:ok, output, projection}
+      {:ok, CompactionArtifacts.replay_items(content), projection}
     else
       _invalid -> {:error, :invalid_compaction_handle}
     end
   end
 
-  defp message_response_items(_subject_uid, %{content: content}) when is_list(content),
-    do: {:ok, content, :standard}
+  defp message_response_items(_subject_uid, %{content: content, metadata: metadata})
+       when is_list(content) do
+    count = metadata["request_item_count"] || length(content)
+    {input, output} = Enum.split(content, count)
+    {:ok, Brain.replay(input, metadata) ++ output, :standard}
+  end
 
   defp message_response_items(_subject_uid, _message), do: {:ok, [], :standard}
 
@@ -1097,7 +1116,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
     %{
       "code" => Map.get(classification, :error_code, "error"),
-      "message" => FailureDiagnostics.public_message(classification)
+      "message" => FailureResponse.public_message(classification)
     }
     |> put_safe_failure_fields(classification)
   end

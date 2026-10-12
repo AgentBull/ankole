@@ -1,4 +1,6 @@
 defmodule Ankole.Conversations.CommandsTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.CompactionPolicy
   use Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.Conversations.{Admission, Commands, Model, Run}
   alias Ankole.AIGateway.{CompactionArtifacts, Conversations}
@@ -40,11 +42,12 @@ defmodule Ankole.Conversations.CommandsTest do
       start_response_run(%{
         subject_uid: run.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
     {:ok, final} =
-      StatefulResponses.commit_complete(model, [
+      ResponseCommit.commit_complete(model, [
         %{
           "type" => "message",
           "role" => "assistant",
@@ -138,15 +141,16 @@ defmodule Ankole.Conversations.CommandsTest do
       assert Repo.aggregate(Message, :count) == initial_message_count
     end
 
-    test "/compress writes an AIGateway compaction artifact and feedback outbox" do
+    test "/compress compacts short history below the preferred tail and writes feedback" do
       %{principal: agent} = agent_fixture()
-      compact_below(1)
+      compact_below(4)
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       test_pid = self()
 
       base_url =
         Ankole.AIGatewayCase.start_upstream_server(fn request ->
           send(test_pid, {:gateway_request, request})
+          refute Ankole.JSON.encode!(request.body) =~ "MEMORY_ORION"
 
           {:sse, 200,
            Ankole.AIGatewayCase.openai_response_stream_events(
@@ -178,6 +182,57 @@ defmodule Ankole.Conversations.CommandsTest do
       {:ok, conversation} =
         Conversations.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
 
+      {:ok, _packs} = Ankole.Brain.SchemaPacks.install_packs([])
+
+      {:ok, object} =
+        Ankole.Brain.Objects.create_object(
+          %{
+            slug: "concepts/wire-format",
+            type: "concept",
+            title: "Wire Format",
+            body: "fixture"
+          },
+          agent.uid
+        )
+
+      {:ok, _claim} =
+        Ankole.Brain.Claims.write_fact(
+          %{
+            object_slug: object.slug,
+            claim: "MEMORY_ORION",
+            kind: "fact",
+            holder: "world",
+            audience_scope: "world",
+            notability: "medium",
+            confidence: 0.9,
+            valid_from: DateTime.utc_now(:microsecond),
+            provenance: "test"
+          },
+          agent.uid
+        )
+
+      {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
+
+      {opening, injection} =
+        Ankole.AIGateway.HostedTools.Brain.inject_stateful(
+          agent.uid,
+          %{
+            "tools" => [%{"type" => "brain", "inject" => true}]
+          },
+          conversation,
+          [
+            %{
+              "type" => "message",
+              "role" => "user",
+              "content" => [%{"type" => "input_text", "text" => "Wire Format"}]
+            }
+          ],
+          []
+        )
+
+      assert [_prompt] = opening
+      assert [_pack] = injection["brain_context_pack"]
+
       old =
         insert_complete_message!(
           agent.uid,
@@ -185,6 +240,11 @@ defmodule Ankole.Conversations.CommandsTest do
           nil,
           [%{"type" => "text", "text" => "old text item should be compactable"}]
         )
+
+      old =
+        old
+        |> Ecto.Changeset.change(metadata: Map.merge(old.metadata, injection))
+        |> Repo.update!()
 
       middle =
         insert_complete_message!(
@@ -209,7 +269,7 @@ defmodule Ankole.Conversations.CommandsTest do
             %{
               "type" => "message",
               "role" => "user",
-              "content" => [%{"type" => "input_text", "text" => "recent tail"}]
+              "content" => [%{"type" => "input_text", "text" => "Wire Format: recent tail"}]
             }
           ]
         )
@@ -244,6 +304,14 @@ defmodule Ankole.Conversations.CommandsTest do
       assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
       assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
+
+      assert [checkpoint_pack] = artifact.content["brain_context_pack"]
+      assert Ankole.JSON.encode!(checkpoint_pack) =~ "entity: concepts/wire-format"
+      assert checkpoint_pack["role"] == "user"
+      refute Ankole.JSON.encode!(artifact.content["output"]) =~ "MEMORY_ORION"
+
+      assert artifact.content["retention"]["requested"] == 4
+      assert artifact.content["retention"]["actual"] == 2
 
       assert get_in(artifact.content, ["summary", "text"]) ==
                "## Active Task\nManual compressed history."
@@ -448,7 +516,7 @@ defmodule Ankole.Conversations.CommandsTest do
     assert old_prompt =~ "Current drive directory: chats/lark:chat:group-a/"
     assert old_prompt =~ "The workspace is a temporary working directory."
     refute old_prompt =~ "This is a private conversation with the other person."
-    assert {:ok, _} = Run.finalize(old, "silent")
+    assert {:ok, _} = Run.finalize(old, :silent)
 
     assert {:ok, %{actor_event: event}} =
              emit_entry(
@@ -498,7 +566,7 @@ defmodule Ankole.Conversations.CommandsTest do
       end
 
     {:ok, message} = start_response_run(attrs)
-    {:ok, message} = StatefulResponses.commit_complete(message, [])
+    {:ok, message} = ResponseCommit.commit_complete(message, [])
 
     message
   end
@@ -507,11 +575,11 @@ defmodule Ankole.Conversations.CommandsTest do
   # below them for a prefix to exist. What is under test is the command path,
   # not the row floor.
   defp compact_below(tail_rows) do
-    merged = Map.put(Ankole.AIGateway.Compaction.config(), "tail_rows", tail_rows)
-    assert {:ok, _config} = Ankole.AIGateway.Compaction.put_config(merged)
+    merged = Map.put(CompactionPolicy.config(), "tail_rows", tail_rows)
+    assert {:ok, _config} = CompactionPolicy.put_config(merged)
 
     on_exit(fn ->
-      _result = Ankole.AIGateway.Compaction.delete_config()
+      _result = CompactionPolicy.delete_config()
       :ok
     end)
   end

@@ -1,44 +1,23 @@
 import { z } from 'zod'
-import {
-  deepString,
-  isRecord,
-  ms,
-  safeJsonParse as safeJSONParse,
-  safeJsonStringify as safeJSONStringify
-} from '@agentbull/active-support'
+import { isRecord } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { defineWorkerTool, type ActivityDescription, type AgentToolResult, type WorkerAgentTool } from '../../core'
-import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
+import { defineWorkerTool, type ActivityDescription, type WorkerAgentTool } from '../../core'
+import { readTool } from '../../core/read-tools'
+import type { JobTurnRef } from '../../lanes/actor_lane'
+import type { RPCRequester } from '../../lanes/rpc_lane'
 import { errorMessage } from '../../common/errors'
-import {
-  WEB_FETCH_BUDGET_CHARS,
-  fetchedPageHost,
-  prepareFetchedPages,
-  renderPreparedPages,
-  stringField,
-  type FetchedPage
-} from './fetched-page-text'
 
 type WebToolDetails = JSONObject
 const RenderedFallbackSource = 'rendered_fallback'
-const WebSearchSelector = 'web_search.default'
-const WebFetchSelector = 'web_fetch.default'
-
 export interface CreateWebToolsOptions {
-  aiGateway: AIGatewayHTTPClient
-  /** Session or Job workspace that receives the full text of a truncated page. */
-  workspaceRoot: string
-  /** Stable conversation or Job owner for repeat-fetch reuse. */
-  repeatFetchSessionKey: string
+  rpc: RPCRequester
+  turn: JobTurnRef
   renderedFallback?: RenderedWebFetchOptions
 }
-
 export interface RenderedWebFetchOptions {
   ssrfFilter?: boolean
   fetchBatch: RenderedWebFetchBatch
 }
-
-/** Fetches the accepted URLs in one call and answers `{ results }` in the same order. */
 export type RenderedWebFetchBatch = (urls: string[], signal?: AbortSignal) => Promise<unknown>
 
 const WebSearchParams = z.object({
@@ -52,6 +31,7 @@ const HTTPSURL = z
   .refine(value => isHTTPSURL(value), 'Only HTTPS URLs are supported.')
 
 const WebFetchParams = z.object({
+  result_offset: z.number().int().min(0).optional().describe('UTF-8 byte offset from next_offset. Defaults to 0.'),
   urls: z
     .array(HTTPSURL)
     .min(1)
@@ -59,201 +39,39 @@ const WebFetchParams = z.object({
     .describe('HTTPS web-page URLs whose readable text should be extracted. Do not pass binary-file URLs. Maximum 5.')
 })
 
-/**
- * Creates a stable web-tool catalog that uses AIGateway semantic selectors.
- *
- * AIGateway resolves current provider configuration when the tool runs.
- * web_fetch can fall back to an internal rendered-page extractor, while
- * web_search remains provider-backed because the worker does not own a search index.
- */
+/** Job transport and browser fallback for the shared control-plane web tools. */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<WorkerAgentTool[]> {
+  const cache: JSONObject = {}
   return [
-    createWebSearchTool(opts.aiGateway),
-    createWebFetchTool(opts.aiGateway, {
-      workspaceRoot: opts.workspaceRoot,
-      repeatFetchSessionKey: opts.repeatFetchSessionKey,
-      renderedFallback: opts.renderedFallback
+    defineWorkerTool({
+      name: 'web_search',
+      description: 'Search the public web through the configured AIGateway web search provider.',
+      schema: WebSearchParams,
+      executionMode: 'parallel',
+      isReadOnly: true,
+      isDestructive: false,
+      describeActivity: params => ({
+        key: 'signals_gateway.reply.activity.web_search',
+        bindings: { query: activityExcerpt(params.query, 48) }
+      }),
+      execute: (_id, params, signal) => readTool(opts.rpc, opts.turn, 'web_search', params, { signal })
+    }),
+    defineWorkerTool({
+      name: 'web_fetch',
+      description:
+        'Extract readable text from HTTPS web pages. Binary files require the command shell. A longer page returns next_offset; use the same URL and result_offset to read its next window.',
+      schema: WebFetchParams,
+      executionMode: 'sequential',
+      isReadOnly: true,
+      isDestructive: false,
+      describeActivity: params => webFetchActivity(params.urls),
+      describeCompletedActivity: (params, result) => completedWebFetchActivity(params.urls, result.details),
+      execute: (_id, params, signal) =>
+        readTool(opts.rpc, opts.turn, 'web_fetch', params, { cache, signal, renderedFallback: opts.renderedFallback })
     })
   ]
 }
 
-/**
- * Builds the provider-backed web_search tool.
- */
-function createWebSearchTool(aiGateway: AIGatewayHTTPClient): WorkerAgentTool<typeof WebSearchParams, WebToolDetails> {
-  return defineWorkerTool({
-    name: 'web_search',
-    description: 'Search the public web through the configured AIGateway web search provider.',
-    schema: WebSearchParams,
-    executionMode: 'parallel',
-    isReadOnly: true,
-    isDestructive: false,
-    describeActivity: params => ({
-      key: 'signals_gateway.reply.activity.web_search',
-      bindings: { query: activityExcerpt(params.query, 48) }
-    }),
-    async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
-      const body = await postAIGatewayJSON(
-        aiGateway,
-        '/web_search',
-        {
-          model: WebSearchSelector,
-          query: params.query,
-          ...(params.limit ? { limit: params.limit } : {})
-        },
-        signal
-      )
-
-      return {
-        content: [{ type: 'text', text: formatSearchResults(body) }],
-        details: detailsObject(body)
-      }
-    }
-  })
-}
-
-/**
- * Builds web_fetch with provider-first and an optional rendered-page fallback.
- *
- * Provider fetch is preferred when configured because it can use gateway-owned
- * extraction services. The internal fallback keeps rendered pages reachable when
- * the provider path is unavailable.
- */
-/** How long one conversation or Job serves a repeated URL from its earlier result. */
-const RepeatFetchTTLMs = ms('15m')
-/** Entry cap so a long Worker run cannot grow the page cache without bound. */
-const RepeatFetchMaxEntries = 100
-
-interface CachedFetchedPage {
-  page: FetchedPage
-  at: number
-}
-
-const recentPages = new Map<string, CachedFetchedPage>()
-
-function createWebFetchTool(
-  aiGateway: AIGatewayHTTPClient,
-  config: {
-    workspaceRoot: string
-    repeatFetchSessionKey: string
-    renderedFallback?: RenderedWebFetchOptions
-  }
-): WorkerAgentTool<typeof WebFetchParams, WebToolDetails> {
-  // Owner-scoped repeat-fetch cache. Research runs re-pull the same URL for
-  // facts they already hold; serving the earlier result saves the round trip
-  // and renders it within the current batch budget. Only clean results enter: an error must
-  // stay retryable, and a shell or near-empty page must not become the answer
-  // this conversation or Job keeps returning.
-  const cacheKey = (url: string) => JSON.stringify([config.repeatFetchSessionKey, url])
-
-  function cacheFetchedPage(url: string, page: FetchedPage, details: JSONObject, at: number): void {
-    if (details.error || details.render_warning) return
-    const key = cacheKey(url)
-    recentPages.delete(key)
-    recentPages.set(key, { page, at })
-    while (recentPages.size > RepeatFetchMaxEntries) {
-      const oldest = recentPages.keys().next().value
-      if (oldest === undefined) break
-      recentPages.delete(oldest)
-    }
-  }
-
-  return defineWorkerTool({
-    name: 'web_fetch',
-    description: `Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call. One call returns at most about ${WEB_FETCH_BUDGET_CHARS} characters of page text; a longer page shows its start and its end, its full text is saved in the workspace, and the result gives the file path and the read_file call that shows the omitted middle.`,
-    schema: WebFetchParams,
-    executionMode: 'sequential',
-    isReadOnly: true,
-    isDestructive: false,
-    describeActivity: params => webFetchActivity(params.urls),
-    describeCompletedActivity: (params, details) => completedWebFetchActivity(params.urls, details),
-    async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
-      const now = Date.now()
-      const cachedByURL = new Map<string, CachedFetchedPage>()
-      const missing: string[] = []
-      for (const url of params.urls) {
-        const key = cacheKey(url)
-        const cached = recentPages.get(key)
-        if (cached && now - cached.at <= RepeatFetchTTLMs && !cachedByURL.has(url)) {
-          cachedByURL.set(url, cached)
-        } else {
-          if (cached) recentPages.delete(key)
-          if (!cachedByURL.has(url) && !missing.includes(url)) missing.push(url)
-        }
-      }
-
-      let bodyFacts: unknown = {}
-      const fetchedByURL = new Map<string, FetchedPage>()
-      let unpaired: FetchedPage[] = []
-      if (missing.length > 0) {
-        try {
-          bodyFacts = await postAIGatewayJSON(
-            aiGateway,
-            '/web_fetch',
-            { model: WebFetchSelector, urls: missing },
-            signal
-          )
-        } catch (error) {
-          if (signal?.aborted || !config.renderedFallback) throw error
-          bodyFacts = await renderedFallbackFetch(missing, config.renderedFallback, signal, errorMessage(error))
-        }
-        const pages = prepareFetchedPages(bodyFacts, { workspaceRoot: config.workspaceRoot })
-        if (pages.length === missing.length) {
-          for (const [index, url] of missing.entries()) fetchedByURL.set(url, pages[index]!)
-        } else {
-          // Without positional pairing, render the provider batch once and do not cache it.
-          unpaired = pages
-        }
-      }
-
-      const ordered: Array<{ page: FetchedPage; url?: string; cached?: CachedFetchedPage }> = []
-      for (const url of params.urls) {
-        const cached = cachedByURL.get(url)
-        const page = cached?.page ?? fetchedByURL.get(url)
-        if (page) ordered.push({ page, url, cached })
-      }
-      ordered.push(...unpaired.map(page => ({ page })))
-      const rendered = renderPreparedPages(
-        ordered.map(item => item.page),
-        { workspaceRoot: config.workspaceRoot },
-        bodyFacts
-      )
-      for (const [index, item] of ordered.entries()) {
-        const page = rendered.pages[index]!
-        if (item.cached) {
-          page.text = `${repeatFetchNote(now - item.cached.at)}\n${page.text}`
-          page.details.repeat_fetch = true
-        } else if (item.url) {
-          cacheFetchedPage(item.url, item.page, page.details, now)
-        }
-      }
-      return {
-        content: [
-          {
-            type: 'text',
-            text: rendered.pages.length ? rendered.pages.map(page => page.text).join('\n\n---\n\n') : rendered.text
-          }
-        ],
-        details: rendered.details
-      }
-    }
-  })
-}
-
-/** States that a repeated URL was answered from this session's earlier fetch. */
-function repeatFetchNote(ageMs: number): string {
-  const minutes = Math.max(1, Math.round(ageMs / ms('1m')))
-  return `[Repeat fetch: this URL was fetched ${minutes} minute${minutes === 1 ? '' : 's'} ago in this session; its earlier result is shown again without a new download.]`
-}
-
-/**
- * Fetches URLs through an ephemeral, materialized browser route.
- *
- * Every accepted URL goes to the adapter in one batch call. A rejected URL, a
- * returned result that carries an error, and a failed batch each become
- * per-URL errors at the request position, so one bad page does not hide
- * successful fetches from the model.
- */
 export async function renderedFallbackFetch(
   urls: string[],
   config: RenderedWebFetchOptions,
@@ -338,87 +156,6 @@ function normalizeRenderedFetchResult(url: string, value: unknown): JSONObject {
   return result
 }
 
-/**
- * Sends a JSON POST to an AIGateway web-tool endpoint and parses the response.
- */
-async function postAIGatewayJSON(
-  aiGateway: AIGatewayHTTPClient,
-  path: string,
-  body: JSONObject,
-  signal?: AbortSignal
-): Promise<unknown> {
-  const response = await aiGateway.fetch(aiGatewayURL(aiGateway, path), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal
-  })
-  const text = await response.text()
-  const parsed = parseJSON(text)
-
-  if (!response.ok) {
-    throw new Error(gatewayErrorMessage(parsed, response.status))
-  }
-
-  return parsed
-}
-
-/**
- * Formats search results for direct model consumption.
- */
-function formatSearchResults(body: unknown): string {
-  const results = Array.isArray(isRecord(body) ? body.results : undefined)
-    ? (body as { results: unknown[] }).results
-    : []
-  if (results.length === 0) return 'No web search results.'
-
-  return results
-    .map((result, index) => {
-      const item = isRecord(result) ? result : {}
-      const title = stringField(item, 'title') || '(untitled)'
-      const url = stringField(item, 'url')
-      const snippet = stringField(item, 'snippet')
-      return [`${index + 1}. ${title}`, url, snippet].filter(Boolean).join('\n')
-    })
-    .join('\n\n')
-}
-
-/**
- * Parses JSON, preserving raw text when the gateway returns non-JSON content.
- */
-function parseJSON(text: string): unknown {
-  if (!text) return {}
-  return safeJSONParse(text).match({
-    ok: value => value,
-    err: () => ({ raw: text })
-  })
-}
-
-/**
- * Builds a useful error message from an AIGateway web-tool failure response.
- */
-function gatewayErrorMessage(body: unknown, status: number): string {
-  const message = isRecord(body) ? deepString(body, ['error', 'message']) : undefined
-  const code = isRecord(body) ? deepString(body, ['error', 'code']) : undefined
-  return [`AIGateway web tool request failed with HTTP ${status}`, code, message || safeJSONStringify(body)]
-    .filter(Boolean)
-    .join(': ')
-}
-
-/**
- * Joins an AIGateway base URL and endpoint path.
- */
-function aiGatewayURL(aiGateway: AIGatewayHTTPClient, path: string): string {
-  return `${aiGateway.baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
-}
-
-/**
- * Ensures details are JSON-object-shaped for AgentToolResult.
- */
-function detailsObject(value: unknown): JSONObject {
-  return isRecord(value) ? value : { value }
-}
-
 /** Builds a parameter-only label before web_fetch returns page metadata. */
 function webFetchActivity(urls: string[]): ActivityDescription {
   const domain = fetchedPageHost(urls[0])
@@ -495,5 +232,16 @@ function isHTTPSURL(value: string): boolean {
     return new URL(value).protocol === 'https:'
   } catch {
     return false
+  }
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  return typeof record[key] === 'string' ? (record[key] as string) : undefined
+}
+function fetchedPageHost(url: string | undefined): string | undefined {
+  try {
+    return url ? new URL(url).hostname : undefined
+  } catch {
+    return undefined
   }
 }

@@ -1,4 +1,5 @@
 defmodule Ankole.Conversations.LLMCommandTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.Conversations.{Admission, Commands, Run}
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
@@ -148,7 +149,7 @@ defmodule Ankole.Conversations.LLMCommandTest do
       })
 
     {:ok, response} =
-      StatefulResponses.commit_complete(response, [
+      ResponseCommit.commit_complete(response, [
         %{
           "type" => "message",
           "role" => "assistant",

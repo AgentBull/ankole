@@ -457,11 +457,10 @@ impl AnthropicState {
             return Vec::new();
         }
 
-        let error_event = self.event("error", json!({ "error": openresponses_error(error) }));
         let response = self.response_body(context, "failed", None, Some(error));
         self.terminal = true;
         let failed = self.event("response.failed", json!({ "response": response }));
-        vec![error_event, failed]
+        vec![failed]
     }
 
     fn response_body(

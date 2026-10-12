@@ -57,12 +57,12 @@ defmodule Ankole.SignalsGateway.BindingTenancyTest do
     assert {:ok, first_config} = Bindings.stored_binding_config(first_binding)
     assert {:ok, ^first_config} = Bindings.stored_binding_config(second_binding)
 
-    assert Repo.get_by!(Ankole.AppConfigure.AppConfig,
+    assert Repo.get_by!(Ankole.AppConfigure.SiteConfig,
              scope: "global",
              key: String.replace_prefix(first_binding.config_ref, "app-config://", "")
            )
 
-    assert Repo.get_by!(Ankole.AppConfigure.AppConfig,
+    assert Repo.get_by!(Ankole.AppConfigure.SiteConfig,
              scope: "global",
              key: String.replace_prefix(second_binding.config_ref, "app-config://", "")
            )
@@ -122,10 +122,10 @@ defmodule Ankole.SignalsGateway.BindingTenancyTest do
              })
 
     key = String.replace_prefix(binding.config_ref, "app-config://", "")
-    row = Repo.get_by!(Ankole.AppConfigure.AppConfig, scope: "global", key: key)
+    row = Repo.get_by!(Ankole.AppConfigure.SiteConfig, scope: "global", key: key)
     # An unreadable credential still owns its stored application identity.
     Repo.query!(
-      "UPDATE app_configurations SET value = $1 WHERE scope = 'global' AND key = $2",
+      "UPDATE site_app_configurations SET value = $1 WHERE scope = 'global' AND key = $2",
       [Map.put(row.value, "value", "invalid"), key]
     )
 

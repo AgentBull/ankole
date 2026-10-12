@@ -70,6 +70,23 @@ defmodule Ankole.Principals do
     end
   end
 
+  @doc "Resolves a globally unique identity to its tenant at an authenticated entry point."
+  @spec resolve_tenant(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_tenant(uid) do
+    with {:ok, uid} <- normalize_uid(uid) do
+      tenant_id =
+        Repo.across_tenants(fn ->
+          Repo.one(
+            from principal in Principal,
+              where: principal.uid == ^uid,
+              select: principal.tenant_id
+          )
+        end)
+
+      if tenant_id, do: {:ok, tenant_id}, else: {:error, :not_found}
+    end
+  end
+
   @doc """
   Lists active Principals ordered by UID.
   """

@@ -114,6 +114,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda.Images do
   end
 
   defp build(provider, role) do
+    # A FROM-only build can reuse an OCI image that Lambda cannot activate.
+    # A build step exports a new image and keeps the Worker runtime config.
     with {:ok, container} <- ContainerImage.resolve(provider, provider.runtime.image),
          {:ok, base} <- managed_base(provider),
          name =
@@ -122,7 +124,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda.Images do
                token({container, provider.provider_id, provider.settings_digest, role})
              ),
          {:ok, {_filename, zip}} <-
-           :zip.create(~c"worker.zip", [{~c"Dockerfile", "FROM " <> container <> "\n"}], [:memory]),
+           :zip.create(
+             ~c"worker.zip",
+             [{~c"Dockerfile", "FROM " <> container <> "\nRUN true\n"}],
+             [:memory]
+           ),
          {:ok, artifact} <- Client.upload(provider, "ankole-microvms/" <> name <> ".zip", zip) do
       env =
         provider.settings["env"]

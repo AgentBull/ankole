@@ -7,10 +7,45 @@ defmodule Ankole.AuthZ.Root do
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store
+  alias Ankole.AuthZ.Root
+  alias Ankole.Principals
+  alias Ankole.Principals.Principal
+  alias Ankole.Repo
 
   @admin_group_name "siteadmin"
   @all_humans_group_name "all_humans"
   @all_humans_condition ~s(principal.type == "human" && principal.status == "active")
+
+  @doc """
+  Returns true when the principal is an active human member of the built-in admin group.
+  """
+  @spec site_admin?(String.t()) :: boolean()
+  def site_admin?(principal_uid) do
+    # `type == :human` deliberately excludes agent principals: agents never get
+    # operator admin even if added to the group. `status == :active` denies a
+    # suspended/disabled human without having to scrub group memberships. A
+    # malformed uid normalizes to an error and is treated as "not admin".
+    with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
+         {:ok, tenant} <- Ankole.Tenants.privileged() do
+      admin_group_name = Root.admin_group_name()
+
+      Repo.with_tenant(tenant.id, fn ->
+        Repo.exists?(
+          from membership in Membership,
+            join: group in Group,
+            on: group.id == membership.group_id,
+            join: principal in Principal,
+            on: principal.uid == membership.principal_uid,
+            where:
+              membership.principal_uid == ^principal_uid and group.name == ^admin_group_name and
+                group.built_in == true and group.kind == :static and principal.type == :human and
+                principal.status == :active and principal.tenant_id == ^tenant.id
+        )
+      end)
+    else
+      {:error, _reason} -> false
+    end
+  end
 
   def admin_group_name, do: @admin_group_name
 

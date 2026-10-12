@@ -11,7 +11,7 @@ import {
 } from '../src/fabric/channel_transport'
 import {
   JobTurnRefSchema,
-  AgentComputerWorkerHeartbeatSchema,
+  WorkerHeartbeatSchema,
   createEnvelope,
   decodeEnvelope,
   encodeEnvelope,
@@ -387,6 +387,36 @@ describe('RuntimeFabric channel transport', () => {
     expect(socket.connects).toBe(1)
   })
 
+  it('logs the ErrorEvent cause and close code instead of converting the event to a string', async () => {
+    const { socket, fabric } = await connectReady()
+    const log = spyOn(workerLogger, 'warning').mockImplementation(() => undefined)
+    try {
+      const error = new Error('connection refused')
+      error.name = 'NetworkError'
+      socket.error(new ErrorEvent('error', { message: error.message, error }))
+      expect(log).toHaveBeenCalledWith('worker.fabric_socket_error', 'runtime fabric socket error', {
+        error,
+        error_type: 'NetworkError',
+        event_type: 'error'
+      })
+      socket.error(new ErrorEvent('error', { message: 'WebSocket upgrade failed' }))
+      expect(log).toHaveBeenCalledWith('worker.fabric_socket_error', 'runtime fabric socket error', {
+        error: expect.objectContaining({ message: 'WebSocket upgrade failed' }),
+        error_type: 'ErrorEvent',
+        event_type: 'error'
+      })
+      socket.close(1012, 'service restart', false)
+      expect(log).toHaveBeenCalledWith('worker.fabric_socket_closed', 'runtime fabric socket closed', {
+        close_code: 1012,
+        close_reason: 'service restart',
+        was_clean: false
+      })
+    } finally {
+      log.mockRestore()
+      fabric.stop()
+    }
+  })
+
   it('replaces a channel the server closed and joins again', async () => {
     const { socket, fabric } = await connectReady()
     const first = socket.current!
@@ -643,6 +673,7 @@ class FakeSocket implements ChannelSocketLike {
   private connected = false
   private readonly openHandlers: Array<() => void> = []
   private readonly closeHandlers: Array<(event: unknown) => void> = []
+  private readonly errorHandlers: Array<(event: unknown) => void> = []
 
   channel(topic: string, params: object | (() => object)): FakeChannel {
     this.current = new FakeChannel(this, topic, params)
@@ -672,13 +703,19 @@ class FakeSocket implements ChannelSocketLike {
     this.closeHandlers.push(callback)
   }
 
-  onError(): void {}
+  onError(callback: (event: unknown) => void): void {
+    this.errorHandlers.push(callback)
+  }
+
+  error(event: unknown): void {
+    for (const handler of this.errorHandlers) handler(event)
+  }
 
   /** Simulates a lost connection: the channel drops to errored and awaits a rejoin. */
-  close(code = 1006): void {
+  close(code = 1006, reason = '', wasClean = false): void {
     this.connected = false
     if (this.current) this.current.state = 'errored'
-    for (const handler of this.closeHandlers) handler({ code })
+    for (const handler of this.closeHandlers) handler(new CloseEvent('close', { code, reason, wasClean }))
   }
 
   /** Simulates a reconnect: Phoenix resends the join push of every channel. */
@@ -713,7 +750,7 @@ function heartbeatEnvelope(): Envelope {
     ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
     body: {
       case: 'workerHeartbeat',
-      value: create(AgentComputerWorkerHeartbeatSchema, {
+      value: create(WorkerHeartbeatSchema, {
         incarnationId: 'incarnation-a',
         activeSlots: 0,
         maxSlots: 4,

@@ -66,8 +66,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda do
                 %{"type" => "string", "pattern" => "^arn:aws:iam::[0-9]{12}:role/.+"},
                 :lifecycle
               ),
-            "memoryMiB" =>
-              C.field(%{"enum" => [512, 1024, 2048, 4096, 8192], "default" => 4096}, :instance),
+            "memoryMiB" => C.field(%{"enum" => [4096, 8192], "default" => 4096}, :instance),
             # The image has at most 50 variables; the entry point sets three.
             "env" => C.field(Map.put(C.environment(), "maxProperties", 47), :instance)
           }),
@@ -266,7 +265,35 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda do
   def delete_cache(_provider, _uid), do: :ok
 
   @impl true
-  def delete_storage(provider, uid, nil) do
+  def delete_storage(provider, uid, nil), do: start_storage_deletion(provider, uid, nil)
+
+  def delete_storage(provider, uid, %{"previousMicrovmId" => _id} = ref),
+    do: start_storage_deletion(provider, uid, ref)
+
+  def delete_storage(provider, _uid, %{"microvmId" => id} = ref) do
+    with {:ok, state} <- get(provider, id) do
+      cond do
+        # The image run hook waits for entry-ready, which delete_storage writes
+        # only after it removes the Agent directory and prior deletion debris.
+        state["state"] == "RUNNING" ->
+          with :ok <- accepted(Client.request(provider, :delete, instance_path(id))),
+               do: {:ok, nil}
+
+        state["state"] == "TERMINATED" ->
+          {:pending, %{"previousMicrovmId" => id}}
+
+        true ->
+          {:pending, ref}
+      end
+    end
+  end
+
+  defp start_storage_deletion(provider, uid, ref) do
+    client_token =
+      token(
+        if ref, do: {uid, :delete_storage, ref["previousMicrovmId"]}, else: {uid, :delete_storage}
+      )
+
     with :ok <- Images.prepare(provider, "storage"),
          {:ok, image} <- Images.selected(provider, "storage"),
          {:ok, request} <-
@@ -277,24 +304,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda do
                "ANKOLE_WORKER_STORAGE" => "nfs",
                "ANKOLE_WORKER_NFS_SOURCE" => nfs_source(provider)
              },
-             token({uid, :delete_storage}),
+             client_token,
              3600
            ),
          {:ok, %{"microvmId" => id}} <- Client.request(provider, :post, "/microvms", request) do
       {:pending, %{"microvmId" => id}}
     else
-      {:pending, _reason} -> {:pending, nil}
+      {:pending, _reason} -> {:pending, ref}
       error -> error
-    end
-  end
-
-  def delete_storage(provider, _uid, %{"microvmId" => id} = ref) do
-    with {:ok, state} <- get(provider, id) do
-      cond do
-        state["state"] == "RUNNING" -> {:ok, nil}
-        state["state"] == "TERMINATED" -> {:pending, nil}
-        true -> {:pending, ref}
-      end
     end
   end
 

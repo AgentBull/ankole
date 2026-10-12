@@ -1,7 +1,7 @@
 import type { BrowserRuntime } from '../browser-runtime'
 import type { TurnStart } from '../lanes/actor_lane'
 import type { WorkerAgentTool } from './types'
-import type { AIGatewayHTTPClient } from './ai_gateway_transport'
+import type { RPCRequester } from '../lanes/rpc_lane'
 import { createWebTools } from '../tools/web/web-tools'
 import { renderedFetchBrowserSettings, type RenderedFetchRuntimeConfig } from './rendered-fetch-runtime-config'
 import { webSearchIsProviderHosted } from './runtime-policy'
@@ -14,17 +14,14 @@ import { webSearchIsProviderHosted } from './runtime-policy'
  */
 export async function createTurnWebTools(opts: {
   turnStart: TurnStart
-  aiGateway: AIGatewayHTTPClient
+  rpc: RPCRequester
   renderedFetchRuntimeConfig: RenderedFetchRuntimeConfig
   workerEnv: Record<string, string>
-  workspaceRoot: string
-  repeatFetchSessionKey: string
   browserRuntime?: BrowserRuntime
 }): Promise<WorkerAgentTool[]> {
   const tools = await createWebTools({
-    aiGateway: opts.aiGateway,
-    workspaceRoot: opts.workspaceRoot,
-    repeatFetchSessionKey: opts.repeatFetchSessionKey,
+    rpc: opts.rpc,
+    turn: opts.turnStart.turn,
     ...(opts.browserRuntime
       ? {
           renderedFallback: opts.browserRuntime.renderedWebFetchFallback(

@@ -26,8 +26,6 @@ import {
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   RuntimeSkillSummarySchema,
-  SkillOverlayResolveResponseSchema,
-  SkillOverlayResponseSchema,
   WorkerEnvResolveResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
@@ -1222,21 +1220,15 @@ function options(
             runtimeThreadId: request.runtimeThreadId ?? ''
           })
         }
-        case 'skills.overlay.resolve':
-          return create(SkillOverlayResolveResponseSchema, {
-            overlays: (payload as { skillNames: string[] }).skillNames.map(skillName =>
-              create(SkillOverlayResponseSchema, {
-                skillName,
-                ...(overlayText
-                  ? {
-                      hasOverlay: true,
-                      text: overlayText(),
-                      contentHash: 'overlay-hash'
-                    }
-                  : {})
-              })
-            )
-          })
+        case 'tools.read': {
+          const args = jsonObjectFromBytes((payload as { argumentsJson: Uint8Array }).argumentsJson, 'read args')!
+          const name = args.name as string
+          const filePath = (args.filePath as string) ?? 'SKILL.md'
+          const content = readFileSync(join(builtinSkillsRoot, name, filePath), 'utf8')
+          return {
+            bodyJson: jsonBytes({ output: `${content}\n${overlayText?.() ?? ''}`, details: { name, path: filePath } })
+          }
+        }
         default:
           throw new Error(`unexpected RPC method: ${String(method)}`)
       }

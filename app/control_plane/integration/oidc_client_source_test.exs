@@ -1,11 +1,11 @@
 defmodule Ankole.OIDCClientSourceIntegrationTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.AIGatewayCase
 
   import AnkoleWeb.AIGatewayControllerTestHelpers, only: [response_sse_events: 3]
 
   alias Ankole.AIGateway.OIDCClientConversations
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AppConfigure
   alias Ankole.AuthZ
   alias Ankole.Brain.OIDCClientLearning
@@ -205,12 +205,13 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
               }
             ]
           }
-        ],
-        "metadata" => %{"brain_injection" => %{"items" => [0, 1, 2]}}
+        ]
       })
 
-    assert [_ | _] = message.metadata["brain_injection"]["items"]
-    assert Ankole.JSON.encode!(message.content) =~ "Injected evidence"
+    assert [_ | _] = message.metadata["brain_context_pack"]
+    assert Ankole.JSON.encode!(message.metadata["brain_context_pack"]) =~ "Injected evidence"
+    refute Map.has_key?(message.metadata, "brain_injection")
+    refute Ankole.JSON.encode!(message.content) =~ "Injected evidence"
     material = OIDCClientConversations.read(ctx.client.id, message.conversation_id)
     evidence = Ankole.JSON.encode!(material.requests)
     assert evidence =~ "customer mentioned Wire Format"
@@ -427,7 +428,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     OIDCClientLearning.sweep()
     source = source!(ctx.client)
     assert {:ok, %{conversations: 1}} = SourceLearning.learn(source.id)
-    assert {:ok, _} = StatefulResponses.commit_complete(older.id, [])
+    assert {:ok, _} = ResponseCommit.commit_complete(older.id, [])
     assert OIDCClientLearning.sweep() == 1
     assert {:ok, %{conversations: 1}} = SourceLearning.learn(source.id)
     assert length(objects(source)) == 2
@@ -439,7 +440,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
         "request_metadata" => %{"oidc_client_id" => ctx.client.id}
       })
 
-    {:ok, _} = StatefulResponses.commit_complete(internal.id, [])
+    {:ok, _} = ResponseCommit.commit_complete(internal.id, [])
     assert OIDCClientLearning.sweep() == 0
     assert Repo.aggregate(Source, :count) == 1
   end
@@ -467,7 +468,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
       })
 
     {:ok, _} =
-      StatefulResponses.commit_error(
+      ResponseCommit.commit_error(
         failed.id,
         [%{"type" => "message", "role" => "assistant", "content" => "Incomplete model output"}],
         %{"message" => "upstream failed"}
@@ -557,7 +558,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
         metadata: %{"oidc_client_id" => ctx.client.id}
       })
 
-    {:ok, _} = StatefulResponses.commit_complete(message.id, [])
+    {:ok, _} = ResponseCommit.commit_complete(message.id, [])
     message
   end
 

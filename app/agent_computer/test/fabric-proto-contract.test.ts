@@ -4,8 +4,8 @@ import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { decodeEnvelope, ProtocolVersion } from '../src/fabric/envelope_proto'
 import {
-  SkillOverlayResolveRequestSchema,
-  SkillOverlayResolveResponseSchema
+  ReadToolRequestSchema,
+  JSONPassthroughResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
 
@@ -111,38 +111,20 @@ describe('RuntimeFabric generated codec contract', () => {
     expect(turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_adopt.v9.bin'))).mode).toBe('adopt')
   })
 
-  it('decodes the golden Skill overlay typed RPC request and response', () => {
-    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_skill_overlay_resolve_request.v9.bin'))
-
-    expect(requestEnvelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
-    if (requestEnvelope.body.case !== 'rpcRequest') throw new Error('expected rpcRequest body')
-    expect(requestEnvelope.body.value).toMatchObject({
-      requestId: 'golden-rpc-skill-overlay-resolve-1',
-      method: 'skills.overlay.resolve'
+  it('decodes the shared read-tool request and owner result golden bytes', () => {
+    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_request.v9.bin'))
+    if (requestEnvelope.body.case !== 'rpcRequest') throw new Error('expected request')
+    expect(requestEnvelope.body.value.method).toBe('tools.read')
+    const request = fromBinary(ReadToolRequestSchema, requestEnvelope.body.value.payload)
+    expect(request.name).toBe('skill_view')
+    expect(JSON.parse(new TextDecoder().decode(request.argumentsJson))).toEqual({ name: 'pdf' })
+    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_response.v9.bin'))
+    if (responseEnvelope.body.case !== 'rpcResponse') throw new Error('expected response')
+    const response = fromBinary(JSONPassthroughResponseSchema, responseEnvelope.body.value.payload)
+    expect(JSON.parse(new TextDecoder().decode(response.bodyJson))).toEqual({
+      output: 'Prefer page-by-page verification.',
+      details: { name: 'pdf' }
     })
-    const request = fromBinary(SkillOverlayResolveRequestSchema, requestEnvelope.body.value.payload)
-    expect(request.skillNames).toEqual(['pdf', 'xlsx'])
-
-    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_skill_overlay_resolve_response.v9.bin'))
-
-    expect(responseEnvelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
-    if (responseEnvelope.body.case !== 'rpcResponse') throw new Error('expected rpcResponse body')
-    expect(responseEnvelope.body.value.requestId).toBe('golden-rpc-skill-overlay-resolve-1')
-    const response = fromBinary(SkillOverlayResolveResponseSchema, responseEnvelope.body.value.payload)
-    expect(response.overlays).toMatchObject([
-      {
-        skillName: 'pdf',
-        hasOverlay: true,
-        text: 'Prefer page-by-page verification.',
-        contentHash: 'overlay-hash-pdf'
-      },
-      {
-        skillName: 'xlsx',
-        hasOverlay: false,
-        text: '',
-        contentHash: 'overlay-hash-xlsx'
-      }
-    ])
   })
 })
 

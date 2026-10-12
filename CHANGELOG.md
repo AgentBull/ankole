@@ -1,5 +1,94 @@
 # Changelog
 
+## Version 2.0.0-alpha.2 (2026-10-12)
+
+- Preserve scheduled replies when a model ends with nonempty ordinary text.
+  Silent success still requires the permitted termination tool. Keep legacy
+  Agent opening-memory claims and non-prefix OIDC memory order during upgrade.
+- Remove obsolete AIGateway forwarding functions. Give conversation run types
+  one checked contract with defaults and declare run visibility on each tool.
+  Separate Driver trace completion and model deadlines, and native proxy I/O.
+- Remove unused Worker and editor code and test fixtures for retired features.
+  Check tenant joins against the pinned Ecto adapter and use persisted facts
+  and operation telemetry in Driver integration tests.
+
+- Move Worker Providers to the top-level Console navigation beside LLM Providers.
+  Update provider editor, Agent, Worker, and readiness links to the new route.
+- Add website guides in all four languages for upgrading from 1.x to 2.0,
+  WorkerProvider limits and cache disks, and OpenDAL drive storage with local
+  folders, S3, and R2. Correct the documented Worker idle-release default.
+- Keep caller metadata local at one native provider boundary. Pass model
+  profiles through local Response options outside the provider request body.
+  Store profiles beside request facts and typed conversation progress in its own
+  table. Separate stored Brain originals from packs and pointers; add memory
+  only to replay copies. Migrate legacy rows without changing caller text and
+  retain checkpoint recovery, memory refresh, and overflow limits.
+- Finish scheduled turns through a validated termination tool. Record reply or
+  permitted silent success with the tool journal and recover the accepted result
+  without a JSON response format or a format-repair request. Nonempty ordinary
+  model text also completes as a visible reply.
+- Separate pure Worker acquisition and Codex Job supervision from the model
+  loop. Reuse ready Workspaces across rounds, keep run types and tool policies
+  with their owners, and share finite outcomes, read tools, and failure handling.
+  Split response storage, compaction, and native streaming by responsibility.
+- Separate site configuration and Worker environment rows from tenant rows.
+  Enforce tenant ownership on joins, nested queries, bulk writes, and upserts.
+  Keep configuration cache entries and invalidation within their tenant.
+  Use one site authorization owner and bound cross-tenant discovery. Rename
+  Worker API and protocol resources and migrate stored permission grants.
+- Record provider stream dispatch, Ready, and event progress in Response
+  metadata. Warn once after five minutes without progress. Reset streaming idle
+  budgets only for complete events and keep the existing 30-minute budgets.
+  Record failures before Ready without renewing the generating lease.
+- Keep each Provider call's error diagnostics and failure terminal in the Rust
+  client. Deliver terminals in order under read credit, including hosted image
+  failures. Elixir consumes them for public projection, credential health, and
+  durable commits. Preserve retries before the first response event and keep
+  delivered batches readable after the stream owner exits. Keep malformed
+  Provider events non-retryable at both native failure edges. Deliver complete
+  terminal output when it exceeds the mid-stream pending byte window.
+- Bound Worker WebSocket connection attempts to ten seconds. Keep the existing
+  reconnect backoff and record socket errors and close facts.
+- Show the requested model profile and provider model for Conversation replies
+  in Console. Keep the profile through configured fallbacks and credential retries.
+- Document installation names, compaction threshold limits, single-replica
+  PostgreSQL disruption, and database backup checks and recovery.
+- Complete Agent replies after hosted Brain operations. The conversation Driver
+  executes only client tools and does not dispatch completed gateway operations.
+- Stop replies when a resolved message reference is withdrawn. Include that
+  reference only in withdrawal checks. Keep retries and visible context checks
+  limited to mirrored message sources.
+- Let an Agent report an unavailable computer after repeated tool failures.
+  Keep one unavailable acquisition state across tool rounds in the same run,
+  including late workspace and transport replies. Request terminal diagnostics
+  only when the computer is available.
+- Give the Agent its current signal binding name with the channel ID. The
+  `send_message` tool can use the real destination without guessing a binding.
+- Let automatic compaction fit a safe boundary when fewer history rows remain
+  than the preferred tail. Let manual compaction use a short, safe history
+  without the automatic threshold. Keep retained history within its budget.
+- Keep Lark connections stable when the first WebSocket frame arrives with the
+  upgrade response. Handle rejected HTTP handshake bodies through the existing
+  reconnect policy.
+- Let file search index the Agent Home directory. Keep the existing path
+  boundary and do not enable file system root scanning.
+- Keep pending tool calls during temporary workspace route errors after a
+  control-plane restart. Classify these errors when opening the workspace,
+  mark disconnected routes stale, and recheck temporary failures within the
+  same acquisition deadline. Probe adopted calls without repeating effects.
+- Retry PostgreSQL image package installation after temporary repository
+  timeouts.
+- Export a fresh Worker image for Lambda builds to avoid FROM-only activation
+  failures. Log Lambda bootstrap startup before Bun loads the hooks.
+- Remove Lambda storage files before the helper reports ready. Request helper
+  deletion before removing the Worker row, and use a new stable launch token
+  after a failed helper terminates. Keep the existing hook deadline and retry.
+- Require 4096 or 8192 MiB for official Lambda Worker images. Operators must
+  correct saved lower values in Console before runtime or cleanup operations
+  can proceed; saving queues reconciliation and clears rejected Worker errors.
+- Check inbound attachment content and channel paths in adapter tests. Keep
+  cancellation test streams open until cancellation completes.
+
 ## Version 2.0.0-alpha.1 (2026-10-09)
 
 - Keep conversation files under stable `chats/<channel>/` drive directories.

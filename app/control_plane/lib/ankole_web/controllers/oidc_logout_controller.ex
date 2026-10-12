@@ -33,7 +33,14 @@ defmodule AnkoleWeb.OIDCLogoutController do
       identity =
         case auth do
           %{"principal_uid" => uid} ->
-            case Ankole.Repo.across_tenants(fn -> Ankole.Principals.get_principal(uid) end) do
+            identity =
+              with {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(uid),
+                   do:
+                     Ankole.Repo.with_tenant(tenant_id, fn ->
+                       Ankole.Principals.get_principal(uid)
+                     end)
+
+            case identity do
               {:ok, principal} ->
                 %{
                   principalUID: uid,

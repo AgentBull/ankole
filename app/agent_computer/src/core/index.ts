@@ -1,8 +1,5 @@
-// Tool-authoring surface for the Agent Computer core: the types needed to
-// build tools plus `defineWorkerTool`. Keep this import-light — authoring a
-// tool must not pull in the runtime that runs it, so `runTurnHandlers`
-// (`./turns`) and the provider loop (`./agent-loop`) are imported from their
-// own modules by the worker entrypoint only.
+// Types and declarations for authoring Worker tools.
+// Runtime entrypoints import their execution modules directly.
 
 export * from './types'
 export { defineWorkerTool } from './worker-tool'

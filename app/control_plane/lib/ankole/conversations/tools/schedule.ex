@@ -6,6 +6,8 @@ defmodule Ankole.Conversations.Tools.Schedule do
                 {
                   "type": "function",
                   "name": "check_back_later",
+                  "activity": "schedule_follow_up",
+                  "receipt_read_actions": ["list", "get", "runs"],
                   "description": "Manage one-shot delayed self-wakeups for this conversation (create, list, inspect, update, cancel pending checkbacks).\nUse when asked to wait, remind yourself, follow up later, re-check after time passes, or modify/cancel scheduled checkbacks.\nupdate only modifies provided fields.\nConversational corrections alone don't change durable work. Never claim creation, update, or cancellation until tool confirms success.\nIf you judge that a script you write could perform this trigger's check equally well and at lower token cost than waking you each time, run `create-automation-job-cli --help` before creating the trigger to confirm the fit. The script can still wake you when its result needs judgment.",
                   "parameters": {
                     "type": "object",
@@ -145,6 +147,8 @@ defmodule Ankole.Conversations.Tools.Schedule do
                 {
                   "type": "function",
                   "name": "cron",
+                  "activity": "schedule_follow_up",
+                  "receipt_read_actions": ["list", "get", "runs"],
                   "description": "Manage recurring schedules created from this conversation (list, inspect, create, update, pause, resume, remove, run, view history).\nUse when asked about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron follow-ups.\nEach schedule runs in its own scheduled-task session, not in this conversation: fires never see this transcript, and Ankole delivers their replies to the configured channel.\npayload.task must therefore carry the complete standing instruction (goal, inputs, constraints, output form) unless automation_job_id consumes the trigger.\nSupports kind=every/cron only. For bounded repetitions (\"ten times\", \"until Sept\"), set schedule.occurrences with count/until (auto-completes when spent). For work that stops once a condition is met (\"until the PR merges\"), write the condition into payload.task; a fire that finds it met pauses its own schedule.\nUpdating payload or delivery starts a new scheduled-task conversation on the next fire; existing run history remains. Schedule or timezone changes keep the current conversation.\nAfter add/update, summarize in visible reply: name, schedule/timezone, and quiet_success status.\nSchedules are addressed by name; they have no user-facing id, so answer an id request with the name. Report delivery reach from delivery_target_count in the result, and never state a count the result does not contain.\nUse quiet_success=true for monitors to stay quiet on success and report only failures, blockers, or state changes.\nIf you judge that a script you write could perform this trigger's check equally well and at lower token cost than waking you each time, run `create-automation-job-cli --help` before creating the trigger to confirm the fit. The script can still wake you when its result needs judgment.\nIn principle, a polling interval of less than 30 minutes should only be used for script tasks (create-automation-job), as frequently waking up an LLM can be quite costly.",
                   "parameters": {
                     "type": "object",
@@ -326,6 +330,27 @@ defmodule Ankole.Conversations.Tools.Schedule do
 
   @impl true
   def declarations, do: @declarations
+  @impl true
+  def declarations(run) do
+    if Ankole.Schedule.cron_execution_schedule_id(run.session_id) do
+      Enum.map(@declarations, fn
+        %{"name" => "cron"} = tool ->
+          tool
+          |> Map.put(
+            "description",
+            "Inspect or pause the recurring schedule that runs this conversation (list/get/runs/pause). When its task says to stop once a condition is met and you find the condition met, pause it. You cannot create, change, resume, run or remove schedules here."
+          )
+          |> put_in(["parameters", "properties", "action", "enum"], ~w(list get runs pause))
+          |> update_in(["parameters", "properties"], &Map.take(&1, ~w(action name limit)))
+
+        tool ->
+          tool
+      end)
+    else
+      @declarations
+    end
+  end
+
   alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.Conversations.{Run, Tools}

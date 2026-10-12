@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
@@ -7,7 +9,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -24,7 +25,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
       })
 
     assert {:ok, _completed} =
-             StatefulResponses.commit_complete(response, [
+             ResponseCommit.commit_complete(response, [
                %{
                  "type" => "message",
                  "role" => "assistant",
@@ -49,7 +50,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, predecessor} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-before"})
 
-    {:ok, predecessor} = StatefulResponses.commit_complete(predecessor, [])
+    {:ok, predecessor} = ResponseCommit.commit_complete(predecessor, [])
 
     {:ok, first} =
       start_response_run(%{
@@ -58,7 +59,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
       })
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [])
+    {:ok, first} = ResponseCommit.commit_complete(first, [])
 
     {:ok, second} =
       start_response_run(%{
@@ -67,7 +68,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-retry"}}
       })
 
-    {:ok, second} = StatefulResponses.commit_complete(second, [])
+    {:ok, second} = ResponseCommit.commit_complete(second, [])
 
     assert {:ok, %{status: :retracted, retracted_count: 2}} =
              Repo.transact(fn repo ->
@@ -83,7 +84,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert Repo.get!(Message, predecessor.id).status == "complete"
     assert Repo.get!(Message, first.id).status == "retracted"
     assert Repo.get!(Message, second.id).status == "retracted"
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == predecessor.id
+    assert ResponseChain.latest_visible_leaf(conversation.id) == predecessor.id
   end
 
   test "selects an actor-correlated visible suffix before calling generic deletion" do
@@ -93,7 +94,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     {:ok, first} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-tail"})
 
-    {:ok, first} = StatefulResponses.commit_complete(first, [])
+    {:ok, first} = ResponseCommit.commit_complete(first, [])
 
     {:ok, second} =
       start_response_run(%{
@@ -102,7 +103,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
         metadata: %{"request_metadata" => %{"actor_event_id" => "event-tail"}}
       })
 
-    {:ok, second} = StatefulResponses.commit_complete(second, [])
+    {:ok, second} = ResponseCommit.commit_complete(second, [])
 
     assert {:ok,
             %{

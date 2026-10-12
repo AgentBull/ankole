@@ -10,13 +10,14 @@ use tokio::time::{Instant as TokioInstant, timeout, timeout_at};
 use uuid::Uuid as UUID;
 
 use super::api_resolver;
-use super::client::{Delivery, EventSink, StreamCommand};
+use super::client::{ChunkOrigin, Delivery, EventSink, StreamCommand};
 use super::downstream::DownstreamEncoder;
 use super::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use super::spec::{
     HostedImageGenerationSpec, HostedToolsSpec, ModelRequestSpec, PreparedHTTPRequestSpec,
     RequestLimits, ResponseContext, StreamSpec, UpstreamKind,
 };
+use super::transport::SemanticIdle;
 
 mod events;
 mod public_error;
@@ -253,8 +254,7 @@ pub(super) async fn run_hosted_stream(
         if let Err(error) = ensure_downstream_event_size(&spec, encoder, event) {
             let error = redact_hosted_error(error);
             delivery
-                .finish_error_events_with_metadata(
-                    Vec::new(),
+                .finish_native_error_with_metadata(
                     error.clone(),
                     Some(hosted_failure_metadata(&hosted, &error, None)),
                 )
@@ -262,14 +262,16 @@ pub(super) async fn run_hosted_stream(
             return;
         }
     }
-    match delivery.push_events_bounded(initial_events).await {
+    match delivery
+        .push_events_bounded(initial_events, ChunkOrigin::Client)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
             let error = redact_hosted_error(error);
             delivery
-                .finish_error_events_with_metadata(
-                    Vec::new(),
+                .finish_native_error_with_metadata(
                     error.clone(),
                     Some(hosted_failure_metadata(&hosted, &error, None)),
                 )
@@ -347,14 +349,24 @@ pub(super) async fn run_hosted_stream(
                 final_body["created_at"] = created_at.clone();
             }
             let events = terminal_stream_events(&mut sequence, &final_body);
-            match delivery.push_events_bounded(events).await {
+            match delivery
+                .push_events_bounded(events, ChunkOrigin::Provider)
+                .await
+            {
                 Ok(true) => {}
                 Ok(false) => return,
                 Err(error) => {
                     let error = redact_hosted_error(error);
                     let metadata = hosted_failure_metadata(&hosted, &error, Some(&streamed_output));
+                    let events = streamed_output.fail_events(
+                        &mut sequence,
+                        &public_context,
+                        &response_id,
+                        response_created_at.as_ref(),
+                        &error,
+                    );
                     delivery
-                        .finish_error_events_with_metadata(Vec::new(), error, Some(metadata))
+                        .finish_error_events_with_metadata(events, error, Some(metadata))
                         .await;
                     return;
                 }
@@ -367,61 +379,65 @@ pub(super) async fn run_hosted_stream(
                 .await;
         }
         Err(error) => {
-            let pool_retryable = error.can_retry_through_credential_pool();
             let error = redact_hosted_error(error);
-
-            if pool_retryable && no_public_hosted_progress(&streamed_output) {
-                let metadata = hosted_failure_metadata(&hosted, &error, Some(&streamed_output));
-                delivery
-                    .finish_native_error_with_metadata(error, Some(metadata))
-                    .await;
-                return;
-            }
-
-            let mut failure_events = Vec::new();
-
-            if let Some((output_index, id)) = streamed_output.active_image.take() {
-                let failed_item = json!({
-                    "id": id,
-                    "type": "image_generation_call",
-                    "status": "failed",
-                    "result": null
-                });
-                streamed_output
-                    .items
-                    .insert(output_index, failed_item.clone());
-                failure_events.push(stream_event(
-                    &mut sequence,
-                    "response.output_item.done",
-                    json!({"output_index": output_index, "item": failed_item}),
-                ));
-            }
-
-            let mut failed_response = api_resolver::complete_response_resource(
-                &public_context,
-                json!({
-                    "id": response_id,
-                    "status": "failed",
-                    "completed_at": null,
-                    "output": streamed_output.output(),
-                    "usage": empty_usage(),
-                    "error": to_public_openai_error_json(&error)
-                }),
-            );
-            if let Some(created_at) = &response_created_at {
-                failed_response["created_at"] = created_at.clone();
-            }
-            failure_events.extend(terminal_stream_events(&mut sequence, &failed_response));
             let metadata = hosted_failure_metadata(&hosted, &error, Some(&streamed_output));
+            let events = streamed_output.fail_events(
+                &mut sequence,
+                &public_context,
+                &response_id,
+                response_created_at.as_ref(),
+                &error,
+            );
             delivery
-                .finish_error_events_with_metadata(failure_events, error, Some(metadata))
+                .finish_error_events_with_metadata(events, error, Some(metadata))
                 .await;
         }
     }
 }
 
-fn no_public_hosted_progress(output: &StreamedHostedOutput) -> bool {
-    output.items.is_empty() && output.active_image.is_none() && output.partial_images == 0
+impl StreamedHostedOutput {
+    fn fail_events(
+        &mut self,
+        sequence: &mut u64,
+        context: &ResponseContext,
+        response_id: &str,
+        created_at: Option<&Value>,
+        error: &StreamError,
+    ) -> Vec<Value> {
+        let mut events = Vec::new();
+
+        if let Some((output_index, id)) = self.active_image.take() {
+            let failed_item = json!({
+                "id": id,
+                "type": "image_generation_call",
+                "status": "failed",
+                "result": null
+            });
+            self.items.insert(output_index, failed_item.clone());
+            events.push(stream_event(
+                sequence,
+                "response.output_item.done",
+                json!({"output_index": output_index, "item": failed_item}),
+            ));
+        }
+
+        let mut response = api_resolver::complete_response_resource(
+            context,
+            json!({
+                "id": response_id,
+                "status": "failed",
+                "completed_at": null,
+                "output": self.output(),
+                "usage": empty_usage(),
+                "error": to_public_openai_error_json(error)
+            }),
+        );
+        if let Some(created_at) = created_at {
+            response["created_at"] = created_at.clone();
+        }
+        events.extend(terminal_stream_events(sequence, &response));
+        events
+    }
 }
 
 fn hosted_failure_metadata(
@@ -490,7 +506,6 @@ fn hosted_total_timeout_error() -> StreamError {
         "hosted_responses",
         "hosted response exceeded the total request timeout",
     )
-    .retry_through_credential_pool()
 }
 
 async fn deliver_hosted_progress_before_deadline(
@@ -541,7 +556,10 @@ async fn deliver_hosted_progress(
         }
         HostedProgress::ImageStarted { id, output_index } => {
             let events = image_started_events(sequence, output_index, &id);
-            if !delivery.push_events_bounded(events).await? {
+            if !delivery
+                .push_events_bounded(events, ChunkOrigin::Provider)
+                .await?
+            {
                 return Ok(false);
             }
             output.active_image = Some((output_index, id));
@@ -563,7 +581,10 @@ async fn deliver_hosted_progress(
                     "partial_image_b64": partial_image_b64
                 }),
             );
-            if !delivery.push_events_bounded(vec![event]).await? {
+            if !delivery
+                .push_events_bounded(vec![event], ChunkOrigin::Provider)
+                .await?
+            {
                 return Ok(false);
             }
             output.partial_images = output.partial_images.saturating_add(1);
@@ -574,7 +595,10 @@ async fn deliver_hosted_progress(
             metrics,
         } => {
             let events = image_completed_events(sequence, output_index, &item);
-            if !delivery.push_events_bounded(events).await? {
+            if !delivery
+                .push_events_bounded(events, ChunkOrigin::Provider)
+                .await?
+            {
                 return Ok(false);
             }
             output.active_image = None;
@@ -587,7 +611,10 @@ async fn deliver_hosted_progress(
         }
         HostedProgress::PublicItem { output_index, item } => {
             let events = output_item_events(sequence, output_index, &item);
-            if !delivery.push_events_bounded(events).await? {
+            if !delivery
+                .push_events_bounded(events, ChunkOrigin::Provider)
+                .await?
+            {
                 return Ok(false);
             }
             output.items.insert(output_index, item);
@@ -1602,22 +1629,20 @@ async fn call_streaming_image(
     let max_event_bytes = spec.limits.max_response_bytes;
     let mut parser = super::wire::SSEParser::new(max_event_bytes);
     let mut state = ImageStreamState::default();
+    let mut idle = SemanticIdle::new(upstream.timeout.idle_duration());
 
     'read: loop {
-        let next = timeout(upstream.timeout.idle_duration(), response.body.next())
-            .await
-            .map_err(|_| {
-                StreamError::new(
-                    "idle_timeout",
-                    "image_generation",
-                    "image provider stream idle timeout",
-                )
-                .retry_through_credential_pool()
-            })?;
+        let next = idle.wait(response.body.next()).await.map_err(|_| {
+            StreamError::new("idle_timeout", "read", "image provider stream idle timeout")
+        })?;
 
         match next {
             Some(Ok(bytes)) => {
-                for event in parser.push(&bytes)? {
+                let events = parser.push(&bytes)?;
+                if !events.is_empty() {
+                    idle.progressed();
+                }
+                for event in events {
                     if ingest_streaming_image_event(
                         &mut state,
                         &event.data,
@@ -1638,8 +1663,7 @@ async fn call_streaming_image(
                     "response_body_read_failed",
                     "image_generation",
                     format!("image provider stream read failed: {reason}"),
-                )
-                .retry_through_credential_pool());
+                ));
             }
             None => {
                 parser.finish()?;
@@ -1780,9 +1804,6 @@ fn ingest_image_stream_data(
                     .unwrap_or("image_generation_failed"),
             };
             let mut stream_error = StreamError::new(code, "image_generation", message);
-            if code == "total_timeout" {
-                stream_error = stream_error.retry_through_credential_pool();
-            }
             if let Some(status) = provider_status {
                 stream_error = stream_error.provider_status(status);
             }
@@ -1967,6 +1988,83 @@ mod tests {
 
     /// Names the private fixture tool that must not enter public output.
     const HIDDEN_TOOL: &str = "__ankole_hosted_image_generation";
+
+    #[tokio::test]
+    async fn semantic_idle_hosted_image_sse_comments_do_not_reset_the_timeout() {
+        let listener = TCPListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _body) = read_http_request(&listener);
+            write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n").unwrap();
+            let until = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < until {
+                if write!(stream, "d\r\n: keepalive\n\n\r\n")
+                    .and_then(|()| stream.flush())
+                    .is_err()
+                {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let mut image_spec = test_image_spec(&format!("http://{address}/images"));
+        image_spec.prepared_request.response_context.stream = Some(true);
+        image_spec.prepared_request.upstream.timeout.idle_ms = 200;
+        let started = Instant::now();
+        let error = timeout(
+            Duration::from_secs(2),
+            call_image(&image_spec, "A lake", "generate", &[], "ig_idle", 0, None),
+        )
+        .await
+        .expect("SSE comments must not prevent the hosted image idle timeout")
+        .unwrap_err();
+        assert_eq!(error.code, "idle_timeout");
+        assert_eq!(error.stage, "read");
+        assert!(started.elapsed() >= Duration::from_millis(150));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn semantic_idle_hosted_image_complete_events_reset_the_timeout() {
+        let listener = TCPListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _body) = read_http_request(&listener);
+            write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n").unwrap();
+            for event in [
+                r#"{"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbA=="}"#,
+                r#"{"type":"image_generation.partial_image","partial_image_index":1,"b64_json":"cGFydGlhbA=="}"#,
+                r#"{"type":"image_generation.completed","b64_json":"ZmluYWw=","media_type":"image/png"}"#,
+            ] {
+                let until = Instant::now() + Duration::from_millis(150);
+                while Instant::now() < until {
+                    write_sse_chunk(&mut stream, ": keepalive\n\n");
+                    stream.flush().unwrap();
+                    thread::sleep(Duration::from_millis(20));
+                }
+                write_sse_chunk(&mut stream, &format!("data: {event}\n\n"));
+                stream.flush().unwrap();
+            }
+            write_sse_chunk(&mut stream, "data: [DONE]\n\n");
+            write!(stream, "0\r\n\r\n").unwrap();
+            stream.flush().unwrap();
+        });
+        let mut image_spec = test_image_spec(&format!("http://{address}/images"));
+        image_spec.tool_config["partial_images"] = json!(2);
+        image_spec.prepared_request.response_context.stream = Some(true);
+        image_spec.prepared_request.upstream.timeout.idle_ms = 200;
+        let started = Instant::now();
+        let image = timeout(
+            Duration::from_secs(2),
+            call_image(&image_spec, "A lake", "generate", &[], "ig_idle", 0, None),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(image.result, "ZmluYWw=");
+        assert_eq!(image.partial_image_count, 2);
+        assert!(started.elapsed() >= Duration::from_millis(400));
+    }
 
     #[test]
     fn exhausted_tool_budget_removes_only_the_hidden_image_tool() {

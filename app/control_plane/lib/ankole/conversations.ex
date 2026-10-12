@@ -1,10 +1,32 @@
 defmodule Ankole.Conversations do
   @moduledoc "Wakes the single driver for committed conversation input. PostgreSQL owns the inbox."
-  alias Ankole.Conversations.{Driver, Jobs.EnsureDriver}
+  alias Ankole.Conversations.{Admission, Driver, Jobs.EnsureDriver}
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
 
-  def ensure_driver(key), do: Driver.ensure(key)
+  def ensure_driver(key) do
+    case Repo.get(Ankole.Principals.Principal, key.agent_uid) do
+      %{type: :agent, tenant_id: tenant_id} -> ensure_in_tenant(key, tenant_id)
+      _ -> {:error, :agent_not_found}
+    end
+  end
+
+  defp ensure_in_tenant(key, tenant_id) do
+    case Driver.whereis(key) do
+      :undefined ->
+        case DynamicSupervisor.start_child(
+               Ankole.Conversations.Drivers,
+               {Admission.driver(key), {key, tenant_id}}
+             ) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+          {:error, _} = error -> error
+        end
+
+      pid ->
+        {:ok, pid}
+    end
+  end
 
   def deliver(key, id) do
     with {:ok, pid} <- ensure_driver(key) do

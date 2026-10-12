@@ -6,6 +6,8 @@ defmodule Ankole.Conversations.Tools.Web do
                 {
                   "type": "function",
                   "name": "web_search",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "web_search",
                   "description": "Search the public web through the configured AIGateway web search provider.",
                   "parameters": {
                     "type": "object",
@@ -34,6 +36,8 @@ defmodule Ankole.Conversations.Tools.Web do
                 {
                   "type": "function",
                   "name": "web_fetch",
+                  "run_kinds": ["main", "ambient", "scheduled", "workflow_task"],
+                  "activity": "web_fetch",
                   "description": "Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call. One call returns a bounded page-text window. A longer page returns next_offset; call web_fetch with the same URL and result_offset to read the next window. The text is held in this run and is fetched again after recovery.",
                   "parameters": {
                     "type": "object",
@@ -66,6 +70,36 @@ defmodule Ankole.Conversations.Tools.Web do
 
   @impl true
   def declarations, do: @declarations
+  @impl true
+  def declarations(run) do
+    hosted? =
+      get_in(run.spec.request_context, ["ai_agent", "provider_hosted", "web_search"]) == true
+
+    Enum.reject(@declarations, &(&1["name"] == "web_search" and hosted?))
+  end
+
+  @impl true
+  def activity(%{name: "web_search"}, args, _phase, _result),
+    do:
+      {"web_search",
+       %{"query" => Ankole.Conversations.Presentation.activity_excerpt(args["query"], 48)}}
+
+  def activity(%{name: "web_fetch"}, args, _phase, result) do
+    urls = args["urls"] || []
+    pages = if result && is_map(result.details), do: result.details["results"] || [], else: []
+    page = Enum.find(pages, &is_binary(&1["title"])) || List.first(pages) || %{}
+    host = URI.parse(page["url"] || List.first(urls) || "").host
+
+    title =
+      if is_binary(page["title"]),
+        do: "《#{Ankole.Conversations.Presentation.activity_excerpt(page["title"], 40)}》"
+
+    target = [title, host] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
+    key = if length(urls) == 1, do: "web_fetch", else: "web_fetch_many"
+
+    {key <> if(target == "", do: "", else: "_target"),
+     %{"target" => target, "count" => length(urls)}}
+  end
 
   alias Ankole.AIGateway
   alias Ankole.Conversations.Tools
@@ -94,6 +128,10 @@ defmodule Ankole.Conversations.Tools.Web do
   end
 
   def execute(run, %{"name" => "web_fetch"}, args) do
+    with :ok <- validate_urls(args["urls"]), do: fetch(run, args)
+  end
+
+  defp fetch(run, args) do
     now = System.system_time(:millisecond)
     cached = Map.new(args["urls"], fn url -> {url, cache(run, url, now)} end)
     missing = args["urls"] |> Enum.uniq() |> Enum.reject(&cached[&1])
@@ -125,8 +163,22 @@ defmodule Ankole.Conversations.Tools.Web do
     end
   end
 
-  def render(run, body, urls, offset \\ 0),
-    do: render(run, body, urls, %{}, System.system_time(:millisecond), urls, offset)
+  def render(run, body, urls, offset \\ 0) do
+    with :ok <- validate_urls(urls),
+         do: render(run, body, urls, %{}, System.system_time(:millisecond), urls, offset)
+  end
+
+  defp validate_urls(urls) do
+    if Enum.all?(urls, fn url ->
+         case URI.new(url) do
+           {:ok, %{scheme: scheme, host: host}} when is_binary(scheme) and is_binary(host) ->
+             String.downcase(scheme) == "https" and host != ""
+
+           _ ->
+             false
+         end
+       end), do: :ok, else: {:error, "web_fetch requires HTTPS URLs"}
+  end
 
   @max_result_bytes 8_000
 

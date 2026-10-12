@@ -34,7 +34,9 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @grace "1 day"
 
   @impl Ankole.Job
-  def run(job), do: Ankole.Repo.across_tenants(fn -> sweep(job) end)
+  # Blob contents are site-owned. The two reviewed SQL statements check all
+  # tenant references before deletion; this job needs no tenant query bypass.
+  def run(job), do: sweep(job)
 
   defp sweep(%Oban.Job{}) do
     {:ok, marked} = mark_unreferenced()

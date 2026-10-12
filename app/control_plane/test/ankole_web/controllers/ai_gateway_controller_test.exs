@@ -1,4 +1,6 @@
 defmodule AnkoleWeb.AIGatewayControllerTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -14,7 +16,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
@@ -234,7 +235,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert {:ok, first} =
-             StatefulResponses.commit_complete(first, [first_output_item], %{
+             ResponseCommit.commit_complete(first, [first_output_item], %{
                "usage" => response_usage_fixture()
              })
 
@@ -266,7 +267,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert {:ok, second} =
-             StatefulResponses.commit_complete(second, [second_output_item], %{
+             ResponseCommit.commit_complete(second, [second_output_item], %{
                "usage" => %{
                  "inputTokens" => 7,
                  "outputTokens" => 5,
@@ -340,7 +341,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert {:ok, message} =
-             StatefulResponses.commit_complete(message, [output_item], %{
+             ResponseCommit.commit_complete(message, [output_item], %{
                "usage" => response_usage_fixture()
              })
 
@@ -379,7 +380,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert {:ok, message} =
-             StatefulResponses.commit_complete(
+             ResponseCommit.commit_complete(
                message,
                [
                  %{
@@ -2584,7 +2585,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       })
 
     assert {:ok, anchor} =
-             StatefulResponses.commit_complete(
+             ResponseCommit.commit_complete(
                anchor,
                [
                  %{
@@ -2659,7 +2660,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              "issuer" => "openrouter-stateful-compact"
            }
 
-    assert StatefulResponses.expand_history(conversation.id,
+    assert ResponseChain.expand_history(conversation.id,
              previous_response_id: body["id"]
            ) ==
              [

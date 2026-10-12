@@ -10,9 +10,6 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
-  AnkoleWebAgentComputerWorkerControllerIndexData,
-  AnkoleWebAgentComputerWorkerControllerIndexErrors,
-  AnkoleWebAgentComputerWorkerControllerIndexResponses,
   AnkoleWebAgentControllerCreateData,
   AnkoleWebAgentControllerCreateErrors,
   AnkoleWebAgentControllerCreateResponses,
@@ -106,6 +103,9 @@ import type {
   AnkoleWebAgentSkillLessonControllerRetireData,
   AnkoleWebAgentSkillLessonControllerRetireErrors,
   AnkoleWebAgentSkillLessonControllerRetireResponses,
+  AnkoleWebAgentWorkerControllerIndexData,
+  AnkoleWebAgentWorkerControllerIndexErrors,
+  AnkoleWebAgentWorkerControllerIndexResponses,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsErrors,
   AnkoleWebAiGatewayControllerEmbeddingsResponses,
@@ -837,6 +837,32 @@ export const ankoleWebWorkerProviderControllerUpdate = <ThrowOnError extends boo
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List the Worker of each Agent
+ */
+export const ankoleWebAgentWorkerControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAgentWorkerControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentWorkerControllerIndexResponses,
+  AnkoleWebAgentWorkerControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAgentWorkerControllerIndexResponses,
+    AnkoleWebAgentWorkerControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        in: 'cookie',
+        name: '_ankole_key',
+        type: 'apiKey'
+      }
+    ],
+    url: '/api/v1/agent-workers',
+    ...options
   })
 
 /**
@@ -4783,32 +4809,6 @@ export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolea
       }
     ],
     url: '/api/v1/agents/{agent_uid}/library-documents',
-    ...options
-  })
-
-/**
- * List the Worker of each Agent
- */
-export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAgentComputerWorkerControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentComputerWorkerControllerIndexResponses,
-  AnkoleWebAgentComputerWorkerControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAgentComputerWorkerControllerIndexResponses,
-    AnkoleWebAgentComputerWorkerControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        in: 'cookie',
-        name: '_ankole_key',
-        type: 'apiKey'
-      }
-    ],
-    url: '/api/v1/agent-computer-workers',
     ...options
   })
 

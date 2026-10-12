@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway.HostedTools.Brain do
+  alias Ankole.AIGateway.ResponseChain
+
   @moduledoc """
   The hosted `brain` tool: Brain memory operations executed inside a Response.
 
@@ -12,22 +14,18 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
   `operations` restricts the declared subset. `inject: true` adds the
   zero-model memory injection to a stateful request: the context pack at
-  conversation start and after each compaction, and the volunteer pointers of
-  the newest user message on every request. Injected items are ordinary request
-  input, so they persist with the Response chain.
+  conversation start, and the volunteer pointers of the newest user message
+  on every request. Compaction stores a fresh context pack outside the summary
+  output and replays it before retained user originals. Request metadata stores
+  the pack and pointers separately. Provider replay adds them to a copy of the input.
   """
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.ToolContract
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.Brain.Tools
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
-  alias Ankole.Repo
   alias Ankole.SignalsGateway.BrainContext
 
   @tool_type "brain"
@@ -37,8 +35,6 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   @call_timeout_ms 60_000
   @pack_budget_tokens 4_000
   @injection_text_max_graphemes 4_000
-  @context_pack_marker "brain_context_pack_at"
-  @context_pack_event_marker "brain_context_pack_event"
   # Recalled claim text is untrusted. Neutralize both the recalled_memory
   # envelope and the agent_environment_info block the system prompt treats as
   # trusted, so a claim cannot close either wrapper and inject instructions.
@@ -270,57 +266,47 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
   def project_history(request), do: request
 
-  @doc """
-  Adds the memory injection to the current input of one stateful request when
-  the request declares `inject: true`. Returns the input and the injected
-  positions and text byte ranges, so source readers can exclude memory from
-  new evidence. Every failure leaves the input as it was: injection is an
-  enhancement, never a requirement of the Response.
-  """
-  @spec inject_stateful(String.t(), map(), Conversation.t(), [map()]) :: {[map()], map()}
-  def inject_stateful(subject_uid, request, %Conversation{} = conversation, current_input)
+  @doc "Builds memory beside caller input. Only provider replay combines them."
+  @spec inject_stateful(String.t(), map(), Conversation.t(), [map()], [map()]) :: {[map()], map()}
+  def inject_stateful(
+        subject_uid,
+        request,
+        %Conversation{} = _conversation,
+        current_input,
+        history
+      )
       when is_list(current_input) do
     with {:ok, %{inject?: true}} <- declaration(request),
          {:ok, context} <- build_context(subject_uid, Map.get(request, "metadata")) do
-      actor_event_id = BrainContext.actor_event_id(Map.get(request, "metadata"))
       recent_text = recent_user_text(current_input)
 
-      pack_messages =
-        case context_pack_slot(conversation, actor_event_id) do
-          {:claim, checkpoint} ->
-            pack =
-              Tools.context_pack(context, %{
-                participant_uids: context.participant_uids,
-                recent_text: recent_text
-              })
+      opening? =
+        not Enum.any?(
+          history,
+          &(&1.type == "checkpoint" or (&1.metadata || %{})["brain_context_pack_claimed"] == true)
+        )
 
-            record_context_pack_marker(conversation, checkpoint, actor_event_id)
-            pack_messages(pack)
-
-          :skip ->
-            []
-        end
-
-      pointer_lines =
-        context
-        |> Tools.volunteer_pointers(recent_text)
-        |> pointer_lines()
-
-      pack_index = last_user_message_index(current_input) || length(current_input)
-
-      {injected, environment} =
-        current_input
-        |> insert_pack_messages(pack_messages)
-        |> prepend_pointer_lines(pointer_lines)
-
-      provenance = %{
-        "items" => Enum.with_index(pack_messages, pack_index) |> Enum.map(&elem(&1, 1))
+      memory = %{
+        "brain_pointer_lines" =>
+          context |> Tools.volunteer_pointers(recent_text) |> pointer_lines()
       }
 
-      provenance =
-        if environment, do: Map.put(provenance, "environment", environment), else: provenance
+      memory =
+        if opening? do
+          pack =
+            Tools.context_pack(context, %{
+              participant_uids: context.participant_uids,
+              recent_text: recent_text
+            })
 
-      {injected, provenance}
+          memory
+          |> Map.put("brain_context_pack", pack_messages(pack))
+          |> Map.put("brain_context_pack_claimed", true)
+        else
+          memory
+        end
+
+      {current_input, memory}
     else
       _no_injection -> {current_input, %{}}
     end
@@ -333,6 +319,82 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
       )
 
       {current_input, %{}}
+  end
+
+  @doc "Replays the separate pack and pointers without changing stored input."
+  def replay(items, metadata) do
+    metadata = metadata || %{}
+    pointers = metadata["brain_pointer_lines"] || []
+    items = prepend_pointer_lines(items, pointers)
+    pack = metadata["brain_context_pack"] || []
+
+    case metadata["brain_context_pack_positions"] do
+      positions when is_list(positions) ->
+        pack
+        |> Enum.zip(positions)
+        |> Enum.sort_by(&elem(&1, 1))
+        |> Enum.reduce(items, fn {item, index}, replay -> List.insert_at(replay, index, item) end)
+
+      nil ->
+        pack ++ items
+    end
+  end
+
+  def memory_fields(metadata),
+    do:
+      Map.take(
+        metadata || %{},
+        ~w(brain_context_pack brain_context_pack_claimed brain_context_pack_positions brain_pointer_lines)
+      )
+
+  @doc "Builds fresh checkpoint memory from the original caller dialogue."
+  def checkpoint_context_pack(
+        subject_uid,
+        %Conversation{} = conversation,
+        request,
+        input,
+        history_items
+      )
+      when is_list(input) and is_function(history_items, 0) do
+    enabled? =
+      match?({:ok, %{inject?: true}}, declaration(request)) or
+        Enum.any?(
+          ResponseChain.expand_history(conversation.id, stop_at_checkpoint: false),
+          &((&1.metadata || %{})["brain_context_pack_claimed"] == true)
+        )
+
+    if enabled? do
+      with {:ok, context} <- build_context(subject_uid, request["metadata"]) do
+        recent_text =
+          case recent_user_text(input) do
+            "" -> recent_user_text(history_items.())
+            text -> text
+          end
+
+        context
+        |> Tools.context_pack(%{
+          participant_uids: context.participant_uids,
+          recent_text: recent_text
+        })
+        |> pack_messages()
+      else
+        {:error, reason} -> checkpoint_context_pack_failed(subject_uid, format_reason(reason))
+      end
+    else
+      []
+    end
+  rescue
+    error -> checkpoint_context_pack_failed(subject_uid, Exception.message(error))
+  end
+
+  defp checkpoint_context_pack_failed(subject_uid, reason) do
+    Logging.warning(
+      "ai_gateway.brain_checkpoint_context_pack_failed",
+      "Brain context pack assembly failed; the checkpoint continues without it",
+      %{subject_uid: subject_uid, error: reason}
+    )
+
+    []
   end
 
   # Declaration
@@ -485,76 +547,6 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
 
-  # Context pack slot
-
-  # The design injects one pack at conversation start and one after each
-  # compaction. The conversation row and its compaction checkpoints are
-  # control-plane state, so this check claims the slot only when no pack was
-  # recorded since the newest compaction checkpoint, or ever, for a fresh
-  # conversation. The marker stores the checkpoint instant the pack covered,
-  # not the clock, so the comparison does not depend on clock alignment
-  # between writers, plus the claiming actor event: a retry of the same event
-  # re-claims the slot, so a Worker that died between the marker commit and
-  # the model request does not lose the injection forever. Each slot records
-  # exactly one best-effort attempt: assembly degrades to an empty pack, so
-  # the marker commits either way, and the injection contract is
-  # degrade-to-empty, not reliable delivery.
-  defp context_pack_slot(%Conversation{} = conversation, actor_event_id) do
-    metadata = conversation.metadata || %{}
-    marker = parse_datetime(Map.get(metadata, @context_pack_marker))
-    marker_event = Map.get(metadata, @context_pack_event_marker)
-    checkpoint = newest_checkpoint_at(conversation.id)
-
-    cond do
-      marker == nil ->
-        {:claim, checkpoint}
-
-      checkpoint != nil and DateTime.compare(checkpoint, marker) == :gt ->
-        {:claim, checkpoint}
-
-      is_binary(marker_event) and marker_event == actor_event_id ->
-        {:claim, checkpoint}
-
-      true ->
-        :skip
-    end
-  end
-
-  defp newest_checkpoint_at(conversation_id) do
-    Message
-    |> where(
-      [message],
-      message.conversation_id == ^conversation_id and message.type == "checkpoint"
-    )
-    |> order_by([message], desc: message.inserted_at)
-    |> limit(1)
-    |> select([message], message.inserted_at)
-    |> Repo.one()
-  end
-
-  defp record_context_pack_marker(%Conversation{} = conversation, checkpoint, actor_event_id) do
-    covered = checkpoint || DateTime.utc_now()
-
-    metadata =
-      (conversation.metadata || %{})
-      |> Map.put(@context_pack_marker, DateTime.to_iso8601(covered))
-      |> Map.put(@context_pack_event_marker, actor_event_id)
-
-    {:ok, _updated} =
-      Conversations.update_conversation_metadata_in_tx(Repo, conversation, metadata)
-
-    :ok
-  end
-
-  defp parse_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp parse_datetime(_value), do: nil
-
   # Injection rendering
 
   defp pack_messages(pack) do
@@ -568,19 +560,38 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
     lines =
       (entity_lines ++ thread_block)
       |> Enum.map(&escape_recalled_memory_tags/1)
-      |> truncate_to_budget(@pack_budget_tokens)
+      |> truncate_to_budget(@pack_budget_tokens - recalled_memory_wrapper_tokens())
+      |> fit_recalled_memory(@pack_budget_tokens)
 
-    if lines == [] do
-      []
-    else
-      text =
-        Enum.join(
-          [@recalled_memory_preamble, "<recalled_memory>"] ++ lines ++ ["</recalled_memory>"],
-          "\n"
-        )
+    if lines == [], do: [], else: [user_message(recalled_memory_text(lines))]
+  end
 
-      [user_message(text)]
-    end
+  defp recalled_memory_text(lines) do
+    Enum.join(
+      [@recalled_memory_preamble, "<recalled_memory>"] ++ lines ++ ["</recalled_memory>"],
+      "\n"
+    )
+  end
+
+  defp recalled_memory_wrapper_tokens,
+    do: NativeKernel.estimate_o200k_base_tokens(recalled_memory_text([]))
+
+  # Line estimates do not count the joining newlines. Remove whole trailing
+  # lines until the wrapped text fits.
+  defp fit_recalled_memory([], _budget), do: []
+
+  defp fit_recalled_memory(lines, budget) do
+    if NativeKernel.estimate_o200k_base_tokens(recalled_memory_text(lines)) <= budget,
+      do: lines,
+      else:
+        lines
+        |> Enum.drop(-1)
+        |> drop_dangling_thread_header()
+        |> fit_recalled_memory(budget)
+  end
+
+  defp drop_dangling_thread_header(lines) do
+    if List.last(lines) == "open threads:", do: Enum.drop(lines, -1), else: lines
   end
 
   defp entity_card_lines(card) when is_map(card) do
@@ -691,10 +702,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         end
       end)
 
-    case kept_rev do
-      ["open threads:" | rest] -> Enum.reverse(rest)
-      kept_rev -> Enum.reverse(kept_rev)
-    end
+    kept_rev |> Enum.reverse() |> drop_dangling_thread_header()
   end
 
   defp cut_to_token_budget(_line, budget) when budget <= 0, do: ""
@@ -728,77 +736,46 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
     }
   end
 
-  # Injection placement
+  # Pointers join the latest user environment only in provider replay.
+  defp prepend_pointer_lines(items, []), do: items
 
-  # The pack renders as user messages placed before the newest user message,
-  # after the channel context the caller already put ahead of it.
-  defp insert_pack_messages(current_input, []), do: current_input
-
-  defp insert_pack_messages(current_input, pack_messages) do
-    case last_user_message_index(current_input) do
-      nil -> current_input ++ pack_messages
-      index -> List.insert_at(current_input, index, pack_messages) |> List.flatten()
-    end
-  end
-
-  # Pointer lines join the newest user message's environment block, after the
-  # facts the caller already wrote there; a message without that block gets
-  # one at the front of its content.
-  defp prepend_pointer_lines(current_input, []), do: {current_input, nil}
-
-  defp prepend_pointer_lines(current_input, lines) do
-    case last_user_message_index(current_input) do
-      nil ->
-        {current_input, nil}
-
-      index ->
-        {message, position} = put_environment_lines(Enum.at(current_input, index), lines)
-
-        {List.replace_at(current_input, index, message), Map.put(position, "item_index", index)}
+  defp prepend_pointer_lines(items, lines) do
+    case last_user_message_index(items) do
+      nil -> items
+      index -> List.update_at(items, index, &put_environment_lines(&1, lines))
     end
   end
 
   defp put_environment_lines(message, lines) do
     content = message_content_parts(message)
 
-    {content, index, offset, length} =
+    content =
       case Enum.find_index(content, &environment_part?/1) do
         nil ->
-          part = environment_part(lines)
-          {[part | content], 0, 0, byte_size(part["text"])}
+          [environment_part(lines) | content]
 
         index ->
-          {part, offset, length} = merge_environment_part(Enum.at(content, index), lines)
-          {List.replace_at(content, index, part), index, offset, length}
+          List.update_at(content, index, fn part ->
+            body =
+              part["text"]
+              |> String.trim()
+              |> String.trim_leading(@environment_open)
+              |> String.trim_trailing(@environment_close)
+              |> String.trim()
+
+            existing = if body == "", do: [], else: String.split(body, "\n")
+            environment_part(existing ++ lines)
+          end)
       end
 
-    {Map.put(message, "content", content),
-     %{"part_index" => index, "offset" => offset, "length" => length}}
+    Map.put(message, "content", content)
   end
 
-  defp environment_part(lines) do
-    %{
+  defp environment_part(lines),
+    do: %{
       "type" => "input_text",
       "text" => Enum.join([@environment_open] ++ lines ++ [@environment_close], "\n")
     }
-  end
-
-  defp merge_environment_part(%{"text" => text} = part, lines) do
-    body =
-      text
-      |> String.trim()
-      |> String.trim_leading(@environment_open)
-      |> String.trim_trailing(@environment_close)
-      |> String.trim()
-
-    existing = if body == "", do: [], else: String.split(body, "\n")
-
-    prefix = Enum.join([@environment_open] ++ existing, "\n") <> "\n"
-    injected = Enum.join(lines, "\n") <> "\n"
-
-    {Map.put(part, "text", prefix <> injected <> @environment_close), byte_size(prefix),
-     byte_size(injected)}
-  end
 
   defp environment_part?(%{"type" => "input_text", "text" => text}) when is_binary(text) do
     trimmed = String.trim(text)

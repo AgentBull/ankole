@@ -72,9 +72,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   end
 
   @doc "Renews the row from a heartbeat on the admitted connection."
-  @spec handle_worker_heartbeat(FabricProto.AgentComputerWorkerHeartbeat.t(), auth()) ::
+  @spec handle_worker_heartbeat(FabricProto.WorkerHeartbeat.t(), auth()) ::
           {:ok, AgentWorker.t()} | {:error, term()}
-  def handle_worker_heartbeat(%FabricProto.AgentComputerWorkerHeartbeat{} = heartbeat, auth) do
+  def handle_worker_heartbeat(%FabricProto.WorkerHeartbeat{} = heartbeat, auth) do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
          {:ok, incarnation_id} <- required_text(heartbeat.incarnation_id, "incarnation_id") do
       renew(agent_uid, incarnation_id, route, %{

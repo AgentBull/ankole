@@ -20,7 +20,41 @@ defmodule Ankole.Conversations.CodexJob do
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace
 
-  @spec admit(map(), ActorEvent.t(), keyword()) :: {:ok, Run.t() | map()} | {:error, term()}
+  defmodule Attempt do
+    @moduledoc "One fenced observation of a durable Job attempt."
+    @enforce_keys [
+      :agent_uid,
+      :session_id,
+      :actor_event_id,
+      :epoch,
+      :event,
+      :job,
+      :job_ref,
+      :job_worker,
+      :job_mode
+    ]
+    defstruct [
+      :agent_uid,
+      :session_id,
+      :actor_event_id,
+      :epoch,
+      :event,
+      :delivered_event,
+      :workspace_id,
+      :spec,
+      :context,
+      :job,
+      :job_ref,
+      :job_worker,
+      :job_mode,
+      :span,
+      kind: :job
+    ]
+
+    @type t :: %__MODULE__{}
+  end
+
+  @spec admit(map(), ActorEvent.t(), keyword()) :: {:ok, Attempt.t() | map()} | {:error, term()}
   def admit(key, event, opts) do
     with {:ok, id} <- BackgroundAgentJobs.parse_job_session_id(key.session_id),
          %Job{} = snapshot <- BackgroundAgentJobs.get_job_for_agent(id, key.agent_uid) do
@@ -86,9 +120,14 @@ defmodule Ankole.Conversations.CodexJob do
   defp admission_access(_repo, %{last_attempt_at: %DateTime{}}, %{status: "running"}), do: :ok
 
   defp admission_access(repo, event, job) do
-    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
-         :ok <- WorkAccess.check_in_tx(repo, event),
-         do: WorkAccess.check_in_tx(repo, job)
+    # Closing a terminal Job's trigger does not admit more work.
+    if job.status in Job.terminal_statuses() do
+      :ok
+    else
+      with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+           :ok <- WorkAccess.check_in_tx(repo, event),
+           do: WorkAccess.check_in_tx(repo, job)
+    end
   end
 
   defp admit_attempt_in_tx(repo, key, snapshot, job, worker, spec, context, cap) do
@@ -132,7 +171,7 @@ defmodule Ankole.Conversations.CodexJob do
       }
 
       {:ok,
-       %Run{
+       %Attempt{
          agent_uid: key.agent_uid,
          session_id: key.session_id,
          actor_event_id: event.id,
@@ -176,7 +215,7 @@ defmodule Ankole.Conversations.CodexJob do
   defp reserve(_repo, worker, "adopt"), do: {:ok, worker}
   defp reserve(repo, worker, "start"), do: AgentWorkers.reserve_slot_in_tx(repo, worker.agent_uid)
 
-  @spec start(Run.t()) :: {:ok, term()} | {:error, term()}
+  @spec start(Attempt.t()) :: {:ok, term()} | {:error, term()}
   def start(run) do
     with {:ok, :live} <-
            Repo.transact(fn repo ->
@@ -192,7 +231,7 @@ defmodule Ankole.Conversations.CodexJob do
            )
   end
 
-  @spec mailbox(Run.t()) :: :ok | {:error, term()}
+  @spec mailbox(Attempt.t()) :: :ok | {:error, term()}
   def mailbox(run) do
     events =
       Repo.transact(fn repo ->
@@ -232,7 +271,7 @@ defmodule Ankole.Conversations.CodexJob do
     end
   end
 
-  @spec observe(Run.t()) :: {:ok, :running | :finished | {:adopt, map()}} | {:error, term()}
+  @spec observe(Attempt.t()) :: {:ok, :running | :finished | {:adopt, map()}} | {:error, term()}
   def observe(run) do
     Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(run.job.id)
 

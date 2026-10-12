@@ -16,7 +16,8 @@ The current surface is:
   and resource-pattern validation and matching.
 - `universal_ai_client/` - native async streaming for prepared AI requests:
   upstream HTTP SSE/EventStream and WebSocket transport, provider response
-  normalization, downstream JSON text chunk encoding, demand credit,
+  and error normalization, the terminal for each Provider call, downstream
+  JSON text chunk encoding, demand credit,
   cancellation, and timeouts.
 - `object_store/` - file-service storage through OpenDAL over a local directory
   or an S3-compatible bucket, with bounded retries and per-call timeouts.
@@ -44,8 +45,11 @@ The kernel owns mechanisms, not product state:
 - AuthZ receives explicit snapshots. It never loads principals, grants,
   groups, or request context from PostgreSQL.
 - UniversalAIClient receives prepared provider endpoints, headers, and model
-  requests. It encodes requests and owns the streaming data plane. The control
-  plane selects providers and credentials, applies policy, and commits results.
+  requests. It owns protocol encoding, response and error normalization, and
+  ordered terminal delivery under read credit for each call. The control plane
+  consumes those results, selects providers and credentials, applies retry
+  policy, and commits the public Ankole Response. It can compose several native
+  calls into one public Response without managing their protocol state.
 - ObjectStore receives explicit storage specifications and operations. The
   control plane owns the file lifecycle and durable references.
 

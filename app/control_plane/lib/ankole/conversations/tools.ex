@@ -32,14 +32,12 @@ defmodule Ankole.Conversations.Tools do
   def execute(run, call, tool, args) do
     owner = tool.executor
 
-    if tool.read_only or call["name"] in ["todo", "clarify"] or
-         (call["name"] in ["cron", "check_back_later"] and
-            args["action"] in ["list", "get", "runs"]) do
-      owner.execute(run, call, args)
-    else
+    if Tool.receipt?(tool, args) do
       Receipts.execute(run, Run.response_id(run.model_response), Run.call_id(call), fn repo ->
         owner.execute_in_tx(repo, run, call, args)
       end)
+    else
+      owner.execute(run, call, args)
     end
     |> case do
       {:ok, %Receipts{result: result, inserted_at: inserted_at}} ->

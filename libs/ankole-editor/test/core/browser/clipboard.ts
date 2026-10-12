@@ -1,6 +1,7 @@
 import { describe, it } from './runner'
 import ist from 'ist'
-import { Command, deleteCut } from '../../../src/core/command'
+import { Command } from '../../../src/core/command/command'
+import { deleteCut } from '../../../src/core/command/commands'
 import { Wordgard } from '../../../src/core/editor'
 import { readClipboard, writeClipboard } from '../../../src/core/editor/clipboard'
 import { Leaf, Plot, Slice } from '../../../src/core/doc'

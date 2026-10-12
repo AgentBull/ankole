@@ -53,8 +53,7 @@ import {
   JSONPassthroughResponseSchema,
   ObservabilitySpansExportRequestSchema,
   ObservabilitySpansExportResponseSchema,
-  SkillOverlayResolveRequestSchema,
-  SkillOverlayResolveResponseSchema,
+  ReadToolRequestSchema,
   WebhookEndpointCreateRequestSchema,
   WebhookEndpointListRequestSchema,
   WebhookEndpointTargetRequestSchema,
@@ -154,11 +153,11 @@ export const rpcOperations = {
     request: ObservabilitySpansExportRequestSchema,
     response: ObservabilitySpansExportResponseSchema
   },
-  'skills.overlay.resolve': {
+  'tools.read': {
     scope: 'turn',
     effect: 'read',
-    request: SkillOverlayResolveRequestSchema,
-    response: SkillOverlayResolveResponseSchema
+    request: ReadToolRequestSchema,
+    response: JSONPassthroughResponseSchema
   },
   'webhook.endpoint.cancel': {
     scope: 'turn',
@@ -636,8 +635,7 @@ export type {
   AutomationJobRunResponse,
   BackgroundAgentJobResponse,
   BackgroundAgentJobTurnUpsertResponse,
-  RuntimeSkillSummary,
-  SkillOverlayResponse
+  RuntimeSkillSummary
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 function rpcScope(ref: JobTurnRef | import('./actor_lane').RunRef): TurnRPCFrame {

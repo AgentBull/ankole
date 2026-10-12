@@ -1,4 +1,7 @@
 defmodule AnkoleWeb.AIGatewayResponsesSocket do
+  alias Ankole.AIGateway.FailureResponse
+  alias Ankole.AIGateway.CompactionRequests
+
   @moduledoc """
   OpenResponses WebSocket transport for AIGateway.
 
@@ -11,8 +14,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CodexModelBinding
-  alias Ankole.AIGateway.Compaction
-  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.Ecto.UUIDv7
@@ -93,7 +94,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
     with {:ok, authorization} <- authorize_grant(state, request),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
-      if Compaction.compaction_trigger?(request) do
+      if CompactionRequests.compaction_trigger?(request) do
         serve_compaction_trigger(state, request)
       else
         open_response_create_stream(state, request, socket_context, authorization)
@@ -391,13 +392,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # name that history. A caller that continues from the reply sends its whole
   # input instead.
   defp serve_compaction_trigger(state, request) do
-    case Compaction.compact_from_trigger(state.subject_uid, request,
+    case CompactionRequests.compact_from_trigger(state.subject_uid, request,
            subject_type: Map.get(state, :subject_type),
            request_context: Map.get(state, :request_context, %{})
          ) do
       {:ok, response} ->
         response
-        |> Compaction.trigger_events()
+        |> CompactionRequests.trigger_events()
         |> Enum.map(&Ankole.JSON.encode!/1)
         |> push_text_chunks(state)
 
@@ -519,7 +520,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # socket adds only the WebSocket envelope and the transport phase.
   defp error_frame(reason, opts \\ []) do
     reason
-    |> FailureDiagnostics.project(opts)
+    |> FailureResponse.project(opts)
     |> wrapped_error_frame()
   end
 

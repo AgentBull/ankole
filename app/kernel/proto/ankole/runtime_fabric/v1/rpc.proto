@@ -47,7 +47,8 @@ message ActorTurnAbortRequest {
 }
 
 message ActorTurnAbortResponse {
-  bool dead_lettered = 2;
+  reserved 2;
+  reserved "dead_lettered";
   string retry_available_at = 3;
 }
 
@@ -370,21 +371,14 @@ message AutomationJobRunResponse {
   bool stderr_truncated = 7;
 }
 
-// skills
-
-message SkillOverlayResolveRequest {
-  repeated string skill_names = 1;
-}
-
-message SkillOverlayResponse {
-  string skill_name = 1;
-  bool has_overlay = 2;
-  string text = 3;
-  string content_hash = 4;
-}
-
-message SkillOverlayResolveResponse {
-  repeated SkillOverlayResponse overlays = 1;
+// Control-plane read tools shared by Conversations and Codex Jobs. Browser
+// rendering stays on the Worker; its extracted body returns here for the same
+// page window and cache rules. Cache fields are disposable, never recovery truth.
+message ReadToolRequest {
+  string name = 1;
+  bytes arguments_json = 2;
+  bytes web_cache_json = 3;
+  bytes rendered_body_json = 4;
 }
 
 // worker files

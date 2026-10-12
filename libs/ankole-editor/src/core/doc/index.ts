@@ -27,7 +27,7 @@ export { Mark } from './mark'
 // Node and mark shapes (the way they are converted to and from
 // DOM/HTML structure) can be defined with these data structures.
 
-export { type Shape, Elt, Attributes } from './shape'
+export { Elt, Attributes } from './shape'
 
 // ### Schema
 

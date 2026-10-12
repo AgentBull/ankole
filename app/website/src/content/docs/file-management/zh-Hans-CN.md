@@ -9,6 +9,8 @@ order: 31
 
 每个 Agent 的控制面云盘保存附件、图片、发布的文件、已安装 Skill 和 Automation 脚本。没有 Worker 运行时，Console 也能上传、下载、移动和删除它们。Session 与 Job 工作区在持久 Home 中，不是云盘文件夹。
 
+部署人员可按 [控制面云盘存储配置](../drive-storage/)设置本地文件夹、S3 或 R2；旧 Home 的文件导入见 [从 1.0 升级到 2.0](../upgrade-to-2/)。
+
 ## 找到 Agent 的文件
 
 1. 在 Console 中打开 **Agent**，再打开目标 Agent。

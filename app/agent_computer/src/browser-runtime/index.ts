@@ -87,6 +87,5 @@ export {
   withoutBrowserMaterialSourceEnv,
   type BrowserMaterializeSettings,
   type MaterializedBrowserRuntime,
-  type BrowserRoute,
   type RenderedFetchBrowserMaterializeSettings
 } from './materializer'

@@ -1,7 +1,8 @@
 defmodule Ankole.Conversations.RevisionsTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.Conversations.{Admission, Model, Revisions, Run}
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
+  alias Ankole.SignalsGateway.InputRevisions
 
   setup do
     %{principal: agent} = agent_fixture()
@@ -104,7 +105,7 @@ defmodule Ankole.Conversations.RevisionsTest do
 
     assert {:ok, event} =
              Repo.transact(fn repo ->
-               TurnRetry.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
+               InputRevisions.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
              end)
 
     {:ok, run} = Admission.admit(key, event)
@@ -135,7 +136,7 @@ defmodule Ankole.Conversations.RevisionsTest do
     assert revision.id in restored.pending_event_ids
     assert {:ok, [revision]} = Run.inject(restored, [revision])
     {:ok, final} = response(%{restored | steer_event_ids: [revision.id]}, [answer()])
-    assert {:ok, result} = Run.finalize(%{restored | anchor: final.id}, "loop_finished")
+    assert {:ok, result} = Run.finalize(%{restored | anchor: final.id}, :loop_finished)
     assert result.final_text == "The remaining request is complete."
     assert Repo.reload!(revision).completed_at
     assert Repo.reload!(event).completed_at
@@ -154,7 +155,7 @@ defmodule Ankole.Conversations.RevisionsTest do
 
     {:ok, event} =
       Repo.transact(fn repo ->
-        TurnRetry.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
+        InputRevisions.revise_event_in_tx(repo, event, "supplement", extra, @base_time)
       end)
 
     {:ok, run} = Admission.admit(key, event)
@@ -220,7 +221,7 @@ defmodule Ankole.Conversations.RevisionsTest do
     refute steer.id in restored.steer_event_ids
     assert revision.id in restored.pending_event_ids
     {:ok, final} = response(%{restored | steer_event_ids: [revision.id]}, [answer()])
-    assert {:ok, _} = Run.finalize(%{restored | anchor: final.id}, "loop_finished")
+    assert {:ok, _} = Run.finalize(%{restored | anchor: final.id}, :loop_finished)
     assert Repo.reload!(event).completed_at
     assert Repo.reload!(revision).completed_at
   end
@@ -259,10 +260,11 @@ defmodule Ankole.Conversations.RevisionsTest do
       start_response_run(%{
         subject_uid: run.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
-    StatefulResponses.commit_complete(response, items)
+    ResponseCommit.commit_complete(response, items)
   end
 
   defp revision(run, id, kind, entry) do

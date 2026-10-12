@@ -98,6 +98,25 @@ defmodule Ankole.Observability do
 
   def start_turn(_actor_event, _turn_start_spec), do: nil
 
+  @doc "Starts an execution's turn span and attaches its request trace context."
+  @spec attach_turn(map()) :: map()
+  def attach_turn(%{span: nil} = execution) do
+    span = start_turn(execution.event, execution.spec)
+
+    context =
+      if span,
+        do:
+          Map.merge(execution.spec.request_context, %{
+            "traceparent" => span.traceparent,
+            "observability_user_id" => span.user_id
+          }),
+        else: execution.spec.request_context
+
+    %{execution | span: span, spec: Map.put(execution.spec, :request_context, context)}
+  end
+
+  def attach_turn(execution), do: execution
+
   @doc """
   Ends the attempt span outside the domain transaction.
   """

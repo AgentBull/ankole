@@ -114,6 +114,7 @@ const defaultWindows: Record<RuntimeFabricStream, StreamWindowLimits> = {
   telemetry: { maxMessages: 16, maxBytes: 4 * 1024 * 1024 }
 }
 const defaultPushTimeoutMs = 10_000
+const defaultConnectTimeoutMs = 10_000
 const defaultReadyWaitMs = 60_000
 const defaultFlowControlBackoffMs = { initial: 50, max: 500 }
 const defaultInboundQueueLimit = 1024
@@ -148,12 +149,41 @@ export type WorkerJoinParams = {
   available_slots: number
 }
 
-export function createPhoenixSocket(endpoint: string, options: ChannelSocketOptions): ChannelSocketLike {
+export function createPhoenixSocket(
+  endpoint: string,
+  options: ChannelSocketOptions,
+  connectTimeoutMs = defaultConnectTimeoutMs
+): ChannelSocketLike {
+  // Each Phoenix reconnect creates a WebSocket. Bound the entire handshake,
+  // then let Phoenix apply its existing backoff after the abnormal close.
+  class WorkerWebSocket extends WebSocket {
+    private readonly connectTimer: ReturnType<typeof setTimeout>
+
+    constructor(url: string, protocols?: string | string[]) {
+      super(url, protocols)
+      this.connectTimer = setTimeout(() => {
+        if (this.readyState !== WebSocket.CONNECTING) return
+        workerLogger.warning('worker.fabric_connect_timeout', 'runtime fabric socket connection timed out', {
+          error_type: 'connect_timeout',
+          timeout_ms: connectTimeoutMs
+        })
+        this.close(4000, 'connection timeout')
+      }, connectTimeoutMs)
+      this.addEventListener('open', () => clearTimeout(this.connectTimer), { once: true })
+      this.addEventListener('close', () => clearTimeout(this.connectTimer), { once: true })
+    }
+
+    override close(code?: number, reason?: string): void {
+      clearTimeout(this.connectTimer)
+      super.close(code, reason)
+    }
+  }
+
   // The auth key travels as the Phoenix auth token in the WebSocket
   // subprotocol, never in the URL. `worker_id` is a query parameter and is
   // not a secret.
   return new Socket(endpoint, {
-    transport: WebSocket as unknown as new (endpoint: string) => object,
+    transport: WorkerWebSocket as unknown as new (endpoint: string) => object,
     authToken: options.workerAuthKey,
     params: { worker_id: options.workerID },
     binaryType: 'arraybuffer',
@@ -170,6 +200,25 @@ function closeCode(event: unknown): number | undefined {
   return typeof event === 'object' && event !== null && 'code' in event && typeof event.code === 'number'
     ? event.code
     : undefined
+}
+
+function closeFields(event: unknown) {
+  const value = typeof event === 'object' && event !== null ? event : undefined
+  return {
+    close_code: closeCode(event),
+    close_reason: value && 'reason' in value && typeof value.reason === 'string' ? value.reason : undefined,
+    was_clean: value && 'wasClean' in value && typeof value.wasClean === 'boolean' ? value.wasClean : undefined
+  }
+}
+
+function socketErrorFields(event: unknown) {
+  if (event instanceof Error) return { error: event, error_type: event.name }
+  const value = typeof event === 'object' && event !== null ? event : undefined
+  const error = value && 'error' in value ? value.error : undefined
+  const message = value && 'message' in value && typeof value.message === 'string' ? value.message : undefined
+  const type = value && 'type' in value && typeof value.type === 'string' ? value.type : undefined
+  const cause = error instanceof Error ? error : new Error(message || `WebSocket ${type ?? 'error'} event`)
+  return { error: cause, error_type: error instanceof Error ? error.name : value?.constructor.name, event_type: type }
 }
 
 export function createChannelTransport(
@@ -310,7 +359,7 @@ class ChannelTransport implements RuntimeFabricHost {
     this.socket.onOpen(() => workerLogger.info('worker.fabric_connected', 'runtime fabric socket connected', {}))
     this.socket.onClose(event => this.onSocketClosed(event))
     this.socket.onError(error => {
-      workerLogger.warning('worker.fabric_socket_error', 'runtime fabric socket error', { error: toError(error) })
+      workerLogger.warning('worker.fabric_socket_error', 'runtime fabric socket error', socketErrorFields(error))
     })
 
     this.channel = this.createChannel()
@@ -692,6 +741,7 @@ class ChannelTransport implements RuntimeFabricHost {
   // down. So the transport also reconnects after a normal close; the join
   // then decides if the control plane still accepts this process.
   private onSocketClosed(event: unknown): void {
+    workerLogger.warning('worker.fabric_socket_closed', 'runtime fabric socket closed', closeFields(event))
     this.onDisconnected('socket_closed')
     if (this.stopped || this.reconnecting || closeCode(event) !== 1000 || this.reconnectTimer) return
     const delayMs = this.normalCloseReconnectDelayMs(this.normalCloseReconnects)

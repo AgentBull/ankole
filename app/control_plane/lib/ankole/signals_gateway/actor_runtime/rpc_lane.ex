@@ -24,12 +24,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.Files.RPCBroker, as: FilesRPCBroker
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker
+  alias Ankole.SignalsGateway.ActorRuntime.JobAbort
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
   alias Ankole.SignalsGateway.ActorRuntime.ObservabilityBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
+  alias Ankole.SignalsGateway.ActorRuntime.ReadToolBroker
   alias Ankole.Conversations.{RunRef, JobTurnRef}
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
@@ -52,7 +52,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   @brokers %{
     "ai_gateway.api_key_for.create_or_find_by_agent" => {AIGatewayAPIKeyBroker, :handle_request},
-    "actor_turn.abort" => {ActorTurnCompletionBroker, :handle_abort},
+    "actor_turn.abort" => {JobAbort, :handle_abort},
     "automation_job.create" => {AutomationJobRPCBroker, :handle_create},
     "automation_job.list" => {AutomationJobRPCBroker, :handle_list},
     "automation_job.show" => {AutomationJobRPCBroker, :handle_show},
@@ -66,7 +66,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "webhook.endpoint.create" => {WebhookRPCBroker, :handle_create},
     "webhook.endpoint.list" => {WebhookRPCBroker, :handle_list},
     "webhook.endpoint.cancel" => {WebhookRPCBroker, :handle_cancel},
-    "skills.overlay.resolve" => {SkillOverlayBroker, :handle_resolve},
+    "tools.read" => {ReadToolBroker, :handle_read},
     "files.list" => {FilesRPCBroker, :handle_list},
     "files.get" => {FilesRPCBroker, :handle_get},
     "files.commit" => {FilesRPCBroker, :handle_commit},

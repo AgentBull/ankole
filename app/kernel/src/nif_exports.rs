@@ -24,6 +24,8 @@ mod atoms {
         object_store,
         ready,
         chunk,
+        provider,
+        client,
         done,
         error,
         aborted,
@@ -781,13 +783,18 @@ fn send_universal_ai_client_event(
                 encode_json_value(env, &meta),
             )
                 .encode(env),
-            universal_ai_client::StreamEvent::Chunk { seq, bytes } => {
+            universal_ai_client::StreamEvent::Chunk { seq, origin, bytes } => {
+                let origin = match origin {
+                    universal_ai_client::ChunkOrigin::Provider => atoms::provider(),
+                    universal_ai_client::ChunkOrigin::Client => atoms::client(),
+                };
                 match binary_term(env, bytes) {
                     Ok(binary) => (
                         atoms::universal_ai_client(),
                         stream_ref,
                         atoms::chunk(),
                         seq,
+                        origin,
                         binary,
                     )
                         .encode(env),

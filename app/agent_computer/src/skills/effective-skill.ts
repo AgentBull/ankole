@@ -1,8 +1,7 @@
 import { join, normalize } from 'node:path'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
-import type { JobTurnRef } from '../lanes/actor_lane'
-import { type RPCRequester, type RuntimeSkillSummary, type SkillOverlayResponse } from '../lanes/rpc_lane'
+import { type RuntimeSkillSummary } from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -67,61 +66,6 @@ export function resolveSkillFilesystemRoot(skill: RuntimeSkillSummary, input: { 
   }
 
   throw new Error(`unsupported skill source_kind: ${sourceKind}`)
-}
-
-export async function resolveSkillOverlayText(
-  name: string,
-  input: { turn: JobTurnRef; rpc: RPCRequester }
-): Promise<string> {
-  return (await resolveSkillOverlayTexts([name], input)).get(name)!
-}
-
-export async function resolveSkillOverlayTexts(
-  names: string[],
-  input: { turn: JobTurnRef; rpc: RPCRequester }
-): Promise<Map<string, string>> {
-  const responses = await resolveSkillOverlayResponses(names, input)
-  return new Map([...responses].map(([name, response]) => [name, overlayText(response)]))
-}
-
-async function resolveSkillOverlayResponses(
-  names: string[],
-  input: { turn: JobTurnRef; rpc: RPCRequester }
-): Promise<Map<string, SkillOverlayResponse>> {
-  names.forEach(assertValidSkillName)
-  if (new Set(names).size !== names.length) throw new Error('skill overlay names must be unique')
-  if (names.length === 0) return new Map()
-
-  const response = await input.rpc(
-    'skills.overlay.resolve',
-    { skillNames: names },
-    { jobTurn: input.turn },
-    { retryOnDisconnect: true }
-  )
-  const requested = new Set(names)
-  const overlays = new Map<string, SkillOverlayResponse>()
-
-  for (const overlay of response.overlays) {
-    if (!requested.has(overlay.skillName)) throw new Error(`unexpected skill overlay response: ${overlay.skillName}`)
-    if (overlays.has(overlay.skillName)) throw new Error(`duplicate skill overlay response: ${overlay.skillName}`)
-    overlays.set(overlay.skillName, overlay)
-  }
-
-  for (const name of names) {
-    if (!overlays.has(name)) throw new Error(`missing skill overlay response: ${name}`)
-  }
-  return overlays
-}
-
-function overlayText(response: SkillOverlayResponse): string {
-  if (!response.hasOverlay) return ''
-  return response.text.trim()
-}
-
-export function stripSkillFrontmatter(content: string): string {
-  if (!content.startsWith('---')) return content.trim()
-  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(content)
-  return (match?.[1] ?? content).trim()
 }
 
 export function assertValidSkillName(name: string): void {

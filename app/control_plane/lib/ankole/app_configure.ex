@@ -218,8 +218,8 @@ defmodule Ankole.AppConfigure do
           {:ok, term()} | :error | {:error, term()}
   def get_global_by_key_in_tx(repo, key) when is_atom(repo) and is_binary(key) do
     with {:ok, registered} <- Registry.require_key(key) do
-      case repo.get_by(AppConfig, scope: @global_scope, key: key) do
-        %AppConfig{value: envelope} ->
+      case repo.get_by(AppConfig.for_scope(@global_scope), scope: @global_scope, key: key) do
+        %{value: envelope} ->
           case Codec.load(registered, @global_scope, key, envelope) do
             {:ok, value} -> {:ok, value}
             {:error, reason} -> {:error, {:storage_error, @global_scope, key, reason}}
@@ -395,13 +395,18 @@ defmodule Ankole.AppConfigure do
   defp storage_scope(:tenant), do: tenant_scope()
 
   defp scope_rows(scope) do
-    AppConfig
+    AppConfig.for_scope(storage_scope(scope))
     |> where([row], row.scope == ^storage_scope(scope))
     |> Repo.all()
     |> Map.new(&{&1.key, &1})
   end
 
-  defp scope_row(scope, key), do: Repo.get_by(AppConfig, scope: storage_scope(scope), key: key)
+  defp scope_row(scope, key),
+    do:
+      Repo.get_by(AppConfig.for_scope(storage_scope(scope)),
+        scope: storage_scope(scope),
+        key: key
+      )
 
   # Pattern definitions use their pattern id for default generation, but reads
   # and writes must validate the concrete runtime key selected by the caller.
@@ -454,8 +459,8 @@ defmodule Ankole.AppConfigure do
   defp resolve_scopes_in_tx(scopes, repo, definition, key) do
     scopes
     |> Enum.reduce_while(:error, fn scope, :error ->
-      case repo.get_by(AppConfig, scope: scope, key: key) do
-        %AppConfig{value: envelope} ->
+      case repo.get_by(AppConfig.for_scope(scope), scope: scope, key: key) do
+        %{value: envelope} ->
           result =
             case Codec.load(definition, scope, key, envelope) do
               {:ok, value} ->
@@ -535,8 +540,15 @@ defmodule Ankole.AppConfigure do
   defp upsert_row(repo, scope, key, envelope) do
     now = DateTime.utc_now(:second)
 
+    schema = AppConfig.for_scope(scope)
+
+    row =
+      if scope == @global_scope,
+        do: struct!(schema),
+        else: struct!(schema, tenant_id: scope_tenant_id(scope))
+
     changeset =
-      AppConfig.changeset(%AppConfig{tenant_id: scope_tenant_id(scope)}, %{
+      schema.changeset(row, %{
         scope: scope,
         key: key,
         value: envelope,
@@ -546,7 +558,8 @@ defmodule Ankole.AppConfigure do
 
     case repo.insert(changeset,
            on_conflict: [set: [value: envelope, updated_at: now]],
-           conflict_target: [:scope, :key]
+           conflict_target:
+             if(scope == @global_scope, do: [:scope, :key], else: [:tenant_id, :scope, :key])
          ) do
       {:ok, _row} -> :ok
       {:error, changeset} -> {:error, changeset}
@@ -554,7 +567,7 @@ defmodule Ankole.AppConfigure do
   end
 
   defp delete(scope, key) do
-    AppConfig
+    AppConfig.for_scope(scope)
     |> where([row], row.scope == ^scope and row.key == ^key)
     |> Repo.delete_all()
 

@@ -71,6 +71,25 @@ defmodule Ankole.RepoTenancyTest do
     assert %{type: [_]} = errors_on(changeset)
   end
 
+  test "the authenticated identity locator only establishes a tenant and restores the caller" do
+    tenant_id = Repo.tenant_id!()
+    other = new_tenant()
+
+    principal =
+      Repo.with_tenant(other.id, fn ->
+        %Principal{}
+        |> Principal.changeset(%{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :human})
+        |> Repo.insert!()
+      end)
+
+    assert {:ok, other.id} == Ankole.Principals.resolve_tenant(principal.uid)
+    assert Repo.tenant_id!() == tenant_id
+    assert Repo.get(Principal, principal.uid) == nil
+
+    assert {:error, :not_found} =
+             Ankole.Principals.resolve_tenant(Ankole.Ecto.UUIDv7.autogenerate())
+  end
+
   test "per-call context overrides an all-tenant block for reads and deletes", %{tenant: tenant} do
     other = new_tenant()
     group("shared")
@@ -309,6 +328,196 @@ defmodule Ankole.RepoTenancyTest do
 
     assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign_row.id).tenant_id end) ==
              other.id
+  end
+
+  test "tenant joins constrain the joined row and retain unmatched outer roots" do
+    own = group("own-root")
+    other = new_tenant()
+    foreign = Repo.with_tenant(other.id, fn -> group("foreign-match") end)
+
+    inner =
+      from root in Group,
+        join: joined in Group,
+        on: joined.name == ^foreign.name,
+        where: root.id == ^own.id,
+        select: joined
+
+    assert Repo.all(inner) == []
+
+    outer =
+      from root in Group,
+        left_join: joined in Group,
+        on: joined.name == ^foreign.name,
+        where: root.id == ^own.id,
+        select: {root.id, joined.id}
+
+    assert Repo.all(outer) == [{own.id, nil}]
+    assert Repo.across_tenants(fn -> Repo.all(inner) end) == [foreign]
+  end
+
+  test "compound ON parameters keep their binding and type across multiple outer joins" do
+    own = group("compound-own")
+    other = new_tenant()
+    foreign = Repo.with_tenant(other.id, fn -> group("compound-foreign") end)
+    names = [own.name]
+
+    query =
+      from root in Group,
+        left_join: first in Group,
+        on: first.name == ^foreign.name and (first.id != ^own.id or first.id == ^foreign.id),
+        left_join: second in Group,
+        on: second.name in ^names and second.id == ^own.id,
+        where: root.id == ^own.id,
+        select: {root.id, first.id, second.id}
+
+    assert Repo.all(query) == [{own.id, nil, own.id}]
+    assert Repo.across_tenants(fn -> Repo.all(query) end) == [{own.id, foreign.id, own.id}]
+  end
+
+  test "update_all and delete_all affect only the selected tenant" do
+    own = group("batch-write")
+    other = new_tenant()
+    foreign = Repo.with_tenant(other.id, fn -> group("batch-write") end)
+    assert {1, nil} = Repo.update_all(Group, set: [display_name: "Updated"])
+    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
+    assert_raise ArgumentError, fn -> Repo.update_all(Group, set: [tenant_id: other.id]) end
+    assert Repo.get!(Group, own.id).tenant_id == own.tenant_id
+    assert {1, nil} = Repo.delete_all(Group)
+    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
+  end
+
+  test "conflict updates cannot take ownership of another tenant's global key" do
+    other = new_tenant()
+    uid = Ankole.Ecto.UUIDv7.autogenerate()
+
+    foreign =
+      Repo.with_tenant(other.id, fn ->
+        Repo.insert!(%Principal{uid: uid, type: :human, display_name: "Foreign"})
+      end)
+
+    actions = [
+      [set: [display_name: "Changed"]],
+      {:replace, [:display_name]},
+      {:replace_all_except, [:inserted_at]},
+      from(p in Principal, update: [set: [display_name: "Changed"]])
+    ]
+
+    for action <- actions do
+      assert_raise Ecto.StaleEntryError, fn ->
+        Repo.insert!(%Principal{uid: uid, type: :human, display_name: "Changed"},
+          on_conflict: action,
+          conflict_target: [:uid]
+        )
+      end
+
+      assert Repo.with_tenant(other.id, fn -> Repo.get!(Principal, uid) end) == foreign
+    end
+
+    assert_raise ArgumentError, fn ->
+      Repo.insert!(%Principal{uid: uid, type: :human},
+        on_conflict: [set: [tenant_id: other.id]],
+        conflict_target: [:uid]
+      )
+    end
+  end
+
+  test "every tenant schema scopes roots, raw tables, joins and nested query forms", %{
+    tenant: tenant
+  } do
+    for schema <- tenant_schemas() do
+      table = schema.__schema__(:source)
+      root = from(row in schema, select: row.tenant_id)
+
+      shapes = [
+        root,
+        from(row in table, select: type(row.tenant_id, Ecto.UUID)),
+        from(row in subquery(root), select: row.tenant_id),
+        from(row in schema,
+          where: exists(from(other in schema, select: 1)),
+          select: row.tenant_id
+        ),
+        from(row in schema, where: row.tenant_id in subquery(root), select: row.tenant_id),
+        union_all(root, ^root),
+        root |> with_cte("scoped_rows", as: ^root),
+        from(row in schema,
+          join: other in ^schema,
+          on: other.tenant_id == row.tenant_id,
+          select: row.tenant_id
+        ),
+        from(row in schema, left_join: other in ^schema, on: true, select: row.tenant_id)
+      ]
+
+      for query <- shapes, operation <- [:all, :update_all, :delete_all] do
+        assert_raise Ankole.TenantContextMissing, fn ->
+          Repo.prepare_query(operation, query, tenant: nil)
+        end
+
+        {scoped, _} = Repo.prepare_query(operation, query, tenant: {:id, tenant.id})
+        {sql, params} = Ecto.Adapters.SQL.to_sql(:all, Repo, scoped)
+        assert sql =~ "tenant_id", "unscoped #{inspect(schema)} #{operation}"
+        assert Ecto.UUID.dump!(tenant.id) in params
+      end
+
+      for name <- schema.__schema__(:associations) do
+        query =
+          from(row in schema, left_join: related in assoc(row, ^name), select: row.tenant_id)
+
+        {scoped, _} = Repo.prepare_query(:all, query, tenant: {:id, tenant.id})
+        {sql, _} = Ecto.Adapters.SQL.to_sql(:all, Repo, scoped)
+        assert sql =~ "tenant_id"
+      end
+    end
+  end
+
+  test "every tenant schema rejects foreign and context-free struct and batch writes", %{
+    tenant: tenant
+  } do
+    foreign = new_tenant()
+
+    for schema <- tenant_schemas() do
+      data = struct(schema, tenant_id: foreign.id)
+
+      for operation <- [
+            :insert,
+            :insert!,
+            :insert_or_update,
+            :insert_or_update!,
+            :update,
+            :update!,
+            :delete,
+            :delete!
+          ] do
+        assert_raise ArgumentError, fn -> apply(Repo, operation, [data]) end
+
+        Repo.without_tenant(fn ->
+          assert_raise Ankole.TenantContextMissing, fn -> apply(Repo, operation, [data]) end
+        end)
+      end
+
+      for source <- [schema, schema.__schema__(:source)] do
+        assert_raise ArgumentError, fn -> Repo.insert_all(source, [%{tenant_id: foreign.id}]) end
+
+        Repo.without_tenant(fn ->
+          assert_raise Ankole.TenantContextMissing, fn ->
+            Repo.insert_all(source, [%{tenant_id: tenant.id}])
+          end
+        end)
+
+        assert_raise ArgumentError, fn ->
+          Repo.insert_all(source, from(row in schema, select: %{tenant_id: ^foreign.id}))
+        end
+      end
+    end
+  end
+
+  defp tenant_schemas do
+    for schema <- Application.spec(:ankole, :modules),
+        Code.ensure_loaded?(schema),
+        function_exported?(schema, :__tenancy__, 0),
+        schema.__tenancy__() == :tenant,
+        function_exported?(schema, :__schema__, 1),
+        schema.__schema__(:source) != nil,
+        do: schema
   end
 
   test "actor references preserve an existing uid and reject malformed attribution", %{

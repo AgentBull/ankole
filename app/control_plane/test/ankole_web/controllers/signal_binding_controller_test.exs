@@ -6,7 +6,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ.Grant
@@ -807,7 +807,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                }
              } = json_response(conn, 422)
 
-      refute Repo.get_by(AppConfig, scope: "global", key: config_key)
+      refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
 
       invalid_envelope = %{"type" => "cipher", "value" => "invalid"}
       put_raw_global_config(config_key, invalid_envelope)
@@ -821,8 +821,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                }
              } = json_response(conn, 422)
 
-      assert %AppConfig{value: ^invalid_envelope} =
-               Repo.get_by(AppConfig, scope: "global", key: config_key)
+      assert %SiteConfig{value: ^invalid_envelope} =
+               Repo.get_by(SiteConfig, scope: "global", key: config_key)
 
       assert {:error, {:storage_error, "global", ^config_key, _decrypt_reason}} =
                AppConfigure.get_by_key(config_key)
@@ -1202,8 +1202,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   end
 
   defp put_raw_global_config(key, envelope) do
-    %AppConfig{}
-    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    %SiteConfig{}
+    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
     |> Repo.insert!()
   end
 end

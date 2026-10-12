@@ -209,7 +209,7 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
         ? t('console.readiness.worker_complete', { count: readiness.worker.ready_count })
         : t('console.readiness.worker_incomplete'),
       title: t('console.readiness.worker_title'),
-      to: readiness.worker.complete ? '/workers' : '/settings/worker-providers'
+      to: readiness.worker.complete ? '/workers' : '/worker-providers'
     },
     {
       key: 'signal',

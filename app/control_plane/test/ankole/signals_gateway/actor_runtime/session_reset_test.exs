@@ -226,7 +226,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                commit_turn_completion(
                  source_run,
                  "resp_#{response.id}",
-                 "loop_finished"
+                 :loop_finished
                )
 
       assert clarify_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
@@ -433,14 +433,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       assert cron_conversation.conversation_key == execution_actor.session_id
       assert cron_conversation.id != first_conversation.id
 
-      committed =
-        complete_aigateway_turn!(
-          cron_run,
+      assert {:ok, {:preparing, cron_run}} = Ankole.Conversations.Model.prepare(cron_run)
+
+      call = %{
+        "type" => "function_call",
+        "name" => "finish_scheduled",
+        "call_id" => Ecto.UUID.generate(),
+        "arguments" =>
           Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "scheduled work completed"})
-        )
+      }
+
+      committed = complete_aigateway_turn!(cron_run, nil, output_items: [call])
+      cron_run = %{cron_run | model_response: committed, calls: [call], round_calls: [call]}
+      assert {:ok, tool, args} = Ankole.Conversations.Tools.prepare(cron_run, call)
+      result = Ankole.Conversations.Tools.execute(cron_run, call, tool, args)
+      refute result.is_error
+
+      assert {:ok, journal} =
+               Run.record_round(%{cron_run | results: %{call["call_id"] => result}})
+
+      assert {:ok, {_state, cron_run}} = Run.restore(cron_run)
 
       assert {:ok, %{status: :completed}} =
-               commit_turn_completion(cron_run, "resp_#{committed.id}", "loop_finished")
+               commit_turn_completion(cron_run, "resp_#{journal.message.id}", :loop_finished)
 
       assert %DateTime{} = Repo.get!(ActorEvent, cron_input.id).completed_at
 

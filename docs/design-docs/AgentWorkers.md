@@ -20,12 +20,14 @@ into platform requests.
 ## Providers
 
 A Worker provider is one pool: a type and one YAML document. Operators manage
-providers in the Console and select one when they create an Agent. The
-selection cannot change. Different instance sizes use separate providers of
-the same type. There is no smaller pool inside a provider.
+providers through the Console's top-level Worker Providers page, beside LLM
+Providers, and select one when they create an Agent. The selection cannot
+change. Different instance sizes use separate providers of the same type.
+There is no smaller pool inside a provider.
 
-`AgentWorkers.Providers` owns the `worker_providers` table, configuration,
-credentials, default selection, and bootstrap import. The type's `definition/0`
+`AgentWorkers.Providers` owns the dedicated site `worker_providers` table,
+configuration, credentials, default selection, and bootstrap import. Provider
+records are separate from AppConfigure keys. The type's `definition/0`
 is the single source for its schema, credential fields, example, pause support,
 and instance lifetime. The Console kinds endpoint returns the kind, example,
 and credential fields; it has no separate list of supported types.
@@ -254,19 +256,27 @@ the same Run. A new Workspace uses the same slot limit as Codex Turns, counting
 both open Workspaces and running Codex Turns. A full or draining Worker replies
 with `CAPACITY` or `DRAINING`, and the Driver keeps the calls pending. A capacity
 change broadcasts `worker_changed` to active Drivers. A Driver with pending
-environment calls reopens the Workspace and probes calls already sent. A Driver
-with an active Codex Job observes that Job. This broadcast does not advance the
-due time of input whose Codex placement was deferred.
+environment calls checks the route and probes calls already sent. It reuses a
+ready Workspace across tool rounds. It opens a Workspace again only when
+acquisition is waiting, the route changed, or the Driver recovered. The separate
+JobDriver observes an active Codex Job. This broadcast does not advance the due
+time of input whose Codex placement was deferred.
+
+`Conversations.WorkerAcquisition` owns one explicit acquisition state for the
+Run: idle, opening, waiting, ready, or unavailable. Pure transitions return
+effects; the Driver performs the I/O and forwards the result. A new tool round
+does not clear this state or create another deadline.
 
 Workspace acquisition reports its phase at once: starting, resuming,
 preparing an image, retrying a temporary failure, replacing an instance, or
 waiting for a slot. The Driver renews demand on each lifecycle wait. Its
 first workspace open starts one monotonic 60-second acquisition deadline,
 including time waiting for a transport receipt or `WorkspaceReady`. Phase
-changes do not restart it. Readiness cancels it. A Driver restart starts a
-new deadline. Expiry returns a tool error for a new call and an interrupted
-result for an adopted call whose outcome is unknown. The model can then
-answer without the computer. An absent Worker with a `rejected` error, a
+changes do not restart it. Readiness cancels it. A new Run or Driver restart
+starts a new deadline. Expiry stays with the Run across later model rounds
+and late workspace replies. It returns a tool error for a new call and an
+interrupted result for an adopted call whose outcome is unknown. The model can
+then answer without the computer. An absent Worker with a `rejected` error, a
 missing provider, or an inactive Agent returns a definite error immediately.
 Model and IM errors use fixed categories; platform logs remain in the Console.
 
@@ -450,14 +460,21 @@ remain unverified.
 ### Lambda MicroVMs
 
 The provider builds its own arm64 MicroVM image from the target OCI digest.
-A zip in the configured S3 bucket contains only a Dockerfile. A build role
-lets AWS read it; the Worker has no execution role or AWS credentials. Image
-tags isolate providers and distinguish Worker images from deletion helpers.
+A zip in the configured S3 bucket contains only a Dockerfile. A no-op build
+step exports a new image, because Lambda can fail to activate an image that a
+FROM-only Dockerfile builds. It keeps the inherited runtime config.
+A build role lets AWS read it; the Worker has no execution role or AWS
+credentials. Image tags isolate providers and distinguish Worker images from
+deletion helpers.
 Managed-base deprecation triggers a new version of the same image. Failed
 builds require operator repair; old images and build objects are not collected
 automatically.
 
-The image initially runs only the AWS hooks. `/run` receives the generation
+A failed image with no active version must be removed before a new preparation
+attempt. Existing active images keep their frozen launch artifacts.
+
+The image initially runs only the AWS hooks. The entry writes a startup line
+to stderr before Bun loads the hooks. `/run` receives the generation
 contract. Root mounts EFS with NFS 4.1 `hard`, binds only the Agent directory
 to Home, and blocks uid 1000 from direct TCP/UDP 2049 access to any address.
 The entry keeps the Worker as root and model processes run as uid 1000.
@@ -473,15 +490,41 @@ The eight-hour maximum includes suspension. All idle-policy fields are explicit.
 
 Storage deletion sends a helper request with a client token derived from the
 Agent UID, then saves the returned ID in `storage_ref`. A launch retry uses
-the same token. The helper reports its run hook ready
-only after the Agent directory was renamed under `.deleted/`. The helper
-removes those old files in the background and expires after one hour.
-The helper uses the account's memory quota until it expires. Reserve capacity
-for it as well as the Workers. Real AWS checks cover image builds, short memory
-pause, EFS retention through termination and image replacement, provider
-isolation, and directory deletion. Hook failure, long suspension, and platform
-time limits still need deployment checks. See [CONTRIBUTING](../../CONTRIBUTING.md)
-for the test environment and quota requirements.
+the same token. The helper renames the Agent directory under `.deleted/` and
+reports its run hook ready only after it removes the deleted files. The entry
+must complete `rm -rf` before it writes `/run/ankole-entry-ready`; the run hook
+waits for that marker before returning success. This ordering makes AWS
+`RUNNING` a storage-deletion completion signal. The provider and entrypoint
+share this contract. When AWS reports `RUNNING`, the control plane requests
+helper deletion. Only an accepted
+DELETE permits removal of the Worker row. A failed DELETE keeps `storage_ref`
+for the existing reconciliation retry. The helper does not stop itself.
+
+If AWS reports `TERMINATED` before completion, reconciliation saves that helper
+ID. The next launch derives a new client token from the ID. Retries of that
+launch keep the new token. The next helper continues removal under `.deleted/`.
+Other states keep the current reference and wait. The run hook keeps its
+55-second deadline; the one-hour instance limit is a fallback, not a normal
+completion step. An accepted DELETE does not prove immediate quota release;
+wait for AWS to report `TERMINATED` before using that allocation again.
+
+Official Worker images require `memoryMiB` of `4096` or `8192`. Saved provider
+configurations are validated again when loaded. A lower saved value is rejected
+and blocks runtime or cleanup operations.
+
+To repair an old configuration, open Worker Providers in Console, edit the
+Lambda provider, set `memoryMiB` to `4096` or `8192`, and save it. The update
+validates the new configuration, clears that provider's `rejected` Worker errors,
+and queues reconciliation for its assigned Agents. Check the provider and Worker
+status after reconciliation. Existing generations keep their frozen settings;
+the repair does not rewrite their launch contract.
+
+Real AWS checks cover image builds, short memory pause, EFS retention through
+termination and image replacement, provider isolation, and directory deletion.
+Storage run-hook failures reach `TERMINATED`, and reconciliation starts another
+helper with a new token. Long suspension and platform time limits still need
+deployment checks. See [CONTRIBUTING](../../CONTRIBUTING.md) for the test
+environment and quota requirements.
 
 ### Alibaba Function Compute
 
@@ -548,6 +591,13 @@ The Worker reconnects after normal and abnormal WebSocket closure. A rejected
 generation exits at once. Five minutes without admission also ends the
 process. An event-loop gap over 30 seconds resets the disconnect timer and
 starts reconnection, so resumed memory can return through admission.
+
+Each WebSocket connection attempt has a 10-second deadline. Opening the socket
+cancels that deadline. Expiry cancels a pending handshake and uses the existing
+Phoenix reconnect backoff. An explicit disconnect or process stop also cancels
+the deadline. Socket logs include the error type, close code, close reason, and
+clean-close flag when those facts are available. A handshake that never opened
+can report code `1006`, because it cannot send a close frame.
 
 ## Bootstrap and Upgrade
 

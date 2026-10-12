@@ -160,18 +160,15 @@ impl OpaqueToolFields {
         }
 
         let mut failed = Vec::new();
-        let mut has_error = false;
         let mut has_terminal = false;
         for mut event in events {
             match event.get("type").and_then(Value::as_str) {
-                Some("error") => has_error = true,
                 Some("response.failed") => {
                     has_terminal = true;
                     if let Some(response) = event.get_mut("response") {
                         redact_function_call_arguments(response);
                         response["status"] = json!("failed");
                         response["completed_at"] = Value::Null;
-                        response["error"] = openresponses_error(error);
                         self.last_response = Some(response.clone());
                     }
                 }
@@ -180,13 +177,6 @@ impl OpaqueToolFields {
             failed.push(event);
         }
 
-        if !has_error {
-            failed.push(build_event(
-                0,
-                "error",
-                json!({"error": openresponses_error(error)}),
-            ));
-        }
         if !has_terminal {
             let mut response = self.last_response.clone().unwrap_or_else(|| {
                 complete_response_resource(

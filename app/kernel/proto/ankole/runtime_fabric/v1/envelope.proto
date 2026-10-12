@@ -46,7 +46,7 @@ message Envelope {
   Stream stream = 4;
   uint64 transport_seq = 8;
   oneof body {
-    AgentComputerWorkerHeartbeat worker_heartbeat = 21;
+    WorkerHeartbeat worker_heartbeat = 21;
     // Commands and results for Worker execution.
     TurnStart turn_start = 30;
     MailboxUpdated mailbox_updated = 31;
@@ -149,7 +149,7 @@ message ToolResult {
   repeated bytes images = 8;
 }
 
-message AgentComputerWorkerHeartbeat {
+message WorkerHeartbeat {
   string incarnation_id = 4;
   uint32 active_slots = 5;
   uint32 max_slots = 8;

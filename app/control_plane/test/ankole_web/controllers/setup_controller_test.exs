@@ -77,7 +77,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert get_session(conn, :setup_oidc_state) == nil
 
     # The rejected request must not persist its locale.
-    refute Repo.get_by(AppConfigure.AppConfig, scope: "global", key: "i18n.default_locale")
+    refute Repo.get_by(AppConfigure.SiteConfig, scope: "global", key: "i18n.default_locale")
   end
 
   test "setup state reports the forwarded origin the callback URL is built from", %{conn: conn} do
@@ -291,7 +291,7 @@ defmodule AnkoleWeb.SetupControllerTest do
              } = json_response(conn, 200)
 
       assert {:ok, _} = Ecto.UUID.cast(uid)
-      assert Ankole.SiteAdminAuth.active_human_site_admin?(uid)
+      assert Ankole.AuthZ.site_admin?(uid)
 
       assert {:ok, %{must_change_password: false}} =
                Ankole.Repo.with_tenant(tenant.id, fn ->

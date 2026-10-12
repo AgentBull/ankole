@@ -2448,6 +2448,8 @@ Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑�
 
 单机部署推荐 Docker Compose，企业环境推荐 Kubernetes；源码安装适合开发和排错。
 
+Worker installation 名称为 1–20 个字符，只接受小写字母、数字和连字符，首尾必须是字母或数字；例如 `e2e-1011b01` 合法。Compose 使用 `ANKOLE_WORKER_INSTALLATION`（默认 `ankole`）；Helm 使用 `worker.installation`，为空时使用 release 名称。首次启动前确定名称，安装后保持不变：Worker 资源和持久 Home 存储使用这个名称。
+
 <QuickstartTabs
   client:visible
   ariaLabel="选择部署方式"

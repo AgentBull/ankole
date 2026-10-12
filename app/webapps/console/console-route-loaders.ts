@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { LoaderFunctionArgs } from 'react-router'
 import {
-  ankoleWebAgentComputerWorkerControllerIndexOptions,
+  ankoleWebAgentWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
@@ -44,7 +44,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     home: () =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebAgentComputerWorkerControllerIndexOptions()),
+        ensure(ankoleWebAgentWorkerControllerIndexOptions()),
         ensure(ankoleWebAIGatewayProviderControllerIndexOptions()),
         ensure(ankoleWebIdentityProviderControllerIndexOptions()),
         ensure(ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } })),
@@ -109,7 +109,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       ),
     settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
     workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
-    workers: () => ensure(ankoleWebAgentComputerWorkerControllerIndexOptions()).then(() => null),
+    workers: () => ensure(ankoleWebAgentWorkerControllerIndexOptions()).then(() => null),
     backgroundAgentJobs: ({ request }: LoaderFunctionArgs) => {
       const searchParams = new URL(request.url).searchParams
       const selectedID = resourceID(searchParams.get('job'), 1000)

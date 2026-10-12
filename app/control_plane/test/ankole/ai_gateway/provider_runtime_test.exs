@@ -1482,26 +1482,23 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, resolve_envelope} =
              handle_rpc(
                rpc_request(
-                 "skill-overlay-resolve-1",
-                 "skills.overlay.resolve",
-                 %FabricProto.SkillOverlayResolveRequest{skill_names: ["pdf", "xlsx"]},
+                 "read-tool-1",
+                 "tools.read",
+                 %FabricProto.ReadToolRequest{
+                   name: "skill_view",
+                   arguments_json: Ankole.JSON.encode!(%{"name" => "pdf"})
+                 },
                  job_turn: job_turn
                ),
                route,
                agent.uid
              )
 
-    resolve_payload =
-      rpc_response_payload!(resolve_envelope, FabricProto.SkillOverlayResolveResponse)
-
-    assert Enum.map(resolve_payload.overlays, & &1.skill_name) == ["pdf", "xlsx"]
-
-    pdf_overlay = hd(resolve_payload.overlays)
-    assert pdf_overlay.has_overlay
-    rendered_lessons = pdf_overlay.text
-    assert rendered_lessons =~ "Field notes (dated; verify against the current environment):"
-    assert rendered_lessons =~ ", human] Prefer page-by-page verification."
-    refute List.last(resolve_payload.overlays).has_overlay
+    response = rpc_response_payload!(resolve_envelope, FabricProto.JSONPassthroughResponse)
+    result = Ankole.JSON.decode!(response.body_json)
+    assert result["output"] =~ "Field notes (dated; verify against the current environment):"
+    assert result["output"] =~ ", human] Prefer page-by-page verification."
+    assert result["details"]["name"] == "pdf"
   end
 
   test "runtime RPCLane rejects Job reads from another Agent's Worker" do

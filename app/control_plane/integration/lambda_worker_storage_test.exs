@@ -5,11 +5,7 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
   alias Ankole.Principals
   alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Config,
-    Providers,
-    Lambda
-  }
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, Providers, Lambda}
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap

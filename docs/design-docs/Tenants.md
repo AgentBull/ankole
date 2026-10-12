@@ -25,12 +25,18 @@ The tenancy guard test records reviewed functions and call counts for raw SQL,
 SQL query fragments and `Repo.across_tenants`. New calls require that list to be
 reviewed; changes within a recorded call still require normal code review.
 
-The tenant predicate applies to the query's tenant-owned root. Such a query
-can join a recorded authorizer by its globally unique UID, including an
-authorizer in another tenant. A site or subquery root must join tenant data
-through a tenant-scoped subquery or use `Repo.across_tenants` explicitly.
-A direct tenant join from such a root fails when the context is missing;
-with a selected tenant, it is rejected as an unsupported query form.
+Repo applies ownership to every tenant-owned query source. The root receives
+a tenant predicate; tenant joins receive it in their `ON` condition, so an outer
+join retains its meaning. Subqueries, CTEs, unions, updates, and deletes use the
+same context. A tenant join from a site root also requires that context. Struct,
+bulk, and conflict writes validate ownership and cannot change a row's tenant.
+
+PostgreSQL RLS is not enabled. Repo isolation tests cover every tenant schema,
+query forms, joins, bulk writes, upserts, and stale or foreign-tenant structs.
+Raw SQL remains an explicit domain-owned boundary. Site-wide scans select only
+the required identities, then enter each tenant before running domain work.
+WorkAccess explicitly bounds the cross-tenant authorizer lookup by the selected
+work tenant; this exception relies on globally unique Principal UIDs.
 
 `Repo.with_tenant/2` restores the caller's context after success or failure.
 Processes do not inherit it implicitly: authenticated HTTP and Worker entry
@@ -54,7 +60,8 @@ status and access version before admitting work.
 ## Site administration
 
 Exactly one tenant is privileged. Its built-in `siteadmin` group controls site
-administration. AuthZ loads permissions from the operator's own tenant. Selecting
+administration through AuthZRoot. Console entry and site APIs use that same
+owner. AuthZ loads permissions from the operator's own tenant. Selecting
 a data tenant neither grants that tenant's groups to the operator nor changes
 the author recorded on writes. Brain writes use the operator as writer inside
 their own tenant, preserving group and private-claim write checks. Cross-tenant
@@ -81,7 +88,10 @@ tenant cannot be suspended or deleted; transfer its role first.
 ## Configuration and integrations
 
 AppConfigure and WorkerEnv keep one inheritance order: site `global`, then
-`tenant:<id>`, then `agent:<uid>` where the declaration permits it. Infrastructure
+`tenant:<id>`, then `agent:<uid>` where the declaration permits it. Global rows
+use `site_app_configurations` and `site_worker_envs`. Tenant and Agent rows use
+tenant-owned `app_configurations` and `agent_computer_worker_envs`, with a
+required `tenant_id`; a scope string does not replace Repo isolation. Infrastructure
 providers and plugins remain site-owned. Identity providers and directory state
 belong to a tenant. See [AppConfiguration](AppConfiguration.md).
 

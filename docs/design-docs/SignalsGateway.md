@@ -582,17 +582,26 @@ plus a scheduled wake event, and holds no Worker resources. See
 [Workflow](Workflow.md) and [BackgroundAgentJob](BackgroundAgentJob.md) for the
 per-kind lifecycles.
 
-Conversations orders open events with `queue_sequence`. One `:gen_statem`
-Driver owns each Agent and Session through a `:global` name. Its state is derived
-from PostgreSQL input and the AIGateway Response tape. It retires after five idle
+Conversations orders open events with `queue_sequence`. Admission selects the
+Main, Ambient, Scheduled, or WorkflowTask owner before it constructs a run.
+Each owner supplies admission, tools, instructions, input, repair, termination,
+and completion projection. Finite Outcome atoms share one classifier and are
+encoded as strings only at storage and public boundaries.
+
+One `:gen_statem` owns each Agent and Session through a `:global` name. Admission
+selects Driver for a model loop or JobDriver for Codex Job supervision. Run does
+not contain Job attempt fields. Their state is derived from PostgreSQL input,
+Conversations' `conversation_round_states`, and the AIGateway Response tape. It retires after five idle
 minutes. A new input wakes it immediately; the per-minute Reconciler repairs
 lost wakeups, including runs that crashed after admission without another input.
 
 `actor_session_workspaces` stores the stable workspace ID and epoch. Admission
 increments the epoch and the trigger's `attempt_count` under the row lock.
 Control-plane tool writes, round recording, and terminal commits check that
-epoch in their transaction. Tool results and consumed wait events enter the tape
-in one transaction. Tool receipts hold committed control-plane results until
+epoch in their transaction. Typed loop progress commits with the model request.
+Tool results, local result effects, and consumed wait events enter the tape and
+round state in one transaction. Recovery reads recorded todo state rather than
+executing the Session tool again. Tool receipts hold committed control-plane results until
 that transaction records them, so recovery does not repeat a domain write.
 
 Recovery counts an appended input as consumed only when a complete row in the
@@ -608,8 +617,13 @@ still owns a transaction, delivery inserts a unique EnsureDriver job. An error
 in an after-commit notification cannot replace a committed tool receipt.
 
 The Driver runs ordinary and Workflow model requests on the control plane.
-Environment tools request a Worker only when needed. Codex Jobs retain their
-Worker execution and Job attempt budgets. A lost environment result is probed
+Environment tools request a Worker only when needed. WorkerAcquisition retains
+one acquisition state across the Run and reuses a ready Workspace. WorkerRoute
+owns route-error classification and marks unusable routes before it returns the
+error. Tool declarations own receipt, delivery, activity, and description policy.
+Control-plane Skill and Web tools serve both ordinary turns and Codex Jobs
+through the same fenced read-tool RPC. Codex Jobs retain their Worker execution
+and Job attempt budgets. A lost environment result is probed
 on the current Worker; an unknown unsafe call is recorded as interrupted.
 
 The daily reset enqueues a `session.reset_due` barrier at the configured 04:30
@@ -619,7 +633,9 @@ conversations and Job execution Sessions do not enter this lifecycle.
 
 A retryable provider-capacity failure waits 30, 120, 300, then 750 seconds.
 Other retryable failures start at 5 seconds and double to a 120-second ceiling.
-The sixth admission writes input dead-letter state. After a crash, the Driver
+FailureDiagnostics owns failure categories and the canonical `retry_at`
+DateTime. TurnErrorClassifier supplies the shared retry delay; API, log, and trace
+boundaries encode timestamps once. The sixth admission writes input dead-letter state. After a crash, the Driver
 uses the persisted `last_attempt_at` as the backoff start. A planned Driver
 shutdown refunds one admission; a stale Driver refunds it on a best-effort
 basis while its input stays open. Job failures use the Job owner's separate

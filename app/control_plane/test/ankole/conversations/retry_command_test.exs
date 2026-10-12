@@ -1,4 +1,6 @@
 defmodule Ankole.Conversations.RetryCommandTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.SignalsGateway.ActorRuntimeCase
   alias Ankole.Conversations.{Admission, Commands, Model, Receipts, Run}
 
@@ -112,6 +114,98 @@ defmodule Ankole.Conversations.RetryCommandTest do
     assert_delete(command, "profile-failure")
   end
 
+  test "reply retry retains an addressed request that quotes an unmirrored group entry", %{
+    agent: agent
+  } do
+    quoted_source_id = "unaddressed-quote"
+    quoted_text = "The delivery code is QUOTE-630213."
+
+    assert {:ok, %{status: :ignored}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{
+                 source_entry_id: quoted_source_id,
+                 text: quoted_text,
+                 explicit: false
+               }),
+               now: @base_time
+             )
+
+    source =
+      input(agent, "Use the code in the quoted message", %{
+        reply_to_source_entry_id: quoted_source_id
+      })
+
+    refute Repo.get_by(Entry,
+             signal_channel_id: source.signal_channel_id,
+             source_entry_id: quoted_source_id
+           )
+
+    assert %{
+             "resolution" => "resolved",
+             "source_entry_id" => ^quoted_source_id,
+             "text" => ^quoted_text
+           } = get_in(source.payload, ["data", "entry", "reply_to"])
+
+    {:ok, run} = Admission.admit(key(source), source, now: DateTime.add(@base_time, 31))
+    assert {:ok, {:preparing, prepared}} = Model.prepare(run)
+    assert Ankole.JSON.encode!(Model.request(prepared)["input"]) =~ quoted_text
+
+    {:ok, response} =
+      start_response_run(%{
+        subject_uid: agent.uid,
+        conversation_id: prepared.conversation.id,
+        round_state: prepared,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(prepared)},
+        request_items: prepared.input
+      })
+
+    completed = finish(prepared, response)
+
+    visible_refs =
+      Ankole.SignalsGateway.AIGatewayLink.visible_channel_context_refs(
+        agent.uid,
+        source.session_id
+      )
+
+    outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{completed.id}")
+    dispatch(outbox, "quoted-request-reply")
+
+    {:ok, %{actor_event: command}} =
+      emit_entry(
+        agent.uid,
+        "bot",
+        group_entry(%{
+          source_entry_id: "quoted-request-retry",
+          text: "/retry",
+          reply_to_source_entry_id: "quoted-request-reply",
+          explicit: true
+        }),
+        now: DateTime.add(@base_time, 40)
+      )
+
+    assert get_in(command.payload, ["data", "command", "targetActorEventId"]) == source.id
+    assert {:ok, %ActorEvent{} = retry} = Commands.process(key(command), command)
+
+    assert retry.payload["data"]["entry"]["reply_to"] ==
+             source.payload["data"]["entry"]["reply_to"]
+
+    assert_delete(command, "quoted-request-reply")
+    assert Repo.reload!(completed).status == "retracted"
+    assert MapSet.member?(visible_refs, {source.signal_channel_id, source.source_entry_id})
+    refute MapSet.member?(visible_refs, {source.signal_channel_id, quoted_source_id})
+
+    assert {:ok, replacement} = Admission.admit(key(retry), retry)
+    assert {:ok, {:preparing, restored}} = Model.prepare(replacement)
+    assert Ankole.JSON.encode!(Model.request(restored)["input"]) =~ quoted_text
+
+    refute Repo.get_by(Entry,
+             signal_channel_id: source.signal_channel_id,
+             source_entry_id: quoted_source_id
+           )
+  end
+
   for {title, items, allowed?} <- [
         {"provider failure before output", [%{"role" => "user", "content" => "Original request"}],
          true},
@@ -131,12 +225,12 @@ defmodule Ankole.Conversations.RetryCommandTest do
       {source, run, response} = started(agent)
 
       {:ok, failed} =
-        StatefulResponses.commit_error(response, @items, %{
+        ResponseCommit.commit_error(response, @items, %{
           "code" => "upstream_response_failed",
           "retryable" => false
         })
 
-      assert {:ok, _} = Run.finalize(run, "dead_letter", "provider_response")
+      assert {:ok, _} = Run.finalize(run, :dead_letter, "provider_response")
       command = targeted_retry(agent, source.id)
       result = Commands.process(key(command), command)
 
@@ -164,7 +258,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
       )
 
     {:ok, failed} =
-      StatefulResponses.commit_error(
+      ResponseCommit.commit_error(
         response,
         [
           %{
@@ -176,7 +270,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
         %{"code" => "provider_failed"}
       )
 
-    assert {:ok, _} = Run.finalize(%{run | event: source}, "dead_letter", "provider_failed")
+    assert {:ok, _} = Run.finalize(%{run | event: source}, :dead_letter, "provider_failed")
     command = targeted_retry(agent, source.id)
     assert {:ok, %ActorEvent{}} = Commands.process(key(command), command)
     assert_delete(command, "dead-letter-preview")
@@ -212,7 +306,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
 
   test "retry does not revive a withdrawn dead-letter request", %{agent: agent} do
     {source, run, _response} = started(agent)
-    assert {:ok, _} = Run.finalize(run, "dead_letter", "provider_failed")
+    assert {:ok, _} = Run.finalize(run, :dead_letter, "provider_failed")
 
     assert {:ok, _} =
              Repo.transact(fn _repo ->
@@ -318,7 +412,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
             "arguments" => "{}"
           }
 
-    {:ok, called} = StatefulResponses.commit_complete(response, calls)
+    {:ok, called} = ResponseCommit.commit_complete(response, calls)
 
     # The unit receipt boundary supplies the durable result of a domain effect.
     assert {:ok, _} =
@@ -350,7 +444,8 @@ defmodule Ankole.Conversations.RetryCommandTest do
       start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: restored.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(restored)}
+        round_state: restored,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(restored)}
       })
 
     finish(restored, final)
@@ -372,7 +467,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
       "arguments" => "{}"
     }
 
-    {:ok, _} = StatefulResponses.commit_complete(response, [call])
+    {:ok, _} = ResponseCommit.commit_complete(response, [call])
     {:ok, {:executing_tools, run}} = Run.restore(run)
 
     failure = %Ankole.Conversations.ToolResult{
@@ -413,7 +508,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
       "arguments" => "{}"
     }
 
-    {:ok, called} = StatefulResponses.commit_complete(response, [call])
+    {:ok, called} = ResponseCommit.commit_complete(response, [call])
     assert {:ok, {:executing_tools, run}} = Model.prepare(run)
 
     # This unit receipt boundary supplies the result of a committed domain effect.
@@ -431,7 +526,8 @@ defmodule Ankole.Conversations.RetryCommandTest do
         subject_uid: agent.uid,
         conversation_id: run.conversation.id,
         expected_previous_response_id: Run.response_id(journal.message),
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
     completed = finish(%{run | calls: [], model_response: nil}, answer)
@@ -459,7 +555,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
     for row <- [called, journal.message, completed],
         do: assert(Repo.reload!(row).status == "complete")
 
-    assert StatefulResponses.latest_visible_leaf(run.conversation.id) == completed.id
+    assert ResponseChain.latest_visible_leaf(run.conversation.id) == completed.id
     {:ok, replacement} = Admission.admit(key(retry), retry)
     assert {:ok, {:preparing, restored}} = Model.prepare(replacement)
     assert restored.anchor == completed.id
@@ -475,7 +571,8 @@ defmodule Ankole.Conversations.RetryCommandTest do
         subject_uid: agent.uid,
         conversation_id: restored.conversation.id,
         expected_previous_response_id: Run.response_id(completed),
-        metadata: %{"request_metadata" => Run.metadata(restored)},
+        round_state: restored,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(restored)},
         request_items: restored.input
       })
 
@@ -524,7 +621,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
              source_entry_id: "completed-reply"
            )
 
-    assert StatefulResponses.latest_visible_leaf(run.conversation.id) == nil
+    assert ResponseChain.latest_visible_leaf(run.conversation.id) == nil
   end
 
   defp input(agent, text, overrides \\ %{}) do
@@ -559,7 +656,8 @@ defmodule Ankole.Conversations.RetryCommandTest do
       start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)},
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)},
         request_items: [%{"type" => "message", "role" => "user", "content" => "Original request"}]
       })
 
@@ -568,7 +666,7 @@ defmodule Ankole.Conversations.RetryCommandTest do
 
   defp finish(run, response) do
     {:ok, completed} =
-      StatefulResponses.commit_complete(response, [
+      ResponseCommit.commit_complete(response, [
         %{
           "type" => "message",
           "role" => "assistant",

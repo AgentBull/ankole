@@ -6,7 +6,6 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
   @forbidden_fields ~w(
     generate
     max_output_tokens
-    metadata
     prompt_cache_retention
     safety_identifier
     stream_options

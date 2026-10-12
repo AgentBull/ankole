@@ -4,6 +4,8 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+
   alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
     Config,
     Lambda,
@@ -244,6 +246,92 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
              Repo.get!(AgentWorker, other.uid).instance_ref
   end
 
+  test "a ready storage helper is deleted once before its committed Worker row", %{
+    provider: provider,
+    uid: uid
+  } do
+    api = install_storage_platform(provider)
+    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+    assert :ok = reconcile(uid)
+    ref = Repo.get!(AgentWorker, uid).storage_ref
+    assert %{"microvmId" => _} = ref
+    Agent.update(api, &%{&1 | delete_mode: :hold})
+
+    args = Ankole.Job.arguments(:tenant, %{"agent_uid" => uid})
+    deletion = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: args}) end)
+    assert_receive {:storage_delete_pending, pending}, 5_000
+    assert %{state: "deleting", storage_ref: ^ref} = Repo.get!(AgentWorker, uid)
+    assert Agent.get(api, & &1.deletes) == [ref["microvmId"]]
+
+    send(pending, :accept_delete)
+    assert :ok = Task.await(deletion.task, 5_000)
+    assert Repo.get(AgentWorker, uid) == nil
+    assert :ok = reconcile(uid)
+    assert Agent.get(api, & &1.deletes) == [ref["microvmId"]]
+    assert length(Agent.get(api, & &1.calls)) == 1
+  end
+
+  test "a storage-helper DELETE failure retains its ref for the coordinator retry", %{
+    provider: provider,
+    uid: uid
+  } do
+    api = install_storage_platform(provider)
+    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+    assert :ok = reconcile(uid)
+    ref = Repo.get!(AgentWorker, uid).storage_ref
+    Agent.update(api, &%{&1 | delete_mode: :error})
+
+    assert {:error, {:lambda_api, 503, "InternalServerException"}} = reconcile(uid)
+
+    assert %{state: "deleting", storage_ref: ^ref, last_error_kind: "transient"} =
+             Repo.get!(AgentWorker, uid)
+
+    Agent.update(api, &%{&1 | delete_mode: :success})
+    assert :ok = reconcile(uid)
+    assert Repo.get(AgentWorker, uid) == nil
+    assert Agent.get(api, & &1.deletes) == [ref["microvmId"], ref["microvmId"]]
+    assert length(Agent.get(api, & &1.calls)) == 1
+  end
+
+  test "terminated helpers start anew and a lost response retries that launch only", %{
+    provider: provider,
+    uid: uid
+  } do
+    api = install_storage_platform(provider)
+    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+    assert :ok = reconcile(uid)
+    first_ref = Repo.get!(AgentWorker, uid).storage_ref
+    [first] = Agent.get(api, & &1.calls)
+
+    Agent.update(api, &put_in(&1.instances[first_ref["microvmId"]]["state"], "TERMINATED"))
+    assert :ok = reconcile(uid)
+    assert %{"previousMicrovmId" => previous_id} = Repo.get!(AgentWorker, uid).storage_ref
+    assert previous_id == first_ref["microvmId"]
+
+    Agent.update(api, &%{&1 | run_mode: :lost_response})
+    assert {:error, {:lambda_unreachable, _}} = reconcile(uid)
+    assert Repo.get!(AgentWorker, uid).storage_ref == %{"previousMicrovmId" => previous_id}
+    [second, ^first] = Agent.get(api, & &1.calls)
+    refute second["clientToken"] == first["clientToken"]
+
+    Agent.update(api, &%{&1 | run_mode: :success})
+    assert :ok = reconcile(uid)
+    second_ref = Repo.get!(AgentWorker, uid).storage_ref
+    refute second_ref == first_ref
+    [retry, ^second, ^first] = Agent.get(api, & &1.calls)
+    assert retry == second
+    assert map_size(Agent.get(api, & &1.instances)) == 2
+
+    Agent.update(api, &put_in(&1.instances[second_ref["microvmId"]]["state"], "TERMINATED"))
+    assert :ok = reconcile(uid)
+    assert :ok = reconcile(uid)
+    third_ref = Repo.get!(AgentWorker, uid).storage_ref
+    refute third_ref in [first_ref, second_ref]
+    [third, ^retry, ^second, ^first] = Agent.get(api, & &1.calls)
+    refute third["clientToken"] in [first["clientToken"], second["clientToken"]]
+    assert map_size(Agent.get(api, & &1.instances)) == 3
+  end
+
   defp reconcile(uid), do: perform_job(ReconcileJob, %{agent_uid: uid})
 
   defp unowned_vm(ref, started) do
@@ -322,6 +410,132 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
           cond do
             path == image_path <> "/versions/1.0" ->
               Req.Test.json(conn, fixtures["version"])
+
+            String.contains?(path, "/managed-microvm-images/") ->
+              Req.Test.json(conn, fixtures["managed_versions"])
+
+            true ->
+              flunk("Unexpected AWS request: #{path}")
+          end
+      end
+    end)
+
+    api
+  end
+
+  defp install_storage_platform(provider) do
+    parent = self()
+
+    api =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             instances: %{},
+             tokens: %{},
+             calls: [],
+             deletes: [],
+             run_mode: :success,
+             delete_mode: :success
+           }
+         end}
+      )
+
+    fixtures = @fixtures |> File.read!() |> Ankole.JSON.decode!()
+
+    images =
+      for role <- ~w(worker storage) do
+        fixtures["image"]
+        |> Map.update!("imageArn", &(&1 <> "-" <> role))
+        |> put_in(["tags", "ankole-role"], role)
+        |> put_in(["tags", "ankole-settings"], provider.settings_digest)
+        |> put_in(["tags", "ankole-source"], ProviderKind.hash16(provider.runtime.image))
+      end
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case {conn.method, conn.request_path} do
+        {"GET", @api <> "/microvm-images"} ->
+          Req.Test.json(conn, %{"items" => images})
+
+        {"GET", @api <> "/microvms"} ->
+          # Worker listings exclude the storage image, as the real API does.
+          Req.Test.json(conn, %{"items" => []})
+
+        {"POST", @api <> "/microvms"} ->
+          {:ok, bytes, conn} = Plug.Conn.read_body(conn)
+          body = Ankole.JSON.decode!(bytes)
+
+          {mode, instance} =
+            Agent.get_and_update(api, fn state ->
+              id = state.tokens[body["clientToken"]] || "storage-#{map_size(state.tokens)}"
+              instance = Map.merge(fixtures["microvm"], %{"microvmId" => id})
+
+              {{state.run_mode, instance},
+               %{
+                 state
+                 | tokens: Map.put(state.tokens, body["clientToken"], id),
+                   instances: Map.put_new(state.instances, id, instance),
+                   calls: [body | state.calls]
+               }}
+            end)
+
+          if mode == :lost_response,
+            do: Req.Test.transport_error(conn, :timeout),
+            else: Req.Test.json(conn, instance)
+
+        {method, @api <> "/microvms/" <> id} ->
+          if method == "GET" do
+            Req.Test.json(conn, Agent.get(api, &Map.fetch!(&1.instances, id)))
+          else
+            assert method == "DELETE"
+
+            mode =
+              Agent.get_and_update(api, &{&1.delete_mode, %{&1 | deletes: [id | &1.deletes]}})
+
+            if mode == :hold do
+              send(parent, {:storage_delete_pending, self()})
+
+              receive do
+                :accept_delete -> :ok
+              after
+                10_000 -> raise "test did not release storage DELETE"
+              end
+            end
+
+            if mode == :error do
+              conn
+              |> Plug.Conn.put_resp_header("x-amzn-errortype", "InternalServerException")
+              |> Plug.Conn.put_status(503)
+              |> Req.Test.json(%{"message" => "temporary outage"})
+            else
+              Agent.update(api, &put_in(&1.instances[id]["state"], "TERMINATING"))
+              Req.Test.json(conn, %{})
+            end
+          end
+
+        {"GET", path} ->
+          image =
+            Enum.find(
+              images,
+              &(path == @api <> "/microvm-images/" <> Client.path(&1["imageArn"]))
+            )
+
+          version_image =
+            Enum.find(
+              images,
+              &(path ==
+                  @api <> "/microvm-images/" <> Client.path(&1["imageArn"]) <> "/versions/1.0")
+            )
+
+          cond do
+            image ->
+              Req.Test.json(conn, image)
+
+            version_image ->
+              Req.Test.json(
+                conn,
+                Map.put(fixtures["version"], "imageArn", version_image["imageArn"])
+              )
 
             String.contains?(path, "/managed-microvm-images/") ->
               Req.Test.json(conn, fixtures["managed_versions"])

@@ -1,6 +1,4 @@
-use serde_json::{Value, json};
-
-use super::error::StreamError;
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct DownstreamChunk {
@@ -15,14 +13,6 @@ impl DownstreamEncoder {
         DownstreamChunk {
             bytes: sonic_rs::to_vec(event).unwrap_or_else(|_| b"{}".to_vec()),
         }
-    }
-
-    pub fn encode_error(self, error: &StreamError) -> DownstreamChunk {
-        self.encode_event(&json!({
-            "type": "error",
-            "sequence_number": 0,
-            "error": error.to_openai_error_json()
-        }))
     }
 }
 

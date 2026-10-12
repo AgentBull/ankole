@@ -2,6 +2,24 @@ defmodule Ankole.Conversations.InputTest do
   use ExUnit.Case, async: true
   alias Ankole.Conversations.Prompt.Input
 
+  test "internal input does not present its routing key as an IM binding" do
+    event = %Ankole.SignalsGateway.ActorEvent{
+      id: Ecto.UUID.generate(),
+      type: "automation_job.emitted",
+      binding_name: "internal:automation",
+      payload: %{"data" => %{"payload" => %{"text" => "Watch completed"}}}
+    }
+
+    run = %{
+      agent_uid: "agent-1",
+      actor_event_id: event.id,
+      context: %{conversation: %{timezone: "UTC"}}
+    }
+
+    [%{"content" => content}] = Input.messages(run, event)
+    refute Enum.any?(content, &String.contains?(&1["text"], "binding_name:"))
+  end
+
   test "webhook data is bounded and cannot close its quoted boundary (G4)" do
     close = "</untrusted_webhook_receipt>"
 

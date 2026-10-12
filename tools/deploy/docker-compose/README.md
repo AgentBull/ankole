@@ -166,7 +166,9 @@ both volumes. A rebuild deletes only the cache volume; Agent deletion removes
 both volumes after all its containers are gone.
 
 The installation label, `ANKOLE_WORKER_INSTALLATION` (default `ankole`), is
-part of the names and labels of the Worker containers and Agent volumes. Do not
+part of the names and labels of the Worker containers and Agent volumes. Use
+1–20 lowercase letters, digits, or hyphens. The first and last characters must
+be letters or digits; for example, `e2e-1011b01` is valid. Do not
 change it after the first start. With a new label, the control plane creates
 new, empty Agent Home volumes, and it does not see the running Workers, so it
 can start a second Worker for an Agent.

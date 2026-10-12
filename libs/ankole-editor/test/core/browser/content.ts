@@ -1,5 +1,6 @@
 import { describe, it } from './runner'
-import { Wordgard, Decoration, Widget } from '../../../src/core/editor'
+import { Wordgard, Decoration } from '../../../src/core/editor'
+import { Widget } from '../../../src/core/editor/decoration'
 import { GardState, Transaction } from '../../../src/core/state'
 import { Plot, Leaf, Node, Elt, Mark, Schema, Token } from '../../../src/core/doc'
 import {
@@ -8,11 +9,11 @@ import {
   Strong,
   Paragraph,
   Heading,
-  Blockquote,
   Image,
   ImageAlt,
   HorizontalRule
-} from '../../../src/core/types'
+} from '../../../src/core/types/schema'
+import { Blockquote } from '../types'
 import ist from 'ist'
 import { builder, basicBuilders, tableSchema } from '../schema'
 import { rDoc, rChangeSpec } from '../generate'

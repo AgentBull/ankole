@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, VecDeque};
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -12,10 +10,11 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 
 use super::core::{EventSink, StreamCommand, StreamEvent};
-use crate::common::KernelError;
-use crate::universal_ai_client::downstream::{DownstreamChunk, DownstreamEncoder};
+use super::delivery::{Delivery, finish_after_ready_error, ingest_resolver_event, summary};
+use crate::universal_ai_client::downstream::DownstreamEncoder;
 use crate::universal_ai_client::error::StreamError;
-use crate::universal_ai_client::spec::{StreamLimits, StreamSpec, UpstreamKind};
+use crate::universal_ai_client::spec::{StreamSpec, UpstreamKind};
+use crate::universal_ai_client::transport::SemanticIdle;
 use crate::universal_ai_client::{
     api_resolver, hosted_responses, request_builder, transport, wire,
 };
@@ -94,16 +93,16 @@ async fn run_http_stream(
     match spec.upstream.kind {
         UpstreamKind::HTTPSSE => {
             let mut parser = wire::SSEParser::new(spec.limits.max_sse_event_bytes);
+            let mut idle = SemanticIdle::new(spec.upstream.timeout.idle_duration());
             loop {
                 if !delivery.wait_for_read_capacity().await {
                     return;
                 }
 
-                let next = timeout(
-                    spec.upstream.timeout.idle_duration(),
-                    http_stream.0.body.next(),
-                );
-                let Some(next) = delivery.wait_upstream(next).await else {
+                let Some(next) = delivery
+                    .wait_upstream(idle.wait(http_stream.0.body.next()))
+                    .await
+                else {
                     return;
                 };
                 match next {
@@ -116,6 +115,9 @@ async fn run_http_stream(
                             }
                         };
 
+                        if !events.is_empty() {
+                            idle.progressed();
+                        }
                         for event in events {
                             if event.data == "[DONE]" {
                                 match resolver.finish() {
@@ -162,8 +164,7 @@ async fn run_http_stream(
                     }
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string())
-                                .retry_through_credential_pool();
+                            StreamError::new("upstream_read_failed", "read", reason.to_string());
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -187,8 +188,7 @@ async fn run_http_stream(
                             "idle_timeout",
                             "read",
                             "upstream stream idle timeout",
-                        )
-                        .retry_through_credential_pool();
+                        );
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -198,21 +198,24 @@ async fn run_http_stream(
         UpstreamKind::HTTPEventstream => {
             let mut parser =
                 wire::AWSEventStreamParser::new(spec.limits.max_eventstream_frame_bytes);
+            let mut idle = SemanticIdle::new(spec.upstream.timeout.idle_duration());
             loop {
                 if !delivery.wait_for_read_capacity().await {
                     return;
                 }
 
-                let next = timeout(
-                    spec.upstream.timeout.idle_duration(),
-                    http_stream.0.body.next(),
-                );
-                let Some(next) = delivery.wait_upstream(next).await else {
+                let Some(next) = delivery
+                    .wait_upstream(idle.wait(http_stream.0.body.next()))
+                    .await
+                else {
                     return;
                 };
                 match next {
                     Ok(Some(Ok(bytes))) => match parser.push(&bytes) {
                         Ok(messages) => {
+                            if !messages.is_empty() {
+                                idle.progressed();
+                            }
                             for message in messages {
                                 if matches!(
                                     message.message_type.as_deref(),
@@ -251,8 +254,7 @@ async fn run_http_stream(
                     },
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string())
-                                .retry_through_credential_pool();
+                            StreamError::new("upstream_read_failed", "read", reason.to_string());
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -277,8 +279,7 @@ async fn run_http_stream(
                             "idle_timeout",
                             "read",
                             "upstream eventstream idle timeout",
-                        )
-                        .retry_through_credential_pool();
+                        );
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -356,17 +357,18 @@ async fn run_websocket_stream(
         "websocket_initial_messages": websocket_initial_messages.len()
     })));
 
+    let mut idle = SemanticIdle::new(spec.upstream.timeout.idle_duration());
     loop {
         if !delivery.wait_for_read_capacity().await {
             return;
         }
 
-        let next = timeout(spec.upstream.timeout.idle_duration(), websocket.next());
-        let Some(next) = delivery.wait_upstream(next).await else {
+        let Some(next) = delivery.wait_upstream(idle.wait(websocket.next())).await else {
             return;
         };
         match next {
             Ok(Some(Ok(Message::Text(text)))) => {
+                idle.progressed();
                 if text.len() > spec.limits.max_websocket_text_bytes {
                     let error = StreamError::new(
                         "websocket_message_too_large",
@@ -457,8 +459,7 @@ async fn run_websocket_stream(
             }
             Err(_) => {
                 let error =
-                    StreamError::new("idle_timeout", "read", "upstream WebSocket idle timeout")
-                        .retry_through_credential_pool();
+                    StreamError::new("idle_timeout", "read", "upstream WebSocket idle timeout");
                 finish_after_ready_error(delivery, &mut resolver, error).await;
                 return;
             }
@@ -466,220 +467,7 @@ async fn run_websocket_stream(
     }
 }
 
-pub(in crate::universal_ai_client) struct CollectedWebSocketModelResponse {
-    pub wrapper: Value,
-    pub completed_items: BTreeMap<usize, Value>,
-}
-
-pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
-    mut spec: StreamSpec,
-) -> Result<CollectedWebSocketModelResponse, StreamError> {
-    if spec.upstream.kind != UpstreamKind::WebSocketText {
-        return Err(StreamError::new(
-            "invalid_websocket_model_request",
-            "hosted_responses",
-            "hosted WebSocket model execution requires a websocket_text upstream",
-        ));
-    }
-
-    spec.hosted_tools = None;
-    let spec = request_builder::prepare_stream_spec(spec)?;
-    let (mut websocket, status, response_headers) = transport::open_websocket(&spec).await?;
-
-    if status != 101 {
-        return Err(StreamError::new(
-            "websocket_status_rejected",
-            "connect",
-            format!("upstream WebSocket returned status {status}"),
-        )
-        .provider_status(status)
-        .provider_headers(&response_headers));
-    }
-
-    let initial_messages = websocket_initial_messages(&spec);
-    for payload in &initial_messages {
-        if payload.len() > spec.limits.max_websocket_text_bytes {
-            return Err(StreamError::new(
-                "websocket_message_too_large",
-                "connect",
-                format!(
-                    "initial WebSocket text payload exceeded {} bytes",
-                    spec.limits.max_websocket_text_bytes
-                ),
-            )
-            .provider_status(413));
-        }
-
-        websocket
-            .send(Message::text(payload.clone()))
-            .await
-            .map_err(|reason| {
-                StreamError::new(
-                    "websocket_send_failed",
-                    "connect",
-                    format!("failed to send initial WebSocket payload: {reason}"),
-                )
-            })?;
-    }
-
-    let mut resolver =
-        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    let mut completed_items = BTreeMap::new();
-    let mut raw_body_bytes = 0usize;
-
-    loop {
-        match timeout(spec.upstream.timeout.idle_duration(), websocket.next()).await {
-            Ok(Some(Ok(Message::Text(text)))) => {
-                if text.len() > spec.limits.max_websocket_text_bytes {
-                    return Err(StreamError::new(
-                        "websocket_message_too_large",
-                        "wire",
-                        format!(
-                            "upstream WebSocket text payload exceeded {} bytes",
-                            spec.limits.max_websocket_text_bytes
-                        ),
-                    )
-                    .provider_status(413));
-                }
-
-                raw_body_bytes = raw_body_bytes.saturating_add(text.len());
-                if text == "[DONE]" {
-                    resolver.finish()?;
-                    return Err(missing_websocket_terminal_error());
-                }
-
-                let value = sonic_rs::from_str::<Value>(&text).map_err(|reason| {
-                    StreamError::new(
-                        "invalid_provider_event",
-                        "api_resolver",
-                        format!("WebSocket text payload was not valid JSON: {reason}"),
-                    )
-                })?;
-                let events = resolver.ingest(value)?;
-                remember_completed_items(&events, &mut completed_items);
-
-                if let Some(body) = collected_terminal_body(&events) {
-                    ensure_collected_body_size(&body, spec.limits.max_pending_bytes)?;
-                    ensure_collected_body_size(
-                        &Value::Array(completed_items.values().cloned().collect()),
-                        spec.limits.max_pending_bytes,
-                    )?;
-                    return Ok(CollectedWebSocketModelResponse {
-                        wrapper: json!({
-                        "status": status,
-                        "headers": response_headers,
-                        "body": body,
-                        "raw_body_bytes": raw_body_bytes,
-                        "upstream_kind": spec.upstream.kind.as_str(),
-                        "websocket_initial_messages": initial_messages.len()
-                        }),
-                        completed_items,
-                    });
-                }
-            }
-            Ok(Some(Ok(Message::Close(Some(frame))))) if frame.code == CloseCode::Size => {
-                return Err(StreamError::new(
-                    "websocket_message_too_large",
-                    "wire",
-                    "upstream WebSocket closed because a message was too large",
-                )
-                .provider_status(413));
-            }
-            Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
-                resolver.finish()?;
-                return Err(missing_websocket_terminal_error());
-            }
-            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => {}
-            Ok(Some(Ok(Message::Binary(bytes)))) => {
-                return Err(StreamError::new(
-                    "unsupported_websocket_frame",
-                    "wire",
-                    format!(
-                        "upstream WebSocket binary frame is unsupported ({} bytes)",
-                        bytes.len()
-                    ),
-                ));
-            }
-            Ok(Some(Ok(Message::Frame(_)))) => {}
-            Ok(Some(Err(reason))) => return Err(websocket_read_error(reason)),
-            Err(_) => {
-                return Err(StreamError::new(
-                    "idle_timeout",
-                    "read",
-                    "upstream WebSocket idle timeout",
-                )
-                .retry_through_credential_pool());
-            }
-        }
-    }
-}
-
-fn remember_completed_items(events: &[Value], completed_items: &mut BTreeMap<usize, Value>) {
-    for event in events {
-        if event.get("type").and_then(Value::as_str) != Some("response.output_item.done") {
-            continue;
-        }
-        let Some(output_index) = event
-            .get("output_index")
-            .and_then(Value::as_u64)
-            .and_then(|value| usize::try_from(value).ok())
-        else {
-            continue;
-        };
-        let Some(item) = event.get("item").filter(|item| item.is_object()) else {
-            continue;
-        };
-        completed_items.insert(output_index, item.clone());
-    }
-}
-
-fn collected_terminal_body(events: &[Value]) -> Option<Value> {
-    events.iter().find_map(|event| {
-        let event_type = event.get("type").and_then(Value::as_str)?;
-        if !matches!(
-            event_type,
-            "response.completed" | "response.failed" | "response.incomplete"
-        ) {
-            return None;
-        }
-
-        Some(
-            event
-                .get("response")
-                .filter(|value| value.is_object())?
-                .clone(),
-        )
-    })
-}
-
-fn ensure_collected_body_size(body: &Value, max_response_bytes: usize) -> Result<(), StreamError> {
-    let body_bytes = sonic_rs::to_vec(body).map_err(|reason| {
-        StreamError::new(
-            "response_encode_failed",
-            "hosted_responses",
-            format!("collected WebSocket response could not be encoded: {reason}"),
-        )
-    })?;
-    if body_bytes.len() <= max_response_bytes.max(1) {
-        Ok(())
-    } else {
-        Err(StreamError::new(
-            "response_body_too_large",
-            "hosted_responses",
-            "collected WebSocket response exceeded the configured response byte limit",
-        ))
-    }
-}
-
-fn missing_websocket_terminal_error() -> StreamError {
-    StreamError::new(
-        "upstream_stream_closed_before_terminal_event",
-        "api_resolver",
-        "upstream WebSocket closed before a terminal response event",
-    )
-}
-
-fn websocket_read_error(reason: WebSocketError) -> StreamError {
+pub(super) fn websocket_read_error(reason: WebSocketError) -> StreamError {
     match reason {
         WebSocketError::Capacity(CapacityError::MessageTooLong { size, max_size }) => {
             StreamError::new(
@@ -689,8 +477,7 @@ fn websocket_read_error(reason: WebSocketError) -> StreamError {
             )
             .provider_status(413)
         }
-        reason => StreamError::new("websocket_read_failed", "read", reason.to_string())
-            .retry_through_credential_pool(),
+        reason => StreamError::new("websocket_read_failed", "read", reason.to_string()),
     }
 }
 
@@ -788,292 +575,6 @@ async fn wait_for_open_websocket(
     }
 }
 
-pub(in crate::universal_ai_client) struct Delivery {
-    pub(in crate::universal_ai_client) command_rx: mpsc::Receiver<StreamCommand>,
-    sink: EventSink,
-    encoder: DownstreamEncoder,
-    pending: VecDeque<DownstreamChunk>,
-    pending_bytes: usize,
-    max_pending_chunks: usize,
-    max_pending_bytes: usize,
-    credit: u64,
-    seq: u64,
-    aborted_sent: Arc<AtomicBool>,
-}
-
-impl Delivery {
-    pub(in crate::universal_ai_client) fn new(
-        command_rx: mpsc::Receiver<StreamCommand>,
-        sink: EventSink,
-        encoder: DownstreamEncoder,
-        aborted_sent: Arc<AtomicBool>,
-        limits: &StreamLimits,
-    ) -> Self {
-        Self {
-            command_rx,
-            sink,
-            encoder,
-            pending: VecDeque::new(),
-            pending_bytes: 0,
-            max_pending_chunks: limits.max_pending_chunks.max(1),
-            max_pending_bytes: limits.max_pending_bytes.max(1),
-            credit: 0,
-            seq: 0,
-            aborted_sent,
-        }
-    }
-
-    // Unbounded on purpose: terminal batches from `resolver.finish()` and the
-    // failure paths may legally exceed `max_pending_bytes` for a long response,
-    // and a bounded push would turn that terminal into a silent stall.
-    fn push_events(&mut self, events: Vec<Value>) {
-        for event in events {
-            self.push_chunk(self.encoder.encode_event(&event));
-        }
-    }
-
-    /// Queues mid-stream events within the pending-byte limit.
-    /// `Ok(false)` means that downstream cancellation was already reported.
-    pub(in crate::universal_ai_client) async fn push_events_bounded(
-        &mut self,
-        events: Vec<Value>,
-    ) -> Result<bool, StreamError> {
-        for event in events {
-            let chunk = self.encoder.encode_event(&event);
-
-            if chunk.bytes.len() > self.max_pending_bytes {
-                return Err(StreamError::new(
-                    "response_body_too_large",
-                    "downstream",
-                    format!(
-                        "downstream event of {} bytes exceeded the pending byte limit of {}",
-                        chunk.bytes.len(),
-                        self.max_pending_bytes
-                    ),
-                ));
-            }
-
-            if !self.push_chunk_when_capacity(chunk).await {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    async fn push_chunk_when_capacity(&mut self, chunk: DownstreamChunk) -> bool {
-        self.flush_pending_available();
-        while !self.has_capacity_for(chunk.bytes.len()) {
-            let command = self.command_rx.recv().await;
-            if !self.handle_command(command) {
-                return false;
-            }
-            self.flush_pending_available();
-        }
-
-        self.push_chunk(chunk);
-        self.flush_pending_available();
-        true
-    }
-
-    fn push_chunk(&mut self, chunk: DownstreamChunk) {
-        self.pending_bytes = self.pending_bytes.saturating_add(chunk.bytes.len());
-        self.pending.push_back(chunk);
-    }
-
-    async fn wait_for_read_capacity(&mut self) -> bool {
-        self.flush_pending_available();
-
-        while !self.has_pending_capacity() {
-            let command = self.command_rx.recv().await;
-            if !self.handle_command(command) {
-                return false;
-            }
-            self.flush_pending_available();
-        }
-
-        true
-    }
-
-    fn has_pending_capacity(&self) -> bool {
-        self.pending.is_empty()
-            || (self.pending.len() < self.max_pending_chunks
-                && self.pending_bytes < self.max_pending_bytes)
-    }
-
-    fn has_capacity_for(&self, bytes: usize) -> bool {
-        self.pending.len() < self.max_pending_chunks
-            && self.pending_bytes.saturating_add(bytes) <= self.max_pending_bytes
-    }
-
-    async fn wait_upstream<F, T>(&mut self, future: F) -> Option<T>
-    where
-        F: Future<Output = T>,
-    {
-        tokio::pin!(future);
-
-        loop {
-            tokio::select! {
-                result = &mut future => return Some(result),
-                command = self.command_rx.recv() => {
-                    if !self.handle_command(command) {
-                        return None;
-                    }
-                    self.flush_pending_available();
-                }
-            }
-        }
-    }
-
-    pub(in crate::universal_ai_client) fn flush_pending_available(&mut self) {
-        while self.credit > 0 && !self.pending.is_empty() {
-            self.deliver_next_chunk();
-        }
-    }
-
-    async fn flush_pending_blocking(&mut self) -> bool {
-        loop {
-            self.flush_pending_available();
-            if self.pending.is_empty() {
-                return true;
-            }
-
-            if self.credit == 0 {
-                let command = self.command_rx.recv().await;
-                if !self.handle_command(command) {
-                    return false;
-                }
-                continue;
-            }
-        }
-    }
-
-    fn deliver_next_chunk(&mut self) {
-        let Some(chunk) = self.pending.pop_front() else {
-            return;
-        };
-        self.pending_bytes = self.pending_bytes.saturating_sub(chunk.bytes.len());
-        self.credit = self.credit.saturating_sub(1);
-        self.seq += 1;
-        (self.sink)(StreamEvent::Chunk {
-            seq: self.seq,
-            bytes: chunk.bytes,
-        });
-    }
-
-    pub(in crate::universal_ai_client) async fn finish_done(mut self, summary: Value) {
-        let _ = self.finish_done_pending(summary).await;
-    }
-
-    async fn finish_done_pending(&mut self, summary: Value) -> bool {
-        if self.flush_pending_blocking().await {
-            (self.sink)(StreamEvent::Done(summary));
-            true
-        } else {
-            false
-        }
-    }
-
-    async fn finish_error_events(self, events: Vec<Value>, error: StreamError) {
-        self.finish_error_events_with_metadata(events, error, None)
-            .await;
-    }
-
-    pub(in crate::universal_ai_client) async fn finish_error_events_with_metadata(
-        mut self,
-        events: Vec<Value>,
-        error: StreamError,
-        metadata: Option<Value>,
-    ) {
-        if events.is_empty() {
-            self.push_chunk(self.encoder.encode_error(&error));
-        } else {
-            self.push_events(events);
-        }
-
-        if self.flush_pending_blocking().await {
-            let mut error_json = error.to_json();
-            if let Some(metadata) = metadata {
-                error_json["hosted_tool_metadata"] = metadata;
-            }
-            (self.sink)(StreamEvent::Error(error_json));
-        }
-    }
-
-    pub(in crate::universal_ai_client) async fn finish_native_error_with_metadata(
-        mut self,
-        error: StreamError,
-        metadata: Option<Value>,
-    ) {
-        if self.flush_pending_blocking().await {
-            let mut error_json = error.to_json();
-            if let Some(metadata) = metadata {
-                error_json["hosted_tool_metadata"] = metadata;
-            }
-            (self.sink)(StreamEvent::Error(error_json));
-        }
-    }
-
-    pub(in crate::universal_ai_client) fn handle_command(
-        &mut self,
-        command: Option<StreamCommand>,
-    ) -> bool {
-        match command {
-            Some(StreamCommand::Demand(count)) => {
-                self.credit = self.credit.saturating_add(count);
-                true
-            }
-            Some(StreamCommand::Cancel) | None => {
-                send_aborted_once(&self.sink, &self.aborted_sent);
-                false
-            }
-        }
-    }
-}
-
-fn summary(reason: &str) -> Value {
-    json!({ "reason": reason })
-}
-
-async fn ingest_resolver_event(
-    delivery: &mut Delivery,
-    resolver: &mut api_resolver::APIResolver,
-    value: Value,
-) -> Result<bool, StreamError> {
-    let events = resolver.ingest(value)?;
-    flush_resolver_events(delivery, resolver, events).await
-}
-
-async fn flush_resolver_events(
-    delivery: &mut Delivery,
-    resolver: &api_resolver::APIResolver,
-    events: Vec<Value>,
-) -> Result<bool, StreamError> {
-    if !delivery.push_events_bounded(events).await? {
-        return Ok(false);
-    }
-
-    if resolver.is_terminal() {
-        delivery
-            .finish_done_pending(summary("provider_terminal"))
-            .await;
-        Ok(false)
-    } else {
-        Ok(true)
-    }
-}
-
-pub(super) fn command_send_error(error: mpsc::error::TrySendError<StreamCommand>) -> KernelError {
-    match error {
-        mpsc::error::TrySendError::Full(_) => {
-            KernelError::new("universal AI client command queue is full")
-        }
-        mpsc::error::TrySendError::Closed(_) => {
-            KernelError::new("universal AI client stream is closed")
-        }
-    }
-}
-
 pub(super) fn decode_response_body(body: &[u8]) -> Result<Value, StreamError> {
     sonic_rs::from_slice::<Value>(body).map_err(|reason| {
         StreamError::new(
@@ -1100,21 +601,12 @@ pub(super) fn send_aborted_once(sink: &EventSink, aborted_sent: &AtomicBool) {
     }
 }
 
-fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
+pub(super) fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
     if spec.upstream.websocket_initial_messages.is_empty() {
         spec.upstream.body.clone().into_iter().collect()
     } else {
         spec.upstream.websocket_initial_messages.clone()
     }
-}
-
-async fn finish_after_ready_error(
-    delivery: Delivery,
-    resolver: &mut api_resolver::APIResolver,
-    error: StreamError,
-) {
-    let events = resolver.fail(&error);
-    delivery.finish_error_events(events, error).await;
 }
 
 // The AWS SDK reads an event frame as one member of the event union: the
@@ -1218,106 +710,8 @@ async fn provider_status_error(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
     use crate::universal_ai_client::spec::{APIResolverKind, ResponseContext};
-
-    fn test_delivery(
-        limits: &StreamLimits,
-    ) -> (
-        mpsc::Sender<StreamCommand>,
-        std::sync::mpsc::Receiver<StreamEvent>,
-        Delivery,
-    ) {
-        let (command_tx, command_rx) = mpsc::channel(8);
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
-        let sink: EventSink = Arc::new(move |event| {
-            let _ = event_tx.send(event);
-        });
-        let delivery = Delivery::new(
-            command_rx,
-            sink,
-            DownstreamEncoder,
-            Arc::new(AtomicBool::new(false)),
-            limits,
-        );
-        (command_tx, event_rx, delivery)
-    }
-
-    #[tokio::test]
-    async fn mid_stream_batches_wait_for_credit_under_the_pending_limit() {
-        let limits = StreamLimits {
-            max_pending_chunks: 2,
-            ..StreamLimits::default()
-        };
-        let (command_tx, event_rx, mut delivery) = test_delivery(&limits);
-        let resolver = api_resolver::APIResolver::new(
-            APIResolverKind::OpenAIResponses,
-            ResponseContext::default(),
-        );
-        let events = (0..5)
-            .map(|index| {
-                json!({"type": "response.output_text.delta", "delta": format!("chunk {index}")})
-            })
-            .collect::<Vec<_>>();
-
-        let flush = flush_resolver_events(&mut delivery, &resolver, events);
-        tokio::pin!(flush);
-
-        // Without credit the batch waits after filling the two-chunk window.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), flush.as_mut())
-                .await
-                .is_err()
-        );
-        assert!(event_rx.try_recv().is_err());
-
-        command_tx.send(StreamCommand::Demand(1)).await.unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), flush.as_mut())
-                .await
-                .is_err()
-        );
-        assert!(matches!(
-            event_rx.try_recv(),
-            Ok(StreamEvent::Chunk { seq: 1, .. })
-        ));
-        assert!(event_rx.try_recv().is_err());
-
-        command_tx.send(StreamCommand::Demand(16)).await.unwrap();
-        let completed = tokio::time::timeout(Duration::from_secs(1), flush.as_mut())
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert!(completed);
-        assert_eq!(std::iter::from_fn(|| event_rx.try_recv().ok()).count(), 4);
-    }
-
-    #[tokio::test]
-    async fn an_event_beyond_the_pending_byte_limit_fails_loudly() {
-        let limits = StreamLimits {
-            max_pending_bytes: 128,
-            ..StreamLimits::default()
-        };
-        let (_command_tx, _event_rx, mut delivery) = test_delivery(&limits);
-        let resolver = api_resolver::APIResolver::new(
-            APIResolverKind::OpenAIResponses,
-            ResponseContext::default(),
-        );
-        let events = vec![json!({
-            "type": "response.output_text.delta",
-            "delta": "x".repeat(4096)
-        })];
-
-        let error = flush_resolver_events(&mut delivery, &resolver, events)
-            .await
-            .unwrap_err();
-
-        assert_eq!(error.code, "response_body_too_large");
-        assert!(error.message.contains("pending byte limit"));
-    }
 
     #[test]
     fn bedrock_stream_exceptions_report_their_type_and_declared_status() {

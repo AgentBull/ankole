@@ -18,7 +18,7 @@ import { useTranslation } from 'react-i18next'
 import { isRouteErrorResponse, Link, useLocation, useRouteError } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAgentComputerWorkerControllerIndexOptions,
+  ankoleWebAgentWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
@@ -51,7 +51,7 @@ export function HomePage() {
   // a condition changes.
   const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: LIST_REFRESH_MS })
   const workers = useQuery({
-    ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
+    ...ankoleWebAgentWorkerControllerIndexOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   const providers = useQuery({

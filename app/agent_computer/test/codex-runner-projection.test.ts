@@ -156,47 +156,39 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     expect(result.success).toBe(false)
   })
 
-  it('executes a Background web call through its AIGateway semantic selector', async () => {
-    const requests: Array<{ url: string; body: unknown }> = []
+  it('executes a Background web call through the fenced shared owner', async () => {
+    const requests: unknown[] = []
     const webTools = await createWebTools({
-      aiGateway: {
-        baseURL: 'https://control.test/api/v1/ai-gateway',
-        fetch: async (input, init) => {
-          requests.push({
-            url: input instanceof Request ? input.url : String(input),
-            body: JSON.parse(String(init?.body))
-          })
-          return new Response(
-            JSON.stringify({
-              success: true,
-              results: [{ title: 'Ankole', url: 'https://example.com', snippet: 'Result' }]
-            }),
-            { status: 200, headers: { 'content-type': 'application/json' } }
-          )
-        }
-      },
-      workspaceRoot: '/tmp',
-      repeatFetchSessionKey: 'codex-runner-projection-test'
+      turn: { actor: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, actor_event_id: 'input-1' },
+      rpc: (async (method: unknown, payload: unknown, scope: unknown) => {
+        requests.push({ method, name: (payload as { name: string }).name, scope })
+        return { bodyJson: new TextEncoder().encode(JSON.stringify({ output: 'Search result', details: {} })) }
+      }) as unknown as import('../src/lanes/rpc_lane').RPCRequester
     })
-    const projection = buildCodexJobProjection({ tools: webTools })
-
-    const result = await projection.handleToolCall(
+    const result = await buildCodexJobProjection({ tools: webTools }).handleToolCall(
       {
         threadId: 'thread-1',
         turnId: 'turn-1',
-        callId: 'call-web-search',
+        callId: 'search-1',
         namespace: null,
         tool: 'web_search',
         arguments: { query: 'ankole' }
       },
       new AbortController().signal
     )
-
     expect(result.success).toBe(true)
     expect(requests).toEqual([
       {
-        url: 'https://control.test/api/v1/ai-gateway/web_search',
-        body: { model: 'web_search.default', query: 'ankole' }
+        method: 'tools.read',
+        name: 'web_search',
+        scope: {
+          jobTurn: {
+            actor: { session_id: 'job:1000' },
+            job_id: 1000,
+            attempt: 1,
+            actor_event_id: 'input-1'
+          }
+        }
       }
     ])
   })

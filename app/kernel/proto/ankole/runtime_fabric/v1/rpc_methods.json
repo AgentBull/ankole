@@ -105,11 +105,11 @@
     "response_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportResponse"
   },
   {
-    "method": "skills.overlay.resolve",
+    "method": "tools.read",
     "scope": "turn",
     "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.SkillOverlayResolveRequest",
-    "response_type": "ankole.runtime_fabric.v1.SkillOverlayResolveResponse"
+    "request_type": "ankole.runtime_fabric.v1.ReadToolRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
   },
   {
     "method": "webhook.endpoint.cancel",

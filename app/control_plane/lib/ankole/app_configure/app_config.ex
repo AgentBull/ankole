@@ -3,19 +3,21 @@ defmodule Ankole.AppConfigure.AppConfig do
   Database row for one scoped AppConfigure value.
   """
 
-  use Ankole.Schema, tenancy: :site
+  use Ankole.Schema, tenancy: :tenant
 
   import Ecto.Changeset
 
   @primary_key false
   schema "app_configurations" do
-    field :tenant_id, Ankole.Ecto.UUIDv7
     field :scope, :string
     field :key, :string
     field :value, :map
 
     timestamps(type: :utc_datetime)
   end
+
+  def for_scope("global"), do: Ankole.AppConfigure.SiteConfig
+  def for_scope(_scope), do: __MODULE__
 
   @type t :: %__MODULE__{
           scope: String.t(),
@@ -37,9 +39,9 @@ defmodule Ankole.AppConfigure.AppConfig do
     row
     |> cast(attrs, [:scope, :key, :value])
     |> validate_required([:scope, :key, :value])
-    |> validate_format(:scope, ~r/\A(?:global|tenant:.+|agent:.+)\z/)
+    |> validate_format(:scope, ~r/\A(?:tenant:.+|agent:.+)\z/)
     |> validate_change(:value, &validate_envelope/2)
-    |> unique_constraint([:scope, :key], name: :app_configurations_scope_key_unique)
+    |> unique_constraint([:tenant_id, :scope, :key], name: :app_configurations_scope_key_unique)
     |> check_constraint(:scope, name: :app_configurations_scope_check)
     |> check_constraint(:value, name: :app_configurations_value_envelope_check)
   end

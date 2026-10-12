@@ -53,7 +53,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
     field(:content, Ankole.Types.JSONValue, default: [])
     # Caller metadata is opaque to AIGateway. AIGateway-owned response facts such
     # as model/provider, usage, and provider raw ids also live here.
-    # Must NOT carry a second item list.
+    # Raw input stays in content; replay-only Brain context stays separate.
     field(:metadata, :map, default: %{})
 
     timestamps()

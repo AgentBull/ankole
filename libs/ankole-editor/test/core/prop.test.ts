@@ -1,6 +1,7 @@
 import { describe, it } from 'bun:test'
 import { Mark } from '../../src/core/doc'
-import { Emphasis, Strong, Link, Code } from '../../src/core/types'
+import { Emphasis, Strong, Code } from '../../src/core/types/schema'
+import { Link } from './types'
 import ist from 'ist'
 
 const Tag = Mark.Type.define<readonly number[]>('Tag', {

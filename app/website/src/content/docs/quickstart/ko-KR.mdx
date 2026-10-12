@@ -2474,6 +2474,8 @@ Codex, Claude Code 또는 터미널을 조작할 수 있는 다른 Agent에 이 
 
 단일 호스트에는 Docker Compose를, 엔터프라이즈 배포에는 Kubernetes를 사용하세요. 개발과 디버깅은 소스에서 설치합니다.
 
+Worker installation 이름은 1–20자이며 소문자, 숫자, 하이픈만 사용할 수 있습니다. 첫 문자와 마지막 문자는 문자 또는 숫자여야 합니다. 예를 들어 `e2e-1011b01`은 유효합니다. Compose는 `ANKOLE_WORKER_INSTALLATION`(기본값 `ankole`)을, Helm은 `worker.installation`을 사용합니다. Helm 값이 비어 있으면 release 이름을 사용합니다. Worker 리소스와 영구 Home 저장소가 이 이름을 사용하므로 처음 시작하기 전에 정하고 설치 후에는 변경하지 마세요.
+
 <QuickstartTabs
   client:visible
   ariaLabel="Choose a deployment method"

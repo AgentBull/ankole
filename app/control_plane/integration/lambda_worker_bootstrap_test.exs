@@ -146,28 +146,22 @@ defmodule Ankole.LambdaWorkerBootstrapIntegrationTest do
 
     assert hook(cleanup_url, "run", deletion).status == 200
 
-    assert {:ok, true} =
-             wait_until(deadline(10_000), fn ->
-               {_, status} =
-                 System.cmd(
-                   "docker",
-                   [
-                     "exec",
-                     server,
-                     "bash",
-                     "-ec",
-                     "test ! -e /export/agents/native-agent; test -z \"$(ls -A /export/agents/.deleted)\""
-                   ],
-                   stderr_to_stdout: true
-                 )
+    docker!([
+      "exec",
+      server,
+      "bash",
+      "-ec",
+      "test ! -e /export/agents/native-agent; test -z \"$(ls -A /export/agents/.deleted)\""
+    ])
 
-               status == 0
-             end)
-
+    # The short-lived entry has ended, but the hooks remain available until
+    # the control plane terminates the ready helper.
+    assert hook(cleanup_url, "ready", %{}).status == 200
+    assert docker!(["inspect", "--format", "{{.State.Running}}", cleanup]) == "true\n"
     assert docker!(["exec", "--user", "1000:1000", peer, "cat", "/workspace/proof"]) == "peer"
 
-    # Once the control plane sees RUNNING, that UID can be used again. A late
-    # hook for the old helper must not rename or delete the new directory.
+    # A repeated hook must not run removal again, even if a new directory
+    # appears at the old path.
     docker!([
       "exec",
       server,

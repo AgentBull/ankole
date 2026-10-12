@@ -2,7 +2,7 @@ import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { GardState, Transaction } from '../../src/core/state'
 import { Leaf } from '../../src/core/doc'
-import { Cell } from '../../src/core/types'
+import { Cell } from './types'
 import { basicBuilders, basicSchema } from './schema'
 
 const { doc, p } = basicBuilders

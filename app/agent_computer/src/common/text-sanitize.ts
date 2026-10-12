@@ -34,25 +34,6 @@ export function sanitizeBinaryOutput(text: string): string {
 }
 
 /**
- * Renders third-party catalog text as one bounded, prompt-safe line.
- *
- * Catalog entries (skill descriptions, plugin template descriptions) come from
- * installed third-party packages and are injected into model-visible prompts.
- * The producer is asked to keep them short and plain, but the host does not
- * trust that: this strips hidden and control characters through
- * `sanitizeBinaryOutput`, collapses all whitespace to single spaces, and caps
- * the length so one oversized entry cannot starve the rest of its catalog.
- * A capped entry ends with `...` inside the budget, so the model sees the cut
- * instead of reading a mid-sentence stop as the complete description.
- */
-export function sanitizeCatalogLine(text: string, maxChars: number): string {
-  const cleaned = sanitizeBinaryOutput(text).replace(/\s+/g, ' ').trim()
-  if (cleaned.length <= maxChars) return cleaned
-  if (maxChars <= 3) return truncateUtf16Safe(cleaned, maxChars)
-  return `${truncateUtf16Safe(cleaned, maxChars - 3).trimEnd()}...`
-}
-
-/**
  * Truncates to at most `maxChars` UTF-16 code units without slicing through a
  * surrogate pair.
  *

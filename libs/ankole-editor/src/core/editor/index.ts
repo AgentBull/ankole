@@ -24,34 +24,4 @@ export { KeyBinding } from './keymap'
 // extensions. They are useful for showing out-of-band information or
 // editing controls directly in the editable content.
 
-export { Decoration, Widget } from './decoration'
-export { decoratePlots } from './plotdeco'
-
-// ### Panels
-
-// Panels are interface elements displayed above or below the editor.
-// They use sticky positioning to stay in view even when the editor
-// is partially scrolled out of view. They are a good way to display
-// things like dialogs, status bars, and menu bars.
-
-export { Panel } from './panel'
-export { menuBar } from './menubar'
-export { Dialog } from './dialog'
-
-// ### Tooltips
-
-// Tooltips are small elements displayed over the editor near a
-// specific document position.
-
-export { Tooltip } from './tooltip'
-
-// ### Utilities
-
-// Input rules are a way to respond to certain patterns of text input
-// with an action, such as replacing sequences of dashes with emdash
-// characters or automatically creating lists when a textblock is
-// started with a number and a period.
-
-export { InputRule } from './inputrule'
-
-export { dropCursor } from './dropcursor'
+export { Decoration } from './decoration'

@@ -856,7 +856,7 @@ defmodule Ankole.SignalsGateway.Actors do
   # actor event was queued. This keeps local generation from replying to content
   # that has already been withdrawn.
   defp reject_tombstoned_event_source(repo, %ActorEvent{} = event, now) do
-    source_entry_ids = ActorEvent.source_entry_ids(event)
+    source_entry_ids = ActorEvent.withdrawal_source_entry_ids(event)
 
     case source_entry_ids do
       [] ->

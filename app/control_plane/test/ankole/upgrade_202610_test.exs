@@ -1,7 +1,7 @@
 defmodule Ankole.Upgrade202610Test do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.AppConfigure.{AppConfig, Crypto}
+  alias Ankole.AppConfigure.{AppConfig, SiteConfig, Crypto}
   alias Ankole.SignalsGateway.{Binding, Bindings}
   alias Ankole.Upgrade202610
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
@@ -60,14 +60,14 @@ defmodule Ankole.Upgrade202610Test do
       end
 
       assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-      refute Repo.get_by(AppConfig, scope: "global", key: key)
+      refute Repo.get_by(SiteConfig, scope: "global", key: key)
 
       rows =
         for agent <- [first, second] do
           binding = Repo.get_by!(Binding, agent_uid: agent.uid, name: "shared")
           new_key = @config_module.binding_config_key(agent.uid, "shared")
           assert binding.config_ref == "app-config://#{new_key}"
-          row = Repo.get_by!(AppConfig, scope: "global", key: new_key)
+          row = Repo.get_by!(SiteConfig, scope: "global", key: new_key)
           assert row.value["type"] == old_value["type"]
           refute row.value["value"] == old_value["value"]
           assert {:ok, ^config} = Bindings.stored_binding_config(binding)
@@ -84,7 +84,7 @@ defmodule Ankole.Upgrade202610Test do
       assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
 
       for row <- rows,
-          do: assert(Repo.get_by!(AppConfig, scope: row.scope, key: row.key).value == row.value)
+          do: assert(Repo.get_by!(SiteConfig, scope: row.scope, key: row.key).value == row.value)
     end
   end
 
@@ -114,11 +114,11 @@ defmodule Ankole.Upgrade202610Test do
       assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
       assert {:ok, ^config} = Bindings.binding_config(binding, @config_module)
       assert {:ok, application} = @config_module.platform_application(config)
-      row = Repo.get_by!(AppConfig, scope: "global", key: key)
+      row = Repo.get_by!(SiteConfig, scope: "global", key: key)
       assert row.value["platform_application"] == application
 
       assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-      assert Repo.get_by!(AppConfig, scope: "global", key: key).value == row.value
+      assert Repo.get_by!(SiteConfig, scope: "global", key: key).value == row.value
     end
   end
 
@@ -145,7 +145,7 @@ defmodule Ankole.Upgrade202610Test do
       Repo.without_tenant(&Upgrade202610.run/0)
     end
 
-    assert Repo.get_by(AppConfig, scope: "global", key: key)
+    assert Repo.get_by(SiteConfig, scope: "global", key: key)
 
     for agent <- [first, second],
         do:
@@ -156,7 +156,7 @@ defmodule Ankole.Upgrade202610Test do
             ).config_ref == "app-config://#{key}"
           )
 
-    refute Repo.get_by(AppConfig,
+    refute Repo.get_by(SiteConfig,
              scope: "global",
              key: TeamsConfig.binding_config_key(first.uid, "shared-conflict")
            )
@@ -173,11 +173,11 @@ defmodule Ankole.Upgrade202610Test do
 
     assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
     scope = "tenant:" <> original.id
-    row = Repo.get_by!(AppConfig, scope: scope, key: key)
+    row = Repo.with_tenant(original.id, fn -> Repo.get_by!(AppConfig, scope: scope, key: key) end)
     assert row.tenant_id == original.id
     assert {:ok, ^value} = Crypto.unseal(row.value["value"], scope, key)
     assert {:error, _} = Crypto.unseal(row.value["value"], "global", key)
-    refute Repo.get_by(AppConfig, scope: "global", key: key)
+    refute Repo.get_by(SiteConfig, scope: "global", key: key)
 
     Repo.with_tenant(other.id, fn ->
       assert :error = Ankole.AppConfigure.get_by_key(key)
@@ -188,14 +188,18 @@ defmodule Ankole.Upgrade202610Test do
     |> Repo.update!()
 
     assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-    assert Repo.get_by!(AppConfig, scope: scope, key: key).value == row.value
+
+    assert Repo.with_tenant(original.id, fn ->
+             Repo.get_by!(AppConfig, scope: scope, key: key).value
+           end) == row.value
+
     assert Repo.tenant_id!() == other.id
   end
 
   defp seed_config(key, config) do
     {:ok, ciphertext} = Crypto.seal(config, "global", key)
     value = %{"type" => "cipher", "value" => ciphertext}
-    Repo.insert!(%AppConfig{scope: "global", key: key, value: value})
+    Repo.insert!(%SiteConfig{scope: "global", key: key, value: value})
     value
   end
 

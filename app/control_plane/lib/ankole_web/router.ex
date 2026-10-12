@@ -355,7 +355,7 @@ defmodule AnkoleWeb.Router do
 
     get "/console-readiness", ConsoleReadinessController, :show
 
-    get "/agent-computer-workers", AgentComputerWorkerController, :index
+    get "/agent-workers", AgentWorkerController, :index
 
     get "/background-agent-jobs", BackgroundAgentJobController, :index
 

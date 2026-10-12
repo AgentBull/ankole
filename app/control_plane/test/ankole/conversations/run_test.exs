@@ -1,4 +1,5 @@
 defmodule Ankole.Conversations.RunTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
   import Ankole.SignalsGateway.ActorRuntimeCase, only: [agent_fixture: 0]
@@ -88,13 +89,14 @@ defmodule Ankole.Conversations.RunTest do
       start_response_run(%{
         subject_uid: key.agent_uid,
         conversation_id: old.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(old)}
+        round_state: old,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(old)}
       })
 
     {:ok, current} = Admission.admit(key, event)
     assert {:ok, {:preparing, _}} = Run.restore(current)
     assert Repo.get!(Message, live.id).status == "error"
-    assert {:ok, :already_terminal} = StatefulResponses.commit_complete(live, [])
+    assert {:ok, :already_terminal} = ResponseCommit.commit_complete(live, [])
     assert {:error, :stale_driver} = Repo.transact(&Fence.check_in_tx(&1, old))
   end
 
@@ -109,7 +111,8 @@ defmodule Ankole.Conversations.RunTest do
       start_response_run(%{
         subject_uid: key.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
     call = %{
@@ -120,7 +123,7 @@ defmodule Ankole.Conversations.RunTest do
       "status" => "completed"
     }
 
-    {:ok, response} = StatefulResponses.commit_complete(response, [call])
+    {:ok, response} = ResponseCommit.commit_complete(response, [call])
     {:ok, {:executing_tools, recovered}} = Run.restore(run)
     assert recovered.calls == [call]
 
@@ -156,7 +159,8 @@ defmodule Ankole.Conversations.RunTest do
       start_response_run(%{
         subject_uid: key.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
     call = %{
@@ -167,7 +171,7 @@ defmodule Ankole.Conversations.RunTest do
       "status" => "completed"
     }
 
-    {:ok, response} = StatefulResponses.commit_complete(response, [call])
+    {:ok, response} = ResponseCommit.commit_complete(response, [call])
     wait = %Wait{kind: :job, job_id: 1000, command_event_id: event.id, timeout_ms: 30_000}
 
     assert {:ok, receipt} =
@@ -213,9 +217,8 @@ defmodule Ankole.Conversations.RunTest do
         start_response_run(%{
           subject_uid: key.agent_uid,
           conversation_id: run.conversation.id,
-          metadata: %{
-            "request_metadata" => Run.metadata(%{run | steer_event_ids: [steer.id]})
-          }
+          round_state: %{run | steer_event_ids: [steer.id]},
+          metadata: %{"request_metadata" => Run.metadata(run)}
         })
 
       call = %{
@@ -226,7 +229,7 @@ defmodule Ankole.Conversations.RunTest do
         "status" => "completed"
       }
 
-      {:ok, response} = StatefulResponses.commit_complete(response, [call])
+      {:ok, response} = ResponseCommit.commit_complete(response, [call])
 
       {:ok, _} =
         Receipts.execute(run, Run.response_id(response), Run.call_id(call), fn _repo ->
@@ -307,7 +310,7 @@ defmodule Ankole.Conversations.RunTest do
     {:ok, steer} = append_steer(key)
     {:ok, [steer]} = Run.inject(run, [steer])
     run = %{run | steer_event_ids: [steer.id]}
-    assert {:ok, _} = Run.finalize(run, "silent")
+    assert {:ok, _} = Run.finalize(run, :silent)
 
     assert %ActorEvent{completed_at: %DateTime{}, turn_outcome: "silent"} =
              Repo.get!(ActorEvent, event.id)
@@ -327,12 +330,13 @@ defmodule Ankole.Conversations.RunTest do
       start_response_run(%{
         subject_uid: key.agent_uid,
         conversation_id: run.conversation.id,
+        round_state: %{run | steer_event_ids: [steer.id], iteration: 1},
         metadata: %{"request_metadata" => metadata}
       })
 
-    {:ok, _} = StatefulResponses.commit_complete(response, [])
+    {:ok, _} = ResponseCommit.commit_complete(response, [])
     assert run.steer_event_ids == []
-    assert {:ok, _} = Run.finalize(run, "silent")
+    assert {:ok, _} = Run.finalize(run, :silent)
 
     assert %ActorEvent{completed_at: %DateTime{}, turn_outcome: "silent"} =
              Repo.get!(ActorEvent, steer.id)

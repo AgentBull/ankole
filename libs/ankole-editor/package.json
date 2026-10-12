@@ -50,7 +50,6 @@
     "@ankole/uikit": "workspace:*",
     "@marijn/find-cluster-break": "1.0.4",
     "@remixicon/react": "4.9.0",
-    "crelt": "1.0.7",
     "mdast-util-from-markdown": "2.1.0",
     "mdast-util-gfm": "3.1.0",
     "mdast-util-mdx-jsx": "3.2.0",

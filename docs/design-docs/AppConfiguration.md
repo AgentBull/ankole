@@ -121,17 +121,22 @@ Environment variables never override an AppConfigure value.
 
 ## Row Format in PostgreSQL
 
-The `app_configurations` table stores one row for each `{scope, key}` pair. The table has these fields:
+Global rows use the site-owned `site_app_configurations` table and the
+`SiteConfig` schema. Their scope is `global`, and `{scope, key}` is unique.
+Tenant and Agent rows use the tenant-owned `app_configurations` table and
+`AppConfig` schema. That table requires `tenant_id`, accepts `tenant:<id>` or
+`agent:<uid>` scopes, and makes `{tenant_id, scope, key}` unique. Repo checks
+the tenant on reads and writes.
 
-- `scope`
-- `tenant_id`, null for global rows and a tenant foreign key for other rows
-- `key`
-- JSONB `value`
-- `inserted_at`
-- `updated_at`
+Both tables store `scope`, `key`, JSONB `value`, `inserted_at`, and `updated_at`.
+The database checks the scope and the value wrapper. AppConfigure selects the
+owning schema from the scope and retains the existing inheritance order.
 
-The database allows only one row for each `{scope, key}` pair. It also checks
-the scope and the value wrapper.
+WorkerEnv uses the same separation: global rows use `site_worker_envs`, and
+Tenant and Agent rows use `agent_computer_worker_envs`. The upgrade migration
+moves global rows without changing their value or scope. Encryption retains
+its scope and key authentication data, so existing ciphertext remains readable.
+Caches include the tenant in their identity and invalidation message.
 
 A plaintext value uses this envelope:
 

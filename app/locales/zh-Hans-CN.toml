@@ -967,6 +967,8 @@ schedules = "计划任务"
 webhooks = "Webhooks"
 
 [console.conversations]
+model_profile = "模型档位"
+model = "模型"
 checkpoint_badge = "压缩检查点"
 search = "按主体 UID、名称或会话键搜索"
 title = "会话"

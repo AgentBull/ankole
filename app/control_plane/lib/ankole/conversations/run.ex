@@ -1,4 +1,6 @@
 defmodule Ankole.Conversations.Run do
+  alias Ankole.AIGateway.ToolResultJournal
+
   @moduledoc """
   Rebuilds one run from its inbox and tape and commits driver decisions.
 
@@ -10,11 +12,9 @@ defmodule Ankole.Conversations.Run do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ResponseItems
-  alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.Conversations.RoundState
   alias Ankole.Conversations.Fence
   alias Ankole.Conversations.Receipts
-  alias Ankole.Conversations.Notices
-  alias Ankole.Conversations.Presentation
   alias Ankole.Conversations.ToolResult
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
@@ -40,10 +40,6 @@ defmodule Ankole.Conversations.Run do
     :model_response,
     :anchor,
     :span,
-    :job,
-    :job_ref,
-    :job_worker,
-    :job_mode,
     :repair_failure,
     kind: :main,
     tools: [],
@@ -65,11 +61,18 @@ defmodule Ankole.Conversations.Run do
     repaired: false,
     truncated_rounds: 0,
     saw_tool_results: false,
-    outcome: "loop_finished",
+    outcome: :loop_finished,
     recovered?: false,
     visible_delivery?: false,
     repeated_failure: nil
   ]
+
+  def type(%{kind: kind}), do: type(kind)
+  def type(%ActorEvent{} = event), do: event |> kind() |> type()
+  def type(:main), do: Ankole.Conversations.Main
+  def type(:ambient), do: Ankole.Conversations.Ambient
+  def type(:scheduled), do: Ankole.Conversations.Scheduled
+  def type(:workflow_task), do: Ankole.Conversations.WorkflowTask
 
   @spec kind(String.t() | map()) :: :job | :workflow_task | :ambient | :scheduled | :main
   def kind(%{session_id: session, type: type}) do
@@ -139,7 +142,6 @@ defmodule Ankole.Conversations.Run do
 
   defp defer_retry_in_tx(repo, run, error, now) do
     capacity? = Ankole.AIGateway.FailureDiagnostics.provider_capacity?(error)
-    failure = Ankole.AIGateway.FailureDiagnostics.classify(error)
 
     with :ok <- Fence.check_in_tx(repo, run),
          %ActorEvent{} = event <- Actors.lock_actor_event_in_tx(repo, run.actor_event_id) do
@@ -149,7 +151,12 @@ defmodule Ankole.Conversations.Run do
         count = event.provider_capacity_attempt_count + if(capacity?, do: 1, else: 0)
         attempt = if capacity?, do: count, else: event.attempt_count - count
         class = if capacity?, do: :provider_capacity, else: :execution
-        due = gateway_retry_at(failure, now) || DateTime.add(now, backoff_seconds(attempt, class))
+
+        due =
+          Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier.credential_pool_retry_at(
+            error,
+            now
+          ) || DateTime.add(now, backoff_seconds(attempt, class))
 
         with {:ok, event} <-
                event
@@ -169,22 +176,13 @@ defmodule Ankole.Conversations.Run do
     end
   end
 
-  defp gateway_retry_at(%{error_code: "credential_pool_exhausted", retry_at: retry_at}, now)
-       when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, due, _} -> if DateTime.compare(due, now) == :gt, do: due
-      _ -> nil
-    end
-  end
-
-  defp gateway_retry_at(_failure, _now), do: nil
-
-  @spec backoff_seconds(pos_integer(), atom()) :: non_neg_integer()
-  def backoff_seconds(attempt, :provider_capacity),
-    do: Enum.at([30, 120, 300, 750], min(max(attempt - 1, 0), 3))
-
-  def backoff_seconds(attempt, _class),
-    do: min(5 * Integer.pow(2, min(max(attempt - 1, 0), 5)), 120)
+  def backoff_seconds(attempt, class),
+    do:
+      Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier.delay_seconds(
+        :conversation,
+        attempt,
+        class
+      )
 
   @doc "Resets transient fields; restore/1 rebuilds them from durable facts."
   def reset(run) do
@@ -224,14 +222,16 @@ defmodule Ankole.Conversations.Run do
     end
   end
 
-  defp restore_tape(run, restore_attempt? \\ true) do
+  @doc false
+  def restore_tape(run, restore_attempt? \\ true) do
     with {:ok, tail} <- AIGateway.conversation_tail(run.conversation, run.actor_event_id) do
       latest = List.last(tail.responses)
-      loop = if latest, do: AIGateway.response_metadata(latest)["loop"] || %{}, else: %{}
+      states = RoundState.load(tail.rows)
+      loop = RoundState.for_message(states, latest)
 
       steers =
         tail.responses
-        |> Enum.flat_map(&(AIGateway.response_metadata(&1)["loop"]["steer_event_ids"] || []))
+        |> Enum.flat_map(&RoundState.for_message(states, &1).steer_event_ids)
         |> Enum.uniq()
 
       steers =
@@ -250,19 +250,22 @@ defmodule Ankole.Conversations.Run do
           &(latest && journal?(&1) && &1.previous_message_id == latest.id)
         )
 
-      results = if latest_journal, do: journal_results(latest_journal), else: %{}
+      results =
+        if latest_journal,
+          do: journal_results(latest_journal, RoundState.for_message(states, latest_journal)),
+          else: %{}
 
       run = %{
         run
         | model_response: latest,
           anchor: tail.leaf,
-          iteration: loop["iteration"] || 0,
-          nudged: loop["nudged"] || false,
-          repaired: loop["repaired"] || false,
-          repair_failure: loop["repair_failure"],
-          truncated_rounds: loop["truncated_rounds"] || 0,
-          outcome: loop["outcome"] || "loop_finished",
-          pages: restore_pages(tail.rows),
+          iteration: loop.iteration || 0,
+          nudged: loop.nudged || false,
+          repaired: loop.repaired || false,
+          repair_failure: loop.repair_failure,
+          truncated_rounds: loop.truncated_rounds || 0,
+          outcome: loop.outcome || :loop_finished,
+          pages: restore_pages(tail.rows, states),
           steer_event_ids: steers,
           calls: calls,
           round_calls: round_calls,
@@ -275,9 +278,9 @@ defmodule Ankole.Conversations.Run do
             |> Enum.map(& &1.id)
       }
 
-      run = fold_tool_history(run, tail.rows)
+      run = fold_tool_history(run, tail.rows, states)
 
-      run = if restore_attempt?, do: restore_workflow_attempt(run, latest, loop), else: run
+      run = if restore_attempt?, do: type(run).restore_attempt(run, latest, loop), else: run
 
       state =
         cond do
@@ -288,34 +291,6 @@ defmodule Ankole.Conversations.Run do
 
       {:ok, {state, run}}
     end
-  end
-
-  defp restore_workflow_attempt(run, latest, loop) do
-    # A Workflow retry keeps its trigger open and its committed effects in
-    # the tape. The call attempt starts a new model turn on that same tape.
-    if (run.kind == :workflow_task and latest) &&
-         loop["workflow_attempt"] != run.spec.request_context["attempt"] do
-      %{
-        run
-        | model_response: nil,
-          calls: [],
-          round_calls: [],
-          results: %{},
-          iteration: 0,
-          repaired: false,
-          repair_failure: nil,
-          nudged: false,
-          truncated_rounds: 0,
-          saw_tool_results: false
-      }
-    else
-      run
-    end
-  end
-
-  defp input_history(run) do
-    with {:ok, tail} <- AIGateway.conversation_tail(run.conversation, run.actor_event_id),
-         do: {:ok, tail.responses}
   end
 
   defp retained_event_ids(ids) do
@@ -351,7 +326,7 @@ defmodule Ankole.Conversations.Run do
   @spec record_round_in_tx(module(), t()) :: {:ok, map()} | {:error, term()}
   def record_round_in_tx(repo, run) do
     with :ok <- Fence.check_in_tx(repo, run),
-         {:ok, workflow_call} <- lock_workflow_progress_in_tx(repo, run),
+         {:ok, workflow_call} <- type(run).lock_progress_in_tx(repo, run),
          {:ok, journal} <-
            AIGatewayLink.record_tool_results_and_complete_events_in_tx(
              repo,
@@ -363,38 +338,15 @@ defmodule Ankole.Conversations.Run do
                "input" =>
                  Enum.map(run.calls, &output(&1, Map.fetch!(run.results, call_id(&1)))) ++
                    run.follow_ups,
-               "metadata" =>
-                 put_in(
-                   metadata(run),
-                   ["loop", "results"],
-                   Map.new(run.calls, fn call ->
-                     id = call_id(call)
-                     {id, ToolResult.journal_fields(Map.fetch!(run.results, id))}
-                   end)
-                 )
+               "metadata" => metadata(run)
              }
            ),
+         :ok <- RoundState.put_in_tx(repo, run, journal.message, run.results),
          :ok <- touch_workflow_progress_in_tx(repo, workflow_call, journal) do
       Receipts.delete_round_in_tx(repo, run, response_id(run.model_response))
       {:ok, journal}
     end
   end
-
-  defp lock_workflow_progress_in_tx(repo, %{kind: :workflow_task} = run) do
-    context = run.spec.request_context
-
-    with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(run.session_id) do
-      Ankole.Workflow.lock_task_progress_in_tx(
-        repo,
-        call_id,
-        run.agent_uid,
-        run.session_id,
-        context["attempt"]
-      )
-    end
-  end
-
-  defp lock_workflow_progress_in_tx(_repo, _run), do: {:ok, nil}
 
   defp touch_workflow_progress_in_tx(repo, call, %{disposition: :inserted}),
     do: Ankole.Workflow.touch_running_task_in_tx(repo, call, DateTime.utc_now(:microsecond))
@@ -464,187 +416,21 @@ defmodule Ankole.Conversations.Run do
     end
   end
 
-  @spec finalize(t(), String.t(), term()) :: {:ok, map()} | {:error, term()}
-  def finalize(run, outcome \\ "loop_finished", reason \\ nil) do
-    Repo.transact(fn repo -> finalize_in_tx(repo, run, outcome, reason) end)
-    |> after_finalization()
-  end
+  defdelegate finalize(run, outcome \\ :loop_finished, reason \\ nil),
+    to: Ankole.Conversations.Completion
 
-  def after_finalization(result) do
-    case result do
-      {:ok, %{run: run} = result} ->
-        if result.journal,
-          do: StatefulResponses.publish_tool_result_events(result.journal.message)
+  defdelegate after_finalization(result), to: Ankole.Conversations.Completion
 
-        Presentation.stop(run)
-        {:ok, result}
+  defdelegate finalize_recovered_in_tx(repo, run, outcome, reason),
+    to: Ankole.Conversations.Completion
 
-      other ->
-        other
-    end
-  end
+  defdelegate finalize_committed_workflow_input_in_tx(repo, event),
+    to: Ankole.Conversations.Completion
 
-  @spec finalize_recovered_in_tx(module(), t(), String.t(), term()) ::
-          {:ok, map()} | {:error, term()}
-  def finalize_recovered_in_tx(repo, run, outcome, reason) do
-    with :ok <- Fence.check_in_tx(repo, run),
-         {:ok, _} <- end_model_in_tx(repo, run, "stopped", DateTime.utc_now(:microsecond)),
-         {:ok, {_state, run}} <- restore_tape(run),
-         do: finalize_in_tx(repo, run, outcome, reason)
-  end
+  defdelegate reject_input_in_tx(repo, event, outcome, reason),
+    to: Ankole.Conversations.Completion
 
-  @doc "Closes an admitted Workflow input whose terminating tool already committed."
-  @spec finalize_committed_workflow_input_in_tx(module(), ActorEvent.t()) ::
-          {:ok, :not_committed | map()} | {:error, term()}
-  def finalize_committed_workflow_input_in_tx(repo, snapshot) do
-    with %ActorSessionWorkspace{} = workspace <-
-           repo.one(
-             from w in ActorSessionWorkspace,
-               where: w.agent_uid == ^snapshot.agent_uid and w.session_id == ^snapshot.session_id,
-               lock: "FOR UPDATE"
-           ),
-         %ActorEvent{completed_at: nil, input_state: "open", last_attempt_at: %DateTime{}} =
-           event <- Actors.lock_actor_event_in_tx(repo, snapshot.id),
-         %{} = conversation <-
-           AIGatewayLink.active_conversation_for_update(
-             repo,
-             event.agent_uid,
-             event.session_id
-           ),
-         {:ok, {_state, run}} <-
-           restore_tape(
-             %__MODULE__{
-               agent_uid: event.agent_uid,
-               session_id: event.session_id,
-               actor_event_id: event.id,
-               epoch: workspace.epoch,
-               event: event,
-               delivered_event: event,
-               kind: :workflow_task,
-               conversation: conversation,
-               workspace_id: workspace.id,
-               spec: %{request_context: %{}}
-             },
-             false
-           ),
-         outcome when outcome in ["sleeping", "submitted"] <- committed_workflow_outcome(run),
-         {:ok, workspace} <-
-           workspace |> Ecto.Changeset.change(epoch: workspace.epoch + 1) |> repo.update() do
-      # The existing attempt ended before its input closed. A new claim would
-      # change its committed domain state, including during tenant suspension.
-      attempt = AIGateway.response_metadata(run.model_response)["loop"]["workflow_attempt"]
-      run = %{run | epoch: workspace.epoch, spec: %{request_context: %{"attempt" => attempt}}}
-      finalize_in_tx(repo, run, outcome, nil)
-    else
-      %ActorEvent{completed_at: %DateTime{}} = event ->
-        {:ok, %{status: :completed, actor_event: event}}
-
-      {:error, _} = error ->
-        error
-
-      _not_committed ->
-        {:ok, :not_committed}
-    end
-  end
-
-  defp committed_workflow_outcome(run) do
-    Enum.find_value(run.round_calls, fn call ->
-      case run.results[call_id(call)] || committed_tool_result(run, call) do
-        %ToolResult{outcome: outcome} = result when outcome in ["sleeping", "submitted"] ->
-          if ToolResult.ends_turn?(result), do: outcome
-
-        _ ->
-          nil
-      end
-    end)
-  end
-
-  defp committed_tool_result(run, call) do
-    case Receipts.fetch(response_id(run.model_response), call_id(call)) do
-      {:ok, %Receipts{agent_uid: uid, session_id: session} = receipt}
-      when uid == run.agent_uid and session == run.session_id ->
-        ToolResult.decode(receipt.result, receipt.inserted_at)
-
-      _ ->
-        nil
-    end
-  end
-
-  @spec reject_input_in_tx(module(), ActorEvent.t(), String.t(), term()) ::
-          {:ok, map()} | {:error, term()}
-  def reject_input_in_tx(repo, snapshot, outcome, reason) do
-    with {:ok, _} <-
-           Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces.ensure_in_tx(
-             repo,
-             snapshot.agent_uid,
-             snapshot.session_id
-           ),
-         workspace <-
-           repo.one(
-             from w in ActorSessionWorkspace,
-               where: w.agent_uid == ^snapshot.agent_uid and w.session_id == ^snapshot.session_id,
-               lock: "FOR UPDATE"
-           ),
-         %ActorEvent{} = event <- Actors.lock_actor_event_in_tx(repo, snapshot.id) do
-      if event.completed_at || event.input_state != "open" do
-        {:ok, %{status: :already_completed, actor_event: event}}
-      else
-        with {:ok, conversation} <-
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 event.agent_uid,
-                 event.session_id,
-                 event
-               ),
-             {:ok, workspace} <-
-               workspace |> Ecto.Changeset.change(epoch: workspace.epoch + 1) |> repo.update() do
-          run = %__MODULE__{
-            agent_uid: event.agent_uid,
-            session_id: event.session_id,
-            actor_event_id: event.id,
-            epoch: workspace.epoch,
-            event: event,
-            conversation: conversation,
-            workspace_id: workspace.id
-          }
-
-          finalize_recovered_in_tx(repo, run, outcome, reason)
-        end
-      end
-    else
-      nil -> {:ok, %{status: :idle}}
-      error -> error
-    end
-  end
-
-  @spec finalize_in_tx(module(), t(), String.t(), term()) :: {:ok, map()} | {:error, term()}
-  def finalize_in_tx(repo, run, outcome, reason) do
-    now = DateTime.utc_now(:microsecond)
-
-    with :ok <- Fence.check_in_tx(repo, run),
-         {:ok, _} <- end_model_in_tx(repo, run, outcome, now),
-         {:ok, {run, journal}} <- finish_pending_in_tx(repo, run),
-         {:ok, events} <- lock_applied_events(repo, run, outcome),
-         :ok <- live_sources(repo, events, outcome, now),
-         {:ok, completion} <- completion(run, outcome),
-         reply_event = Presentation.reply_event(events, run.event),
-         {:ok, outboxes} <-
-           commit_terminal_in_tx(repo, run, events, reply_event, completion, outcome, reason, now) do
-      Receipts.delete_run_in_tx(repo, run)
-
-      {:ok,
-       %{
-         status: :completed,
-         outcome: outcome,
-         journal: journal,
-         final_text: completion.final_text,
-         outboxes: outboxes,
-         actor_event: repo.get!(ActorEvent, run.actor_event_id),
-         reply_event: reply_event,
-         run: run
-       }}
-    end
-  end
+  defdelegate finalize_in_tx(repo, run, outcome, reason), to: Ankole.Conversations.Completion
 
   def record_pending_in_tx(repo, run), do: finish_pending_in_tx(repo, run)
 
@@ -681,143 +467,6 @@ defmodule Ankole.Conversations.Run do
     end
   end
 
-  defp completion(_run, outcome)
-       when outcome in ["stopped", "dead_letter", "silent", "sleeping", "submitted", "requeued"],
-       do: {:ok, %{final_text: nil, clarify_prompt: nil, attachments: []}}
-
-  defp completion(run, outcome) do
-    with {:ok, completion} <- AIGatewayLink.load_turn_completion(run, external_anchor(run.anchor)),
-         {:ok, completion} <-
-           Ankole.Conversations.Scheduled.project_completion(
-             run.event,
-             completion,
-             outcome
-           ) do
-      if is_binary(completion.final_text) or is_map(completion.clarify_prompt) or
-           completion.attachments != [],
-         do: {:ok, completion},
-         else: {:error, :turn_completion_has_no_user_visible_projection}
-    end
-  end
-
-  defp end_model_in_tx(repo, run, outcome, now) when outcome in ["stopped", "dead_letter"] do
-    AIGatewayLink.retract_generating_turn_in_tx(repo, run, run.actor_event_id, now, outcome)
-  end
-
-  defp end_model_in_tx(_repo, _run, _outcome, _now), do: {:ok, nil}
-
-  defp lock_applied_events(repo, run, outcome) do
-    with {:ok, history} <- input_history(run) do
-      injected =
-        Enum.flat_map(
-          history,
-          &(AIGateway.response_metadata(&1)["loop"]["steer_event_ids"] || [])
-        )
-
-      ids =
-        Enum.uniq(
-          [run.actor_event_id | injected] ++
-            if(outcome == "stopped", do: run.steer_event_ids, else: [])
-        )
-
-      # Withdrawal deletes input, but its tool history remains authoritative.
-      events = Enum.map(ids, &Actors.lock_actor_event_in_tx(repo, &1)) |> Enum.reject(&is_nil/1)
-
-      if Enum.all?(
-           events,
-           &match?(
-             %ActorEvent{agent_uid: uid, session_id: session}
-             when uid == run.agent_uid and session == run.session_id,
-             &1
-           )
-         ), do: {:ok, events}, else: {:error, :input_unavailable}
-    end
-  end
-
-  defp commit_terminal_in_tx(
-         repo,
-         _run,
-         events,
-         reply_event,
-         _completion,
-         "dead_letter",
-         reason,
-         now
-       ) do
-    with {:ok, _} <-
-           update_events(events, &Actors.mark_event_dead_letter_in_tx(repo, &1, now, reason)),
-         {:ok, _} <- Notices.commit_dead_letter_notice_in_tx(repo, reply_event, reason),
-         do: {:ok, %{}}
-  end
-
-  defp commit_terminal_in_tx(
-         repo,
-         _run,
-         events,
-         reply_event,
-         _completion,
-         "stopped",
-         :actor_event_context_canceled,
-         now
-       ) do
-    with {:ok, notice} <-
-           Notices.commit_context_withdrawal_notice_in_tx(repo, events, reply_event, now),
-         {:ok, _} <- update_events(events, &Actors.mark_event_completed_in_tx(repo, &1, now)) do
-      {:ok, %{attachments: [], clarify: nil, finals: List.wrap(notice)}}
-    end
-  end
-
-  defp commit_terminal_in_tx(repo, run, events, reply_event, completion, outcome, _reason, now) do
-    visible_outcome =
-      if outcome in ["stopped", "sleeping", "submitted", "requeued"], do: "silent", else: outcome
-
-    with {:ok, outboxes} <-
-           Presentation.commit_outboxes_in_tx(repo, reply_event, completion, visible_outcome, now),
-         {:ok, _} <-
-           update_events(events, fn event ->
-             if outcome in ["stopped", "sleeping", "submitted", "requeued"],
-               do: Actors.mark_event_completed_in_tx(repo, event, now),
-               else:
-                 Actors.mark_turn_event_completed_in_tx(
-                   repo,
-                   event,
-                   now,
-                   external_anchor(run.anchor),
-                   outcome
-                 )
-           end) do
-      {:ok, outboxes}
-    end
-  end
-
-  defp update_events(events, operation) do
-    Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
-      if event.completed_at || event.input_state != "open" do
-        {:cont, {:ok, [event | updated]}}
-      else
-        case operation.(event) do
-          {:ok, event} -> {:cont, {:ok, [event | updated]}}
-          error -> {:halt, error}
-        end
-      end
-    end)
-  end
-
-  defp live_sources(_repo, _events, "stopped", _now), do: :ok
-
-  defp live_sources(repo, events, _outcome, now) do
-    Enum.reduce_while(events, :ok, fn event, :ok ->
-      case Actors.ensure_event_source_live_in_tx(repo, event, now) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp external_anchor(nil), do: nil
-  defp external_anchor("resp_" <> _ = id), do: id
-  defp external_anchor(id), do: "resp_#{id}"
-
   def refund(run, mode) when mode in [:shutdown, :stale_driver] do
     Repo.transact(fn repo ->
       workspace =
@@ -848,31 +497,20 @@ defmodule Ankole.Conversations.Run do
   end
 
   @spec metadata(t()) :: map()
-  def metadata(run) do
-    %{
-      "actor_event_id" => run.actor_event_id,
-      "loop" => %{
-        "iteration" => run.iteration,
-        "steer_event_ids" => run.steer_event_ids,
-        "nudged" => run.nudged,
-        "repaired" => run.repaired,
-        "repair_failure" => run.repair_failure,
-        "workflow_attempt" =>
-          if(run.kind == :workflow_task, do: run.spec.request_context["attempt"]),
-        "truncated_rounds" => run.truncated_rounds,
-        "outcome" => run.outcome,
-        "pages" => run.pages
-      }
-    }
-  end
+  def metadata(run), do: %{"actor_event_id" => run.actor_event_id}
 
   @spec executable_calls(map()) :: [map()]
-  def executable_calls(message),
-    do: message |> response_output() |> Enum.filter(&ResponseItems.executable_call?/1)
+  def executable_calls(message) do
+    message
+    |> response_output()
+    |> Enum.filter(&(ResponseItems.client_call_item?(&1) and ResponseItems.executable_call?(&1)))
+  end
 
-  @spec visible_delivery?(map(), ToolResult.t()) :: boolean()
-  def visible_delivery?(call, result),
-    do: result.is_error != true and call["name"] in ["clarify", "reply_attachment"]
+  @spec visible_delivery?(t(), map(), ToolResult.t()) :: boolean()
+  def visible_delivery?(run, call, result) do
+    tool = Ankole.Conversations.ToolCatalog.find(run, call)
+    result.is_error != true and tool != nil and tool.visible_delivery
+  end
 
   @spec tool_identity(t(), map()) :: String.t()
   def tool_identity(run, call), do: "#{response_id(run.model_response)}:#{call_id(call)}"
@@ -936,18 +574,13 @@ defmodule Ankole.Conversations.Run do
     end
   end
 
-  defp restore_pages(rows),
-    do:
-      Enum.reduce(
-        rows,
-        %{},
-        &Map.merge(&2, AIGateway.response_metadata(&1)["loop"]["pages"] || %{})
-      )
+  defp restore_pages(rows, states),
+    do: Enum.reduce(rows, %{}, &Map.merge(&2, RoundState.for_message(states, &1).pages))
 
   defp journal?(message), do: message.metadata["tool_result_journal"] == true
 
-  defp journal_results(journal) do
-    fields = AIGateway.response_metadata(journal)["loop"]["results"] || %{}
+  defp journal_results(journal, state) do
+    fields = state.results
 
     Map.new(Enum.filter(journal.content, &ResponseItems.output_item?/1), fn item ->
       id = item[ResponseItems.pair_identity_field(item)]
@@ -966,7 +599,7 @@ defmodule Ankole.Conversations.Run do
     end)
   end
 
-  defp fold_tool_history(run, rows) do
+  defp fold_tool_history(run, rows, states) do
     models = Map.new(Enum.reject(rows, &journal?/1), &{&1.id, &1})
 
     Enum.reduce(Enum.filter(rows, &journal?/1), run, fn journal, run ->
@@ -976,13 +609,13 @@ defmodule Ankole.Conversations.Run do
           model -> executable_calls(model)
         end
 
-      results = journal_results(journal)
+      results = journal_results(journal, RoundState.for_message(states, journal))
 
       Enum.reduce(calls, run, fn call, run ->
         result = results[call_id(call)]
 
         if result do
-          run = restore_todo(run, call, result)
+          run = %{run | todo: result.todos || run.todo}
 
           follow_ups = run.follow_ups
           run = Ankole.Conversations.Machine.failure(run, call, result)
@@ -990,7 +623,7 @@ defmodule Ankole.Conversations.Run do
           %{
             run
             | follow_ups: follow_ups,
-              visible_delivery?: run.visible_delivery? or visible_delivery?(call, result)
+              visible_delivery?: run.visible_delivery? or visible_delivery?(run, call, result)
           }
         else
           run
@@ -999,24 +632,8 @@ defmodule Ankole.Conversations.Run do
     end)
   end
 
-  defp restore_todo(run, call, result) do
-    if call["name"] == "todo" and result.is_error != true do
-      with {:ok, args} <- Ankole.JSON.decode(call["arguments"] || ""),
-           {:ok, result} <-
-             Ankole.Conversations.Tools.Session.execute(
-               run,
-               call,
-               Ankole.Conversations.Tools.Session.normalize("todo", args)
-             ),
-           do: elem(Ankole.Conversations.Tools.attach(run, result), 0),
-           else: (_ -> run)
-    else
-      run
-    end
-  end
-
   defp publish_journal({:ok, journal} = result) do
-    StatefulResponses.publish_tool_result_events(journal.message)
+    ToolResultJournal.publish_tool_result_events(journal.message)
     result
   end
 

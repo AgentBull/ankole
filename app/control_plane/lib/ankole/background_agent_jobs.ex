@@ -24,14 +24,6 @@ defmodule Ankole.BackgroundAgentJobs do
   @job_session_prefix_size byte_size(@job_session_prefix)
   @minimum_job_id 1000
   @maximum_job_id 9_007_199_254_740_991
-  # Provider-capacity and execution failures keep the long ladder so the
-  # five-failure budget spans a realistic upstream outage window (about 3.7
-  # hours). Infrastructure interruptions restart in seconds and never consume
-  # that budget, so they retry on the short ladder instead of holding the Job
-  # for hours.
-  @turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
-  @infrastructure_retry_seconds [15, 30, 60, 120, 300]
-
   @doc """
   Builds the durable actor-session id for one BackgroundAgentJob.
 
@@ -89,7 +81,11 @@ defmodule Ankole.BackgroundAgentJobs do
     TurnErrorClassifier.credential_pool_retry_at(reason, now) ||
       DateTime.add(
         now,
-        ladder_seconds(TurnErrorClassifier.classify(reason), delivery_attempt_no),
+        TurnErrorClassifier.delay_seconds(
+          :job,
+          delivery_attempt_no,
+          TurnErrorClassifier.classify(reason)
+        ),
         :second
       )
   end
@@ -126,20 +122,6 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   def dead_letter_notice_text(%ActorEvent{}), do: nil
-
-  defp ladder_seconds(:infrastructure, delivery_attempt_no) do
-    Enum.at(
-      @infrastructure_retry_seconds,
-      min(delivery_attempt_no, length(@infrastructure_retry_seconds)) - 1
-    )
-  end
-
-  defp ladder_seconds(_class, delivery_attempt_no) do
-    Enum.at(
-      @turn_error_retry_seconds,
-      min(delivery_attempt_no, length(@turn_error_retry_seconds)) - 1
-    )
-  end
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch

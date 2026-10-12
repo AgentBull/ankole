@@ -1,8 +1,8 @@
 defmodule Ankole.Conversations.WorkflowAdmissionTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Conversations.{Admission, Model, Receipts, Run, Tools}
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace
@@ -194,7 +194,7 @@ defmodule Ankole.Conversations.WorkflowAdmissionTest do
                  })
                end)
 
-      assert {:ok, _} = Run.finalize(run, "sleeping")
+      assert {:ok, _} = Run.finalize(run, :sleeping)
     end
 
     [first, second] = calls
@@ -269,7 +269,7 @@ defmodule Ankole.Conversations.WorkflowAdmissionTest do
       |> Repo.update!()
 
       assert {:ok, %{status: :completed, outcome: outcome, actor_event: completed}} = admit(event)
-      assert outcome == if(tool == "sleep", do: "sleeping", else: "submitted")
+      assert outcome == if(tool == "sleep", do: :sleeping, else: :submitted)
       assert completed.completed_at
       assert completed.attempt_count == 6
       assert Repo.reload!(call) == stored_call
@@ -524,10 +524,11 @@ defmodule Ankole.Conversations.WorkflowAdmissionTest do
       Ankole.AIGatewayCase.start_response_run(%{
         subject_uid: run.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
-    {:ok, response} = StatefulResponses.commit_complete(response, [call])
+    {:ok, response} = ResponseCommit.commit_complete(response, [call])
     {%{run | model_response: response, round_calls: [call], calls: [call]}, call}
   end
 

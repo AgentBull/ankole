@@ -91,7 +91,7 @@ defmodule Ankole.PrincipalsFixtures do
     {:ok, provider} =
       attrs
       |> Enum.into(%{
-        provider_id: unique_uid("fixture-worker"),
+        provider_id: "fixture-worker-#{Ecto.UUID.generate()}",
         display_name: "Test Worker provider",
         kind: "docker",
         config: "network: bridge\n",

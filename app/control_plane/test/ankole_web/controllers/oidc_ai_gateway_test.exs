@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.OIDCAIGatewayTest do
+  alias Ankole.AIGateway.ResponseCommit
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1, start_response_run: 1]
@@ -8,7 +9,6 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AuthZ
   alias Ankole.OIDC
   alias Ankole.Repo
@@ -434,7 +434,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       })
 
     {:ok, response} =
-      StatefulResponses.commit_complete(
+      ResponseCommit.commit_complete(
         response,
         [
           %{

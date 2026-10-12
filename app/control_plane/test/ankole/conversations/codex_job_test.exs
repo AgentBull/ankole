@@ -25,7 +25,7 @@ defmodule Ankole.Conversations.CodexJobTest do
     actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(actor_key,
                now: now
              )
@@ -75,6 +75,31 @@ defmodule Ankole.Conversations.CodexJobTest do
     assert persisted.attempts == 1
   end
 
+  test "a stopped Job closes its open trigger on readmission without starting another attempt" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+    job = create_job!(agent.uid, "stopped-readmission")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, attempt} = admit_job(key, [])
+    assert_receive {:actor_lane, _}, 200
+
+    assert {:ok, %{job: stopped}} =
+             BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => agent.uid})
+
+    assert stopped.status == "stopped"
+    assert Repo.reload!(attempt.event).completed_at == nil
+
+    assert {:ok, %{status: :idle, actor_event: completed}} = Admission.admit(key, attempt.event)
+    assert completed.turn_outcome == nil
+    assert %DateTime{} = completed.completed_at
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "stopped"
+    refute_receive {:actor_lane, _}, 100
+  end
+
   test "Turn checkpoints accept identical retries and reject divergent equal revisions" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
@@ -85,7 +110,7 @@ defmodule Ankole.Conversations.CodexJobTest do
     job = create_job!(agent.uid, "turn-revision")
     actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(actor_key,
                now: DateTime.add(job.queued_at, 1, :second)
              )
@@ -194,7 +219,7 @@ defmodule Ankole.Conversations.CodexJobTest do
     job = create_job!(agent.uid, "child-turn")
     actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(actor_key,
                now: DateTime.add(job.queued_at, 1, :second)
              )
@@ -287,14 +312,14 @@ defmodule Ankole.Conversations.CodexJobTest do
       session_id: BackgroundAgentJobs.job_session_id(second.id)
     }
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(first_key,
                now: DateTime.add(first.queued_at, 1, :second)
              )
 
     assert_receive {:actor_lane, first_envelope}, 200
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(second_key,
                now: DateTime.add(second.queued_at, 1, :second)
              )
@@ -322,7 +347,7 @@ defmodule Ankole.Conversations.CodexJobTest do
       session_id: BackgroundAgentJobs.job_session_id(first_job.id)
     }
 
-    assert {:ok, %Run{}} =
+    assert {:ok, %Ankole.Conversations.CodexJob.Attempt{}} =
              admit_job(first_key,
                now: DateTime.add(first_job.queued_at, 1, :second)
              )
@@ -628,7 +653,7 @@ defmodule Ankole.Conversations.CodexJobTest do
     case Run.rebuild(key, now) do
       {:ok, %{event: event}} ->
         case Admission.admit(key, event, opts) do
-          {:ok, %Run{} = run} ->
+          {:ok, %Ankole.Conversations.CodexJob.Attempt{} = run} ->
             assert {:ok, _} = CodexJob.start(run)
             {:ok, run}
 

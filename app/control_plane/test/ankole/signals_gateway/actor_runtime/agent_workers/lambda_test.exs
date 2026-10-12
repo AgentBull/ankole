@@ -375,15 +375,110 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.LambdaTest do
       assert {:pending, ^launched} = Lambda.delete_storage(provider, @uid, launched)
     end
 
-    Req.Test.stub(__MODULE__, &Req.Test.json(&1, fixture("microvm")))
-    assert {:ok, nil} = Lambda.delete_storage(provider, @uid, launched)
+    Req.Test.stub(__MODULE__, fn conn ->
+      case {conn.method, conn.request_path} do
+        {"GET", @api <> "/microvms/" <> @ref} ->
+          Req.Test.json(conn, fixture("microvm"))
 
-    Req.Test.stub(
-      __MODULE__,
-      &Req.Test.json(&1, Map.put(fixture("microvm"), "state", "TERMINATED"))
+        {"DELETE", @api <> "/microvms/" <> @ref} ->
+          send(parent, :storage_helper_deleted)
+          Req.Test.json(conn, %{})
+      end
+    end)
+
+    assert {:ok, nil} = Lambda.delete_storage(provider, @uid, launched)
+    assert_received :storage_helper_deleted
+    refute_received :storage_helper_deleted
+  end
+
+  test "a failed storage-helper termination returns the platform error", %{provider: provider} do
+    parent = self()
+    launched = %{"microvmId" => @ref}
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case {conn.method, conn.request_path} do
+        {"GET", @api <> "/microvms/" <> @ref} ->
+          Req.Test.json(conn, fixture("microvm"))
+
+        {"DELETE", @api <> "/microvms/" <> @ref} ->
+          send(parent, :storage_helper_delete_attempt)
+          error(conn, 503, "InternalServerException")
+      end
+    end)
+
+    assert {:error, {:lambda_api, 503, "InternalServerException"}} =
+             Lambda.delete_storage(provider, @uid, launched)
+
+    assert_received :storage_helper_delete_attempt
+    refute_received :storage_helper_delete_attempt
+  end
+
+  test "a terminated storage helper gets a new stable launch token", %{provider: provider} do
+    parent = self()
+
+    stub(
+      provider,
+      fn conn ->
+        {request, conn} = body(conn)
+        send(parent, {:storage_launch, request})
+        Req.Test.json(conn, fixture("microvm"))
+      end,
+      "storage"
     )
 
-    assert {:pending, nil} = Lambda.delete_storage(provider, @uid, launched)
+    assert {:pending, %{"microvmId" => @ref} = launched} =
+             Lambda.delete_storage(provider, @uid, nil)
+
+    assert_received {:storage_launch, first}
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert {conn.method, conn.request_path} == {"GET", @api <> "/microvms/" <> @ref}
+      Req.Test.json(conn, Map.put(fixture("microvm"), "state", "TERMINATED"))
+    end)
+
+    assert {:pending, %{"previousMicrovmId" => @ref} = retry_ref} =
+             Lambda.delete_storage(provider, @uid, launched)
+
+    stub(
+      provider,
+      fn conn ->
+        {request, conn} = body(conn)
+        send(parent, {:storage_launch, request})
+        Req.Test.transport_error(conn, :timeout)
+      end,
+      "storage"
+    )
+
+    assert {:error, {:lambda_unreachable, _}} =
+             Lambda.delete_storage(provider, @uid, retry_ref)
+
+    assert_received {:storage_launch, retry}
+    refute retry["clientToken"] == first["clientToken"]
+    assert Map.delete(retry, "clientToken") == Map.delete(first, "clientToken")
+
+    stub(
+      provider,
+      fn conn ->
+        {request, conn} = body(conn)
+        assert request == retry
+        Req.Test.json(conn, %{"microvmId" => "next-storage-helper"})
+      end,
+      "storage"
+    )
+
+    assert {:pending, %{"microvmId" => "next-storage-helper"}} =
+             Lambda.delete_storage(provider, @uid, retry_ref)
+
+    image = owned_image(provider) |> put_in(["tags", "ankole-role"], "storage")
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        @api <> "/microvm-images" -> Req.Test.json(conn, %{"items" => [image]})
+        _ -> Req.Test.json(conn, Map.put(image, "state", "UPDATING"))
+      end
+    end)
+
+    assert {:pending, ^retry_ref} = Lambda.delete_storage(provider, @uid, retry_ref)
   end
 
   test "managed image patches retain the settings of the selected image", %{provider: provider} do

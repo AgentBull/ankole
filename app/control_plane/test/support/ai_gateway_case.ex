@@ -1,4 +1,5 @@
 defmodule Ankole.AIGatewayCase do
+  alias Ankole.AIGateway.ResponseChain
   @moduledoc false
 
   use ExUnit.CaseTemplate
@@ -146,6 +147,15 @@ defmodule Ankole.AIGatewayCase do
   the same way as a WebSocket `response.create`. A `previous_response_id`
   run continues that explicit anchor.
   """
+  def start_response_run(%{round_state: run} = attrs) do
+    Ankole.Repo.transact(fn repo ->
+      with {:ok, message} <- start_response_run(Map.delete(attrs, :round_state)),
+           :ok <- Ankole.Conversations.RoundState.put_in_tx(repo, run, message) do
+        {:ok, message}
+      end
+    end)
+  end
+
   def start_response_run(%{conversation_id: conversation_id} = attrs)
       when not is_map_key(attrs, :previous_response_id) do
     attrs
@@ -158,7 +168,7 @@ defmodule Ankole.AIGatewayCase do
   end
 
   defp visible_leaf_response_id(conversation_id) do
-    case StatefulResponses.latest_visible_leaf(conversation_id) do
+    case ResponseChain.latest_visible_leaf(conversation_id) do
       nil -> nil
       message_id -> "resp_#{message_id}"
     end

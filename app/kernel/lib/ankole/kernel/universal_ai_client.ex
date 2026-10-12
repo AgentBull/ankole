@@ -4,8 +4,9 @@ defmodule Ankole.Kernel.UniversalAIClient do
 
   Elixir owns provider selection, auth, endpoint, headers, and transport
   preferences. The native kernel owns model request body encoding, upstream
-  streaming, response normalization, JSON event encoding, demand
-  credit, and cancel.
+  streaming, response and error normalization, the terminal for each call,
+  JSON event encoding, demand credit, and cancel. Elixir consumes these results
+  and owns the public Ankole Response lifecycle and durable commits.
   """
 
   alias Ankole.Kernel, as: NativeKernel
@@ -30,9 +31,9 @@ defmodule Ankole.Kernel.UniversalAIClient do
   end
 
   defmodule Chunk do
-    @moduledoc "One JSON event in stream order."
-    @enforce_keys [:ref, :sequence, :payload]
-    defstruct [:ref, :sequence, :payload]
+    @moduledoc "One JSON event in order; `origin` is `:provider` or `:client`."
+    @enforce_keys [:ref, :sequence, :origin, :payload]
+    defstruct [:ref, :sequence, :origin, :payload]
   end
 
   defmodule Done do
@@ -42,7 +43,14 @@ defmodule Ankole.Kernel.UniversalAIClient do
   end
 
   defmodule StreamError do
-    @moduledoc "The stream failed; `reason` is the normalized error map."
+    @moduledoc """
+    Native execution failed; `reason` carries the failure facts.
+
+    Before any response event, the host can apply its retry policy. After
+    response events, a detected failure has already delivered its canonical
+    `response.failed` chunk under read credit. This event then ends the native
+    attempt and carries its diagnostic metadata.
+    """
     @enforce_keys [:ref, :reason]
     defstruct [:ref, :reason]
   end
@@ -77,8 +85,9 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec stream_event(tuple()) :: stream_event()
   def stream_event({:universal_ai_client, ref, :ready, meta}), do: %Ready{ref: ref, meta: meta}
 
-  def stream_event({:universal_ai_client, ref, :chunk, sequence, payload}) do
-    %Chunk{ref: ref, sequence: sequence, payload: payload}
+  def stream_event({:universal_ai_client, ref, :chunk, sequence, origin, payload})
+      when origin in [:provider, :client] do
+    %Chunk{ref: ref, sequence: sequence, origin: origin, payload: payload}
   end
 
   def stream_event({:universal_ai_client, ref, :done, summary}),

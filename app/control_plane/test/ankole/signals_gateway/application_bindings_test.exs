@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.ApplicationBindingsTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
-  alias Ankole.AppConfigure.{AppConfig, Crypto}
+  alias Ankole.AppConfigure.{SiteConfig, Crypto}
   alias Ankole.SignalsGateway.{Binding, Bindings}
 
   setup do
@@ -52,7 +52,7 @@ defmodule Ankole.SignalsGateway.ApplicationBindingsTest do
       # The public application metadata is complete and different. An unreadable
       # enabled configuration must still stop assignment, as before this change.
       row =
-        Repo.insert!(%AppConfig{
+        Repo.insert!(%SiteConfig{
           scope: "global",
           key: key,
           value: %{
@@ -73,7 +73,7 @@ defmodule Ankole.SignalsGateway.ApplicationBindingsTest do
 
       assert {1, _} =
                Repo.update_all(
-                 from(config in AppConfig,
+                 from(config in SiteConfig,
                    where: config.scope == "global" and config.key == ^key
                  ),
                  set: [value: Map.put(row.value, "value", ciphertext)]
@@ -107,11 +107,11 @@ defmodule Ankole.SignalsGateway.ApplicationBindingsTest do
 
       if @later_failure == :invalid_cipher do
         key = Ankole.Plugins.WhatsAppAdapter.Config.binding_config_key(owner.uid, later.name)
-        row = Repo.get_by!(AppConfig, scope: "global", key: key)
+        row = Repo.get_by!(SiteConfig, scope: "global", key: key)
 
         assert {1, _} =
                  Repo.update_all(
-                   from(config in AppConfig,
+                   from(config in SiteConfig,
                      where: config.scope == "global" and config.key == ^key
                    ),
                    set: [value: Map.put(row.value, "value", "invalid-cipher-fixture")]
@@ -145,7 +145,7 @@ defmodule Ankole.SignalsGateway.ApplicationBindingsTest do
     {:ok, ciphertext} = Crypto.seal(config, "global", key)
     {:ok, application} = module.platform_application(config)
 
-    Repo.insert!(%AppConfig{
+    Repo.insert!(%SiteConfig{
       scope: "global",
       key: key,
       value: %{"type" => "cipher", "value" => ciphertext, "platform_application" => application}

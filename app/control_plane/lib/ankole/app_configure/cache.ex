@@ -13,7 +13,7 @@ defmodule Ankole.AppConfigure.Cache do
 
   @table :ankole_app_configure_cache
   @topic "app_configure:cache"
-  # Row entries use `{scope, key}` keys, so this atom key cannot collide with them.
+  # Row entries use tuples, so this atom key cannot collide with them.
   @refresh_generation :refresh_generation
 
   @type row_state :: {:row, map()} | :absent | {:error, term()}
@@ -27,15 +27,19 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @doc """
-  Looks up the cached row state for one concrete `{scope, key}`.
+  Looks up the cached row state for one concrete scope and key in this tenant.
 
   The cache stores row state instead of resolved values because resolution needs
   the caller's definition to validate plaintext or decrypt secret rows.
   """
   @spec lookup(String.t(), String.t()) :: {:ok, row_state()} | :miss
   def lookup(scope, key) when is_binary(scope) and is_binary(key) do
-    case safe_lookup({scope, key}) do
-      [{{^scope, ^key}, state}] -> {:ok, state}
+    assert_scope!(scope)
+
+    cache_key = cache_key(scope, key, Repo.tenant_id())
+
+    case safe_lookup(cache_key) do
+      [{^cache_key, state}] -> {:ok, state}
       [] -> :miss
       :missing_table -> :miss
     end
@@ -55,9 +59,14 @@ defmodule Ankole.AppConfigure.Cache do
   """
   @spec load(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def load(scope, key) do
+    assert_scope!(scope)
     generation = refresh_generation()
     read_result = read_one(scope, key)
-    GenServer.call(__MODULE__, {:publish_load, scope, key, generation, read_result})
+
+    GenServer.call(
+      __MODULE__,
+      {:publish_load, scope, key, Repo.tenant_id(), generation, read_result}
+    )
   end
 
   @doc """
@@ -76,14 +85,17 @@ defmodule Ankole.AppConfigure.Cache do
   """
   @spec refresh(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def refresh(scope, key) do
+    assert_scope!(scope)
+    tenant_id = Repo.tenant_id()
+
     Phoenix.PubSub.broadcast_from(
       Ankole.PubSub,
       Process.whereis(__MODULE__) || self(),
       @topic,
-      {:invalidate, scope, key}
+      {:invalidate, scope, key, tenant_id}
     )
 
-    GenServer.call(__MODULE__, {:refresh, scope, key})
+    GenServer.call(__MODULE__, {:refresh, scope, key, tenant_id})
   end
 
   @doc """
@@ -112,30 +124,39 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @impl true
-  def handle_info({:invalidate, scope, key}, state) do
-    invalidate(scope, key)
+  def handle_info({:invalidate, scope, key, tenant_id}, state) do
+    invalidate(scope, key, tenant_id)
     {:noreply, state}
   end
 
   @impl true
-  def handle_call({:publish_load, scope, key, generation, read_result}, _from, server_state) do
+  def handle_call(
+        {:publish_load, scope, key, tenant_id, generation, read_result},
+        _from,
+        server_state
+      ) do
     with {:ok, state} <- read_result,
          ^generation <- refresh_generation() do
-      :ets.insert_new(@table, {{scope, key}, state})
+      :ets.insert_new(@table, {cache_key(scope, key, tenant_id), state})
     end
 
     {:reply, read_result, server_state}
   end
 
-  def handle_call({:refresh, scope, key}, _from, server_state)
+  def handle_call({:refresh, scope, key, tenant_id}, _from, server_state)
       when is_map_key(server_state, {:fail_next_refresh, scope, key}) do
     {reason, server_state} = Map.pop!(server_state, {:fail_next_refresh, scope, key})
-    invalidate(scope, key)
+    invalidate(scope, key, tenant_id)
     {:reply, {:error, reason}, server_state}
   end
 
-  def handle_call({:refresh, scope, key}, {caller, _tag}, server_state) do
-    {:reply, load_one(scope, key, caller), server_state}
+  def handle_call({:refresh, scope, key, tenant_id}, {caller, _tag}, server_state) do
+    loaded =
+      if tenant_id,
+        do: Repo.with_tenant(tenant_id, fn -> load_one(scope, key, caller) end),
+        else: Repo.without_tenant(fn -> load_one(scope, key, caller) end)
+
+    {:reply, loaded, server_state}
   end
 
   def handle_call({:fail_next_refresh_for_test, scope, key, reason}, _from, server_state) do
@@ -158,7 +179,7 @@ defmodule Ankole.AppConfigure.Cache do
   # Startup loading is best-effort for the projection. PostgreSQL is still the
   # durable source of truth, and later cache misses can load individual rows.
   defp load_all do
-    rows = Repo.all(AppConfig)
+    rows = Repo.all(Ankole.AppConfigure.SiteConfig)
 
     Enum.each(rows, &write_row/1)
     :ok
@@ -178,9 +199,9 @@ defmodule Ankole.AppConfigure.Cache do
   # Refresh path: invalidates the key before reading PostgreSQL so a failed or
   # missing row cannot leave an old value behind in the projection.
   defp load_one(scope, key, caller) do
-    invalidate(scope, key)
+    invalidate(scope, key, Repo.tenant_id())
 
-    AppConfig
+    AppConfig.for_scope(scope)
     |> where([row], row.scope == ^scope and row.key == ^key)
     |> Repo.one(caller: caller)
     |> case do
@@ -188,7 +209,7 @@ defmodule Ankole.AppConfigure.Cache do
         write_state(scope, key, :absent)
         {:ok, :absent}
 
-      %AppConfig{} = row ->
+      %{value: _} = row ->
         write_row(row)
         {:ok, {:row, row.value}}
     end
@@ -200,12 +221,12 @@ defmodule Ankole.AppConfigure.Cache do
 
   # Runs in the process that called `load/2`, not in the cache process.
   defp read_one(scope, key) do
-    AppConfig
+    AppConfig.for_scope(scope)
     |> where([row], row.scope == ^scope and row.key == ^key)
     |> Repo.one()
     |> case do
       nil -> {:ok, :absent}
-      %AppConfig{} = row -> {:ok, {:row, row.value}}
+      %{value: _} = row -> {:ok, {:row, row.value}}
     end
   rescue
     error ->
@@ -213,10 +234,24 @@ defmodule Ankole.AppConfigure.Cache do
       {:error, reason}
   end
 
-  defp invalidate(scope, key) do
-    new_refresh_generation()
-    :ets.delete(@table, {scope, key})
+  defp assert_scope!("global"), do: :ok
+
+  defp assert_scope!("tenant:" <> tenant_id) do
+    if Repo.tenant_id!() != tenant_id,
+      do: raise(ArgumentError, "configuration scope belongs to another tenant")
+
+    :ok
   end
+
+  defp assert_scope!("agent:" <> _), do: Repo.tenant_id!()
+
+  defp invalidate(scope, key, tenant_id) do
+    new_refresh_generation()
+    :ets.delete(@table, cache_key(scope, key, tenant_id))
+  end
+
+  defp cache_key("global", key, _tenant_id), do: {nil, "global", key}
+  defp cache_key(scope, key, tenant_id), do: {tenant_id, scope, key}
 
   # Runs in the process that called `load/2` and in the cache process. Without
   # the table, the generation is `nil`, which never matches a started cache.
@@ -231,11 +266,11 @@ defmodule Ankole.AppConfigure.Cache do
     :ets.insert(@table, {@refresh_generation, make_ref()})
   end
 
-  defp write_row(%AppConfig{scope: scope, key: key, value: value}) do
+  defp write_row(%{scope: scope, key: key, value: value}) do
     write_state(scope, key, {:row, value})
   end
 
   defp write_state(scope, key, state) do
-    :ets.insert(@table, {{scope, key}, state})
+    :ets.insert(@table, {cache_key(scope, key, Repo.tenant_id()), state})
   end
 end

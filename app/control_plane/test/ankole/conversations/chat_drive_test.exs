@@ -1,4 +1,5 @@
 defmodule Ankole.Conversations.ChatDriveTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   import Ankole.FilesFixtures, only: [drive_file_fixture: 3]
@@ -213,7 +214,7 @@ defmodule Ankole.Conversations.ChatDriveTest do
     {:ok, response} =
       start_response_run(%{subject_uid: run.agent_uid, conversation_id: run.conversation.id})
 
-    {:ok, response} = StatefulResponses.commit_complete(response, [call])
+    {:ok, response} = ResponseCommit.commit_complete(response, [call])
     {%{run | model_response: response}, call}
   end
 end

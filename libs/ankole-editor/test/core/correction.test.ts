@@ -2,7 +2,8 @@ import { describe, it } from 'bun:test'
 import ist from 'ist'
 import { GardState, Correction } from '../../src/core/state'
 import { Leaf } from '../../src/core/doc'
-import { Strong, Emphasis, Doc, Paragraph, Blockquote } from '../../src/core/types'
+import { Strong, Emphasis, Paragraph } from '../../src/core/types/schema'
+import { Doc, Blockquote } from './types'
 
 import { basicBuilders, eq } from './schema'
 const { doc, p, blockquote, h1, $img, em } = basicBuilders

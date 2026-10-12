@@ -1,10 +1,10 @@
 defmodule Ankole.E2E.WaitHelpersTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Conversations.{Admission, Run}
   alias Ankole.E2E.WaitHelpers
   alias Ankole.SignalsGateway
@@ -156,12 +156,12 @@ defmodule Ankole.E2E.WaitHelpersTest do
       end
 
     assert {:ok, run} = start_response_run(attrs)
-    assert {:ok, response} = StatefulResponses.commit_complete(run, assistant_content(text))
+    assert {:ok, response} = ResponseCommit.commit_complete(run, assistant_content(text))
     response
   end
 
   defp complete_turn(turn_ref, response) do
-    Run.finalize(%{turn_ref | anchor: response.id}, "loop_finished")
+    Run.finalize(%{turn_ref | anchor: response.id}, :loop_finished)
   end
 
   defp insert_mirror!(actor_event, message, source_entry_id, metadata \\ nil) do

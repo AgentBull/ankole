@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
+  alias Ankole.AIGateway.CompactionPolicy
+
   @moduledoc """
   Verifies Provider-native compaction against a real Codex-compatible upstream.
 
@@ -10,7 +12,6 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
   use Ankole.AIGatewayCase, async: false
 
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.ProviderConfigs
 
   @moduletag :real_llm
@@ -51,8 +52,8 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
                model: @model
              })
 
-    assert {:ok, _config} = Compaction.put_config(%{"upstream" => true})
-    on_exit(fn -> Compaction.delete_config() end)
+    assert {:ok, _config} = CompactionPolicy.put_config(%{"upstream" => true})
+    on_exit(fn -> CompactionPolicy.delete_config() end)
 
     body = compaction_trigger_response!(agent.uid)
 

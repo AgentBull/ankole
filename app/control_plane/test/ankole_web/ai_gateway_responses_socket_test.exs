@@ -1,4 +1,7 @@
 defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
+  alias Ankole.AIGateway.CompactionPolicy
   use Ankole.DataCase, async: false
 
   import ExUnit.CaptureLog
@@ -11,7 +14,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.ResponseStream
@@ -20,7 +22,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayResponsesSocket
@@ -440,7 +441,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         conversation_id: conversation.id
       })
 
-    {:ok, root} = StatefulResponses.commit_complete(root, [text_message("assistant", "done")])
+    {:ok, root} = ResponseCommit.commit_complete(root, [text_message("assistant", "done")])
 
     {:ok, active_run} =
       start_response_run(%{
@@ -1595,7 +1596,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       })
 
     {:ok, root} =
-      StatefulResponses.commit_complete(root, [
+      ResponseCommit.commit_complete(root, [
         %{
           "id" => "rs_prev",
           "type" => "reasoning",
@@ -1948,7 +1949,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "content" => [%{"type" => "output_text", "text" => "done", "annotations" => []}]
     }
 
-    assert {:ok, committed} = StatefulResponses.commit_complete(message, [terminal_item], %{})
+    assert {:ok, committed} = ResponseCommit.commit_complete(message, [terminal_item], %{})
 
     active = active_stream(ref, message, actor_event)
 
@@ -2066,7 +2067,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "upstream_stream_closed"
     assert stored.metadata["error"]["retryable"] == true
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+    assert ResponseChain.latest_visible_leaf(conversation.id) == nil
   end
 
   test "max-output terminal with a partial call commits error instead of an incomplete success" do
@@ -2102,7 +2103,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "max_output_tokens"
     assert stored.metadata["error"]["retryable"] == false
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+    assert ResponseChain.latest_visible_leaf(conversation.id) == nil
   end
 
   test "provider-completed response with an incomplete call is an error, not executable history" do
@@ -2139,7 +2140,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.content == message.content ++ [partial_call]
     assert stored.metadata["error"]["code"] == "partial_tool_call_completed"
     assert stored.metadata["stop_reason"] == "error"
-    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+    assert ResponseChain.latest_visible_leaf(conversation.id) == nil
   end
 
   test "stateful terminal commit failure closes without a terminal frame" do
@@ -2578,7 +2579,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     assert {:ok, _message} =
-             StatefulResponses.commit_complete(message, [], %{
+             ResponseCommit.commit_complete(message, [], %{
                "usage" => %{"total_tokens" => 24}
              })
 
@@ -2709,7 +2710,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         request_items: [text_message("user", "first delivery")]
       })
 
-    {:ok, first_run} = StatefulResponses.commit_complete(first_run, [])
+    {:ok, first_run} = ResponseCommit.commit_complete(first_run, [])
 
     request =
       Ankole.JSON.encode!(%{
@@ -3383,10 +3384,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   defp with_compaction_config(config) do
-    assert {:ok, _config} = Compaction.put_config(Map.new(config))
+    assert {:ok, _config} = CompactionPolicy.put_config(Map.new(config))
 
     on_exit(fn ->
-      _result = Compaction.delete_config()
+      _result = CompactionPolicy.delete_config()
       :ok
     end)
   end

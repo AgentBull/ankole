@@ -29,7 +29,7 @@ export {
   RPCResponseSchema,
   TurnAcceptedSchema,
   WorkerProgressSchema,
-  AgentComputerWorkerHeartbeatSchema,
+  WorkerHeartbeatSchema,
   ActorKeySchema,
   RunRefSchema,
   JobTurnRefSchema,

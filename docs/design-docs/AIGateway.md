@@ -10,9 +10,10 @@ provider rows and credentials, selects a model and one credential, prepares the
 request, and records Responses. It also owns provider retry and the end of one
 model request.
 
-Caller `metadata` is local Response state. Generic OpenAI-compatible providers
-and Google AI Studio do not receive it because support for that OpenAI field is
-not portable. Google AI Studio rejects a whole request that contains it.
+Caller `metadata` is a local Response fact. The native request boundary removes
+it after it merges provider options, before any provider resolver receives the
+request. The Conversation Driver passes `model_profile` through the local
+`response_metadata` option; it does not add this field to the request body.
 
 AIGateway does not run the Agent model loop and does not complete Actor work.
 Conversations.Driver runs ordinary and Workflow loops on the control plane.
@@ -292,7 +293,7 @@ or rotate only the attributed credential. HTTP 429 can report a temporary
 rate limit or a quota failure. AIGateway marks only the attributed credential
 unavailable for its recovery interval and selects another usable credential.
 If none is available, a temporary rate limit allows one more attempt with the
-same credential before the first Provider event. This attempt waits at least
+same credential before the first response event. This attempt waits at least
 until that credential's recovery time and uses the existing backoff. It runs
 only when the delay is at most four seconds. A longer wait or a quota failure
 returns immediately with the recovery time. This does not limit the number
@@ -307,15 +308,25 @@ error maps keep their existing reader. Native errors after a stream is ready
 keep the public terminal projection of that stream.
 
 Connection, read, and timeout failures and HTTP 502, 503, and 504 responses
-belong to the route or Provider endpoint. Before the first Provider event,
+belong to the route or Provider endpoint. Before the first response event,
 AIGateway can retry the same prepared request with the same credential once.
 These failures never change credential health and never select another
-credential. The first normalized Provider event closes this retry window,
+credential. The first normalized response event closes this retry window,
 including `response.created`, `response.in_progress`, and `response.failed`.
 An overload reported as a terminal event in an HTTP 200 stream is therefore
 returned in the current Response and is never replayed. Delay uses exponential
 backoff with 0.9 to 1.1 jitter. The kernel never selects a credential and never
 retries a Provider request.
+
+Stream Ready means that the kernel received HTTP response headers or a
+WebSocket 101 response. It does not mean that a Provider event arrived. The
+first-byte and idle budgets remain 30 minutes, with no total stream deadline.
+The idle budget resets only after a complete SSE event, eventstream frame, or
+WebSocket text message. SSE comments, incomplete frames, and WebSocket
+Ping/Pong do not reset it. Time waiting for downstream read capacity does not
+use this budget. A timeout before the first response event can use the one
+same-credential retry above. A stream that stalls on both attempts can
+therefore take more than two 30-minute budgets before it fails.
 
 A hosted tool failure cannot reopen the complete model request after the main
 Provider returns output. A credential HTTP 401 or 429 from the hosted request
@@ -620,11 +631,12 @@ Provider event, AIGateway rebuilds the durable history as one local version 2
 checkpoint and retries the current input once. The retained tail contains no
 Provider item IDs, encrypted reasoning, or encrypted function arguments.
 
-The checkpoint transaction also changes the generating Response to point to
-the checkpoint before the retry starts. If the retry fails, the failed Response
-becomes terminal but the checkpoint remains the visible continuation anchor.
-The next turn starts from that checkpoint. AIGateway does not run this recovery
-after a Provider event or local tool effect. Authentication errors, rate
+The same transaction moves the generating Response to the checkpoint, removes
+its old injected memory items, and saves the matching item positions and
+request-item count. The retry uses this committed input. If the retry fails,
+the failed Response becomes terminal but the checkpoint remains the visible
+continuation anchor. The next turn starts from that checkpoint. AIGateway does
+not run this recovery after a Provider event or local tool effect. Authentication errors, rate
 limits, 5xx responses, and transport failures do not start it.
 
 ## Own the Identifiers on Each Link
@@ -758,11 +770,24 @@ interpreting it.
 AIGateway also keeps request and provider details in the metadata object. That
 object must not contain a second Response item list.
 
+The Conversation Driver sends its frozen model profile in the local
+`response_metadata` option. AIGateway records `model_profile` beside `request_model` in
+Response metadata, outside `request_metadata`. Console shows that value beside
+the provider model, with the request model as a fallback. The profile identifies the requested tier or
+custom profile, even when its configuration falls back to another tier. Console
+does not infer a profile for an older message or a direct model selector.
+Background Agent Jobs retain their profile on the Job record and show it in
+the Jobs Console.
+
+Conversations owns durable loop progress in `conversation_round_states`.
+A model request or tool journal commits its typed progress in the same database
+transaction. AIGateway does not interpret or store loop state in caller metadata.
+
 An OIDC request with `store=true` also retains the trusted `oidc_client_id`
-from the current grant. Brain injection metadata records injected item positions
-and byte ranges in environment text within that single item list.
-`OIDCClientConversations` uses these positions to remove injected memory while
-it keeps caller-supplied environment facts. It exposes terminal request revisions
+from the current grant. Stored request input contains the caller's originals.
+Brain memory and pointer lines use separate local fields.
+`OIDCClientConversations` reads the originals directly, including caller-supplied
+environment facts. It exposes terminal request revisions
 and structured evidence grouped by Client and conversation. It preserves request
 IDs, parent IDs, submission
 identity, speakers, and generated output. System and developer instructions,
@@ -972,14 +997,37 @@ principal scope, and the parent fallback is the subject's canonical page. A
 codex Job composes its own requests, so its model binding carries the
 declaration and the actor event.
 
-`inject: true` adds the zero-model memory injection to a stateful request. At
-conversation start and after each compaction checkpoint, AIGateway prepends
-the context pack as a recalled-memory user message before the newest user
-message. On every request it adds the `memory:` pointer lines of the newest
-user message text to that message's `agent_environment_info` block. The
-injected items are ordinary request input, so they persist with the Response
-chain. A request without a stateful conversation gets no injection. An
-injection failure leaves the request unchanged.
+`inject: true` adds memory when AIGateway builds a stateful provider replay.
+The stored request input stays unchanged. The request keeps its opening pack
+in `metadata.brain_context_pack`, pointer lines in `metadata.brain_pointer_lines`,
+and the opening claim in `metadata.brain_context_pack_claimed`.
+Replay copies the originals and applies one order: opening or checkpoint pack,
+retained originals, then checkpoint output and later history. Pointer lines join
+the newest user message's environment block only in the replay copy. Completed
+opening claims prevent later tool rounds from adding another opening pack.
+Compaction and OIDC evidence read originals, so neither needs item positions,
+byte offsets, or a rewrite of stored request rows.
+
+Each new checkpoint refreshes its pack from the current input's latest user
+text. If the input has no user text, AIGateway reads the original message chain
+at the continuation anchor, through earlier checkpoints. It does not use a
+summary or another branch's user text as the task source. The typed compaction
+candidate carries this pack to the artifact's separate `brain_context_pack`
+field. A checkpoint replaces the opening pack in subsequent replay. A
+conversation without an opening claim gets no checkpoint pack. Pointer lines
+can still be refreshed for new user input. A request without a stateful
+conversation gets no injection. An injection failure leaves the request
+unchanged; a checkpoint pack failure records a warning and stores no pack.
+
+The upgrade migration extracts legacy OIDC injection items and pointer suffixes
+once, in bounded batches, and preserves the caller's original input and
+environment. It retains item positions when a legacy pack was not a prefix.
+For old Agent conversations without injection metadata, it retains the stored
+content and copies the conversation's opening claim to its messages before it
+removes the conversation marker. Replay does not add a second opening pack.
+Take a database backup before
+upgrading: the extraction migration cannot restore the old mixed representation
+on rollback. Restoring that version requires the backup.
 
 ## Record Tool Results before the Next Model Call
 
@@ -1021,6 +1069,27 @@ cancels the provider stream and closes the transport without a terminal event.
 
 A generating row receives heartbeat updates during a live response.
 The heartbeat transaction schedules `ReconcileOrphanedResponse` through Oban.
+
+The stream owner records `metadata.upstream_progress` on the 60-second
+heartbeat and on terminal commits. `dispatched_at` records native open,
+`ready_at` and `ready_status` record Ready, and `first_event_at`,
+`last_event_at`, and `event_count` record decoded Provider events. `attempt`
+counts native opens, including route retries and later provider rounds. Each
+open starts a new timeline for that attempt. Timestamps use UTC ISO 8601.
+Ready and decoded events update progress in the same stream process. The
+heartbeat merges only this metadata key and only while the row is generating.
+It preserves other metadata and cannot change a terminal row. A failure before
+Ready also records the attempt timeline while the row is generating. This
+metadata write does not renew the lease or schedule an orphan deadline.
+Failures before the first response event end through the native error path
+and do not create Provider progress. Native failure terminals and hosted
+lifecycle events that precede a Provider call have `Client` origin. They do
+not enter the Provider event count or set its first or last event timestamp.
+
+If no dispatch, Ready, or Provider event progress occurs for five minutes,
+the heartbeat records one `ai_gateway.response_stream_stalled` warning per
+stream. This warning does not change the stream deadline. Ready without
+`first_event_at` identifies a stream that has not delivered a Provider event.
 
 A row becomes stale after five minutes without a heartbeat. The cleanup handler
 changes it to `error` and records a retryable failure. A new Driver can use
@@ -1080,6 +1149,17 @@ The `ai_gateway.compaction` AppConfigure value has these fields:
   user-message retention.
 - `upstream` defaults to `false` and selects the pass-through backend.
 
+Automatic compaction compares the latest provider usage with the effective
+trigger. That usage includes instructions and tool definitions. Local
+compaction cannot remove that fixed input. Keep the
+effective trigger above this input with room for the summary, retained history,
+and the next turn. Setting `max_threshold_tokens` close to the fixed input can
+cause compaction on each turn even when little history remains. An extreme
+budget can also leave no retained history rows. The default cap is `400000`.
+A small model context or a large output reservation can also lower the
+effective trigger. There is no guard that skips automatic compaction because
+the previous turn just compacted.
+
 Under that one protocol there are two backends. The local backend writes the
 summary with the Agent's light profile. The pass-through backend forwards the
 trigger to the Provider and returns the Provider's own compaction item. The `upstream` field of the
@@ -1137,6 +1217,9 @@ checkpoint budget still uses the request model's context length.
 local artifact. It contains one summary object and a list of output items. Its
 public `ankole:compact:v1:` handle remains valid. AIGateway resolves that handle
 to a user `Context checkpoint` message before the request reaches the kernel.
+Both version 2 and version 3 can store a separate `brain_context_pack` list of
+message items. This field is not part of `output`, a public handle, or the
+OIDC evidence projection.
 
 Version 3 is an upstream artifact. It contains the provider output as one
 ordered, unmodified JSON array, its usage, and a binding to the provider row
@@ -1147,8 +1230,10 @@ reorder provider-native items.
 A checkpoint message contains exactly one `compaction_artifact` reference.
 The checkpoint and artifact use the same UUID.
 
-When AIGateway builds model history, it replaces the checkpoint with that
-output. For a version 3 artifact, the current binding must match before
+When AIGateway builds model history, it replaces the checkpoint with
+`brain_context_pack ++ output`. The local replay order is the memory pack,
+retained user originals, opaque prefix, summary, retained tail, and current
+input. For a version 3 artifact, the current binding must match before
 AIGateway sends the output. A provider or model change causes AIGateway to read
 the durable predecessor chain, create a local version 2 checkpoint, and send no
 foreign provider state. The same raw-history fallback runs when a later
@@ -1183,16 +1268,35 @@ enter its prompt.
 
 The configured tail row count is a preference. AIGateway can move the
 compaction boundary forward to include a completed call batch or to keep the
-retained tail and current input within the history budget. It can move the
-boundary backward when the current input closes a call. Before AIGateway stores
-a checkpoint, it estimates the selected user originals, summary, retained tail,
-retained client Tool Search pairs, pending clarification, and current input
-together. It moves the safe boundary forward once when the retained Tool Search
-pairs reduce the available tail budget. That refit reserves every pair that can
-cross the maximum safe compaction boundary, so another crossed pair cannot make
-the fitted checkpoint exceed the budget. An over-budget result cannot create
-an artifact and uses the normal overflow policy. AIGateway does not discard an
-active Tool Search pair to make a checkpoint fit.
+retained tail and current input within the history budget.
+It moves the safe boundary forward once when the retained Tool Search pairs
+reduce the available tail budget. That refit reserves every pair that can
+cross the maximum safe compaction boundary, so another crossed pair cannot
+make the fitted checkpoint exceed the budget. It can move the boundary backward
+when the current input closes a call. An over-budget result cannot
+create an artifact and uses the normal overflow policy. AIGateway does not
+discard an active Tool Search pair to make a checkpoint fit.
+
+Compaction reserves the fresh memory pack's estimated size before it selects
+the retained tail. Before AIGateway stores a checkpoint, it estimates the
+selected user originals, summary, retained tail, retained client Tool Search
+pairs, pending clarification, and current input together with the pack. The
+pack has a 4,000-token limit, including its message wrapper. Automatic
+compaction, upstream compaction, automatic truncation, replay recovery, and
+manual `/compress` all use this separate field and include it in the checkpoint
+budget. Compaction returns one plan with the checkpoint, filtered current input,
+and matching injection positions. The lifecycle does not add memory after the budget check.
+Earlier checkpoint packs never enter a new summary.
+
+Manual `/compress` requests one compaction without waiting for the automatic
+usage threshold. Local compaction can summarize a short, nonempty history even
+when it has fewer rows than the preferred tail. It still requires a safe,
+completed prefix and uses the same retention budget. If no such prefix exists,
+the command returns `Nothing to compress.` without creating a checkpoint.
+
+A checkpoint without `brain_context_pack` replays no memory pack. AIGateway
+does not rewrite it. The daily 04:30 conversation reset replaces it within one
+day.
 
 The summarizer uses the standard streaming Responses preparation and stream
 owner. AIGateway creates its request context before model resolution and keeps
@@ -1490,39 +1594,70 @@ the same code and message on both edges.
 
 ## Split Work between Elixir and Rust
 
-Elixir chooses the provider, model, eligible endpoints, and headers. It
-prepares the provider request and removes Ankole-only state fields before
-sending it.
+The Rust `UniversalAIClient` owns one prepared Provider call. It encodes the
+request, sends it, parses HTTP, SSE, AWS eventstream, or WebSocket data, and
+normalizes Provider responses and errors. Its resolver owns the response items,
+Provider error diagnostics, and terminal event for that call. `Delivery` owns
+native ordering, pending limits, read credit, and cancellation. This contract
+works without an AIGateway consumer.
 
-Elixir also owns the complete public stream lifecycle. One `ResponseStream`
-state machine applies the absolute deadline, task monitors, retry boundary,
-item projection, terminal validation, stateful commit, and cancellation for
-streaming and collected calls. Every consumer takes the next batch through one
-`ResponseStream.next/2` call that spends one credit and watches the stream
-owner, so a consumer never waits on an owner that has exited. When the owner
-exits before its terminal, the SSE response and the WebSocket send one `error`
-event with the `provider_stream_error` code; the WebSocket connection stays
-open for the next request.
+Each native chunk identifies its origin as `Provider` or `Client`. Normalized
+upstream events use `Provider`. Native failure terminals and hosted lifecycle
+events that precede a Provider call use `Client`. Elixir records upstream
+progress and credential success only from `Provider` chunks. Both origins
+consume read credit and enter the same ordered Response lifecycle.
 
-The Rust kernel sends the `UniversalAIRequest` and converts supported HTTP, SSE,
-and WebSocket responses to one event format. It owns native stream and program
-run identities, resource limits, and cancellation handles, but it does not
-advance the public Response lifecycle.
+Before the first normalized response event, a failure ends the native attempt
+with `StreamError`. It does not create response events. Elixir can then apply
+its existing recovery or credential retry policy. Once an event is queued or
+delivered, every detected Provider or transport failure goes through the
+resolver and produces one `response.failed` terminal. The kernel delivers that
+terminal in order under read credit before it reports native termination.
+An error's status or retryability does not change this delivery contract.
+A queued event closes the attempt's retry window even when the consumer has
+not read it. The kernel never selects credentials or retries a Provider call.
+Mid-stream batches use the pending byte window. A terminal batch can contain
+the complete output accumulated during the call and can exceed that window.
+It uses the same terminal delivery path whether the resolver finishes on an
+event or on upstream close. Every terminal chunk still consumes read credit.
+
+Elixir chooses the Provider, model, eligible endpoints, credentials, and
+headers. It supplies the prepared request and removes Ankole-only state fields.
+`CredentialAttempts` owns credential selection, cooldowns, and the recovery
+policy. It records post-output credential failures from the normalized
+`response.failed` event. Hosted image failures use the selected image
+credential; main-model failures use the main-model credential.
+
+Elixir `ResponseStream` consumes native events and owns the Ankole Response.
+It applies public identities, item projection, terminal validation, tool
+continuations, task monitors, deadlines, PostgreSQL commits, and downstream
+read credit. One public Response can include several native Provider calls.
+Elixir also produces terminals for its own domain, persistence, and native
+owner failures. It does not rebuild normal Provider failure terminals.
+
+Every downstream consumer uses `ResponseStream.next/2`. A public terminal that
+has no read credit stays buffered until the consumer reads it, cancels, or
+exits. Native termination does not discard that buffer. The shutdown timer
+starts after terminal delivery. Delivered batches remain readable from the
+consumer mailbox after the owner exits. Late credit to a completed native
+stream is a no-op and preserves its queued termination fact.
 
 The public stream accepts `response.completed`, `response.failed`, and
 `response.incomplete` as terminal types. Provider `error` events are diagnostic
-events and do not enter the public Response lifecycle. `ResponseStream`
-consumes them and waits for one canonical terminal event. It keeps the first
-bounded Provider error code, type, status, and message for that Provider round.
-A later transport failure keeps its canonical code and retry decision, and adds
-those Provider fields for the authenticated caller and durable error. A
-structured, non-retryable Provider validation error is authoritative:
-AIGateway reports one `invalid_prompt` terminal instead of a retryable
-disconnect. One owner selects this public code for every failure path, so the
-same Provider rejection reads the same whether it arrives while the request
-opens or mid-stream. Logs include the Provider code and type but omit the
-Provider message. If a stream closes without a terminal event, AIGateway produces one
-`response.failed` event.
+and do not enter the public lifecycle. The Rust resolver keeps the first
+bounded Provider error code, type, status, and message for its call. When a
+later native failure needs a terminal, the resolver includes these facts in
+that terminal. A later transport failure keeps its transport code. A
+structured, permanent Provider validation error remains the
+authoritative rejection. `FailureDiagnostics` maps that rejection to the
+public `invalid_prompt` code and owns the public projection for each transport.
+The same rejection reads the same whether the call fails while opening or
+mid-stream. Logs include the Provider code and type but omit its message.
+If an upstream closes without a terminal, Rust produces `response.failed`.
+If the native owner exits without its terminal, the public SSE and WebSocket
+interfaces send one `error` event with `provider_stream_error`. The WebSocket
+connection stays open for the next request.
+
 Request-validation errors and socket command errors stay outside this Provider
 stream rule. For retry decisions, a boolean
 `response.failed.error.retryable` value is authoritative. When this field is
@@ -1533,7 +1668,11 @@ provider uses, including a `server_error` code or a `service_unavailable_error`,
 The kernel reports each failure that it finds in a Provider stream with the
 OpenAI type `server_error`. That type is not a Provider alias or a Provider
 error type. Only the Provider status, the Provider error type, and the error
-body in such a failure are Provider evidence. An AWS eventstream frame can
+body in such a failure are Provider evidence. `invalid_provider_event` and
+`provider_terminal_rejected` are non-retryable Provider protocol rejections
+unless the failure declares a retryability value. This rule applies to native
+`StreamError` and canonical `response.failed` errors.
+An AWS eventstream frame can
 report an error after the HTTP 200 response starts. For an exception frame, the
 kernel reports the `:exception-type` header as the Provider error type, and the
 HTTP status that the Bedrock Runtime API declares for that exception as the

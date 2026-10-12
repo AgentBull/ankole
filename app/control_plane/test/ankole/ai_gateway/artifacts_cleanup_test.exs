@@ -1,4 +1,5 @@
 defmodule Ankole.AIGateway.ArtifactsCleanupTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
@@ -7,7 +8,6 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Artifact
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
@@ -35,7 +35,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
              })
 
     complete_id = persist_stateful!(agent.principal.uid, complete_message.id)
-    assert {:ok, _message} = StatefulResponses.commit_complete(complete_message, [])
+    assert {:ok, _message} = ResponseCommit.commit_complete(complete_message, [])
 
     assert {:ok, failed_message} =
              start_response_run(%{
@@ -47,7 +47,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
     failed_id = persist_stateful!(agent.principal.uid, failed_message.id)
 
     assert {:ok, _message} =
-             StatefulResponses.commit_error(failed_message, [], %{"reason" => "provider_failed"})
+             ResponseCommit.commit_error(failed_message, [], %{"reason" => "provider_failed"})
 
     assert Artifacts.cleanup_expired_and_failed(now) == 3
 

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { Command, deleteUnit } from '../src/core/command'
+import { Command } from '../src/core/command/command'
+import { deleteUnit } from '../src/core/command/commands'
 import type { Wordgard } from '../src/core/editor'
 import { CellSelection } from '../src/core/table'
 import { parseMarkdown } from '../src/document/markdown'

@@ -5,7 +5,7 @@ defmodule AnkoleWeb.Session do
   import Plug.Conn
   alias Ankole.BrowserSessions
   alias Ankole.Principals.HumanAccess
-  alias Ankole.SiteAdminAuth
+  alias Ankole.AuthZ
 
   @browser_key :browser_session
   @setup_ttl 24 * 60 * 60
@@ -87,7 +87,7 @@ defmodule AnkoleWeb.Session do
   def site_admin_session(conn) do
     case admin_session(conn) do
       %{"principal_uid" => uid} = session ->
-        if SiteAdminAuth.active_human_site_admin?(uid), do: session
+        if AuthZ.site_admin?(uid), do: session
 
       _missing ->
         nil

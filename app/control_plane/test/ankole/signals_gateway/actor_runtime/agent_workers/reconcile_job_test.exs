@@ -269,7 +269,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJobTest do
 
     {:ok, _worker} =
       ActorRuntime.handle_worker_heartbeat(
-        struct!(FabricProto.AgentComputerWorkerHeartbeat,
+        struct!(FabricProto.WorkerHeartbeat,
           incarnation_id: worker.incarnation_id,
           max_slots: 4,
           available_slots: 4 - active,

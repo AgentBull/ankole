@@ -1,4 +1,5 @@
 defmodule Ankole.AppConfigure.Declarations do
+  alias Ankole.AIGateway.CompactionPolicy
   @moduledoc false
 
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
@@ -22,7 +23,7 @@ defmodule Ankole.AppConfigure.Declarations do
       Ankole.Setup.Config.completed_definition(),
       Ankole.Setup.Config.bootstrap_activation_code_definition(),
       Ankole.Plugins.Config.enabled_ids_definition(),
-      Ankole.AIGateway.Compaction.config_definition(),
+      CompactionPolicy.config_definition(),
       Ankole.Security.SSRFFilter.definition(),
       LocalPassword.RetryGuard.concurrency_definition(),
       WorkerAuthKey.definition(),

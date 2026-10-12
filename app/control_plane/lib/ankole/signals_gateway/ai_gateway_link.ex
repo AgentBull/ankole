@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGateway.AIGatewayLink do
+  alias Ankole.AIGateway.ResponseChain
+
   @moduledoc """
   One-way adapter from SignalsGateway Actor semantics to generic AIGateway data.
 
@@ -16,7 +18,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Principals
   alias Ankole.Repo
@@ -742,7 +743,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   defp visible_response_chain(%Conversation{} = conversation, nil),
-    do: StatefulResponses.expand_history(conversation.id)
+    do: ResponseChain.expand_history(conversation.id)
 
   defp response_actor_event_ids(%Message{} = response) do
     metadata = AIGateway.response_metadata(response)

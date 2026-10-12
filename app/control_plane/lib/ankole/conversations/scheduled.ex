@@ -1,5 +1,7 @@
 defmodule Ankole.Conversations.Scheduled do
   @moduledoc false
+  use Ankole.Conversations.RunType
+  @behaviour Ankole.Conversations.Tool
 
   import Ecto.Query
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [reject_nil_values: 1]
@@ -14,20 +16,85 @@ defmodule Ankole.Conversations.Scheduled do
   # scan is enough.
   @identical_reply_scan_limit 5
 
-  def reminder(event) do
-    Enum.join(
-      [
-        "End this scheduled turn with one JSON object that matches scheduled_turn_result. Free-form final text and text control markers are invalid, even if an older task instruction asks for them.",
-        "For a visible result, return {\"outcome\":\"reply\",\"reply\":\"the user-visible message\"}. A failed or blocked check, required human action, material change, or time-sensitive risk requires this outcome.",
-        if(silent_success_allowed?(event),
+  def plan(event, opts), do: {:ok, %{kind: :scheduled, opts: __MODULE__.opts(event, opts)}}
+  def nudge?, do: false
+  def repair(_run, _text), do: nil
+
+  def instructions(run) do
+    super(run) <>
+      "\nFinish this scheduled turn by calling finish_scheduled. Use outcome reply with the final visible text. Use silent_success with a null reply only when silent_success_allowed is true and the check succeeded without anything useful to report."
+  end
+
+  def failure(reason)
+      when reason in [
+             :invalid_scheduled_reply,
+             :scheduled_turn_not_finished,
+             :schedule_silent_success_not_allowed
+           ] do
+    {:execution_error,
+     %{
+       "code" => Atom.to_string(reason),
+       "message" => "The model result did not satisfy the scheduled completion contract.",
+       "retryable" => false
+     }}
+  end
+
+  def failure(reason), do: super(reason)
+
+  def declarations do
+    [
+      %{
+        "type" => "function",
+        "name" => "finish_scheduled",
+        "run_kinds" => ["scheduled"],
+        "ends_run" => true,
+        "description" =>
+          "End this scheduled turn. Use reply for a visible result, a failed or blocked check, required human action, or a material change. Use silent_success only when this schedule allows quiet success and no update is useful.",
+        "execution_mode" => "sequential",
+        "executor" => __MODULE__,
+        "parameters" => %{
+          "type" => "object",
+          "properties" => %{
+            "outcome" => %{"type" => "string", "enum" => ["reply", "silent_success"]},
+            "reply" => %{"type" => ["string", "null"]}
+          },
+          "required" => ["outcome", "reply"],
+          "additionalProperties" => false
+        }
+      }
+    ]
+  end
+
+  def normalize("finish_scheduled", args), do: args
+
+  def execute_in_tx(_repo, run, _call, args) do
+    case {args["outcome"], args["reply"]} do
+      {"reply", reply} when is_binary(reply) ->
+        text = AIReplyText.normalize_visible_text(reply)
+
+        if text == "",
+          do: {:error, :invalid_scheduled_reply},
+          else:
+            {:ok,
+             Ankole.Conversations.Tools.result(%{"accepted" => true},
+               terminate: true,
+               outcome: :loop_finished,
+               final_text: text
+             ), []}
+
+      {"silent_success", nil} ->
+        if silent_success_allowed?(run.event),
           do:
-            "If no visible update is useful, return {\"outcome\":\"silent_success\",\"reply\":null}.",
-          else: "Silent success is not allowed for this turn. Return a concise visible result."
-        ),
-        "Do not repeat completed tool actions."
-      ],
-      "\n"
-    )
+            {:ok,
+             Ankole.Conversations.Tools.result(%{"accepted" => true},
+               terminate: true,
+               outcome: :silent
+             ), []},
+          else: {:error, :schedule_silent_success_not_allowed}
+
+      _ ->
+        {:error, :invalid_scheduled_reply}
+    end
   end
 
   def opts(%ActorEvent{type: type} = input, opts) do
@@ -81,70 +148,23 @@ defmodule Ankole.Conversations.Scheduled do
 
   def silent_success_allowed?(%ActorEvent{}), do: false
 
-  def project_completion(%ActorEvent{type: type} = event, completion, outcome)
-      when type in ["cron.fire", "check_back_later.wakeup"] do
-    text =
-      case Map.get(completion, :final_response) do
-        %{content: content} -> AIReplyText.visible_text(content)
-        _ -> nil
-      end
+  def project_completion(%{kind: :scheduled} = run, completion) do
+    result =
+      Enum.find_value(run.round_calls, fn call ->
+        result = run.results[Ankole.Conversations.Run.call_id(call)]
+        if result && Ankole.Conversations.ToolResult.ends_turn?(result), do: result
+      end)
 
-    case {outcome, reply_result(event, text)} do
-      {"silent", {:ok, :silent}} ->
-        {:ok, %{completion | final_text: nil}}
-
-      {outcome, {:ok, {:reply, text}}} when outcome != "silent" ->
+    case result do
+      %{final_text: text} when is_binary(text) and text != "" ->
         {:ok, %{completion | final_text: text}}
 
-      {outcome, :empty} when outcome != "silent" ->
-        if is_map(completion.clarify_prompt) or completion.attachments != [],
-          do: {:ok, completion},
-          else: {:error, :invalid_scheduled_reply}
-
-      {_, {:error, reason}} ->
-        {:error, reason}
-
       _ ->
-        {:error, :invalid_scheduled_reply}
-    end
-  end
+        text = AIReplyText.normalize_visible_text(completion.final_text || "")
 
-  def project_completion(%ActorEvent{}, completion, _outcome), do: {:ok, completion}
-
-  @spec reply_result(ActorEvent.t(), String.t() | nil) ::
-          {:ok, :silent | {:reply, String.t()}}
-          | :empty
-          | {:error, :invalid_scheduled_reply | :schedule_silent_success_not_allowed}
-  def reply_result(event, text) do
-    case decode_reply(text) do
-      {:ok, %{"outcome" => "reply", "reply" => reply}} when is_binary(reply) ->
-        case AIReplyText.normalize_visible_text(reply) do
-          "" -> {:error, :invalid_scheduled_reply}
-          text -> {:ok, {:reply, text}}
-        end
-
-      {:ok, %{"outcome" => "silent_success", "reply" => nil}} ->
-        if silent_success_allowed?(event),
-          do: {:ok, :silent},
-          else: {:error, :schedule_silent_success_not_allowed}
-
-      :empty ->
-        :empty
-
-      _ ->
-        {:error, :invalid_scheduled_reply}
-    end
-  end
-
-  defp decode_reply(nil), do: :empty
-
-  defp decode_reply(text) do
-    case Ankole.JSON.decode(text) do
-      {:ok, %{"outcome" => _, "reply" => _} = result} when map_size(result) == 2 ->
-        {:ok, result}
-
-      _ ->
-        :invalid
+        if text == "",
+          do: {:error, :scheduled_turn_not_finished},
+          else: {:ok, %{completion | final_text: text}}
     end
   end
 

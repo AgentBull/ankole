@@ -2,6 +2,7 @@ defmodule Ankole.Conversations.ToolResult do
   @moduledoc "A tool's model output and explicit local presentation effects."
   defstruct [
     :output,
+    :final_text,
     :details,
     :failure_kind,
     :outcome,
@@ -23,7 +24,8 @@ defmodule Ankole.Conversations.ToolResult do
   @doc "The fields that a recorded tool round keeps beside each output."
   @spec journal_fields(t()) :: map()
   def journal_fields(%__MODULE__{} = result),
-    do: result |> encode() |> Map.take(~w(is_error terminate outcome failure_kind))
+    do:
+      result |> encode() |> Map.take(~w(is_error terminate outcome failure_kind todos final_text))
 
   @spec encode(t() | {:await, Ankole.Conversations.Wait.t()}) :: map()
   def encode({:await, wait}), do: %{"wait" => Ankole.Conversations.Wait.encode(wait)}
@@ -35,7 +37,13 @@ defmodule Ankole.Conversations.ToolResult do
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> encode_cursor(result.cursor)
+    |> encode_outcome(result.outcome)
   end
+
+  defp encode_outcome(value, nil), do: value
+
+  defp encode_outcome(value, outcome),
+    do: Map.put(value, "outcome", Ankole.Conversations.Outcome.encode(outcome))
 
   defp encode_cursor(value, nil), do: value
 
@@ -60,6 +68,11 @@ defmodule Ankole.Conversations.ToolResult do
         %{"subject" => subject, "value" => cursor} -> {subject, cursor}
         _ -> nil
       end
+
+    attrs =
+      if attrs[:outcome],
+        do: Map.update!(attrs, :outcome, &Ankole.Conversations.Outcome.decode/1),
+        else: attrs
 
     struct!(__MODULE__, Map.put(attrs, :cursor, cursor))
   end

@@ -2473,6 +2473,8 @@ Agent が Worker を共有することはありません。同僚がそれぞれ
 
 1 台のホストには Docker Compose を、エンタープライズのデプロイメントには Kubernetes を使用してください。開発とデバッグにはソースからインストールしてください。
 
+Worker の installation 名は 1–20 文字で、小文字、数字、ハイフンのみを使用できます。先頭と末尾は文字または数字にしてください。例えば `e2e-1011b01` は有効です。Compose では `ANKOLE_WORKER_INSTALLATION`（既定値 `ankole`）、Helm では `worker.installation` を設定します。Helm の値が空の場合は release 名を使用します。Worker リソースと永続 Home ストレージがこの名前を使用するため、初回起動前に決め、インストール後は変更しないでください。
+
 <QuickstartTabs
   client:visible
   ariaLabel="デプロイ方法を選択"

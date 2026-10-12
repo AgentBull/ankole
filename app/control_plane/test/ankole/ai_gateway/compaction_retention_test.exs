@@ -3,6 +3,14 @@ defmodule Ankole.AIGateway.CompactionRetentionTest do
 
   alias Ankole.AIGateway.CompactionRetention
 
+  test "retention reads original input and preserves literal wrappers and memory-like user text" do
+    literal = user_item("<recalled_memory>user wrote this</recalled_memory>")
+    pointer = user_item("memory: concepts/project\nProject is VEGA")
+
+    assert {[^literal, ^pointer], _tokens} =
+             CompactionRetention.collect_user_originals([literal, pointer], 100)
+  end
+
   test "selects newest user originals and truncates the next older one within budget" do
     old = user_item("old " <> String.duplicate("x", 80))
     middle = user_item("middle")

@@ -1,48 +1,26 @@
 defmodule Ankole.Conversations.Model do
+  alias Ankole.AIGateway.FailureResponse
   @moduledoc false
   alias Ankole.AIGateway
   alias Ankole.AIGateway.FailureDiagnostics
-  alias Ankole.Conversations.{Ambient, Context, Fence, Prompt, Run, ToolCatalog}
+  alias Ankole.Conversations.{Context, Fence, Run, ToolCatalog}
 
   @spec prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
   def prepare(run) do
     with {:ok, context} <- Context.resolve(run.agent_uid, run.session_id),
-         {:ok, {state, run}} <- Ambient.prepare(%{run | context: context}) do
+         {:ok, {state, run}} <- Run.type(run).prepare(%{run | context: context}) do
       if state == :ambient_skip, do: {:ok, {state, run}}, else: prepare_main(run)
     end
   end
 
   defp prepare_main(run) do
-    context = run.context
     {tools, hosted} = ToolCatalog.for_run(run)
     run = %{run | tools: tools, hosted_tools: hosted}
-
-    instructions =
-      if run.kind == :workflow_task,
-        do: Prompt.workflow_system(run),
-        else:
-          Prompt.system(%{
-            context: context,
-            agent_uid: run.agent_uid,
-            workspace_id: run.workspace_id,
-            hosted_tools: hosted,
-            available_tool_names: Enum.map(tools, & &1.name),
-            ambient_route: atom_route(run.spec.request_context["ambient"])
-          })
-
-    instructions =
-      if run.kind == :scheduled,
-        do: instructions <> "\n\n" <> Ankole.Conversations.Scheduled.reminder(run.event),
-        else: instructions
-
-    run = %{run | instructions: instructions}
+    run = %{run | instructions: Run.type(run).instructions(run)}
 
     with {:ok, {state, run}} <- Run.restore(run) do
       if state == :preparing do
-        input =
-          if run.kind == :workflow_task and run.event.type == "workflow.task.dispatch",
-            do: [Ankole.Conversations.Machine.user(run.spec.request_context["prompt"])],
-            else: Prompt.user(run, run.delivered_event)
+        input = Run.type(run).input(run)
 
         # Only input that an earlier attempt already injected joins the first
         # request. Newer input waits for the next boundary.
@@ -63,14 +41,17 @@ defmodule Ankole.Conversations.Model do
       subject_type: "agent",
       caller: "conversation",
       request_context: run.spec.request_context,
-      authorize_run_in_tx: &Fence.check_in_tx(&1, run)
+      response_metadata:
+        Ankole.Attrs.maybe_put(%{}, "model_profile", run.spec.model_ref["profile"]),
+      authorize_run_in_tx: &Fence.check_in_tx(&1, run),
+      record_response_in_tx: &Ankole.Conversations.RoundState.put_in_tx(&1, run, &2)
     )
     |> case do
       {:error, reason} when reason in [:stale_driver, :run_closed, :actor_event_canceled] ->
         {:error, reason}
 
       {:error, reason} ->
-        error = FailureDiagnostics.project(reason).error
+        error = FailureResponse.project(reason).error
 
         {:error,
          Map.put(error, "retryable", FailureDiagnostics.classify(reason)[:retryable] == true)}
@@ -101,30 +82,25 @@ defmodule Ankole.Conversations.Model do
       "__ankole_codex_vision" => vision(model)
     }
 
-    request = Ankole.Attrs.maybe_put(request, "max_output_tokens", policy["max_output_tokens"])
-
     request =
-      if run.kind == :scheduled,
-        do:
-          Map.put(request, "text", %{
-            "format" => %{
-              "type" => "json_schema",
-              "name" => "scheduled_turn_result",
-              "strict" => true,
-              "schema" => %{
-                "type" => "object",
-                "properties" => %{
-                  "outcome" => %{"type" => "string", "enum" => ["reply", "silent_success"]},
-                  "reply" => %{"type" => ["string", "null"]}
-                },
-                "required" => ["outcome", "reply"],
-                "additionalProperties" => false
-              }
-            }
-          }),
-        else: request
+      request
+      |> Ankole.Attrs.maybe_put("max_output_tokens", policy["max_output_tokens"])
 
     request
+  end
+
+  def inactivity_deadline(run) do
+    timeout = inactivity_timeout(run)
+
+    [
+      {{:timeout, :model_activity}, if(timeout > 0, do: timeout, else: :infinity),
+       {run.epoch, run.iteration}}
+    ]
+  end
+
+  defp inactivity_timeout(run) do
+    get_in(run.spec.request_context, ["ai_agent", "inactivity_timeout_ms"]) ||
+      Ankole.SignalsGateway.ActorRuntime.AgentConfig.default_inactivity_timeout_ms()
   end
 
   @doc "The image input of the model and its frozen vision fallback, as AIGateway reads it."
@@ -147,6 +123,4 @@ defmodule Ankole.Conversations.Model do
   @doc false
   def selector(%{"provider_id" => "ai_gateway", "model" => model}), do: model
   def selector(model), do: "#{model["provider_id"]}/#{model["model"]}"
-  defp atom_route(nil), do: nil
-  defp atom_route(route), do: %{action: route["action"], authority: route["authority"]}
 end

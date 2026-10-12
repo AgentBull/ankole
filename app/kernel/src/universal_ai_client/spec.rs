@@ -295,6 +295,8 @@ impl ResponseContext {
 
         request.remove("previous_response_id");
         request.remove("provider_options");
+        // Caller metadata belongs to the local Response, never to a provider.
+        request.remove("metadata");
         request.remove("__ankole_reasoning_source");
         request.remove("__ankole_native_encrypted_tool_fields");
         request.remove("__ankole_stateful_provider_replay");
@@ -781,6 +783,21 @@ mod tests {
         assert_eq!(spec.upstream.timeout.first_byte_ms, 1_800_000);
         assert_eq!(spec.upstream.timeout.idle_ms, 1_800_000);
         assert_eq!(spec.upstream.timeout.total_ms, None);
+    }
+
+    #[test]
+    fn caller_metadata_stays_local_after_request_and_provider_options_merge() {
+        for request in [json!({}), json!({"metadata": {"loop": {"iteration": 3}}})] {
+            let context = ResponseContext {
+                model: "test".to_string(),
+                request,
+                provider_options: json!({"metadata": {"private": "value"}}),
+                ..ResponseContext::default()
+            };
+
+            let resolved = context.resolved_provider_request_object();
+            assert!(!resolved.contains_key("metadata"));
+        }
     }
 
     #[test]

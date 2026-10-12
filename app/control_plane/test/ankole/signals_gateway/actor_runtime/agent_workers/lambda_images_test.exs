@@ -66,7 +66,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.LambdaImagesTest do
                  ]
 
           assert {:ok, [{~c"Dockerfile", dockerfile}]} = :zip.extract(zip, [:memory])
-          assert dockerfile == "FROM registry.example/worker@#{digest}\n"
+          assert dockerfile == "FROM registry.example/worker@#{digest}\nRUN true\n"
           Plug.Conn.send_resp(conn, 200, "")
 
         {"POST", "/2025-09-09/microvm-images"} ->

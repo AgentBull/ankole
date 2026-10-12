@@ -1,8 +1,9 @@
 import { describe, it } from './runner'
-import { Wordgard, Widget, Decoration } from '../../../src/core/editor'
+import { Wordgard, Decoration } from '../../../src/core/editor'
+import { Widget } from '../../../src/core/editor/decoration'
 import { GardState } from '../../../src/core/state'
 import { Plot, Leaf, Elt } from '../../../src/core/doc'
-import { Paragraph } from '../../../src/core/types'
+import { Paragraph } from '../../../src/core/types/schema'
 import ist from 'ist'
 import { basicBuilders } from '../schema'
 

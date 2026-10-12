@@ -1,11 +1,11 @@
 defmodule Ankole.ScheduleTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
   alias Ankole.AIGateway.Conversations
   alias Ankole.Conversations.{Admission, Context, Run, ToolCatalog, Tools}
 
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
@@ -1819,7 +1819,7 @@ defmodule Ankole.ScheduleTest do
       report = "api: green\nbilling: green\nsearch: degraded since 06:42 Asia/Shanghai"
 
       final =
-        complete_turn_via_aigateway!(run, Ankole.JSON.encode!(%{outcome: "reply", reply: report}))
+        complete_turn_via_aigateway!(run, report)
 
       dispatch_final_reply_outbox!(final.id)
       mirror = wait_for_final_mirror(final.id)
@@ -1847,19 +1847,19 @@ defmodule Ankole.ScheduleTest do
           Repo.transact(fn _repo -> Schedule.fire_due_event(event.id, now: due) end)
 
         run = admit_input(input, due)
-        final = complete_response!(run, ~s({"outcome":"silent_success","reply":null}))
-        run = %{run | anchor: final.id, model_response: final}
+        {run, result} = execute_finish(run, "silent_success", nil)
 
         if quiet do
-          assert {:finalize, %{outcome: "silent"}} = Ankole.Conversations.Machine.next(run)
-          assert {:ok, _} = Run.finalize(run, "silent")
+          refute result.is_error
+          assert {:finalize, %{outcome: :silent}} = Ankole.Conversations.Machine.next(run)
+          assert {:ok, _} = Run.finalize(run, :silent)
           assert Repo.reload!(input).completed_at
         else
-          assert {:request, repaired} = Ankole.Conversations.Machine.next(run)
-          assert Ankole.JSON.encode!(repaired.input) =~ "Silent success is not allowed"
+          assert result.is_error
+          assert result.output =~ "schedule_silent_success_not_allowed"
 
           refute Repo.reload!(input).completed_at
-          assert {:ok, _} = Run.finalize(run, "stopped")
+          assert {:ok, _} = Run.finalize(run, :stopped)
         end
       end
 
@@ -1875,7 +1875,7 @@ defmodule Ankole.ScheduleTest do
       final =
         complete_turn_via_aigateway!(
           run,
-          ~s({"outcome":"reply","reply":"Daily digest is ready."})
+          "Daily digest is ready."
         )
 
       dispatch_final_reply_outbox!(final.id)
@@ -1912,7 +1912,7 @@ defmodule Ankole.ScheduleTest do
       assert Ankole.SignalsGateway.Actors.next_ready_event(agent.uid, input.session_id, due).id ==
                input.id
 
-      complete_turn_via_aigateway!(run, ~s({"outcome":"reply","reply":"First fire done."}))
+      complete_turn_via_aigateway!(run, "First fire done.")
 
       assert Ankole.SignalsGateway.Actors.next_ready_event(agent.uid, input.session_id, due).id ==
                next.id
@@ -1950,7 +1950,7 @@ defmodule Ankole.ScheduleTest do
       assert Repo.reload!(schedule).status == "paused"
 
       # Pausing keeps the execution conversation, so the turn still replies.
-      complete_turn_via_aigateway!(run, ~s({"outcome":"reply","reply":"Done; paused."}))
+      complete_turn_via_aigateway!(run, "Done; paused.")
     end
 
     test "cron quiet success consumes the fire without an outbox" do
@@ -1965,8 +1965,9 @@ defmodule Ankole.ScheduleTest do
         )
 
       assert run.spec.request_context["silent_success_allowed"]
-      final = complete_response!(run, ~s({"outcome":"silent_success","reply":null}))
-      assert {:ok, _} = Run.finalize(%{run | anchor: final.id}, "silent")
+      {run, result} = execute_finish(run, "silent_success", nil)
+      refute result.is_error
+      assert {:ok, _} = Run.finalize(run, :silent)
       assert Repo.reload!(input).completed_at
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
@@ -2177,13 +2178,32 @@ defmodule Ankole.ScheduleTest do
         metadata: %{"request_metadata" => Run.metadata(run)}
       })
 
-    {:ok, complete} = StatefulResponses.commit_complete(response, items)
+    {:ok, complete} = ResponseCommit.commit_complete(response, items)
     complete
+  end
+
+  defp execute_finish(run, outcome, reply) do
+    {run, result} =
+      execute_tool(run, "finish_scheduled", %{"outcome" => outcome, "reply" => reply})
+
+    assert {:ok, {_state, run}} = Run.restore(run)
+    {run, result}
+  end
+
+  defp complete_turn_via_aigateway!(%{kind: :scheduled} = run, text) do
+    {run, result} = execute_finish(run, "reply", text)
+    refute result.is_error
+    assert {:ok, %{actor_event: event}} = Run.finalize(run, :loop_finished)
+
+    Ankole.Repo.get!(
+      Ankole.AIGateway.Schemas.Message,
+      String.replace_prefix(event.final_response_id, "resp_", "")
+    )
   end
 
   defp complete_turn_via_aigateway!(run, text) do
     complete = complete_response!(run, text)
-    assert {:ok, _} = Run.finalize(%{run | anchor: complete.id}, "loop_finished")
+    assert {:ok, _} = Run.finalize(%{run | anchor: complete.id}, :loop_finished)
     complete
   end
 

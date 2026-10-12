@@ -1,4 +1,5 @@
 defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
@@ -14,7 +15,6 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
@@ -735,7 +735,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
       "result" => nil
     }
 
-    assert {:ok, _message} = StatefulResponses.commit_complete(message, [generated_item])
+    assert {:ok, _message} = ResponseCommit.commit_complete(message, [generated_item])
 
     assert {:ok, %{body: response}} =
              StatefulLifecycle.retrieve_response(agent.principal.uid, "resp_#{message.id}")

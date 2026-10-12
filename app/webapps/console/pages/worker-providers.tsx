@@ -47,7 +47,7 @@ import {
 } from '../state/worker-provider-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
-const providersPath = '/settings/worker-providers'
+const providersPath = '/worker-providers'
 
 export function WorkerProvidersListPage() {
   const { t } = useTranslation()
@@ -74,11 +74,6 @@ export function WorkerProvidersListPage() {
       error={providers.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
-      subNav={
-        <Link className="link text-sm" to="/settings">
-          {t('console.settings.title')}
-        </Link>
-      }
       toolbar={
         <ResourceSearch
           label={t('console.worker_providers.search')}

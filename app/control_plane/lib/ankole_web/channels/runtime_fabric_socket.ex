@@ -20,8 +20,9 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
   @impl true
   def connect(params, socket, connect_info) do
     with {:ok, worker_id} <- worker_id(params),
+         {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(worker_id),
          {:ok, %{generation: generation, tenant_id: tenant_id}} <-
-           Ankole.Repo.across_tenants(fn ->
+           Ankole.Repo.with_tenant(tenant_id, fn ->
              AgentWorkers.authenticate(worker_id, Map.get(connect_info, :auth_token))
            end) do
       {:ok,

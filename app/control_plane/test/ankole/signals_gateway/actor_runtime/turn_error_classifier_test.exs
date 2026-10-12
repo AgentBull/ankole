@@ -48,6 +48,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifierTest do
   end
 
   describe "credential_pool_retry_at/2" do
+    test "domain pool tuples use the same canonical timestamp as gateway maps" do
+      future = DateTime.add(@now, 60, :second)
+      tuple = {:credential_pool_exhausted, %{retry_at: DateTime.to_iso8601(future)}}
+      assert TurnErrorClassifier.credential_pool_retry_at(tuple, @now) == future
+    end
+
     test "returns only a parseable pool recovery time in the future" do
       future = DateTime.add(@now, 60, :second)
 

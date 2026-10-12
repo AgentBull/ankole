@@ -44,6 +44,8 @@ order: 52
 
 ## Provider 与存储
 
+各平台的限制、凭据与网络要求，以及 SQLite 缓存盘配置见 [WorkerProvider 与缓存盘](../worker-providers/)。旧版本部署见 [从 1.0 升级到 2.0](../upgrade-to-2/)。
+
 | 类型 | 持久 Home | 空闲回收 |
 | --- | --- | --- |
 | Docker | 每个 Agent 的本地卷 | 删除容器 |
@@ -59,7 +61,7 @@ Vercel 的 24 小时会话需要 Pro 或 Enterprise。Lambda 的内存配额须�
 
 ## 回收、替换与删除
 
-- 在 provider YAML 中设置 `idleReleaseAfter`。Docker、Kubernetes 默认 `never`，Cloudflare、Vercel、Lambda、函数计算默认 `15m`。
+- 在 provider YAML 中设置 `idleReleaseAfter`。6 种 provider 默认均为 `15m`，可设为 `never`。
 - 支持内存暂停的类型暂停空闲 Worker，其他类型删除实例，持久存储与配置的缓存卷保留。
 - 镜像或实例配置变化时，在空闲后替换；协议变化立即替换。旧的暂停实例会先替换再接工作。
 - `agent_computer.worker.ready_timeout` 默认 600 秒，只重建平台上已经观察到的实例，不会结清结果不确定的创建。

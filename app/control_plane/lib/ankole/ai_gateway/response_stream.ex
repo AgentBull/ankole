@@ -1,4 +1,7 @@
 defmodule Ankole.AIGateway.ResponseStream do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.FailureResponse
+
   @moduledoc """
   Owns one normalized AIGateway response stream from native input to public events.
 
@@ -18,8 +21,8 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
+  alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ToolSearch.StreamLoop, as: ToolSearchStreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.UsageLedger
@@ -28,6 +31,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   require Ankole.Kernel.UniversalAIClient
 
   @heartbeat_ms 60_000
+  @stalled_ms 5 * 60_000
   @terminal_shutdown_ms 5_000
   @cancel_shutdown_ms 1_000
   @open_failure_shutdown_ms 5_000
@@ -63,7 +67,8 @@ defmodule Ankole.AIGateway.ResponseStream do
         :program_task_supervisor,
         :collect_timeout,
         :describe_timeout,
-        :authorize_run_in_tx
+        :authorize_run_in_tx,
+        :record_response_in_tx
       ])
 
     child_opts = [
@@ -152,7 +157,8 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   The wait ends with the batch, with the owner's exit, or with `timeout`, so a
   consumer never blocks on an owner that is gone. The consumer decides what a
-  timeout or a closed stream means for its transport.
+  timeout or a closed stream means for its transport. Queued batches remain
+  readable after the owner exits.
   """
   @spec next(t(), timeout()) ::
           {:ok, [map()], :continue | terminal_status()} | {:error, term()}
@@ -173,8 +179,16 @@ defmodule Ankole.AIGateway.ResponseStream do
             remaining_timeout(deadline) -> {:error, :response_stream_collect_timeout}
           end
 
-        {:error, _reason} = error ->
+        {:error, :response_stream_collect_timeout} = error ->
           error
+
+        {:error, _reason} = error ->
+          receive do
+            {:ai_gateway_response_stream, ^ref, :events, events, status} ->
+              {:ok, events, status}
+          after
+            0 -> error
+          end
       end
     after
       Process.demonitor(monitor, [:flush])
@@ -317,7 +331,9 @@ defmodule Ankole.AIGateway.ResponseStream do
       program_task: nil,
       native_done?: false,
       closing?: false,
-      heartbeat_timer: schedule_heartbeat(stateful)
+      heartbeat_timer: schedule_heartbeat(stateful),
+      upstream_progress_at_ms: nil,
+      stalled_logged?: false
     }
 
     state = %{state | semantic: new_semantic(state, meta, loop)}
@@ -374,7 +390,9 @@ defmodule Ankole.AIGateway.ResponseStream do
       state.request,
       meta,
       stateful: state.stateful,
-      tool_loop: loop
+      tool_loop: loop,
+      upstream_progress:
+        if(state.semantic, do: state.semantic.upstream_progress, else: UpstreamProgress.new())
     )
   end
 
@@ -405,7 +423,11 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp begin_custom_open(state, kind, fun) when is_function(fun, 0) do
-    state = start_observed_round(state, state.attempt_context, state.attempt_spec)
+    state =
+      state
+      |> start_observed_round(state.attempt_context, state.attempt_spec)
+      |> put_upstream_progress(&UpstreamProgress.dispatched/1)
+
     token = make_ref()
     timeout_ms = UniversalAIRequest.ready_timeout_ms(state.attempt_spec)
     deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
@@ -441,6 +463,8 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp start_open_candidate(%{opening: %{spec: spec} = opening} = state) do
+    state = put_upstream_progress(state, &UpstreamProgress.dispatched/1)
+
     case UniversalAIRequest.start_stream(spec, receiver: self()) do
       {:ok, native_stream} ->
         opening = %{opening | native_stream: native_stream}
@@ -518,7 +542,10 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp complete_open(state, native_stream, meta, context, spec) do
-    state = clear_opening(state)
+    state =
+      state
+      |> clear_opening()
+      |> put_upstream_progress(&UpstreamProgress.ready(&1, Map.get(meta, "status")))
 
     state = %{
       state
@@ -541,7 +568,7 @@ defmodule Ankole.AIGateway.ResponseStream do
 
     case issue_native_credit(state) do
       {:ok, state} -> {:noreply, state}
-      {:error, reason, state} -> stop_after_retry_failure(state, reason)
+      {:error, reason, state} -> finish_attempt_failure(state, reason)
     end
   end
 
@@ -557,8 +584,21 @@ defmodule Ankole.AIGateway.ResponseStream do
     state = state |> cancel_open_candidate_if_present() |> clear_opening()
 
     if state.public_open? do
-      stop_after_retry_failure(state, reason)
+      finish_attempt_failure(state, reason)
     else
+      case State.stateful_context(state.semantic) do
+        %{message_id: message_id} ->
+          _ =
+            ResponseCommit.record_upstream_progress(
+              state.semantic.subject_uid,
+              message_id,
+              state.semantic.upstream_progress
+            )
+
+        _stateless ->
+          :ok
+      end
+
       state = log_failure_once(state, reason)
       state = fail_observation(state, reason)
 
@@ -766,7 +806,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     send_events(state, events, status)
 
     case status do
-      {:terminal, _outcome} -> {:reply, :ok, state}
+      {:terminal, _outcome} -> {:reply, :ok, schedule_terminal_shutdown(state)}
       :continue when count > 1 -> handle_call({:read, count - 1}, from, state)
       :continue -> {:reply, :ok, state}
     end
@@ -982,12 +1022,17 @@ defmodule Ankole.AIGateway.ResponseStream do
   def handle_info(:response_stream_open_failure_shutdown, state), do: {:stop, :normal, state}
 
   def handle_info(:response_stream_heartbeat, state) do
+    state = maybe_log_stalled(state)
     semantic = state.semantic
 
     heartbeat_timer =
       case {State.terminal?(semantic), State.stateful_context(semantic)} do
         {false, %{message_id: message_id}} ->
-          case StatefulResponses.touch_generating_response(semantic.subject_uid, message_id) do
+          case ResponseCommit.touch_generating_response(
+                 semantic.subject_uid,
+                 message_id,
+                 semantic.upstream_progress
+               ) do
             {:ok, %{} = _message} -> schedule_heartbeat(%{message_id: message_id})
             {:ok, :already_terminal} -> nil
             # A transient touch failure must not silence a live stream for good;
@@ -1006,7 +1051,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:DOWN, monitor, :process, receiver, _reason},
         %{owner_monitor: monitor, receiver: receiver} = state
       ) do
-    if State.terminal?(state.semantic) do
+    if State.terminal?(state.semantic) and is_nil(state.pending_flush) do
       # The public terminal event is already committed and delivered. Keep the
       # native owner alive until Done arrives or the shutdown timer expires.
       {:noreply, %{state | receiver: nil}}
@@ -1104,14 +1149,20 @@ defmodule Ankole.AIGateway.ResponseStream do
          %UniversalAIClient.Chunk{
            ref: ref,
            sequence: sequence,
+           origin: origin,
            payload: chunk
          },
          %{native_stream: %{ref: ref}} = state
        ) do
-    state = consume_credit(state)
-
     case decode_event(chunk) do
       {:ok, event} ->
+        state = consume_credit(state)
+
+        state =
+          if origin == :provider,
+            do: put_upstream_progress(state, &UpstreamProgress.event/1),
+            else: state
+
         state = %{
           state
           | provider_output?: true,
@@ -1120,13 +1171,13 @@ defmodule Ankole.AIGateway.ResponseStream do
 
         state =
           state
-          |> record_credential_success(event)
+          |> record_credential_success(event, origin)
           |> record_event_credential_failure(event)
 
         observe_event(state, event, sequence)
 
       {:error, _reason} ->
-        stop_with_failure(state)
+        finish_failed_stream(state)
     end
   end
 
@@ -1135,7 +1186,7 @@ defmodule Ankole.AIGateway.ResponseStream do
          %{native_stream: %{ref: ref}} = state
        ) do
     if State.terminal?(state.semantic) do
-      {:stop, :normal, state}
+      finish_native_stream(state)
     else
       if not state.provider_output? do
         reopen_stream(state, %{
@@ -1144,14 +1195,10 @@ defmodule Ankole.AIGateway.ResponseStream do
           "message" => "provider stream closed without a terminal event"
         })
       else
-        {state, events, outcome} =
-          fail_stream(state,
-            code: "provider_stream_closed_without_terminal",
-            retryable: true
-          )
-
-        send_events(state, events, {:terminal, outcome})
-        {:stop, :normal, state}
+        finish_failed_stream(state,
+          code: "provider_stream_closed_without_terminal",
+          retryable: true
+        )
       end
     end
   end
@@ -1161,26 +1208,12 @@ defmodule Ankole.AIGateway.ResponseStream do
          %{native_stream: %{ref: ref}} = state
        ) do
     if State.terminal?(state.semantic) do
-      {:stop, :normal, state}
+      finish_native_stream(state)
     else
-      cond do
-        hosted_credential_failure?(state, error) ->
-          stop_after_hosted_failure(state, error)
-
-        not state.provider_output? ->
-          reopen_stream(state, error)
-
-        true ->
-          state = state |> log_failure_once(error)
-
-          {state, events, outcome} =
-            fail_stream(state,
-              code: "provider_stream_error",
-              retryable: true
-            )
-
-          send_events(state, events, {:terminal, outcome})
-          {:stop, :normal, state}
+      if not state.provider_output? do
+        reopen_stream(state, error)
+      else
+        finish_failed_stream(state, reason: error)
       end
     end
   end
@@ -1190,7 +1223,7 @@ defmodule Ankole.AIGateway.ResponseStream do
          %{native_stream: %{ref: ref}} = state
        ) do
     if state.closing? or State.terminal?(state.semantic) do
-      {:stop, :normal, state}
+      finish_native_stream(state)
     else
       if not state.provider_output? do
         reopen_stream(state, %{
@@ -1199,19 +1232,47 @@ defmodule Ankole.AIGateway.ResponseStream do
           "message" => "provider stream aborted"
         })
       else
-        {state, events, outcome} =
-          fail_stream(state,
-            code: "provider_stream_aborted",
-            retryable: true
-          )
-
-        send_events(state, events, {:terminal, outcome})
-        {:stop, :normal, state}
+        finish_failed_stream(state, code: "provider_stream_aborted", retryable: true)
       end
     end
   end
 
   defp native_stream_event(_event, state), do: {:noreply, state}
+
+  defp finish_native_stream(%{pending_flush: {_events, {:terminal, _outcome}}} = state),
+    do: {:noreply, %{state | native_done?: true}}
+
+  defp finish_native_stream(state), do: {:stop, :normal, state}
+
+  defp put_upstream_progress(state, update) do
+    %{
+      state
+      | semantic: %{state.semantic | upstream_progress: update.(state.semantic.upstream_progress)},
+        upstream_progress_at_ms: System.monotonic_time(:millisecond)
+    }
+  end
+
+  defp maybe_log_stalled(%{stalled_logged?: false, upstream_progress_at_ms: last} = state)
+       when is_integer(last) do
+    if not State.terminal?(state.semantic) and
+         System.monotonic_time(:millisecond) - last >= @stalled_ms do
+      Ankole.Logging.warning(
+        "ai_gateway.response_stream_stalled",
+        "AIGateway response stream has no upstream progress for five minutes",
+        %{
+          "response_id" => state.semantic.local_response_id,
+          "phase" => Atom.to_string(state.phase),
+          "upstream_progress" => state.semantic.upstream_progress
+        }
+      )
+
+      %{state | stalled_logged?: true}
+    else
+      state
+    end
+  end
+
+  defp maybe_log_stalled(state), do: state
 
   @impl true
   def terminate(_reason, state) do
@@ -1259,9 +1320,8 @@ defmodule Ankole.AIGateway.ResponseStream do
           |> log_terminal_failure_once(outcome)
           |> finish_observation(outcome)
 
-        state = finish_public_stream(state, upstream_action)
         send_events(state, events, {:terminal, outcome})
-        {:noreply, state}
+        {:noreply, finish_public_stream(state, upstream_action)}
 
       {:error, semantic, events, :continue, reason} ->
         state = %{state | semantic: semantic} |> log_failure_once(reason)
@@ -1272,16 +1332,14 @@ defmodule Ankole.AIGateway.ResponseStream do
             retryable: false
           )
 
-        state = finish_public_stream(state, :cancel_upstream)
         send_events(state, events ++ failure_events, {:terminal, outcome})
-        {:noreply, state}
+        {:noreply, finish_public_stream(state, :cancel_upstream)}
 
       {:error, semantic, events, {:terminal, outcome, _action}, reason} ->
         state = %{state | semantic: semantic} |> log_failure_once(reason)
         state = finish_observation(state, outcome)
-        state = finish_public_stream(state, :cancel_upstream)
         send_events(state, events, {:terminal, outcome})
-        {:noreply, state}
+        {:noreply, finish_public_stream(state, :cancel_upstream)}
     end
   end
 
@@ -1314,9 +1372,10 @@ defmodule Ankole.AIGateway.ResponseStream do
           |> Map.put(:semantic, semantic)
           |> log_terminal_failure_once(outcome)
           |> finish_observation(outcome)
+          |> deliver_local_effect_events(events, {:terminal, outcome})
           |> finish_public_stream(upstream_action)
 
-        {:noreply, deliver_local_effect_events(state, events, {:terminal, outcome})}
+        {:noreply, state}
 
       {:error, semantic, reason} ->
         {:noreply, fail_program_execution(%{state | semantic: semantic}, reason)}
@@ -1354,15 +1413,9 @@ defmodule Ankole.AIGateway.ResponseStream do
         retryable: reason == :program_runtime_busy
       )
 
-    {state, events} = prepend_pending_events(state, events)
-    state = finish_public_stream(state, :cancel_upstream)
-
-    if state.provider_output? or state.outstanding_credit > 0 do
-      send_events(state, events, {:terminal, outcome})
-      state
-    else
-      %{state | pending_flush: {events, {:terminal, outcome}}}
-    end
+    state
+    |> deliver_local_effect_events(events, {:terminal, outcome})
+    |> finish_public_stream(:cancel_upstream)
   end
 
   defp maybe_put_program_option(opts, _key, nil), do: opts
@@ -1393,73 +1446,28 @@ defmodule Ankole.AIGateway.ResponseStream do
       state
       | phase: :opening,
         opening: opening,
-        native_stream: nil,
-        outstanding_credit: max(state.outstanding_credit, 1)
+        native_stream: nil
     }
 
     begin_open_recovery(state, UniversalAIRequest.normalize_stream_error(reason))
   end
 
-  defp stop_after_retry_failure(state, reason) do
+  defp finish_attempt_failure(state, reason) do
     failure_opts =
       case reason do
         {:credential_pool_exhausted, _details} ->
-          classification = FailureDiagnostics.classify(reason)
-          projection = FailureDiagnostics.project(reason)
+          projection = FailureResponse.project(reason)
 
           [
-            code: "credential_pool_exhausted",
-            retryable: true,
-            message: FailureDiagnostics.public_message(classification),
-            provider_status: 429,
+            reason: reason,
             details: projection.error["details_json"]
           ]
 
         _reason ->
-          classification = FailureDiagnostics.classify(reason)
-
-          [
-            code: FailureDiagnostics.public_error_code(classification, "provider_stream_error"),
-            retryable: Map.get(classification, :retryable, true),
-            message: FailureDiagnostics.public_message(classification),
-            provider_status: Map.get(classification, :provider_status),
-            details: retry_failure_details(classification)
-          ]
+          [reason: reason]
       end
 
-    stop_after_provider_failure(state, reason, failure_opts)
-  end
-
-  defp stop_after_hosted_failure(state, reason) do
-    :ok =
-      ImageGeneration.record_credential_failure(
-        state.hosted_credential_attempt,
-        reason
-      )
-
-    classification = FailureDiagnostics.classify(reason)
-    error = ImageGeneration.normalize_execution_error(reason)
-
-    failure_opts = [
-      code: error.code,
-      retryable: Map.get(classification, :retryable, true),
-      message: Map.get(classification, :provider_message, error.message),
-      provider_status: Map.get(classification, :provider_status),
-      details: retry_failure_details(classification)
-    ]
-
-    stop_after_provider_failure(state, reason, failure_opts)
-  end
-
-  defp stop_after_provider_failure(state, reason, failure_opts) do
-    state = state |> log_failure_once(reason)
-
-    {state, events, outcome} =
-      fail_stream(state, failure_opts)
-
-    {state, events} = prepend_pending_events(state, events)
-    send_events(state, events, {:terminal, outcome})
-    {:stop, :normal, state}
+    finish_failed_stream(state, failure_opts)
   end
 
   defp prepend_pending_events(%{pending_flush: {pending_events, _status}} = state, events) do
@@ -1467,18 +1475,6 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp prepend_pending_events(state, events), do: {state, events}
-
-  defp retry_failure_details(classification) do
-    classification
-    |> Map.take([:error_stage, :failure_kind])
-    |> Enum.reduce(%{}, fn
-      {:failure_kind, value}, details when is_atom(value) ->
-        Map.put(details, "failure_kind", Atom.to_string(value))
-
-      {key, value}, details ->
-        Map.put(details, Atom.to_string(key), value)
-    end)
-  end
 
   defp hosted_credential_failure?(
          %{hosted_credential_attempt: %{}},
@@ -1495,8 +1491,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     failure = ProviderFailure.from_event_error(error)
 
     attempt_context =
-      if failure.stage == "image_generation" and
-           is_map(state.hosted_credential_attempt) do
+      if hosted_credential_failure?(state, failure) do
         state.hosted_credential_attempt.context
       else
         state.attempt_context
@@ -1536,15 +1531,27 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp finish_public_stream(state, upstream_action) do
     state = %{state | heartbeat_timer: cancel_timer(state.heartbeat_timer)}
 
-    case upstream_action do
-      :keep_upstream ->
-        schedule_shutdown(state, @terminal_shutdown_ms)
+    state =
+      case upstream_action do
+        :keep_upstream ->
+          state
 
-      :cancel_upstream ->
-        _ = cancel_native(state.native_stream)
-        state |> Map.put(:closing?, true) |> schedule_shutdown(@cancel_shutdown_ms)
-    end
+        :cancel_upstream ->
+          _ = cancel_native(state.native_stream)
+          %{state | closing?: true}
+      end
+
+    schedule_terminal_shutdown(state)
   end
+
+  defp schedule_terminal_shutdown(%{pending_flush: {_events, {:terminal, _outcome}}} = state),
+    do: state
+
+  defp schedule_terminal_shutdown(%{closing?: true} = state),
+    do: schedule_shutdown(state, @cancel_shutdown_ms)
+
+  defp schedule_terminal_shutdown(state),
+    do: schedule_shutdown(state, @terminal_shutdown_ms)
 
   defp start_observed_round(state, context, spec) do
     %{state | observability: Observability.start_round(state.observability, context, spec)}
@@ -1595,9 +1602,9 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   defp cancel_program(program_task), do: ProgramExecution.cancel(program_task)
 
-  defp record_credential_success(state, event) do
+  defp record_credential_success(state, event, origin) do
     state =
-      if state.credential_success_recorded? do
+      if state.credential_success_recorded? or origin == :client do
         state
       else
         :ok = CredentialAttempts.mark_ok(state.attempt_context, state.meta)
@@ -1630,24 +1637,24 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp pop_tool_loop(%{} = prepared_request), do: Map.pop(prepared_request, :tool_loop)
   defp pop_tool_loop(prepared_request), do: {nil, prepared_request}
 
-  defp stop_with_failure(state, opts \\ []) do
-    {state, events, outcome} =
-      fail_stream(state,
-        code: Keyword.get(opts, :code, "provider_stream_error"),
-        retryable: true
-      )
+  defp finish_failed_stream(state, opts \\ [retryable: true]) do
+    {state, events, outcome} = fail_stream(state, opts)
 
-    _ = cancel_native(state.native_stream)
-    send_events(state, events, {:terminal, outcome})
-    {:stop, :normal, %{state | closing?: true}}
+    state =
+      state
+      |> deliver_or_buffer(events, {:terminal, outcome})
+      |> finish_public_stream(:cancel_upstream)
+
+    {:noreply, state}
   end
 
   defp fail_stream(state, opts) do
-    failure = %{
-      "code" => Keyword.get(opts, :code, "provider_stream_error"),
-      "stage" => "response_stream",
-      "retryable" => Keyword.get(opts, :retryable, false)
-    }
+    failure =
+      Keyword.get(opts, :reason, %{
+        "code" => Keyword.get(opts, :code, "provider_stream_error"),
+        "stage" => "response_stream",
+        "retryable" => Keyword.get(opts, :retryable, false)
+      })
 
     state =
       state

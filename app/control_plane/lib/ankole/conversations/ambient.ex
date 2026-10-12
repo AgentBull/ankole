@@ -1,5 +1,6 @@
 defmodule Ankole.Conversations.Ambient do
   @moduledoc false
+  use Ankole.Conversations.RunType
 
   import Ecto.Query, warn: false
 
@@ -14,9 +15,40 @@ defmodule Ankole.Conversations.Ambient do
   alias Ankole.SignalsGateway.ChannelContext
   alias Ankole.SignalsGateway.Utils
 
+  def plan(_event, opts),
+    do: {:ok, %{kind: :ambient, opts: Keyword.put_new(opts, :profile, "light")}}
+
+  def prepare_input(event, now) do
+    case resolve(event, now) do
+      {:ok, %{status: :ambient_fresh, actor_event: event}} -> {:ok, event}
+      {:ok, result} -> {:closed, result}
+      error -> error
+    end
+  end
+
+  def admit_in_tx(repo, event, _plan),
+    do: {:ok, %{"ambient_work_candidates" => candidates_in_tx(repo, event)}}
+
+  def tools(run, tools, hosted) do
+    {tools, hosted} = super(run, tools, hosted)
+    route = run.spec.request_context["ambient"] || %{}
+
+    cond do
+      route["action"] == "FOREGROUND_REPLY" ->
+        {Enum.filter(tools, & &1["read_only"]),
+         Enum.filter(hosted, &(&1["type"] in ["brain", "web_search"]))}
+
+      route["authority"] == "NONE" and route["action"] == "NEW_WORK" ->
+        {[], []}
+
+      true ->
+        {tools, hosted}
+    end
+  end
+
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
-  def prepare(%{kind: :ambient} = run) do
+  def prepare(run) do
     with {:ok, route} <- route(run) do
       if route.action in ["NOOP", "HANDOFF"] do
         {:ok, {:ambient_skip, run}}
@@ -49,8 +81,6 @@ defmodule Ankole.Conversations.Ambient do
       end
     end
   end
-
-  def prepare(run), do: {:ok, {:prepare, run}}
 
   defp route(run) do
     case Repo.get(AmbientJudgment, run.actor_event_id) do

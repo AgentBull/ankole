@@ -35,6 +35,24 @@ ServiceAccount without permissions.
 
 ## Install with bundled PostgreSQL
 
+The bundled PostgreSQL has one replica and no protection against voluntary
+Pod disruption. For production, use an external PostgreSQL database. If you
+use the bundled database on Karpenter-managed nodes, set this Pod annotation:
+
+```yaml
+postgresql:
+  podAnnotations:
+    karpenter.sh/do-not-disrupt: "true"
+```
+
+This annotation blocks Karpenter consolidation and can block drift. It does
+not provide database failover. Forceful disruption and a configured
+NodeClaim `terminationGracePeriod` can override it; see the
+[Karpenter disruption rules](https://karpenter.sh/docs/concepts/disruption/).
+The chart sets no PodDisruptionBudget. A budget that blocks eviction of the
+only replica can block node upgrades. Plan database downtime before you remove this annotation
+for node maintenance.
+
 Create the namespace and bootstrap Secret first. An explicit Secret prevents a
 failed first install from changing the database password while a retained
 PostgreSQL volume still has the old password.
@@ -336,7 +354,10 @@ file store.
 
 The installation label, `worker.installation` or the release name when that
 value is empty, is part of the names and labels of the Worker Pods, Secrets,
-and PVCs. Do not change it after the first install. With a new label, the
+and PVCs. Use 1–20 lowercase letters, digits, or hyphens, with a letter or digit
+at each end. The chart converts the value to lowercase, truncates it to 20
+characters, and removes a trailing hyphen; choose a name that needs no such
+conversion. Do not change it after the first install. With a new label, the
 control plane creates new, empty PVCs for exclusive Homes, and it does not see
 the running Workers, so it can start a second Worker that writes the same
 Home. To install the chart under another release name, set
@@ -356,9 +377,23 @@ The bundled PostgreSQL StatefulSet retains its PVC after deletion or scale
 down. Back up the database independently:
 
 ```sh
+backup_path="ankole-$(date +%Y%m%d).dump"
 kubectl -n ankole exec statefulset/ankole-postgresql -- \
-  pg_dump -U ankole -d ankole -Fc > "ankole-$(date +%Y%m%d).dump"
+  pg_dump -U ankole -d ankole -Fc > "$backup_path.partial" || exit 1
+pg_restore -l "$backup_path.partial" > "$backup_path.list" || exit 1
+mv "$backup_path.partial" "$backup_path"
 ```
+
+Check every exit status. A nonempty file is not proof of a successful backup.
+The commands retain `.partial` after a failed export or archive check, and
+rename it only after both commands succeed. Run `pg_restore` on the host with
+a version that supports PostgreSQL 18 archives. The `-l` check reads the
+archive directory; it does not replace a full restore test on a separate
+database.
+
+If `kubectl exec` truncates the export, keep the diagnostics, set
+`KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false`, and repeat the export and archive
+check. Do not use the truncated file as a backup.
 
 The database is in the directory that `postgresql.pgdata` names, by default
 `pgdata` on the PostgreSQL volume: a block volume such as EBS has `lost+found`

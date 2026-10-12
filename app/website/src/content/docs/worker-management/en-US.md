@@ -44,6 +44,8 @@ A timeout during creation keeps the same generation for retry. An uncertain resu
 
 ## Providers and storage
 
+See [WorkerProviders and cache disks](../worker-providers/) for platform limits, credentials, networking, and SQLite cache configuration. For an old deployment, see [Upgrade from 1.0 to 2.0](../upgrade-to-2/).
+
 | Type | Persistent Home | Idle operation |
 | --- | --- | --- |
 | Docker | Local volume per Agent | Delete container |
@@ -59,7 +61,7 @@ Home survives instance deletion and image changes. Codex thread files are in `/w
 
 ## Release, replacement, and deletion
 
-- Set `idleReleaseAfter` in provider YAML. Docker and Kubernetes default to `never`; Cloudflare, Vercel, Lambda, and Function Compute default to `15m`.
+- Set `idleReleaseAfter` in provider YAML. All six providers default to `15m`; you can set `never`.
 - A memory-capable provider pauses an idle Worker. Other types delete the instance and keep persistent storage and any cache volume.
 - Image or instance-setting changes replace Workers when idle. A protocol change replaces them immediately. Old paused instances are replaced before they resume.
 - `agent_computer.worker.ready_timeout` defaults to 600 seconds. It rebuilds an instance already observed on the platform; it does not settle an uncertain create.

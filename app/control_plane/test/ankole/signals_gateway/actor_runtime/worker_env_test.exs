@@ -16,7 +16,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.SiteEnvVar
 
   setup do
     allow_cache_database_access()
@@ -61,7 +61,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
     assert item.secret == true
     refute Map.has_key?(item, :value)
 
-    row = Repo.one!(from row in EnvVar, where: row.scope == "global" and row.name == ^name)
+    row = Repo.one!(from row in SiteEnvVar, where: row.scope == "global" and row.name == ^name)
     assert row.secret
     refute row.value =~ "hunter2"
     ciphertext = row.value
@@ -76,7 +76,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
     refute Map.has_key?(preserved, :value)
 
     preserved_row =
-      Repo.one!(from row in EnvVar, where: row.scope == "global" and row.name == ^name)
+      Repo.one!(from row in SiteEnvVar, where: row.scope == "global" and row.name == ^name)
 
     assert preserved_row.value == ciphertext
     assert preserved_row.description == "kept without revealing"

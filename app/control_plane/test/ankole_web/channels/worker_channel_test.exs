@@ -784,7 +784,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
       message_id: "heartbeat-#{System.unique_integer([:positive])}",
       body:
         {:worker_heartbeat,
-         %FabricProto.AgentComputerWorkerHeartbeat{
+         %FabricProto.WorkerHeartbeat{
            incarnation_id: incarnation_id,
            max_slots: 2,
            active_slots: 0,

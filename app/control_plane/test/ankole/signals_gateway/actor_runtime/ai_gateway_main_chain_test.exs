@@ -1,11 +1,12 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
+  alias Ankole.AIGateway.ToolResultJournal
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   import Ankole.FilesFixtures, only: [sent_attachment_fixture: 4]
 
   alias Ankole.AIGateway.Conversations
 
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Conversations.{Admission, Presentation, Run}
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
@@ -56,7 +57,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     }
 
     assert {:ok, first_committed} =
-             StatefulResponses.commit_complete(first_round, [function_call])
+             ResponseCommit.commit_complete(first_round, [function_call])
 
     assert first_committed.previous_message_id == nil
     assert first_committed.content == first_request_items ++ [function_call]
@@ -94,7 +95,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       }
     ]
 
-    assert {:ok, final_committed} = StatefulResponses.commit_complete(second_round, final_output)
+    assert {:ok, final_committed} = ResponseCommit.commit_complete(second_round, final_output)
 
     assert final_committed.content == tool_result_items ++ final_output
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
@@ -150,7 +151,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, first_committed} =
-             StatefulResponses.commit_complete(first_round, [
+             ResponseCommit.commit_complete(first_round, [
                %{
                  "type" => "function_call",
                  "call_id" => "call_reply_attachment",
@@ -188,7 +189,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, final_committed} =
-             StatefulResponses.commit_complete(second_round, [
+             ResponseCommit.commit_complete(second_round, [
                %{
                  "type" => "message",
                  "role" => "assistant",
@@ -266,7 +267,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, first_committed} =
-             StatefulResponses.commit_complete(first_round, [
+             ResponseCommit.commit_complete(first_round, [
                %{
                  "type" => "function_call",
                  "call_id" => "call_reply_attachment_journal",
@@ -308,7 +309,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, final_committed} =
-             StatefulResponses.commit_complete(final_round, [
+             ResponseCommit.commit_complete(final_round, [
                %{
                  "type" => "message",
                  "role" => "assistant",
@@ -387,7 +388,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, first_committed} =
-             StatefulResponses.commit_complete(first_round, [
+             ResponseCommit.commit_complete(first_round, [
                %{
                  "type" => "function_call",
                  "call_id" => "call_clarify_audience",
@@ -421,7 +422,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       })
 
     assert {:ok, final_committed} =
-             StatefulResponses.commit_complete(final_round, [
+             ResponseCommit.commit_complete(final_round, [
                %{
                  "type" => "message",
                  "role" => "assistant",
@@ -487,7 +488,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     %{actor_event: event, run: run, preview_handler: wait_for_preview_handler(event.id)}
   end
 
-  defp finalize_run(run, final_response, outcome \\ "loop_finished") do
+  defp finalize_run(run, final_response, outcome \\ :loop_finished) do
     Run.finalize(%{run | anchor: final_response.id}, outcome)
   end
 
@@ -592,12 +593,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   defp record_tool_results(attrs) do
     {:ok, result} =
       Ankole.Repo.transact(fn repo ->
-        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+        {:ok, ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
       end)
 
     case result do
       {:ok, message, _disposition} ->
-        StatefulResponses.publish_tool_result_events(message)
+        ToolResultJournal.publish_tool_result_events(message)
         {:ok, message}
 
       error ->

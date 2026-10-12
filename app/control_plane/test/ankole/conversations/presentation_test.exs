@@ -1,4 +1,5 @@
 defmodule Ankole.Conversations.PresentationTest do
+  alias Ankole.AIGateway.ResponseCommit
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   import Ankole.FilesFixtures, only: [sent_attachment_fixture: 4]
@@ -18,7 +19,7 @@ defmodule Ankole.Conversations.PresentationTest do
 
   describe "durable terminal projection" do
     test "one cron completion creates independently retryable outboxes for every target" do
-      %{agent: agent, event: event, run: run} =
+      %{agent: agent, event: event} =
         admit_event("cron-delivery-fanout")
 
       secondary_channel_id = "mock:chat:cron-delivery-secondary"
@@ -65,12 +66,27 @@ defmodule Ankole.Conversations.PresentationTest do
         })
         |> Repo.update!()
 
-      final =
-        complete_response(
-          agent.uid,
-          event,
-          Ankole.JSON.encode!(%{outcome: "reply", reply: "one report for both targets"})
-        )
+      assert {:ok, run} =
+               Admission.admit(%{agent_uid: agent.uid, session_id: event.session_id}, event)
+
+      assert {:ok, {:preparing, run}} = Ankole.Conversations.Model.prepare(run)
+
+      call = %{
+        "type" => "function_call",
+        "name" => "finish_scheduled",
+        "call_id" => "finish",
+        "arguments" =>
+          Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "one report for both targets"})
+      }
+
+      response = complete_response_items(agent.uid, event, [call])
+      run = %{run | model_response: response, calls: [call], round_calls: [call]}
+      assert {:ok, tool, args} = Ankole.Conversations.Tools.prepare(run, call)
+      result = Ankole.Conversations.Tools.execute(run, call, tool, args)
+      refute result.is_error
+      assert {:ok, journal} = Run.record_round(%{run | results: %{call["call_id"] => result}})
+      assert {:ok, {_state, run}} = Run.restore(run)
+      final = journal.message
 
       assert {:ok,
               %{
@@ -341,7 +357,7 @@ defmodule Ankole.Conversations.PresentationTest do
                finalize_run(run, %{final | id: Ecto.UUID.generate()})
 
       assert {:error, :run_closed} =
-               finalize_run(run, final, "iteration_exhausted")
+               finalize_run(run, final, :iteration_exhausted)
     end
 
     test "commits a provider-visible reply for a webhook receipt" do
@@ -691,7 +707,7 @@ defmodule Ankole.Conversations.PresentationTest do
       model_run = start_response(agent.uid, event)
 
       assert {:ok, failed} =
-               StatefulResponses.commit_error(
+               ResponseCommit.commit_error(
                  model_run,
                  [],
                  %{"code" => "provider_failed", "message" => "provider failed"}
@@ -738,9 +754,9 @@ defmodule Ankole.Conversations.PresentationTest do
       assert {:ok,
               %{
                 status: :completed,
-                outcome: "iteration_exhausted",
+                outcome: :iteration_exhausted,
                 outboxes: %{finals: [%OutboxEntry{} = outbox]}
-              }} = finalize_run(run, final, "iteration_exhausted")
+              }} = finalize_run(run, final, :iteration_exhausted)
 
       assert outbox.payload["metadata"]["turn_completion_outcome"] ==
                "iteration_exhausted"
@@ -789,11 +805,12 @@ defmodule Ankole.Conversations.PresentationTest do
       start_response_run(%{
         subject_uid: run.agent_uid,
         conversation_id: run.conversation.id,
-        metadata: %{"request_metadata" => Run.metadata(run)}
+        round_state: run,
+        metadata: %{"request_metadata" => Ankole.Conversations.Run.metadata(run)}
       })
 
     {:ok, final} =
-      StatefulResponses.commit_complete(model, [
+      ResponseCommit.commit_complete(model, [
         %{
           "type" => "message",
           "role" => "assistant",
@@ -934,8 +951,8 @@ defmodule Ankole.Conversations.PresentationTest do
     })
     |> Repo.insert!()
 
-    assert {:ok, %{outcome: "stopped", outboxes: %{finals: [notice]}}} =
-             Run.finalize(run, "stopped", :actor_event_context_canceled)
+    assert {:ok, %{outcome: :stopped, outboxes: %{finals: [notice]}}} =
+             Run.finalize(run, :stopped, :actor_event_context_canceled)
 
     text = Ankole.I18n.t("signals_gateway.reply.context_withdrawn")
     assert notice.source_actor_event_id == event.id
@@ -988,7 +1005,7 @@ defmodule Ankole.Conversations.PresentationTest do
     refute Ankole.JSON.encode!(delivered.payload) =~ "late context answer"
     refute Ankole.JSON.encode!(delivered.payload) =~ "WITHDRAWN-"
     refute Ankole.JSON.encode!(delivered.payload) =~ "must not be sent"
-    assert {:error, :run_closed} = Run.finalize(run, "stopped", :actor_event_context_canceled)
+    assert {:error, :run_closed} = Run.finalize(run, :stopped, :actor_event_context_canceled)
   end
 
   @tag :b01
@@ -1010,7 +1027,7 @@ defmodule Ankole.Conversations.PresentationTest do
     |> Repo.insert!()
 
     assert {:ok, %{outboxes: %{finals: []}}} =
-             Run.finalize(run, "stopped", :actor_event_context_canceled)
+             Run.finalize(run, :stopped, :actor_event_context_canceled)
 
     refute Repo.get_by(OutboxEntry, source_actor_event_id: event.id)
     assert Repo.reload!(event).completed_at
@@ -1084,7 +1101,7 @@ defmodule Ankole.Conversations.PresentationTest do
     run = start_response(subject_uid, event, opts)
 
     assert {:ok, final} =
-             StatefulResponses.commit_complete(
+             ResponseCommit.commit_complete(
                run,
                response_items,
                Keyword.get(opts, :terminal_metadata, %{})
@@ -1115,7 +1132,7 @@ defmodule Ankole.Conversations.PresentationTest do
     run
   end
 
-  defp finalize_run(run, final, outcome \\ "loop_finished") do
+  defp finalize_run(run, final, outcome \\ :loop_finished) do
     Run.finalize(
       %{run | event: Repo.get!(ActorEvent, run.actor_event_id), anchor: final.id},
       outcome

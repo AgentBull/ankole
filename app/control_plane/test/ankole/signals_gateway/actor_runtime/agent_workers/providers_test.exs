@@ -9,14 +9,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProvidersTest do
     Kubernetes,
     Lambda,
     ProviderKind,
-    Providers
+    Providers,
+    ReconcileJob
   }
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.{
-    Configuration,
-    Provider,
-    Seed
-  }
+  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.{Configuration, Provider, Seed}
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
 
@@ -145,6 +142,93 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProvidersTest do
     assert {:ok, %{provider_id: "healthy"}} = Providers.load(healthy)
     assert {:ok, repaired} = Providers.update("broken", %{config: "cpus: 2\n"})
     assert {:ok, %{settings: %{"cpus" => 2}}} = Providers.load(repaired)
+  end
+
+  test "Lambda provider writes reject memory sizes below the Worker image requirement" do
+    config = Lambda.definition().example
+    attrs = %{provider_id: "aws", display_name: "AWS", kind: "lambda", config: config}
+
+    for memory <- [512, 1024, 2048] do
+      invalid = String.replace(config, "memoryMiB: 4096", "memoryMiB: #{memory}")
+
+      assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB", line: 8}]}} =
+               Providers.create(%{attrs | config: invalid})
+
+      refute Repo.get_by(Provider, provider_id: "aws")
+    end
+
+    assert {:ok, provider} = Providers.create(attrs)
+
+    for memory <- [512, 1024, 2048] do
+      invalid = String.replace(config, "memoryMiB: 4096", "memoryMiB: #{memory}")
+
+      assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB", line: 8}]}} =
+               Providers.update("aws", %{config: invalid})
+
+      assert Repo.get!(Provider, provider.id).config == config
+    end
+
+    assert {:ok, updated} =
+             Providers.update("aws", %{
+               config: String.replace(config, "memoryMiB: 4096", "memoryMiB: 8192")
+             })
+
+    assert {:ok, %{settings: %{"memoryMiB" => 8192}}} = Providers.load(updated)
+  end
+
+  test "stored Lambda memory sizes are validated again before provider operations" do
+    config = Lambda.definition().example
+
+    assert {:ok, provider} =
+             Providers.create(%{
+               provider_id: "aws",
+               display_name: "AWS",
+               kind: "lambda",
+               config: config
+             })
+
+    assert {:ok, healthy} = Providers.create(attrs("healthy"))
+
+    worker =
+      Repo.insert!(%AgentWorker{
+        agent_uid: Ecto.UUID.generate(),
+        provider_id: provider.provider_id,
+        state: "deleting"
+      })
+
+    for memory <- [512, 1024, 2048] do
+      invalid = String.replace(config, "memoryMiB: 4096", "memoryMiB: #{memory}")
+      Repo.update_all(where(Provider, id: ^provider.id), set: [config: invalid])
+
+      assert {:ok, stored} = Providers.fetch("aws")
+      assert stored.config == invalid
+
+      for input <- [stored, "aws"] do
+        assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB"}]}} =
+                 Providers.load(input)
+      end
+
+      assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB"}]}} =
+               Providers.check("aws")
+
+      assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB"}]}} =
+               Providers.update("aws", %{display_name: "Still invalid"})
+
+      assert {:error, {:invalid_worker_provider_config, [%{path: "memoryMiB"}]}} =
+               ReconcileJob.run(%Oban.Job{args: %{"agent_uid" => worker.agent_uid}})
+
+      rejected = Repo.get!(AgentWorker, worker.agent_uid)
+      assert rejected.state == "deleting"
+      assert rejected.last_error_kind == "rejected"
+      assert rejected.last_error =~ "memoryMiB"
+
+      assert {:ok, %{provider_id: "healthy"}} = Providers.load(healthy)
+      assert Repo.get!(Provider, provider.id).config == invalid
+    end
+
+    assert {:ok, repaired} = Providers.update("aws", %{config: config})
+    assert {:ok, %{settings: %{"memoryMiB" => 4096}}} = Providers.load(repaired)
+    assert Repo.get!(AgentWorker, worker.agent_uid).last_error_kind == nil
   end
 
   test "Agent creation selects its explicit provider or default and fails atomically without one" do

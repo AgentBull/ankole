@@ -99,7 +99,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentTokenQuotaTest do
       record_usage!(agent.uid, 900, 600)
 
       assert {:ok, %{status: :completed}} =
-               Run.finalize(run, "dead_letter", %{
+               Run.finalize(run, :dead_letter, %{
                  "code" => "agent_token_quota_exceeded",
                  "message" => "The Agent has used its token quota for the current period.",
                  "retryable" => false

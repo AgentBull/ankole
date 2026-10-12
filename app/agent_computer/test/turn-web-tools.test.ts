@@ -22,11 +22,11 @@ describe('turn web tools', () => {
       }
       const tools = await createTurnWebTools({
         turnStart,
-        aiGateway: { baseURL: 'https://control.test/api/v1/ai-gateway', fetch: async () => new Response('{}') },
+        rpc: async () => {
+          throw new Error('catalog must not perform RPC')
+        },
         renderedFetchRuntimeConfig: { ssrfFilter: true },
-        workerEnv: {},
-        workspaceRoot: '/tmp',
-        repeatFetchSessionKey: 'turn-web-tools-test'
+        workerEnv: {}
       })
       return tools.map(tool => tool.name)
     }

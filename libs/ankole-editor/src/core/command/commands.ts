@@ -1,4 +1,4 @@
-import { Plot, Node, Mark, Pos, Leaf, Token, ChangeSet, type Schema } from '../doc'
+import { Plot, Mark, Leaf, Token, ChangeSet } from '../doc'
 import { GardSelection, GardState, Transaction } from '../state'
 import { type Wordgard } from '../editor'
 import { Alignment, Direction, Emphasis, Strong, Underline } from '../types'
@@ -8,18 +8,12 @@ import {
   joinBackward,
   liftEmptyBlock,
   enterInCode,
-  clearNonFitting,
-  autoJoinBlocks,
   deleteSelection,
   deleteEmptyPlot,
   deleteForward,
   deleteBackward,
   splitTextblock,
   joinListItems,
-  findUnwrappable,
-  doUnwrapBlock,
-  findWrappable,
-  wrapBlockRange,
   canAddMarkInRange,
   selectedTextblocks
 } from './helper'
@@ -321,78 +315,6 @@ export const transposeChars: Command.Pure = ({ state }) => {
 }
 
 /**
- * Set the type of the textblock(s) around the selection to the given
- * tag.
- */
-export const setTextblockType: Command.Pure<Plot.Tag> = ({ state }, tag) => {
-  if (state.readOnly) return false
-  const changes: ChangeSet.Spec[] = []
-  const { schema } = state.doc
-  for (const block of selectedTextblocks(state)) {
-    if (!block.node.tag.eq(tag) && block.parent && schema.canContain(block.parent.node.type, tag.type)) {
-      changes.push({ from: block.before, to: block.before + 1, insert: [schema.withMarksFrom(block.node.tag, tag)] })
-      changes.push(clearNonFitting(schema, block, tag.type))
-    }
-  }
-  if (!changes.length) return false
-  return autoJoinBlocks(state, { changes, scrollIntoView: true, userEvent: 'settype' })
-}
-
-/**
- * Try to unwrap blocks around the selection. The second argument, if
- * given, indicates what kind of wrapping plots may be removed.
- * Returns null when no unwrapping is possible.
- */
-export const unwrapBlock: Command.Pure<Node.Query | null> = ({ state }, query) => {
-  if (state.readOnly) return false
-  const targets: Pos.Node[] = []
-  const changes: ChangeSet.Spec[] = []
-  for (const { from, to } of state.selection.ranges) {
-    if (!targets.some(t => t.after > from && t.before < to)) {
-      const result = findUnwrappable(state.schema, state.doc.resolve(from), state.doc.resolve(to), query ?? undefined)
-      if (result) {
-        for (const node of result) {
-          targets.push(node)
-          changes.push(doUnwrapBlock(node, from, to))
-        }
-      }
-    }
-  }
-  if (!targets.length) return false
-  return autoJoinBlocks(state, {
-    changes,
-    scrollIntoView: true,
-    userEvent: 'unwrap'
-  })
-}
-
-/**
- * Try to wrap selected textblocks in the given wrapper. Will return
- * null if no wrapping is possible.
- */
-export const wrapBlock: Command.Pure<Plot.Tag> = ({ state }, wrapper) => {
-  if (state.readOnly) return false
-  const changes: ChangeSet.Spec[] = []
-  let lastTo = -1
-  for (const { from, to } of state.selection.ranges) {
-    const range = findWrappable(state.doc.resolve(from), state.doc.resolve(to), wrapper)
-    if (!range || range.from.pos < lastTo) continue
-    changes.push(wrapBlockRange(range, wrapper))
-    lastTo = range.to.pos
-  }
-  if (!changes.length) return false
-  return autoJoinBlocks(state, { changes, scrollIntoView: true, userEvent: 'wrap' })
-}
-
-/**
- * If the selection is in a block of the given type, unwap it.
- * Otherwise, try to wrap the selected blocks in such a tag.
- */
-export const toggleBlock: Command.Pure<Plot.Tag> = (target, tag) => {
-  return unwrapBlock(target, tag) || wrapBlock(target, tag)
-}
-
-/**
  * Toggle the given mark. If there is no selection, it is added to
  * the cursor's active marks, or removed if it is already in there.
  * Otherwise, if any selected content allows for the mark to be
@@ -495,186 +417,6 @@ export const setDirection: Command.Pure<null | 'ltr' | 'rtl' | 'auto'> = ({ stat
     changes,
     userEvent: 'mark.set.direction'
   }
-}
-
-/**
- * Toggle list wrapping with the given list tag for the selected
- * blocks.
- */
-export const toggleList: Command.Pure<Plot.Tag> = ({ state }, listTag) => {
-  if (state.readOnly) return false
-  const blocks = selectedTextblocks(state)
-  if (!blocks.length) return false
-  return addList(state, blocks, listTag) || removeList(state, blocks, listTag)
-}
-
-/**
- * Returns true when all selected textblocks are wrapped in a list of
- * the given type.
- */
-export const listIsActive =
-  (listTag: Plot.Tag): ((state: GardState) => boolean) =>
-  state => {
-    return selectedTextblocks(state).every(b => {
-      const item = isListItem(b)
-      return item && item.parent!.node.type == listTag.type
-    })
-  }
-
-function isListItem(node: Pos.Node): Pos.Plot | null {
-  for (let first = true; ;) {
-    const { parent } = node
-    if (!parent) return null
-    if (parent.node.tag.type.hasRole(Node.Role.List)) return first ? (node as Pos.Plot) : null
-    first = node.isFirst
-    node = parent
-  }
-}
-
-function autoJoin(a: Plot.Tag, b: Plot.Tag) {
-  const { autoJoin } = a.type.spec
-  return typeof autoJoin == 'function' ? autoJoin(a, b) : typeof autoJoin == 'boolean' ? autoJoin : a.eq(b)
-}
-
-// The one tag that wraps a node of `type`, or else text, in an item of `list`.
-function itemWrapping(schema: Schema, list: Plot.Type, type: Node.Type): Plot.Tag | null {
-  for (const content of [type, Leaf.Text]) {
-    const wrap = schema.findWrapping(list, content)
-    if (wrap && wrap.length == 1) return wrap[0]!
-  }
-  return null
-}
-
-function addList(state: GardState, blocks: Pos.Plot[], listTag: Plot.Tag): Transaction.Spec | false {
-  const plan: ({ wrap: Pos.Plot; item: Plot.Tag } | { change: Pos.Node; item: Pos.Node })[] = []
-  const chBefore: Set<number> = new Set(),
-    chAfter: Set<number> = new Set()
-  let lastItem = -1
-  const { schema } = state.doc
-  for (const block of blocks) {
-    const item = isListItem(block)
-    const wrap =
-      !item && block.parent && schema.canContain(block.parent.node.type, listTag.type)
-        ? itemWrapping(schema, listTag.type, block.node.type)
-        : null
-    if (wrap) {
-      chAfter.add(block.before)
-      chBefore.add(block.after)
-      plan.push({ wrap: block, item: wrap })
-      lastItem = block.before
-    } else if (
-      item?.parent &&
-      item.parent.node.tag.type != listTag.type &&
-      schema.canContain(listTag.type, item.node.type) &&
-      item.parent.parent &&
-      schema.canContain(item.parent.parent.node.type, listTag.type) &&
-      item.before != lastItem
-    ) {
-      chAfter.add(item.before)
-      chBefore.add(item.after)
-      if (item.isFirst) chAfter.add(item.parent.before)
-      if (item.isLast) chBefore.add(item.parent.after)
-      plan.push({ change: block, item })
-      lastItem = item.before
-    }
-  }
-  if (!plan.length) return false
-  const changes: ChangeSet.Spec[] = []
-  for (const step of plan) {
-    if ('wrap' in step) {
-      // Wrap block in a list
-      const { wrap, item } = step
-      const openTo = item.isTextblock ? wrap.start : wrap.before
-      let openFrom = wrap.before
-      const open: Token[] = [item]
-      // When the block above is part of the change, its item continues the list.
-      if (!chBefore.has(wrap.before)) {
-        const prev = wrap.previousSibling
-        if (prev && prev.tag.eq(listTag)) openFrom-- // Join the list above
-        else open.unshift(listTag) // Start a new list
-      }
-      changes.push({ from: openFrom, to: openTo, insert: open })
-      const closeFrom = item.isTextblock ? wrap.end : wrap.after
-      let closeTo = wrap.after
-      const close: Token[] = [Plot.End]
-      // When the block below is part of the change, the list continues in its item.
-      if (!chAfter.has(wrap.after)) {
-        const next = wrap.nextSibling
-        if (next && next.isPlot && next.type == listTag.type && autoJoin(next.tag, listTag)) closeTo++ // Join the list below
-        else close.push(Plot.End) // End the list
-      }
-      changes.push({ from: closeFrom, to: closeTo, insert: close })
-    } else {
-      // Change other list
-      const { item } = step
-      if (item.isFirst) {
-        const prev = item.parent!.previousSibling
-        if (chBefore.has(item.before - 1)) {
-          // Right after an item produced by another change, delete the open token
-          changes.push({ from: item.before - 1, to: item.before })
-        } else if (prev && prev.tag.type == listTag.type) {
-          // Join the list above
-          changes.push({ from: item.before - 2, to: item.before })
-        } else {
-          // Change the open token
-          changes.push({ from: item.before - 1, to: item.before, insert: [listTag] })
-        }
-      } else if (!chBefore.has(item.before)) {
-        // Start a new list
-        changes.push({ from: item.before, insert: [Plot.End, listTag] })
-      }
-      if (item.isLast) {
-        const next = item.parent!.nextSibling
-        if (chAfter.has(item.after + 1)) {
-          // Before an item produced by another change, drop the close token
-          changes.push({ from: item.after, to: item.after + 1 })
-        } else if (next && next.isPlot && autoJoin(next.tag, listTag)) {
-          // Join the list below
-          changes.push({ from: item.after, to: item.after + 2 })
-        }
-      }
-    }
-  }
-  return { changes, userEvent: 'wrap.list' }
-}
-
-function removeList(state: GardState, blocks: Pos.Node[], listTag: Plot.Tag): Transaction.Spec | false {
-  const plan: { item: Pos.Plot; rewrap: Plot.Tag | null }[] = []
-  let lastItem = -1
-  const chBefore: Set<number> = new Set(),
-    chAfter: Set<number> = new Set()
-  const { schema } = state.doc
-  for (const block of blocks) {
-    const item = isListItem(block)
-    if (!item) continue
-    const list = item.parent!
-    const parent = list.parent
-    if (!parent || !list.node.isPlot || list.node.type != listTag.type || item.before == lastItem) continue
-    // A text block item becomes the parent's default text block; another item's content must fit the parent.
-    const rewrap = item.node.isTextblock ? schema.defaultContentPlot(parent.node.type) : null
-    if (item.node.isTextblock ? !rewrap?.isTextblock : !schema.canContain(parent.node.type, block.node.type)) continue
-    lastItem = item.before
-    plan.push({ item, rewrap: rewrap as Plot.Tag | null })
-    chAfter.add(item.before)
-    chBefore.add(item.after)
-  }
-  if (!plan.length) return false
-  const changes: ChangeSet.Spec[] = []
-  for (const { item, rewrap } of plan) {
-    let openFrom = item.before
-    const openTo = item.start
-    const open: Token[] = rewrap ? [rewrap] : []
-    if (item.isFirst) openFrom--
-    else if (!chBefore.has(item.before)) open.unshift(Plot.End)
-    changes.push({ from: openFrom, to: openTo, insert: open })
-    const closeFrom = rewrap ? item.after : item.end
-    let closeTo = item.after
-    const close: Token[] = []
-    if (item.isLast) closeTo++
-    else if (!chAfter.has(item.after)) close.push(listTag)
-    changes.push({ from: closeFrom, to: closeTo, insert: close })
-  }
-  return { changes, userEvent: 'unwrap.list' }
 }
 
 function setSelection(selection: GardSelection): Transaction.Spec {

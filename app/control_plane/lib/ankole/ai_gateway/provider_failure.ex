@@ -3,7 +3,8 @@ defmodule Ankole.AIGateway.ProviderFailure do
   One upstream failure at the native execution boundary.
 
   FailureDiagnostics owns its classification and public projection. The decoded
-  provider body stays internal and is never included in safe log fields.
+  provider body or normalized error facts stay internal and are never included
+  in safe log fields.
   """
 
   defstruct [
@@ -66,6 +67,9 @@ defmodule Ankole.AIGateway.ProviderFailure do
 
   @spec from_event_error(map()) :: t()
   def from_event_error(error) when is_map(error) do
+    classification =
+      Ankole.AIGateway.FailureDiagnostics.classify({:provider_event_failed, error})
+
     details =
       case error["details_json"] do
         %{} = details -> details
@@ -77,8 +81,17 @@ defmodule Ankole.AIGateway.ProviderFailure do
       code: Map.get(error, "code", "provider_status_rejected"),
       stage: Map.get(details, "stage", "provider_response"),
       message: Map.get(error, "message", "provider request failed"),
-      provider_status: error["status"] || details["provider_status"],
-      provider_headers: headers(details["provider_headers"])
+      provider_error_type: classification[:provider_error_type],
+      retryable: classification[:retryable],
+      provider_status: classification[:provider_status],
+      provider_headers: headers(details["provider_headers"]),
+      provider_body:
+        %{
+          "code" => classification[:provider_error_code],
+          "type" => classification[:provider_error_type],
+          "message" => classification[:provider_message]
+        }
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
     }
   end
 

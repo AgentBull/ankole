@@ -10,6 +10,7 @@ defmodule Ankole.Conversations.Tools.Message do
   @declaration %{
     "type" => "function",
     "name" => "send_message",
+    "activity" => "processing",
     "description" =>
       "Send a message through one of your IM bindings. Use a reachable channel_id, or a principal_uid when the adapter can resolve that person's existing direct conversation. Attachments name files in your drive. The result reports sent only after provider delivery; failed reports its reason; unknown means the provider may have delivered it; queued means delivery is still pending. Do not resend an unknown message or claim delivery from queued.",
     "parameters" => %{

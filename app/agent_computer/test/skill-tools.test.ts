@@ -1,345 +1,92 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
 import { create } from '@bufbuild/protobuf'
 import { createSkillTools } from '../src/tools/library/skill-tools'
-import { jsonBytes } from '../src/fabric/envelope_proto'
-import {
-  RuntimeSkillSummarySchema,
-  SkillOverlayResolveResponseSchema,
-  SkillOverlayResponseSchema
-} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { type RPCRequester } from '../src/lanes/rpc_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import type { RPCRequester } from '../src/lanes/rpc_lane'
 import type { JobTurnRef } from '../src/lanes/actor_lane'
 import { createSkillLoader } from '../src/skills/skill-loader'
 
-const testTurn: JobTurnRef = {
-  actor: { session_id: 'session-1' },
+const turn: JobTurnRef = {
+  actor: { session_id: 'job:1000' },
   job_id: 1000,
-  attempt: 1,
+  attempt: 2,
   actor_event_id: '00000000-0000-0000-0000-000000000000'
 }
-
+const skill = create(RuntimeSkillSummarySchema, {
+  skillName: 'voice-drafting-method',
+  sourceKind: 'builtin',
+  relativePath: 'voice-drafting-method',
+  metadataJson: jsonBytes({ 'ankole-runtime': 'background_job', brain_recall_only: true })
+})
 const unusedRPC = (async () => {
-  throw new Error('RPC is not used by this test')
-}) as RPCRequester
+  throw new Error('unexpected RPC')
+}) as unknown as RPCRequester
 
-function overlayResolveRPC(text?: string): RPCRequester {
-  return (async (method: unknown, payload: unknown) => {
-    expect(method).toBe('skills.overlay.resolve')
-    const request = payload as { skillNames: string[] }
-    return create(SkillOverlayResolveResponseSchema, {
-      overlays: request.skillNames.map(skillName =>
-        create(SkillOverlayResponseSchema, {
-          skillName,
-          hasOverlay: Boolean(text),
-          text: text ?? '',
-          contentHash: 'overlay-hash'
-        })
-      )
-    })
-  }) as RPCRequester
-}
-
-describe('@ankole/agent-computer skill tools', () => {
-  it('exposes only skill_view and describes skill work by name without exposing file paths', () => {
-    const tools = createSkillTools({ turn: testTurn, rpc: unusedRPC })
+describe('Job skill_view adapter', () => {
+  it('exposes one read tool and keeps paths out of activity text', () => {
+    const tools = createSkillTools({ turn, rpc: unusedRPC })
     expect(tools.map(tool => tool.name)).toEqual(['skill_view'])
-
-    const view = tools[0]!
-    const viewActivity = view.describeActivity(
-      view.schema.parse({ name: 'openai-docs', filePath: 'references/private/internal.md' })
-    )
-    expect(viewActivity).toEqual({
+    expect(tools[0]!.describeActivity({ name: 'pdf', filePath: 'references/private.md' })).toEqual({
       key: 'signals_gateway.reply.activity.skill_load',
-      bindings: { name: 'openai-docs' }
+      bindings: { name: 'pdf' }
     })
   })
 
-  it('skill_view reads internal builtin skills and renders the skill directory attribute', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    const internalRoot = join(root, 'internal')
-    try {
-      writeFileSyncWithParents(
-        join(builtinRoot, 'nano-pdf', 'SKILL.md'),
-        ['---', 'name: nano-pdf', 'description: Public PDF skill.', '---', '', '# Public nano-pdf', ''].join('\n')
-      )
-      writeFileSyncWithParents(
-        join(internalRoot, 'nano-pdf', 'SKILL.md'),
-        ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
-      )
-
-      const tools = createSkillTools({
-        turn: testTurn,
-        rpc: overlayResolveRPC(),
-        enabledSkills: [
-          create(RuntimeSkillSummarySchema, {
-            skillName: 'nano-pdf',
-            sourceKind: 'builtin',
-            relativePath: 'nano-pdf',
-            skillRoot: 'internal'
-          })
-        ],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          internalSkillsRoot: internalRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        }
-      })
-
-      const tool = tools.find(candidate => candidate.name === 'skill_view')
-      expect(tool).toBeTruthy()
-
-      const result = await tool!.execute('call-1', { name: 'nano-pdf' })
-      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
-      expect(text).toContain('# Internal nano-pdf')
-      expect(text).not.toContain('# Public nano-pdf')
-      expect(text).toContain(`directory="${join(internalRoot, 'nano-pdf')}" runtime="any">`)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('skill_view keeps an explicit library root even when an internal directory also exists', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-library-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    const internalRoot = join(root, 'internal')
-    try {
-      writeFileSyncWithParents(
-        join(builtinRoot, 'nano-pdf', 'SKILL.md'),
-        ['---', 'name: nano-pdf', 'description: Public PDF skill.', '---', '', '# Public nano-pdf', ''].join('\n')
-      )
-      writeFileSyncWithParents(
-        join(internalRoot, 'nano-pdf', 'SKILL.md'),
-        ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
-      )
-
-      const tools = createSkillTools({
-        turn: testTurn,
-        rpc: overlayResolveRPC(),
-        enabledSkills: [
-          create(RuntimeSkillSummarySchema, {
-            skillName: 'nano-pdf',
-            sourceKind: 'builtin',
-            relativePath: 'nano-pdf',
-            skillRoot: 'library',
-            metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
-          })
-        ],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          internalSkillsRoot: internalRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        }
-      })
-
-      const tool = tools.find(candidate => candidate.name === 'skill_view')
-      expect(tool).toBeTruthy()
-
-      const result = await tool!.execute('call-1', { name: 'nano-pdf' })
-      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
-      expect(text).toContain('# Public nano-pdf')
-      expect(text).not.toContain('# Internal nano-pdf')
-      expect(text).toContain(`directory="${join(builtinRoot, 'nano-pdf')}" runtime="any">`)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('Background Job skill_view fully loads a brain-recall-only Skill through the shared loader', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-background-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    const loadedNames: string[] = []
-    try {
-      writeFileSyncWithParents(
-        join(builtinRoot, 'voice-drafting-method', 'SKILL.md'),
-        [
-          '---',
-          'name: voice-drafting-method',
-          'description: Draft in a specific voice.',
-          '---',
-          '',
-          '# Full voice drafting method',
-          ''
-        ].join('\n')
-      )
-      writeFileSyncWithParents(
-        join(builtinRoot, 'voice-drafting-method', 'references', 'examples.md'),
-        '# Voice examples'
-      )
-      const skill = create(RuntimeSkillSummarySchema, {
-        skillName: 'voice-drafting-method',
-        sourceKind: 'builtin',
-        relativePath: 'voice-drafting-method',
-        metadataJson: jsonBytes({ 'ankole-runtime': 'background_job', brain_recall_only: true })
-      })
-      const loader = createSkillLoader({
-        turn: testTurn,
-        enabledSkills: [skill],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        },
-        rpc: overlayResolveRPC('Use the preferred cadence.'),
-        onSkillLoaded: name => loadedNames.push(name)
-      })
-      const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
-
-      const instructions = await tool.execute('call-background', { name: 'voice-drafting-method' })
-      const reference = await tool.execute('call-background-reference', {
-        name: 'voice-drafting-method',
-        filePath: 'references/examples.md'
-      })
-      const instructionText = instructions.content[0]?.type === 'text' ? instructions.content[0].text : ''
-      const referenceText = reference.content[0]?.type === 'text' ? reference.content[0].text : ''
-
-      expect(instructionText).toContain('# Full voice drafting method')
-      expect(instructionText).toContain('Use the preferred cadence.')
-      expect(referenceText).toContain('# Voice examples')
-      expect(loadedNames).toEqual(['voice-drafting-method', 'voice-drafting-method'])
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('Background Job skill_view rejects a main-only Skill for its runtime', async () => {
-    const loader = createSkillLoader({
-      turn: testTurn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, {
-          skillName: 'main-dispatch',
-          sourceKind: 'builtin',
-          relativePath: 'main-dispatch',
-          metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
+  it('loads prompt-hidden instructions and referenced files from the same fenced owner', async () => {
+    const calls: unknown[] = []
+    const loaded: string[] = []
+    const rpc = (async (method: unknown, payload: unknown, scope: unknown) => {
+      expect(method).toBe('tools.read')
+      expect(scope).toEqual({ jobTurn: turn })
+      const request = payload as { name: string; argumentsJson: Uint8Array }
+      expect(request.name).toBe('skill_view')
+      const args = jsonObjectFromBytes(request.argumentsJson, 'args')!
+      calls.push(args)
+      return {
+        bodyJson: jsonBytes({
+          output: args.filePath ? '# Reference' : '# Instructions with dated field notes',
+          details: {}
         })
-      ],
-      skillRoots: { builtinSkillsRoot: '/nonexistent/library', agentInstalledSkillsRoot: '/nonexistent/installed' },
-      rpc: unusedRPC
+      }
+    }) as unknown as RPCRequester
+    const loader = createSkillLoader({ turn, rpc, enabledSkills: [skill], onSkillLoaded: name => loaded.push(name) })
+    const tool = createSkillTools({ turn, rpc: unusedRPC, loader })[0]!
+    expect((await tool.execute('first', { name: skill.skillName })).content[0]).toEqual({
+      type: 'text',
+      text: '# Instructions with dated field notes'
     })
-    const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
-
-    await expect(tool.execute('call-main-only', { name: 'main-dispatch' })).rejects.toThrow(
-      'skill is not available in the background_job runtime: main-dispatch'
+    expect(
+      (await tool.execute('reference', { name: skill.skillName, filePath: 'references/examples.md' })).content[0]
+    ).toEqual({
+      type: 'text',
+      text: '# Reference'
+    })
+    expect(calls).toEqual([{ name: skill.skillName }, { name: skill.skillName, filePath: 'references/examples.md' }])
+    expect(loaded).toEqual([skill.skillName, skill.skillName])
+    loader.disable([skill.skillName])
+    await expect(loader.load({ name: skill.skillName, filePath: 'references/examples.md' })).rejects.toThrow(
+      'not enabled'
     )
+    expect(calls).toHaveLength(2)
   })
 
-  it('skill_view rechecks effective enablement before reading a referenced file mid-turn', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-disable-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    const referencePath = join(builtinRoot, 'voice-drafting-method', 'references', 'examples.md')
-    let enabled = true
-
-    try {
-      writeFileSyncWithParents(
-        join(builtinRoot, 'voice-drafting-method', 'SKILL.md'),
-        ['---', 'name: voice-drafting-method', 'description: Draft in a specific voice.', '---', ''].join('\n')
-      )
-      writeFileSyncWithParents(referencePath, '# Voice examples')
-
-      const tool = createSkillTools({
-        turn: testTurn,
-        enabledSkills: [
-          create(RuntimeSkillSummarySchema, {
-            skillName: 'voice-drafting-method',
-            sourceKind: 'builtin',
-            relativePath: 'voice-drafting-method'
-          })
-        ],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        },
-        rpc: (async () => {
-          if (!enabled) throw new Error('skill_not_enabled')
-          return create(SkillOverlayResolveResponseSchema, {
-            overlays: [
-              create(SkillOverlayResponseSchema, {
-                skillName: 'voice-drafting-method',
-                hasOverlay: false
-              })
-            ]
-          })
-        }) as RPCRequester
-      })[0]!
-
-      const first = await tool.execute('call-reference-enabled', {
-        name: 'voice-drafting-method',
-        filePath: 'references/examples.md'
-      })
-      expect(first.content[0]?.type === 'text' ? first.content[0].text : '').toContain('# Voice examples')
-
-      enabled = false
-      rmSync(referencePath)
-
-      await expect(
-        tool.execute('call-reference-disabled', {
-          name: 'voice-drafting-method',
-          filePath: 'references/examples.md'
-        })
-      ).rejects.toThrow('skill_not_enabled')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('skill_view enforces enabled scope, real-path confinement, and overlay composition', async () => {
-    const root = join(tmpdir(), `ankole-skill-tools-boundary-${Date.now()}-${Math.random()}`)
-    const builtinRoot = join(root, 'library')
-    const skillRoot = join(builtinRoot, 'enabled-skill')
-    const outsideFile = join(root, 'outside-secret.txt')
-    const turn: JobTurnRef = {
-      actor: { session_id: 'session-1' },
-      job_id: 1000,
-      attempt: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000003'
-    }
-
-    try {
-      writeFileSyncWithParents(
-        join(skillRoot, 'SKILL.md'),
-        ['---', 'name: enabled-skill', 'description: Enabled.', '---', '', '# Base instructions', ''].join('\n')
-      )
-      writeFileSync(outsideFile, 'must not be readable')
-      symlinkSync(outsideFile, join(skillRoot, 'escaped.txt'))
-
-      const tools = createSkillTools({
-        turn,
-        enabledSkills: [
-          create(RuntimeSkillSummarySchema, {
-            skillName: 'enabled-skill',
-            sourceKind: 'builtin',
-            relativePath: 'enabled-skill'
-          })
-        ],
-        skillRoots: {
-          builtinSkillsRoot: builtinRoot,
-          agentInstalledSkillsRoot: join(root, 'installed')
-        },
-        rpc: overlayResolveRPC('Agent-specific evidence rule.')
-      })
-      const tool = tools.find(candidate => candidate.name === 'skill_view')!
-
-      const result = await tool.execute('call-enabled', { name: 'enabled-skill' })
-      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
-      expect(text).toContain('# Base instructions')
-      expect(text).toContain('Agent-specific evidence rule.')
-
-      await expect(tool.execute('call-disabled', { name: 'disabled-skill' })).rejects.toThrow('skill is not enabled')
-      await expect(
-        tool.execute('call-traversal', { name: 'enabled-skill', filePath: '../outside-secret.txt' })
-      ).rejects.toThrow('invalid skill file path')
-      await expect(tool.execute('call-symlink', { name: 'enabled-skill', filePath: 'escaped.txt' })).rejects.toThrow(
-        'symbolic link'
-      )
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
+  it('propagates current enablement and resource-confinement rejections from the owner', async () => {
+    const rpc = (async () => {
+      throw new Error('skill_not_enabled')
+    }) as unknown as RPCRequester
+    const loader = createSkillLoader({ turn, rpc, enabledSkills: [skill] })
+    await expect(loader.load({ name: skill.skillName })).rejects.toThrow('skill_not_enabled')
+    await expect(loader.load({ name: 'absent' })).rejects.toThrow('not enabled')
+    const confinement = createSkillLoader({
+      turn,
+      enabledSkills: [skill],
+      rpc: (async () => {
+        throw new Error('invalid skill file path')
+      }) as unknown as RPCRequester
+    })
+    await expect(confinement.load({ name: skill.skillName, filePath: '../private.txt' })).rejects.toThrow(
+      'invalid skill file path'
+    )
   })
 })
-
-function writeFileSyncWithParents(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, content)
-}

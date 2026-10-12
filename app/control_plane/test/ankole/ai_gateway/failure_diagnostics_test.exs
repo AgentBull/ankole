@@ -1,10 +1,12 @@
 defmodule Ankole.AIGateway.FailureDiagnosticsTest do
+  alias Ankole.AIGateway.FailureResponse
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
 
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ProviderFailure
 
   test "keeps a public HTTP status separate from provider status" do
     log =
@@ -172,20 +174,20 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
   end
 
   test "builds safe public messages from the stable failure kind" do
-    assert FailureDiagnostics.public_message(%{failure_kind: :transport}) ==
+    assert FailureResponse.public_message(%{failure_kind: :transport}) ==
              "The upstream provider connection failed."
 
-    assert FailureDiagnostics.public_message(%{failure_kind: :invalid_response}) ==
+    assert FailureResponse.public_message(%{failure_kind: :invalid_response}) ==
              "The upstream provider returned an invalid response."
 
-    assert FailureDiagnostics.public_message(%{failure_kind: :internal}) ==
+    assert FailureResponse.public_message(%{failure_kind: :internal}) ==
              "The AIGateway request failed."
 
     classification = FailureDiagnostics.classify(%{"code" => "provider_stream_error"})
 
     assert classification.failure_kind == :transport
 
-    assert FailureDiagnostics.public_message(classification) ==
+    assert FailureResponse.public_message(classification) ==
              "AIGateway provider stream failed before a terminal response."
   end
 
@@ -204,7 +206,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     assert classification.provider_status == 402
     assert classification.provider_message == upstream_message
     assert classification.retryable == false
-    assert FailureDiagnostics.public_message(classification) == upstream_message
+    assert FailureResponse.public_message(classification) == upstream_message
 
     long_message = String.duplicate("上", 2_001)
 
@@ -216,7 +218,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
       })
 
     assert String.length(bounded.provider_message) == 2_000
-    assert FailureDiagnostics.public_message(bounded) == String.slice(long_message, 0, 2_000)
+    assert FailureResponse.public_message(bounded) == String.slice(long_message, 0, 2_000)
   end
 
   test "restores a bounded provider message from stored provider failures" do
@@ -230,7 +232,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
       })
 
     assert classification.provider_message == "stored upstream message"
-    assert FailureDiagnostics.public_message(classification) == "stored upstream message"
+    assert FailureResponse.public_message(classification) == "stored upstream message"
   end
 
   test "classifies provider terminal events from stable fields and retains their public message" do
@@ -402,11 +404,19 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
         "details_json" => %{"stage" => "api_resolver"}
       }
 
-      classification =
-        FailureDiagnostics.classify({:provider_event_failed, %{"error" => envelope}})
-
-      refute Map.get(classification, :retryable) == true
-      refute Map.has_key?(classification, :provider_error_type)
+      for reason <- [
+            {:provider_event_failed, %{"error" => envelope}},
+            ProviderFailure.from_native(%{
+              "code" => code,
+              "stage" => "api_resolver",
+              "message" => "kernel stream failure"
+            })
+          ] do
+        classification = FailureDiagnostics.classify(reason)
+        assert classification[:failure_kind] == :provider_response
+        assert classification[:retryable] == false
+        refute Map.has_key?(classification, :provider_error_type)
+      end
     end
   end
 
@@ -478,7 +488,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
 
     assert FailureDiagnostics.provider_validation_failure?(classification)
 
-    assert FailureDiagnostics.public_error_code(classification, "provider_response_failed") ==
+    assert FailureResponse.public_error_code(classification, "provider_response_failed") ==
              "invalid_prompt"
   end
 
@@ -495,22 +505,22 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
   end
 
   test "public error code keeps a Responses code and canonicalizes a permanent rejection" do
-    assert FailureDiagnostics.public_error_code(
+    assert FailureResponse.public_error_code(
              %{provider_error_code: "context_length_exceeded", provider_status: 400},
              "provider_stream_error"
            ) == "context_length_exceeded"
 
-    assert FailureDiagnostics.public_error_code(
+    assert FailureResponse.public_error_code(
              %{error_code: "upstream_response_failed", provider_status: 400},
              "provider_stream_error"
            ) == "invalid_prompt"
 
-    assert FailureDiagnostics.public_error_code(
+    assert FailureResponse.public_error_code(
              %{error_code: "upstream_response_failed", provider_status: 429, retryable: true},
              "provider_stream_error"
            ) == "upstream_response_failed"
 
-    assert FailureDiagnostics.public_error_code(%{}, "provider_stream_error") ==
+    assert FailureResponse.public_error_code(%{}, "provider_stream_error") ==
              "provider_stream_error"
   end
 
@@ -585,7 +595,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
 
       for {reason, status, code, param} <- rows do
         assert %{status: ^status, headers: %{}, error: error} =
-                 FailureDiagnostics.project(reason),
+                 FailureResponse.project(reason),
                "reason #{inspect(reason)}"
 
         assert %{"code" => ^code, "param" => ^param, "message" => message, "type" => type} =
@@ -597,7 +607,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
       end
 
       assert %{error: %{"details_json" => %{"reason" => "orphan"}}} =
-               FailureDiagnostics.project({:tool_results_quarantined, %{"reason" => "orphan"}})
+               FailureResponse.project({:tool_results_quarantined, %{"reason" => "orphan"}})
     end
 
     test "upstream failures follow the HTTP status rule and carry safe details" do
@@ -616,7 +626,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  }
                }
              } =
-               FailureDiagnostics.project(
+               FailureResponse.project(
                  %Ankole.AIGateway.ProviderFailure{
                    kind: :status_rejected,
                    provider_status: 429,
@@ -633,7 +643,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "details_json" => details
                }
              } =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :status_rejected,
                  provider_status: 503,
                  provider_body: %{"raw_body" => "private body"},
@@ -650,7 +660,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "message" => "The upstream provider returned an invalid response."
                }
              } =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :invalid_response,
                  provider_status: 200,
                  provider_body: %{"body" => ["private"]}
@@ -663,7 +673,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "message" => "The upstream provider timed out."
                }
              } =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :other,
                  code: "total_timeout"
                })
@@ -680,14 +690,14 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  }
                }
              } =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :other,
                  code: "websocket_connect_failed",
                  stage: "connect"
                })
 
       assert %{status: 400, error: %{"code" => "upstream_response_failed"}} =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :other,
                  code: "upstream_response_failed",
                  provider_status: 400
@@ -700,7 +710,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "message" => "The AIGateway request failed."
                }
              } =
-               FailureDiagnostics.project(%Ankole.AIGateway.ProviderFailure{
+               FailureResponse.project(%Ankole.AIGateway.ProviderFailure{
                  kind: :other,
                  code: "other"
                })
@@ -732,7 +742,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
       end
 
       assert %{status: 400, error: %{"message" => ^message}} =
-               FailureDiagnostics.project(rejected, stage: "socket_open")
+               FailureResponse.project(rejected, stage: "socket_open")
     end
 
     test "an exhausted credential pool keeps one wording, retry headers, and resets_at" do
@@ -752,7 +762,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "resets_at" => resets_at,
                  "details_json" => %{"retry_at" => ^iso}
                }
-             } = FailureDiagnostics.project({:credential_pool_exhausted, %{"retry_at" => iso}})
+             } = FailureResponse.project({:credential_pool_exhausted, %{"retry_at" => iso}})
 
       assert message == "AIGateway credential pool exhausted. retry_at=#{iso}"
       assert resets_at == DateTime.to_unix(retry_at)
@@ -768,16 +778,16 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                    "message" => "AIGateway credential pool exhausted. Try again later.",
                    "details_json" => %{}
                  } = error
-             } = FailureDiagnostics.project({:credential_pool_exhausted, %{"retry_at" => "soon"}})
+             } = FailureResponse.project({:credential_pool_exhausted, %{"retry_at" => "soon"}})
 
       refute Map.has_key?(error, "resets_at")
 
-      assert %{retry_at: ^iso} =
+      assert %{retry_at: ^retry_at} =
                FailureDiagnostics.classify({:credential_pool_exhausted, %{"retry_at" => iso}})
 
       assert %{"code" => "credential_pool_exhausted", "retry_at" => iso}
              |> FailureDiagnostics.classify_stored()
-             |> FailureDiagnostics.public_message() ==
+             |> FailureResponse.public_message() ==
                "AIGateway credential pool exhausted. retry_at=#{iso}"
     end
 
@@ -810,7 +820,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                    "window_ends_at" => window_ends_at_iso
                  }
                }
-             } = FailureDiagnostics.project({:agent_token_quota_exceeded, window})
+             } = FailureResponse.project({:agent_token_quota_exceeded, window})
 
       assert window_ends_at_iso == DateTime.to_iso8601(window_ends_at)
       assert resets_at == DateTime.to_unix(window_ends_at)
@@ -843,7 +853,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              "provider_row_id" => "private-provider-id"
            }}
 
-        projection = FailureDiagnostics.project(reason)
+        projection = FailureResponse.project(reason)
         assert projection.error["type"] == expected_type
         assert projection.error["message"] == "upstream explanation"
 
@@ -868,7 +878,7 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
                  "message" => "input is invalid",
                  "param" => "input"
                }
-             } = FailureDiagnostics.project(error)
+             } = FailureResponse.project(error)
     end
   end
 

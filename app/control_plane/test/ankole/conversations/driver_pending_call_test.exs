@@ -1,6 +1,6 @@
 defmodule Ankole.Conversations.DriverPendingCallTest do
   use ExUnit.Case, async: true
-  alias Ankole.Conversations.Driver.PendingCall
+  alias Ankole.Conversations.PendingCall
 
   test "dispatch keeps call order and counts every active state toward four slots" do
     calls = Enum.map(1..6, &call/1)
@@ -79,6 +79,14 @@ defmodule Ankole.Conversations.DriverPendingCallTest do
     assert PendingCall.queued(pending) == ["queued"]
     assert PendingCall.on_worker(pending) == ["worker"]
     assert PendingCall.waits(pending) == [{"waiting", :deadline}]
+  end
+
+  test "a route observation does not probe a call whose transport send is still pending" do
+    pending = %{"sending" => entry(:worker), "sent" => entry(:worker)}
+    observed = PendingCall.worker_same(pending, ["sending"])
+    assert observed["sending"] == pending["sending"]
+    assert observed["sent"].status == :queued
+    assert observed["sent"].probe?
   end
 
   test "delegation and waiting retain the call identity and tool span" do

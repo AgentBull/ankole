@@ -119,6 +119,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCWire do
   def error_code(_reason, fallback_code, _opts), do: fallback_code
 
   def error_message(reason, style \\ :default)
+  def error_message(reason, _style) when is_binary(reason), do: reason
   def error_message(%Ecto.Changeset{} = changeset, _style), do: inspect(changeset.errors)
   def error_message(reason, _style) when is_atom(reason), do: Atom.to_string(reason)
 

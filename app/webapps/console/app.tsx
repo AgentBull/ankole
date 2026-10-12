@@ -155,9 +155,9 @@ export function createConsoleRouter(queryClient: QueryClient) {
                   { path: ':key', element: <SettingEditorDrawer /> }
                 ]
               },
-              { path: 'settings/worker-providers', element: <WorkerProvidersListPage /> },
-              { path: 'settings/worker-providers/new', element: <WorkerProviderEditorPage /> },
-              { path: 'settings/worker-providers/:providerID', element: <WorkerProviderEditorPage /> },
+              { path: 'worker-providers', element: <WorkerProvidersListPage /> },
+              { path: 'worker-providers/new', element: <WorkerProviderEditorPage /> },
+              { path: 'worker-providers/:providerID', element: <WorkerProviderEditorPage /> },
               { path: 'worker-envs', element: <WorkerEnvsListPage />, ...preloadRoute(loaders.workerEnvs) },
               { path: 'worker-envs/new', element: <WorkerEnvEditorPage /> },
               { path: 'worker-envs/:name', element: <WorkerEnvEditorPage /> },

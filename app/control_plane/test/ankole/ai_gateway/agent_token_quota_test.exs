@@ -1,10 +1,11 @@
 defmodule Ankole.AIGateway.AgentTokenQuotaTest do
+  alias Ankole.AIGateway.CompactionRequests
+  alias Ankole.AIGateway.CompactionPolicy
   use Ankole.AIGatewayCase
 
   import ExUnit.CaptureLog
 
   alias Ankole.AIAgent.TokenQuota
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Schemas.UsageRecord
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Repo
@@ -163,9 +164,9 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
   # that request's own model work: checked and counted like the request itself.
   describe "compaction trigger" do
     setup do
-      merged = Map.put(Compaction.config(), "upstream", true)
-      assert {:ok, _config} = Compaction.put_config(merged)
-      on_exit(fn -> Compaction.delete_config() end)
+      merged = Map.put(CompactionPolicy.config(), "upstream", true)
+      assert {:ok, _config} = CompactionPolicy.put_config(merged)
+      on_exit(fn -> CompactionPolicy.delete_config() end)
       :ok
     end
 
@@ -216,7 +217,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       # neither blocks it nor counts it.
       refute match?(
                {:error, {:agent_token_quota_exceeded, _window}},
-               Compaction.compact_response(
+               CompactionRequests.compact_response(
                  agent.uid,
                  Map.delete(trigger_request(), "input") |> Map.put("input", history_items())
                )

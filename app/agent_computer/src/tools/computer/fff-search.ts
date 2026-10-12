@@ -165,7 +165,7 @@ export class FffSearchRuntime {
     const mod = await loadFff()
     // No frecency or history databases: ranking uses fuzzy score, modification
     // recency, and git status.
-    const created = mod.FileFinder.create({ basePath: root, aiMode: true })
+    const created = mod.FileFinder.create({ basePath: root, aiMode: true, enableHomeDirScanning: true })
     if (!created.ok) {
       throw new Error(`file search engine failed to start for ${root}: ${created.error}`)
     }

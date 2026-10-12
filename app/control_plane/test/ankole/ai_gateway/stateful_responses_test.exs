@@ -1,4 +1,7 @@
 defmodule Ankole.AIGateway.StatefulResponsesTest do
+  alias Ankole.AIGateway.ToolResultJournal
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.ResponseChain
   use Ankole.DataCase, async: true
 
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
@@ -67,7 +70,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       # First: create an initial message and mark it complete.
       {:ok, first} = start_run(agent, conversation, "event-a")
 
-      {:ok, first_complete} = StatefulResponses.commit_complete(first, [%{"type" => "message"}])
+      {:ok, first_complete} = ResponseCommit.commit_complete(first, [%{"type" => "message"}])
 
       # Now start a second run referencing the first as previous_response_id.
       # The conversation is derived from the stored anchor; callers must not send
@@ -88,7 +91,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-xor")
 
       {:ok, first} = start_run(agent, conversation, "event-xor-a")
-      {:ok, first_complete} = StatefulResponses.commit_complete(first, [%{"type" => "message"}])
+      {:ok, first_complete} = ResponseCommit.commit_complete(first, [%{"type" => "message"}])
 
       assert {:error, :stateful_anchor_conflict} =
                StatefulResponses.start_planned_response_run(%{
@@ -147,11 +150,11 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert {:error, :response_run_in_progress} =
                start_run(agent, conversation, "event-implicit-leaf-blocked")
 
-      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+      {:ok, root} = ResponseCommit.commit_complete(root, [%{"text" => "root"}])
       {:ok, next} = start_run(agent, conversation, "event-implicit-leaf-next")
 
       assert next.previous_message_id == root.id
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == root.id
+      assert ResponseChain.latest_visible_leaf(conversation.id) == root.id
     end
 
     test "admits only one concurrent implicit continuation and commits its compaction atomically" do
@@ -164,7 +167,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, root} = start_run(agent, conversation, "event-implicit-admission-root")
-      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+      {:ok, root} = ResponseCommit.commit_complete(root, [%{"text" => "root"}])
 
       attrs = %{
         subject_uid: agent.principal.uid,
@@ -237,7 +240,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, root} = start_run(agent, conversation, "event-implicit-head-change-root")
-      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+      {:ok, root} = ResponseCommit.commit_complete(root, [%{"text" => "root"}])
 
       {:ok, newer_leaf} =
         start_run(agent, conversation, "event-implicit-head-change-newer", %{
@@ -245,7 +248,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         })
 
       {:ok, _newer_leaf} =
-        StatefulResponses.commit_complete(newer_leaf, [%{"text" => "newer"}])
+        ResponseCommit.commit_complete(newer_leaf, [%{"text" => "newer"}])
 
       assert {:error, :response_run_in_progress} =
                StatefulResponses.start_planned_response_run(%{
@@ -275,7 +278,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-tool-journal-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "function_call",
             "call_id" => "call_1",
@@ -305,16 +308,16 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert journal.type == "message"
       assert journal.previous_message_id == anchor.id
       assert journal.content == request_items
-      assert StatefulResponses.response_metadata(journal) == %{"opaque" => "kept"}
+      assert ResponseChain.response_metadata(journal) == %{"opaque" => "kept"}
       assert journal.metadata["tool_result_journal"] == true
 
       assert journal.metadata["tool_results"] == [
                %{"call_id" => "call_1", "output" => "sunny"}
              ]
 
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
+      assert ResponseChain.latest_visible_leaf(conversation.id) == journal.id
 
-      assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+      assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [
                anchor.id,
                journal.id
              ]
@@ -383,7 +386,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-tool-dedupe-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "function_call",
             "call_id" => "call_dedupe",
@@ -407,7 +410,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       assert journal.status == "complete"
       assert journal.content == [output]
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
+      assert ResponseChain.latest_visible_leaf(conversation.id) == journal.id
     end
 
     test "quarantines a tool output with no replay value" do
@@ -419,7 +422,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-output-value-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "function_call",
             "call_id" => "call_missing_output",
@@ -448,7 +451,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       quarantine_id = String.replace_prefix(quarantine_response_id, "resp_", "")
       assert Repo.get!(Message, quarantine_id).content == [invalid_output]
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
+      assert ResponseChain.latest_visible_leaf(conversation.id) == anchor.id
     end
 
     test "writes a custom tool output after its matching custom call" do
@@ -463,7 +466,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-custom-tool-journal-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "custom_tool_call",
             "call_id" => "call_apply_patch",
@@ -505,7 +508,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-custom-tool-mismatch-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "custom_tool_call",
             "call_id" => "call_apply_patch_mismatch",
@@ -548,7 +551,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-tool-quarantine-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{"type" => "message", "role" => "assistant", "content" => "stable answer"}
         ])
 
@@ -583,8 +586,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert quarantined.metadata["tool_result_quarantine"]["reason"] ==
                "orphan_tool_call_output"
 
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
-      assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [anchor.id]
+      assert ResponseChain.latest_visible_leaf(conversation.id) == anchor.id
+      assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [anchor.id]
 
       assert {:error,
               {:tool_results_quarantined, %{"quarantine_response_id" => ^quarantine_response_id}}} =
@@ -600,7 +603,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, anchor} = start_run(agent, conversation, "event-incomplete-call-anchor")
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "function_call",
             "status" => "incomplete",
@@ -640,7 +643,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       caller = %{"type" => "program", "caller_id" => "program_1"}
 
       {:ok, anchor} =
-        StatefulResponses.commit_complete(anchor, [
+        ResponseCommit.commit_complete(anchor, [
           %{
             "type" => "program",
             "call_id" => "program_1",
@@ -701,7 +704,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, anchor} = start_run(agent, conversation, "event-invalid-tool-journal-anchor")
-      {:ok, anchor} = StatefulResponses.commit_complete(anchor, [%{"type" => "message"}])
+      {:ok, anchor} = ResponseCommit.commit_complete(anchor, [%{"type" => "message"}])
 
       assert {:error, :invalid_tool_results} =
                record_tool_results(%{
@@ -737,7 +740,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       ]
 
       {:ok, committed} =
-        StatefulResponses.commit_complete(message, output_items, %{"usage" => %{}})
+        ResponseCommit.commit_complete(message, output_items, %{"usage" => %{}})
 
       assert committed.status == "complete"
       assert committed.content == request_items ++ output_items
@@ -752,8 +755,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, message} = start_run(agent, conversation, "event-terminal-race")
 
-      assert {:ok, _failed} = StatefulResponses.commit_error(message, [], %{"reason" => "closed"})
-      assert {:ok, :already_terminal} = StatefulResponses.commit_complete(message, [])
+      assert {:ok, _failed} = ResponseCommit.commit_error(message, [], %{"reason" => "closed"})
+      assert {:ok, :already_terminal} = ResponseCommit.commit_complete(message, [])
     end
 
     test "projects the durable terminal winner when a provider terminal loses the race" do
@@ -768,7 +771,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, message} = start_run(agent, conversation, "event-terminal-projection-race")
 
       assert {:ok, _failed} =
-               StatefulResponses.commit_error(message, [], %{
+               ResponseCommit.commit_error(message, [], %{
                  "code" => "provider_stream_error",
                  "retryable" => true
                })
@@ -839,7 +842,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "Hel"}]}
       ]
 
-      {:ok, failed} = StatefulResponses.commit_error(message, partial_output, error)
+      {:ok, failed} = ResponseCommit.commit_error(message, partial_output, error)
 
       assert failed.status == "error"
       assert failed.content == request_items ++ partial_output
@@ -860,7 +863,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "Hello"}]}
       ]
 
-      assert {:ok, _completed} = StatefulResponses.commit_complete(message, output_items)
+      assert {:ok, _completed} = ResponseCommit.commit_complete(message, output_items)
 
       stateful = %{
         message_id: message.id,
@@ -917,23 +920,23 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       # Build a 3-message chain.
       {:ok, m1} = start_run(agent, conversation, "event-g")
 
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "first"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "first"}])
 
       {:ok, m2} =
         start_run(agent, conversation, "event-h", %{
           previous_response_id: "resp_#{m1.id}"
         })
 
-      {:ok, m2} = StatefulResponses.commit_complete(m2, [%{"text" => "second"}])
+      {:ok, m2} = ResponseCommit.commit_complete(m2, [%{"text" => "second"}])
 
       {:ok, m3} =
         start_run(agent, conversation, "event-i", %{
           previous_response_id: "resp_#{m2.id}"
         })
 
-      {:ok, m3} = StatefulResponses.commit_complete(m3, [%{"text" => "third"}])
+      {:ok, m3} = ResponseCommit.commit_complete(m3, [%{"text" => "third"}])
 
-      history = StatefulResponses.expand_history(conversation.id)
+      history = ResponseChain.expand_history(conversation.id)
 
       assert length(history) == 3
       # Chronological order: oldest first.
@@ -949,7 +952,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m1} = start_run(agent, conversation, "event-j")
 
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "done"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "done"}])
 
       # Start a second run but don't commit it.
       {:ok, _m2} =
@@ -957,7 +960,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           previous_response_id: "resp_#{m1.id}"
         })
 
-      history = StatefulResponses.expand_history(conversation.id)
+      history = ResponseChain.expand_history(conversation.id)
 
       # Only the complete row should appear.
       assert length(history) == 1
@@ -970,7 +973,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-generating-anchor")
 
       {:ok, m1} = start_run(agent, conversation, "event-generating-anchor-a")
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "done"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "done"}])
 
       {:ok, generating} =
         start_run(agent, conversation, "event-generating-anchor-b", %{
@@ -978,7 +981,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         })
 
       assert [] =
-               StatefulResponses.expand_history(conversation.id,
+               ResponseChain.expand_history(conversation.id,
                  previous_response_id: "resp_#{generating.id}"
                )
     end
@@ -990,7 +993,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-bad-history-anchor")
 
       assert [] =
-               StatefulResponses.expand_history(conversation.id,
+               ResponseChain.expand_history(conversation.id,
                  previous_response_id: "resp_not-a-uuid"
                )
     end
@@ -1002,35 +1005,35 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-compaction-tail")
 
       {:ok, m1} = start_run(agent, conversation, "event-compact-1")
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "one"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "one"}])
 
       {:ok, m2} =
         start_run(agent, conversation, "event-compact-2", %{
           previous_response_id: "resp_#{m1.id}"
         })
 
-      {:ok, m2} = StatefulResponses.commit_complete(m2, [%{"text" => "two"}])
+      {:ok, m2} = ResponseCommit.commit_complete(m2, [%{"text" => "two"}])
 
       {:ok, m3} =
         start_run(agent, conversation, "event-compact-3", %{
           previous_response_id: "resp_#{m2.id}"
         })
 
-      {:ok, m3} = StatefulResponses.commit_complete(m3, [%{"text" => "three"}])
+      {:ok, m3} = ResponseCommit.commit_complete(m3, [%{"text" => "three"}])
 
       {:ok, m4} =
         start_run(agent, conversation, "event-compact-4", %{
           previous_response_id: "resp_#{m3.id}"
         })
 
-      {:ok, m4} = StatefulResponses.commit_complete(m4, [%{"text" => "four"}])
+      {:ok, m4} = ResponseCommit.commit_complete(m4, [%{"text" => "four"}])
 
       {:ok, m5} =
         start_run(agent, conversation, "event-compact-5", %{
           previous_response_id: "resp_#{m4.id}"
         })
 
-      {:ok, m5} = StatefulResponses.commit_complete(m5, [%{"text" => "five"}])
+      {:ok, m5} = ResponseCommit.commit_complete(m5, [%{"text" => "five"}])
 
       {:ok, artifact} =
         insert_compaction_artifact(
@@ -1041,14 +1044,14 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, checkpoint} =
-        StatefulResponses.create_compaction_checkpoint(%{
+        ResponseChain.create_compaction_checkpoint(%{
           subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m5.id}",
           artifact: artifact
         })
 
       history =
-        StatefulResponses.expand_history(conversation.id,
+        ResponseChain.expand_history(conversation.id,
           previous_response_id: "resp_#{checkpoint.id}"
         )
 
@@ -1079,7 +1082,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, m1} = start_run(agent, conversation, "event-compact-tool-1")
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "one"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "one"}])
 
       function_call = [
         %{
@@ -1095,7 +1098,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           previous_response_id: "resp_#{m1.id}"
         })
 
-      {:ok, m2} = StatefulResponses.commit_complete(m2, function_call)
+      {:ok, m2} = ResponseCommit.commit_complete(m2, function_call)
 
       tool_result = [
         %{
@@ -1110,14 +1113,14 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           previous_response_id: "resp_#{m2.id}"
         })
 
-      {:ok, m3} = StatefulResponses.commit_complete(m3, tool_result)
+      {:ok, m3} = ResponseCommit.commit_complete(m3, tool_result)
 
       {:ok, m4} =
         start_run(agent, conversation, "event-compact-tool-4", %{
           previous_response_id: "resp_#{m3.id}"
         })
 
-      {:ok, m4} = StatefulResponses.commit_complete(m4, [%{"text" => "four"}])
+      {:ok, m4} = ResponseCommit.commit_complete(m4, [%{"text" => "four"}])
 
       {:ok, artifact} =
         insert_compaction_artifact(
@@ -1128,14 +1131,14 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, checkpoint} =
-        StatefulResponses.create_compaction_checkpoint(%{
+        ResponseChain.create_compaction_checkpoint(%{
           subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m4.id}",
           artifact: artifact
         })
 
       history =
-        StatefulResponses.expand_history(conversation.id,
+        ResponseChain.expand_history(conversation.id,
           previous_response_id: "resp_#{checkpoint.id}"
         )
 
@@ -1155,7 +1158,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         )
 
       {:ok, m1} = start_run(agent, conversation, "event-current-tool-1")
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "one"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "one"}])
 
       function_call = [
         %{
@@ -1171,20 +1174,20 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           previous_response_id: "resp_#{m1.id}"
         })
 
-      {:ok, m2} = StatefulResponses.commit_complete(m2, function_call)
+      {:ok, m2} = ResponseCommit.commit_complete(m2, function_call)
 
       {:ok, artifact} =
         insert_compaction_artifact(agent, conversation, "one through call", function_call)
 
       {:ok, checkpoint} =
-        StatefulResponses.create_compaction_checkpoint(%{
+        ResponseChain.create_compaction_checkpoint(%{
           subject_uid: agent.principal.uid,
           previous_response_id: "resp_#{m2.id}",
           artifact: artifact
         })
 
       history =
-        StatefulResponses.expand_history(conversation.id,
+        ResponseChain.expand_history(conversation.id,
           previous_response_id: "resp_#{checkpoint.id}"
         )
 
@@ -1202,16 +1205,16 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m1} = start_run(agent, conversation, "event-l")
 
-      {:ok, m1} = StatefulResponses.commit_complete(m1, [%{"text" => "first"}])
+      {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "first"}])
 
       {:ok, m2} =
         start_run(agent, conversation, "event-m", %{
           previous_response_id: "resp_#{m1.id}"
         })
 
-      {:ok, m2} = StatefulResponses.commit_complete(m2, [%{"text" => "second"}])
+      {:ok, m2} = ResponseCommit.commit_complete(m2, [%{"text" => "second"}])
 
-      leaf = StatefulResponses.latest_visible_leaf(conversation.id)
+      leaf = ResponseChain.latest_visible_leaf(conversation.id)
       assert leaf == m2.id
     end
 
@@ -1222,14 +1225,14 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-branch-leaves")
 
       {:ok, root} = start_run(agent, conversation, "event-branch-root")
-      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+      {:ok, root} = ResponseCommit.commit_complete(root, [%{"text" => "root"}])
 
       {:ok, older_leaf} =
         start_run(agent, conversation, "event-branch-older", %{
           previous_response_id: "resp_#{root.id}"
         })
 
-      {:ok, older_leaf} = StatefulResponses.commit_complete(older_leaf, [%{"text" => "older"}])
+      {:ok, older_leaf} = ResponseCommit.commit_complete(older_leaf, [%{"text" => "older"}])
 
       {:ok, latest_leaf} =
         start_run(agent, conversation, "event-branch-latest", %{
@@ -1237,17 +1240,17 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
         })
 
       {:ok, latest_leaf} =
-        StatefulResponses.commit_complete(latest_leaf, [%{"text" => "latest"}])
+        ResponseCommit.commit_complete(latest_leaf, [%{"text" => "latest"}])
 
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == latest_leaf.id
+      assert ResponseChain.latest_visible_leaf(conversation.id) == latest_leaf.id
 
-      assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [
+      assert Enum.map(ResponseChain.expand_history(conversation.id), & &1.id) == [
                root.id,
                latest_leaf.id
              ]
 
       assert Enum.map(
-               StatefulResponses.expand_history(conversation.id,
+               ResponseChain.expand_history(conversation.id,
                  previous_response_id: "resp_#{older_leaf.id}"
                ),
                & &1.id
@@ -1260,7 +1263,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, conversation} =
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-9")
 
-      assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+      assert ResponseChain.latest_visible_leaf(conversation.id) == nil
     end
   end
 
@@ -1296,12 +1299,12 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   defp record_tool_results(attrs) do
     {:ok, result} =
       Ankole.Repo.transact(fn repo ->
-        {:ok, StatefulResponses.record_tool_results_in_tx(repo, attrs)}
+        {:ok, ToolResultJournal.record_tool_results_in_tx(repo, attrs)}
       end)
 
     case result do
       {:ok, message, _disposition} ->
-        StatefulResponses.publish_tool_result_events(message)
+        ToolResultJournal.publish_tool_result_events(message)
         {:ok, message}
 
       error ->

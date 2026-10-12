@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway.Events do
+  alias Ankole.AIGateway.ResponseChain
+
   @moduledoc """
   Generic live response events scoped to an AIGateway conversation.
 
@@ -7,7 +9,6 @@ defmodule Ankole.AIGateway.Events do
   """
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.AIGateway.StatefulResponses
 
   @pubsub Ankole.PubSub
 
@@ -33,7 +34,7 @@ defmodule Ankole.AIGateway.Events do
   @spec subscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
   def subscribe(subject_uid, conversation_id) do
     with {:ok, conversation} <-
-           StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id) do
+           ResponseChain.get_conversation_for_subject(subject_uid, conversation_id) do
       Phoenix.PubSub.subscribe(@pubsub, topic(conversation.subject_uid, conversation.id))
     end
   end
@@ -53,7 +54,7 @@ defmodule Ankole.AIGateway.Events do
       conversation_id: message.conversation_id,
       response_id: response_id(message.id),
       previous_response_id: optional_response_id(message.previous_message_id),
-      metadata: StatefulResponses.response_metadata(message),
+      metadata: ResponseChain.response_metadata(message),
       payload: payload
     }
 

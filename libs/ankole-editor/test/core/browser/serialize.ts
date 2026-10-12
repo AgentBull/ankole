@@ -1,7 +1,7 @@
 import { describe, it } from './runner'
 import ist from 'ist'
 import { Plot, Leaf, Mark, Slice, type Token, Schema, Elt, serialize, parse } from '../../../src/core/doc'
-import { Paragraph, Heading, Figure, CaptionedFigure, Strikethrough, Underline } from '../../../src/core/types'
+import { Paragraph, Heading, Figure, CaptionedFigure, Strikethrough, Underline } from '../../../src/core/types/schema'
 import { basicBuilders, builder, basicSchema, tag, eq } from '../schema'
 const { doc, blockquote, p, em, strong, code, img, $img, imgAlt, fig, capFig, olStart, ul, li, pre, h1, h2, br, hr } =
   basicBuilders

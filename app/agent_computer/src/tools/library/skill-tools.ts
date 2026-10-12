@@ -2,7 +2,6 @@ import { z } from 'zod'
 import type { JobTurnRef } from '../../lanes/actor_lane'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
-import type { SkillFileRoots } from '../../skills/effective-skill'
 import { createSkillLoader, type SkillLoadDetails, type SkillLoader } from '../../skills/skill-loader'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
@@ -13,31 +12,20 @@ const SkillViewParams = z.object({
   filePath: z.string().optional().describe('Skill-relative file path. Defaults to SKILL.md.')
 })
 
-export type { SkillFileRoots } from '../../skills/effective-skill'
-
 export interface CreateSkillToolsOptions {
   turn: JobTurnRef
   enabledSkills?: RuntimeSkillSummary[]
-  skillRoots?: SkillFileRoots
   rpc: RPCRequester
   loader?: SkillLoader
 }
 
-/**
- * Creates the skill tools available to the model.
- *
- * `skill_view` reads base skill files from their real source roots and resolves
- * the per-agent skill-lesson block over RuntimeFabric only for SKILL.md. The
- * lesson block is read-only here: lessons are written by Dreaming and the
- * Console, and skill assignment remains a control-plane concern.
- */
+/** Creates the Job adapter for the control-plane skill_view contract. */
 export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool[] {
   const loader =
     opts.loader ??
     createSkillLoader({
       turn: opts.turn,
       enabledSkills: opts.enabledSkills,
-      skillRoots: opts.skillRoots,
       rpc: opts.rpc
     })
   return [createSkillViewTool(loader)]

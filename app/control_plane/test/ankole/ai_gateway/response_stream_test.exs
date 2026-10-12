@@ -487,9 +487,10 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     stream_monitor = Process.monitor(stream.pid)
     send(open_worker, :fail_open)
 
-    assert_receive {:ai_gateway_response_stream, ref, :events,
-                    [created_event, program_event, failure_event], {:terminal, outcome}}
-                   when ref == stream.ref
+    assert Ankole.Eventually.eventually(fn -> :sys.get_state(stream.pid).semantic.terminal? end)
+
+    assert {:ok, [created_event, program_event, failure_event], {:terminal, outcome}} =
+             ResponseStream.next(stream, 1_000)
 
     assert created_event["type"] == "response.created"
     assert created_event["sequence_number"] == 0
@@ -507,121 +508,71 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
              item["type"] == "program_output" and item["call_id"] == "prog_resume"
            end)
 
-    assert_receive {:DOWN, ^stream_monitor, :process, _, :normal}, 1_000
+    assert_receive {:DOWN, ^stream_monitor, :process, _, :normal}, 2_000
   end
 
-  test "provider error frames stay diagnostic until one canonical terminal" do
+  test "provider diagnostics do not change consumer state or enter the public stream" do
     state = State.new("agent-test", %{}, %{})
 
-    raw_error = %{
+    diagnostic = %{
       "type" => "error",
-      "sequence_number" => 0,
-      "error" => %{
-        "code" => "upstream_stream_break",
-        "message" => "provider stream broke",
-        "type" => "provider_disconnect"
-      }
+      "error" => %{"code" => "ignored", "message" => "provider diagnostic"}
     }
 
-    assert {:ok, state, [], :continue} = State.observe(state, raw_error, 0)
-
-    assert state.provider_error_diagnostic == %{
-             provider_error_code: "upstream_stream_break",
-             provider_error_type: "provider_disconnect",
-             provider_message: "provider stream broke"
-           }
-
-    synthesized_error = %{
-      "type" => "error",
-      "sequence_number" => 1,
-      "error" => %{
-        "code" => "upstream_stream_closed_before_terminal_event",
-        "message" => "upstream stream closed before a terminal event"
-      }
-    }
-
-    assert {:ok, ^state, [], :continue} = State.observe(state, synthesized_error, 1)
+    assert {:ok, ^state, [], :continue} = State.observe(state, diagnostic, 0)
 
     terminal =
       failed_event(%{
         "code" => "upstream_stream_closed_before_terminal_event",
-        "message" => "upstream stream closed before a terminal event"
+        "message" => "provider stream broke",
+        "details_json" => %{
+          "stage" => "api_resolver",
+          "provider_error_code" => "upstream_stream_break",
+          "provider_error_type" => "provider_disconnect",
+          "provider_diagnostic_message" => "provider stream broke"
+        }
       })
       |> Map.put("sequence_number", 2)
 
-    assert {:ok, _state, [public_event],
-            {:terminal, %{terminal_error: terminal_error}, :keep_upstream}} =
+    assert {:ok, _state, [public_event], {:terminal, %{terminal_error: error}, :keep_upstream}} =
              State.observe(state, terminal, 2)
 
     assert public_event["type"] == "response.failed"
     assert public_event["sequence_number"] == 2
-    assert terminal_error["code"] == "upstream_stream_closed_before_terminal_event"
-    assert terminal_error["failure_kind"] == "transport"
-    assert terminal_error["message"] == "provider stream broke"
-    assert terminal_error["provider_error_code"] == "upstream_stream_break"
-    assert terminal_error["provider_error_type"] == "provider_disconnect"
-    assert terminal_error["retryable"] == true
-    assert get_in(public_event, ["response", "error", "message"]) == "provider stream broke"
+    assert error["code"] == "upstream_stream_closed_before_terminal_event"
+    assert error["failure_kind"] == "transport"
+    assert error["message"] == "provider stream broke"
+    assert error["provider_error_code"] == "upstream_stream_break"
+    assert error["provider_error_type"] == "provider_disconnect"
+    assert error["retryable"] == true
   end
 
-  test "a local transport terminal keeps the first provider error as bounded diagnostics" do
-    raw_error = %{
-      "type" => "error",
-      "error" => %{
-        "code" => "upstream_stream_break",
-        "message" => "provider stream broke"
-      }
-    }
-
-    assert {:ok, state, [], :continue} =
-             State.observe(State.new("agent-test", %{}, %{}), raw_error, 0)
-
-    assert {_state, [public_event], %{terminal_error: terminal_error}} =
-             State.fail(state,
-               code: "provider_stream_closed_without_terminal",
-               retryable: true
-             )
-
-    assert terminal_error["code"] == "provider_stream_closed_without_terminal"
-    assert terminal_error["failure_kind"] == "transport"
-    assert terminal_error["message"] == "provider stream broke"
-    assert terminal_error["provider_error_code"] == "upstream_stream_break"
-    assert terminal_error["retryable"] == true
-
-    assert public_event["response"]["error"] == terminal_error
-  end
-
-  test "a provider validation frame becomes the canonical permanent terminal" do
-    raw_error = %{
-      "type" => "error",
-      "error" => %{
-        "type" => "invalid_request_error",
-        "status" => 400,
-        "message" =>
-          "Invalid Value: 'tools'. Function 'collaboration.followup_task' must match the configured schema."
-      }
-    }
-
-    assert {:ok, state, [], :continue} =
-             State.observe(State.new("agent-test", %{}, %{}), raw_error, 0)
+  test "a normalized provider rejection becomes the public permanent terminal" do
+    message = "Function 'collaboration.followup_task' must match the configured schema."
 
     terminal =
       failed_event(%{
-        "code" => "upstream_stream_closed_before_terminal_event",
-        "message" => "upstream stream closed before a terminal event"
+        "code" => "provider_response_rejected",
+        "message" => message,
+        "retryable" => false,
+        "details_json" => %{
+          "stage" => "api_resolver",
+          "provider_error_type" => "invalid_request_error",
+          "provider_status" => 400,
+          "provider_diagnostic_message" => message
+        }
       })
 
-    assert {:ok, _state, [public_event],
-            {:terminal, %{terminal_error: terminal_error}, :keep_upstream}} =
-             State.observe(state, terminal, 1)
+    assert {:ok, _state, [public_event], {:terminal, %{terminal_error: error}, :keep_upstream}} =
+             State.observe(State.new("agent-test", %{}, %{}), terminal, 1)
 
-    assert terminal_error["code"] == "invalid_prompt"
-    assert terminal_error["failure_kind"] == "provider_response"
-    assert terminal_error["provider_error_type"] == "invalid_request_error"
-    assert terminal_error["provider_status"] == 400
-    assert terminal_error["retryable"] == false
-    assert terminal_error["message"] =~ "must match the configured schema"
-    assert get_in(public_event, ["response", "error"]) == Map.delete(terminal_error, "type")
+    assert error["code"] == "invalid_prompt"
+    assert error["failure_kind"] == "provider_response"
+    assert error["provider_error_type"] == "invalid_request_error"
+    assert error["provider_status"] == 400
+    assert error["retryable"] == false
+    assert error["message"] == message
+    assert get_in(public_event, ["response", "error"]) == Map.delete(error, "type")
   end
 
   test "a local failure always emits boolean retryability" do
@@ -1068,7 +1019,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
     send(
       stream.pid,
-      {:universal_ai_client, native_ref, :chunk, 99,
+      {:universal_ai_client, native_ref, :chunk, 99, :provider,
        Ankole.JSON.encode!(failed_event(%{"code" => "late_duplicate"}))}
     )
 
@@ -1351,5 +1302,361 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
         "output" => []
       }
     }
+  end
+end
+
+defmodule Ankole.AIGateway.ResponseStreamProgressTest do
+  alias Ankole.AIGateway.FailureResponse
+  use Ankole.AIGatewayCase
+
+  import ExUnit.CaptureLog
+
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.CredentialAttempts
+  alias Ankole.AIGateway.ProviderFailure
+  alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ResponseStream
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulLifecycle
+  alias Ankole.Repo
+
+  test "Ready, heartbeat and terminal commits record real provider event progress" do
+    %{stream: stream, response: response, server: server} = open_stream()
+    state = :sys.get_state(stream.pid)
+    progress = state.semantic.upstream_progress
+    assert progress["attempt"] == 1
+    assert progress["ready_status"] == 200
+    assert progress["event_count"] == 0
+    assert is_binary(progress["dispatched_at"])
+    assert is_binary(progress["ready_at"])
+    refute Map.has_key?(progress, "first_event_at")
+
+    send(stream.pid, :response_stream_heartbeat)
+    :sys.get_state(stream.pid)
+    stored = Repo.get!(Message, response.id)
+    assert stored.metadata["upstream_progress"] == progress
+    assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
+
+    assert :ok = ResponseStream.read(stream)
+    send(server, {:event, %{"type" => "response.created", "response" => %{"id" => "provider"}}})
+    assert_receive {:ai_gateway_response_stream, _, :events, _, :continue}, 1_000
+
+    progress = :sys.get_state(stream.pid).semantic.upstream_progress
+    assert progress["event_count"] == 1
+    assert progress["first_event_at"] == progress["last_event_at"]
+
+    assert :ok = ResponseStream.read(stream)
+
+    send(
+      server,
+      {:event,
+       %{"type" => "response.completed", "response" => %{"status" => "completed", "output" => []}}}
+    )
+
+    assert_receive {:ai_gateway_response_stream, _, :events, _, {:terminal, _}}, 1_000
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "complete"
+    assert stored.metadata["upstream_progress"]["event_count"] == 2
+    assert stored.metadata["upstream_progress"]["first_event_at"] == progress["first_event_at"]
+    assert stored.metadata["upstream_progress"]["last_event_at"] >= progress["last_event_at"]
+    assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
+  end
+
+  test "local stream failure stores progress received after the last heartbeat" do
+    %{stream: stream, response: response, server: server} = open_stream()
+    send(stream.pid, :response_stream_heartbeat)
+    :sys.get_state(stream.pid)
+    assert :ok = ResponseStream.read(stream)
+    send(server, {:event, %{"type" => "response.created", "response" => %{"id" => "provider"}}})
+    assert_receive {:ai_gateway_response_stream, _, :events, _, :continue}, 1_000
+    assert :ok = ResponseStream.cancel(stream, "test_cancel")
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "error"
+    assert stored.metadata["upstream_progress"]["event_count"] == 1
+    assert is_binary(stored.metadata["upstream_progress"]["last_event_at"])
+    assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
+  end
+
+  test "five minutes without progress logs once per stream" do
+    %{stream: stream} = open_stream()
+
+    :sys.replace_state(stream.pid, fn state ->
+      %{state | upstream_progress_at_ms: System.monotonic_time(:millisecond) - 300_000}
+    end)
+
+    log =
+      capture_log(fn ->
+        send(stream.pid, :response_stream_heartbeat)
+        assert :sys.get_state(stream.pid).stalled_logged?
+        send(stream.pid, :response_stream_heartbeat)
+        :sys.get_state(stream.pid)
+      end)
+
+    assert length(Regex.scan(~r/AIGateway response stream has no upstream progress/, log)) == 1
+    assert :ok = ResponseStream.cancel(stream, "test_cancel")
+  end
+
+  test "an initial failure before Ready persists the dispatch timeline" do
+    %{principal: subject} = human_fixture()
+    response = progress_response(subject)
+
+    base_url =
+      start_upstream_server(fn _request ->
+        {:json, 403, %{"error" => %{"code" => "access_denied", "message" => "denied"}}}
+      end)
+
+    assert {:error, reason} =
+             ResponseStream.open(subject.uid, %{}, prepared_request(base_url <> "/responses"),
+               stateful: %{message_id: response.id, subject_uid: subject.uid}
+             )
+
+    failed_open = Repo.get!(Message, response.id)
+    assert failed_open.updated_at == response.updated_at
+    progress = failed_open.metadata["upstream_progress"]
+    assert progress["attempt"] == 1
+    assert progress["event_count"] == 0
+    assert is_binary(progress["dispatched_at"])
+    refute Map.has_key?(progress, "ready_at")
+    refute Map.has_key?(progress, "ready_status")
+    refute Map.has_key?(progress, "first_event_at")
+
+    assert :ok = StatefulLifecycle.commit_socket_open_error(%{message_id: response.id}, reason)
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "error"
+    assert stored.metadata["upstream_progress"] == progress
+    assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
+  end
+
+  test "Ready followed only by keepalive records no provider events" do
+    %{stream: stream, response: response} = open_stream(idle_ms: 200, keepalive_ms: 20)
+    await_terminal(stream)
+
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "error"
+    progress = stored.metadata["upstream_progress"]
+    assert progress["attempt"] == 1
+    assert progress["ready_status"] == 200
+    assert progress["event_count"] == 0
+    refute Map.has_key?(progress, "first_event_at")
+    refute Map.has_key?(progress, "last_event_at")
+  end
+
+  test "an idle failure before provider output retries once and resets the attempt timeline" do
+    %{stream: stream, response: response, server: server} =
+      open_stream(idle_ms: 200, keepalive_ms: 20, route_retry: true)
+
+    first_progress = :sys.get_state(stream.pid).semantic.upstream_progress
+    assert first_progress["attempt"] == 1
+    assert first_progress["ready_status"] == 200
+    assert :ok = ResponseStream.read(stream)
+    assert_receive {:progress_retry_accepted, ^server}, 2_000
+
+    second_progress = :sys.get_state(stream.pid).semantic.upstream_progress
+    assert second_progress["attempt"] == 2
+    assert second_progress["event_count"] == 0
+    assert second_progress["dispatched_at"] > first_progress["dispatched_at"]
+    refute Map.has_key?(second_progress, "ready_at")
+    refute Map.has_key?(second_progress, "ready_status")
+    refute Map.has_key?(second_progress, "first_event_at")
+    refute Map.has_key?(second_progress, "last_event_at")
+
+    send(stream.pid, :response_stream_heartbeat)
+    :sys.get_state(stream.pid)
+    assert Repo.get!(Message, response.id).metadata["upstream_progress"] == second_progress
+
+    send(server, :open_retry)
+    assert_receive {:progress_retry_ready, ^server}, 1_000
+    await_terminal(stream)
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "error"
+    progress = stored.metadata["upstream_progress"]
+    assert progress["attempt"] == 2
+    assert progress["dispatched_at"] == second_progress["dispatched_at"]
+    assert progress["ready_at"] > first_progress["ready_at"]
+    assert progress["ready_status"] == 200
+    assert progress["event_count"] == 0
+    refute Map.has_key?(progress, "first_event_at")
+    refute Map.has_key?(progress, "last_event_at")
+    assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
+    refute_receive {:progress_retry_accepted, ^server}, 250
+  end
+
+  test "an idle failure after a real provider event ends without retry" do
+    %{stream: stream, response: response, server: server} =
+      open_stream(idle_ms: 200, keepalive_ms: 20, route_retry: true)
+
+    assert :ok = ResponseStream.read(stream)
+    send(server, {:event, %{"type" => "response.created", "response" => %{"id" => "provider"}}})
+    assert_receive {:ai_gateway_response_stream, _, :events, _, :continue}, 1_000
+    first_progress = :sys.get_state(stream.pid).semantic.upstream_progress
+    assert first_progress["event_count"] == 1
+
+    {[%{"type" => "response.failed", "response" => %{"error" => error}}], outcome} =
+      await_terminal(stream)
+
+    assert outcome.terminal_error["type"] == "response.failed"
+    assert Map.delete(outcome.terminal_error, "type") == error
+    assert error["retryable"] == true
+
+    assert %{status: 504, error: %{"code" => "upstream_timeout"}} =
+             error |> ProviderFailure.from_event_error() |> FailureResponse.project()
+
+    stored = Repo.get!(Message, response.id)
+    assert stored.status == "error"
+    progress = stored.metadata["upstream_progress"]
+    assert progress["attempt"] == 1
+    assert progress["event_count"] == 1
+    assert progress["first_event_at"] == first_progress["first_event_at"]
+    assert progress["last_event_at"] == first_progress["last_event_at"]
+    refute_receive {:progress_retry_accepted, ^server}, 250
+  end
+
+  defp open_stream(opts \\ []) do
+    %{principal: subject} = human_fixture()
+    response = progress_response(subject)
+    keepalive_ms = Keyword.get(opts, :keepalive_ms, :infinity)
+    route_retry? = Keyword.get(opts, :route_retry, false)
+
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    parent = self()
+
+    server =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, socket} = :gen_tcp.accept(listener)
+           {:ok, _request} = :gen_tcp.recv(socket, 0, 1_000)
+           send_ready(socket)
+           send(parent, {:progress_server_ready, self()})
+           serve(socket, keepalive_ms)
+
+           if route_retry? do
+             {:ok, retry_socket} = :gen_tcp.accept(listener)
+             {:ok, _request} = :gen_tcp.recv(retry_socket, 0, 1_000)
+             send(parent, {:progress_retry_accepted, self()})
+
+             receive do
+               :open_retry ->
+                 send_ready(retry_socket)
+                 send(parent, {:progress_retry_ready, self()})
+                 serve(retry_socket, keepalive_ms)
+             end
+           end
+         end}
+      )
+
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    prepared = prepared_request("http://127.0.0.1:#{port}/responses", opts)
+
+    prepared =
+      if route_retry? do
+        provider_id = "progress-retry-" <> Ecto.UUID.generate()
+
+        assert {:ok, _provider} =
+                 ProviderConfigs.create_provider(%{
+                   provider_id: provider_id,
+                   provider_kind: "openai",
+                   base_url: "http://127.0.0.1:#{port}",
+                   credential_pool: %{
+                     "entries" => [%{"label" => "Default", "api_key" => "sk-progress-test"}]
+                   }
+                 })
+
+        assert {:ok, runtime} =
+                 Resolver.resolve_request_model(subject.uid, "llm", %{
+                   "model" => provider_id <> "/test-model"
+                 })
+
+        CredentialAttempts.attach(prepared, runtime, fn _runtime, _request -> {:ok, prepared} end)
+      else
+        prepared
+      end
+
+    assert {:ok, stream, _meta} =
+             ResponseStream.open(subject.uid, %{}, prepared,
+               stateful: %{message_id: response.id, subject_uid: subject.uid},
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert_receive {:progress_server_ready, ^server}, 1_000
+    on_exit(fn -> ResponseStream.cancel(stream, "test_cleanup") end)
+    %{stream: stream, response: response, server: server}
+  end
+
+  defp progress_response(subject) do
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "progress-test")
+
+    {:ok, response} =
+      start_response_run(%{
+        subject_uid: subject.uid,
+        conversation_id: conversation.id,
+        metadata: %{"request_metadata" => %{"tag" => "kept"}}
+      })
+
+    response
+  end
+
+  defp prepared_request(url, opts \\ []) do
+    %{
+      api_resolver: :openai_responses,
+      upstream: %{
+        kind: :http_sse,
+        method: "POST",
+        url: url,
+        headers: [{"content-type", "application/json"}],
+        body: ~s({"stream":true}),
+        timeout: %{
+          connect_ms: 500,
+          first_byte_ms: 5_000,
+          idle_ms: Keyword.get(opts, :idle_ms, 5_000),
+          total_ms: nil
+        },
+        transport: %{}
+      },
+      response_context: %{model: "test-model", request: %{"input" => "hello"}}
+    }
+  end
+
+  defp send_ready(socket) do
+    :ok =
+      :gen_tcp.send(
+        socket,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
+      )
+  end
+
+  defp serve(socket, keepalive_ms) do
+    receive do
+      {:event, event} ->
+        body = "data: #{Ankole.JSON.encode!(event)}\n\n"
+
+        case send_chunk(socket, body) do
+          :ok -> serve(socket, keepalive_ms)
+          {:error, _reason} -> :gen_tcp.close(socket)
+        end
+    after
+      keepalive_ms ->
+        case send_chunk(socket, ": keepalive\n\n") do
+          :ok -> serve(socket, keepalive_ms)
+          {:error, _reason} -> :gen_tcp.close(socket)
+        end
+    end
+  end
+
+  defp send_chunk(socket, body) do
+    :gen_tcp.send(socket, [Integer.to_string(byte_size(body), 16), "\r\n", body, "\r\n"])
+  end
+
+  defp await_terminal(stream) do
+    assert :ok = ResponseStream.read(stream)
+
+    receive do
+      {:ai_gateway_response_stream, _, :events, _events, :continue} -> await_terminal(stream)
+      {:ai_gateway_response_stream, _, :events, events, {:terminal, outcome}} -> {events, outcome}
+    after
+      2_000 -> flunk("response stream did not produce a terminal event")
+    end
   end
 end

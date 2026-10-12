@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
         add_error(changeset, :content, "version 2 must include output items")
 
       true ->
-        changeset
+        validate_brain_context_pack(changeset, content)
     end
   end
 
@@ -103,10 +103,35 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
         add_error(changeset, :content, "version 3 must include output items")
 
       true ->
-        changeset
+        validate_brain_context_pack(changeset, content)
     end
   end
 
   defp validate_versioned_content(changeset, _content),
     do: add_error(changeset, :content, "must use version 2 or 3")
+
+  defp validate_brain_context_pack(changeset, content) do
+    case Map.fetch(content, "brain_context_pack") do
+      :error ->
+        changeset
+
+      {:ok, pack} when is_list(pack) ->
+        if Enum.all?(pack, &brain_context_pack_message?/1),
+          do: changeset,
+          else: add_error(changeset, :content, "brain_context_pack must contain message items")
+
+      {:ok, _invalid} ->
+        add_error(changeset, :content, "brain_context_pack must contain message items")
+    end
+  end
+
+  defp brain_context_pack_message?(%{"type" => "message", "role" => "user", "content" => parts})
+       when is_list(parts) do
+    Enum.all?(parts, fn
+      %{"type" => "input_text", "text" => text} when is_binary(text) -> true
+      _part -> false
+    end)
+  end
+
+  defp brain_context_pack_message?(_item), do: false
 end

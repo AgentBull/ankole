@@ -444,47 +444,15 @@ defmodule Ankole.KernelTest do
     assert turn_start.turn.attempt == 1
     assert turn_start.turn.actor_event_id == turn_start.actor_event.actor_event_id
 
-    overlay_request =
-      golden_dir
-      |> Path.join("rpc_skill_overlay_resolve_request.v9.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
+    request = golden_dir |> Path.join("rpc_read_tool_request.v9.bin") |> File.read!() |> V1.Envelope.decode!()
+    assert {:rpc_request, %V1.RPCRequest{request_id: "golden-rpc-read-tool-1", method: "tools.read"} = frame} = request.body
+    assert %V1.ReadToolRequest{name: "skill_view", arguments_json: args} = V1.ReadToolRequest.decode!(frame.payload)
+    assert Torque.decode!(args) == %{"name" => "pdf"}
+    response = golden_dir |> Path.join("rpc_read_tool_response.v9.bin") |> File.read!() |> V1.Envelope.decode!()
+    assert {:rpc_response, %V1.RPCResponse{request_id: "golden-rpc-read-tool-1"} = frame} = response.body
+    assert %V1.JSONPassthroughResponse{body_json: body} = V1.JSONPassthroughResponse.decode!(frame.payload)
+    assert Torque.decode!(body) == %{"output" => "Prefer page-by-page verification.", "details" => %{"name" => "pdf"}}
 
-    assert {:rpc_request,
-            %V1.RPCRequest{
-              request_id: "golden-rpc-skill-overlay-resolve-1",
-              method: "skills.overlay.resolve"
-            } = overlay_request_frame} = overlay_request.body
-
-    assert %V1.SkillOverlayResolveRequest{skill_names: ["pdf", "xlsx"]} =
-             V1.SkillOverlayResolveRequest.decode!(overlay_request_frame.payload)
-
-    overlay_response =
-      golden_dir
-      |> Path.join("rpc_skill_overlay_resolve_response.v9.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
-
-    assert {:rpc_response,
-            %V1.RPCResponse{request_id: "golden-rpc-skill-overlay-resolve-1"} =
-              overlay_response_frame} = overlay_response.body
-
-    assert %V1.SkillOverlayResolveResponse{
-             overlays: [
-               %V1.SkillOverlayResponse{
-                 skill_name: "pdf",
-                 has_overlay: true,
-                 text: "Prefer page-by-page verification.",
-                 content_hash: "overlay-hash-pdf"
-               },
-               %V1.SkillOverlayResponse{
-                 skill_name: "xlsx",
-                 has_overlay: false,
-                 text: "",
-                 content_hash: "overlay-hash-xlsx"
-               }
-             ]
-           } = V1.SkillOverlayResolveResponse.decode!(overlay_response_frame.payload)
   end
 
   test "authz helpers evaluate snapshots without host database access" do
@@ -745,20 +713,20 @@ defmodule Ankole.KernelTest do
                    1_000
 
     assert ref == stream.ref
-    refute_receive {:universal_ai_client, ^ref, :chunk, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
 
     assert :ok = UniversalAIClient.read(stream, 1)
 
-    assert_receive {:universal_ai_client, ^ref, :chunk, 1, chunk}, 1_000
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :provider, chunk}, 1_000
     assert is_binary(chunk)
     assert Torque.decode!(chunk)["type"] == "response.created"
     assert chunk =~ "\"type\":\"response.created\""
     assert chunk =~ "\"sequence_number\":0"
 
-    refute_receive {:universal_ai_client, ^ref, :chunk, 2, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, 2, _, _}, 100
 
     assert :ok = UniversalAIClient.read(stream, 1)
-    assert_receive {:universal_ai_client, ^ref, :chunk, 2, done_chunk}, 1_000
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :provider, done_chunk}, 1_000
     assert Torque.decode!(done_chunk)["type"] == "response.completed"
 
     assert_receive {:universal_ai_client, ^ref, :done, %{"reason" => "provider_terminal"}}, 1_000
@@ -798,10 +766,10 @@ defmodule Ankole.KernelTest do
                    1_000
 
     refute_receive {:universal_ai_client, ^ref, :ready, _meta}, 100
-    refute_receive {:universal_ai_client, ^ref, :chunk, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
   end
 
-  test "universal AI client sends protocol error chunk before terminal error after ready" do
+  test "universal AI client returns protocol failure facts before any response event" do
     {:ok, url} =
       start_http_sse_server([
         "data: {not-json}\n\n"
@@ -823,21 +791,67 @@ defmodule Ankole.KernelTest do
       })
 
     assert_receive {:universal_ai_client, ref, :ready, _meta}, 1_000
-    assert :ok = UniversalAIClient.read(stream, 2)
-
-    assert_receive {:universal_ai_client, ^ref, :chunk, 1, chunk}, 1_000
-    assert Torque.decode!(chunk)["type"] == "error"
-    assert chunk =~ "\"code\":\"invalid_provider_event\""
-
-    assert_receive {:universal_ai_client, ^ref, :chunk, 2, failed}, 1_000
-    assert Torque.decode!(failed)["type"] == "response.failed"
-    assert failed =~ "\"status\":\"failed\""
 
     assert_receive {:universal_ai_client, ^ref, :error,
                     %{"code" => "invalid_provider_event", "stage" => "api_resolver"}},
                    1_000
 
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}
+
     assert stream.ref == ref
+  end
+
+  test "universal AI client delivers one credited failure after a provider response event" do
+    {:ok, url} =
+      start_http_sse_server([
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"provider\"}}\n\n",
+        "data: {not-json}\n\n"
+      ])
+
+    {:ok, stream} =
+      UniversalAIClient.open(%{
+        api_resolver: :openai_responses,
+        upstream: %{
+          kind: :http_sse,
+          method: "POST",
+          url: url,
+          headers: [],
+          body: ~s({"stream":true}),
+          timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+          transport: %{}
+        },
+        response_context: %{model: "test-model", request: %{}}
+      })
+
+    ref = stream.ref
+    assert_receive {:universal_ai_client, ^ref, :ready, _meta}, 1_000
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :error, _}, 100
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :provider, created}, 1_000
+    assert Torque.decode!(created)["type"] == "response.created"
+    refute_receive {:universal_ai_client, ^ref, :chunk, 2, _, _}, 100
+    refute_receive {:universal_ai_client, ^ref, :error, _}, 100
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :client, failed}, 1_000
+
+    event =
+      UniversalAIClient.stream_event({:universal_ai_client, ref, :chunk, 2, :client, failed})
+
+    assert %UniversalAIClient.Chunk{origin: :client} = event
+    terminal = Torque.decode!(event.payload)
+    assert terminal["type"] == "response.failed"
+    assert terminal["response"]["id"] == "provider"
+    assert terminal["response"]["error"]["code"] == "invalid_provider_event"
+
+    assert_receive {:universal_ai_client, ^ref, :error,
+                    %{"code" => "invalid_provider_event", "stage" => "api_resolver"}},
+                   1_000
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
   end
 
   test "universal AI client cancel stops a ready stream" do
@@ -1082,19 +1096,10 @@ defmodule Ankole.KernelTest do
 
     run = %V1.RunRef{actor: %V1.ActorKey{session_id: "job:1000"}, actor_event_id: "input-1"}
 
-    overlay = %V1.SkillOverlayResolveResponse{
-      overlays: [
-        %V1.SkillOverlayResponse{
-          skill_name: "pdf",
-          has_overlay: true,
-          text: "Prefer page-by-page verification.",
-          content_hash: "overlay-hash-pdf"
-        },
-        %V1.SkillOverlayResponse{skill_name: "xlsx", content_hash: "overlay-hash-xlsx"}
-      ]
-    }
-
-    {overlay_bytes, _size} = V1.SkillOverlayResolveResponse.encode!(overlay)
+    response = %V1.JSONPassthroughResponse{body_json: Torque.encode!(%{
+      "output" => "Prefer page-by-page verification.", "details" => %{"name" => "pdf"}
+    })}
+    {response_bytes, _size} = V1.JSONPassthroughResponse.encode!(response)
 
     [
       {"turn_start", %V1.Envelope{message_id: "golden-turn-start-1", body: {:turn_start, start}}},
@@ -1145,14 +1150,14 @@ defmodule Ankole.KernelTest do
               mode: "probe"
             }}
        }},
-      {"rpc_skill_overlay_resolve_response",
+      {"rpc_read_tool_response",
        %V1.Envelope{
-         message_id: "golden-rpc-skill-overlay-resolve-response-1",
+         message_id: "golden-rpc-read-tool-response-1",
          body:
            {:rpc_response,
             %V1.RPCResponse{
-              request_id: "golden-rpc-skill-overlay-resolve-1",
-              payload: IO.iodata_to_binary(overlay_bytes)
+              request_id: "golden-rpc-read-tool-1",
+              payload: IO.iodata_to_binary(response_bytes)
             }}
        }}
     ]

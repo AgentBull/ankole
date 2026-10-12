@@ -107,10 +107,19 @@ defmodule AnkoleWeb.WorkerChannel do
           {:ok, %{"connection_id" => connection_id}, socket}
 
         {:error, reason} ->
-          {:error, %{"reason" => reason_text(reason)}}
+          {:error,
+           %{
+             "reason" =>
+               Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+           }}
       end
     else
-      {:error, reason} -> {:error, %{"reason" => reason_text(reason)}}
+      {:error, reason} ->
+        {:error,
+         %{
+           "reason" =>
+             Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+         }}
     end
   end
 
@@ -391,7 +400,13 @@ defmodule AnkoleWeb.WorkerChannel do
   defp wire_result({:ok, _value}, credits), do: {:ok, credits}
 
   defp wire_result({:error, reason}, credits),
-    do: {:error, Map.put(credits, "reason", reason_text(reason))}
+    do:
+      {:error,
+       Map.put(
+         credits,
+         "reason",
+         Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+       )}
 
   defp wire_result(_other, credits), do: {:ok, credits}
 
@@ -539,8 +554,4 @@ defmodule AnkoleWeb.WorkerChannel do
         Map.merge(@default_limits.rpc_tasks, Map.new(Keyword.get(configured, :rpc_tasks, [])))
     }
   end
-
-  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_text(reason) when is_binary(reason), do: reason
-  defp reason_text(reason), do: inspect(reason)
 end

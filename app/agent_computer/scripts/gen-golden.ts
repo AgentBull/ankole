@@ -1,7 +1,7 @@
 import { create, toBinary } from '@bufbuild/protobuf'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { EnvelopeSchema, ProtocolVersion } from '../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { SkillOverlayResolveRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { ReadToolRequestSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 // Each sender generates its own fixtures with its production codec.
 const dir = new URL('../../kernel/proto/golden/', import.meta.url)
@@ -33,17 +33,20 @@ const fixtures = [
     })
   ],
   [
-    'rpc_skill_overlay_resolve_request',
-    envelope('golden-rpc-skill-overlay-resolve-request-1', {
+    'rpc_read_tool_request',
+    envelope('golden-rpc-read-tool-request-1', {
       case: 'rpcRequest',
       value: {
-        requestId: 'golden-rpc-skill-overlay-resolve-1',
-        method: 'skills.overlay.resolve',
+        requestId: 'golden-rpc-read-tool-1',
+        method: 'tools.read',
         deadlineUnixMs: 1782300001000n,
         jobTurn: { jobId: 1000n, attempt: 1, actorEventId: '00000000-0000-0000-0000-000000000001' },
         payload: toBinary(
-          SkillOverlayResolveRequestSchema,
-          create(SkillOverlayResolveRequestSchema, { skillNames: ['pdf', 'xlsx'] })
+          ReadToolRequestSchema,
+          create(ReadToolRequestSchema, {
+            name: 'skill_view',
+            argumentsJson: new TextEncoder().encode('{"name":"pdf"}')
+          })
         )
       }
     })

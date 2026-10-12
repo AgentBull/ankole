@@ -1,6 +1,7 @@
 import { describe, it } from './runner'
 import { Wordgard } from '../../../src/core/editor'
-import { Command, insertText } from '../../../src/core/command'
+import { Command } from '../../../src/core/command/command'
+import { insertText } from '../../../src/core/command/commands'
 import { Leaf, Node } from '../../../src/core/doc'
 import ist from 'ist'
 import { requireFocus, tempEditor } from './tempview'

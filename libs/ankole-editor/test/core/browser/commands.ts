@@ -1,6 +1,7 @@
 import { describe, it } from './runner'
 import { Wordgard } from '../../../src/core/editor'
-import { Command, deleteLine, killToLineEnd, yankKilled } from '../../../src/core/command'
+import { Command } from '../../../src/core/command/command'
+import { deleteLine, killToLineEnd, yankKilled } from '../../../src/core/command/commands'
 import { GardState } from '../../../src/core/state'
 import { Plot } from '../../../src/core/doc'
 import ist from 'ist'

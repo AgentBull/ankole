@@ -15,7 +15,7 @@ defmodule Ankole.Conversations.Prompt.Input do
       )
 
     zone = run.context.conversation.timezone || "UTC"
-    lines = environment(payload, zone) ++ turn_environment(run)
+    lines = environment(payload, zone, Map.get(event, :binding_name)) ++ turn_environment(run)
     environment = if lines == [], do: [], else: [text_part(environment_block(lines))]
 
     channel(payload, zone) ++
@@ -590,7 +590,7 @@ defmodule Ankole.Conversations.Prompt.Input do
     if blocks == [], do: [], else: [Machine.user(Enum.join(blocks, "\n\n"))]
   end
 
-  defp environment(payload, zone) do
+  defp environment(payload, zone, binding_name) do
     entry = object(payload, ["data", "entry"])
     channel = object(payload, ["data", "channel"])
     author = object(entry, ["author"])
@@ -607,6 +607,7 @@ defmodule Ankole.Conversations.Prompt.Input do
     Enum.reject(
       [
         line("send_at", zoned(entry["provider_time"] || payload["time"], zone)),
+        if(channel["kind"] in ["im_dm", "im_group"], do: line("binding_name", binding_name)),
         line("signal_channel_id", entry["signal_channel_id"] || channel["id"]),
         if(channel["kind"] == "im_group", do: line("speaker", speaker)),
         line("entry_lifecycle", string(payload, ["data", "lifecycle", "kind"]))

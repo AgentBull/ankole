@@ -9,7 +9,7 @@ defmodule Ankole.OIDC.Jobs.CleanupExpiredCredentials do
 
   @impl Ankole.Job
   @spec perform(Oban.Job.t()) :: :ok
-  def run(job), do: Ankole.Repo.across_tenants(fn -> sweep(job) end)
+  def run(job), do: Ankole.Tenants.map_all(fn -> sweep(job) end) |> Ankole.Tenants.fanout_result()
 
   defp sweep(%Oban.Job{}) do
     _counts = OIDC.cleanup_expired_credentials()

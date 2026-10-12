@@ -2,7 +2,7 @@ import { describe, it } from 'bun:test'
 import { history, undo, redo, undoDepth, redoDepth } from '../../src/core/history'
 import { Plot, Leaf, ChangeSet } from '../../src/core/doc'
 import { GardState, GardSelection, Transaction } from '../../src/core/state'
-import { Command } from '../../src/core/command'
+import { Command } from '../../src/core/command/command'
 import ist from 'ist'
 
 import { basicBuilders, maybeTag, basicSchema, eq } from './schema'

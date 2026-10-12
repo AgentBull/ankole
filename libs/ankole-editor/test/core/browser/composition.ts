@@ -1,7 +1,7 @@
 import { describe, it } from './runner'
 import { Wordgard } from '../../../src/core/editor'
 import { Leaf } from '../../../src/core/doc'
-import { Strong } from '../../../src/core/types'
+import { Strong } from '../../../src/core/types/schema'
 import { GardSelection } from '../../../src/core/state'
 import browser from '../../../src/core/editor/browser'
 import ist from 'ist'

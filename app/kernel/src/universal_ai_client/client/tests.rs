@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener as StdTCPListener;
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::universal_ai_client::wire::tests::eventstream_frame;
@@ -241,7 +241,358 @@ fn http_sse_stream_reads_ahead_but_waits_for_downstream_demand() {
 }
 
 #[test]
-fn websocket_binary_frame_after_ready_becomes_protocol_error_chunks() {
+fn semantic_idle_sse_comments_do_not_reset_the_timeout() {
+    let (handle, events) = idle_http_stream("http_sse", move |mut socket| {
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            if write_http_chunk(&mut socket, b": keepalive\n\n").is_err() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+
+    assert_idle_stream_timeout(handle, events);
+}
+
+#[test]
+fn semantic_idle_sse_partial_events_do_not_reset_the_timeout() {
+    let (handle, events) = idle_http_stream("http_sse", move |mut socket| {
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            if write_http_chunk(&mut socket, b"data: ").is_err() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+
+    assert_idle_stream_timeout(handle, events);
+}
+
+#[test]
+fn semantic_idle_eventstream_partial_frames_do_not_reset_the_timeout() {
+    let (handle, events) = idle_http_stream("http_eventstream", move |mut socket| {
+        let frame = bedrock_event(
+            "contentBlockDelta",
+            &format!(
+                r#"{{"contentBlockIndex":0,"delta":{{"text":"{}"}}}}"#,
+                "x".repeat(256)
+            ),
+        );
+        for byte in frame {
+            if write_http_chunk(&mut socket, &[byte]).is_err() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+
+    assert_idle_stream_timeout(handle, events);
+}
+
+#[test]
+fn semantic_idle_sse_complete_events_reset_the_timeout_among_comments() {
+    let (handle, events) = idle_http_stream("http_sse", move |mut socket| {
+        for event in [
+            r#"{"type":"response.created","response":{"id":"resp_idle","status":"in_progress","output":[]}}"#,
+            r#"{"type":"response.in_progress","response":{"id":"resp_idle","status":"in_progress","output":[]}}"#,
+            r#"{"type":"response.completed","response":{"id":"resp_idle","status":"completed","output":[],"usage":{}}}"#,
+        ] {
+            let until = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < until {
+                write_http_chunk(&mut socket, b": keepalive\n\n").unwrap();
+                thread::sleep(Duration::from_millis(20));
+            }
+            write_http_chunk(&mut socket, format!("data: {event}\n\n").as_bytes()).unwrap();
+        }
+        thread::sleep(Duration::from_millis(300));
+    });
+
+    handle.read(64).unwrap();
+    let started = Instant::now();
+    loop {
+        match events.recv_timeout(Duration::from_secs(2)).unwrap() {
+            StreamEvent::Chunk { .. } => {}
+            StreamEvent::Done(meta) => {
+                assert_eq!(meta["reason"], "provider_terminal");
+                assert!(started.elapsed() >= Duration::from_millis(400));
+                break;
+            }
+            event => panic!("expected a complete stream, got {event:?}"),
+        }
+    }
+}
+
+#[test]
+fn semantic_idle_eventstream_complete_frames_reset_the_timeout() {
+    let (handle, events) = idle_http_stream("http_eventstream", move |mut socket| {
+        for frame in [
+            bedrock_event("messageStart", r#"{"role":"assistant"}"#),
+            bedrock_event(
+                "contentBlockDelta",
+                r#"{"contentBlockIndex":0,"delta":{"text":"hello"}}"#,
+            ),
+            bedrock_event("messageStop", r#"{"stopReason":"end_turn"}"#),
+            bedrock_event("metadata", BEDROCK_METADATA),
+        ] {
+            thread::sleep(Duration::from_millis(150));
+            write_http_chunk(&mut socket, &frame).unwrap();
+        }
+        socket.write_all(b"0\r\n\r\n").unwrap();
+        socket.flush().unwrap();
+    });
+    let started = Instant::now();
+    handle.read(64).unwrap();
+    let terminal = loop {
+        match events.recv_timeout(Duration::from_secs(2)).unwrap() {
+            StreamEvent::Chunk { bytes, .. } => {
+                let event: Value = sonic_rs::from_slice(&bytes).unwrap();
+                if event["type"] == "response.completed" {
+                    break event;
+                }
+            }
+            event => panic!("expected complete provider frames, got {event:?}"),
+        }
+    };
+    assert_eq!(
+        terminal["response"]["output"][0]["content"][0]["text"],
+        "hello"
+    );
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Done(_)
+    ));
+    assert!(started.elapsed() >= Duration::from_millis(500));
+}
+
+#[test]
+fn semantic_idle_websocket_text_events_reset_both_stream_timeouts() {
+    let runtime = crate::common::io_runtime::runtime().unwrap();
+    for collected in [false, true] {
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut websocket = accept(socket).unwrap();
+            for event in [
+                r#"{"type":"response.created","response":{"id":"resp_text","status":"in_progress","output":[]}}"#,
+                r#"{"type":"response.in_progress","response":{"id":"resp_text","status":"in_progress","output":[]}}"#,
+                r#"{"type":"response.completed","response":{"id":"resp_text","status":"completed","output":[],"usage":{}}}"#,
+            ] {
+                let until = Instant::now() + Duration::from_millis(150);
+                while Instant::now() < until {
+                    websocket.send(Message::Ping(vec![1].into())).unwrap();
+                    thread::sleep(Duration::from_millis(20));
+                }
+                websocket.send(Message::text(event)).unwrap();
+            }
+            thread::sleep(Duration::from_millis(300));
+        });
+
+        let spec = idle_stream_spec("websocket_text", &format!("ws://{address}/responses"));
+        let started = Instant::now();
+        if collected {
+            let spec = StreamSpec::from_json(&spec.to_string()).unwrap();
+            let result = runtime.block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    super::websocket_model::run_websocket_model_request_once(spec),
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            });
+            assert_eq!(result.wrapper["body"]["status"], "completed");
+        } else {
+            let (event_tx, events) = mpsc::channel();
+            let sink: EventSink = Arc::new(move |event| {
+                let _ = event_tx.send(event);
+            });
+            let handle = start_stream(&spec.to_string(), sink).unwrap();
+            assert!(matches!(
+                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                StreamEvent::Ready(_)
+            ));
+            handle.read(64).unwrap();
+            loop {
+                match events.recv_timeout(Duration::from_secs(2)).unwrap() {
+                    StreamEvent::Chunk { .. } => {}
+                    StreamEvent::Done(_) => break,
+                    event => panic!("expected complete provider Text events, got {event:?}"),
+                }
+            }
+        }
+        assert!(started.elapsed() >= Duration::from_millis(400));
+    }
+}
+
+#[test]
+fn semantic_idle_wait_for_downstream_capacity_does_not_spend_the_budget() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (first_tx, first_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 1024];
+        assert!(socket.read(&mut buffer).unwrap() > 0);
+        socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n").unwrap();
+        write_http_chunk(&mut socket, b"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_capacity\",\"status\":\"in_progress\",\"output\":[]}}\n\n").unwrap();
+        first_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        write_http_chunk(&mut socket, b"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_capacity\",\"status\":\"completed\",\"output\":[],\"usage\":{}}}\n\n").unwrap();
+    });
+
+    let (event_tx, events) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        let _ = event_tx.send(event);
+    });
+    let mut spec = idle_stream_spec("http_sse", &format!("http://{address}/responses"));
+    spec["limits"] = serde_json::json!({"max_pending_chunks": 1});
+    let handle = start_stream(&spec.to_string(), sink).unwrap();
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Ready(_)
+    ));
+    first_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+    release_tx.send(()).unwrap();
+    handle.read(64).unwrap();
+    assert_eq!(chunk_event(&events)["type"], "response.created");
+    assert_eq!(chunk_event(&events)["type"], "response.completed");
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Done(_)
+    ));
+}
+
+#[test]
+fn semantic_idle_websocket_ping_does_not_reset_the_timeout() {
+    let address = idle_websocket_server();
+    let (event_tx, events) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        let _ = event_tx.send(event);
+    });
+    let spec = idle_stream_spec("websocket_text", &format!("ws://{address}/responses"));
+    let handle = start_stream(&spec.to_string(), sink).unwrap();
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Ready(_)
+    ));
+
+    assert_idle_stream_timeout(handle, events);
+}
+
+#[tokio::test]
+async fn semantic_idle_collected_websocket_ping_does_not_reset_the_timeout() {
+    let address = idle_websocket_server();
+    let spec = StreamSpec::from_json(
+        &idle_stream_spec("websocket_text", &format!("ws://{address}/responses")).to_string(),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let error = match tokio::time::timeout(
+        Duration::from_secs(2),
+        super::websocket_model::run_websocket_model_request_once(spec),
+    )
+    .await
+    .expect("Ping frames must not prevent the idle timeout")
+    {
+        Err(error) => error,
+        Ok(_) => panic!("Ping frames must not produce a complete model response"),
+    };
+    assert_eq!(error.code, "idle_timeout");
+    assert_eq!(error.stage, "read");
+    assert!(started.elapsed() >= Duration::from_millis(150));
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+fn idle_stream_spec(kind: &str, url: &str) -> Value {
+    serde_json::json!({
+        "api_resolver": if kind == "http_eventstream" { "bedrock_converse" } else { "openai_responses" },
+        "upstream": {
+            "kind": kind, "method": if kind == "websocket_text" { "GET" } else { "POST" },
+            "url": url, "headers": [],
+            "timeout": {"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 200},
+            "transport": {}
+        },
+        "response_context": {"model": "test-model", "request": {}}
+    })
+}
+
+fn idle_http_stream(
+    kind: &str,
+    serve: impl FnOnce(std::net::TcpStream) + Send + 'static,
+) -> (StreamHandle, mpsc::Receiver<StreamEvent>) {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut buffer = [0_u8; 1024];
+        assert!(socket.read(&mut buffer).unwrap() > 0);
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n")
+            .unwrap();
+        socket.flush().unwrap();
+        serve(socket);
+    });
+    let (event_tx, events) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        let _ = event_tx.send(event);
+    });
+    let spec = idle_stream_spec(kind, &format!("http://{address}/responses"));
+    let handle = start_stream(&spec.to_string(), sink).unwrap();
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Ready(_)
+    ));
+    (handle, events)
+}
+
+fn write_http_chunk(socket: &mut std::net::TcpStream, bytes: &[u8]) -> std::io::Result<()> {
+    write!(socket, "{:x}\r\n", bytes.len())?;
+    socket.write_all(bytes)?;
+    socket.write_all(b"\r\n")?;
+    socket.flush()
+}
+
+fn idle_websocket_server() -> std::net::SocketAddr {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let mut websocket = accept(socket).unwrap();
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            if websocket.send(Message::Ping(vec![1].into())).is_err() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+    address
+}
+
+fn assert_idle_stream_timeout(handle: StreamHandle, events: mpsc::Receiver<StreamEvent>) {
+    handle.read(64).unwrap();
+    let started = Instant::now();
+    match events
+        .recv_timeout(Duration::from_secs(2))
+        .expect("Keepalive data must not prevent the idle timeout")
+    {
+        StreamEvent::Error(error) => {
+            assert_eq!(error["code"], "idle_timeout");
+            assert_eq!(error["stage"], "read");
+            assert!(started.elapsed() >= Duration::from_millis(150));
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+        event => panic!("expected a native idle timeout without synthetic chunks, got {event:?}"),
+    }
+}
+
+#[test]
+fn websocket_binary_frame_before_response_events_stays_native() {
     let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
 
@@ -280,20 +631,14 @@ fn websocket_binary_frame_after_ready_becomes_protocol_error_chunks() {
         event => panic!("expected ready event, got {event:?}"),
     }
 
-    handle.read(2).unwrap();
-    let error_event = chunk_event(&event_rx);
-    let failed_event = chunk_event(&event_rx);
-
-    assert_eq!(error_event["type"], "error");
-    assert_eq!(error_event["error"]["code"], "unsupported_websocket_frame");
-    assert_eq!(failed_event["type"], "response.failed");
-
     match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
         StreamEvent::Error(error) => {
             assert_eq!(error["code"], "unsupported_websocket_frame");
         }
         event => panic!("expected terminal error event, got {event:?}"),
     }
+    assert!(handle.read(1).is_ok());
+    assert!(event_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
 #[test]
@@ -341,14 +686,6 @@ fn websocket_message_too_big_close_maps_to_provider_status_413() {
         event => panic!("expected ready event, got {event:?}"),
     }
 
-    handle.read(2).unwrap();
-    let error_event = chunk_event(&event_rx);
-    let failed_event = chunk_event(&event_rx);
-
-    assert_eq!(error_event["type"], "error");
-    assert_eq!(error_event["error"]["code"], "websocket_message_too_large");
-    assert_eq!(failed_event["type"], "response.failed");
-
     match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
         StreamEvent::Error(error) => {
             assert_eq!(error["code"], "websocket_message_too_large");
@@ -356,6 +693,8 @@ fn websocket_message_too_big_close_maps_to_provider_status_413() {
         }
         event => panic!("expected terminal error event, got {event:?}"),
     }
+    handle.read(2).unwrap();
+    assert!(event_rx.try_recv().is_err());
 }
 
 #[test]
@@ -369,18 +708,9 @@ fn bedrock_eventstream_exception_reports_its_type_and_declared_status() {
         br#"{"message":"Too many tokens, please wait before trying again."}"#,
     )]);
 
-    let [error_event, failed_event] = events.as_slice() else {
-        panic!("expected error and response.failed events, got {events:?}");
-    };
-    assert_eq!(error_event["type"], "error");
-    assert_eq!(failed_event["type"], "response.failed");
-    let failed_error = &failed_event["response"]["error"];
-    assert_eq!(failed_error["code"], "provider_eventstream_error");
-    assert_eq!(failed_error["status"], 429);
-    assert_eq!(failed_error["details_json"]["provider_status"], 429);
-    assert_eq!(
-        failed_error["details_json"]["provider_error_type"],
-        "throttlingException"
+    assert!(
+        events.is_empty(),
+        "a failure before the first response event must stay native"
     );
 
     match end {

@@ -13,12 +13,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
     |> Map.new()
   end
 
-  def normalize_outcome(value) when is_atom(value), do: Atom.to_string(value)
-  def normalize_outcome(value), do: value
-
-  def reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
-  def reason_text(reason) when is_binary(reason), do: reason
-  def reason_text(reason), do: inspect(reason)
-
   defdelegate collect_results(results), to: Ankole.Attrs
 end

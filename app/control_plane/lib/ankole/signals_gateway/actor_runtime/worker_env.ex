@@ -11,7 +11,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
 
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.EnvVar
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.{EnvVar, SiteEnvVar}
   alias Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv
 
   @global_scope "global"
@@ -82,7 +82,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
 
   def console_delete_global(name) do
     with :ok <- validate_name(name),
-         %EnvVar{} = row <- custom_row(@global_scope, name),
+         %{scope: _} = row <- custom_row(@global_scope, name),
          :ok <- delete_row(row) do
       {:ok, deleted_item(name)}
     else
@@ -95,7 +95,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     with {:ok, scope} <- agent_scope(agent_uid),
          :ok <- ensure_agent(agent_uid),
          :ok <- validate_name(name),
-         %EnvVar{} = row <- custom_row(scope, name),
+         %{scope: _} = row <- custom_row(scope, name),
          :ok <- delete_row(row) do
       deleted_detail(effective_row(scope, name), name)
     else
@@ -177,8 +177,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     end)
   end
 
+  defp schema_for_scope(@global_scope), do: SiteEnvVar
+  defp schema_for_scope(_scope), do: EnvVar
+
   defp custom_rows(scope) do
-    EnvVar
+    schema_for_scope(scope)
     |> where([row], row.scope == ^scope)
     |> Repo.all()
   end
@@ -186,14 +189,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   defp rows_by_name(scope), do: scope |> custom_rows() |> Map.new(&{&1.name, &1})
 
   defp custom_row(scope, name) do
-    EnvVar
+    schema_for_scope(scope)
     |> where([row], row.scope == ^scope and row.name == ^name)
     |> Repo.one()
   end
 
-  defp row_value(%EnvVar{secret: false, value: value}), do: {:ok, value}
+  defp row_value(%{secret: false, value: value}), do: {:ok, value}
 
-  defp row_value(%EnvVar{secret: true} = row),
+  defp row_value(%{secret: true} = row),
     do: Ankole.SecretKeyBase.unseal(row.value, "worker_env", [row.scope, row.name])
 
   defp upsert_custom(scope, name, attrs, existing) do
@@ -217,14 +220,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     do: {:error, :invalid_worker_env_value}
 
   defp preserve_custom_stored_value(
-         %EnvVar{secret: secret, value: value, scope: scope, name: name},
+         %{secret: secret, value: value, scope: scope, name: name},
          secret,
          scope,
          name
        ),
        do: {:ok, value}
 
-  defp preserve_custom_stored_value(%EnvVar{} = existing, secret, scope, name) do
+  defp preserve_custom_stored_value(%{scope: _} = existing, secret, scope, name) do
     with {:ok, value} <- row_value(existing) do
       stored_value(value, secret, scope, name)
     end
@@ -257,9 +260,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   defp upsert_row(scope, name, secret, stored_value, description) do
     now = DateTime.utc_now(:second)
 
+    schema = schema_for_scope(scope)
+
+    row =
+      if scope == @global_scope,
+        do: struct!(schema),
+        else: struct!(schema, tenant_id: Repo.tenant_id!())
+
     changeset =
-      EnvVar.changeset(
-        %EnvVar{tenant_id: if(scope == @global_scope, do: nil, else: Repo.tenant_id!())},
+      schema.changeset(
+        row,
         %{
           scope: scope,
           name: name,
@@ -275,7 +285,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
            on_conflict: [
              set: [secret: secret, value: stored_value, description: description, updated_at: now]
            ],
-           conflict_target: [:scope, :name],
+           conflict_target:
+             if(scope == @global_scope, do: [:scope, :name], else: [:tenant_id, :scope, :name]),
            returning: true
          ) do
       {:ok, row} -> {:ok, row}
@@ -283,18 +294,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     end
   end
 
-  defp delete_row(%EnvVar{} = row) do
-    EnvVar
+  defp delete_row(%{scope: _} = row) do
+    schema_for_scope(row.scope)
     |> where([r], r.scope == ^row.scope and r.name == ^row.name)
     |> Repo.delete_all()
 
     :ok
   end
 
-  defp decrypt_row(%EnvVar{secret: false}), do: {:error, :not_encrypted}
-  defp decrypt_row(%EnvVar{} = row), do: row_value(row)
+  defp decrypt_row(%{secret: false}), do: {:error, :not_encrypted}
+  defp decrypt_row(%{scope: _} = row), do: row_value(row)
 
-  defp custom_item(%EnvVar{} = row, source) do
+  defp custom_item(%{scope: _} = row, source) do
     %{
       name: row.name,
       secret: row.secret,
@@ -305,9 +316,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     |> put_plain_value(row.secret, row.value)
   end
 
-  defp custom_source(%EnvVar{scope: @global_scope}), do: "global"
-  defp custom_source(%EnvVar{scope: "tenant:" <> _}), do: "tenant"
-  defp custom_source(%EnvVar{}), do: "agent"
+  defp custom_source(%{scope: @global_scope}), do: "global"
+  defp custom_source(%{scope: "tenant:" <> _}), do: "tenant"
+  defp custom_source(%{}), do: "agent"
 
   defp put_plain_value(item, true, _value), do: item
   defp put_plain_value(item, false, value), do: Map.put(item, :value, value)

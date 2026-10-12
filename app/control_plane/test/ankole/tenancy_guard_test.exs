@@ -5,128 +5,124 @@ defmodule Ankole.TenancyGuardTest do
 
   # Counts identify reviewed operations without parsing SQL. Changes within them still need review.
   @reviewed_query_escapes %{
-    "across_tenants:../../plugins/line_adapter/lib/ankole/plugins/line_adapter/webhook.ex:consumer_for_channel" =>
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_inbound_batch" => 2,
+    "across_tenants:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" =>
       1,
-    "across_tenants:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/teams_webhook.ex:consumers_for_app" =>
+    "across_tenants:lib/ankole/principals/work_access.ex:from_sender" => 1,
+    "raw_sql:lib/ankole/ai_agent/library.ex:lock_agent_document" => 1,
+    "across_tenants:lib/ankole/workflow.ex:reconcile_run_wakeups" => 1,
+    "across_tenants:lib/ankole/signals_gateway/outbox.ex:reconcile_wakeups" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
+    "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:agents" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/config.ex:database_now" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/reconcile_job.ex:decide_with" =>
+      1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
+    "across_tenants:lib/ankole/oidc/tokens.ex:validate_access_claims" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/inbound_batches.ex:entry_snapshot" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:list_for_human" => 1,
+    "raw_sql:lib/ankole/files.ex:upsert_blob" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:valid_subject_now?" => 1,
+    "raw_sql:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers/seed.ex:import_file" =>
+      1,
+    "across_tenants:lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" => 1,
+    "across_tenants:lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
+    "across_tenants:lib/ankole/oidc/logout.ex:deliver_browser" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:sweep_objects" =>
+      1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:run_message_chain" => 1,
+    "raw_sql:lib/ankole/workflow.ex:lock_agent_slots" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_outboxes" => 1,
+    "across_tenants:lib/ankole/principals/work_access.ex:lock_authorizer" => 1,
+    "sql_fragment:lib/ankole/ai_gateway/console_queries.ex:maybe_filter_min_messages" => 1,
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:next_attachment_id" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:delete" =>
       1,
     "across_tenants:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/webhook.ex:consumers_for_app" =>
       1,
-    "across_tenants:lib/ankole/ai_gateway/jobs/cleanup_expired_artifacts.ex:run" => 1,
-    "across_tenants:lib/ankole/authz/snapshot.ex:load_authorization_snapshot" => 1,
-    "across_tenants:lib/ankole/browser_sessions.ex:authentication" => 1,
-    "across_tenants:lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
-    "across_tenants:lib/ankole/conversations/reconciler.ex:reconcile_inputs" => 1,
-    "across_tenants:lib/ankole/files/agent_home_import.ex:agents" => 1,
-    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_jobs" => 1,
-    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_outboxes" => 1,
-    "across_tenants:lib/ankole/files/jobs/collect_unreferenced.ex:run" => 1,
-    "across_tenants:lib/ankole/oidc/jobs/cleanup_expired_credentials.ex:run" => 1,
-    "across_tenants:lib/ankole/oidc/logout.ex:deliver_browser" => 1,
-    "across_tenants:lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
-    "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
-    "across_tenants:lib/ankole/oidc/rp_logout.ex:request_tenant" => 1,
-    "across_tenants:lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
-    "across_tenants:lib/ankole/oidc/tokens.ex:validate_access_claims" => 1,
-    "across_tenants:lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/reply_interactions.ex:older_reply_interaction_events" =>
+      1,
     "across_tenants:lib/ankole/principals/work_access.ex:classify" => 1,
-    "across_tenants:lib/ankole/principals/work_access.ex:from_sender" => 1,
-    "across_tenants:lib/ankole/principals/work_access.ex:list_for_human" => 1,
-    "across_tenants:lib/ankole/principals/work_access.ex:lock_authorizer" => 1,
-    "across_tenants:lib/ankole/principals/work_access.ex:valid_subject_now?" => 1,
-    "across_tenants:lib/ankole/principals/work_cleanup.ex:cleanup" => 2,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/lambda.ex:rows" => 1,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:delete" =>
-      1,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:list_projections" =>
-      1,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:projection" =>
-      1,
+    "across_tenants:lib/ankole/brain/config.ex:model_provider_references" => 1,
+    "sql_fragment:lib/ankole/ai_gateway/response_chain.ex:latest_visible_leaf_for_uuid" => 1,
+    "across_tenants:lib/ankole/conversations/reconciler.ex:reconcile_inputs" => 1,
     "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:update" =>
       2,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers/seed.ex:import_file" =>
-      1,
-    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:run" => 1,
-    "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
-    "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
-    "across_tenants:lib/ankole/signals_gateway/bindings.ex:delete_agent_config_rows_in_tx" => 1,
-    "across_tenants:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" =>
-      1,
-    "across_tenants:lib/ankole/signals_gateway/jobs/cleanup_expired_state.ex:run" => 1,
-    "across_tenants:lib/ankole/signals_gateway/outbox.ex:reconcile_wakeups" => 1,
-    "across_tenants:lib/ankole/signals_gateway/webhooks.ex:receive" => 1,
-    "across_tenants:lib/ankole/workflow.ex:reconcile_run_wakeups" => 1,
-    "across_tenants:lib/ankole_web/channels/runtime_fabric_socket.ex:connect" => 1,
-    "across_tenants:lib/ankole_web/controllers/auth_controller.ex:current_identity" => 1,
-    "across_tenants:lib/ankole_web/controllers/oidc_controller.ex:put_client_tenant" => 1,
-    "across_tenants:lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" => 2,
-    "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
-    "across_tenants:lib/ankole_web/plugs/require_ai_gateway_access_token.ex:put_subject_tenant" =>
-      1,
-    "across_tenants:lib/ankole_web/plugs/require_site_admin_session.ex:call" => 1,
-    "raw_sql:lib/ankole/ai_agent/library.ex:lock_agent_document" => 1,
-    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 1,
-    "raw_sql:lib/ankole/ai_gateway/stateful_responses.ex:chain_messages" => 1,
-    "raw_sql:lib/ankole/ai_gateway/stateful_responses.ex:run_message_chain" => 1,
-    "raw_sql:lib/ankole/app_configure.ex:lock_global_key" => 1,
-    "raw_sql:lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
-    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:lock_start_idempotency" => 1,
-    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
-    "raw_sql:lib/ankole/background_agent_jobs/lifecycle.ex:lock_agent_slots" => 1,
-    "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
-    "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
-    "raw_sql:lib/ankole/brain/merge.ex:repoint_timelines" => 4,
     "raw_sql:lib/ankole/brain/merge.ex:repoint_unique_rows" => 2,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:create_bm25_index" => 1,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_hnsw_index" => 3,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
-    "raw_sql:lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
-    "raw_sql:lib/ankole/files.ex:lock_drive" => 1,
-    "raw_sql:lib/ankole/files.ex:upsert_blob" => 1,
+    "across_tenants:lib/ankole_web/controllers/oidc_controller.ex:put_client_tenant" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/lifecycle.ex:lock_agent_slots" => 1,
     "raw_sql:lib/ankole/files/jobs/collect_unreferenced.ex:mark_unreferenced" => 1,
-    "raw_sql:lib/ankole/files/jobs/collect_unreferenced.ex:remove_one" => 1,
-    "raw_sql:lib/ankole/principals.ex:advisory_xact_lock" => 1,
-    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/config.ex:database_now" => 1,
-    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:lock_registry" =>
-      2,
-    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/reconcile_job.ex:decide_with" =>
-      1,
-    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:sweep_objects" =>
-      1,
-    "raw_sql:lib/ankole/signals_gateway/actors.ex:lock_actor_session_in_tx" => 1,
-    "raw_sql:lib/ankole/signals_gateway/bindings.ex:record_platform_application_in_tx" => 1,
-    "raw_sql:lib/ankole/signals_gateway/bindings.ex:validate_platform_application_in_tx" => 1,
-    "raw_sql:lib/ankole/signals_gateway/im_group_projection.ex:lock_group" => 1,
-    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_entry" => 1,
-    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_inbound_batch" => 2,
-    "raw_sql:lib/ankole/signals_gateway/projection.ex:next_attachment_id" => 1,
-    "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_batches" => 1,
-    "raw_sql:lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
-    "raw_sql:lib/ankole/workflow.ex:lock_agent_slots" => 1,
-    "raw_sql:lib/ankole/workflow.ex:lock_idempotency" => 1,
-    "sql_fragment:lib/ankole/ai_gateway/console_queries.ex:maybe_filter_min_messages" => 1,
-    "sql_fragment:lib/ankole/ai_gateway/stateful_responses.ex:latest_visible_leaf_for_uuid" => 1,
-    "sql_fragment:lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" => 1,
-    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:candidates" =>
-      1,
-    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/turn_retry.ex:candidate_events_for_source_entry" =>
-      1,
-    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/turn_retry.ex:event_for_supplement_source_entry" =>
-      1,
-    "sql_fragment:lib/ankole/signals_gateway/actors.ex:actor_events_for_entry_in_tx" => 1,
-    "sql_fragment:lib/ankole/signals_gateway/inbound_batches.ex:entry_snapshot" => 1,
     "sql_fragment:lib/ankole/signals_gateway/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
       1,
-    "sql_fragment:lib/ankole/signals_gateway/reply_interactions.ex:older_reply_interaction_events" =>
-      1
+    "across_tenants:lib/ankole/signals_gateway/webhooks.ex:receive" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:lock_registry" =>
+      2,
+    "raw_sql:lib/ankole/workflow.ex:lock_idempotency" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:request_tenant" => 1,
+    "raw_sql:lib/ankole/files/jobs/collect_unreferenced.ex:remove_one" => 1,
+    "raw_sql:lib/ankole/signals_gateway/actors.ex:lock_actor_session_in_tx" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:projection" =>
+      1,
+    "sql_fragment:lib/ankole/signals_gateway/actors.ex:actor_events_for_entry_in_tx" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/providers.ex:list_projections" =>
+      1,
+    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_link_column" => 2,
+    "across_tenants:../../plugins/line_adapter/lib/ankole/plugins/line_adapter/webhook.ex:consumer_for_channel" =>
+      1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:ensure_bm25_index" => 2,
+    "sql_fragment:lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" => 1,
+    "raw_sql:lib/ankole/brain/merge.ex:repoint_links" => 1,
+    "across_tenants:lib/ankole/principals.ex:resolve_tenant" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:rows" =>
+      1,
+    "across_tenants:lib/ankole/principals/work_access.ex:list_unresolved" => 1,
+    "across_tenants:lib/ankole/signals_gateway/bindings.ex:delete_agent_config_rows_in_tx" => 1,
+    "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:lock_start_idempotency" => 1,
+    "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
+    "raw_sql:lib/ankole/signals_gateway/im_group_projection.ex:lock_group" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_messages" => 1,
+    "across_tenants:lib/ankole/files/agent_home_import.ex:legacy_jobs" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/actor_runtime/agent_workers/sweep_job.ex:candidates" =>
+      1,
+    "raw_sql:lib/ankole/principals.ex:advisory_xact_lock" => 1,
+    "raw_sql:lib/ankole/signals_gateway/projection.ex:lock_entry" => 1,
+    "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_batches" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:authentication" => 1,
+    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/input_revisions.ex:event_for_supplement_source_entry" =>
+      1,
+    "raw_sql:lib/ankole/files.ex:lock_drive" => 1,
+    "across_tenants:lib/ankole/authz/snapshot.ex:load_authorization_snapshot" => 1,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
+    "across_tenants:lib/ankole/principals/work_cleanup.ex:cleanup" => 2,
+    "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/lambda.ex:rows" => 1,
+    "raw_sql:lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
+    "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
+    "raw_sql:lib/ankole/app_configure.ex:lock_global_key" => 1,
+    "sql_fragment:lib/ankole/signals_gateway/input_revisions.ex:candidate_events_for_source_entry" =>
+      1,
+    "across_tenants:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/teams_webhook.ex:consumers_for_app" =>
+      1,
+    "across_tenants:lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" => 1
   }
 
   # Independent classification: changing a tenant schema to :site must fail.
-  @site_tables ~w(app_configurations browser_login_transactions browser_sessions
-    ai_gateway_providers oidc_signing_keys agent_computer_worker_envs files
+  @site_tables ~w(site_app_configurations browser_login_transactions browser_sessions
+    ai_gateway_providers oidc_signing_keys site_worker_envs files
     worker_providers tenants oban_jobs oban_peers schema_migrations)
 
   @global_unique_indexes %{
+    "conversation_round_states_pkey" => "A globally generated gateway Message id owns the row.",
     "actor_cron_schedules_agent_name_index" =>
       "The key includes a globally unique Principal uid.",
     "actor_cron_schedules_idempotency_index" =>

@@ -1,4 +1,6 @@
 defmodule Ankole.AIGateway.ResponseStream.State do
+  alias Ankole.AIGateway.ResponseCommit
+  alias Ankole.AIGateway.FailureResponse
   @moduledoc false
 
   alias Ankole.AIGateway.Events
@@ -6,8 +8,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   alias Ankole.AIGateway.ImageStreamPersistence
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.ResponseItems
+  alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ToolSearch.StreamLoop
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
@@ -23,7 +25,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             durable_items: [],
             local_response_id: nil,
             provider_response_id: nil,
-            provider_error_diagnostic: nil,
             terminal_response: nil,
             terminal_error: nil,
             terminal?: false,
@@ -35,6 +36,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             public_item_ids: MapSet.new(),
             public_pair_ids: MapSet.new(),
             issuer: nil,
+            upstream_progress: nil,
             next_output_index: 0
 
   @type t :: %__MODULE__{}
@@ -59,6 +61,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       subject_uid: subject_uid,
       stateful: stateful,
       issuer: Map.get(meta, "issuer"),
+      upstream_progress: Keyword.get(opts, :upstream_progress, UpstreamProgress.new()),
       local_response_id: "resp_#{UUIDv7.autogenerate()}",
       image_persistence:
         ImageStreamPersistence.new(subject_uid, message_id: stateful_message_id(stateful)),
@@ -81,8 +84,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   @spec observe(t(), map(), non_neg_integer()) ::
           {:ok, t(), [map()], status()}
           | {:error, t(), [map()], status(), term()}
-  def observe(%__MODULE__{} = state, %{"type" => "error"} = event, _fallback_sequence),
-    do: {:ok, remember_provider_error(state, event), [], :continue}
+  def observe(%__MODULE__{} = state, %{"type" => "error"}, _fallback_sequence),
+    do: {:ok, state, [], :continue}
 
   def observe(%__MODULE__{} = state, %{} = event, fallback_sequence) do
     case ImageStreamPersistence.observe(state.image_persistence, event) do
@@ -109,23 +112,31 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     do: {state, [], outcome(state)}
 
   def fail(%__MODULE__{} = state, opts) do
-    code = Keyword.get(opts, :code, "provider_stream_error")
-    retryable? = Keyword.get(opts, :retryable, false) == true
-    message = Keyword.get(opts, :message, safe_error_message(code))
+    error =
+      case Keyword.fetch(opts, :reason) do
+        {:ok, reason} -> failure_error(reason, "provider_stream_error", true)
+        :error -> %{}
+      end
+
+    code = Keyword.get(opts, :code, Map.get(error, "code", "provider_stream_error"))
+    retryable? = Keyword.get(opts, :retryable, Map.get(error, "retryable", false)) == true
+    message = Keyword.get(opts, :message, Map.get(error, "message", safe_error_message(code)))
     details = Keyword.get(opts, :details)
-    provider_status = Keyword.get(opts, :provider_status)
 
     error =
-      %{
+      Map.merge(error, %{
         "code" => code,
         "message" => message,
         "retryable" => retryable?
-      }
-      |> maybe_put_metadata("provider_status", provider_status)
+      })
       |> maybe_put_metadata("details_json", details)
-      |> correlate_provider_error(state)
 
-    case commit_stateful_error(state.stateful, chronological(state.durable_items), error) do
+    case commit_stateful_error(
+           state.stateful,
+           chronological(state.durable_items),
+           error,
+           terminal_response_metadata(state, "response.failed", %{})
+         ) do
       :ok ->
         response = %{
           "id" => cleanup_response_id(state),
@@ -889,7 +900,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
     response = Map.put(response, "output", public_items)
     {terminal_type, response, terminal_error} = canonical_terminal(event["type"], response)
-    terminal_error = correlate_provider_error(terminal_error, state)
     terminal_metadata = terminal_response_metadata(state, terminal_type, response)
 
     public_response = public_terminal_response(terminal_type, response, terminal_error)
@@ -968,15 +978,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp authoritative_terminal_error(_terminal_type, _response), do: nil
 
   defp terminal_error("response.failed", response) do
-    classification = FailureDiagnostics.classify({:provider_event_failed, response})
-
-    %{
-      "type" => "response.failed",
-      "code" => public_error_code(classification),
-      "message" => FailureDiagnostics.public_message(classification),
-      "retryable" => Map.get(classification, :retryable, false)
-    }
-    |> put_safe_failure_fields(classification)
+    {:provider_event_failed, response}
+    |> failure_error("provider_response_failed")
+    |> Map.put("type", "response.failed")
   end
 
   defp terminal_error("response.incomplete", response) do
@@ -1409,8 +1413,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       state
       | provider_output_indexes: %{},
         provider_item_ids: %{},
-        provider_pair_ids: %{},
-        provider_error_diagnostic: nil
+        provider_pair_ids: %{}
     }
 
   defp chronological(reversed_items), do: Enum.reverse(reversed_items)
@@ -1421,6 +1424,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp terminal_response_metadata(state, _event_type, %{} = response) do
     %{}
     |> maybe_put_metadata("issuer", state.issuer)
+    |> maybe_put_metadata("upstream_progress", state.upstream_progress)
     |> maybe_put_metadata("usage", response["usage"])
     |> maybe_put_metadata("tool_usage", response["tool_usage"])
     |> maybe_put_metadata("provider_model", response["model"])
@@ -1470,7 +1474,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp commit_stateful_terminal(nil, _items, _terminal_error, _terminal_metadata), do: :ok
 
   defp commit_stateful_terminal(stateful, items, nil, terminal_metadata) do
-    case StatefulResponses.commit_complete(stateful.message_id, items, terminal_metadata) do
+    case ResponseCommit.commit_complete(stateful.message_id, items, terminal_metadata) do
       {:ok, %{} = _message} ->
         :ok
 
@@ -1484,12 +1488,12 @@ defmodule Ankole.AIGateway.ResponseStream.State do
           %{message_id: stateful.message_id, reason: inspect(reason)}
         )
 
-        commit_stateful_terminal_commit_failure(stateful, items)
+        commit_stateful_terminal_commit_failure(stateful, items, terminal_metadata)
     end
   end
 
   defp commit_stateful_terminal(stateful, items, error_details, terminal_metadata) do
-    case StatefulResponses.commit_error(stateful.message_id, items, error_details,
+    case ResponseCommit.commit_error(stateful.message_id, items, error_details,
            metadata: terminal_metadata
          ) do
       {:ok, %{} = _message} ->
@@ -1525,8 +1529,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp commit_stateful_terminal_commit_failure(stateful, items) do
-    case StatefulResponses.commit_error(
+  defp commit_stateful_terminal_commit_failure(stateful, items, terminal_metadata) do
+    case ResponseCommit.commit_error(
            stateful.message_id,
            items,
            %{
@@ -1534,7 +1538,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
              "message" => safe_error_message("stateful_terminal_commit_failed"),
              "stage" => "terminal_commit",
              "retryable" => false
-           }
+           },
+           metadata: terminal_metadata
          ) do
       {:ok, _message_or_terminal} ->
         authoritative_stateful_terminal(stateful)
@@ -1550,12 +1555,19 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp commit_stateful_error(nil, _partial_content, _error_details), do: :ok
+  defp commit_stateful_error(nil, _partial_content, _error_details, _metadata), do: :ok
 
-  defp commit_stateful_error(%{message_id: message_id} = stateful, partial_content, error_details) do
+  defp commit_stateful_error(
+         %{message_id: message_id} = stateful,
+         partial_content,
+         error_details,
+         metadata
+       ) do
     error_details = Map.put_new(error_details, "stage", "response_stream_cleanup")
 
-    case StatefulResponses.commit_error(message_id, partial_content, error_details) do
+    case ResponseCommit.commit_error(message_id, partial_content, error_details,
+           metadata: metadata
+         ) do
       {:ok, %{} = _message} ->
         :ok
 
@@ -1632,7 +1644,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp safe_error_message(code) do
     %{"code" => code}
     |> FailureDiagnostics.classify()
-    |> FailureDiagnostics.public_message()
+    |> FailureResponse.public_message()
   end
 
   defp public_sequence_number(%{"sequence_number" => sequence}, _fallback)
@@ -1660,68 +1672,16 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
 
-  defp remember_provider_error(%{provider_error_diagnostic: %{} = _diagnostic} = state, _event),
-    do: state
+  defp failure_error(reason, fallback, default_retryable \\ false) do
+    classification = FailureDiagnostics.classify(reason)
 
-  defp remember_provider_error(state, event) do
-    diagnostic =
-      {:provider_event_failed, event}
-      |> FailureDiagnostics.classify()
-      |> Map.take([
-        :provider_error_code,
-        :provider_error_type,
-        :provider_message,
-        :provider_status,
-        :retryable
-      ])
-
-    if map_size(diagnostic) == 0,
-      do: state,
-      else: %{state | provider_error_diagnostic: diagnostic}
+    %{
+      "code" => FailureResponse.public_error_code(classification, fallback),
+      "message" => FailureResponse.public_message(classification),
+      "retryable" => Map.get(classification, :retryable, default_retryable) == true
+    }
+    |> put_safe_failure_fields(classification)
   end
-
-  defp correlate_provider_error(
-         %{} = error,
-         %{provider_error_diagnostic: %{} = diagnostic}
-       ) do
-    case FailureDiagnostics.classify(error) do
-      %{failure_kind: :transport} ->
-        if FailureDiagnostics.provider_validation_failure?(diagnostic) do
-          error
-          |> Map.drop([
-            "http_status",
-            "provider_error_code",
-            "provider_error_type",
-            "provider_status"
-          ])
-          |> Map.put("code", public_error_code(diagnostic))
-          |> Map.put("failure_kind", "provider_response")
-          |> Map.put("retryable", false)
-          |> maybe_put_metadata("message", Map.get(diagnostic, :provider_message))
-          |> put_provider_diagnostic(diagnostic)
-        else
-          error
-          |> Map.put("failure_kind", "transport")
-          |> maybe_put_metadata("message", Map.get(diagnostic, :provider_message))
-          |> put_provider_diagnostic(diagnostic)
-        end
-
-      _non_transport ->
-        error
-    end
-  end
-
-  defp correlate_provider_error(error, _state), do: error
-
-  defp put_provider_diagnostic(error, diagnostic) do
-    error
-    |> maybe_put_metadata("provider_error_code", Map.get(diagnostic, :provider_error_code))
-    |> maybe_put_metadata("provider_error_type", Map.get(diagnostic, :provider_error_type))
-    |> maybe_put_metadata("provider_status", Map.get(diagnostic, :provider_status))
-  end
-
-  defp public_error_code(classification),
-    do: FailureDiagnostics.public_error_code(classification, "provider_response_failed")
 
   defp put_safe_failure_fields(details, classification) do
     classification
